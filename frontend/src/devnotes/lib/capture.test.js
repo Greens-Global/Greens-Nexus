@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { selectorFor, textOf, headingsFor, sourceOf, describeTarget, isOwn, commonAncestor } from './capture';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { selectorFor, textOf, headingsFor, sourceOf, describeTarget, isOwn, commonAncestor, preloadSourceFiles, resolveSource } from './capture';
 
 // What a pin records about its element: a selector that finds it again, its
 // text, the headings above it and (dev builds) the JSX source location.
@@ -79,6 +79,32 @@ describe('capture', () => {
     expect(sourceOf(document.querySelector('input'))).toEqual({ file: 'src/tasks/Home.jsx', line: 40, col: 5, self: false });
     document.querySelector('section').removeAttribute('data-nx-src');
     expect(sourceOf(document.querySelector('input'))).toBeNull();
+  });
+
+  // 11/12/2026: one failed load used to be kept as "no table" for the whole
+  // page load, so every pin said "file #12" and had no owner.
+  it('a source-file table that failed to load is asked for again, and a "file #n" stamp gets its path', async () => {
+    const realFetch = globalThis.fetch;
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ ok: false, json: async () => ({}) })
+      .mockResolvedValue({ ok: true, json: async () => ['src/App.jsx', 'src/tasks/Home.jsx'] });
+    globalThis.fetch = fetchMock;
+    try {
+      document.querySelector('.secondary-btn').setAttribute('data-nx-src', '1:142:11');
+      expect(await preloadSourceFiles()).toEqual([]);          // offline
+      const early = sourceOf(document.querySelector('.secondary-btn'));
+      expect(early.file).toBe('file #1');
+      expect(resolveSource(early)).toBe(early);                 // nothing to resolve it with yet
+      expect(await preloadSourceFiles()).toEqual([]);          // a 404 in a deploy window
+      expect(await preloadSourceFiles()).toEqual(['src/App.jsx', 'src/tasks/Home.jsx']);
+      expect(resolveSource(early)).toEqual({ file: 'src/tasks/Home.jsx', line: 142, col: 11, self: true });
+      expect(sourceOf(document.querySelector('.secondary-btn')).file).toBe('src/tasks/Home.jsx');
+      await preloadSourceFiles();                               // loaded: not fetched again
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(resolveSource(null)).toBeNull();
+      expect(resolveSource({ file: 'src/x.jsx', line: 1, col: 1 })).toEqual({ file: 'src/x.jsx', line: 1, col: 1 });
+    } finally { globalThis.fetch = realFetch; }
   });
 
   it('describeTarget assembles the block the contract names', () => {

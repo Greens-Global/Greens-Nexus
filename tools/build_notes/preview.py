@@ -97,7 +97,7 @@ def backend_command(python):
 
 
 def frontend_command(worktree):
-    return [str(Path(worktree) / "frontend" / "node_modules" / ".bin" / "vite"),
+    return [str(stack.node_bin(Path(worktree) / "frontend", "vite")),
             "--port", str(FRONTEND_PORT), "--strictPort"]
 
 
@@ -268,7 +268,7 @@ class Preview:
     def validate(self, branch, db=None, email=None):
         """Every check, before anything running is touched."""
         main_root = stack.main_checkout(self.system, self.cwd)
-        python = main_root / "backend" / ".venv" / "bin" / "python"
+        python = stack.venv_python(main_root)
         if not python.exists():
             raise PreviewError("No backend virtualenv at " + str(python) + " - create it in the main checkout first")
         user = self._email(main_root, email)

@@ -31,7 +31,9 @@ DEV = {"email": "dev@greensglobal.com", "role": "employee", "level": 1}       # 
 ADMIN = {"email": "admin@greensglobal.com", "role": "administrator", "level": 4}  # no grant: no access
 
 CURRENT = {"user": DEV}
-GRANTS = {DEV["email"]: {"build-mode": 1}}
+# Build Mode is its own grant (Neil, 11/12/2026): GA is a Super Administrator
+# who ALSO holds it - the tier alone opens nothing (its own test below).
+GRANTS = {DEV["email"]: {"build-mode": 1}, GA["email"]: {"build-mode": 1}}
 MEDIA = "https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/n1/screenshot-1.png"
 
 _app = FastAPI()
@@ -75,6 +77,7 @@ def _patched_auth():
 def _clean():
     CURRENT["user"] = DEV
     GRANTS[DEV["email"]] = {"build-mode": 1}
+    GRANTS[GA["email"]] = {"build-mode": 1}
     db = database.SessionLocal()
     for m in (models.DevNote, models.DevNoteSession, models.DevNoteToken,
               models.NexusNotification, models.NexusSetting, models.AuditLog, models.QaTestCase):
@@ -111,6 +114,14 @@ def _token():
 
 def _hdr(token):
     return {"Authorization": f"Bearer {token}"}
+
+
+def _listening():
+    """The current user's terminal watcher is running (its first call): from
+    here Send Instantly really sends. Returns the Build Token."""
+    token = _token()["token"]
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(token)).status_code == 200
+    return token
 
 
 def _bells(type_=None):
@@ -161,7 +172,7 @@ def test_admin_without_grant_is_not_enabled_and_everything_else_is_403():
         assert r.json()["detail"] == "Build Mode is not enabled for you"
 
 
-def test_grant_holder_and_global_admin_are_enabled():
+def test_the_grant_opens_build_mode_and_no_tier_does_by_itself():
     r = client.get("/dev-notes/enabled")
     assert r.json()["enabled"] is True
     assert r.json()["settings"] == {"sendInstantly": False, "dispatchTarget": "local", "pinsOnLoad": True,
@@ -169,6 +180,13 @@ def test_grant_holder_and_global_admin_are_enabled():
     _as(GA)
     assert client.get("/dev-notes/enabled").json()["enabled"] is True
     assert client.get("/dev-notes").status_code == 200
+    # Neil, 11/12/2026: "granted as a separate access through roles" - a Super
+    # Administrator WITHOUT the grant has no Build Mode, in the app or by token.
+    token = _token()["token"]
+    GRANTS[GA["email"]] = {}
+    assert client.get("/dev-notes/enabled").json() == {"enabled": False}
+    assert client.get("/dev-notes").status_code == 403
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(token)).status_code == 403
 
 
 # ── pins and sessions ─────────────────────────────────────────────────────────
@@ -192,6 +210,12 @@ def test_create_joins_one_collecting_session_and_numbers_pins():
 def test_send_instantly_dispatches_at_once():
     r = client.put("/dev-notes/settings", json={"sendInstantly": True})
     assert r.status_code == 200 and r.json()["sendInstantly"] is True
+    # 11/12/2026: with no Claude Code connected the composer says "this saves
+    # the pin" - and now it does: it stays open, to be sent from the Queue.
+    waiting = _create()
+    assert waiting["status"] == "open" and waiting["dispatchedAt"] == ""
+    assert client.get("/dev-notes/sessions").json()[0]["status"] == "collecting"
+    _listening()
     n = _create()
     assert n["status"] == "dispatched" and n["dispatchedAt"]
     s = client.get("/dev-notes/sessions").json()[0]
@@ -317,7 +341,7 @@ def test_token_mint_use_and_revoke():
     assert listed[0]["label"] == "MacBook"
 
     r = client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"]))
-    assert r.status_code == 200 and r.json() == {"email": DEV["email"], "tokenLabel": "MacBook", "onePr": False}
+    assert r.status_code == 200 and r.json() == {"email": DEV["email"], "tokenLabel": "MacBook", "onePr": False, "openPr": {}}
     assert client.get("/dev-notes/tokens").json()[0]["lastUsedAt"] != ""
 
     assert client.get("/dev-notes/cli/whoami", headers=_hdr("nxbn_garbage")).status_code == 401
@@ -333,14 +357,14 @@ def test_token_mint_use_and_revoke():
     assert client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"])).status_code == 401
 
     # a signed-in user also passes the CLI gate, with no token label
-    assert client.get("/dev-notes/cli/whoami").json() == {"email": DEV["email"], "tokenLabel": "", "onePr": False}
+    assert client.get("/dev-notes/cli/whoami").json() == {"email": DEV["email"], "tokenLabel": "", "onePr": False, "openPr": {}}
 
 
 def test_one_pr_setting_reaches_the_cli():
     # Collect Fixes Into One PR: saved in Settings, read by Claude Code through whoami
     assert client.put("/dev-notes/settings", json={"onePr": True}).json()["onePr"] is True
     assert client.get("/dev-notes/cli/whoami").json()["onePr"] is True
-    assert client.put("/dev-notes/settings", json={"onePr": False}).json()["onePr"] is False
+    assert client.put("/dev-notes/settings", json={"onePr": False, "openPr": {}}).json()["onePr"] is False
 
 
 def test_token_reads_the_list_and_one_pin():
@@ -953,6 +977,7 @@ def test_not_held_when_the_author_owns_the_file_and_held_skips_send_instantly():
         assert n["ownerEmail"] == NEIL["email"] and n["held"] is False
         assert _bells("dev_note_owner") == []
         client.put("/dev-notes/settings", json={"sendInstantly": True})
+        _listening()
         h = _held_pin()
         assert h["held"] is True and h["status"] == "open"          # never sent while held
         assert _create()["status"] == "dispatched"                  # an ordinary pin still is
@@ -1046,6 +1071,7 @@ def test_release_moves_a_pin_out_of_a_sent_session_and_follows_the_authors_send_
         # created held under Send Instantly: the next instant pin sends the
         # session it sits in, so it is left in a sent session
         client.put("/dev-notes/settings", json={"sendInstantly": True})
+        _listening()
         h = _held_pin()
         other = _create()
         assert other["sessionId"] == h["sessionId"] and other["status"] == "dispatched"
@@ -1449,7 +1475,7 @@ def test_per_caller_flags_and_is_global_admin():
         assert len(client.get("/dev-notes").json()) >= 5
     finally:
         auth.is_global_admin = real
-    assert len(calls) == 2           # the access check + the flags
+    assert len(calls) == 1           # the flags only - access is the grant, not the tier (11/12/2026)
 
 
 def test_owner_of_endpoint():
@@ -1647,3 +1673,640 @@ def test_claude_connection_is_the_callers_own_watcher():
     client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"]))
     assert client.delete(f"/dev-notes/tokens/{minted['id']}").status_code == 204
     assert client.get("/dev-notes/claude-connection").json()["connected"] is False
+
+
+# ── Claude Code in the cloud (Neil, 11/12/2026) ───────────────────────────────
+from routers.dev_notes import _cloud as CLOUD  # noqa: E402
+
+FIRE_URL = "https://api.anthropic.com/v1/claude_code/routines/trig_01ABCDEFGHJKLMNOP/fire"
+TRIGGER_TOKEN = "sk-ant-oat01-" + "x" * 40
+
+
+class _Resp:
+    def __init__(self, status=200, body=None, headers=None):
+        self.status_code, self._body, self.headers = status, body, headers or {}
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("no body")
+        return self._body
+
+
+def _session_resp(n=1):
+    return _Resp(200, {"type": "routine_fire", "claude_code_session_id": f"session_0{n}",
+                       "claude_code_session_url": f"https://claude.ai/code/session_0{n}"})
+
+
+@pytest.fixture
+def fired(monkeypatch):
+    """Every outbound call the cloud module would make, recorded; answers 200."""
+    calls = []
+
+    def post(url, headers, body):
+        calls.append({"url": url, "headers": headers, "body": body})
+        return post.answer(len(calls)) if callable(post.answer) else post.answer
+
+    post.answer = _session_resp
+    monkeypatch.setattr(CLOUD, "_post", post)
+    post.calls = calls
+    return post
+
+
+def _connect_cloud():
+    r = client.put("/dev-notes/cloud", json={"fireUrl": FIRE_URL, "token": TRIGGER_TOKEN})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _setting(key):
+    db = database.SessionLocal()
+    try:
+        row = db.get(models.NexusSetting, key)
+        return row.value if row else None
+    finally:
+        db.close()
+
+
+def test_cloud_connect_keeps_the_token_secret_and_only_takes_claudes_own_address(fired):
+    assert client.get("/dev-notes/cloud").json() == {"connected": False, "task": "", "savedAt": "",
+                                                     "lastStartedAt": "", "lastError": "", "target": "local"}
+    # Anything but Claude Code's own Fire URL is refused - a saved token is never posted elsewhere.
+    for bad in ("", "https://evil.example/v1/claude_code/routines/trig_01ABCDEFGH/fire",
+                "http://api.anthropic.com/v1/claude_code/routines/trig_01ABCDEFGH/fire",
+                "https://api.anthropic.com.evil.example/v1/claude_code/routines/trig_01ABCDEFGH/fire",
+                "https://api.anthropic.com/v1/messages",
+                "https://api.anthropic.com/v1/claude_code/routines/trig_01ABCDEFGH/fire?x=1"):
+        r = client.put("/dev-notes/cloud", json={"fireUrl": bad, "token": TRIGGER_TOKEN})
+        assert r.status_code == 400 and "Fire URL" in r.json()["detail"], bad
+    for bad in ("", "nxbn_abc", "sk-ant-api03-" + "x" * 40, "sk-ant-oat01-short"):
+        r = client.put("/dev-notes/cloud", json={"fireUrl": FIRE_URL, "token": bad})
+        assert r.status_code == 400 and "trigger token" in r.json()["detail"], bad
+    assert client.put("/dev-notes/settings", json={"dispatchTarget": "cloud"}).status_code == 400   # not connected yet
+    out = _connect_cloud()
+    assert out["connected"] is True and out["target"] == "cloud" and out["task"] == "...KLMNOP"
+    # The token: encrypted at rest, in no response, in no audit row.
+    stored = _setting(f"dev_notes_cloud:{DEV['email']}")
+    assert TRIGGER_TOKEN not in stored and json.loads(stored)["routineId"] == "trig_01ABCDEFGHJKLMNOP"
+    for r in (client.get("/dev-notes/cloud"), client.get("/dev-notes/settings"), client.get("/dev-notes/enabled"),
+              client.get("/dev-notes/claude-connection")):
+        assert "sk-ant" not in r.text
+    db = database.SessionLocal()
+    assert all("sk-ant" not in (a.details or "") for a in db.query(models.AuditLog).all())
+    db.close()
+    assert fired.calls == []          # connecting calls nothing: a test call would start a real session
+    # Connected in the cloud = connected, with nothing running; someone else's is not mine.
+    assert client.get("/dev-notes/claude-connection").json()["connected"] is True
+    assert client.get("/dev-notes/claude-connection").json()["terminal"] is False
+    _as(GA)
+    assert client.get("/dev-notes/cloud").json()["connected"] is False
+    assert client.get("/dev-notes/claude-connection").json()["connected"] is False
+    _as(DEV)
+    assert client.delete("/dev-notes/cloud").status_code == 204
+    assert client.get("/dev-notes/cloud").json()["connected"] is False
+    assert client.get("/dev-notes/settings").json()["dispatchTarget"] == "local"
+    assert _setting(f"dev_notes_cloud:{DEV['email']}") is None
+
+
+def test_send_starts_claude_code_in_the_cloud_and_the_terminal_never_sees_the_pin(fired):
+    token = _token()["token"]
+    _connect_cloud()
+    a, b = _create(), _create(comment="Second")
+    out = _dispatch()
+    assert out["cloud"] == {"started": True, "sessionUrl": "https://claude.ai/code/session_01"}
+    # ONE call for the whole send, to the developer's own trigger, with their token and the pin ids as data.
+    assert len(fired.calls) == 1
+    call = fired.calls[0]
+    assert call["url"] == FIRE_URL
+    assert call["headers"]["Authorization"] == f"Bearer {TRIGGER_TOKEN}"
+    assert a["id"] in call["body"]["text"] and b["id"] in call["body"]["text"] and DEV["email"] in call["body"]["text"]
+    for n in out["notes"]:
+        assert n["status"] == "dispatched" and n["dispatchTarget"] == "cloud"
+        assert n["claudeSessionUrl"] == "https://claude.ai/code/session_01" and n["progress"] == D.CLOUD_STARTING
+    assert client.get("/dev-notes/sessions").json()[0]["claudeSessionUrl"] == "https://claude.ai/code/session_01"
+    # A terminal watcher that is also running never gets a cloud pin - or two Claude Codes work it.
+    assert client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(token)).json()["notes"] == []
+    # The cloud session claims it with the same Build Token routes.
+    r = client.post("/dev-notes/cli/claim", json={"noteIds": [a["id"]]}, headers=_hdr(token))
+    assert r.status_code == 200 and r.json()["notes"][0]["status"] == "building"
+
+
+def test_a_session_that_does_not_start_says_why_and_start_claude_code_tries_again(fired):
+    _connect_cloud()
+    p = _create()
+    fired.answer = _Resp(401, {"type": "error", "error": {"type": "authentication_error", "message": "x"}})
+    out = _dispatch()
+    assert out["cloud"]["started"] is False and "did not accept your trigger token" in out["cloud"]["error"]
+    got = client.get(f"/dev-notes/{p['id']}").json()
+    assert got["status"] == "dispatched" and got["claudeSessionUrl"] == ""      # sent, waiting - nothing is lost
+    assert got["progress"].startswith("Claude Code did not start: ")
+    assert "trigger token" in client.get("/dev-notes/cloud").json()["lastError"]
+    fired.answer = _Resp(429, {}, {"Retry-After": "600"})
+    r = client.post("/dev-notes/cloud/start", json={"noteIds": [p["id"]]})
+    assert r.status_code == 200 and "hourly limit" in r.json()["cloud"]["error"] and "10 min" in r.json()["cloud"]["error"]
+    fired.answer = _session_resp
+    r = client.post("/dev-notes/cloud/start", json={})
+    assert r.status_code == 200 and r.json()["cloud"]["started"] is True
+    assert r.json()["notes"][0]["claudeSessionUrl"].startswith("https://claude.ai/code/session_0")
+    assert client.get("/dev-notes/cloud").json()["lastError"] == ""
+    # Pressed again straight away: refused - a second call is a second session on the same pin.
+    n = len(fired.calls)
+    r = client.post("/dev-notes/cloud/start", json={})
+    assert r.status_code == 409 and "a moment ago" in r.json()["detail"] and len(fired.calls) == n
+    # A session address that is not Claude's is never shown as a link.
+    q = _create(comment="Other")
+    fired.answer = _Resp(200, {"claude_code_session_id": "s", "claude_code_session_url": "https://evil.example/x"})
+    assert _dispatch(noteIds=[q["id"]])["notes"][0]["claudeSessionUrl"] == ""
+
+
+def test_pins_sent_to_the_terminal_stay_there_and_can_be_moved_to_the_cloud(fired):
+    token = _token()["token"]
+    p = _create()
+    out = _dispatch()
+    assert out["cloud"] == {} and out["notes"][0]["dispatchTarget"] == "local" and fired.calls == []
+    assert client.post("/dev-notes/cloud/start", json={}).status_code == 400          # not connected
+    _connect_cloud()
+    waiting = client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(token)).json()["notes"]
+    assert [n["id"] for n in waiting] == [p["id"]]                                    # still the terminal's
+    r = client.post("/dev-notes/cloud/start", json={"noteIds": [p["id"]]})
+    assert r.status_code == 200 and r.json()["notes"][0]["dispatchTarget"] == "cloud" and len(fired.calls) == 1
+    assert client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(token)).json()["notes"] == []
+    # Back to the terminal by choice: the trigger stays saved, new pins go to the watcher.
+    assert client.put("/dev-notes/settings", json={"dispatchTarget": "local"}).status_code == 200
+    assert client.get("/dev-notes/claude-connection").json()["cloud"] is False
+    q = _create(comment="Other")
+    assert _dispatch(noteIds=[q["id"]])["cloud"] == {} and len(fired.calls) == 1
+
+
+def test_an_answer_to_claudes_question_starts_the_cloud_session_again(fired):
+    token = _token()["token"]
+    _connect_cloud()
+    p = _create()
+    _dispatch()
+    client.post("/dev-notes/cli/claim", json={"noteIds": [p["id"]]}, headers=_hdr(token))
+    # A comment while Claude is still working starts nothing ...
+    client.post(f"/dev-notes/{p['id']}/thread", json={"text": "also check the padding"})
+    assert len(fired.calls) == 1
+    # ... Claude asks, and the answer starts it again.
+    client.post(f"/dev-notes/cli/reply/{p['id']}", json={"text": "Which button?", "needsInput": True}, headers=_hdr(token))
+    r = client.post(f"/dev-notes/{p['id']}/thread", json={"text": "The blue one"})
+    assert r.status_code == 200 and r.json()["status"] == "building"
+    assert len(fired.calls) == 2 and p["id"] in fired.calls[1]["body"]["text"]
+    assert r.json()["claudeSessionUrl"] == "https://claude.ai/code/session_02"
+    assert r.json()["thread"][-1]["text"] == "The blue one"       # the answer stays last: the brief shows it
+
+
+def test_send_instantly_starts_the_cloud_session_per_pin(fired):
+    _connect_cloud()
+    client.put("/dev-notes/settings", json={"sendInstantly": True})
+    n = _create()
+    assert n["status"] == "dispatched" and n["dispatchTarget"] == "cloud" and len(fired.calls) == 1
+    assert n["claudeSessionUrl"] == "https://claude.ai/code/session_01"
+
+
+def test_a_build_token_in_use_renews_itself():
+    minted = _token()
+    db = database.SessionLocal()
+    soon = "2026-01-01T00:00:00+00:00"
+    db.query(models.DevNoteToken).filter_by(id=minted["id"]).update(
+        {"last_used_at": "", "expires_at": (datetime.now(timezone.utc) + D.timedelta(hours=1)).isoformat()})
+    db.commit(); db.close()
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"])).status_code == 200
+    db = database.SessionLocal()
+    row = db.get(models.DevNoteToken, minted["id"])
+    left = datetime.fromisoformat(row.expires_at) - datetime.now(timezone.utc)
+    db.close()
+    assert D.TOKEN_DAYS - 1 <= left.days <= D.TOKEN_DAYS, soon
+    # An idle one still dies.
+    db = database.SessionLocal()
+    db.query(models.DevNoteToken).filter_by(id=minted["id"]).update({"expires_at": soon})
+    db.commit(); db.close()
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"])).status_code == 401
+
+
+# ── proof on the pin (11/12/2026) ─────────────────────────────────────────────
+BEFORE = "https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/n1/before-1.png"
+AFTER = "https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/n1/after-1.png"
+
+
+def test_a_pin_with_proof_is_checked_on_the_pin_with_no_preview_running(fired):
+    token = _token()["token"]
+    p = _to_pr_open(token, pr=31)
+    got = client.get(f"/dev-notes/{p['id']}").json()
+    assert got["checkable"] is False and got["readyToCheck"] is False and got["canVerdict"] is False
+    # nothing to judge yet: no verdict
+    r = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True})
+    assert r.status_code == 409
+    # Claude Code attaches what the fix looks like
+    r = client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
+    assert r.status_code == 200, r.text
+    got = client.get(f"/dev-notes/{p['id']}").json()
+    assert got["checkable"] is True and got["canVerdict"] is True
+    assert got["readyToCheck"] is False                    # no preview: the label stays PR Open
+    # someone else cannot give the verdict
+    GRANTS[DEV2["email"]] = {"build-mode": 1}
+    try:
+        _as(DEV2)
+        assert client.get(f"/dev-notes/{p['id']}").json()["canVerdict"] is False
+        assert client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).status_code == 403
+    finally:
+        GRANTS.pop(DEV2["email"], None)
+        _as(DEV)
+    # Reopen needs words, sends it back to Claude Code, and the refused proof is gone
+    assert client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": False}).status_code == 400
+    r = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": False, "comment": "Still too narrow"})
+    got = r.json()
+    assert got["status"] == "building" and got["checkable"] is False and got["verification"]["visual"] == {}
+    assert [e["text"] for e in got["thread"]][-2:] == ["Reopened From The Proof On The Pin", "Still too narrow"]
+    assert fired.calls == []                               # a terminal pin: the watcher picks it up, nothing is started
+    waiting = client.get("/dev-notes/cli/wait", params={"timeout": 0}, headers=_hdr(token)).json()["notes"]
+    assert [n["id"] for n in waiting] == [p["id"]]
+    # reworked, proven again, accepted from the pin: the merge then closes it with no second check
+    client.post("/dev-notes/cli/claim", json={"noteIds": [p["id"]]}, headers=_hdr(token))
+    client.post("/dev-notes/cli/complete", headers=_hdr(token),
+                json={"noteIds": [p["id"]], "prUrl": "https://github.com/x/y/pull/31", "prNumber": 31, "branch": "b"})
+    client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
+    got = client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True, "comment": "Looks right"}).json()
+    assert got["previewVerdict"] == "accepted" and got["status"] == "pr_open" and got["checkable"] is False
+    assert got["thread"][-1]["text"] == "Checked From The Proof On The Pin: Looks right"
+    _mark_fixed(pr=31)
+    assert client.get(f"/dev-notes/{p['id']}").json()["status"] == "done"
+
+
+def test_a_reopen_from_the_proof_starts_the_cloud_session_again(fired):
+    token = _token()["token"]
+    _connect_cloud()
+    n = _create()
+    _dispatch()
+    client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token))
+    client.post("/dev-notes/cli/complete", headers=_hdr(token),
+                json={"noteIds": [n["id"]], "prUrl": "https://github.com/x/y/pull/32", "prNumber": 32, "branch": "claude/b"})
+    client.post(f"/dev-notes/cli/verify/{n['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
+    assert len(fired.calls) == 1
+    got = client.post(f"/dev-notes/{n['id']}/preview-verdict", json={"accepted": False, "comment": "The label is cut off"}).json()
+    assert got["status"] == "building" and len(fired.calls) == 2 and n["id"] in fired.calls[1]["body"]["text"]
+    assert got["thread"][-1]["text"] == "The label is cut off"      # still last: the brief shows it
+
+
+def test_a_clip_is_proof_too_and_only_a_real_video_is_taken(monkeypatch):
+    token = _token()["token"]
+    p = _to_pr_open(token, pr=33)
+    sent = {}
+
+    def upload(note_id, kind, data, content_type):
+        sent.update(kind=kind, type=content_type, size=len(data))
+        return f"https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/{note_id}/clip-1.webm"
+
+    monkeypatch.setattr(D, "_upload_bytes", upload)
+    webm = b"\x1a\x45\xdf\xa3" + b"0" * 64
+    for bad, name in ((b"<html>not a video</html>", "x.webm"), (b"\x89PNG\r\n\x1a\n" + b"0" * 32, "x.png")):
+        r = client.post(f"/dev-notes/cli/attach/{p['id']}", headers=_hdr(token), data={"kind": "clip"},
+                        files={"file": (name, io.BytesIO(bad), "video/webm")})
+        assert r.status_code == 400 and "WebM and MP4" in r.json()["detail"]
+    r = client.post(f"/dev-notes/cli/attach/{p['id']}", headers=_hdr(token), data={"kind": "clip"},
+                    files={"file": ("fix.webm", io.BytesIO(webm), "application/octet-stream")})
+    assert r.status_code == 200, r.text
+    assert sent == {"kind": "clip", "type": "video/webm", "size": len(webm)}
+    got = client.get(f"/dev-notes/{p['id']}").json()
+    assert got["verification"]["visual"]["clipUrl"].endswith("/clip-1.webm") and got["checkable"] is True
+    # pictures recorded after it keep the clip
+    client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
+    v = client.get(f"/dev-notes/{p['id']}").json()["verification"]["visual"]
+    assert v["clipUrl"].endswith("/clip-1.webm") and v["afterUrl"] == AFTER
+
+
+# ── Merge To Dev (Neil, 11/12/2026) ───────────────────────────────────────────
+import build_mode_merge as MERGE  # noqa: E402
+
+HEAD = "f" * 40
+
+
+@pytest.fixture
+def github(monkeypatch):
+    """A stand-in GitHub: one open, green PR into dev. Tests bend `pr`,
+    `runs`, `statuses` and `merge` to taste; every call is recorded."""
+    monkeypatch.setenv(MERGE.TOKEN_ENV, "github_pat_test")
+    state = {
+        "pr": {"state": "open", "merged": False, "draft": False, "mergeable": True, "mergeable_state": "clean",
+               "title": "Fix the count", "html_url": "https://github.com/Greens-Global/Greens-Nexus/pull/41",
+               "base": {"ref": "dev"}, "user": {"login": "dev"},
+               "head": {"ref": "claude/b", "sha": HEAD, "repo": {"full_name": "Greens-Global/Greens-Nexus"}}},
+        "runs": [{"name": "backend", "status": "completed", "conclusion": "success"},
+                 {"name": "frontend", "status": "completed", "conclusion": "success"},
+                 {"name": "e2e", "status": "completed", "conclusion": "skipped"}],
+        "statuses": [],
+        "merge": (200, {"merged": True, "sha": "m" * 40}),
+        "calls": [], "posted": [],
+    }
+
+    def request(method, path, body=None):
+        state["calls"].append((method, path, body))
+        if method == "PUT" and path.endswith("/merge"):
+            return state["merge"]
+        if path.startswith("/pulls/"):
+            return 200, state["pr"]
+        if path.endswith("/check-runs?per_page=100"):
+            return 200, {"check_runs": state["runs"]}
+        if path.endswith("/status"):
+            return 200, {"statuses": state["statuses"]}
+        return 404, {}
+
+    monkeypatch.setattr(MERGE, "_request", request)
+    monkeypatch.setattr(D._chat, "deliver_later", lambda bg, row: state["posted"].append(row.id if row else None))
+    return state
+
+
+def _team_chat():
+    r = client.put("/dev-notes/settings", json={"teamsChatId": "19:team@thread.v2", "teamsChatName": "Nexus Dev Team"})
+    assert r.status_code == 200, r.text
+
+
+def _merges(state):
+    return [c for c in state["calls"] if c[0] == "PUT"]
+
+
+def test_merge_to_dev_is_a_super_administrators_and_says_what_it_did(github):
+    p = _to_pr_open(pr=41)
+    # the author is not a Super Administrator: no flag, no look, no merge
+    assert client.get(f"/dev-notes/{p['id']}").json()["canMerge"] is False
+    assert client.get(f"/dev-notes/{p['id']}/merge").status_code == 403
+    assert client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD}).status_code == 403
+    # an Administrator with the Build Mode grant is not one either
+    GRANTS[ADMIN["email"]] = {"build-mode": 1}
+    try:
+        _as(ADMIN)
+        assert client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD}).status_code == 403
+    finally:
+        GRANTS.pop(ADMIN["email"], None)
+    assert _merges(github) == []
+    _as(GA)
+    try:
+        assert client.get(f"/dev-notes/{p['id']}").json()["canMerge"] is True
+        # no team chat picked yet: it says so and does not merge
+        look = client.get(f"/dev-notes/{p['id']}/merge").json()
+        assert look["available"] is True and look["ok"] is False and "team chat" in look["reasons"][0]
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD})
+        assert r.status_code == 409 and "team chat" in r.json()["detail"] and _merges(github) == []
+        _team_chat()
+        look = client.get(f"/dev-notes/{p['id']}/merge").json()
+        assert look["ok"] is True and look["reasons"] == [] and look["chatName"] == "Nexus Dev Team"
+        assert look["headSha"] == HEAD and look["checks"] == {"total": 3, "passed": 3, "failed": 0, "pending": 0, "failing": []}
+        assert look["pins"] == [{"id": p["id"], "number": p["number"], "checked": False}] and look["unchecked"] == [p["number"]]
+        # the commit the person looked at must still be the head
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": "0" * 40})
+        assert r.status_code == 409 and "changed since you looked" in r.json()["detail"] and _merges(github) == []
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD})
+        assert r.status_code == 200, r.text
+        got = r.json()
+        assert got["merged"] is True and got["sha"] == "m" * 40 and got["chatName"] == "Nexus Dev Team"
+        assert _merges(github) == [("PUT", "/pulls/41/merge", {"sha": HEAD, "merge_method": "merge"})]   # once, pinned to the head
+        assert [n["status"] for n in got["notes"]] == ["fixed"] and got["notes"][0]["canMerge"] is False
+        assert len(github["posted"]) == 1 and github["posted"][0]
+        db = database.SessionLocal()
+        try:
+            from models import TicketTeamsMessage
+            row = db.query(TicketTeamsMessage).filter(TicketTeamsMessage.id == github["posted"][0]).first()
+            text = " ".join(str(getattr(row, c.name) or "") for c in TicketTeamsMessage.__table__.columns)
+            assert "Merging To Dev" in text and "PR #41" in text and "19:team@thread.v2" in text
+            audit = db.query(models.AuditLog).filter(models.AuditLog.action == "dev_note_merge_to_dev").all()
+            assert len(audit) == 1 and audit[0].user_email == GA["email"] and "github_pat" not in audit[0].details
+        finally:
+            db.close()
+        # a second click finds nothing to merge
+        assert client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD}).status_code == 409
+        assert len(_merges(github)) == 1
+    finally:
+        _as(DEV)
+
+
+@pytest.mark.parametrize("bend,words", [
+    (lambda s: s["pr"].update(mergeable=False, mergeable_state="dirty"), "conflicts with dev"),
+    (lambda s: s["pr"].update(mergeable=None), "still working out"),
+    (lambda s: s["pr"].update(mergeable_state="blocked"), "branch rules"),
+    (lambda s: s["pr"]["base"].update(ref="main"), "targets main, not dev"),
+    (lambda s: s["pr"]["head"]["repo"].update(full_name="someone/fork"), "not in this repository"),
+    (lambda s: s["pr"].update(draft=True), "still a draft"),
+    (lambda s: s["pr"].update(state="closed"), "is closed"),
+    (lambda s: s["runs"].append({"name": "lint", "status": "completed", "conclusion": "failure"}), "Checks failed: lint"),
+    (lambda s: s["runs"].append({"name": "lint", "status": "in_progress", "conclusion": None}), "1 check still running"),
+    (lambda s: s["statuses"].append({"context": "pages", "state": "failure"}), "Checks failed: pages"),
+    (lambda s: s.update(runs=[]), "No checks have run"),
+])
+def test_merge_to_dev_refuses_whatever_is_not_open_green_and_into_dev(github, bend, words):
+    p = _to_pr_open(pr=42)
+    _as(GA)
+    try:
+        _team_chat()
+        bend(github)
+        look = client.get(f"/dev-notes/{p['id']}/merge").json()
+        assert look["ok"] is False and words in " ".join(look["reasons"])
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD})
+        assert r.status_code == 409 and words in r.json()["detail"]
+        assert _merges(github) == [] and github["posted"] == []
+        assert client.get(f"/dev-notes/{p['id']}").json()["status"] == "pr_open"
+    finally:
+        _as(DEV)
+
+
+def test_a_merge_github_refuses_posts_no_heads_up_and_is_not_tried_again(github):
+    p = _to_pr_open(pr=43)
+    _as(GA)
+    try:
+        _team_chat()
+        from models import TicketTeamsMessage
+        db = database.SessionLocal()
+        before = db.query(TicketTeamsMessage).count()
+        db.close()
+        github["merge"] = (409, {"message": "Head branch was modified. Review and try the merge again."})
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD})
+        assert r.status_code == 409 and "changed since you looked" in r.json()["detail"]
+        assert len(_merges(github)) == 1 and github["posted"] == []
+        db = database.SessionLocal()
+        try:
+            assert db.query(TicketTeamsMessage).count() == before
+            assert db.query(models.AuditLog).filter(models.AuditLog.action == "dev_note_merge_to_dev").count() == 0
+        finally:
+            db.close()
+        assert client.get(f"/dev-notes/{p['id']}").json()["status"] == "pr_open"
+    finally:
+        _as(DEV)
+
+
+def test_merge_to_dev_is_off_until_the_server_carries_the_credential(github, monkeypatch):
+    monkeypatch.delenv(MERGE.TOKEN_ENV, raising=False)
+    p = _to_pr_open(pr=44)
+    _as(GA)
+    try:
+        assert client.get(f"/dev-notes/{p['id']}").json()["canMerge"] is False
+        look = client.get(f"/dev-notes/{p['id']}/merge").json()
+        assert look == {"available": False, "ok": False, "reasons": ["Merge To Dev is not set up on this server."]}
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD})
+        assert r.status_code == 503 and github["calls"] == []
+        # the read-only token What's New uses never merges
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_readonly")
+        assert MERGE.available() is False
+    finally:
+        _as(DEV)
+
+
+def test_a_pin_checked_before_the_merge_closes_as_done(github):
+    token = _token()["token"]
+    p = _to_pr_open(token, pr=45)
+    client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
+    client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True})
+    _as(GA)
+    try:
+        _team_chat()
+        look = client.get(f"/dev-notes/{p['id']}/merge").json()
+        assert look["unchecked"] == [] and look["pins"][0]["checked"] is True
+        got = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD}).json()
+        assert [n["status"] for n in got["notes"]] == ["done"]
+    finally:
+        _as(DEV)
+
+
+def test_whoami_names_the_senders_open_pull_request():
+    token = _token()["token"]
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(token)).json()["openPr"] == {}
+    a = _to_pr_open(token, pr=51)
+    b = _to_pr_open(token, pr=51)
+    got = client.get("/dev-notes/cli/whoami", headers=_hdr(token)).json()["openPr"]
+    assert got["number"] == 51 and got["pins"] == 2 and got["branch"] and got["url"].endswith("/51")
+    # merged: nothing is open any more, the next Send opens its own
+    _mark_fixed(pr=51)
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(token)).json()["openPr"] == {}
+    assert {a["id"], b["id"]}
+
+
+# ── tickets into Build Mode (Neil, 11/12/2026) ────────────────────────────────
+import uuid  # noqa: E402
+
+import build_mode_tickets as BT  # noqa: E402
+
+TICKET_SHOT = "https://test.supabase.co/storage/v1/object/public/ticket-evidence/t1/pointed.png"
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+
+
+def _ticket(**over):
+    db = database.SessionLocal()
+    try:
+        fields = {"id": "tk-" + uuid.uuid4().hex[:8], "code": "TKT-0042", "subject": "Add Task does nothing",
+                  "description": "<p>I click Add Task and nothing happens.</p>"
+                                 "<p>Where: Tasks &gt; Home (/tasks/home) - button \"Add Task\" [src/tasks/Home.jsx:120]</p>",
+                  "type": "bug", "priority": "medium", "status": "open", "requester_email": DEV["email"],
+                  "created_at": "2026-11-12T15:00:00+00:00"}
+        fields.update(over)
+        row = models.TaskTicket(**fields)
+        db.add(row)
+        db.add(models.TaskAttachment(id="att-" + uuid.uuid4().hex[:8], task_id=row.id, name="pointed.png", kind="image",
+                                     url=TICKET_SHOT, added_at="2026-11-12T15:00:01+00:00", added_by=DEV["email"]))
+        db.add(models.TaskAttachment(id="att-" + uuid.uuid4().hex[:8], task_id=row.id, name="notes.pdf", kind="doc",
+                                     url=TICKET_SHOT.replace(".png", ".pdf"), added_at="2026-11-12T15:00:02+00:00"))
+        db.commit()
+        return row.id
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def storage(monkeypatch):
+    """Storage stands in: reads give a PNG, uploads are recorded."""
+    seen = {"read": [], "wrote": []}
+
+    class _Resp:
+        status_code = 200
+        content = PNG_BYTES
+        headers = {"content-type": "image/png"}
+
+    monkeypatch.setattr(D.httpx, "get", lambda url, timeout=30: (seen["read"].append(url), _Resp())[1])
+
+    def upload(note_id, kind, data, content_type):
+        seen["wrote"].append((note_id, kind, content_type, len(data)))
+        return f"https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/{note_id}/{kind}-{len(seen['wrote'])}.png"
+
+    monkeypatch.setattr(D, "_upload_bytes", upload)
+    return seen
+
+
+def test_the_where_line_is_read_back_and_never_trusts_a_path():
+    w = BT.parse_where('Before\nWhere: Tasks > Home (/tasks/home?x=1) - button "Add Task" [src/tasks/Home.jsx:120]\nAfter')
+    assert w == {"label": "Tasks > Home", "path": "/tasks/home?x=1", "route": "tasks", "sub": "home",
+                 "what": 'button "Add Task"', "file": "src/tasks/Home.jsx", "line": 120}
+    assert BT.parse_where("Where: Dashboard (/dashboard)") == {"label": "Dashboard", "path": "/dashboard", "route": "dashboard",
+                                                               "sub": "", "what": "", "file": "", "line": 0}
+    assert BT.parse_where("Where: X (/a/b) - thing [../../etc/passwd:1]")["file"] == ""
+    assert BT.parse_where("Where: X (/a/b) - thing [/etc/passwd:1]")["file"] == ""
+    assert BT.parse_where("no such line") == {}
+    assert BT.plain("<p>One</p><p>Two &amp; three<br>Four</p>") == "One\nTwo & three\nFour"
+
+
+def test_a_ticket_becomes_one_pin_with_its_own_copies_of_the_pictures(storage):
+    tid = _ticket()
+    r = client.post(f"/dev-notes/from-ticket/{tid}")
+    assert r.status_code == 201, r.text
+    n = r.json()
+    assert n["ticketId"] == tid and n["ticketCode"] == "TKT-0042" and n["status"] == "open" and n["kind"] == "bug"
+    assert n["comment"].startswith("Ticket TKT-0042: Add Task does nothing\n\nI click Add Task")
+    assert n["route"] == "tasks" and n["sub"] == "home"
+    assert n["target"]["source"] == {"file": "src/tasks/Home.jsx", "line": 120} and n["target"]["text"] == 'button "Add Task"'
+    # the picture is a COPY in the pin's folder; the PDF is not a picture and is left alone
+    assert storage["read"] == ["signed:" + TICKET_SHOT] and len(storage["wrote"]) == 1
+    assert "/qa-evidence/dev-notes/" in n["screenshotUrl"] and n["id"] in n["screenshotUrl"] and n["attachments"] == []
+    assert n["thread"][0]["text"] == "From Ticket TKT-0042"
+    db = database.SessionLocal()
+    try:
+        # the ticket: one activity line, no comment, status untouched, its file still its own
+        acts = db.query(models.TaskActivity).filter(models.TaskActivity.entity_id == tid).all()
+        assert [a.detail for a in acts] == [f"Sent to Claude Code as Build Mode Pin #{n['number']}"]
+        assert db.query(models.TaskComment).filter(models.TaskComment.task_id == tid).count() == 0
+        assert db.query(models.TaskTicket).filter(models.TaskTicket.id == tid).first().status == "open"
+        assert [a.url for a in db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == tid,
+                                                                      models.TaskAttachment.kind == "image")] == [TICKET_SHOT]
+        # nothing the pin holds points at the ticket's bucket: a purge cannot touch ticket evidence
+        row = db.query(models.DevNote).filter(models.DevNote.id == n["id"]).first()
+        assert all("ticket-evidence" not in u for u in D._media_urls(row))
+    finally:
+        db.close()
+    # once is enough while that pin is live
+    r = client.post(f"/dev-notes/from-ticket/{tid}")
+    assert r.status_code == 409 and f"Pin #{n['number']}" in r.json()["detail"]
+    # the merge tells the ticket, and still changes nothing on it
+    token = _token()["token"]
+    client.post("/dev-notes/dispatch", json={})
+    client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token))
+    client.post("/dev-notes/cli/complete", headers=_hdr(token),
+                json={"noteIds": [n["id"]], "prUrl": "https://github.com/x/y/pull/61", "prNumber": 61, "branch": "b"})
+    _mark_fixed(pr=61)
+    db = database.SessionLocal()
+    try:
+        details = [a.detail for a in db.query(models.TaskActivity).filter(models.TaskActivity.entity_id == tid)
+                   .order_by(models.TaskActivity.at).all()]
+        assert details[-1] == f"The fix merged to dev (PR #61, Build Mode Pin #{n['number']})"
+        assert db.query(models.TaskTicket).filter(models.TaskTicket.id == tid).first().status == "open"
+    finally:
+        db.close()
+
+
+def test_send_to_claude_code_needs_the_grant_and_the_ticket(storage):
+    theirs = _ticket(requester_email="someone@greensglobal.com", code="TKT-0043")
+    # a ticket the caller cannot open stays shut
+    assert client.post(f"/dev-notes/from-ticket/{theirs}").status_code in (403, 404)
+    assert client.post("/dev-notes/from-ticket/nope").status_code == 404
+    # no Build Mode grant: no door, whoever's ticket it is
+    mine = _ticket(requester_email=ADMIN["email"], code="TKT-0044")
+    _as(ADMIN)
+    try:
+        assert client.post(f"/dev-notes/from-ticket/{mine}").status_code == 403
+    finally:
+        _as(DEV)
+    # an Ask HR ticket is never sent: it reads as not found
+    hr = _ticket(confidential_desk="hr", code="TKT-0045")
+    assert client.post(f"/dev-notes/from-ticket/{hr}").status_code == 404
+    assert storage["wrote"] == []
+
+
+def test_a_ticket_with_no_where_line_or_picture_still_becomes_a_pin(storage, monkeypatch):
+    monkeypatch.setattr(F, "fetchable_url", lambda u: u)       # storage cannot sign: no picture, no failure
+    tid = _ticket(description="<p>The export is slow.</p>", type="feature_request", priority="urgent", code="TKT-0046")
+    n = client.post(f"/dev-notes/from-ticket/{tid}").json()
+    assert n["kind"] == "change" and n["priority"] == "blocking" and n["route"] == "" and n["target"] == {}
+    assert n["screenshotUrl"] == "" and storage["wrote"] == []

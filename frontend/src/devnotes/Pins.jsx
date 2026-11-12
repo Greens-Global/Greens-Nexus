@@ -4,7 +4,7 @@
 // sees everyone's pins. Accept / Reopen live here, on the fixed pin, where
 // the bug was.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { X, ExternalLink, Check, RotateCcw, Send, Loader2, Trash2, Hand, Monitor, FlaskConical } from 'lucide-react';
+import { X, ExternalLink, Check, RotateCcw, Send, Loader2, Trash2, Hand, Monitor, FlaskConical, GitMerge } from 'lucide-react';
 import { api } from '../api';
 import { formatDateTime } from '../lib/datetime';
 import { toViewUrl } from '../lib/storageView';
@@ -13,8 +13,10 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import { anchorRect } from './lib/capture';
 import { placeCard } from './lib/anchor';
-import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf } from './meta';
+import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, pinProof, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf, isClaudeSession } from './meta';
 import { toast } from './store';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 const MINE = import.meta.env.VITE_BUILD_ID || 'dev';
 
@@ -131,7 +133,7 @@ function ThreadEntry({ e }) {
 function Evidence({ v }) {
   if (!v || typeof v !== 'object') return null;
   const checks = v.styleCheck?.checks || [];
-  const has = !!(v.repro?.before || v.repro?.after || checks.length || v.styleCheck?.passed != null || v.visual?.beforeUrl || v.visual?.afterUrl);
+  const has = !!(v.repro?.before || v.repro?.after || checks.length || v.styleCheck?.passed != null || v.visual?.beforeUrl || v.visual?.afterUrl || v.visual?.clipUrl);
   if (!has) return null;   // the CLI has not written anything yet - no empty header
   return (
     <section className="bm-evidence" aria-label="Evidence">
@@ -167,6 +169,13 @@ function Evidence({ v }) {
           ))}
         </div>
       )}
+      {v.visual?.clipUrl && (
+        // The fix in motion, recorded by Claude Code: plays in place, opens full size.
+        <div className="bm-clip" data-testid="bm-clip">
+          <video src={toViewUrl(v.visual.clipUrl)} controls muted playsInline preload="metadata" aria-label="Clip of the fix" />
+          <a className="bm-link" href={toViewUrl(v.visual.clipUrl)} target="_blank" rel="noreferrer"><ExternalLink size={12} /> Open Clip</a>
+        </div>
+      )}
     </section>
   );
 }
@@ -178,14 +187,18 @@ function PreviewBlock({ pin }) {
   const p = pin.preview || {};
   const local = isLocalPreview(p.url);
   const pr = p.prNumber || pin.prNumber;
+  // No preview running anywhere (a Claude Code cloud session has no computer
+  // to run one on): the pictures and the clip under Evidence are the check.
+  const proof = !p.url && !!pinProof(pin);
   return (
     <section className="bm-preview" aria-label="Ready To Check" data-testid="bm-preview">
       <div className="bm-preview-head">
         <span className="bm-preview-title">Ready To Check</span>
         {local
           ? <a className="bm-btn bm-btn-sm bm-btn-primary" href={p.url} target="_blank" rel="noreferrer"><ExternalLink size={13} /> Open Preview</a>
-          : <span className="bm-dim bm-small">No preview link</span>}
+          : !proof && <span className="bm-dim bm-small">No preview link</span>}
       </div>
+      {proof && <div className="bm-small" data-testid="bm-proof-hint">Claude Code attached what the fix looks like - check it under Evidence, then Accept or Reopen. Nothing to run.</div>}
       {p.host && <div className="bm-small"><Monitor size={12} /> Runs on <b>{p.host}</b> - open it on that computer.</div>}
       <div className="bm-preview-meta">
         {(p.branch || pin.branch) && <code>{p.branch || pin.branch}</code>}
@@ -255,6 +268,33 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
     .then((n) => { if (n) { setReply(''); toast(`Pin #${pin.number} checked - it is Done when the PR merges`); } });
   const previewReopen = () => { const t = reply.trim(); if (!t) return; run('preopen', () => api.devNotesPreviewVerdict(pin.id, { accepted: false, comment: t }))
     .then((n) => { if (n) { setReply(''); toast(`Pin #${pin.number} reopened - Claude Code picks it up on the same branch`); } }); };
+  // Merge To Dev (Neil, 11/12/2026): Super Administrators only (the server
+  // says so with canMerge). The look names what stands in the way; with
+  // nothing in the way the hold dialog says what goes - the PR, the pins,
+  // the team chat the heads-up is posted to - and one hold merges.
+  const mergeToDev = async () => {
+    setBusy('merge'); setErr('');
+    let look = null;
+    try { look = await api.devNotesMergeLook(pin.id); } catch (e) { setErr(e?.message || 'GitHub could not be read.'); }
+    setBusy('');
+    if (!look) return;
+    if (!look.ok) { setErr(`Not ready to merge. ${(look.reasons || []).join(' ')}`); return; }
+    const pins = look.pins || [];
+    const unchecked = (look.unchecked || []).length;
+    const lines = [
+      `PR #${look.number} - ${look.title}`,
+      `${look.checks?.passed || 0} check${look.checks?.passed === 1 ? '' : 's'} passed. ${pins.length} pin${pins.length === 1 ? '' : 's'} on it${unchecked ? `, ${unchecked} not checked yet (${unchecked === 1 ? 'it goes' : 'they go'} to Fixed - Verify)` : ''}.`,
+      `A heads-up is posted to ${look.chatName || 'your team chat'} as you. The dev site updates in about a minute and the dev API restarts for about 4 minutes.`,
+    ];
+    dialog.confirm(lines.join('\n\n'), {
+      title: 'Merge To Dev?', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Merge To Dev', doneText: 'Merged', holdIcon: GitMerge,
+      onConfirm: async () => {
+        const r = await api.devNotesMerge(pin.id, look.headSha);
+        (r?.notes || []).forEach((n) => onChanged?.(n));
+        toast(`PR #${r?.number || look.number} merged to dev - heads-up posted to ${r?.chatName || look.chatName || 'Teams'}`);
+      },
+    });
+  };
   const openTesting = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'testing' } }));
   const undismiss = () => run('undismiss', () => api.devNotesPatch(pin.id, { status: 'open' })).then((n) => n && toast(`Pin #${pin.number} is open again`));
 
@@ -308,6 +348,9 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
         {pin.progress && (
           <div className="bm-progress"><Loader2 size={12} className={m.pulse ? 'bm-spin' : ''} /> <span>{pin.progress}</span>{pin.progressAt && <span className="bm-dim"> · {formatDateTime(pin.progressAt)}</span>}</div>
         )}
+        {isClaudeSession(pin.claudeSessionUrl) && pin.status !== 'done' && pin.status !== 'dismissed' && (
+          <a className="bm-link" href={pin.claudeSessionUrl} target="_blank" rel="noreferrer"><ExternalLink size={12} /> Open Claude Session</a>
+        )}
         {waiting && <div className="bm-hint">Waiting for Claude Code to pick up your reply.</div>}
         {held && (
           <div className="bm-hint bm-hint-amber" data-testid="bm-held">
@@ -319,8 +362,8 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
         {ready ? <PreviewBlock pin={pin} /> : pin.prUrl && (
           <a className="bm-link" href={pin.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={12} /> PR #{pin.prNumber}{pin.branch ? ` · ${pin.branch}` : ''}</a>
         )}
-        {ready && !rights.verdict && <div className="bm-hint">Waiting for {firstNameOf(pin.createdBy)} to check it on the preview.</div>}
-        {checked && <div className="bm-verify" data-testid="bm-checked"><Check size={13} /><span>Checked On The Preview - it is Done when the PR merges.</span></div>}
+        {ready && !rights.verdict && <div className="bm-hint">Waiting for {firstNameOf(pin.createdBy)} to check it{pin.preview?.url ? ' on the preview' : ''}.</div>}
+        {checked && <div className="bm-verify" data-testid="bm-checked"><Check size={13} /><span>{pin.preview?.url ? 'Checked On The Preview' : 'Checked From The Proof'} - it is Done when the PR merges.</span></div>}
         {pin.regressionCaseId && (
           // Testing.jsx reads no case id from navigation, so the link lands on
           // the module and the line names the case to search for there.
@@ -365,6 +408,12 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
                 <button type="button" className="bm-btn bm-btn-primary" onClick={previewAccept} disabled={!!busy}><Check size={14} /> Accept</button>
                 <button type="button" className="bm-btn" onClick={previewReopen} disabled={!!busy || !reply.trim()} title={reply.trim() ? 'Send it back to Claude Code with your note' : 'Write what is still wrong first'}><RotateCcw size={14} /> Reopen</button>
               </>
+            )}
+            {pin.canMerge === true && !confirm && (
+              <button type="button" className="bm-btn" onClick={mergeToDev} disabled={!!busy} data-testid="bm-merge"
+                title="Merge this pull request into dev and post the heads-up to the team chat">
+                {busy === 'merge' ? <Loader2 size={14} className="bm-spin" /> : <GitMerge size={14} />} Merge To Dev
+              </button>
             )}
             {pin.status === 'fixed' && !confirm && (
               <>

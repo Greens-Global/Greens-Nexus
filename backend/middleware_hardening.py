@@ -215,6 +215,7 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/unit-map/",   # customer unit map: a signed link, no login (Oct 20 2026)
                           "/documents/word-file/",   # Open in Word: a signed 15-minute link, no login (11/05/2026)
                           "/dev-notes/tokens",   # Build Mode: mints Build Tokens (credential-minting, Oct 24 2026)
+                          "/dev-notes/cloud",   # Build Mode: takes a Claude Code trigger token (11/12/2026)
                           "/careers/apply/",   # public job application: personal data + a resume, no login (Oct 27 2026)
                           "/construction-outside/")   # Construction outside links: one RFI or one sub's punch list, no login (11/11/2026)
     # Routes whose path IS the credential: the trip log names the prefix,

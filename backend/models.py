@@ -8695,6 +8695,11 @@ class DevNote(Base):
     # Token's watcher sees and claims only the pins its owner sent ('' on rows
     # sent before this = the author). ALTER lines in both migration lists.
     dispatched_by      = Column(String, default="")
+    claude_session_url = Column(String, default="")              # the Claude Code cloud session working it (11/12/2026)
+    # The ticket this pin was made from (Send To Claude Code on a ticket,
+    # 11/12/2026, build_mode_tickets.py); '' for a pin made on the page.
+    ticket_id          = Column(String, default="", index=True)
+    ticket_code        = Column(String, default="")
 
 
 class DevNoteSession(Base):
@@ -8712,6 +8717,7 @@ class DevNoteSession(Base):
     pr_url        = Column(String, default="")
     pr_number     = Column(Integer, default=0)
     note_count    = Column(Integer, default=0)
+    claude_session_url = Column(String, default="")   # the latest Claude Code cloud session for it (11/12/2026)
 
 
 class DevNoteToken(Base):
