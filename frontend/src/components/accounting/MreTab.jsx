@@ -180,7 +180,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const STATUS = {
   paid: { label: 'Paid', fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' },
   short: { label: 'Short', fg: '#92400e', bg: 'rgba(180,83,9,0.13)' },
-  over: { label: 'Over', fg: '#6d28d9', bg: 'rgba(109,40,217,0.10)' },
+  over: { label: 'Over', fg: 'var(--info-fg)', bg: 'var(--info-bg)' },
   missed: { label: 'Missed', fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
   upcoming: { label: 'Upcoming', fg: 'var(--text-muted)', bg: 'transparent' },
   unknown: { label: 'Not Read', fg: 'var(--text-muted)', bg: 'var(--bg-secondary)' },
