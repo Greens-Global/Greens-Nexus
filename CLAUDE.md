@@ -563,6 +563,18 @@ keep the diff minimal.
   answers. Never add a second form engine, a second entry store or an
   offline path outside the punch-queue pattern (the outbox above is that
   pattern; Fill a Form already uses it - `forms/formsOffline.js`).
+- **Kudos on Teams (Neil, 11/12/2026, `perf_kudos_teams.py`,
+  `docs/Kudos-Teams-Setup.md`):** a kudos posts as its sender to the
+  company's CHANNEL (Settings > Performance > Kudos on Teams,
+  `performance.kudos_teams_target`; the old chat id still resolves),
+  @mentioning the recipient, and keeps its message id. Reactions and
+  channel replies come back as the ONE thanks row (`perf_kudos_thanks`,
+  `via='teams'`) - never a second reaction store; a Nexus thanks claps on
+  the post as that person through the ticket Teams queue (`kudos_react` /
+  `kudos_unreact`). Graph change notifications (`/webhooks/teams/kudos`,
+  `teams_subscriptions`) and polling (`kudos_teams_loop`) call the same
+  `sync_one`. Reading needs the delegated read scopes
+  (`bff_session.GRAPH_KUDOS_*_READ_SCOPES`); without them it waits.
 - **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
   `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
   Direct Deposit Authorization are filled and signed in Nexus Sign - from

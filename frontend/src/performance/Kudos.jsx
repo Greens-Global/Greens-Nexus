@@ -6,6 +6,10 @@
 // recipient's one bell grows in place; a kudos may carry one of the
 // company's values; the send form may post it to the Teams chat Settings
 // names. backend/perf_feedback.py holds the rules.
+// Kudos on Teams, both ways (Neil, 11/12/2026): the post goes to the
+// company's channel; a reaction or reply there comes back as that person's
+// thanks (their emoji beside the names), reactions from people outside Nexus
+// are a count, and Open in Teams goes to the post (backend/perf_kudos_teams.py).
 import { useCallback, useEffect, useState } from 'react';
 import { Award, Plus, EyeOff } from 'lucide-react';
 import { api } from '../api';
@@ -56,15 +60,15 @@ export function GiveKudosModal({ me, to = '', onClose, onGiven, toastErr }) {
   const [teams, setTeams] = useState(true);
   const [busy, setBusy] = useState(false);
   // The recipient's company decides the values and the Teams chat (read once a recipient is picked).
-  const [opts, setOpts] = useState({ values: [], teamsChat: false });
+  const [opts, setOpts] = useState({ values: [], teamsChat: false, teamsPlace: '' });
   useEffect(() => {
-    if (!who) { setOpts({ values: [], teamsChat: false }); return undefined; }
+    if (!who) { setOpts({ values: [], teamsChat: false, teamsPlace: '' }); return undefined; }
     let on = true;
-    api.perfKudosOptions(who).then(o => { if (on) { setOpts({ values: o?.values || [], teamsChat: !!o?.teamsChat }); setValue(v => ((o?.values || []).includes(v) ? v : '')); } })
-      .catch(() => { if (on) setOpts({ values: [], teamsChat: false }); });
+    api.perfKudosOptions(who).then(o => { if (on) { setOpts({ values: o?.values || [], teamsChat: !!o?.teamsChat, teamsPlace: o?.teamsPlace || '' }); setValue(v => ((o?.values || []).includes(v) ? v : '')); } })
+      .catch(() => { if (on) setOpts({ values: [], teamsChat: false, teamsPlace: '' }); });
     return () => { on = false; };
   }, [who]);
-  const { values, teamsChat } = opts;
+  const { values, teamsChat, teamsPlace } = opts;
   const choices = people.filter(p => !p.external && p.email !== me);
   async function send() {
     if (!who) { toastErr?.('Pick who the kudos are for.'); return; }
@@ -94,7 +98,7 @@ export function GiveKudosModal({ me, to = '', onClose, onGiven, toastErr }) {
         {teamsChat && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--ink)' }}>
             <Switch checked={teams} onChange={setTeams} label="Also post to Teams" />
-            <span>Also post to Teams</span>
+            <span>Also post to Teams{teamsPlace && <span style={{ color: 'var(--muted)' }}> - {teamsPlace}</span>}</span>
           </label>
         )}
       </div>
@@ -127,14 +131,21 @@ export function ThanksRow({ k, me, onThank, onUnthank }) {
     finally { setBusy(false); }
   }
   const withNotes = (k.thanks || []).filter(t => t.note);
+  // The emoji people used on the Teams post, once each.
+  const reactions = [...new Set(others.map(t => t.reaction).filter(Boolean))].join(' ');
+  const outside = k.teams?.others || 0;
   return (
     <div style={{ marginTop: 6, display: 'grid', gap: 4, fontSize: 12.5, color: 'var(--muted)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {others.length > 0 && (
           <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} disabled={!withNotes.length}
             style={{ ...TEXT_BTN, color: 'var(--muted)', fontWeight: 500, cursor: withNotes.length ? 'pointer' : 'default', textAlign: 'left' }}>
-            {thanksSentence(others.map(t => first(t.name)))} added their thanks
+            {reactions && <span aria-hidden="true">{reactions} </span>}{thanksSentence(others.map(t => first(t.name)))} added their thanks
           </button>
+        )}
+        {outside > 0 && <span>{outside} {outside === 1 ? 'person' : 'people'} on Teams reacted</span>}
+        {k.teams?.url && (
+          <a href={k.teams.url} target="_blank" rel="noopener noreferrer" style={{ ...TEXT_BTN, fontWeight: 500 }}>Open in Teams</a>
         )}
         {mine ? (
           <span>{recipient ? 'You said thanks' : 'You added your thanks'}{k.can?.takeBack && <> · <button type="button" style={TEXT_BTN} disabled={busy} onClick={() => onUnthank(k)}>Take Back</button></>}</span>
@@ -144,7 +155,7 @@ export function ThanksRow({ k, me, onThank, onUnthank }) {
       </div>
       {open && withNotes.length > 0 && (
         <div style={{ display: 'grid', gap: 2, paddingLeft: 8, borderLeft: '2px solid var(--line)' }}>
-          {withNotes.map(t => <div key={t.email}><strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{first(t.name)}</strong> {t.note}</div>)}
+          {withNotes.map(t => <div key={t.email}><strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{first(t.name)}</strong> {t.note}{t.via === 'teams' && <span> · on Teams</span>}</div>)}
         </div>
       )}
       {adding && (

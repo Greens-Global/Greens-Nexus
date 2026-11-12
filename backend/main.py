@@ -29,6 +29,7 @@ from routers import directory as directory_router  # Contact Directory (Support,
 from routers import kb as kb_router, kb_training as kb_training_router  # Knowledge Base rebuild (Oct 2026) - replaces knowledge_base + sop
 from routers import site_models as site_models_router  # 3D property site models + markup pins (Neil, Oct 11 2026)
 from routers import github_webhook  # PR/push merged to dev/main -> admin notification + What's New drafts (Sep 2026)
+from routers import teams_webhook  # Graph change notifications for kudos posts in Teams (Neil, 11/12/2026)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
 from routers import facility_ops  # Operations: storage facility figures read from Cubby (Oct 2026)
@@ -1608,6 +1609,14 @@ def _run_migrations():
             # Kudos thanks (Neil, 11/08/2026): the value tag and the recipient's first look. models.PerfKudos.
             "ALTER TABLE hr_perf_kudos ADD COLUMN value VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_kudos ADD COLUMN seen_at VARCHAR DEFAULT ''",
+            # Kudos on Teams (Neil, 11/12/2026) - see the Postgres list.
+            "ALTER TABLE hr_perf_kudos ADD COLUMN teams_post JSON DEFAULT '{}'",
+            "ALTER TABLE hr_perf_kudos ADD COLUMN teams_message_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_kudos ADD COLUMN teams_sync_due_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_kudos ADD COLUMN teams_synced_at VARCHAR DEFAULT ''",
+            "ALTER TABLE perf_kudos_thanks ADD COLUMN via VARCHAR DEFAULT ''",
+            "ALTER TABLE perf_kudos_thanks ADD COLUMN teams_reaction VARCHAR DEFAULT ''",
+            "ALTER TABLE perf_kudos_thanks ADD COLUMN teams_reply_id VARCHAR DEFAULT ''",
             # Automatic scheduling + project health (Neil 11/08/2026) - see the Postgres list.
             "ALTER TABLE tasks ADD COLUMN schedule_mode VARCHAR DEFAULT 'manual'",
             "ALTER TABLE tasks ADD COLUMN dependency_lags JSON DEFAULT '{}'",
@@ -3857,6 +3866,20 @@ def _run_migrations():
         "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS value VARCHAR DEFAULT ''",
         "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE perf_kudos_thanks ENABLE ROW LEVEL SECURITY",
+        # Kudos on Teams (Neil, 11/12/2026): the post's place and message id,
+        # where a thanks came from, and two new tables - explicit RLS.
+        # models.PerfKudos / PerfKudosThanks / TeamsUserMap / TeamsSubscription.
+        "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS teams_post JSON DEFAULT '{}'",
+        "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS teams_message_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS teams_sync_due_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS teams_synced_at VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_hr_perf_kudos_teams_message_id ON hr_perf_kudos (teams_message_id)",
+        "CREATE INDEX IF NOT EXISTS ix_hr_perf_kudos_teams_sync_due_at ON hr_perf_kudos (teams_sync_due_at)",
+        "ALTER TABLE perf_kudos_thanks ADD COLUMN IF NOT EXISTS via VARCHAR DEFAULT ''",
+        "ALTER TABLE perf_kudos_thanks ADD COLUMN IF NOT EXISTS teams_reaction VARCHAR DEFAULT ''",
+        "ALTER TABLE perf_kudos_thanks ADD COLUMN IF NOT EXISTS teams_reply_id VARCHAR DEFAULT ''",
+        "ALTER TABLE teams_user_map ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE teams_subscriptions ENABLE ROW LEVEL SECURITY",
         # Automatic scheduling (Neil, 11/08/2026): a task's mode and its lags
         # per predecessor - every existing task stays manual. models.Task,
         # task_schedule.py.
@@ -4890,6 +4913,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] ticket teams DM queue skipped: {e}")
         try:
+            # Kudos on Teams (Neil, 11/12/2026): reactions and replies back as
+            # thanks, and the Graph subscriptions kept renewed.
+            from perf_kudos_teams import kudos_teams_loop
+            _tasks.append(_a.create_task(kudos_teams_loop()))
+        except Exception as e:
+            print(f"[startup] kudos Teams sync skipped: {e}")
+        try:
             from daily_briefing import daily_briefing_loop
             _tasks.append(_a.create_task(daily_briefing_loop()))
         except Exception as e:
@@ -5723,6 +5753,7 @@ app.include_router(task_config.view_router)   # What's New, read side: every sig
 app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 app.include_router(github_webhook.router) # PR/push merged to dev/main: public webhook receiver (verified by HMAC)
+app.include_router(teams_webhook.router) # Graph change notifications for kudos posts in Teams (Neil, 11/12/2026)
 app.include_router(construction.router)  # Construction: projects, daily logs, jobsite media
 app.include_router(egnyte_oauth_router.router)        # Per-user Egnyte connection (browse with YOUR OWN Egnyte permissions)
 app.include_router(egnyte_oauth_router.public_router) # OAuth callback - Egnyte redirects a browser here, no bearer token

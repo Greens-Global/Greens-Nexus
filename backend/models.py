@@ -9745,6 +9745,14 @@ class PerfKudos(Base):
     # the recipient first saw it (the moment card shows an unseen one once).
     value       = Column(String, default="")
     seen_at     = Column(String, default="")
+    # Kudos on Teams (Neil, 11/12/2026, perf_kudos_teams.py): where the post
+    # went ({type, teamId, convId, url, poster, others, ignore}), its message
+    # id (what a Graph change notification names) and when it is next read
+    # back - reactions and replies there come home as thanks.
+    teams_post        = Column(JSON, default=dict)
+    teams_message_id  = Column(String, default="", index=True)
+    teams_sync_due_at = Column(String, default="", index=True)
+    teams_synced_at   = Column(String, default="")
 
 
 class PerfKudosThanks(Base):
@@ -9758,6 +9766,12 @@ class PerfKudosThanks(Base):
     from_email  = Column(String, nullable=False, index=True)
     note        = Column(String, default="")                            # <= 200 chars
     created_at  = Column(String, default="")
+    # Kudos on Teams (Neil, 11/12/2026): 'teams' when it came from a reaction
+    # or reply there ('' = Nexus); the reaction it is mirrored by, either way
+    # ('' = none yet); the thread reply that carries its note.
+    via            = Column(String, default="")
+    teams_reaction = Column(String, default="")
+    teams_reply_id = Column(String, default="")
 
 
 class PerfPlan(Base):
@@ -10317,3 +10331,34 @@ class TaskProjectBaseline(Base):
     taken_at   = Column(String, default="")
     taken_by   = Column(String, default="")
     snapshot   = Column(JSON, default=list)   # [{id, title, start, due, assignee}]
+
+
+# ── Kudos on Teams (Neil, 11/12/2026, perf_kudos_teams.py) ──────────────────
+# Two plumbing tables for reading Teams back. New tables - explicit RLS lines
+# in main.py's Postgres list, on top of the _enable_rls_everywhere sweep.
+
+class TeamsUserMap(Base):
+    """A Microsoft Entra user id and the work email it belongs to, looked up
+    once through Graph and kept: a Teams reaction names its person only by
+    that id, and a mention needs it the other way round."""
+    __tablename__ = "teams_user_map"
+    aad_id       = Column(String, primary_key=True)
+    email        = Column(String, default="", index=True)
+    display_name = Column(String, default="")
+    updated_at   = Column(String, default="")
+
+
+class TeamsSubscription(Base):
+    """One live Graph change-notification subscription on a Teams channel's
+    (or chat's) messages, made with a member's delegated token and renewed
+    before it lapses. Only the SHA-256 of its clientState is kept."""
+    __tablename__ = "teams_subscriptions"
+    id                = Column(String, primary_key=True)                # Graph's subscription id
+    purpose           = Column(String, default="kudos", index=True)
+    target_key        = Column(String, default="", index=True)          # channel:<team>:<channel> | chat:<chat>
+    resource          = Column(String, default="")
+    owner_email       = Column(String, default="")                      # whose token made it (renews it)
+    client_state_hash = Column(String, default="")
+    expires_at        = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")

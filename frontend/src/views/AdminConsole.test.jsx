@@ -301,16 +301,16 @@ describe('AdminConsole', () => {
     expect(screen.queryByText('Daily Briefing')).not.toBeInTheDocument();
   });
 
-  it('Kudos Values is HR\'s; the Kudos Teams Chat group opens to a Super Administrator alone (mayOpen is the one rule, 11/08/2026)', async () => {
-    apiOverrides.perfSettings = () => Promise.resolve({ settings: { kudosValues: ['Ownership'], kudosTeamsChatId: '' }, canEdit: true, override: false, companies: [] });
+  it('Kudos Values is HR\'s; the Kudos on Teams group opens to a Super Administrator alone (mayOpen is the one rule, 11/08/2026)', async () => {
+    apiOverrides.perfSettings = () => Promise.resolve({ settings: { kudosValues: ['Ownership'], kudosTeamsChatId: '', kudosTeams: {} }, canEdit: true, override: false, companies: [] });
     asRole('administrator', { isGlobalAdmin: false });
     render(<AdminConsole activeSub="performance" onSubChange={() => {}} />);
     expect(await screen.findByRole('region', { name: 'Kudos Values' }, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Kudos Teams Chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Kudos on Teams' })).not.toBeInTheDocument();
     cleanup();
     asRole('administrator', { isGlobalAdmin: true });
     render(<AdminConsole activeSub="performance" onSubChange={() => {}} />);
-    expect(await screen.findByRole('region', { name: 'Kudos Teams Chat' }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Kudos on Teams' }, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Kudos Values' })).toBeInTheDocument();
   });
 
