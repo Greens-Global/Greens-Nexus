@@ -20,6 +20,7 @@ import Amount from './Amount';
 import { AvatarName } from '../../tasks/components';
 import { StatusLabel } from '../StatusLabel';
 import { WarnMark } from './warnMark';
+import { pill } from './dashboard/Bits';
 
 // A vendor's papers (Construction Round Two item 7, 11/05/2026): the same form
 // the job's Subs tab draws, on the vendor's own record - one row per VENDORID.
@@ -371,7 +372,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
         <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
           {KINDS.map((k) => (
             <button key={k.key} type="button" onClick={() => { setKind(k.key); setOpened(null); }} aria-pressed={kind === k.key}
-              style={{ ...control, cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: kind === k.key ? 700 : 500, border: `1px solid ${kind === k.key ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: kind === k.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', background: kind === k.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' }}>
+              style={pill(kind === k.key)}>
               {k.label}
             </button>
           ))}
@@ -379,7 +380,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
         <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
           {SECTIONS.map((s) => (
             <button key={s.key} type="button" onClick={() => setSection(s.key)} aria-pressed={section === s.key}
-              style={{ ...control, cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: section === s.key ? 700 : 500, border: `1px solid ${section === s.key ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: section === s.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', background: section === s.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' }}>
+              style={pill(section === s.key)}>
               {s.label}{s.key === 'requests' && reqStatus === 'pending' && requests?.length ? ` (${requests.length})` : ''}
             </button>
           ))}

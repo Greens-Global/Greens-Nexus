@@ -17,6 +17,7 @@ import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, u
 import { PersonSelect, DateField } from '../../tasks/components';
 import { CompletenessButton, CompletenessPanel, PFS_STALE_DAYS, flashRow, gapCount, pfsGaps, rowSelector } from './completeness';
 import HoldButton from '../../ui/HoldButton';
+import { pill } from './dashboard/Bits';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
 //
@@ -398,7 +399,7 @@ export default function PfsTab({ canEdit = false }) {
                 <div className="scroll-tabs" style={{ display: 'flex', gap: 4, flex: 1, minWidth: 0 }}>
                   {SECTIONS.map((s) => (
                     <button key={s.key} type="button" onClick={() => setSection(s.key)} aria-pressed={section === s.key}
-                      style={{ ...control, cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: section === s.key ? 700 : 500, border: `1px solid ${section === s.key ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: section === s.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', background: section === s.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' }}>
+                      style={pill(section === s.key)}>
                       {s.label}
                     </button>
                   ))}
