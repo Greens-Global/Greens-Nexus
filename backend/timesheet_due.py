@@ -21,9 +21,10 @@ active or onboarding, a period with no punch in it (the rule the manager's
 Time Sheets to Review list uses - timesheet_review.not_reviewed), a period
 ending before timesheet_review.REVIEW_LAUNCH, or a finalized period.
 
-How far back: every closed period since the review launch, up to
-LOOKBACK_CAP periods - a period stays until it is finalized, not only the
-last few (Neil: "continues to show up ... until the sheet is finalized").
+How far back: the period that just closed, and the current one on its last
+day - never an older closed period (Neil, 11/12/2026: "don't make old
+periods that are closed show up"). The period that just closed stays every
+day until it is finalized or the next period closes.
 
 States (one per period):
   closes_today  the current period's last day, not sent yet
@@ -49,7 +50,7 @@ from sqlalchemy.orm import Session
 
 from models import NexusEmployee, NexusNotification, TimePunch, TimesheetReview
 
-LOOKBACK_CAP = 26           # a year of bi-weekly periods, two years of months
+LOOKBACK = 1                # closed periods looked at: the one that just closed, never older (Neil, 11/12/2026)
 BELL_TYPE = "timecard_sign"  # the bell's notification type (kept from before 11/12/2026)
 
 ACTION_STATES = ("closes_today", "submit", "resubmit")
@@ -73,9 +74,9 @@ def _keeps_time_sheet(db: Session, email: str) -> bool:
     return not _tc().is_time_tracking_exempt(db, email)
 
 
-def _periods(db: Session, email: str, today: str, lookback: int = LOOKBACK_CAP) -> list:
+def _periods(db: Session, email: str, today: str, lookback: int = LOOKBACK) -> list:
     """[(start, end, pay_type, is_current)] - the current period, then every
-    closed one back to the review launch (at most `lookback`), oldest first."""
+    closed one back to the review launch (at most `lookback` of them), oldest first."""
     tsr = _tsr()
     s, e, pt = tsr.period_for(db, email, today)
     out = [(s, e, pt, True)]
@@ -107,7 +108,7 @@ def _last_round(r: TimesheetReview, actions: tuple) -> dict:
     return next((x for x in reversed(list(r.rounds or [])) if x.get("action") in actions), {})
 
 
-def due(db: Session, email: str, *, figures: bool = True, lookback: int = LOOKBACK_CAP) -> list:
+def due(db: Session, email: str, *, figures: bool = True, lookback: int = LOOKBACK) -> list:
     """The person's Time Sheets waiting on something, oldest first - one dict
     per period (see the module docstring). `figures`: also the hours, what
     blocks Submit, the approver's name and the Extra Time count (the bell
@@ -200,7 +201,7 @@ def bell_for(db: Session, email: str) -> dict | None:
     closed, while it has not been sent. ref_id is the period start (the last
     day) or `<start>:closed` (the day after), so each is sent once."""
     tsr = _tsr()
-    for row in due(db, email, figures=False, lookback=1):   # only the period that just closed matters
+    for row in due(db, email, figures=False):
         today = row["today"]
         label = f"{tsr.us_date(row['start'])} - {tsr.us_date(row['end'])}"
         action = {"view": "timeclock", "sub": "timesheet", "email": (email or "").lower(),

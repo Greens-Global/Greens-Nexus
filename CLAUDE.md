@@ -636,8 +636,9 @@ keep the diff minimal.
   Review" under Updates), the Weekly Digest, My Briefing / My Day and the
   bell. Every pay type (hourly, salaried bi-weekly or monthly, contractors
   incl. India), the person's own local date, a period with a punch in it,
-  from the period's last day until it is finalized (every closed period
-  since `REVIEW_LAUNCH`); never the exempt or people who left. Each row
+  from the period's last day until it is finalized or the next period
+  closes - only the period that just closed, never an older one (Neil,
+  11/12/2026); never the exempt or people who left. Each row
   carries a `cta` - one solid button (Review and Submit / Fix and Submit /
   Review and Resubmit / Sign Time Sheet) to `/timeclock/timesheet?start=
   &type=&do=submit`, which focuses Send to Manager and never submits by

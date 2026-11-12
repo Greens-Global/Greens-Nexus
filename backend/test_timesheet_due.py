@@ -140,21 +140,25 @@ class WhenItShowsTests(_Case):
         self.assertIn("no clock-out", row["detail"])
         self.assertEqual(row["cta"][0], "Fix and Submit")
 
-    def test_every_open_period_stays_until_it_is_finalized(self):
+    def test_only_the_period_that_just_closed_never_an_older_one(self):
+        # Neil, 11/12/2026: "don't make old periods that are closed show up".
         self.person()
-        self.shift("2026-10-20")
-        self.shift("2026-11-03")
+        self.shift("2026-10-20")      # 10/18 - 10/31, closed before the last one
+        self.shift("2026-11-03")      # 11/01 - 11/14, just closed
         self.on("2026-11-20")
-        rows = self.rows()
-        self.assertEqual([r["title"] for r in rows], ["Submit Your Time Sheet"] * 2)
-        self.assertIn("10/18/2026 - 10/31/2026 ended 10/31/2026", rows[0]["detail"])   # oldest first
-        self.assertIn("11/01/2026 - 11/14/2026", rows[1]["detail"])
-        # The October period finalized: only November is left.
-        self.db.add(models.TimeApproval(id="fin-1", employee_email=EMP, period_start="2026-10-18",
-                                        period_end="2026-10-31", approved_by="hr@x.com", kind="final",
-                                        approved_at="2026-11-02T00:00:00", revoked=0))
+        [row] = self.rows()
+        self.assertIn("11/01/2026 - 11/14/2026", row["detail"])
+        # It stays every day until it is finalized...
+        self.db.add(models.TimeApproval(id="fin-1", employee_email=EMP, period_start="2026-11-01",
+                                        period_end="2026-11-14", approved_by="hr@x.com", kind="final",
+                                        approved_at="2026-11-18T00:00:00", revoked=0))
         self.db.commit()
-        self.assertEqual(len(self.rows()), 1)
+        self.assertEqual(self.rows(), [])
+        # ...and October never comes back, finalized or not.
+        self.on("2026-11-03")
+        self.assertEqual([r["title"] for r in self.rows()], ["Submit Your Time Sheet"])   # October is the one that just closed then
+        self.on("2026-11-16")
+        self.assertEqual(self.rows(), [])
 
     def test_nothing_before_time_sheet_review_began(self):
         self.person()
