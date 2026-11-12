@@ -645,12 +645,10 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
     <div style={{ display: 'grid', gap: 10 }}>
       <style>{GRID_CSS}</style>
       {fullWidth && <style data-testid="ama-full-width">{FULL_WIDTH_CSS}</style>}
-      <div>
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>Ask My Accountant</h3>
-        <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          Lines parked on the Ask My Accountant account, and questions asked on any ledger line, until the accountant says where they belong.
-        </p>
-      </div>
+      {/* No heading of its own (11/11/2026, picture 1): the page line names the page. */}
+      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+        Lines parked on the Ask My Accountant account, and questions asked on any ledger line, until the accountant says where they belong.
+      </p>
 
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <div role="tablist" aria-label="Status" className="scroll-tabs" style={{ display: 'inline-flex', gap: 4 }}>

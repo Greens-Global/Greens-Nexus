@@ -404,4 +404,27 @@ describe('Accounting navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
     expect(menuLabels('Reports')).toEqual(['All Reports', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Tax']);
   });
+
+  // Picture 1 (11/11/2026, Neil: "Page Line is OK"): one grey line names the
+  // page in the menu's words; a menu name opens that menu; the bar never changes.
+  it('names the page in one line, and its menu name opens that menu', async () => {
+    const { unmount } = render(<Harness start="mre" />);
+    await screen.findByTestId('tab-mre');
+    const line = screen.getByRole('navigation', { name: 'This page' });
+    expect(line.textContent).toBe('TrackersMonthly Recurring Expenses');
+    expect(within(line).getByText('Monthly Recurring Expenses').getAttribute('aria-current')).toBe('page');
+    fireEvent.click(within(line).getByRole('button', { name: 'Open the Trackers menu' }));
+    expect(menuLabels('Trackers')).toContain('Monthly Recurring Expenses');
+    unmount();
+    render(<Harness start="rpt-bank-activity:11310:32000:2026-09-01:2026-09-30" />);
+    await screen.findByTestId('tab-reports');
+    expect(screen.getByRole('navigation', { name: 'This page' }).textContent).toBe('ReportsLedger & BankingBank Activity');
+    expect(screen.getByRole('button', { name: /^Reports/ }).textContent).toBe('Reports');
+  });
+
+  it('draws no page line for a link that no menu holds', async () => {
+    render(<Harness start="rpt-pnl" />);
+    await screen.findByTestId('tab-reports');
+    expect(screen.queryByRole('navigation', { name: 'This page' })).toBeNull();
+  });
 });

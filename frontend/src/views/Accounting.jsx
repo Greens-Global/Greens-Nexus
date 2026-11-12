@@ -1,7 +1,7 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Activity, ArrowLeftRight, Banknote, BookOpen, Building2, Calculator, ChartColumn, CheckSquare, CreditCard, Database, FileStack, FileText,
+  Activity, ArrowLeftRight, Banknote, BookOpen, Building2, Calculator, ChartColumn, CheckSquare, ChevronRight, CreditCard, Database, FileStack, FileText,
   Hammer, HandCoins, Handshake, KeyRound, Landmark, LayoutGrid, Library, ListChecks, MessageCircleQuestion, PieChart, Receipt,
   ReceiptText, Scale, ShieldCheck, Split, Target, TrendingUp, Upload, UserPen, Users, Wallet, Wrench,
 } from 'lucide-react';
@@ -257,6 +257,39 @@ const isReports = (key) => String(key || '').startsWith('rpt-');
 const rptKey = (key) => (String(key || '').startsWith('rpt-') ? key.slice(4).split(':')[0] : null);
 /** The menu item a sub key lights: `rpt-bank-activity:11310` lights Bank Activity. */
 const menuKey = (key) => (String(key || '').startsWith('rpt-') ? key.split(':')[0] : key);
+
+/** The menu items from the bar down to `key`, or null when no menu holds it. */
+function pathTo(items, key, trail = []) {
+  for (const it of items) {
+    if (it.key === key) return [...trail, it];
+    const below = it.items && pathTo(it.items, key, [...trail, it]);
+    if (below) return below;
+  }
+  return null;
+}
+
+// 11/11/2026 (Neil approved picture 1, "Page Line is OK"): one small grey
+// line names the page - menu, group, page, in the menu's own words. It sits in
+// the page's top padding (style.css "Accounting page line"), so nothing moves,
+// and the header is untouched. A menu name opens that menu in the header.
+function PageLine({ tabs, active }) {
+  const path = pathTo(tabs, active);
+  if (!path || path.length < 2) return null;
+  const openMenu = () => {
+    const root = document.querySelector('.top-header') || document;
+    [...root.querySelectorAll('button[aria-haspopup="menu"]')].find((b) => b.textContent.trim().startsWith(path[0].label))?.click();
+  };
+  return (
+    <nav className="acct-page-line" aria-label="This page">
+      {path.map((it, i) => (
+        <Fragment key={it.key}>
+          {i > 0 && <ChevronRight size={12} aria-hidden="true" />}
+          {i === path.length - 1 ? <span aria-current="page">{it.label}</span> : <button type="button" onClick={openMenu} aria-label={`Open the ${path[0].label} menu`}>{it.label}</button>}
+        </Fragment>
+      ))}
+    </nav>
+  );
+}
 /** The statement a `rpt-` key opens: its own, or its quick view's. Unknown -> null. */
 const reportOf = (key) => {
   const k = rptKey(key);
@@ -464,6 +497,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       })()}
 
       {access && <ModuleTabs tabs={withBadges(tabs, counts, 'accounting')} active={menuKey(sub)} onChange={onSubChange} compactGroups />}
+      {access && <PageLine tabs={tabs} active={menuKey(sub)} />}
 
       {!access ? (
         <div style={{ marginTop: 16 }}><SkeletonBlocks count={3} /></div>
