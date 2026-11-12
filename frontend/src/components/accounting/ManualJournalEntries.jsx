@@ -113,12 +113,17 @@ export default function ManualJournalEntries() {
   }, [rows, grouped]);
   const total = Math.round(rows.reduce((s, r) => s + (Number(r.amount) || 0), 0) * 100) / 100;
 
-  // The entry on the Nexus ledger copy: found by its journal, date and number.
+  // The entry on the Nexus ledger copy: found by its journal, date and
+  // Intacct record number. The copy keys an entry by Intacct's internal
+  // RECORDNO (batch_no 1296360, "IA-1296360"), not by the journal's entry
+  // number on this list (94899) - searching by that found nothing, so every
+  // entry said "not on the ledger copy yet" (11/11/2026). Only an exact match
+  // opens: never the first line of whatever the search returned.
   const open = async (r) => {
     setOpening(r.recordNo);
     try {
-      const d = await api.searchAccountingLedger({ q: String(r.batchNo), journal: r.journal, from: r.date, to: r.date, limit: 50, offset: 0 });
-      const hit = (d?.rows || []).find((l) => String(l.batch_no || l.entry_no) === String(r.batchNo)) || (d?.rows || [])[0];
+      const d = await api.searchAccountingLedger({ q: String(r.recordNo), journal: r.journal, from: r.date, to: r.date, limit: 50, offset: 0 });
+      const hit = (d?.rows || []).find((l) => String(l.batch_no) === String(r.recordNo));
       if (hit?.entry_id) setEntry({ id: hit.entry_id, no: hit.entry_no });
       else setRes((x) => ({ ...x, error: `Entry ${r.batchNo} is not on the Nexus ledger copy yet - it syncs from Intacct.` }));
     } catch (e) {
