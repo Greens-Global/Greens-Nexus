@@ -10513,3 +10513,14 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
    a name box (Neil, 11/11/2026 - named on Close, not before). */
 .nx-newdoc-name { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2, rgba(0,0,0,.03)); font-size: 12px; color: var(--muted); }
 .nx-newdoc-name strong { color: var(--ink); font-weight: 600; word-break: break-word; }
+
+/* Accounting page line (11/11/2026, picture 1): "Trackers > Monthly Recurring
+   Expenses" in the page's top padding. The negative top margin equals the
+   line's height plus its gap, so the page below does not move; every
+   computer padding (32 / 24 / 18px) has room for it. Phones put it in the flow. */
+.acct-page-line { display: flex; align-items: center; gap: 4px; min-width: 0; height: 16px; margin: -18px 0 2px; font-size: 12px; line-height: 16px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; }
+.acct-page-line button { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.acct-page-line button:hover { color: var(--text-primary); text-decoration: underline; }
+.acct-page-line [aria-current="page"] { color: var(--text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.acct-page-line svg { flex: none; opacity: 0.6; }
+@media (max-width: 640px) { .acct-page-line { margin: 0 0 8px; } }
