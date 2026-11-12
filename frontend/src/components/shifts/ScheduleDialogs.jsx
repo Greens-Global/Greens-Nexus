@@ -79,7 +79,7 @@ export function CopyModal({ groups, defaultStart, defaultEnd, busy, onApply, onC
           <label style={CHECK}><input type="checkbox" checked={skipHol} onChange={(e) => setSkipHol(e.target.checked)} /> Skip each person&apos;s company holidays</label>
           <label style={CHECK}><input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} /> Replace shifts that are already there (otherwise keep them)</label>
           <label style={CHECK}><input type="checkbox" checked={copyOff} onChange={(e) => setCopyOff(e.target.checked)} /> Copy approved time off too (as requests to approve)</label>
-          <div style={{ fontSize: 11.5, color: overlaps || span > 31 ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
+          <div style={{ fontSize: 12, color: overlaps || span > 31 ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
             {span > 31 ? 'Copy at most 31 days at a time.'
               : overlaps ? 'The copy would land on the dates it copies from - pick a later start.'
                 : lastDay ? `Lands on ${formatDate(target)} - ${formatDate(lastDay)}.` : ''}
@@ -207,7 +207,7 @@ export function BulkModal({ groups, shifts, allEmails, defaultGroupId = '', usua
             <label style={{ flex: 1 }}><div style={LBL}>To</div><DateField value={to} onChange={(v) => setTo(v || '')} placeholder="MM/DD/YYYY" title="To" style={INPUT} /></label>
           </div>
           {usual ? (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Each person on the days their usual hours cover.</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>Each person on the days their usual hours cover.</div>
           ) : (
             <div>
               <div style={LBL}>Days of Week</div>

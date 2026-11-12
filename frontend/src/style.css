@@ -10535,6 +10535,8 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .acct-page-line svg { flex: none; opacity: 0.6; }
 /* Phones: the line is in the flow and wraps, so a long name ("Income Statement - Year to Date vs. Prior Year") is read whole. */
 @media (max-width: 640px) { .acct-page-line { margin: 0 0 8px; height: auto; flex-wrap: wrap; white-space: normal; } }
+/* Phones: Packages' list and form stack (11/11/2026) - the inline grids beside each other cut the form off at 390px. */
+@media (max-width: 640px) { .acct-packages, .acct-packages-form { grid-template-columns: 1fr !important; } }
 
 /* ── Type scale (Neil, 11/12/2026) ─────────────────────────────────────────
    The only text sizes in Nexus - the same numbers as FS in lib/typeScale.js.

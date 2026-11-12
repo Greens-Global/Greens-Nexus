@@ -948,11 +948,16 @@ describe('Views, options, export, drag', () => {
 
   it('drags a shift to another person to move it, or copies with Ctrl', async () => {
     timeSchedule.mockResolvedValue(data([shift()]));
+    // The first save is slow on purpose, like a busy CI runner: while it is in
+    // flight the grid shows a live copy and marks s1 pending delete (no drag
+    // handle), so the Ctrl-drag must wait for it to settle.
+    timeSchedMove.mockImplementationOnce(() => new Promise((r) => setTimeout(() => r({ moved: true, sourcePending: false }), 100)));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     pointerDrag(blockOf('s1'), cellOf('bob@greensglobal.com'));
     await waitFor(() => expect(timeSchedMove).toHaveBeenCalledWith('s1', { employee_email: 'bob@greensglobal.com', work_date: monday, duplicate: false }));
     expect(screen.queryByRole('dialog')).toBeNull();   // the release did not open the day under it
+    await waitFor(() => expect(document.querySelector('[data-shift^="live-"]')).toBeNull());
     pointerDrag(blockOf('s1'), cellOf('bob@greensglobal.com'), { ctrlKey: true });
     await waitFor(() => expect(timeSchedMove).toHaveBeenLastCalledWith('s1', expect.objectContaining({ duplicate: true })));
     expect(toastOk).toHaveBeenCalledWith('Shift copied here as a draft.');

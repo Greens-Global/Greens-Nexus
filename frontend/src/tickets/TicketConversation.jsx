@@ -117,7 +117,7 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
                     <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{nameOf(c.authorId) || c.authorId}</span>
                     {c.internal && <span style={{ ...chip(NX.amber, 'rgba(245,158,11,0.16)'), display: 'inline-flex', alignItems: 'center', gap: 3 }}><Lock size={10} /> Internal Note</span>}
                     {newSince !== undefined && (c.createdAt || '') > newSince && (
-                      <span style={{ ...chip(NX.blue, 'rgba(37,99,235,0.14)'), fontSize: 10.5 }}>New</span>
+                      <span style={{ ...chip(NX.blue, 'rgba(37,99,235,0.14)'), fontSize: 11 }}>New</span>
                     )}
                     <span style={{ fontSize: 11, color: NX.faint }}>{formatDateTime(c.createdAt)}</span>
                     {canDelete && (

@@ -538,8 +538,8 @@ export default function TicketsView() {
 
   // Compact controls for the floating bulk-action pill - smaller than the
   // standard form idiom so a handful of them fit in one tight row.
-  const compactSelStyle = { ...inputStyle, width: 'auto', cursor: 'pointer', appearance: 'auto', color: NX.ink, fontSize: 12.5, padding: '5px 8px', borderRadius: 8 };
-  const compactBtnStyle = { ...btn('ghost'), color: NX.surface, background: 'color-mix(in srgb, var(--nx-surface) 14%, transparent)', fontSize: 12.5, padding: '5px 9px', gap: 5 };
+  const compactSelStyle = { ...inputStyle, width: 'auto', cursor: 'pointer', appearance: 'auto', color: NX.ink, fontSize: 13, padding: '5px 8px', borderRadius: 8 };
+  const compactBtnStyle = { ...btn('ghost'), color: NX.surface, background: 'color-mix(in srgb, var(--nx-surface) 14%, transparent)', fontSize: 13, padding: '5px 9px', gap: 5 };
 
   // Bulk selection (list view only). Selection is cleared when it no longer matches.
   const toggleSel = useCallback((id) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }), []);
@@ -694,7 +694,7 @@ export default function TicketsView() {
           <Search size={16} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: NX.faint, pointerEvents: 'none' }} />
           <input type="text" inputMode="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…"
             aria-label="Search tickets" enterKeyHint="search"
-            style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', fontSize: 16, padding: '9px 40px 9px 34px', WebkitAppearance: 'none', appearance: 'none' }} />
+            style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', fontSize: 16, padding: '9px 40px 9px 34px', WebkitAppearance: 'none', appearance: 'none' }} /> {/* type-ok: iOS zooms a field under 16px */}
           {search && (
             <button type="button" onClick={() => setSearch('')} aria-label="Clear search"
               style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0 }}>
@@ -754,7 +754,7 @@ export default function TicketsView() {
 
       {deskFilter === 'hr' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 16px 0', flexWrap: 'wrap' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: NX.ink,
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: NX.ink,
             background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.28)', borderRadius: 999, padding: '4px 6px 4px 11px' }}>
             HR Requests
             <button type="button" aria-label="Show All Tickets" title="Show All Tickets" onClick={() => setDeskFilter('all')}
@@ -886,7 +886,7 @@ export default function TicketsView() {
           maxWidth: 'calc(100% - 32px)', padding: '7px 10px', borderRadius: 12,
           background: NX.ink, color: NX.surface, boxShadow: '0 10px 28px rgba(0,0,0,0.28)',   // inverse of the page in either theme - #fff text vanished on dark mode's light pill
         }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', padding: '0 2px' }}>{selIds.length} selected</span>
+          <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', padding: '0 2px' }}>{selIds.length} selected</span>
           <TicketSelect command placeholder="Set status…" options={statusOptions()} style={compactSelStyle}
             onChange={(v) => bulkPatch({ status: v })} />
           <TicketSelect command placeholder="Set priority…" options={priorityOptions()} style={compactSelStyle}

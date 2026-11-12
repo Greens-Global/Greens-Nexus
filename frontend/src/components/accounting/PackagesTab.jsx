@@ -168,7 +168,7 @@ export default function PackagesTab() {
             </div>
           ) : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1fr) minmax(200px, 1.4fr)', gap: 10 }}>
+              <div className="acct-packages-form" style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1fr) minmax(200px, 1.4fr)', gap: 10 }}>
                 <div>
                   <label style={label} htmlFor="acct-pkg-name">Package Name</label>
                   <input id="acct-pkg-name" type="text" value={draft.name} maxLength={120} disabled={!canEdit} onChange={(e) => patch({ name: e.target.value })}

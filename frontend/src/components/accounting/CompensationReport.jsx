@@ -22,7 +22,7 @@ import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
 import SidePanel from './SidePanel';
 import EntryDetail from './EntryDetail';
 import { parkDrillReturn, requestReportDrill, takeDrillReturn } from './drill';
-import { Avatar } from '../../tasks/components';
+import { Avatar, DateField } from '../../tasks/components';
 import { formatHM, formatHoursHM } from '../../lib/hoursText';
 import { WarnMark } from './warnMark';
 
@@ -252,9 +252,9 @@ export default function CompensationReport() {
     <div ref={setBox} className="acct-fit-stack" data-testid="compensation-stack" style={fit}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <span style={inline}>
-          <input type="month" value={from} onChange={(e) => setRange([e.target.value, to])} style={control} aria-label="From Month" title="From Month" />
+          <span style={{ width: 130 }}><DateField monthOnly value={from} onChange={(v) => v && setRange([v, to])} title="From Month" style={{ ...control, width: '100%' }} /></span>
           to
-          <input type="month" value={to} onChange={(e) => setRange([from, e.target.value])} style={control} aria-label="To Month" title="To Month" />
+          <span style={{ width: 130 }}><DateField monthOnly value={to} onChange={(v) => v && setRange([from, v])} title="To Month" style={{ ...control, width: '100%' }} /></span>
         </span>
         <BarMore level={1} active={view !== 'people' ? 1 : 0}>
         <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="View">

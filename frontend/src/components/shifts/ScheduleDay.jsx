@@ -72,7 +72,7 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
     return (
       <div key={`open-${gid}`} style={{ ...GRID, borderBottom: '1px solid var(--line)', background: 'hsla(var(--color-green),0.03)' }}>
         <div style={{ ...STICKY_LEFT, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <CalendarRange size={13} color="var(--muted)" /><span style={{ fontSize: 12.5, fontWeight: 800 }}>Open Shifts</span>
+          <CalendarRange size={13} color="var(--muted)" /><span style={{ fontSize: 13, fontWeight: 800 }}>Open Shifts</span>
           <span style={{ fontSize: 11, color: 'var(--muted)' }}>{items.filter(counts).reduce((a, s) => a + (s.openSlots || 1), 0)} open</span>
         </div>
         {track('', gid, items)}
@@ -101,7 +101,7 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
             )}
           </div>
           <div data-hour-head="" style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', alignContent: 'start', borderLeft: '1px solid var(--line)', paddingBottom: nowAt ? NOW_ROW : 0 }}>
-            {HOURS.map((h) => <div key={h} style={{ padding: '8px 4px', fontSize: 10.5, color: 'var(--muted)', fontWeight: 700 }}>{formatHHMM(`${String(h).padStart(2, '0')}:00`).replace(':00', '')}</div>)}
+            {HOURS.map((h) => <div key={h} style={{ padding: '8px 4px', fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{formatHHMM(`${String(h).padStart(2, '0')}:00`).replace(':00', '')}</div>)}
             {nowAt && (
               <span className="nx-now-label" data-now-label="" style={{ left: `clamp(32px, ${nowLeft}, calc(100% - 32px))` }}>
                 <span className="dk-sr-only">Now </span>{nowAt.label}
@@ -113,7 +113,7 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
         {sections.map((g, gi) => (
           <div key={g.id || gi}>
             {!single && (
-              <div style={{ padding: '6px 12px', fontSize: 12.5, fontWeight: 800, background: 'var(--bg)', borderBottom: '1px solid var(--line)', position: 'sticky', left: 0 }}>
+              <div style={{ padding: '6px 12px', fontSize: 13, fontWeight: 800, background: 'var(--bg)', borderBottom: '1px solid var(--line)', position: 'sticky', left: 0 }}>
                 {g.name} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>· {g.members.length} {g.members.length === 1 ? 'person' : 'people'}</span>
               </div>
             )}
@@ -138,7 +138,7 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
             })}
           </div>
         ))}
-        {sections.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>Nobody matches the filter.</div>}
+        {sections.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Nobody matches the filter.</div>}
       </div>
     </div>
   );
