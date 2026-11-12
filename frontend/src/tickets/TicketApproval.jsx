@@ -70,11 +70,11 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
         <ShieldAlert size={15} style={{ color: meta.color }} />
         <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{meta.label}</span>
         {t.approverId && (
-          <span style={{ fontSize: 12.5, color: NX.dim }}>
+          <span style={{ fontSize: 13, color: NX.dim }}>
             {status === 'pending' ? 'waiting on ' : 'by '}<AvatarName email={t.approverId} name={nameOf(t.approverId)} size={18}>{mine ? 'you' : nameOf(t.approverId)}</AvatarName>
           </span>
         )}
-        {t.approvalDecidedAt && <span style={{ fontSize: 11.5, color: NX.faint, marginLeft: 'auto' }}>{fmtDate(t.approvalDecidedAt)}</span>}
+        {t.approvalDecidedAt && <span style={{ fontSize: 12, color: NX.faint, marginLeft: 'auto' }}>{fmtDate(t.approvalDecidedAt)}</span>}
       </div>
 
       {needsRouting ? (
@@ -95,7 +95,7 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
             </button>
           </>
         ) : (
-          <div style={{ fontSize: 12.5, color: NX.dim }}>
+          <div style={{ fontSize: 13, color: NX.dim }}>
             Waiting for IT to send this for approval. It can't be worked on until it's approved.
           </div>
         )
@@ -118,14 +118,14 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
             </div>
           </>
         ) : (
-          <div style={{ fontSize: 12.5, color: NX.dim }}>
+          <div style={{ fontSize: 13, color: NX.dim }}>
             This request can't be worked on until it's approved.
           </div>
         )
       ) : t.approvalNote ? (
-        <div style={{ fontSize: 12.5, color: NX.dim }}>“{t.approvalNote}”</div>
+        <div style={{ fontSize: 13, color: NX.dim }}>“{t.approvalNote}”</div>
       ) : null}
-      {err && <div style={{ marginTop: 8, fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</div>}
+      {err && <div style={{ marginTop: 8, fontSize: 13, color: NX.red, fontWeight: 600 }}>{err}</div>}
     </div>
   );
 }

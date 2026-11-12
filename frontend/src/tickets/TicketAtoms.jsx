@@ -54,7 +54,7 @@ export function TicketSelect({
   const renderOption = withDesc ? (o) => (
     <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
       <span style={{ fontWeight: 600 }}>{o.label}</span>
-      {o.desc && <span style={{ fontSize: 11.5, color: NX.dim, whiteSpace: 'normal', lineHeight: 1.35 }}>{o.desc}</span>}
+      {o.desc && <span style={{ fontSize: 12, color: NX.dim, whiteSpace: 'normal', lineHeight: 1.35 }}>{o.desc}</span>}
     </span>
   ) : undefined;
   return (
@@ -118,7 +118,7 @@ export function TicketPeopleMultiSelect({ value, onChange, options, placeholder 
     },
   });
   const pickTeam = (next, adding) => { onChange(next); if (adding) { setQ(''); queryRef.current?.focus(); } };
-  const caption = (text) => <div style={{ padding: '9px 12px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint }}>{text}</div>;
+  const caption = (text) => <div style={{ padding: '9px 12px 4px', fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint }}>{text}</div>;
   const row = (o, keyPrefix, navIndex) => {
     const on = picked.includes(o.id);
     return (
@@ -127,7 +127,7 @@ export function TicketPeopleMultiSelect({ value, onChange, options, placeholder 
           background: on ? `${NX.blue}12` : undefined, ...(isMobile ? { minHeight: 40, boxSizing: 'border-box' } : null) }}>
         <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontWeight: 600 }}>{o.label}</span>
-          {o.desc && <span style={{ fontSize: 11.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.desc}</span>}
+          {o.desc && <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.desc}</span>}
         </span>
         {on && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
       </div>
@@ -170,14 +170,14 @@ export function TicketPeopleMultiSelect({ value, onChange, options, placeholder 
               nav.onKeyDown(e);
             }}
             style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: isMobile ? '11px 12px' : '9px 12px',
-              fontSize: isMobile ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+              fontSize: isMobile ? 16 : 13, /* type-ok: iOS zooms a field under 16px */ fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
           {teams && <TeamPicks teams={teams} people={people} selected={picked} query={q} inset={12} rowPad="8px 12px"
             onSaveTeam={onSaveTeam} onChange={pickTeam} />}
           {top.length > 0 && caption(topLabel)}
           {top.map((o, i) => row(o, 'f:', i))}
           {top.length > 0 ? caption('All') : (teamRows > 0 && shown.length > 0 && caption('People'))}
           {shown.map((o, i) => row(o, '', top.length + i))}
-          {shown.length === 0 && teamRows === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>{query ? `No matches for “${q.trim()}”.` : emptyText}</div>}
+          {shown.length === 0 && teamRows === 0 && <div style={{ padding: '10px 12px', fontSize: 13, color: NX.faint }}>{query ? `No matches for “${q.trim()}”.` : emptyText}</div>}
         </SelectMenu>
       )}
     </div>
@@ -225,7 +225,7 @@ export function TypeFieldInput({ field: f, value, onChange, people, projects, in
       {f.options.map((o) => {
         const on = value === o;
         return <button type="button" key={o} onClick={() => onChange(on ? '' : o)} style={{
-          ...btn('ghost'), padding: '5px 11px', fontSize: 12.5, borderRadius: 20, border: `1px solid ${on ? NX.blue : NX.border}`,
+          ...btn('ghost'), padding: '5px 11px', fontSize: 13, borderRadius: 20, border: `1px solid ${on ? NX.blue : NX.border}`,
           background: on ? 'rgba(37,99,235,0.10)' : 'transparent', color: on ? NX.blue : NX.dim, fontWeight: on ? 700 : 600,
         }}>{o}</button>;
       })}
@@ -259,7 +259,7 @@ export function TypeFieldInput({ field: f, value, onChange, people, projects, in
         {f.options.map((o) => {
           const on = arr.includes(o);
           return <button type="button" key={o} onClick={() => onChange(on ? arr.filter((x) => x !== o) : [...arr, o])} style={{
-            ...btn('ghost'), padding: '5px 11px', fontSize: 12.5, borderRadius: 20, border: `1px solid ${on ? NX.blue : NX.border}`,
+            ...btn('ghost'), padding: '5px 11px', fontSize: 13, borderRadius: 20, border: `1px solid ${on ? NX.blue : NX.border}`,
             background: on ? 'rgba(37,99,235,0.10)' : 'transparent', color: on ? NX.blue : NX.dim, fontWeight: on ? 700 : 600,
           }}>{o}</button>;
         })}
