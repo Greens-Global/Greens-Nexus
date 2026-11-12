@@ -15,8 +15,8 @@ function Kpi({ value, note, delta, spark, sparkColor }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 8, height: '100%' }}>
       <div>
-        <div style={{ fontSize: '1.6rem', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 8px', fontSize: 12, color: 'var(--text-muted)' }}>
           <span>{note}</span>
           {delta}
         </div>

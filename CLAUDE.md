@@ -104,6 +104,44 @@ keep the diff minimal.
   standalone script that calls Anthropic, and never add credits, auto-reload
   or billing anywhere or suggest doing so - ask Neil. `test_ai_switch.py`
   pins it.
+- **Build Mode (Neil, 11/12/2026, `docs/Build-Mode.md` section 8).** It is
+  its OWN access: only an Access Group granting the `build-mode` module
+  opens it - no tier does by itself, Super Administrator included, and
+  never a new role. `build_mode_access_seed.apply_once` put the IT
+  development team (Visesh, Pranshu, Sagar) and Neil in the "Build Mode"
+  Access Group ONCE; change it in Settings, never in code. Send To Claude
+  Code may start a Claude Code CLOUD session for a developer
+  (`build_mode_cloud.py`, setup `docs/Build-Mode-Cloud-Setup.md`): the
+  developer saves their own scheduled task's Fire URL and token once and
+  the session runs on THEIR Claude subscription. This is not the AI switch
+  and not a way around it: no `ANTHROPIC_API_KEY`, no Nexus credits, no
+  Nexus AI feature, and the only address ever called is that developer's
+  own trigger - never add another Anthropic call beside it. The trigger
+  token is encrypted, never returned, never logged; one call per Send and
+  no retry (a second call is a second session on the same pins); a pin
+  goes to the cloud or to a terminal watcher, never both. Built the same day
+  (`docs/Build-Mode.md` 8.5 - 8.10), each Neil's call: **proof on the
+  pin** - a cloud session attaches the after picture and a clip
+  (`cli.py clip`, `record_clip.cjs`) and the author Accepts or Reopens on
+  the pin, no preview needed (`_checkable`); **Merge To Dev**
+  (`build_mode_merge.py`) - Super Administrators (tier 5) only, off until
+  `NEXUS_GITHUB_MERGE_TOKEN` is set, only a pin's own PR into `dev` with
+  every check green, pinned to the commit that was looked at, ONE GitHub
+  call never retried, the team-chat heads-up kept only when the merge went
+  through, a hold to confirm - never widen who may merge and never merge to
+  `main`; **everyone outside IT comes in through a TICKET**, never straight
+  to Claude Code: Point At It on Create a Ticket (`tickets/pointAtIt.js`,
+  the "Where:" line `build_mode_tickets.parse_where` reads back - change
+  both together) and Send To Claude Code on a ticket (grant holders; ONE
+  pin with its own COPIES of the pictures, so the pin's purge never takes
+  ticket evidence; the ticket hears only through its activity - never a
+  comment, a bell or a status change; never an Ask HR ticket); production
+  builds carry **source marks** (`VITE_NX_SRC` in `deploy-cloudflare.yml`
+  AND `archive-assets.yml` - the two must match); the **connector**
+  (`routers/build_mode_connector.py`, `docs/Build-Mode-Connector.md`)
+  reaches Build Mode pins ONLY, by Build Token, off until
+  `NEXUS_BUILD_CONNECTOR=true` - never add a tool that touches anything
+  else in Nexus.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,
@@ -254,7 +292,8 @@ keep the diff minimal.
   `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
   Shrink / Expand button; short answers keep the small card
   (`support/HelpWidget.jsx`).
-- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter and every
+- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter, bundled
+  with the app (`src/fonts.css` - never Google Fonts or a second family), and every
   text size is on the scale - `FS` in `lib/typeScale.js` (meta 11, label 12,
   body 13, read 14, title 15, section 18, page 24, figure 32) or the `--fs-*`
   tokens. `scripts/check-type.mjs` (in `npm run lint`) fails a new off-scale
@@ -663,6 +702,21 @@ keep the diff minimal.
   `/my-timecard/sign` returns 410; never add a signing path around this.
   `test_timesheet_review_matrix` drives every state x actor x action - keep it
   passing so nobody gets stuck.
+- **"Submit Your Time Sheet" reminders (Neil, 11/12/2026,
+  `timesheet_due.py`):** ONE rule for a person's own Time Sheets waiting on
+  them, read by the Daily Briefing (Action Required; "With <manager> for
+  Review" under Updates), the Weekly Digest, My Briefing / My Day and the
+  bell. Every pay type (hourly, salaried bi-weekly or monthly, contractors
+  incl. India), the person's own local date, a period with a punch in it,
+  from the period's last day until it is finalized or the next period
+  closes - only the period that just closed, never an older one (Neil,
+  11/12/2026); never the exempt or people who left. Each row
+  carries a `cta` - one solid button (Review and Submit / Fix and Submit /
+  Review and Resubmit / Sign Time Sheet) to `/timeclock/timesheet?start=
+  &type=&do=submit`, which focuses Send to Manager and never submits by
+  itself. The Time Sheet table leads Action Required. The bell fires on
+  the last day and the day after close; Submit / Approve settle it
+  (`settle_bells`). Never add a second reminder rule.
 - HR signing order (Neil, Oct 22 2026): the company NEVER signs before the
   employee - no pre-signed or countersigned document is ever sent out. An
   offer letter is signed by the candidate only (no company signer, no Signs
@@ -949,9 +1003,23 @@ keep the diff minimal.
   record_links' task walls; the Transcript Ready bell is OPT-IN per person
   (`meeting_notes.alerts:<email>`) and its pass (`meeting_ready_loop`) asks
   Teams for the transcript LIST only, never the words, and bells once.
-  TESTERS FIRST: only the emails in the `meeting_notes.access`
-  nexus_settings row (per database; `"everyone": true` opens it) may use
-  it - `meetings.may_use`, never a code default.
+  WHO HAS IT: the `meeting_notes.access` nexus_settings row (per database)
+  - `"everyone": true` on dev and prod since 11/12/2026 (Neil: "Open it to
+  everyone now"), after a testers-only start; `meetings.may_use` reads it,
+  never a code default. Set `"everyone": false` to go back to the listed
+  `emails` only.
+  Phase 3 (Neil, 11/12/2026): meetings outside Teams are transcribed ON THE
+  DEVICE - Whisper in a Web Worker (`notes/meetings/capture/`), the
+  browser's own speech service only as the fallback. This is NOT the
+  Anthropic key and spends nothing (Neil chose it); never move it to a
+  server or a paid API. The text lives in `nexus_meeting_transcripts` (RLS
+  on dev and prod) - words only, NEVER the audio; every session needs the
+  consent box (refused without it, who and when kept). The runtime and model
+  come only through `functions/ml/[[path]].js` (pinned versions, runtime
+  SHA-256 checked, listed files only) - never a CDN in the page, never a
+  `blob:` script (`env.useWasmCache = false`). The consent question sets
+  `backToClose={false}`: over the phone's note sheet, taking its Back entry
+  off closed the note.
 
 - **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
   `routers/documents.py`, `components/DocumentsBrowser.jsx`,

@@ -261,8 +261,8 @@ function DateTimeStack({ value, strong }) {
   if (!value) return <span style={{ color: NX.faint }}>-</span>;
   return (
     <div style={{ lineHeight: 1.3 }}>
-      <div style={{ fontSize: 12.5, color: strong ? NX.ink : NX.dim, fontWeight: strong ? 700 : 500 }}>{formatDate(value)}</div>
-      <div style={{ fontSize: 11.5, color: NX.faint }}>{formatTime(value)}</div>
+      <div style={{ fontSize: 13, color: strong ? NX.ink : NX.dim, fontWeight: strong ? 700 : 500 }}>{formatDate(value)}</div>
+      <div style={{ fontSize: 12, color: NX.faint }}>{formatTime(value)}</div>
     </div>
   );
 }
@@ -304,7 +304,7 @@ const PHONE_SORTS = [
 ];
 const PHONE_SORT_VALUES = new Set(PHONE_SORTS.map((o) => o.value));
 // Finger-sized (44px) buttons on a phone card.
-const phoneBtn = { ...rowBtn, minHeight: 44, padding: '0 14px', fontSize: 13.5, borderRadius: 10, gap: 6 };
+const phoneBtn = { ...rowBtn, minHeight: 44, padding: '0 14px', fontSize: 13, borderRadius: 10, gap: 6 };
 
 export default function Support({ activeSub, onSubChange }) {
   const { can = () => false, isExternal = false } = useRole() || {};
@@ -648,21 +648,21 @@ export default function Support({ activeSub, onSubChange }) {
               <input type="text" className="form-input" value={search} onChange={(e) => setSearch(e.target.value)}
                 aria-label="Search your tickets" placeholder="Search ticket # or title..."
                 style={cardMode
-                  ? { width: '100%', minHeight: 44, paddingLeft: 36, fontSize: 16, borderRadius: 10, boxSizing: 'border-box' }
+                  ? { width: '100%', minHeight: 44, paddingLeft: 36, fontSize: /* type-ok: iOS zooms a field under 16px */ 16, borderRadius: 10, boxSizing: 'border-box' }
                   : { width: '100%', paddingLeft: 28, fontSize: 13 }} />
             </div>
           )}
           {/* Phone: the column headers' sort, as one box. */}
           {cardMode && tickets !== null && listed.length > 1 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, width: '100%' }}>
-              <span style={{ fontSize: 12.5, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 13, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
                 {visible.length} {visible.length === 1 ? 'Ticket' : 'Tickets'}
               </span>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.dim, fontWeight: 600, minWidth: 0 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.dim, fontWeight: 600, minWidth: 0 }}>
                 Sort
                 <select className="form-input" aria-label="Sort tickets" value={`${effSort.key}:${effSort.dir}`}
                   onChange={(e) => { const [key, dir] = e.target.value.split(':'); setSort({ key, dir }); setPage(1); }}
-                  style={{ fontSize: 16, padding: '9px 32px 9px 11px', borderRadius: 9, width: 'auto', maxWidth: 210, minWidth: 0 }}>
+                  style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, padding: '9px 32px 9px 11px', borderRadius: 9, width: 'auto', maxWidth: 210, minWidth: 0 }}>
                   {PHONE_SORTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </label>
@@ -689,7 +689,7 @@ export default function Support({ activeSub, onSubChange }) {
             <div style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>
               {listTab === 'open' ? 'Nothing open right now' : listTab === 'following' ? 'Not following any tickets' : 'No closed tickets yet'}
             </div>
-            <p style={{ fontSize: '0.85rem', margin: '0 0 14px' }}>
+            <p style={{ fontSize: 13, margin: '0 0 14px' }}>
               {listTab === 'open' ? 'Anything you submit shows up here with its status.'
                 : listTab === 'following' ? 'A ticket you raise for someone else, or are added to, shows up here until it is closed.'
                 : 'Tickets you confirm as resolved move here.'}
@@ -757,17 +757,17 @@ export default function Support({ activeSub, onSubChange }) {
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                           {when && (
-                            <span style={{ fontSize: 12.5, color: NX.faint, fontWeight: unread ? 700 : 500 }}>
+                            <span style={{ fontSize: 13, color: NX.faint, fontWeight: unread ? 700 : 500 }}>
                               {effSort.key === 'created' ? 'Created' : 'Updated'} {formatDate(when)} {formatTime(when)}
                             </span>
                           )}
                           {forOther && (
-                            <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>For {nameOf(t.requesterId) || t.requesterId}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>For {nameOf(t.requesterId) || t.requesterId}</span>
                           )}
                           {t.assigneeId && (
-                            <span style={{ fontSize: 12.5, color: NX.faint }}>Assigned To {nameOf(t.assigneeId) || t.assigneeId}</span>
+                            <span style={{ fontSize: 13, color: NX.faint }}>Assigned To {nameOf(t.assigneeId) || t.assigneeId}</span>
                           )}
-                          <ExpectReply t={t} style={{ fontSize: 12.5 }} />
+                          <ExpectReply t={t} style={{ fontSize: 13 }} />
                         </div>
                         {t.latestComment && (
                           <div className="hc-ticket-card-comment">
@@ -898,7 +898,7 @@ export default function Support({ activeSub, onSubChange }) {
                             <span className="nx-clamp-2" style={{ lineHeight: 1.35, overflowWrap: 'anywhere' }}>{t.subject}</span>
                             {forOther && (
                               <div title={(t.createdById || '').toLowerCase() === (myEmail || '').toLowerCase() ? 'You raised this on their behalf' : 'You are following this ticket'}
-                                style={{ fontSize: 11.5, fontWeight: 600, color: NX.dim, marginTop: 2 }}>
+                                style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginTop: 2 }}>
                                 For {nameOf(t.requesterId) || t.requesterId}
                               </div>
                             )}
@@ -908,7 +908,7 @@ export default function Support({ activeSub, onSubChange }) {
                                  instead of in columns of their own. */
                               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
                                 {tier === 'phone' && lastUpdated(t) && (
-                                  <span style={{ fontSize: 11.5, color: NX.faint, fontWeight: unread ? 700 : 500 }}>
+                                  <span style={{ fontSize: 12, color: NX.faint, fontWeight: unread ? 700 : 500 }}>
                                     Updated {formatDate(lastUpdated(t))}, {formatTime(lastUpdated(t))}
                                   </span>
                                 )}
@@ -965,7 +965,7 @@ export default function Support({ activeSub, onSubChange }) {
                   style={{ ...phoneBtn, justifyContent: 'center', opacity: pageSafe <= 1 ? 0.45 : 1, cursor: pageSafe <= 1 ? 'default' : 'pointer' }}>
                   <ChevronLeft size={16} /> Previous
                 </button>
-                <span style={{ fontSize: 12.5, color: NX.dim, fontWeight: 600, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 13, color: NX.dim, fontWeight: 600, textAlign: 'center', whiteSpace: 'nowrap' }}>
                   {(pageSafe - 1) * SUPPORT_PAGE_SIZE + 1}-{Math.min(pageSafe * SUPPORT_PAGE_SIZE, sorted.length)} of {sorted.length}
                 </span>
                 <button type="button" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={pageSafe >= pageCount}

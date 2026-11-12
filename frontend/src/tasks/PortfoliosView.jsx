@@ -123,7 +123,7 @@ function ProjectOverflowRow({ projects }) {
         </span>
       ))}
       {extra > 0 && (
-        <span ref={moreRef} style={{ fontSize: 11.5, fontWeight: 600, color: NX.faint, flexShrink: 0, whiteSpace: 'nowrap' }}>
+        <span ref={moreRef} style={{ fontSize: 12, fontWeight: 600, color: NX.faint, flexShrink: 0, whiteSpace: 'nowrap' }}>
           +{extra} more project{extra === 1 ? '' : 's'}
         </span>
       )}
@@ -268,8 +268,8 @@ export default function PortfoliosView({ onNavigate, actions }) {
       <div style={{ padding: isMobile ? '12px 12px 10px' : '20px 24px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Portfolios</div>
-            {!isMobile && <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>Group projects to track their combined progress.</div>}
+            <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Portfolios</div>
+            {!isMobile && <div style={{ fontSize: 13, color: NX.dim, marginTop: 4 }}>Group projects to track their combined progress.</div>}
           </div>
           {/* The module's Manage / Create (views/Tasks.jsx), on a computer. */}
           {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions(null)}</div>}
@@ -340,7 +340,7 @@ export default function PortfoliosView({ onNavigate, actions }) {
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
             <div className="nx-scroll" style={{ overflowX: 'auto' }}>
               <div ref={wrapRef} style={{ minWidth: isMobile ? 0 : 900, '--nx-grid': template }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'center', gap: 12, padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 13, fontWeight: 600, color: NX.dim }}>
                   {pfCols.map((c) => (
                     <TableHead key={c.key} label={c.label} sortKey={c.sort} sort={sort} setSort={setSort}
                       drag={dragProps(c.key, !c.fixed)}
@@ -476,7 +476,7 @@ function PortfolioRow({
           <GroupCheckbox ids={deepIds} selected={picked} onSet={onSetPicked}
             title={`Select every project under ${pf.name}`} />
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: depth ? 26 : 32, height: depth ? 26 : 32, borderRadius: 9, flexShrink: 0, background: `${accent}1a`, color: accent }}><Briefcase size={depth ? 14 : 16} /></span>
-          <span style={{ fontSize: depth ? 13.5 : 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pf.name}</span>
+          <span style={{ fontSize: depth ? 13 : 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pf.name}</span>
           {pf.archived && <span style={chip(NX.dim, NX.border2)}>Archived</span>}
         </div>
           ),
@@ -655,7 +655,7 @@ function PortfolioCard({ portfolio: pf, rollup: r, memberProjects, onOpen, onEdi
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <span title={pf.name} style={{ minWidth: 0, fontSize: 15.5, fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pf.name}</span>
+            <span title={pf.name} style={{ minWidth: 0, fontSize: 15, fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pf.name}</span>
             {pf.archived && <span style={{ ...chip(NX.dim, NX.border2), flexShrink: 0 }}>Archived</span>}
           </div>
           <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>
@@ -674,15 +674,15 @@ function PortfolioCard({ portfolio: pf, rollup: r, memberProjects, onOpen, onEdi
         <span style={{ width: 32, flexShrink: 0, textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{r.pct}%</span>
       </div>
       {r.overdue > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 7, fontSize: 11.5, fontWeight: 600, color: NX.red }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 7, fontSize: 12, fontWeight: 600, color: NX.red }}>
           <AlertTriangle size={12} />{r.overdue} overdue
         </div>
       )}
 
       <div style={{ marginTop: 14 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 7 }}>Projects</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 7 }}>Projects</div>
         {memberProjects.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet.</div>
+          <div style={{ fontSize: 13, color: NX.faint }}>No projects yet.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
             {shown.map((p) => (
@@ -773,7 +773,7 @@ function PortfolioModal({ portfolio, defaultParentId = '', people, projects, onC
     catch (e) { setBusy(false); alert('Could not delete portfolio.'); }
   };
 
-  const label = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+  const label = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
   return (
     <Modal
@@ -893,10 +893,10 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 42, height: 42, borderRadius: 11, flexShrink: 0, background: `${accent}1a`, color: accent }}><Briefcase size={21} /></span>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 19, fontWeight: 700 }}>{pf.name}</span>
+              <span style={{ fontSize: 18, fontWeight: 700 }}>{pf.name}</span>
               {pf.archived && <span style={chip(NX.dim, NX.border2)}>Archived</span>}
             </div>
-            <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 2 }}>{rows.length ? ids.length : 0} projects · {agg.total} tasks · {agg.pct}% complete</div>
+            <div style={{ fontSize: 13, color: NX.dim, marginTop: 2 }}>{rows.length ? ids.length : 0} projects · {agg.total} tasks · {agg.pct}% complete</div>
           </div>
           <button onClick={onEdit} style={btn('outline')}><Pencil size={15} />Edit Portfolio</button>
           <button onClick={() => setManaging(true)} style={btn('primary')}><FolderKanban size={15} />Manage Projects</button>
@@ -941,7 +941,7 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
                       <ProgressBar stats={pr} project={p} size="sm" label={`${p.name} tasks complete`} />
-                      <span style={{ fontSize: 11.5, color: NX.dim, minWidth: 68, textAlign: 'right' }}>{pr.completed}/{pr.total} · {pr.pct}%</span>
+                      <span style={{ fontSize: 12, color: NX.dim, minWidth: 68, textAlign: 'right' }}>{pr.completed}/{pr.total} · {pr.pct}%</span>
                     </div>
                   </div>
                   {pr.overdue > 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: NX.red, flexShrink: 0 }}><AlertTriangle size={12} />{pr.overdue}</span>}
@@ -1014,7 +1014,7 @@ function ManageProjectsModal({ allProjects, currentIds, onClose, onSave }) {
               <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', borderRadius: 9, border: `1px solid ${on ? NX.ink : NX.border}`, cursor: 'pointer', background: on ? NX.hover : NX.surface }}>
                 <input type="checkbox" className="nx-check" checked={on} onChange={() => toggle(p.id)} style={{ cursor: 'pointer' }} />
                 <ProjectIcon project={p} size={15} fallbackColor={NX.faint} />
-                <span style={{ fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                 {p.archived && <span style={{ ...chip(NX.dim, NX.border2), marginLeft: 'auto' }}>Archived</span>}
               </label>
             );

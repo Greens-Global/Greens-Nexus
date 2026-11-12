@@ -499,7 +499,7 @@ Use Cubby's date?`)) {
         {b.audit?.length > 0 && (
           <details>
             <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>History</summary>
-            <ul style={{ fontSize: 12.5, color: 'var(--muted)', paddingLeft: 18 }}>
+            <ul style={{ fontSize: 13, color: 'var(--muted)', paddingLeft: 18 }}>
               {b.audit.map((a, i) => (
                 <li key={i}>{formatDateTime(a.at)} - {a.actor} - {a.action.replace('_', ' ')}{a.detail?.unit ? ` (${a.detail.unit})` : ''}{a.detail?.error ? `: ${a.detail.error}` : ''}</li>
               ))}

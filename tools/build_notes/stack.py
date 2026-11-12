@@ -19,6 +19,37 @@ import urllib.request
 from pathlib import Path
 
 
+# Windows (11/12/2026): the same tools on a Windows laptop. A virtualenv's
+# python is Scripts/python.exe, npm / npx / vite are .cmd shims that
+# CreateProcess will not start by their bare name, there are no process
+# groups or SIGKILL, and - the one that bites - os.kill(pid, 0) does not ASK
+# whether a process is alive on Windows, it TERMINATES it. Every place that
+# differs asks these helpers; nothing else in the tools checks the platform.
+WINDOWS = os.name == "nt"
+_CMD_SHIMS = ("npm", "npx")
+
+
+def venv_python(root):
+    """backend/.venv's python under a checkout."""
+    venv = Path(root) / "backend" / ".venv"
+    return venv / "Scripts" / "python.exe" if WINDOWS else venv / "bin" / "python"
+
+
+def node_bin(frontend, name):
+    """A package's command under frontend/node_modules/.bin."""
+    return Path(frontend) / "node_modules" / ".bin" / (name + ".cmd" if WINDOWS else name)
+
+
+def exe(name):
+    """A command by name, as this platform starts it (npm -> npm.cmd on Windows)."""
+    return name + ".cmd" if WINDOWS and str(name) in _CMD_SHIMS else name
+
+
+def _argv(cmd):
+    cmd = [str(c) for c in cmd]
+    return [exe(cmd[0])] + cmd[1:] if cmd else cmd
+
+
 class StackError(Exception):
     """A step of starting a local stack failed - the message says which."""
 
@@ -35,7 +66,7 @@ class System:
         """Run a command to completion; returns (exit code, combined output)."""
         try:
             res = subprocess.run(
-                [str(c) for c in cmd], cwd=str(cwd) if cwd else None, env=env,
+                _argv(cmd), cwd=str(cwd) if cwd else None, env=env,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                 universal_newlines=True, timeout=timeout, check=False,
             )
@@ -51,7 +82,7 @@ class System:
     def run_live(self, cmd, cwd=None, env=None, timeout=None):
         """Run a command with its output streaming to this terminal; returns the exit code."""
         try:
-            return subprocess.run([str(c) for c in cmd], cwd=str(cwd) if cwd else None, env=env,
+            return subprocess.run(_argv(cmd), cwd=str(cwd) if cwd else None, env=env,
                                   stdin=subprocess.DEVNULL, timeout=timeout, check=False).returncode
         except FileNotFoundError:
             raise StackError("Command not found: " + str(cmd[0]))
@@ -65,9 +96,12 @@ class System:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with open(str(log_path), "ab") as log:
             try:
-                proc = subprocess.Popen([str(c) for c in cmd], cwd=str(cwd), env=env, stdout=log,
-                                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                        start_new_session=True)
+                # Windows has no sessions: a new process GROUP keeps this
+                # terminal's Ctrl+C away from it, and taskkill /T takes its tree.
+                detach = ({"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)} if WINDOWS
+                          else {"start_new_session": True})
+                proc = subprocess.Popen(_argv(cmd), cwd=str(cwd), env=env, stdout=log,
+                                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, **detach)
             except FileNotFoundError:
                 raise StackError("Command not found: " + str(cmd[0]))
         return proc.pid
@@ -75,6 +109,13 @@ class System:
     def alive(self, pid):
         if not pid:
             return False
+        if WINDOWS:
+            # Never os.kill(pid, 0) here: on Windows that terminates the process.
+            try:
+                code, out = self.run(["tasklist", "/FI", "PID eq " + str(int(pid)), "/NH", "/FO", "CSV"], check=False, timeout=15)
+            except StackError:
+                return False
+            return code == 0 and ('"' + str(int(pid)) + '"') in out
         try:
             # Our own child that already exited is a zombie until reaped -
             # kill(pid, 0) would still say it is there.
@@ -95,6 +136,13 @@ class System:
 
     def command_of(self, pid):
         """The command line of a running pid ('' when it is gone)."""
+        if WINDOWS:
+            ask = "(Get-CimInstance Win32_Process -Filter 'ProcessId=" + str(int(pid)) + "').CommandLine"
+            try:
+                code, out = self.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ask], check=False, timeout=20)
+            except StackError:
+                return ""
+            return out.strip() if code == 0 else ""
         try:
             code, out = self.run(["ps", "-p", str(int(pid)), "-o", "command="], check=False, timeout=10)
         except StackError:
@@ -102,7 +150,20 @@ class System:
         return out.strip() if code == 0 else ""
 
     def terminate(self, pid, timeout=10):
-        """SIGTERM the process group, then SIGKILL whatever is left."""
+        """SIGTERM the process group, then SIGKILL whatever is left. On
+        Windows: taskkill the tree, then force it."""
+        if WINDOWS:
+            for force in ((), ("/F",)):
+                try:
+                    self.run(["taskkill", "/PID", str(int(pid)), "/T", *force], check=False, timeout=30)
+                except StackError:
+                    return
+                deadline = time.time() + (timeout if not force else 3)
+                while time.time() < deadline:
+                    if not self.alive(pid):
+                        return
+                    time.sleep(0.2)
+            return
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
                 os.killpg(pid, sig)

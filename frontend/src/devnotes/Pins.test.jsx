@@ -10,6 +10,8 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 vi.mock('../api', () => ({
   api: {
     devNotesRelease: vi.fn((id) => Promise.resolve({ id, number: 5, status: 'open', createdBy: 'neil@greensglobal.com', held: false })),
+    devNotesMergeLook: vi.fn(),
+    devNotesMerge: vi.fn(),
     devNotesPreviewVerdict: vi.fn((id, body) => Promise.resolve({ id, previewVerdict: body.accepted ? 'accepted' : 'reopened' })),
     devNotesThread: vi.fn(),
     devNotesVerify: vi.fn(),
@@ -23,6 +25,7 @@ const { PinThread } = await import('./Pins');
 const { api } = await import('../api');
 const { store } = await import('./store');
 const { isLocalPreview, pinReopened } = await import('./meta');
+const { dialog } = await import('../ui/dialog');
 
 const AUTHOR = 'neil@greensglobal.com';
 const OWNER = 'visesh.lodha@greensglobal.com';
@@ -203,5 +206,86 @@ describe('PinThread - regression link', () => {
   it('nothing when the pin has no regression case', () => {
     render(<PinThread pin={pin()} me={{ email: AUTHOR }} detached />);
     expect(screen.queryByTestId('bm-regression')).toBeNull();
+  });
+});
+
+// Proof on the pin (11/12/2026): a Claude Code cloud session has no computer
+// to run a preview on, so the after picture or clip it attached is the check.
+describe('PinThread - checked from the proof on the pin', () => {
+  const AFTER = 'https://x.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/p2/after-1.png';
+  const CLIP = 'https://x.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/p2/clip-1.webm';
+  const proofPin = (over = {}) => readyPin({ preview: {}, readyToCheck: false, checkable: true, verification: { visual: { afterUrl: AFTER, clipUrl: CLIP } }, ...over });
+
+  it('is Ready To Check with the pictures, the clip and Accept / Reopen - and no preview link', async () => {
+    render(<PinThread pin={proofPin()} me={{ email: AUTHOR }} detached />);
+    expect(screen.getByTestId('bm-thread').textContent).toContain('Ready To Check');
+    expect(screen.getByTestId('bm-proof-hint').textContent).toContain('Nothing to run');
+    expect(screen.queryByRole('link', { name: /Open Preview/ })).toBeNull();
+    expect(screen.getByTestId('bm-preview').textContent).not.toContain('No preview link');
+    expect(screen.getByAltText('After')).toBeTruthy();
+    expect(screen.getByTestId('bm-clip').querySelector('video')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Reopen/ }).disabled).toBe(true);      // needs words first
+    fireEvent.click(screen.getByRole('button', { name: /Accept/ }));
+    await waitFor(() => expect(api.devNotesPreviewVerdict).toHaveBeenCalledWith('p2', { accepted: true, comment: '' }));
+  });
+
+  it('someone who may not judge it sees who it waits for and no buttons', () => {
+    render(<PinThread pin={proofPin({ canVerdict: false })} me={{ email: OTHER }} detached />);
+    expect(screen.queryByRole('button', { name: /Accept/ })).toBeNull();
+    expect(screen.getByTestId('bm-thread').textContent).toContain('to check it.');
+  });
+
+  it('after Accept with no preview: Checked From The Proof', () => {
+    render(<PinThread pin={proofPin({ checkable: false, previewVerdict: 'accepted' })} me={{ email: AUTHOR }} detached />);
+    expect(screen.getByTestId('bm-checked').textContent).toContain('Checked From The Proof');
+  });
+
+  it('a PR Open pin with no proof and no preview is still just PR Open', () => {
+    render(<PinThread pin={readyPin({ preview: {}, readyToCheck: false, checkable: false, verification: {} })} me={{ email: AUTHOR }} detached />);
+    expect(screen.queryByTestId('bm-preview')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Accept/ })).toBeNull();
+  });
+});
+
+// Merge To Dev (Neil, 11/12/2026): Super Administrators only; the server says who with canMerge.
+describe('PinThread - Merge To Dev', () => {
+  const LOOK = { available: true, ok: true, reasons: [], number: 812, title: 'Fix the count', headSha: 'abc', chatName: 'Nexus Dev Team',
+    checks: { passed: 3 }, pins: [{ id: 'p2', number: 2, checked: false }], unchecked: [2] };
+
+  it('no flag from the server = no button', () => {
+    render(<PinThread pin={readyPin()} me={{ email: AUTHOR }} detached />);
+    expect(screen.queryByTestId('bm-merge')).toBeNull();
+  });
+
+  it('says what stands in the way and never opens the hold dialog', async () => {
+    const confirm = vi.spyOn(dialog, 'confirm').mockImplementation(() => Promise.resolve(false));
+    api.devNotesMergeLook.mockResolvedValueOnce({ ...LOOK, ok: false, reasons: ['Checks failed: lint.'] });
+    render(<PinThread pin={readyPin({ canMerge: true })} me={{ email: AUTHOR }} detached />);
+    fireEvent.click(screen.getByTestId('bm-merge'));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Not ready to merge. Checks failed: lint.'));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(api.devNotesMerge).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('a clean look opens a HOLD dialog that names the PR and the chat; the hold merges at the commit that was looked at', async () => {
+    const confirm = vi.spyOn(dialog, 'confirm').mockImplementation(() => Promise.resolve(true));
+    api.devNotesMergeLook.mockResolvedValueOnce(LOOK);
+    api.devNotesMerge.mockResolvedValueOnce({ merged: true, number: 812, chatName: 'Nexus Dev Team', notes: [{ id: 'p2', status: 'fixed' }] });
+    const onChanged = vi.fn();
+    render(<PinThread pin={readyPin({ canMerge: true })} me={{ email: AUTHOR }} onChanged={onChanged} detached />);
+    fireEvent.click(screen.getByTestId('bm-merge'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    const [msg, opts] = confirm.mock.calls[0];
+    expect(msg).toContain('PR #812 - Fix the count');
+    expect(msg).toContain('Nexus Dev Team');
+    expect(msg).toContain('1 not checked yet');
+    expect(opts.hold).toBe(true);
+    expect(opts.confirmText).toBe('Merge To Dev');
+    expect(api.devNotesMerge).not.toHaveBeenCalled();           // nothing merges until the hold finishes
+    await opts.onConfirm();
+    expect(api.devNotesMerge).toHaveBeenCalledWith('p2', 'abc');
+    expect(onChanged).toHaveBeenCalledWith({ id: 'p2', status: 'fixed' });
+    confirm.mockRestore();
   });
 });

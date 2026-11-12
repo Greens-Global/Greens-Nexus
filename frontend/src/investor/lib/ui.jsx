@@ -52,7 +52,7 @@ export function EmptyState({ icon: Icon, title, sub, children }) {
     <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
       {Icon && <Icon size={32} style={{ opacity: 0.25, display: 'block', margin: '0 auto 10px' }} />}
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{title}</div>
-      {sub && <div style={{ fontSize: 12.5, marginTop: 4, maxWidth: 460, marginLeft: 'auto', marginRight: 'auto' }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 13, marginTop: 4, maxWidth: 460, marginLeft: 'auto', marginRight: 'auto' }}>{sub}</div>}
       {children && <div style={{ marginTop: 16 }}>{children}</div>}
     </div>
   );
@@ -118,7 +118,7 @@ export function PeopleSelect({ value, onChange, people, placeholder = 'Select a 
   );
 }
 // The trigger dressed as the module's .form-select boxes.
-const FORM_BOX = { borderRadius: 10, padding: '9px 13px', fontSize: 13.5, fontWeight: 400, border: '1px solid var(--wk-line2)', background: 'var(--card)' };
+const FORM_BOX = { borderRadius: 10, padding: '9px 13px', fontSize: 13, fontWeight: 400, border: '1px solid var(--wk-line2)', background: 'var(--card)' };
 
 // Local list-fetch hook: loading / error / reload, no global state. Pass the
 // values your fetcher closes over as deps so filter changes refetch.

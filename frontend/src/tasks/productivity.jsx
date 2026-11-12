@@ -86,7 +86,7 @@ function SelectedChips({ items, onRemove }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
       {items.map((it) => (
-        <span key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 999, padding: '2px 4px 2px 9px', fontSize: 11.5, fontWeight: 600, background: NX.border2, color: NX.ink }}>
+        <span key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 999, padding: '2px 4px 2px 9px', fontSize: 12, fontWeight: 600, background: NX.border2, color: NX.ink }}>
           {it.label}
           <button onClick={() => onRemove(it.id)} title="Remove" style={{ display: 'flex', alignItems: 'center', border: 'none', background: 'none', cursor: 'pointer', color: NX.faint, padding: 2 }}><X size={11} /></button>
         </span>
@@ -120,7 +120,7 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
   const [assigneeQuery, setAssigneeQuery] = useState('');
   const [collabQuery, setCollabQuery] = useState('');
   const [projectQuery, setProjectQuery] = useState('');
-  const searchInput = { ...inputStyle, padding: '6px 9px', fontSize: 12.5, marginBottom: 6 };
+  const searchInput = { ...inputStyle, padding: '6px 9px', fontSize: 13, marginBottom: 6 };
   const shownPeople = matchPeople(people, assigneeQuery);
   const shownCollabs = matchPeople(people, collabQuery);
   const collaboratorIds = filters.collaboratorIds || [];
@@ -297,7 +297,7 @@ function LabelsFilter({ filters, setFilters }) {
       {all.length > 6 && (
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search labels…"
           {...nav.inputProps} onKeyDown={nav.onKeyDown}
-          style={{ ...inputStyle, padding: '6px 9px', fontSize: 12.5, marginBottom: 6 }} />
+          style={{ ...inputStyle, padding: '6px 9px', fontSize: 13, marginBottom: 6 }} />
       )}
       <div style={{ maxHeight: 132, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
         {shown.map((r, i) => (
@@ -336,11 +336,11 @@ function DateBody({ filters, setFilters }) {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <label style={{ display: 'block' }}>
-            <span style={{ display: 'block', fontSize: 10, color: NX.faint, marginBottom: 3 }}>From</span>
+            <span style={{ display: 'block', fontSize: 11, color: NX.faint, marginBottom: 3 }}>From</span>
             <DateField value={filters.dueFrom || ''} onChange={(v) => setFilters({ ...filters, dueFrom: v })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
           </label>
           <label style={{ display: 'block' }}>
-            <span style={{ display: 'block', fontSize: 10, color: NX.faint, marginBottom: 3 }}>To</span>
+            <span style={{ display: 'block', fontSize: 11, color: NX.faint, marginBottom: 3 }}>To</span>
             <DateField value={filters.dueTo || ''} onChange={(v) => setFilters({ ...filters, dueTo: v })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
           </label>
         </div>
@@ -609,7 +609,7 @@ function UseTemplateModal({ template: t, onBack, onOpenTask, onClose }) {
       </button>
     </div>
   );
-  const head = { fontSize: 12.5, fontWeight: 600, color: NX.dim };
+  const head = { fontSize: 13, fontWeight: 600, color: NX.dim };
   return (
     <Modal title={`Use "${t.name}"`} onClose={onClose} footer={footer} width="min(540px, 100vw)">
       <div style={{ display: 'grid', gap: 16, fontFamily: FONT, fontSize: 13 }}>
@@ -634,12 +634,12 @@ function UseTemplateModal({ template: t, onBack, onOpenTask, onClose }) {
             ))}
           </div>
         )}
-        <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5 }}>
           {subs.length > 0 && <div>{subs.length} subtask{subs.length === 1 ? '' : 's'}: {subs.map((s) => s.title).join(', ')}</div>}
           {patch.recurrence?.freq && <div>Repeats: {recurrenceLabel(patch.recurrence)}</div>}
           {patch.projectId && projectName?.(patch.projectId) && <div>Project: {projectName(patch.projectId)}</div>}
         </div>
-        {error && <div role="alert" style={{ fontSize: 12.5, color: NX.red }}>{error}</div>}
+        {error && <div role="alert" style={{ fontSize: 13, color: NX.red }}>{error}</div>}
       </div>
     </Modal>
   );
@@ -701,7 +701,7 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
           </div>
         ))}
       </div>
-      {error && <div role="alert" style={{ marginTop: 12, fontSize: 12.5, color: NX.red }}>{error}</div>}
+      {error && <div role="alert" style={{ marginTop: 12, fontSize: 13, color: NX.red }}>{error}</div>}
     </Modal>
   );
 }

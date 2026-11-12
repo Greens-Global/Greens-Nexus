@@ -145,7 +145,7 @@ export default function Canvas({
   if (layoutError) {
     return (
       <div className="wfc" data-skin={skin} role="alert" style={{ display: 'grid', placeItems: 'center', minHeight: 240, height: 'auto', padding: 24, textAlign: 'center' }}>
-        <div>This workflow could not be drawn as a canvas. Switch to Recipe to keep editing it.<br /><span style={{ fontSize: 12.5, color: 'var(--cv-muted)' }}>{String(layoutError.message || layoutError)}</span></div>
+        <div>This workflow could not be drawn as a canvas. Switch to Recipe to keep editing it.<br /><span style={{ fontSize: 13, color: 'var(--cv-muted)' }}>{String(layoutError.message || layoutError)}</span></div>
       </div>
     );
   }

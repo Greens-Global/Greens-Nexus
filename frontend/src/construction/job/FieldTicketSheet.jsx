@@ -101,17 +101,17 @@ export default function FieldTicketSheet({ project, today, onClose, onSent }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
           <div>
             <h3 style={{ margin: 0 }}>Field Ticket</h3>
-            <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
               Extra work on {project.name}: what was done, the hours and materials, signed by the customer. A manager prices it later.
             </p>
           </div>
           <button className="secondary-btn" onClick={onClose} aria-label="Close" style={{ padding: 8, minWidth: 40, minHeight: 40, alignSelf: 'flex-start' }}><X size={18} /></button>
         </div>
-        {error && <div role="alert" style={{ fontSize: '0.84rem', color: 'hsl(var(--color-red))' }}>{error}</div>}
+        {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</div>}
         {queued ? (
           <div style={{ padding: 16, border: '1px solid var(--border-color)', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <b>Saved on This Phone</b>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>The ticket, its photos and the signature are kept here and go out when there is signal.</span>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>The ticket, its photos and the signature are kept here and go out when there is signal.</span>
             <SyncState id={queued} />
             <div><button className="primary-btn" onClick={() => onSent?.(null)}>Done</button></div>
           </div>
@@ -135,8 +135,8 @@ export default function FieldTicketSheet({ project, today, onClose, onSent }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
                 <span className="form-label" style={{ margin: 0 }}>Labor {totalHours ? `(${formatHoursWords(totalHours, { compact: true })})` : ''}</span>
                 <span style={{ display: 'flex', gap: 6 }}>
-                  <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }} onClick={usePunches}><Clock size={13} />Use Time Clock Hours</button>
-                  <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }}
+                  <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: 13 }} onClick={usePunches}><Clock size={13} />Use Time Clock Hours</button>
+                  <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: 13 }}
                     onClick={() => { setLabor((l) => [...l, { email: '', name: '', hours: '' }]); setFromPunches(false); }}><Plus size={13} />Add Line</button>
                 </span>
               </div>
@@ -163,7 +163,7 @@ export default function FieldTicketSheet({ project, today, onClose, onSent }) {
                     onChange={(e) => setMaterials((x) => x.map((y, j) => (j === i ? { ...y, unit: e.target.value } : y)))} style={{ flex: 1 }} />
                 </div>
               ))}
-              <button type="button" className="secondary-btn" style={{ marginTop: 6, padding: '6px 10px', fontSize: '0.8rem' }}
+              <button type="button" className="secondary-btn" style={{ marginTop: 6, padding: '6px 10px', fontSize: 13 }}
                 onClick={() => setMaterials((x) => [...x, { description: '', quantity: '', unit: '' }])}><Plus size={13} />Add Material</button>
             </div>
             <div>

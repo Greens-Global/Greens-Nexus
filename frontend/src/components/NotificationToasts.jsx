@@ -160,8 +160,8 @@ export default function NotificationToasts({ onNavigate }) {
               <meta.icon size={16} color={`hsl(${meta.color})`} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--ink)' }}>{n.title}</div>
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
+              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>{n.title}</div>
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
             </div>
             <button onClick={e => { e.stopPropagation(); close(n.id); }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, borderRadius: 4, flexShrink: 0 }}

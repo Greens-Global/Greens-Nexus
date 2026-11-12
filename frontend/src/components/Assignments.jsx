@@ -21,9 +21,9 @@ import { StatusLabel } from './StatusLabel';
 import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
 import { Modal, PersonSelect } from '../tasks/components';
 
-const FL = { fontSize: 12.5, fontWeight: 600, color: 'var(--wk-dim, var(--muted))', display: 'block', marginBottom: 6 };
+const FL = { fontSize: 13, fontWeight: 600, color: 'var(--wk-dim, var(--muted))', display: 'block', marginBottom: 6 };
 const HINT = { fontSize: 12, color: 'var(--muted)', margin: '6px 0 0', lineHeight: 1.45 };
-const ERR = { fontSize: 12.5, color: 'var(--bad-fg)', margin: '10px 0 0' };
+const ERR = { fontSize: 13, color: 'var(--bad-fg)', margin: '10px 0 0' };
 
 // The one set of words (inventory/model/words.js mirrors these for the module).
 export const ASSIGN_STATUS_META = {
@@ -112,7 +112,7 @@ function PhotoField({ file, setFile, required = true, label = 'Photo' }) {
   }
   return (
     <div tabIndex={0} onPaste={onPaste} style={{ outline: 'none' }}>
-      <span style={FL}>{label}<span style={{ fontWeight: 600, fontSize: 11.5, color: 'var(--muted)', marginLeft: 6 }}>{required ? 'Required' : 'Optional'}</span></span>
+      <span style={FL}>{label}<span style={{ fontWeight: 600, fontSize: 12, color: 'var(--muted)', marginLeft: 6 }}>{required ? 'Required' : 'Optional'}</span></span>
       <input ref={ref} type="file" accept="image/*" style={{ display: 'none' }}
         onChange={e => take(e.target.files?.[0])} />
       {preview
@@ -134,7 +134,7 @@ function PhotoField({ file, setFile, required = true, label = 'Photo' }) {
 function ModalShell({ title, sub, children, onClose, busy = false, isDirty = false, footer, zIndex = 4100 }) {
   return (
     <Modal title={title} onClose={() => { if (!busy) onClose(); }} isDirty={isDirty} footer={footer} placement="sheet" zIndex={zIndex}>
-      {sub && <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 18px', lineHeight: 1.5 }}>{sub}</p>}
+      {sub && <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 18px', lineHeight: 1.5 }}>{sub}</p>}
       {children}
     </Modal>
   );
@@ -218,7 +218,7 @@ export function AssignItemModal({ item, userEmail = '', locations = [], onClose,
           <PersonSelect value={pick || null} onChange={v => setPick(v || '')} allowNone={false}
             placeholder="Select a person" ariaLabel="Assign To"
             people={directory.filter(d => d.email).map(d => ({ email: d.email, name: d.name ? `${d.name} - ${d.email}` : d.email, external: !!d.external }))}
-            style={{ borderRadius: 10, padding: '9px 13px', fontSize: 13.5, fontWeight: 400 }} />
+            style={{ borderRadius: 10, padding: '9px 13px', fontSize: 13, fontWeight: 400 }} />
           {reassign && <p style={HINT} title={item.assignedToEmail || ''}>With {item.assignedToName || emailToName(item.assignedToEmail)} now - they return it with a photo, then the new person accepts.</p>}
           {!reassign && (
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 14, cursor: 'pointer', userSelect: 'none' }}>
@@ -269,7 +269,7 @@ export function DeclineAssignmentModal({ a, onClose, onDone, toast, zIndex }) {
         </button>
       </>}>
       <label style={FL} htmlFor="decline-note">Reason <span style={{ fontWeight: 500, color: 'var(--muted)' }}>(optional)</span></label>
-      <textarea id="decline-note" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }} value={note}
+      <textarea id="decline-note" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }} value={note}
         onChange={e => setNote(e.target.value)} placeholder="e.g. I already have one" autoFocus />
       {error && <p style={ERR}>{error}</p>}
     </ModalShell>
@@ -302,7 +302,7 @@ export function AcceptAssignmentModal({ a, onClose, onDone, toast, zIndex }) {
         <PhotoField file={file} setFile={setFile} required={false} />
         <div>
           <label style={FL} htmlFor="accept-note">Condition Notes <span style={{ fontWeight: 500, color: 'var(--muted)' }}>(optional - note any existing damage)</span></label>
-          <textarea id="accept-note" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Small dent on the lid" />
+          <textarea id="accept-note" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Small dent on the lid" />
         </div>
       </div>
       {error && <p style={ERR}>{error}</p>}
@@ -345,7 +345,7 @@ export function AssignmentReturnModal({ a, reason, onClose, onDone, toast, zInde
         {needPhoto && <PhotoField file={file} setFile={setFile} label="Return Photo" />}
         <div>
           <label style={FL} htmlFor="asg-return-note">Notes {reason === 'dead' || reason === 'lost' ? null : <span style={{ fontWeight: 500, color: 'var(--muted)' }}>(optional)</span>}</label>
-          <textarea id="asg-return-note" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }} value={note} onChange={e => setNote(e.target.value)}
+          <textarea id="asg-return-note" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }} value={note} onChange={e => setNote(e.target.value)}
             placeholder={reason === 'dead' ? 'What happened to it?' : reason === 'lost' ? 'When and where was it last seen?' : 'Anything the supervisor should know'} />
         </div>
       </div>
@@ -394,7 +394,7 @@ export function AcceptReturnModal({ a, onClose, onDone, toast, zIndex }) {
       <span style={FL}>What Happens to It</span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {[['stock', 'Back to stock - ready to borrow or assign again'], ['retired', 'Retire - dead, lost or written off']].map(([v, l]) => (
-          <label key={v} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5, cursor: 'pointer', border: `1px solid ${dispo === v ? 'var(--wk-brand)' : 'var(--wk-line, var(--line))'}`, background: dispo === v ? 'var(--wk-brand-tint)' : 'var(--card)', borderRadius: 10, padding: '10px 12px' }}>
+          <label key={v} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer', border: `1px solid ${dispo === v ? 'var(--wk-brand)' : 'var(--wk-line, var(--line))'}`, background: dispo === v ? 'var(--wk-brand-tint)' : 'var(--card)', borderRadius: 10, padding: '10px 12px' }}>
             <input type="radio" checked={dispo === v} onChange={() => setDispo(v)} style={{ accentColor: 'var(--wk-brand)' }} />{l}
           </label>
         ))}
@@ -468,8 +468,8 @@ export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, 
             return (
               <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '11px 16px', borderTop: i ? '1px solid var(--wk-line2, var(--line))' : 'none' }}>
                 <div style={{ flex: 1, minWidth: 180 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{a.itemName}</div>
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{a.itemName}</div>
+                  <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
                     <span title={a.assigneeEmail || ''}>{a.assigneeName || emailToName(a.assigneeEmail)}</span>
                     {a.status === 'return_initiated' && a.returnReason === 'reassign' && (a.nextAssigneeName || a.nextAssigneeEmail) && <> to <strong title={a.nextAssigneeEmail || ''}>{a.nextAssigneeName || emailToName(a.nextAssigneeEmail)}</strong></>}
                     {flag && <> · {flag}</>}
@@ -481,12 +481,12 @@ export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, 
                   <button onClick={() => setPreview(a.returnPhotoUrl || a.acceptPhotoUrl)} aria-label="View photo" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 7, padding: '4px 8px', cursor: 'zoom-in', color: 'var(--muted)', display: 'flex' }}><ZoomIn size={12} /></button>
                 )}
                 {a.status === 'return_initiated' && (a.returnPhotoUrl || a.returnReason === 'lost') && (
-                  <button className="primary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setAccepting(a)}>
+                  <button className="primary-btn" style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setAccepting(a)}>
                     <CheckCircle size={12} /> Accept Return
                   </button>
                 )}
                 {a.status === 'pending_acceptance' && mine && (
-                  <button className="primary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setSelfAccept(a)}>
+                  <button className="primary-btn" style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setSelfAccept(a)}>
                     <CheckCircle size={12} /> Accept
                   </button>
                 )}

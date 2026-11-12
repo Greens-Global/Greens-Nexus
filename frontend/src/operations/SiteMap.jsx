@@ -82,18 +82,18 @@ const TONE = {
   warn: { background: '#fff4e0', color: '#9a5b00', borderColor: '#f3dcae' },
   quiet: { background: 'var(--bg-secondary, #f2f1ec)', color: 'var(--text-muted, #5f6358)', borderColor: 'var(--border-color, #d9d6cc)' },
 };
-const Chip = ({ tone = 'quiet', children }) => <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: 999, border: '1px solid', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', ...TONE[tone] }}>{children}</span>;
+const Chip = ({ tone = 'quiet', children }) => <span style={{ display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: 999, border: '1px solid', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', ...TONE[tone] }}>{children}</span>;
 const Figure = ({ label, value, tone, sub }) => (
   <div style={{ flex: '1 1 0', minWidth: 'max-content', padding: '8px 10px', background: 'var(--bg-primary, #fff)' }}>
     <div style={{ fontSize: 11, ...muted }}>{label}</div>
-    <div style={{ fontSize: 15.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: tone || 'var(--text-primary, #1d1f1a)', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>{value}</div>
+    <div style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: tone || 'var(--text-primary, #1d1f1a)', whiteSpace: 'nowrap', letterSpacing: '-0.01em' }}>{value}</div>
     {sub ? <div style={{ fontSize: 11, ...muted }}>{sub}</div> : null}
   </div>
 );
 const Figures = ({ children }) => (
   <div className="sm-figures" style={{ display: 'flex', flexWrap: 'wrap', gap: 1, marginTop: 10, border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', background: 'var(--border-color)' }}>{children}</div>
 );
-const linkBtn = { border: 0, background: 'transparent', padding: 0, font: 'inherit', fontSize: 12.5, fontWeight: 600, color: 'var(--ops-s1, #1f6f4a)', cursor: 'pointer' };
+const linkBtn = { border: 0, background: 'transparent', padding: 0, font: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--ops-s1, #1f6f4a)', cursor: 'pointer' };
 
 /** Their rent against the street rate and the market median, as bars with words. */
 function RateCompare({ rent, street, median, daysInUnit }) {
@@ -129,10 +129,10 @@ function TenantCard({ t, detail, fact, onLedger, pickUnit, openElsewhere }) {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-        <div className="sm-tenant-name" style={{ fontSize: 21, fontWeight: 700, lineHeight: 1.2, color: 'var(--text-primary, #1d1f1a)', minWidth: 0, overflowWrap: 'anywhere' }}>{t.name || 'Not Named'}</div>
+        <div className="sm-tenant-name" style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2, color: 'var(--text-primary, #1d1f1a)', minWidth: 0, overflowWrap: 'anywhere' }}>{t.name || 'Not Named'}</div>
         {t.cubbyUrl ? <a className="ops-link" href={t.cubbyUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginTop: 4 }}>Open in Cubby ↗</a> : null}
       </div>
-      {t.moveIn ? <div style={{ fontSize: 12.5, ...muted, marginTop: 2 }}>Tenant {stayLength(t.daysInUnit)}, since {formatDate(t.moveIn)}</div> : null}
+      {t.moveIn ? <div style={{ fontSize: 13, ...muted, marginTop: 2 }}>Tenant {stayLength(t.daysInUnit)}, since {formatDate(t.moveIn)}</div> : null}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 7 }}>
         {t.balance > 0 ? <Chip tone="bad">Past Due {t.daysPastDue} Day{t.daysPastDue === 1 ? '' : 's'}</Chip> : <Chip tone="good">Paid Up</Chip>}
         <Chip tone={t.autoPay ? 'good' : 'quiet'}>Autopay {t.autoPay ? 'On' : 'Off'}</Chip>
@@ -163,7 +163,7 @@ function TenantCard({ t, detail, fact, onLedger, pickUnit, openElsewhere }) {
 
       <Head right={t.customerId ? <button type="button" style={linkBtn} onClick={onLedger}>View Full Ledger</button> : null}>Recent Payments</Head>
       {t.payments?.length ? (
-        <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12.5 }}>
+        <ul style={{ listStyle: 'none', margin: '6px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 13 }}>
           {t.payments.map((p, i) => (
             <li key={i} style={{ display: 'grid', gridTemplateColumns: '78px 1fr auto', gap: 8, color: p.failed ? '#b42318' : undefined }}>
               <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatDate(p.date)}</span>
@@ -191,9 +191,9 @@ function TenantCard({ t, detail, fact, onLedger, pickUnit, openElsewhere }) {
 function VacantCard({ u, fact, occ, days }) {
   return (
     <>
-      <div style={{ fontSize: 17, fontWeight: 700 }}>{occ === 'bad' ? 'Out of Service' : 'Vacant Unit'}</div>
-      {occ === 'bad' ? <div style={{ fontSize: 12.5, marginTop: 2 }}><span style={muted}>Reason:</span> <b>{reasonGroup(u.why, u.note)}</b>{u.note ? <span style={muted}> - {u.note.trim()}</span> : null}</div>
-        : fact?.vacantSince ? <div style={{ fontSize: 12.5, ...muted, marginTop: 2 }}>Empty since {formatDate(fact.vacantSince)}</div> : null}
+      <div style={{ fontSize: 18, fontWeight: 700 }}>{occ === 'bad' ? 'Out of Service' : 'Vacant Unit'}</div>
+      {occ === 'bad' ? <div style={{ fontSize: 13, marginTop: 2 }}><span style={muted}>Reason:</span> <b>{reasonGroup(u.why, u.note)}</b>{u.note ? <span style={muted}> - {u.note.trim()}</span> : null}</div>
+        : fact?.vacantSince ? <div style={{ fontSize: 13, ...muted, marginTop: 2 }}>Empty since {formatDate(fact.vacantSince)}</div> : null}
       <Figures>
         <Figure label="Street Rate" value={fact?.street ? money(fact.street) : '-'} sub="per month" />
         {occ === 'vacant' ? <Figure label="Days Vacant" value={days == null ? 'Not Known' : String(days)} tone={days >= 90 ? '#9a3412' : undefined} /> : null}
@@ -259,9 +259,9 @@ function UnitDetails({ u, fact, maint, facilityId, onOpenTicket, onReport, onLed
       )}
 
       <div style={{ marginTop: 12, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-        {t?.cubbyUrl ? <a className="secondary-btn" href={t.cubbyUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', fontSize: 12.5, padding: '5px 10px' }}>Open in Cubby</a> : null}
-        <button type="button" className="secondary-btn" onClick={() => onReport(tickets.property)} disabled={!tickets.property} title={tickets.property ? '' : 'This facility is not linked to a property in Asset Management yet'} style={{ fontSize: 12.5, padding: '5px 10px' }}>Report an Issue</button>
-        <button type="button" className="secondary-btn" onClick={copy} disabled={link.status === 'busy'} style={{ fontSize: 12.5, padding: '5px 10px' }}>{link.status === 'copied' ? 'Copied' : 'Copy Customer Link'}</button>
+        {t?.cubbyUrl ? <a className="secondary-btn" href={t.cubbyUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', fontSize: 13, padding: '5px 10px' }}>Open in Cubby</a> : null}
+        <button type="button" className="secondary-btn" onClick={() => onReport(tickets.property)} disabled={!tickets.property} title={tickets.property ? '' : 'This facility is not linked to a property in Asset Management yet'} style={{ fontSize: 13, padding: '5px 10px' }}>Report an Issue</button>
+        <button type="button" className="secondary-btn" onClick={copy} disabled={link.status === 'busy'} style={{ fontSize: 13, padding: '5px 10px' }}>{link.status === 'copied' ? 'Copied' : 'Copy Customer Link'}</button>
       </div>
       {link.status === 'copied' && <div style={{ fontSize: 12, marginTop: 4, ...muted }}>Route-only map for this unit, no login.</div>}
       {link.error && <div role="alert" style={{ fontSize: 12, marginTop: 4, color: '#c43d2f' }}>{link.error}</div>}

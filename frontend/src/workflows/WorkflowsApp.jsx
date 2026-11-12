@@ -101,7 +101,7 @@ export default function WorkflowsApp({ sub, go }) {
       <ModuleTabs tabs={tabs} active={tab} onChange={(k) => go(k)} />
       {paused && (
         <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', marginBottom: 14, borderRadius: 10,
-          background: 'hsla(var(--color-orange),0.12)', border: '1px solid hsla(var(--color-orange),0.4)', color: 'var(--ink)', fontSize: 13.5, flexWrap: 'wrap' }}>
+          background: 'hsla(var(--color-orange),0.12)', border: '1px solid hsla(var(--color-orange),0.4)', color: 'var(--ink)', fontSize: 13, flexWrap: 'wrap' }}>
           <PauseCircle size={18} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
           <span style={{ flex: 1, minWidth: 200 }}>
             All workflows are paused{paused.by ? ` by ${paused.by}` : ''}{paused.at ? ` since ${formatDateTime(paused.at)}` : ''}. No run starts until they are resumed.

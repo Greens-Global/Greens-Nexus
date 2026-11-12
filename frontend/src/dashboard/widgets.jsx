@@ -238,7 +238,7 @@ function KpiBarWidget({ config, kpis }) {
           const onClick = clickFor(r);
           return (
           <div key={r.m} onClick={onClick || undefined} style={{ cursor: onClick ? 'pointer' : 'default' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12.5, marginBottom: 3 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, marginBottom: 3 }}>
               <span style={{ color: 'var(--muted)', fontWeight: 600, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.meta.label}>{r.meta.label}</span>
               <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.v ?? <CountSkeleton />}</strong>
             </div>
@@ -278,7 +278,7 @@ function ShortcutWidget({ config }) {
 function LinkRow({ t, onClick }) {
   return (
     <button onClick={onClick} className="dash-link-row"
-      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 8px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontSize: 13.5, color: 'var(--ink)', fontFamily: 'var(--wk-font)', width: '100%' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 8px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--wk-font)', width: '100%' }}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
       onMouseLeave={e => e.currentTarget.style.background = 'none'}>
       <ArrowRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} /> {labelFor(t)}
@@ -415,7 +415,7 @@ function LinksFolderWidget({ config }) {
   if (!config?.folderId) {
     return (
       <DashCard title="Links Folder">
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
           No folder picked yet - Customize, then use the gear on this tile to choose one.
         </div>
       </DashCard>
@@ -429,11 +429,11 @@ function LinksFolderWidget({ config }) {
       {state.loading ? (
         <WidgetSkeleton />
       ) : !state.folder ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
           This folder no longer exists - edit this tile to pick a different one.
         </div>
       ) : state.links.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>This folder is empty.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>This folder is empty.</div>
       ) : (
         // Grid (not the shared .app-grid flex-wrap) so a handful of tiles
         // stretch to fill the card's full width instead of hugging the left
@@ -472,7 +472,7 @@ function LinksFolderWidget({ config }) {
 // Both reuse the Links Folder tile and its "All" popup above, so a link looks
 // the same whether it's opened from the Links tab or from the dashboard.
 
-const noteStyle = { fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
+const noteStyle = { fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
 const tileGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(76px, 1fr))', gap: '14px 10px' };
 
 // Open a link in a new tab and record the click the same way the Links tab
@@ -984,7 +984,7 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
         </span>
       ) : <Bell size={15} style={{ color: 'var(--muted)' }} />}>
       {list.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>You're all caught up.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>You're all caught up.</div>
       ) : (
         <div>
           {list.map((n, i) => {
@@ -1038,10 +1038,10 @@ function ClockWidget() {
     // two columns a 30px "12:45 PM" was wider than the card.
     <div className="dash-card clock-tile" onClick={() => navigate('timeclock')}
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3, cursor: 'pointer', overflow: 'hidden' }}>
-      <div className="clock-tile-line" style={{ fontSize: 13.5, color: 'var(--wk-dim)', fontWeight: 600 }}>{greet}</div>
+      <div className="clock-tile-line" style={{ fontSize: 13, color: 'var(--wk-dim)', fontWeight: 600 }}>{greet}</div>
       <div className="clock-tile-time">{formatTime(now)}</div>
-      <div className="clock-tile-line" style={{ fontSize: 12.5, color: 'var(--wk-faint)' }}>{formatDayLong(now)}</div>
-      <div className="clock-tile-line clock-tile-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontSize: 12.5, fontWeight: 600, marginTop: 9 }}>
+      <div className="clock-tile-line" style={{ fontSize: 13, color: 'var(--wk-faint)' }}>{formatDayLong(now)}</div>
+      <div className="clock-tile-line clock-tile-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontSize: 13, fontWeight: 600, marginTop: 9 }}>
         <Clock size={13} /> Open Time Clock <ArrowRight size={12} />
       </div>
     </div>

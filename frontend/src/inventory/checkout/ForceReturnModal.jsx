@@ -29,19 +29,19 @@ export function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
           onConfirm={() => Promise.resolve(onConfirm(reason.trim(), condition)).then(() => undefined)}
           onDone={onClose} />
       </>}>
-      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
         For <strong style={{ color: 'var(--ink)' }}>{holders.length === 1 ? holders[0] : `${holders.length} people`}</strong>, when they cannot return it in the app themselves.
       </p>
       {multi && (
         <ul style={{ margin: '0 0 14px', padding: '8px 12px', listStyle: 'none', background: 'var(--mist)', borderRadius: 10, maxHeight: 140, overflowY: 'auto', display: 'grid', gap: 2 }}>
-          {list.map(c => <li key={c.id} style={{ fontSize: 12.5, color: 'var(--muted)' }}>{c.itemName}{holders.length > 1 ? ` - ${c.requestedBy}` : ''}</li>)}
+          {list.map(c => <li key={c.id} style={{ fontSize: 13, color: 'var(--muted)' }}>{c.itemName}{holders.length > 1 ? ` - ${c.requestedBy}` : ''}</li>)}
         </ul>
       )}
       <span style={LABEL}>Condition</span>
       <ConditionPicker value={condition} onChange={setCondition} />
       {condition === 'lost' && <p style={HINT}>It is marked Lost and cannot be borrowed until someone marks it found.</p>}
       <label style={{ ...LABEL, marginTop: 14 }} htmlFor="force-reason">Reason</label>
-      <textarea id="force-reason" rows={3} autoFocus className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }}
+      <textarea id="force-reason" rows={3} autoFocus className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
         placeholder="e.g. Collected from the site office - the holder is on leave"
         value={reason} onChange={e => setReason(e.target.value)} />
     </ItemQuestion>

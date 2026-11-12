@@ -63,7 +63,7 @@ export default function ProfileViewsChart({ rows, prevRows, platform = 'google' 
   return (
     <div style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, position: 'relative' }}>
-        <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900 }}>{title}</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900 }}>{title}</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={() => setCompare((c) => !c)}

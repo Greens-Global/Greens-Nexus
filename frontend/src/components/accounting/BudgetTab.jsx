@@ -38,9 +38,9 @@ import { intacctBudgetFile } from './budgetExport';
 // the widths kept per person.
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const th = { textAlign: 'right', padding: '6px 8px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, background: 'var(--bg-card)' };
+const th = { textAlign: 'right', padding: '6px 8px', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, background: 'var(--bg-card)' };
 const td = { padding: '2px 4px', borderBottom: '1px solid var(--border-color)', fontVariantNumeric: 'tabular-nums' };
-const cellInput = { ...control, width: 92, textAlign: 'right', padding: '3px 6px', height: 26, fontSize: '0.78rem' };
+const cellInput = { ...control, width: 92, textAlign: 'right', padding: '3px 6px', height: 26, fontSize: 13 };
 const SOURCE = { nexus: 'Saved in Nexus', intacct: 'As pulled from Intacct', none: 'Nothing saved yet - zeros' };
 
 export default function BudgetTab({ canEdit = false }) {
@@ -219,8 +219,8 @@ export default function BudgetTab({ canEdit = false }) {
   if (state.notReady) {
     return (
       <div style={{ ...card, padding: 24, textAlign: 'center' }}>
-        <h3 style={{ margin: '0 0 6px', fontSize: '1rem' }}>Budget</h3>
-        <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.86rem' }}>Not available yet - the accounting app needs its update. Once it serves budgets, this tab opens the grid for {entityName || 'each entity'} by month.</p>
+        <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Budget</h3>
+        <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14 }}>Not available yet - the accounting app needs its update. Once it serves budgets, this tab opens the grid for {entityName || 'each entity'} by month.</p>
       </div>
     );
   }
@@ -233,7 +233,7 @@ export default function BudgetTab({ canEdit = false }) {
             placeholder={entities?.length ? 'Pick an Entity' : 'No Entities'} disabled={!entities?.length} active={false} />
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
             <button type="button" aria-label="Previous year" onClick={() => setYear((y) => y - 1)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronLeft size={16} /></button>
-            <strong style={{ fontSize: '0.86rem', minWidth: 40, textAlign: 'center' }}>{year}</strong>
+            <strong style={{ fontSize: 14, minWidth: 40, textAlign: 'center' }}>{year}</strong>
             <button type="button" aria-label="Next year" onClick={() => setYear((y) => y + 1)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronRight size={16} /></button>
           </div>
           <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
@@ -255,29 +255,29 @@ export default function BudgetTab({ canEdit = false }) {
               file and CSV, then that note, then Sync. */}
           <div className="acct-bar-end">
             {data && (
-              <BarSummary level={3} style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+              <BarSummary level={3} style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                 {SOURCE[data.source] || data.source}{data.updatedAt ? ` · ${nameOf(data.updatedBy) || ''} ${formatDateTime(data.updatedAt)}` : ''}
               </BarSummary>
             )}
             {canEdit && view === 'grid' && (
               <>
                 <BarMore level={1}>
-                <button type="button" className="secondary-btn" disabled={!!busy || !location} onClick={copyLastYear} title="Copy From Last Year's Actuals" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Copy size={13} /> <span className="acct-bar-label">Copy From Last Year&apos;s Actuals</span></button>
-                <button type="button" className="secondary-btn" disabled={!!busy || !location} onClick={copyIntacct} title="Copy From Intacct Budget" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Copy size={13} /> <span className="acct-bar-label">Copy From Intacct Budget</span></button>
+                <button type="button" className="secondary-btn" disabled={!!busy || !location} onClick={copyLastYear} title="Copy From Last Year's Actuals" style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Copy size={13} /> <span className="acct-bar-label">Copy From Last Year&apos;s Actuals</span></button>
+                <button type="button" className="secondary-btn" disabled={!!busy || !location} onClick={copyIntacct} title="Copy From Intacct Budget" style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Copy size={13} /> <span className="acct-bar-label">Copy From Intacct Budget</span></button>
                 </BarMore>
-                <button type="button" className="primary-btn" disabled={!!busy || !dirty} onClick={save} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'save' ? 'Saving...' : dirty ? 'Save' : 'Saved'}</button>
+                <button type="button" className="primary-btn" disabled={!!busy || !dirty} onClick={save} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'save' ? 'Saving...' : dirty ? 'Save' : 'Saved'}</button>
               </>
             )}
             <BarMore level={4}>
             {dirty && view === 'grid'
-              ? <button type="button" className="secondary-btn" disabled title="Save your changes first - a Sync would read the saved budget over them" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }} aria-label="Sync">Sync</button>
+              ? <button type="button" className="secondary-btn" disabled title="Save your changes first - a Sync would read the saved budget over them" style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }} aria-label="Sync">Sync</button>
               : <SyncButton onSync={ts.sync} busy={view === 'bva' ? actualsBusy : state.loading && !!data} syncedAt={ts.syncedAt} />}
             </BarMore>
             <BarMore level={2}>
-            <button type="button" className="secondary-btn" disabled={!rows.length} onClick={exportCsv} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
+            <button type="button" className="secondary-btn" disabled={!rows.length} onClick={exportCsv} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
             {view === 'grid' && (
               <button type="button" className="secondary-btn" disabled={!rows.length} aria-expanded={!!intacct} onClick={() => setIntacct((v) => (v ? null : { problems: [] }))} title="Export Intacct Import File"
-                style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> <span className="acct-bar-label">Export Intacct Import File</span></button>
+                style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> <span className="acct-bar-label">Export Intacct Import File</span></button>
             )}
             </BarMore>
           </div>
@@ -286,37 +286,37 @@ export default function BudgetTab({ canEdit = false }) {
         {intacct && view === 'grid' && (
           <form onSubmit={exportIntacct} aria-label="Export Intacct Import File" style={{ ...card, padding: '10px 12px', display: 'grid', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
                 Intacct Budget ID
                 <input type="text" value={budgetId} onChange={(e) => setBudgetId(e.target.value)} maxLength={40} placeholder="e.g. 2026 Operating" style={{ ...control, width: 200 }} />
               </label>
-              <button type="submit" className="primary-btn" style={{ fontSize: '0.78rem' }}>Download File</button>
-              <button type="button" className="secondary-btn" onClick={() => setIntacct(null)} style={{ fontSize: '0.78rem' }}>Close</button>
+              <button type="submit" className="primary-btn" style={{ fontSize: 13 }}>Download File</button>
+              <button type="button" className="secondary-btn" onClick={() => setIntacct(null)} style={{ fontSize: 13 }}>Close</button>
             </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               One row per account and month for {entityName || 'the entity'} {year}: Budget ID, Account No., Location ID, Period Name (&quot;Month Ended January {year}&quot;), Amount. Months at zero are left out. The layout is provisional until it is matched to the Intacct import template.
             </div>
             {intacct.problems.length > 0 && (
-              <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.8rem' }}>
+              <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
                 <strong>Fix these first - no file was made:</strong>
                 <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{intacct.problems.map((p) => <li key={p}>{p}</li>)}</ul>
               </div>
             )}
-            {intacct.done && <div role="status" style={{ fontSize: '0.8rem', color: 'var(--ok-fg, #15803d)' }}>{intacct.done}</div>}
+            {intacct.done && <div role="status" style={{ fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>{intacct.done}</div>}
           </form>
         )}
 
-        {state.error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{state.error}</div>}
+        {state.error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>{state.error}</div>}
 
         <AsyncSection loading={state.loading && !data} skeleton={<SkeletonBlocks count={2} />}>
           {view === 'grid' ? (
             <div className="acct-scroll-box" ref={setBox} data-testid="budget-box" style={{ ...card, ...fit }}>
               {!rows.length ? (
-                <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>
+                <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center' }}>
                   {location ? `No income statement accounts came back for ${entityName}.` : 'Pick an entity to open its budget.'}
                 </p>
               ) : (
-                <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
+                <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
                   <thead>
                     <tr>
                       {gridHead('account', 'Account', { textAlign: 'left', left: 0, zIndex: 1 })}
@@ -355,9 +355,9 @@ export default function BudgetTab({ canEdit = false }) {
             <AsyncSection loading={!bva} skeleton={<SkeletonBlocks count={2} />}>
               <div className="acct-scroll-box" ref={setBox} data-testid="budget-box" style={{ ...card, ...fit }}>
                 {!bva?.rows.length ? (
-                  <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>Nothing budgeted or posted for {entityName} through {MONTHS[(bva?.through || 1) - 1]} {year}.</p>
+                  <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center' }}>Nothing budgeted or posted for {entityName} through {MONTHS[(bva?.through || 1) - 1]} {year}.</p>
                 ) : (
-                  <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
+                  <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
                     <thead>
                       <tr>
                         {bvaHead('account', 'Account', { textAlign: 'left' })}

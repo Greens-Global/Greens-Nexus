@@ -65,7 +65,7 @@ export function ApprovalsPanel({ phone = false }) {
       .catch(() => setAllocatorsState('error'));
   }, [can]);
   // Phone: 36px buttons (the desktop 5px/12px pill was ~28px tall).
-  const actBtn = { padding: phone ? '8px 14px' : '5px 12px', fontSize: '0.8rem', ...(phone ? { minHeight: 36 } : null) };
+  const actBtn = { padding: phone ? '8px 14px' : '5px 12px', fontSize: 13, ...(phone ? { minHeight: 36 } : null) };
 
   const pendingReqs    = requisitions.filter(r => r.status === 'pending_manager');
   const pendingInvReqs = invRequests.filter(r => r.status === 'pending');
@@ -89,12 +89,12 @@ export function ApprovalsPanel({ phone = false }) {
 
   return (
     <Card title="Pending Approvals" sub="Purchase requisitions and inventory requests awaiting you"
-      action={total > 0 && <span className="status-badge status-pending" style={{ fontSize: '0.78rem' }}>{total} Pending</span>}>
+      action={total > 0 && <span className="status-badge status-pending" style={{ fontSize: 13 }}>{total} Pending</span>}>
 
       {/* Purchase requisitions */}
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', margin: '2px 0 8px' }}>Purchase requisitions</div>
       {pendingReqs.length === 0 ? (
-        <div style={{ border: '1px dashed var(--line)', borderRadius: 8, padding: '16px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5, marginBottom: 16 }}>
+        <div style={{ border: '1px dashed var(--line)', borderRadius: 8, padding: '16px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
           None awaiting approval.
         </div>
       ) : (
@@ -104,18 +104,18 @@ export function ApprovalsPanel({ phone = false }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 13px', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: '0.74rem', color: 'var(--muted)', background: 'var(--mist)', padding: '2px 6px', borderRadius: 4 }}>{req.id}</span>
-                    <strong style={{ fontSize: '0.9rem' }}>{req.item}</strong>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>× {req.quantity}</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', background: 'var(--mist)', padding: '2px 6px', borderRadius: 4 }}>{req.id}</span>
+                    <strong style={{ fontSize: 15 }}>{req.item}</strong>
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>× {req.quantity}</span>
                   </div>
-                  <div style={{ marginTop: 4, fontSize: '0.8rem', color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><strong>By:</strong> <AvatarName email={req.employeeEmail} name={req.employeeName} size={20} /></span>
                     <span><strong>Dept:</strong> {req.employeeDept}</span>
                     <span><strong>Submitted:</strong> {fmtDate(req.createdAt)}</span>
                   </div>
                 </div>
                 <button onClick={() => setExpandedReq(expandedReq === req.id ? null : req.id)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.76rem' }}>
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
                   Reason <ChevronDown size={13} style={{ transform: expandedReq === req.id ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
                 </button>
                 {rejectingId !== req.id && (
@@ -132,14 +132,14 @@ export function ApprovalsPanel({ phone = false }) {
                 )}
               </div>
               {expandedReq === req.id && (
-                <div style={{ borderTop: '1px solid var(--line)', padding: '9px 13px', background: 'var(--mist)', fontSize: '0.83rem', color: 'var(--muted)' }}>
+                <div style={{ borderTop: '1px solid var(--line)', padding: '9px 13px', background: 'var(--mist)', fontSize: 13, color: 'var(--muted)' }}>
                   <strong>Reason:</strong> {req.reason || '-'}
                 </div>
               )}
               {rejectingId === req.id && (
                 <div style={{ borderTop: '1px solid var(--line)', padding: '10px 13px', background: 'hsla(0,80%,50%,0.04)' }}>
-                  <p style={{ fontSize: '0.8rem', marginBottom: 7, color: 'hsl(var(--color-red))', fontWeight: 600 }}>Enter rejection reason:</p>
-                  <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: '0.84rem' }}
+                  <p style={{ fontSize: 13, marginBottom: 7, color: 'hsl(var(--color-red))', fontWeight: 600 }}>Enter rejection reason:</p>
+                  <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
                     placeholder="Explain why this request is being rejected..."
                     value={rejectReason} onChange={e => setRejectReason(e.target.value)} autoFocus />
                   <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
@@ -159,7 +159,7 @@ export function ApprovalsPanel({ phone = false }) {
       {/* Inventory requests */}
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', margin: '2px 0 8px' }}>Inventory requests</div>
       {pendingInvReqs.length === 0 ? (
-        <div style={{ border: '1px dashed var(--line)', borderRadius: 8, padding: '16px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
+        <div style={{ border: '1px dashed var(--line)', borderRadius: 8, padding: '16px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
           None awaiting approval.
         </div>
       ) : (
@@ -172,11 +172,11 @@ export function ApprovalsPanel({ phone = false }) {
                 </div>
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: '0.74rem', color: 'var(--muted)', background: 'var(--mist)', padding: '2px 6px', borderRadius: 4 }}>{req.id}</span>
-                    <strong style={{ fontSize: '0.9rem' }}>{req.itemName}</strong>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>× {req.quantity} · {req.days}d</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', background: 'var(--mist)', padding: '2px 6px', borderRadius: 4 }}>{req.id}</span>
+                    <strong style={{ fontSize: 15 }}>{req.itemName}</strong>
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>× {req.quantity} · {req.days}d</span>
                   </div>
-                  <div style={{ marginTop: 4, fontSize: '0.8rem', color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><strong>By:</strong> <AvatarName email={req.requestedByEmail} name={req.requestedBy} size={20} /></span>
                     <span><strong>Dept:</strong> {req.department}</span>
                     <span><strong>Reason:</strong> {req.reason}</span>
@@ -197,8 +197,8 @@ export function ApprovalsPanel({ phone = false }) {
               </div>
               {approvingInvId === req.id && (
                 <div style={{ borderTop: '1px solid var(--line)', padding: '10px 13px', background: 'hsla(var(--color-green),0.04)' }}>
-                  <p style={{ fontSize: '0.8rem', marginBottom: 7, color: 'hsl(var(--color-green))', fontWeight: 600 }}>Who should hand this item over to {req.requestedBy}?</p>
-                  <select className="form-input" style={{ width: '100%', maxWidth: 280, fontSize: '0.84rem' }}
+                  <p style={{ fontSize: 13, marginBottom: 7, color: 'hsl(var(--color-green))', fontWeight: 600 }}>Who should hand this item over to {req.requestedBy}?</p>
+                  <select className="form-input" style={{ width: '100%', maxWidth: 280, fontSize: 13 }}
                     value={pickedAllocator} onChange={e => setPickedAllocator(e.target.value)} autoFocus>
                     <option value="">Select a person…</option>
                     {allocators.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
@@ -225,8 +225,8 @@ export function ApprovalsPanel({ phone = false }) {
               )}
               {rejectingInvId === req.id && (
                 <div style={{ borderTop: '1px solid var(--line)', padding: '10px 13px', background: 'hsla(0,80%,50%,0.04)' }}>
-                  <p style={{ fontSize: '0.8rem', marginBottom: 7, color: 'hsl(var(--color-red))', fontWeight: 600 }}>Enter rejection reason:</p>
-                  <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: '0.84rem' }}
+                  <p style={{ fontSize: 13, marginBottom: 7, color: 'hsl(var(--color-red))', fontWeight: 600 }}>Enter rejection reason:</p>
+                  <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
                     placeholder="Explain why this request is being rejected..."
                     value={rejectInvReason} onChange={e => setRejectInvReason(e.target.value)} autoFocus />
                   <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
@@ -316,7 +316,7 @@ export function WhoHasWhatPanel({ phone = false }) {
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Filter size={13} style={{ color: 'var(--muted)' }} />
           <select value={dept} onChange={e => setDept(e.target.value)} className="form-input"
-            style={{ padding: phone ? '7px 8px' : '5px 8px', fontSize: phone ? 16 : 12.5, height: 'auto', minHeight: phone ? 36 : undefined }}>
+            style={{ padding: phone ? '7px 8px' : '5px 8px', fontSize: /* type-ok: iOS zooms a field under 16px */ phone ? 16 : 13, height: 'auto', minHeight: phone ? 36 : undefined }}>
             {DEPTS.map(d => <option key={d}>{d}</option>)}
           </select>
         </span>
@@ -324,7 +324,7 @@ export function WhoHasWhatPanel({ phone = false }) {
 
       {pendingAlloc.length > 0 && (
         <div style={{ marginBottom: 14, border: '1px solid hsla(var(--color-blue),0.25)', borderRadius: 10, background: 'hsla(var(--color-blue),0.03)', padding: 10 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
             Pending Allocation - {pendingAlloc.length}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -333,8 +333,8 @@ export function WhoHasWhatPanel({ phone = false }) {
                 style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 11px', background: 'var(--card)' }}>
                 <div style={{ flex: 1, minWidth: 150 }}>
                   <strong style={{ fontSize: 13 }}>{row.employee}</strong>
-                  <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> - {row.item}</span>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                  <span style={{ fontSize: 13, color: 'var(--muted)' }}> - {row.item}</span>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {row.assignedTo ? <>Assigned to {row.assignedToEmail === myEmail ? 'you' : row.assignedTo}</> : 'Unassigned'}
                     {row.approvedAt && <> · approved {formatMonthDay(row.approvedAt)}</>}
                   </div>
@@ -365,11 +365,11 @@ export function WhoHasWhatPanel({ phone = false }) {
               style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer', border: `1px solid ${row.isOverdue ? 'hsla(var(--color-red),0.35)' : 'var(--line)'}`, borderRadius: 8, padding: '9px 11px', background: row.isOverdue ? 'hsla(var(--color-red),0.03)' : 'var(--paper)' }}>
               <div style={{ flex: 1, minWidth: 160 }}>
                 <strong style={{ fontSize: 13 }}>{row.employee}</strong>
-                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> - {row.item}</span>
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}> - {row.item}</span>
                 {row.raisedBy && row.raisedBy !== row.employee && (
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}> (via {row.raisedBy})</span>
                 )}
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                   {row.dept} · since {formatMonthDay(row.since, '-')} ·{' '}
                   <span style={{ fontWeight: row.isOverdue ? 700 : 500, color: row.isOverdue ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
                     {row.isOverdue && '⚠ '}due {formatDate(row.dueDate, '-')}
@@ -381,12 +381,12 @@ export function WhoHasWhatPanel({ phone = false }) {
                 color: row.type === 'Temporary' ? 'hsl(var(--color-blue))' : 'hsl(var(--color-purple))' }}>{row.type}</span>
               {row.isOverdue ? (
                 alertSent[row.key] ? (
-                  <span style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 12, color: 'hsl(var(--color-green))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                     <CheckCircle size={12} /> Alert Sent
                   </span>
                 ) : (
                   <button onClick={(e) => { e.stopPropagation(); sendOverdueAlert(row.reqId, row.employee, row.item); setAlertSent(p => ({ ...p, [row.key]: true })); }}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: phone ? '9px 13px' : '4px 10px', minHeight: phone ? 36 : undefined, borderRadius: 7, border: '1px solid hsla(var(--color-orange),0.3)', background: 'hsla(var(--color-orange),0.08)', color: 'hsl(var(--color-orange))', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: phone ? '9px 13px' : '4px 10px', minHeight: phone ? 36 : undefined, borderRadius: 7, border: '1px solid hsla(var(--color-orange),0.3)', background: 'hsla(var(--color-orange),0.08)', color: 'hsl(var(--color-orange))', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
                     <Mail size={11} /> Send Alert
                   </button>
                 )
@@ -417,7 +417,7 @@ export function TeamTimePanel() {
   return (
     <Card title="Team Time" sub="Your direct reports' punches, approvals and time off - HR sees the whole company under HR → Time">
       {tmsg && (
-        <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12.5, fontWeight: 600,
+        <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 13, fontWeight: 600,
           background: tmsg.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
           color: tmsg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{tmsg.t}</div>
       )}
@@ -605,7 +605,7 @@ export function CalendarPanel({ phone = false }) {
   const yearNow = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => yearNow - 5 + i);
   const selectStyle = {
-    border: 'none', background: 'transparent', color: 'var(--muted)', fontSize: stackedLayout ? 16 : 12, fontWeight: 600,
+    border: 'none', background: 'transparent', color: 'var(--muted)', fontSize: stackedLayout ? 16 : 12, fontWeight: 600, // type-ok: iOS zooms a field under 16px
     fontFamily: 'var(--wk-font)', cursor: 'pointer', padding: '2px 0',
   };
   // ‹ Today ›: 36px targets on a phone (they were ~20px glyph buttons).
@@ -645,7 +645,7 @@ export function CalendarPanel({ phone = false }) {
       }
     >
       {!state.available && !state.loading ? (
-        <div data-widget-unavailable style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+        <div data-widget-unavailable style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
           Your calendar isn't connected - this widget shows the Outlook calendar of Microsoft 365 accounts.
         </div>
       ) : (
@@ -654,7 +654,7 @@ export function CalendarPanel({ phone = false }) {
           <div style={side ? { flex: '0 0 210px', width: 210, minHeight: 0 } : { flex: '0 0 auto', width: '100%' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center', marginBottom: dense ? 2 : 4 }}>
               {MONTH_WEEKDAYS.map((w, i) => (
-                <div key={i} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: dense ? '1px 0' : '2px 0' }}>{w}</div>
+                <div key={i} style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', padding: dense ? '1px 0' : '2px 0' }}>{w}</div>
               ))}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: dense ? 1 : 2 }}>
@@ -676,7 +676,7 @@ export function CalendarPanel({ phone = false }) {
                       fontFamily: 'var(--wk-font)',
                     }}>
                     <span style={{
-                      fontSize: 12.5, fontWeight: isToday ? 800 : 600, lineHeight: 1,
+                      fontSize: 13, fontWeight: isToday ? 800 : 600, lineHeight: 1,
                       color: isSelected ? '#fff' : !inMonth ? 'var(--wk-faint)' : isToday ? 'hsl(var(--color-blue))' : 'var(--ink)',
                     }}>{d.getDate()}</span>
                     <span style={{ display: 'inline-flex', gap: 3, height: 4 }}>
@@ -702,7 +702,7 @@ export function CalendarPanel({ phone = false }) {
             ? { flex: '1 1 0', minWidth: 0, minHeight: 0, borderLeft: '1px solid var(--line)', paddingLeft: 17, display: 'flex', flexDirection: 'column' }
             : { flex: '1 1 0', minHeight: 140, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, padding: '0 2px 8px' }}>
-              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                 My Agenda{selected !== today ? ` · ${formatMonthDay(selDate)}` : ''}
               </span>
               {!state.loading && dayEvents.length > 0 && (
@@ -715,7 +715,7 @@ export function CalendarPanel({ phone = false }) {
               {state.loading ? (
                 <WidgetSkeleton />
               ) : dayEvents.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
               ) : (<>
                 {shownEvents.map((ev, i) => {
                   const when = ev.isHoliday ? <><PartyPopper size={12} /> All day</> : ev.isBirthday ? <><CakeSlice size={12} /> All day</> : ev.isAllDay ? 'All day' : agendaTime(ev.start);
@@ -745,7 +745,7 @@ export function CalendarPanel({ phone = false }) {
                         )}
                       </div>
                       {!narrowAgenda && until && (
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0, paddingTop: 2, whiteSpace: 'nowrap' }}>{until}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, paddingTop: 2, whiteSpace: 'nowrap' }}>{until}</div>
                       )}
                     </div>
                   );

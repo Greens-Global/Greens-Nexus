@@ -43,21 +43,21 @@ import { FEDERAL_FORMS, federalFormLabel, orderFederalForms } from '../lib/feder
 
 // Roomy, plain: normal-case labels, one short hint only where it helps.
 const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '18px 0 6px' };
-const hint = { fontSize: 12.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 };
-const h2 = { fontSize: 17, fontWeight: 800, margin: '22px 0 4px', color: 'var(--ink)' };
+const hint = { fontSize: 13, color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 };
+const h2 = { fontSize: 18, fontWeight: 800, margin: '22px 0 4px', color: 'var(--ink)' };
 const lead = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, margin: 0 };
 const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--card)' };
 const iconBtn = { padding: '4px 6px', display: 'inline-flex', alignItems: 'center' };
-const linkBtn = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-blue))', textDecoration: 'underline', fontFamily: 'Inter,sans-serif' };
-const smallBtn = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 };
+const linkBtn = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-blue))', textDecoration: 'underline', fontFamily: 'Inter,sans-serif' };
+const smallBtn = { fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 };
 
 const Problem = ({ children }) => (
-  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, marginTop: 10 }}>
+  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '9px 12px', fontSize: 13, marginTop: 10 }}>
     <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} /><span>{children}</span>
   </div>
 );
 const Chip = ({ tone = 'gray', children, title }) => (
-  <span title={title} style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap',
+  <span title={title} style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
     background: tone === 'gray' ? 'var(--mist)' : `hsla(var(--color-${tone}),0.12)`,
     color: tone === 'gray' ? 'var(--muted)' : `hsl(var(--color-${tone}))` }}>{children}</span>
 );
@@ -93,7 +93,7 @@ function PreviewModal({ templateId, name, companyId, flow, letterheadId, onClose
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 14 }}>{name} - Preview With Sample Person</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>The published version, filled with a sample person. Anything Nexus would ask for shows in [brackets].</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>The published version, filled with a sample person. Anything Nexus would ask for shows in [brackets].</div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
@@ -433,10 +433,10 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
 
   const docRow = (d, i) => (
     <div key={d.id} style={{ ...card, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-      <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--mist)', fontSize: 11.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+      <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--mist)', fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
       <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
       <div style={{ flex: '1 1 220px', minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4, alignItems: 'center' }}>
           {d.missing ? <Chip tone="red">Not Available</Chip>
             : !d.publishedVersion ? <Chip tone="orange" title="Open it in Documents and click Publish">Not Published</Chip>
@@ -493,7 +493,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
             <label key={f.kind} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '7px 0', cursor: 'pointer' }}>
               <input type="checkbox" checked={p.federalForms.includes(f.kind)} onChange={e => setFederal(f.kind, e.target.checked)} style={{ accentColor: 'var(--pine)', marginTop: 3 }} />
               <span>
-                <span style={{ fontSize: 13.5, fontWeight: 700 }}>{federalFormLabel(f)}</span>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{federalFormLabel(f)}</span>
                 <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{f.hint}</span>
               </span>
             </label>
@@ -535,7 +535,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
                   {r.templateIds.map(id => (
-                    <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, border: '1px solid var(--line)', borderRadius: 999, padding: '4px 6px 4px 10px' }}>
+                    <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, border: '1px solid var(--line)', borderRadius: 999, padding: '4px 6px 4px 10px' }}>
                       <FileText size={12} style={{ color: 'var(--pine)' }} /> {byId[id]?.name || 'A template that is no longer active'}
                       <button type="button" onClick={() => setRow({ templateIds: r.templateIds.filter(x => x !== id) })} aria-label="Remove document"
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={11} /></button>
@@ -573,12 +573,12 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
                 <select className="form-input" style={{ width: 140 }} value={f.type} onChange={e => setField(i, { type: e.target.value, ...(e.target.value === 'text' || e.target.value === 'number' ? {} : { last4: false }) })} aria-label="Field type">
                   {FIELD_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                 </select>
-                <code style={{ fontSize: 11.5, color: 'var(--muted)' }}>{`{{${f.key || formKey(f.label) || '...'}}}`}</code>
+                <code style={{ fontSize: 12, color: 'var(--muted)' }}>{`{{${f.key || formKey(f.label) || '...'}}}`}</code>
                 <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('detailsForm', move(p.detailsForm, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
                 <button type="button" className="secondary-btn" disabled={i === p.detailsForm.length - 1} onClick={() => set('detailsForm', move(p.detailsForm, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
                 <button type="button" className="secondary-btn" onClick={() => set('detailsForm', p.detailsForm.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove field"><Trash2 size={13} /></button>
               </div>
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, fontSize: 12.5 }}>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, fontSize: 13 }}>
                 {[['required', 'Required', 'They cannot send the form without it'],
                   ['sensitive', 'Private', 'Bank details, ID numbers: only people with Pay & Benefits access see it'],
                   ...(f.type === 'text' || f.type === 'number' ? [['last4', 'Keep Last 4 Only', 'Only the last 4 characters are kept and printed (XXXX 1234)']] : [])].map(([k, l, t]) => (
@@ -610,9 +610,9 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
         {p.flow.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Add a document first - each signature spot in it becomes a step here.</div>}
         {p.flow.map((s, i) => (
           <div key={s.key} style={{ ...card, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--mist)', fontSize: 11.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+            <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--mist)', fontSize: 12, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
             <div style={{ flex: '1 1 140px', minWidth: 0 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700 }} title={`Signature spots for "${s.key}"`}>{keyLabel(s.key)}</div>
+              <div style={{ fontSize: 13, fontWeight: 700 }} title={`Signature spots for "${s.key}"`}>{keyLabel(s.key)}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>{today(s.role)}</div>
             </div>
             <select className="form-input" style={{ width: 180 }} value={s.role} onChange={e => setFlowStep(i, { role: e.target.value })} aria-label="Role">
@@ -623,7 +623,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
             </select>
             {s.action === 'sign' && event !== 'offer' && ONCE_ROLES(s.role) && (
               <label title="The company signs this packet once - that signature then goes on every packet by itself, after the person has signed"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 <input type="checkbox" checked={!!s.once} onChange={e => setFlowStep(i, { once: e.target.checked || undefined })} style={{ accentColor: 'var(--pine)' }} />
                 Signs Once
               </label>
@@ -741,8 +741,8 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId: st
         <div style={{ padding: '18px 28px 0', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 800, fontSize: 17 }}>{p.id ? p.name || eventLabel : `New ${eventLabel}`}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{companyName}</div>
+              <div style={{ fontWeight: 800, fontSize: 18 }}>{p.id ? p.name || eventLabel : `New ${eventLabel}`}</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{companyName}</div>
             </div>
             <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
           </div>

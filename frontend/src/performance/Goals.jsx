@@ -51,14 +51,14 @@ export function GoalRow({ goal: g, onOpen, onApprove, showOwner = false }) {
     <div className="nx-perf-row" role="listitem" style={{ minWidth: 0 }}>
       <button type="button" className="nx-perf-goal" onClick={() => onOpen?.(g)}>
         <span style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.title}</span>
+          <span style={{ display: 'block', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.title}</span>
           <span style={{ display: 'block', ...muted, fontSize: 12, marginTop: 2 }}>
             {[g.level !== 'personal' ? (g.level === 'department' ? `${g.department} Department` : 'Company Goal') : '',
               showOwner || g.level !== 'personal' ? g.ownerName : '',
               g.dueOn ? `Due ${formatDate(g.dueOn)}` : ''].filter(Boolean).join(' · ')}
           </span>
           {g.measuredByNexus && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
               <Sparkles size={12} /> Measured by Nexus: {g.metricLabel}
             </span>
           )}
@@ -177,12 +177,12 @@ export function GoalFormModal({ ctx, goal = null, defaults = {}, parents = [], o
         <label style={field}>
           <span style={LBL}>Goal</span>
           <input className="form-input" value={f.title} onChange={e => set('title')(e.target.value)} placeholder="What do you want to achieve?"
-            autoFocus style={{ fontSize: 16 }} />
+            autoFocus style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
           <label style={field}>
             <span style={LBL}>Measured By</span>
-            <select className="form-input" value={personal ? f.metricKey : BY_HAND} onChange={e => set('metricKey')(e.target.value)} style={{ fontSize: 16 }}>
+            <select className="form-input" value={personal ? f.metricKey : BY_HAND} onChange={e => set('metricKey')(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }}>
               <option value={BY_HAND}>I&apos;ll Update It</option>
               {personal && (
                 <optgroup label="Nexus Numbers (Update By Themselves)">
@@ -194,7 +194,7 @@ export function GoalFormModal({ ctx, goal = null, defaults = {}, parents = [], o
           {!metric && (
             <label style={field}>
               <span style={LBL}>Kept As</span>
-              <select className="form-input" value={f.measure} onChange={e => set('measure')(e.target.value)} style={{ fontSize: 16 }}>
+              <select className="form-input" value={f.measure} onChange={e => set('measure')(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }}>
                 {MEASURES.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
               </select>
             </label>
@@ -203,7 +203,7 @@ export function GoalFormModal({ ctx, goal = null, defaults = {}, parents = [], o
             <label style={field}>
               <span style={LBL}>{metric?.good === 'low' ? 'Target (At Most)' : 'Target'}{metric?.unit ? ` (${metric.unit})` : ''}</span>
               <input className="form-input" type="number" inputMode="decimal" value={f.targetValue} onChange={e => set('targetValue')(e.target.value)}
-                placeholder={metric?.unit === '%' ? '95' : '40'} style={{ fontSize: 16 }} />
+                placeholder={metric?.unit === '%' ? '95' : '40'} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
             </label>
           )}
           <div style={field}>
@@ -217,7 +217,7 @@ export function GoalFormModal({ ctx, goal = null, defaults = {}, parents = [], o
         {!editing && levels.length > 1 && (
           <label style={{ ...field, maxWidth: 260 }}>
             <span style={LBL}>Type</span>
-            <select className="form-input" value={f.level} onChange={e => set('level')(e.target.value)} style={{ fontSize: 16 }}>
+            <select className="form-input" value={f.level} onChange={e => set('level')(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }}>
               {levels.map(l => <option key={l.key} value={l.key}>{l.label}</option>)}
             </select>
           </label>
@@ -270,7 +270,7 @@ export function GoalFormModal({ ctx, goal = null, defaults = {}, parents = [], o
           <label style={{ ...field, flex: 1 }} className="nx-fill">
             <span style={LBL}>Note</span>
             <textarea className="form-input" value={f.description} onChange={e => set('description')(e.target.value)}
-              placeholder="What does done look like?" style={{ fontFamily: 'inherit', fontSize: 16 }} />
+              placeholder="What does done look like?" style={{ fontFamily: 'inherit', fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
           </label>
         </>)}
       </div>
@@ -302,12 +302,12 @@ function CheckinForm({ goal, onSaved, toastErr }) {
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, flexWrap: 'wrap' }}>
           <span style={LBL}>{goal.measure === 'percent' ? 'Percent Done' : `Now${goal.unit ? ` (${goal.unit})` : ''}`}</span>
           <input className="form-input" type="number" inputMode="decimal" value={value} min={goal.measure === 'percent' ? 0 : undefined}
-            max={goal.measure === 'percent' ? 100 : undefined} onChange={e => setValue(e.target.value)} style={{ width: 120, fontSize: 16 }} />
+            max={goal.measure === 'percent' ? 100 : undefined} onChange={e => setValue(e.target.value)} style={{ width: 120, fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
         </label>
       )}
       <label className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
         <span style={LBL}>Note (Optional)</span>
-        <textarea className="form-input" value={note} onChange={e => setNote(e.target.value)} placeholder="What moved, what is in the way?" style={{ fontFamily: 'inherit', fontSize: 16 }} />
+        <textarea className="form-input" value={note} onChange={e => setNote(e.target.value)} placeholder="What moved, what is in the way?" style={{ fontFamily: 'inherit', fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
       </label>
       <div><button type="button" className="primary-btn" onClick={save} disabled={busy} style={TAP}>{busy ? 'Saving…' : 'Save Update'}</button></div>
     </div>
@@ -373,7 +373,7 @@ export function GoalDetailModal({ goalId, ctx, parents = [], onClose, onChanged,
               <Sparkles size={13} /> Measured by Nexus: {g.metricLabel}, {formatDate(g.periodStart)} to {formatDate(g.periodEnd)}. It updates by itself.
             </div>
           )}
-          {g.description && <div style={{ fontSize: 13.5, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{g.description}</div>}
+          {g.description && <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{g.description}</div>}
           {g.parentTitle && <div style={muted}><ArrowUpRight size={13} style={{ verticalAlign: -2 }} /> Supports {g.parentTitle}</div>}
           {g.children?.length > 0 && (
             <div>

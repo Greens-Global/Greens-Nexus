@@ -378,42 +378,37 @@ def run_daily_scan() -> int:
         starter_cfg, doc_cfg = rcfg["newStarter"], rcfg["documentExpiry"]
         esx_cfg = rcfg["esignExpiring"]
 
-        # Timesheet reminder: on the LAST day of the bi-weekly pay period, nudge
-        # each hourly employee who has not submitted the period for review yet
-        # (the Nexus Sign flow, Sep 2026 - until Oct 16 this still said "sign
-        # your timecard", fired the day before and skipped nobody, because the
-        # one-click signature it checked for is retired).
-        from routers.timeclock import _pay_period, _pay_type
-        from models import TimesheetReview
-        _today = datetime.now(timezone.utc).date()
-        _pstart, _pend = _pay_period(_today.isoformat())
-        _sign_due = _today == datetime.strptime(_pend, "%Y-%m-%d").date()
-        _submitted = set()
-        # Exempt from time tracking = no clock and no timesheet, so never a
-        # timesheet nudge (Visesh, 10/02). Set on the role.
-        from routers.timeclock import time_tracking_exempt_emails
-        _exempt = time_tracking_exempt_emails(db)
-        if _sign_due:
-            _submitted = {r.employee_email for r in db.query(TimesheetReview).filter(
-                TimesheetReview.period_start == _pstart,
-                TimesheetReview.status.in_(["with_manager", "with_employee", "signing", "completed"])).all()}
+        # Time sheet reminder (Neil, 11/12/2026 - timesheet_due.py, the ONE
+        # rule the Daily Briefing reads too): every pay type - hourly,
+        # salaried bi-weekly or monthly, contractors (India included) - on
+        # the person's own local date, a bell on the period's last day and
+        # one the day after it closed while it has not been sent. Until
+        # then this nudged hourly people only, on the UTC date, on the last
+        # day only. Exempt people and empty periods never get one.
+        import timesheet_due
         _us = lambda iso: datetime.strptime(iso, "%Y-%m-%d").strftime("%m/%d/%Y")  # noqa: E731
 
         for e in employees:
             name = f"{e.first_name} {e.last_name}".strip()
 
-            # 0. Timesheet reminder (the last day of the current hourly period;
-            #    salaried people are on the calendar month and get none here)
-            if (_sign_due and e.work_email and e.work_email.lower() not in _submitted
-                    and e.work_email.lower() not in _exempt
-                    and _pay_type(db, e.work_email.lower()) != "fixed"):
-                sent += _notify(
-                    db, "timecard_sign", e.work_email,
-                    "Submit Your Time Sheet",
-                    f"Your time sheet for {_us(_pstart)} - {_us(_pend)} closes today. "
-                    f"Review your hours and submit it to your manager for review.",
-                    ref_id=_pstart, action={"view": "timeclock", "sub": "timesheet"}, priority=1,
-                )
+            # 0. Time sheet reminder (timesheet_due.bell_for)
+            if e.work_email:
+                # A savepoint, so a failed read cannot leave the scan's
+                # transaction aborted for everyone after this person.
+                sp = db.begin_nested()
+                try:
+                    bell = timesheet_due.bell_for(db, e.work_email.lower())
+                    sp.commit()
+                except Exception as ex:   # noqa: BLE001 - one person's time sheet never stops the scan
+                    sp.rollback()
+                    print(f"[reminders] time sheet bell failed for {e.work_email}: {ex}")
+                    bell = None
+                if bell:
+                    sent += _notify(
+                        db, timesheet_due.BELL_TYPE, e.work_email,
+                        "Submit Your Time Sheet", bell["body"],
+                        ref_id=bell["ref_id"], action=bell["action"], priority=1,
+                    )
 
             # 1. Right-to-work / visa doc expiry (compliance.expiryDate)
             exp = (e.compliance or {}).get("expiryDate", "")

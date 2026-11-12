@@ -33,7 +33,7 @@ import { DateField } from '../../tasks/components';
 // Flux Analysis thresholds sit under Customize too.
 
 export const control = {
-  height: 30, padding: '0 9px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem',
+  height: 30, padding: '0 9px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 13,
   fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)', boxSizing: 'border-box',
 };
 const button = (active) => ({
@@ -53,11 +53,11 @@ const panel = (width) => ({
 const fillPanel = (width) => ({ ...panel(width), display: 'flex', flexDirection: 'column' });
 const row = (on) => ({
   display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6,
-  background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: '0.8rem',
+  background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: 13,
   color: 'var(--text-primary)', cursor: 'pointer',
 });
 const link = { border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 };
-const count = { fontSize: '0.68rem', fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand, #2b45e1)', color: '#fff' };
+const count = { fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand, #2b45e1)', color: '#fff' };
 
 // A picker's list runs to the bottom of the screen (Charmi, 09/29 call);
 // AnchoredMenu keeps the whole panel inside the viewport.
@@ -157,7 +157,7 @@ function OptionList({ options, value, onChange, onPick, onFree, placeholder, emp
     <>
       {searchEnd ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{search}{searchEnd}</div> : search}
       <div ref={listRef} data-option-list="" style={{ maxHeight, overflowY: 'auto', overflowX: 'hidden', marginTop: 6, display: 'grid', alignContent: 'start', gap: 1, ...(fill ? { flex: '1 1 auto', minHeight: 96 } : null) }}>
-        {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
+        {error && <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
         {loading && <SkeletonBlocks count={3} />}
         {allLabel && !q.trim() && (
           <button type="button" style={row(!value.length)} onClick={() => onChange([])}>
@@ -177,7 +177,7 @@ function OptionList({ options, value, onChange, onPick, onFree, placeholder, emp
           return (
             <Fragment key={o.code}>
               {o.group && o.group !== shown[i - 1]?.group && (
-                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', padding: '6px 8px 2px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{o.group}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', padding: '6px 8px 2px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{o.group}</div>
               )}
               <button type="button" role="option" aria-selected={on} data-opt-index={i} disabled={o.dim} tabIndex={-1}
                 style={{ ...row(on), ...(i === active ? { outline: '2px solid var(--wk-brand, #2b45e1)', outlineOffset: -2 } : {}), ...(o.dim ? { opacity: 0.5, cursor: 'default' } : {}) }}
@@ -185,20 +185,20 @@ function OptionList({ options, value, onChange, onPick, onFree, placeholder, emp
                 <span style={{ width: 14, flexShrink: 0, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{on ? <Check size={14} /> : null}</span>
                 {codeFirst ? (
                   <>
-                    {!o.plain && <span style={{ width: 64, flexShrink: 0, fontSize: '0.72rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.code}</span>}
+                    {!o.plain && <span style={{ width: 64, flexShrink: 0, fontSize: 12, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.code}</span>}
                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: indent, fontWeight: o.plain ? 600 : 400 }}>{o.name || (o.plain ? o.code : 'Unnamed')}</span>
                   </>
                 ) : (
                   <>
                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: o.depth ? 14 : 0 }}>{o.name || o.code}</span>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{o.name ? o.code : ''}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{o.name ? o.code : ''}</span>
                   </>
                 )}
               </button>
             </Fragment>
           );
         })}
-        {!loading && !error && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>{options.length ? 'No match.' : empty}</div>}
+        {!loading && !error && !shown.length && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 6 }}>{options.length ? 'No match.' : empty}</div>}
       </div>
     </>
   );
@@ -271,7 +271,7 @@ export function EntitiesPicker({ entities, value, onChange, limited = false, sho
         <OptionList options={options} value={value} onChange={onChange} allLabel={all} codeFirst fill
           placeholder="Search entity by name or code" empty="No entities on the ledger yet."
           searchEnd={<button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px', flexShrink: 0 }} onClick={() => setOpen(false)}>Done</button>} />
-        <div style={{ marginTop: 8, flexShrink: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+        <div style={{ marginTop: 8, flexShrink: 0, fontSize: 12, color: 'var(--text-muted)' }}>
           {value.length > 1 ? 'Several entities add together.' : showHistorical ? 'An entity includes its sub-entities.' : 'An entity includes its sub-entities. Customize > Show Historical Entities lists the (H) ones too.'}
         </div>
       </PopoverPanel>
@@ -451,7 +451,7 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label={label} style={single ? panel(460) : { ...panel(640), display: 'grid', gridTemplateColumns: '170px 1fr', gap: 10 }}>
         {!single && <div style={{ display: 'grid', gap: 1, alignContent: 'start' }}>
-          <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', padding: '2px 8px 6px' }}>Filter this report by</div>
           {kinds.map((k) => {
             const c = (dims[k.key] || []).length;
             return (
@@ -465,14 +465,14 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
         </div>}
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <strong style={{ fontSize: '0.8rem' }}>{kind.label}{picked.length ? ` · ${picked.length} selected` : ''}</strong>
+            <strong style={{ fontSize: 13 }}>{kind.label}{picked.length ? ` · ${picked.length} selected` : ''}</strong>
             <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
               {picked.length > 0 && <button type="button" style={link} onClick={() => onChange({ ...dims, [kind.key]: [] })}>Clear</button>}
               <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
             </span>
           </div>
           {unavailable ? (
-            <div role="status" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '14px 6px' }}>
+            <div role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '14px 6px' }}>
               <strong>Not available yet.</strong> Nexus Accounting does not list its journals yet; the filter switches on by itself once it does.
             </div>
           ) : (
@@ -480,7 +480,7 @@ export function FiltersButton({ dims, onChange, onNames, showHistorical = false,
               loading={!lists[kind.kind]} error={lists[kind.kind]?.error}
               placeholder={kind.kind === 'journal' ? 'Search journals by symbol or title' : `Search ${kind.label.toLowerCase()} by name or code`} empty={`No ${kind.plural} on the ledger yet.`} />
           )}
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
             {kind.kind === 'journal' ? 'Statistical journals carry no money: their lines show in the drill-down and never add into a total.'
               : kind.key === 'departments' ? 'A department includes the departments under it.' : `Lines without a ${(kind.one || kind.label).toLowerCase()} are left out when one is picked.`}
             {kind.kind !== 'journal' && !showHistorical ? ' Customize > Show historical accounts lists the (H) entries too.' : ''}
@@ -519,7 +519,7 @@ export function AccountsPicker({ accounts, value, onChange, showHistorical = fal
         <OptionList options={options} value={value} onChange={onChange} allLabel={allLabel} codeFirst
           placeholder="Search account by name or GL code" empty="No accounts with activity for this selection." />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Totals add up the picked accounts only.{showHistorical ? '' : ' Customize > Show historical accounts lists the (H) ones too.'}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Totals add up the picked accounts only.{showHistorical ? '' : ' Customize > Show historical accounts lists the (H) ones too.'}</span>
           <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
         </div>
       </PopoverPanel>
@@ -544,7 +544,7 @@ export function PeriodStepper({ config, period, onChange }) {
     return (
       <div role="group" aria-label="Report period" style={group}>
         <button type="button" style={arrow} onClick={() => to(stepAsOf(config.asof, -1))} aria-label="Previous month-end" title="Previous month-end"><ChevronLeft size={14} /></button>
-        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>As of</span>
         <span style={{ ...control, display: 'flex', alignItems: 'center' }}><DateField value={config.asof} onChange={(picked) => { const v = picked || ''; return v && to(v); }} placeholder="MM/DD/YYYY" title="As of" style={{ width: '100%' }} /></span>
         <button type="button" style={arrow} onClick={() => to(stepAsOf(config.asof, 1))} aria-label="Next month-end" title="Next month-end"><ChevronRight size={14} /></button>
       </div>
@@ -572,7 +572,7 @@ export function PeriodStepper({ config, period, onChange }) {
               move to a later month at all (Charmi, Sep 25). Picking a start after
               the end moves the end with it. */}
           <span style={{ ...control, display: 'flex', alignItems: 'center' }}><DateField value={config.from} onChange={(picked) => { const v = picked || ''; return v && onChange({ from: v, to: v > config.to ? v : config.to }); }} placeholder="MM/DD/YYYY" title="From" style={{ width: '100%' }} /></span>
-          <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>to</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>to</span>
           <span style={{ ...control, display: 'flex', alignItems: 'center' }}><DateField value={config.to} onChange={(picked) => { const v = picked || ''; return v && onChange({ to: v, from: v < config.from ? v : config.from }); }} placeholder="MM/DD/YYYY" title="To" style={{ width: '100%' }} /></span>
         </>
       )}
@@ -596,17 +596,17 @@ export const PAGE_SIZES = [
   { key: 150, label: '150' },
 ];
 
-const sectionHead = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 };
+const sectionHead = { fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 };
 const segGroup = { display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' };
-const seg = (on) => ({ border: 'none', borderRight: '1px solid var(--border-color)', background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, padding: '5px 10px', cursor: 'pointer' });
+const seg = (on) => ({ border: 'none', borderRight: '1px solid var(--border-color)', background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', font: 'inherit', fontSize: 12, fontWeight: 600, padding: '5px 10px', cursor: 'pointer' });
 
 export function Toggle({ checked, onChange, label, hint }) {
   return (
-    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
       <input type="checkbox" checked={!!checked} onChange={(e) => onChange(e.target.checked)} style={{ marginTop: 2 }} />
       <span>
         {label}
-        {hint && <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{hint}</span>}
+        {hint && <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{hint}</span>}
       </span>
     </label>
   );
@@ -634,7 +634,7 @@ function PageSizeChoice({ pageSize, onPageSize }) {
             style={{ ...control, width: 80 }} />
         )}
       </div>
-      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Off shows one long list. Exports always include every row.</div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Off shows one long list. Exports always include every row.</div>
     </div>
   );
 }
@@ -688,18 +688,18 @@ export function CustomizeButton({ density, onDensity, pageSize = 0, onPageSize, 
           hint="Accounts marked inactive in Intacct are hidden until this is on. Totals still include them." />}
         {flux && onFlux && (
           <div>
-            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Flux Thresholds</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Flux Thresholds</div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
                 Variance %
                 <input type="number" min={0} step={0.5} value={flux.fluxPct} aria-label="Flux variance percent threshold" onChange={(e) => onFlux({ fluxPct: Math.max(0, Number(e.target.value) || 0) })} style={{ ...control, width: 72 }} className="num" />
               </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
                 Variance $
                 <input type="number" min={0} step={100} value={flux.fluxAmount} aria-label="Flux variance amount threshold" onChange={(e) => onFlux({ fluxAmount: Math.max(0, Number(e.target.value) || 0) })} style={{ ...control, width: 96 }} className="num" />
               </label>
             </div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>A line is flagged when its variance passes both. Memorized with the report.</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>A line is flagged when its variance passes both. Memorized with the report.</div>
           </div>
         )}
         {children}
@@ -719,7 +719,7 @@ export function Pager({ page, pages, from, to, total, setPage, style = null }) {
   return (
     <nav aria-label="Pages" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '10px 0', flexWrap: 'wrap', ...(style || {}) }}>
       <button type="button" style={btn(page <= 1)} disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft size={14} /> Previous</button>
-      <span role="status" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+      <span role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
         Page {n(page)} of {n(pages)} · Rows {n(from)}-{n(to)} of {n(total)}
       </span>
       <button type="button" style={btn(page >= pages)} disabled={page >= pages} onClick={() => setPage(page + 1)}>Next <ChevronRight size={14} /></button>
@@ -784,7 +784,7 @@ export function ExportMenu({ items, disabled = false, align = 'right' }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} disabled={disabled} aria-haspopup="menu" aria-expanded={open} title="Export"
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}>
         {busy ? <Loader2 size={14} className="spin" /> : <Download size={14} />} <span className="acct-bar-label">Export</span> <ChevronDown size={13} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="menu" aria-label="Export" style={{ ...panel(270), padding: 6 }}>
@@ -798,7 +798,7 @@ export function ExportMenu({ items, disabled = false, align = 'right' }) {
                 {it.busy ? <Loader2 size={14} className="spin" style={{ color: 'var(--text-muted)' }} /> : <Icon size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />}
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontWeight: 600 }}>{it.label}</span>
-                  {it.hint && <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{it.hint}</span>}
+                  {it.hint && <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{it.hint}</span>}
                 </span>
               </button>
             </Fragment>
@@ -835,14 +835,14 @@ export function MemorizeButton({ onSave, suggestion, align = 'right' }) {
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Memorize this report" style={panel(330)}>
         <form onSubmit={save} style={{ display: 'grid', gap: 8 }}>
-          <label style={{ fontSize: '0.78rem', fontWeight: 600 }} htmlFor="acct-memorize-name">What would you like to name it?</label>
+          <label style={{ fontSize: 13, fontWeight: 600 }} htmlFor="acct-memorize-name">What would you like to name it?</label>
           <input id="acct-memorize-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoFocus
             placeholder="Income Statement - GG Inc - YTD" style={{ ...control, width: '100%' }} />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.78rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
             <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} /> Share with the accounting team
           </label>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Saves the report, period, columns, book, entities and filters - not the figures. A name you already use is replaced.</div>
-          {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Saves the report, period, columns, book, entities and filters - not the figures. A name you already use is replaced.</div>
+          {error && <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button type="button" className="secondary-btn" style={{ fontSize: '0.75rem', padding: '4px 12px' }} onClick={() => setOpen(false)}>Cancel</button>
             <button type="submit" className="primary-btn" style={{ fontSize: '0.75rem', padding: '4px 12px' }} disabled={!name.trim() || busy}>{busy ? 'Saving...' : 'Save'}</button>
@@ -877,17 +877,17 @@ export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, on
           <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search saved reports" aria-label="Search saved reports" style={{ ...control, width: '100%', marginBottom: 6 }} />
         )}
         <div style={{ maxHeight: LIST_HEIGHT, overflowY: 'auto', display: 'grid', gap: 1 }}>
-          {error && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
+          {error && <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)', padding: 6 }}>{error}</div>}
           {loading && <SkeletonBlocks count={2} />}
           {!loading && !error && !reports.length && (
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '8px 6px' }}>Nothing saved yet. Set up a report, then press Memorize.</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '8px 6px' }}>Nothing saved yet. Set up a report, then press Memorize.</div>
           )}
           {shown.map((r) => (
             <div key={r.id} style={{ ...row(r.id === activeId), cursor: 'default', padding: 0 }}>
               <button type="button" role="menuitem" onClick={() => { onOpen(r); setOpen(false); }}
-                style={{ flex: 1, minWidth: 0, border: 'none', background: 'none', padding: '6px 8px', font: 'inherit', fontSize: '0.8rem', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
+                style={{ flex: 1, minWidth: 0, border: 'none', background: 'none', padding: '6px 8px', font: 'inherit', fontSize: 13, color: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
                 <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{r.name}</div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                   {r.mine ? (r.shared ? 'Shared with the team' : 'Only you') : `Shared by ${nameOf ? nameOf(r.owner) : 'a teammate'}`}
                 </div>
               </button>
@@ -911,7 +911,7 @@ export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, on
               ))}
             </div>
           ))}
-          {!loading && reports.length > 0 && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>No saved report matches.</div>}
+          {!loading && reports.length > 0 && !shown.length && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 6 }}>No saved report matches.</div>}
         </div>
         {onManage && (
           <div style={{ borderTop: '1px solid var(--border-color)', marginTop: 6, paddingTop: 6 }}>

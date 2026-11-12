@@ -111,8 +111,8 @@ export default function CapitalCallsTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Capital Calls</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Draft, issue, and collect - expand a call to work its investor allocations</p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Capital Calls</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Draft, issue, and collect - expand a call to work its investor allocations</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-select" style={{ width: 200 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -142,12 +142,12 @@ export default function CapitalCallsTab() {
                   {open ? <ChevronDown size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} /> : <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
                   <div style={{ flex: '1 1 220px', minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{call.title}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                       Call #{call.callNumber} · {call.fundName} · Notice {formatDate(call.noticeDate)} · Due {formatDate(call.dueDate)}
                     </div>
                   </div>
                   <div style={{ flex: '0 1 220px', minWidth: 160 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 4, fontVariantNumeric: 'tabular-nums' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 4, fontVariantNumeric: 'tabular-nums' }}>
                       <span><strong style={{ color: 'var(--ink)' }}>{formatCurrency(paid)}</strong> collected</span>
                       <span>of {formatCurrency(total)}</span>
                     </div>
@@ -158,24 +158,24 @@ export default function CapitalCallsTab() {
 
                 {open && (
                   <div style={{ borderTop: '1px solid var(--line)', padding: '14px 18px 18px' }}>
-                    {call.purpose && <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.55 }}>{call.purpose}</p>}
+                    {call.purpose && <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.55 }}>{call.purpose}</p>}
 
                     <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                       {call.status === 'draft' && (
                         <button className="primary-btn" disabled={actionBusy}
                           onClick={() => setCallStatus(call, 'issued', 'Issue this capital call? Allocations become due for every committed investor.')}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                           <Send size={13} /> Issue Call
                         </button>
                       )}
                       {call.status === 'issued' && (
                         <button className="secondary-btn" disabled={actionBusy}
                           onClick={() => setCallStatus(call, 'closed', 'Close this capital call? No further payments will be tracked against it.')}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                           <Check size={13} /> Close Call
                         </button>
                       )}
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                         {call.allocationCount ?? allocs.rows.length} allocation{(call.allocationCount ?? allocs.rows.length) === 1 ? '' : 's'} · {formatCurrency(call.pendingAmount)} outstanding
                       </span>
                     </div>
@@ -183,7 +183,7 @@ export default function CapitalCallsTab() {
                     {actionErr && <ErrorState message={actionErr} />}
 
                     {allocs.loading ? <LoadingState label="Loading allocations…" /> : allocs.error ? <ErrorState message={allocs.error} onRetry={() => loadAllocs(call.id)} /> : allocs.rows.length === 0 ? (
-                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>No allocations yet - they generate when the call is issued.</div>
+                      <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>No allocations yet - they generate when the call is issued.</div>
                     ) : (
                       <div style={{ overflowX: 'auto' }}>
                         <table className="req-table">
@@ -210,17 +210,17 @@ export default function CapitalCallsTab() {
                                     <span style={{ display: 'inline-flex', gap: 6 }}>
                                       <button className="primary-btn" disabled={actionBusy}
                                         onClick={() => setAllocStatus(a, { status: 'paid', paidDate: today(), paidAmount: a.amount })}
-                                        style={{ fontSize: 11.5, padding: '4px 10px' }}>
+                                        style={{ fontSize: 12, padding: '4px 10px' }}>
                                         Mark Paid
                                       </button>
                                       <button className="secondary-btn" disabled={actionBusy}
                                         onClick={() => setPayEdit({ allocId: a.id, paidDate: today(), paidAmount: String(a.amount ?? '') })}
-                                        style={{ fontSize: 11.5, padding: '4px 10px' }}>
+                                        style={{ fontSize: 12, padding: '4px 10px' }}>
                                         Record Partial…
                                       </button>
                                       <button className="secondary-btn" disabled={actionBusy}
                                         onClick={() => { if (window.confirm('Waive this allocation? The investor will not be asked for this capital.')) setAllocStatus(a, { status: 'waived' }); }}
-                                        style={{ fontSize: 11.5, padding: '4px 10px', color: 'var(--muted)' }}>
+                                        style={{ fontSize: 12, padding: '4px 10px', color: 'var(--muted)' }}>
                                         Waive
                                       </button>
                                     </span>
@@ -235,13 +235,13 @@ export default function CapitalCallsTab() {
                                         style={{ width: 110, padding: '4px 8px', fontSize: 12 }} />
                                       <button className="primary-btn" disabled={actionBusy}
                                         onClick={() => setAllocStatus(a, { status: 'paid', paidDate: payEdit.paidDate, paidAmount: Number(payEdit.paidAmount) || 0 })}
-                                        style={{ fontSize: 11.5, padding: '4px 10px' }}>
+                                        style={{ fontSize: 12, padding: '4px 10px' }}>
                                         Save
                                       </button>
-                                      <button className="secondary-btn" onClick={() => setPayEdit(null)} style={{ fontSize: 11.5, padding: '4px 10px' }}>Cancel</button>
+                                      <button className="secondary-btn" onClick={() => setPayEdit(null)} style={{ fontSize: 12, padding: '4px 10px' }}>Cancel</button>
                                     </span>
                                   )}
-                                  {a.status === 'waived' && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Waived</span>}
+                                  {a.status === 'waived' && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Waived</span>}
                                   {a.status === 'paid' && <Check size={14} style={{ color: 'hsl(var(--color-green))' }} />}
                                 </td>
                               </tr>
@@ -286,7 +286,7 @@ export default function CapitalCallsTab() {
               <FG label="Due Date">
                 <input className="form-input" type="date" required value={modal.dueDate} onChange={e => setModal(m => ({ ...m, dueDate: e.target.value }))} />
               </FG>
-              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
+              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{formErr}</div>}
             </div>
             <div className="modal-footer">
               <button type="button" className="secondary-btn" onClick={() => setModal(null)}>Cancel</button>

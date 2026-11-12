@@ -298,8 +298,8 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
             background: NX.surface, borderRadius: 14, padding: 20, display: 'flex', flexDirection: 'column',
             boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
           }}>
-            <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>Save your changes?</div>
-            <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 18, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>Save your changes?</div>
+            <div style={{ fontSize: 13, color: NX.dim, marginBottom: 18, lineHeight: 1.5 }}>
               You have unsaved changes. Closing now will discard them.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
@@ -725,7 +725,7 @@ export function UnassignedAvatar({ size = 24, title = 'Unassigned' }) {
 export function ExternalTag() {
   return (
     <span style={{
-      flexShrink: 0, fontSize: 10, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase',
+      flexShrink: 0, fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase',
       color: NX.amber, background: 'rgba(217,119,6,0.14)', borderRadius: 5, padding: '1px 5px',
     }}>External</span>
   );
@@ -779,7 +779,7 @@ function RolePickerPanel({ anchorRect, value, onChange, onClose }) {
           <div style={{ width: 16, flexShrink: 0, paddingTop: 1 }}>{key === value && <Check size={14} style={{ color: NX.blue }} />}</div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{PROJECT_ROLES[key].label}</div>
-            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{PROJECT_ROLES[key].description}</div>
+            <div style={{ fontSize: 12, color: NX.faint, marginTop: 1 }}>{PROJECT_ROLES[key].description}</div>
           </div>
         </div>
       ))}
@@ -843,14 +843,14 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
           <input className="nx-inline-edit" autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
-            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: touch ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }} />
-          {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No teams match.</div>}
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', /* type-ok: iOS zooms a field under 16px */ fontSize: touch ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }} />
+          {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 13, color: NX.faint }}>No teams match.</div>}
           {shown.map((t) => (
             <div key={t.id} onClick={() => { onChange(t.id); setOpen(false); setQ(''); }}
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink }}>
               <span style={{ width: 9, height: 9, borderRadius: 3, background: t.color || NX.dim, flexShrink: 0 }} />
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
-              <span style={{ fontSize: 11.5, color: NX.faint }}>{(t.memberIds || []).length} people</span>
+              <span style={{ fontSize: 12, color: NX.faint }}>{(t.memberIds || []).length} people</span>
             </div>
           ))}
         </SelectMenu>
@@ -938,7 +938,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
   return (
     <Modal title={`Share ${project.name}`} onClose={onClose} width={480}>
       {error && (
-        <div style={{ background: 'rgba(220,38,38,0.1)', color: '#dc2626', fontSize: 12.5, padding: '8px 10px',
+        <div style={{ background: 'rgba(220,38,38,0.1)', color: '#dc2626', fontSize: 13, padding: '8px 10px',
                      borderRadius: 8, marginBottom: 14 }}>{error}</div>
       )}
 
@@ -992,7 +992,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
             </div>
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <div style={{ fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
-              <div style={{ fontSize: 11.5, color: NX.faint }}>{(t.memberIds || []).length} people</div>
+              <div style={{ fontSize: 12, color: NX.faint }}>{(t.memberIds || []).length} people</div>
             </div>
             <RolePicker value={t.accessRole || 'editor'} onChange={(r) => setTeamRoleFor(t, r)} disabled={busy} />
             <button type="button" disabled={busy} onClick={() => removeTeam(t)} title="Remove team from this project"
@@ -1011,7 +1011,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
           </div>
         ))}
         {!projectTeams.length && !memberEmails.length && (
-          <div style={{ padding: '14px 10px', fontSize: 12.5, color: NX.faint, textAlign: 'center' }}>
+          <div style={{ padding: '14px 10px', fontSize: 13, color: NX.faint, textAlign: 'center' }}>
             Only the project admin has access so far.
           </div>
         )}
@@ -1053,7 +1053,7 @@ export function ProjectAccessButton({ project, teams, people }) {
           ))}
         </span>
         {overflow > 0 && <span style={{ marginLeft: 6, fontSize: 12, color: NX.dim, fontWeight: 600 }}>+{overflow}</span>}
-        <span style={{ marginLeft: stackShown.length ? 6 : 0, fontSize: 12.5, color: NX.dim, fontWeight: 600 }}>Share</span>
+        <span style={{ marginLeft: stackShown.length ? 6 : 0, fontSize: 13, color: NX.dim, fontWeight: 600 }}>Share</span>
       </button>
       {shareOpen && (
         <ShareProjectModal project={project} teams={teams} people={people} onClose={() => setShareOpen(false)} />
@@ -1191,7 +1191,7 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
 // zoom the page when it is tapped.
 const menuSearchStyle = (isMobile) => ({
   width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: isMobile ? '11px 12px' : '9px 12px',
-  fontSize: isMobile ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink,
+  fontSize: isMobile ? 16 : 13, /* type-ok: iOS zooms a field under 16px */ fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink,
 });
 // Option rows: a 40px floor on phones, so each is a comfortable tap target.
 const menuRowTall = (isMobile) => (isMobile ? { minHeight: 40, boxSizing: 'border-box' } : null);
@@ -1201,7 +1201,7 @@ const menuRowTall = (isMobile) => (isMobile ? { minHeight: 40, boxSizing: 'borde
 export function MenuCaption({ children, inset = 12 }) {
   return (
     <div role="presentation" style={{
-      padding: `9px ${inset}px 4px`, fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em',
+      padding: `9px ${inset}px 4px`, fontSize: 11, fontWeight: 700, letterSpacing: '.06em',
       textTransform: 'uppercase', color: NX.faint, cursor: 'default', userSelect: 'none',
     }}>{children}</div>
   );
@@ -1477,7 +1477,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
           {top.length > 0 ? <MenuCaption>All</MenuCaption> : (teamRows > 0 && filtered.length > 0 && <MenuCaption>People</MenuCaption>)}
           {filtered.map((p, i) => personRow(p, '', top.length + i))}
           {filtered.length === 0 && teamRows === 0 && (
-            <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+            <div style={{ padding: '10px 12px', fontSize: 13, color: NX.faint }}>
               {q ? `No people match “${q}”.` : 'No people in the directory.'}
             </div>
           )}
@@ -1565,7 +1565,7 @@ export function SearchSelect({
             style={menuSearchStyle(touch)} />
           {shown.map((o) => (o.header ? (
             <div key={o.id} style={{
-              padding: '9px 12px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em',
+              padding: '9px 12px 4px', fontSize: 11, fontWeight: 700, letterSpacing: '.06em',
               textTransform: 'uppercase', color: NX.faint, cursor: 'default', userSelect: 'none',
             }}>{o.label}</div>
           ) : (
@@ -1578,7 +1578,7 @@ export function SearchSelect({
             </div>
           )))}
           {shown.length === 0 && (
-            <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+            <div style={{ padding: '10px 12px', fontSize: 13, color: NX.faint }}>
               {query ? `No matches for “${q.trim()}”.` : emptyText}
             </div>
           )}
@@ -1661,7 +1661,7 @@ export function ChipMultiSelect({ value, onChange, options, placeholder = 'Selec
             );
           })}
           {filtered.length === 0 && (
-            <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+            <div style={{ padding: '10px 12px', fontSize: 13, color: NX.faint }}>
               {q ? `No matches for “${q}”.` : emptyText}
             </div>
           )}
@@ -1760,7 +1760,7 @@ export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
   const body = isAudio ? (
     <div style={{ background: NX.surface, borderRadius: 14, padding: '26px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: 'min(440px, 86vw)', boxSizing: 'border-box' }}>
       <AudioLines size={30} style={{ color: NX.primary }} aria-hidden="true" />
-      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
       <audio src={att.url} controls autoPlay preload="metadata" style={{ width: '100%' }} />
     </div>
   ) : isImage ? (
@@ -1772,8 +1772,8 @@ export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
   ) : (
     <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw' }}>
       <Paperclip size={30} style={{ color: NX.faint }} />
-      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
-      <div style={{ fontSize: 12.5, color: NX.dim }}>No inline preview for this file type.</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
+      <div style={{ fontSize: 13, color: NX.dim }}>No inline preview for this file type.</div>
       <a href={toDownloadUrl(att.url)} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
         <Download size={14} /> Download
       </a>
@@ -1784,31 +1784,31 @@ export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
     // viewer's, never the phone ticket card's step to the next ticket.
     <div data-no-swipe="" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
       <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px', color: '#fff' }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
         <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
         <span style={{ flex: 1 }} />
         {markable && (
           <button type="button" onClick={() => markUp(1)} disabled={marking === 'busy'} title="Mark Up - draw on a copy of this on a board"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', borderRadius: 8, padding: '5px 10px', fontFamily: FONT, fontSize: 12.5, fontWeight: 600, cursor: marking === 'busy' ? 'wait' : 'pointer' }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', borderRadius: 8, padding: '5px 10px', fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: marking === 'busy' ? 'wait' : 'pointer' }}>
             <PenTool size={14} /> {marking === 'busy' ? 'Opening…' : 'Mark Up'}
           </button>
         )}
         {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
         <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
       </div>
-      {markErr && <div role="alert" onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', background: '#fff', color: NX.red || '#b91c1c', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 600 }}>{markErr}</div>}
+      {markErr && <div role="alert" onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', background: '#fff', color: NX.red || '#b91c1c', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600 }}>{markErr}</div>}
       {marking === 'pages' && (
         <div role="dialog" aria-label="Which page?" onClick={(e) => e.stopPropagation()}
           style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', background: NX.surface, color: NX.ink, borderRadius: 12, padding: '12px 14px', boxShadow: '0 12px 40px rgba(0,0,0,0.35)', maxWidth: 'min(520px, 92vw)' }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Which page should go on the board?</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
             {Array.from({ length: pages }, (_, i) => i + 1).map((n) => (
-              <button key={n} type="button" onClick={() => markUp(n)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12.5 }}>Page {n}</button>
+              <button key={n} type="button" onClick={() => markUp(n)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 13 }}>Page {n}</button>
             ))}
           </div>
           {pagesCapped && <div style={{ fontSize: 12, color: NX.dim, marginTop: 8 }}>Showing the first {pages} pages.</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-            <button type="button" onClick={() => setMarking('')} style={{ ...btn('ghost'), fontSize: 12.5 }}>Cancel</button>
+            <button type="button" onClick={() => setMarking('')} style={{ ...btn('ghost'), fontSize: 13 }}>Cancel</button>
           </div>
         </div>
       )}
@@ -1962,7 +1962,7 @@ export function PersonDot({ value, people = [], nameOf, onChange, disabled = fal
   const close = () => { setOpen(false); setQ(''); };
   const choose = (p) => { if (p.email) noteRecentPerson(p.email); onChange(p.email); close(); };
   const nav = useListNav(items, { open, query: q, onPick: choose, startAt: items.findIndex((p) => p.email === (value || '')) });
-  const rowBtn = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, fontFamily: FONT, fontSize: 12.5, color: NX.ink, textAlign: 'left' };
+  const rowBtn = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, fontFamily: FONT, fontSize: 13, color: NX.ink, textAlign: 'left' };
   const personRow = (p, keyPrefix, i) => (
     <button key={keyPrefix + p.email} type="button" {...nav.optionProps(i)} onClick={() => choose(p)} style={rowBtn}>
       <Avatar email={p.email} name={p.name} size={16} card={false} />
@@ -1983,7 +1983,7 @@ export function PersonDot({ value, people = [], nameOf, onChange, disabled = fal
         style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people"
           {...nav.inputProps} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); return; } nav.onKeyDown(e); }}
-          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 7, padding: '6px 8px', fontFamily: FONT, fontSize: 12.5, marginBottom: 4 }} />
+          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 7, padding: '6px 8px', fontFamily: FONT, fontSize: 13, marginBottom: 4 }} />
         <div role="listbox" style={{ maxHeight: 240, overflowY: 'auto' }}>
           {!typed && (
             <button type="button" {...nav.optionProps(0)} onClick={() => choose(NOBODY)} style={rowBtn}>

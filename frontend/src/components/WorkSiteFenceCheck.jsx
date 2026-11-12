@@ -34,7 +34,7 @@ export default function WorkSiteFenceCheck({ lat, lng, radiusM, siteId = '', mov
   const busy = result?.key !== key;
   const failed = !busy && !!result?.failed;
   const data = result?.data || null;
-  const box = { marginTop: 10, border: '1px solid var(--line)', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, lineHeight: 1.5 };
+  const box = { marginTop: 10, border: '1px solid var(--line)', borderRadius: 10, padding: '9px 12px', fontSize: 13, lineHeight: 1.5 };
   if (!data) {
     return <div style={{ ...box, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
       {busy ? <><Spinner size={13} /> Checking recent punches at this spot...</> : failed ? 'Could not check recent punches right now.' : null}

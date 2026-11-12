@@ -23,11 +23,11 @@ export default function InsightAnalysisModal({ insight, onClose }) {
   return (
     <Modal title={insight.title} onClose={onClose} width="max-w-lg">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 9999, fontSize: 10.5, fontWeight: 600, ...style.badge }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 600, ...style.badge }}>
           <Icon size={11} />
           {insight.severity}
         </span>
-        <span style={{ padding: '2px 8px', borderRadius: 9999, fontSize: 10.5, fontWeight: 600, ...CATEGORY_STYLE[insight.category] }}>
+        <span style={{ padding: '2px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 600, ...CATEGORY_STYLE[insight.category] }}>
           {insight.category}
         </span>
       </div>
@@ -35,11 +35,11 @@ export default function InsightAnalysisModal({ insight, onClose }) {
       <p style={{ fontSize: 13, color: C.gray700, lineHeight: 1.375, marginBottom: 12 }}>{insight.whatHappened}</p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-        <p style={{ fontSize: 12.5, color: C.gray600, lineHeight: 1.375 }}>
+        <p style={{ fontSize: 13, color: C.gray600, lineHeight: 1.375 }}>
           <span style={{ fontWeight: 500, color: C.gray700 }}>Why: </span>
           {insight.why}
         </p>
-        <p style={{ fontSize: 12.5, color: C.gray600, lineHeight: 1.375 }}>
+        <p style={{ fontSize: 13, color: C.gray600, lineHeight: 1.375 }}>
           <span style={{ fontWeight: 500, color: C.gray700 }}>Impact: </span>
           {insight.impact}
         </p>
@@ -49,7 +49,7 @@ export default function InsightAnalysisModal({ insight, onClose }) {
         <p style={{ fontSize: 11, fontWeight: 600, color: C.gray500, textTransform: 'uppercase', letterSpacing: '0.025em', marginBottom: 4 }}>Recommended actions</p>
         <ul style={{ display: 'flex', flexDirection: 'column', gap: 2, listStyle: 'none', margin: 0, padding: 0 }}>
           {insight.actions.map((action, i) => (
-            <li key={i} style={{ fontSize: 12.5, color: C.gray700, lineHeight: 1.375, display: 'flex', gap: 6 }}>
+            <li key={i} style={{ fontSize: 13, color: C.gray700, lineHeight: 1.375, display: 'flex', gap: 6 }}>
               <span style={{ color: C.gray300 }}>•</span>
               {action}
             </li>
@@ -68,7 +68,7 @@ export default function InsightAnalysisModal({ insight, onClose }) {
         </div>
       )}
 
-      <p style={{ fontSize: 10.5, color: C.gray400 }}>Generated {formatDateLabel(insight.generatedAt.slice(0, 10))}</p>
+      <p style={{ fontSize: 11, color: C.gray400 }}>Generated {formatDateLabel(insight.generatedAt.slice(0, 10))}</p>
     </Modal>
   )
 }

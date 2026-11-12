@@ -33,7 +33,7 @@ export function CrisisSupportCard({ country, resources, title = CRISIS_TITLE, me
         <p id="crisis-body" style={{ margin: '0 0 14px', fontSize: 14, lineHeight: 1.6 }}>{message}</p>
         {blocks.map((b) => (
           <div key={b.country} style={{ border: '1px solid var(--line, #e5e7eb)', borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
-            {blocks.length > 1 && <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted, #6b7280)', marginBottom: 4 }}>{b.label}</div>}
+            {blocks.length > 1 && <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted, #6b7280)', marginBottom: 4 }}>{b.label}</div>}
             {b.lines.map((l) => (
               <div key={l.name} style={{ marginBottom: 6 }}>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>{l.name}</div>
@@ -52,7 +52,7 @@ export function CrisisSupportCard({ country, resources, title = CRISIS_TITLE, me
             </div>
           </div>
         ))}
-        <p style={{ margin: '4px 0 16px', fontSize: 12.5, color: 'var(--muted, #6b7280)', lineHeight: 1.5 }}>
+        <p style={{ margin: '4px 0 16px', fontSize: 13, color: 'var(--muted, #6b7280)', lineHeight: 1.5 }}>
           This notice is not recorded or shared with anyone. Your message is sent as usual.
         </p>
         <button ref={btn} type="button" className="primary-btn" onClick={() => onDone?.()}

@@ -30,7 +30,7 @@ export default function ReviewsFeedCard({
   return (
     <div style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900 }}>Live Reviews Feed</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900 }}>Live Reviews Feed</h3>
         <div className="mktg-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, borderRadius: 8, border: '1px solid ' + C.gray200, padding: 2 }}>
             {['Pending', 'Posted', 'All'].map((f) => {
@@ -42,7 +42,7 @@ export default function ReviewsFeedCard({
                   style={{
                     padding: '4px 10px',
                     borderRadius: 6,
-                    fontSize: 11.5,
+                    fontSize: 12,
                     fontWeight: 500,
                     background: active ? C.gray900 : 'transparent',
                     color: active ? C.white : C.gray500,
@@ -85,7 +85,7 @@ export default function ReviewsFeedCard({
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
               placeholder="Search reviews..."
-              style={{ paddingLeft: 32, paddingRight: 12, paddingTop: 6, paddingBottom: 6, borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12.5, width: 176 }}
+              style={{ paddingLeft: 32, paddingRight: 12, paddingTop: 6, paddingBottom: 6, borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, width: 176 }}
             />
           </div>
         </div>

@@ -119,7 +119,7 @@ function OfferProgress({ events, firstName }) {
     <div role="list" aria-label="Hiring progress" style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 12, display: 'grid', gap: 8 }}>
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Hiring Progress</div>
       {st.ended && (
-        <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', fontWeight: 600 }}>
+        <div style={{ fontSize: 13, color: 'hsl(var(--color-red))', fontWeight: 600 }}>
           The offer was {st.ended}{st.declineReason ? ` - ${st.declineReason}` : ''}. Make the offer again to continue.
         </div>
       )}
@@ -130,7 +130,7 @@ function OfferProgress({ events, firstName }) {
             : s.error ? <AlertTriangle size={16} style={{ flexShrink: 0 }} />
               : <Circle size={16} style={{ flexShrink: 0, opacity: 0.6 }} />}
           <span style={{ flex: 1, minWidth: 0, fontWeight: s.done ? 600 : 500 }}>{s.label}</span>
-          {s.at && <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.at}</span>}
+          {s.at && <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.at}</span>}
         </div>
       ))}
     </div>
@@ -165,11 +165,11 @@ function DecisionPanel({ candidateId, refreshKey, onReload }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 600 }}>
               {v.name}
-              {v.final && <span style={{ marginLeft: 8, padding: '1px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 700, background: 'var(--mist)', color: 'var(--muted)' }}>Final Call</span>}
+              {v.final && <span style={{ marginLeft: 8, padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, background: 'var(--mist)', color: 'var(--muted)' }}>Final Call</span>}
             </div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', wordBreak: 'break-word', marginTop: 1 }}>{v.vote ? v.note : 'Waiting for their answer'}</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', wordBreak: 'break-word', marginTop: 1 }}>{v.vote ? v.note : 'Waiting for their answer'}</div>
           </div>
-          {v.at && <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(v.at)}</span>}
+          {v.at && <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatDateTime(v.at)}</span>}
         </div>
       ))}
       <div style={{ marginTop: 10, fontSize: 13 }}>
@@ -197,7 +197,7 @@ const ROUND_STATUS = {
 const chip = (tone) => ({ padding: '2px 9px', borderRadius: 12, fontSize: 11, fontWeight: 700,
   background: tone === 'gray' ? 'var(--mist)' : `hsla(var(--color-${tone}),0.12)`, color: tone === 'gray' ? 'var(--muted)' : `hsl(var(--color-${tone}))` });
 // Reject is red and the way forward green (Neil, Oct 19: "red or green").
-const rejectBtn = { background: 'hsl(var(--color-red))', border: '1px solid hsl(var(--color-red))', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: '#fff', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' };
+const rejectBtn = { background: 'hsl(var(--color-red))', border: '1px solid hsl(var(--color-red))', borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer', color: '#fff', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' };
 const goGreen = { background: 'hsl(var(--color-green))', borderColor: 'hsl(var(--color-green))', color: '#fff' };
 
 // The stages as a bar: done, here, still to come. Rejected shows on its own.
@@ -224,12 +224,12 @@ function StageBar({ stage, interviewSkipped = false }) {
               padding: here ? '6px 14px 6px 8px' : '0', borderRadius: 999,
               background: here ? `hsla(${hue},0.12)` : 'transparent', boxShadow: here ? `0 0 0 1.5px hsla(${hue},0.35)` : 'none',
               transform: here ? 'scale(1.04)' : 'none', transformOrigin: 'center', transition: 'transform .15s' }}>
-              <span style={{ width: here ? 26 : 22, height: here ? 26 : 22, borderRadius: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: here ? 12.5 : 11, fontWeight: 800,
+              <span style={{ width: here ? 26 : 22, height: here ? 26 : 22, borderRadius: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: here ? 13 : 11, fontWeight: 800,
                 background: here ? `hsl(${hue})` : done ? 'hsla(var(--color-green),0.15)' : 'var(--mist)',
                 color: here ? '#fff' : done ? 'hsl(var(--color-green))' : 'var(--muted)', border: here ? 'none' : '1px solid var(--line)' }}>
                 {done ? <Check size={11} /> : i + 1}
               </span>
-              <span style={{ fontSize: here ? 14 : 12.5, fontWeight: here ? 800 : 600, color: here ? `hsl(${hue})` : skipped ? 'var(--muted)' : done ? 'var(--ink)' : 'var(--muted)' }}>
+              <span style={{ fontSize: here ? 14 : 13, fontWeight: here ? 800 : 600, color: here ? `hsl(${hue})` : skipped ? 'var(--muted)' : done ? 'var(--ink)' : 'var(--muted)' }}>
                 {STAGE_META[s].label}{skipped ? ' (Skipped)' : ''}
               </span>
             </div>
@@ -358,7 +358,7 @@ export default function CandidateDetailModal({
     </button>
   );
   const secondary = (label, onClick, icon, disabled) => (
-    <button className="secondary-btn" onClick={onClick} disabled={busy || disabled} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+    <button className="secondary-btn" onClick={onClick} disabled={busy || disabled} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       {icon} {label}
     </button>
   );
@@ -387,7 +387,7 @@ export default function CandidateDetailModal({
       // goes out by itself; Send is only for when that could not happen.
       onMakeOffer && !offerSigned && !(packetEvents || []).some(e => e.kind === 'hire' && e.status !== 'voided') && (
         <button key="packet-wait" className="secondary-btn" disabled title={`Goes out by itself once ${c.firstName || 'the candidate'} has signed the offer letter`}
-          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: 0.55, cursor: 'not-allowed' }}>
+          style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: 0.55, cursor: 'not-allowed' }}>
           <FileText size={13} /> Send Hiring Packet
         </button>
       ),
@@ -435,13 +435,13 @@ export default function CandidateDetailModal({
               {resumeBusy ? 'Uploading...' : c.resumeUrl ? 'Replace' : 'Upload'}</button>}
           </div>
         </div>
-        {c.inactive && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))', padding: '7px 0' }}>Inactive - off the board (removed, or rejected more than 90 days ago). Reopen to bring them back.</div>}
+        {c.inactive && <div style={{ fontSize: 13, color: 'hsl(var(--color-orange))', padding: '7px 0' }}>Inactive - off the board (removed, or rejected more than 90 days ago). Reopen to bring them back.</div>}
       </div>
       <div style={{ gridColumn: 'span 1', minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 800, margin: '4px 0 10px' }}>Notes</div>
         <CandidateNotes candidateId={c.id} refreshKey={`${refreshKey}-${c.stage}-${notesKey}`} draft={note} onDraft={setNote}
           canAdd={c.stage !== 'hired'} toastErr={toastErr} />
-        {!closed && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>A note still in the box goes with the next move you make here.</div>}
+        {!closed && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>A note still in the box goes with the next move you make here.</div>}
       </div>
     </div>
   </>);
@@ -455,17 +455,17 @@ export default function CandidateDetailModal({
         return (
           <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <b style={{ fontSize: 13.5 }}>Interview {i + 1}</b>
+              <b style={{ fontSize: 13 }}>Interview {i + 1}</b>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDateTime(r.at)}</span>
               <span style={chip(tone)}>{label}</span>
-              {r.status === 'scored' && <span style={{ fontSize: 12.5, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{Math.round(r.totalScore)}/100</span>}
+              {r.status === 'scored' && <span style={{ fontSize: 13, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{Math.round(r.totalScore)}/100</span>}
               <span style={{ flex: 1 }} />
               {r.status === 'scheduled' && !closed && <>
                 <button className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => onSchedule(c, r)}>Reschedule</button>
                 <button className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => cancelRound(r)}>Cancel</button>
               </>}
             </div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 5 }}>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 5 }}>
               With {(r.interviewerNames || r.interviewerEmails || []).join(', ') || 'no one set'} · {r.durationMin} minutes
               {r.templateName ? ` · Questionnaire: ${r.templateName}` : ' · No questionnaire'}
             </div>
@@ -473,7 +473,7 @@ export default function CandidateDetailModal({
           </div>
         );
       })}
-      {upcoming.length === 0 && c.stage === 'interview' && live.length > 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nothing coming up - schedule another round, or move them on.</div>}
+      {upcoming.length === 0 && c.stage === 'interview' && live.length > 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing coming up - schedule another round, or move them on.</div>}
     </div>
   );
 
@@ -499,7 +499,7 @@ export default function CandidateDetailModal({
       )}
       {c.stage === 'offer' && c.email && onSendForSignature && (
         <button onClick={() => { onSendForSignature(c); onClose(); }}
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12.5, color: 'var(--muted)', textDecoration: 'underline', fontFamily: 'Inter,sans-serif', marginTop: 8 }}>
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 13, color: 'var(--muted)', textDecoration: 'underline', fontFamily: 'Inter,sans-serif', marginTop: 8 }}>
           Send a different document for signature
         </button>
       )}
@@ -518,11 +518,11 @@ export default function CandidateDetailModal({
                 {[c.roleTitle, c.department, companyName].filter(Boolean).join(' · ')}
               </div>
             </div>
-            {onEdit && canEdit && <button className="secondary-btn" onClick={() => onEdit(c)} style={{ fontSize: 12.5, padding: '5px 12px', flexShrink: 0 }}>Edit</button>}
+            {onEdit && canEdit && <button className="secondary-btn" onClick={() => onEdit(c)} style={{ fontSize: 13, padding: '5px 12px', flexShrink: 0 }}>Edit</button>}
             <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
           </div>
           <StageBar stage={c.stage} interviewSkipped={!!c.interviewSkippedBy} />
-          <div style={{ background: `hsla(${sm.hue},0.08)`, borderRadius: 12, padding: '11px 14px', fontSize: 13.5, display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 10, lineHeight: 1.5 }}>
+          <div style={{ background: `hsla(${sm.hue},0.08)`, borderRadius: 12, padding: '11px 14px', fontSize: 13, display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 10, lineHeight: 1.5 }}>
             <ChevronRight size={16} style={{ color: `hsl(${sm.hue})`, flexShrink: 0, marginTop: 2 }} />
             <span><b>Next:</b> {NEXT_STEP[c.stage]}</span>
           </div>

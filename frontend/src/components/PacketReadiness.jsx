@@ -72,8 +72,8 @@ export default function PacketReadiness({ checks, meEmails = [], onChanged, onSi
             background: c.ok ? 'transparent' : `hsla(var(--color-${tone}),0.08)`, border: c.ok ? '1px solid transparent' : `1px solid hsla(var(--color-${tone}),0.25)` }}>
             <Icon size={15} style={{ color: `hsl(var(--color-${tone}))`, flexShrink: 0, marginTop: 1 }} />
             <div style={{ flex: '1 1 260px', minWidth: 0 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700 }}>{c.label}</div>
-              {c.detail && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{c.detail}</div>}
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{c.label}</div>
+              {c.detail && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{c.detail}</div>}
               {f && (
                 <div style={{ marginTop: 6 }}>
                   {f.kind === 'entityField' && <EntityFix fix={f} onChanged={onChanged} toastErr={toastErr} />}
@@ -82,7 +82,7 @@ export default function PacketReadiness({ checks, meEmails = [], onChanged, onSi
                   )}
                   {f.kind === 'signOnce' && (me.has(String(f.email || '').toLowerCase())
                     ? <button type="button" className="primary-btn" onClick={() => onSignOnce?.(f.step)} style={btn}><PenTool size={12} /> Sign Once</button>
-                    : <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{f.email ? `Waiting for ${f.email} to open this packet and sign once.` : ''}</span>)}
+                    : <span style={{ fontSize: 12, color: 'var(--muted)' }}>{f.email ? `Waiting for ${f.email} to open this packet and sign once.` : ''}</span>)}
                   {f.kind === 'addToForm' && (
                     <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
                       <button type="button" className="primary-btn" onClick={() => onAddToForm?.(f.variables || [])} style={btn}><Plus size={12} /> Add To Details Form</button>

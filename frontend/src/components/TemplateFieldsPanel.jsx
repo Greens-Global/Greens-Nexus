@@ -26,9 +26,9 @@ import { mergeFieldDefs, sameSetting, SHARED_KEYS } from '../lib/extractVariable
 const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1290, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const card = { background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
 const rowStyle = { display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--line)' };
-const selectStyle = { fontSize: 12.5, fontFamily: 'inherit', border: '1px solid var(--line)', borderRadius: 7, padding: '6px 8px', background: 'var(--card)', color: 'var(--ink)', width: '100%', cursor: 'pointer' };
-const sectionHead = { fontSize: 10.5, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--muted)', margin: '14px 0 2px' };
-const chip = (warn) => ({ fontSize: 10.5, fontWeight: 600, padding: '2px 7px', borderRadius: 999,
+const selectStyle = { fontSize: 13, fontFamily: 'inherit', border: '1px solid var(--line)', borderRadius: 7, padding: '6px 8px', background: 'var(--card)', color: 'var(--ink)', width: '100%', cursor: 'pointer' };
+const sectionHead = { fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--muted)', margin: '14px 0 2px' };
+const chip = (warn) => ({ fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 999,
   color: warn ? '#92400e' : 'var(--muted)', background: warn ? 'rgba(245,158,11,0.13)' : 'var(--mist)' });
 const WHERE = Object.fromEntries(FILLED_WHEN.map(([k, , where]) => [k, where]));
 
@@ -71,7 +71,7 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
         <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Template Fields</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
               Who fills each one in an HR packet, and the type of answer it takes.
             </div>
           </div>
@@ -82,14 +82,14 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
 
         <div className="nx-fill" style={{ overflowY: 'auto', padding: '4px 20px 16px' }}>
           {customRows.length === 0 && nexusTokens.length === 0 && (
-            <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '16px 0' }}>
+            <p style={{ fontSize: 13, color: 'var(--muted)', margin: '16px 0' }}>
               This template has no variables yet. Write {'{{a_name}}'} in the text, or select text and convert it into a merge field.
             </p>
           )}
 
           {customRows.length > 0 && (<>
             <div style={sectionHead}>Fields Someone Fills In</div>
-            <ul style={{ margin: '4px 0 6px', paddingLeft: 18, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+            <ul style={{ margin: '4px 0 6px', paddingLeft: 18, fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
               {FIELD_SOURCES.map(([v, l]) => <li key={v}><strong style={{ color: 'var(--ink)' }}>{l}</strong> - {FIELD_SOURCE_HELP[v]}</li>)}
             </ul>
           </>)}
@@ -99,7 +99,7 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
             const label = fd.label || fd.token;
             return (
               <div key={fd.token} style={rowStyle}>
-                {nameCell(label, fd.token, isNew && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-green))' }}>NEW</span>)}
+                {nameCell(label, fd.token, isNew && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))' }}>NEW</span>)}
                 <div style={{ flex: '1 1 170px', minWidth: 0 }}>
                   <select aria-label={`Who fills ${label}`} value={fd.source || ''} style={selectStyle}
                     title={FIELD_SOURCE_HELP[fd.source || '']}
@@ -131,7 +131,7 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
                         <AlertTriangle size={11} style={{ verticalAlign: -1, marginRight: 3 }} />Defined differently in {other.templateName}
                       </span>
                       <button type="button" onClick={() => setField(fd.token, Object.fromEntries(SHARED_KEYS.map((k) => [k, other[k]])))}
-                        style={{ fontSize: 11.5, fontWeight: 600, background: 'none', border: '1px solid var(--line)', borderRadius: 7, padding: '3px 8px', cursor: 'pointer', color: 'var(--ink)' }}>
+                        style={{ fontSize: 12, fontWeight: 600, background: 'none', border: '1px solid var(--line)', borderRadius: 7, padding: '3px 8px', cursor: 'pointer', color: 'var(--ink)' }}>
                         Use The Same Setting
                       </button>
                     </>)}
@@ -141,7 +141,7 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
             );
           })}
           {undefinedTokens.length > 0 && (
-            <p style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 11.5, color: 'var(--muted)', margin: '12px 0 0' }}>
+            <p style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12, color: 'var(--muted)', margin: '12px 0 0' }}>
               <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
               {undefinedTokens.length} variable{undefinedTokens.length === 1 ? ' was' : 's were'} found in the text without a definition. Setting a type here adds {undefinedTokens.length === 1 ? 'it' : 'them'} to the template.
             </p>
@@ -149,13 +149,13 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
 
           {nexusTokens.length > 0 && (<>
             <div style={sectionHead}>Filled By Nexus</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 4px' }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 4px' }}>
               Nobody types these - Nexus fills them when a document is made.
             </div>
             {nexusTokens.map((t) => (
               <div key={t} style={rowStyle} data-testid={`nexus-${t}`}>
                 {nameCell(builtins[t].label || t, t)}
-                <span style={{ flex: '2 1 240px', fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ flex: '2 1 240px', fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <Lock size={12} style={{ flexShrink: 0 }} />
                   {WHERE[builtins[t].when] || WHERE.document}
                 </span>
@@ -165,7 +165,7 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
         </div>
 
         <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end' }}>
-          <button onClick={onClose} className="primary-btn" style={{ fontSize: 12.5 }}>Done</button>
+          <button onClick={onClose} className="primary-btn" style={{ fontSize: 13 }}>Done</button>
         </div>
       </div>
     </div>

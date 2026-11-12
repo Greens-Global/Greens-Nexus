@@ -37,7 +37,7 @@ function Part({ title, children, aside }) {
   return (
     <section style={{ borderTop: '1px solid var(--line)', paddingTop: 12, display: 'grid', gap: 8, minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700 }}>{title}</span>{aside}
+        <span style={{ fontSize: 13, fontWeight: 700 }}>{title}</span>{aside}
       </div>
       {children}
     </section>
@@ -50,9 +50,9 @@ function PlanForm({ f, set }) {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <label style={field}><span style={LBL}>Title</span>
-        <input className="form-input" value={f.title} onChange={e => set('title')(e.target.value)} style={{ fontSize: 16 }} /></label>
+        <input className="form-input" value={f.title} onChange={e => set('title')(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} /></label>
       <label style={field}><span style={LBL}>Why the Plan Is Needed</span>
-        <textarea className="form-input" rows={3} value={f.reason} onChange={e => set('reason')(e.target.value)} style={{ fontSize: 16, resize: 'vertical' }}
+        <textarea className="form-input" rows={3} value={f.reason} onChange={e => set('reason')(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, resize: 'vertical' }}
           placeholder="What has happened, with dates and examples." /></label>
       <div style={field}>
         <span style={LBL}>What Has to Change</span>
@@ -60,9 +60,9 @@ function PlanForm({ f, set }) {
           <div key={e.id} className="nx-plan-exp">
             <span style={{ ...muted, fontVariantNumeric: 'tabular-nums', paddingTop: 10 }}>{i + 1}.</span>
             <input className="form-input" value={e.text} onChange={x => setExp(i, 'text', x.target.value)} placeholder="Close every month on time"
-              aria-label={`Expectation ${i + 1}`} style={{ fontSize: 16 }} />
+              aria-label={`Expectation ${i + 1}`} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
             <input className="form-input" value={e.measure} onChange={x => setExp(i, 'measure', x.target.value)} placeholder="How it is measured - by day 5, every month"
-              aria-label={`How expectation ${i + 1} is measured`} style={{ fontSize: 16 }} />
+              aria-label={`How expectation ${i + 1} is measured`} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
             <button type="button" className="nx-perf-icon-btn" onClick={() => set('expectations')(exp.filter((_, j) => j !== i))}
               aria-label={`Remove expectation ${i + 1}`} disabled={exp.length === 1}><Trash2 size={15} /></button>
           </div>
@@ -71,7 +71,7 @@ function PlanForm({ f, set }) {
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 36 }}><Plus size={14} /> Add Expectation</button></div>}
       </div>
       <label style={field}><span style={LBL}>Support We Will Give</span>
-        <textarea className="form-input" rows={2} value={f.support} onChange={e => set('support')(e.target.value)} style={{ fontSize: 16, resize: 'vertical' }}
+        <textarea className="form-input" rows={2} value={f.support} onChange={e => set('support')(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, resize: 'vertical' }}
           placeholder="Weekly 1:1s, training, a buddy, clearer priorities." /></label>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
         <label style={{ ...field, flex: '1 1 160px' }}><span style={LBL}>Starts</span><DateField value={f.startOn} onChange={set('startOn')} placeholder="Pick a day" style={{ width: '100%' }} /></label>
@@ -158,14 +158,14 @@ export function PlanModal({ planId = '', newFor = null, onClose, onChanged, toas
             </>
           ) : (
             <>
-              <Part title="Why the Plan Is Needed"><div style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{p.reason}</div></Part>
+              <Part title="Why the Plan Is Needed"><div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{p.reason}</div></Part>
               <Part title="What Has to Change">
                 <div className="nx-perf-list" role="list">
                   {p.expectations.map((e, i) => (
                     <div key={e.id} className="nx-perf-row nx-plan-line" role="listitem">
                       <span style={{ ...muted, fontVariantNumeric: 'tabular-nums' }}>{i + 1}.</span>
                       <span style={{ minWidth: 0 }}>
-                        <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{e.text}</span>
+                        <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{e.text}</span>
                         {e.measure && <span style={{ display: 'block', ...muted }}>{e.measure}</span>}
                       </span>
                       {mode === 'close' ? (
@@ -175,14 +175,14 @@ export function PlanModal({ planId = '', newFor = null, onClose, onChanged, toas
                   ))}
                 </div>
               </Part>
-              {p.support && <Part title="Support We Will Give"><div style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{p.support}</div></Part>}
+              {p.support && <Part title="Support We Will Give"><div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{p.support}</div></Part>}
             </>
           )}
           {mode === 'ack' && (
             <Part title="Acknowledge">
               <div style={muted}>Acknowledging means you have read the plan - not that you agree with all of it.</div>
               <label style={field}><span style={LBL}>Your Comments (Optional)</span>
-                <textarea className="form-input" rows={3} value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: 16 }} /></label>
+                <textarea className="form-input" rows={3} value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} /></label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button type="button" className="secondary-btn" onClick={() => setMode('')}>Not Yet</button>
                 <button type="button" className="primary-btn" disabled={busy} onClick={() => act(() => api.perfPlanAct(p.id, 'acknowledge', { comment: note }), 'Acknowledged.')}>I Have Read It</button>
@@ -193,7 +193,7 @@ export function PlanModal({ planId = '', newFor = null, onClose, onChanged, toas
             <Part title="Extend">
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 <label style={{ ...field, flex: '0 1 200px' }}><span style={LBL}>New End Date</span><DateField value={endOn} onChange={setEndOn} placeholder="Pick a day" style={{ width: '100%' }} /></label>
-                <label style={{ ...field, flex: '1 1 240px' }}><span style={LBL}>Why</span><input className="form-input" value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: 16 }} /></label>
+                <label style={{ ...field, flex: '1 1 240px' }}><span style={LBL}>Why</span><input className="form-input" value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} /></label>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button type="button" className="secondary-btn" onClick={() => setMode('')}>Cancel</button>
@@ -206,7 +206,7 @@ export function PlanModal({ planId = '', newFor = null, onClose, onChanged, toas
               <div style={muted}>Mark each expectation above, then the outcome. Not Met does nothing by itself - ending employment is the Offboard flow in People.</div>
               <Segmented label="Outcome" value={outcome} onChange={setOutcome} options={OUTCOMES} />
               <label style={field}><span style={LBL}>Outcome Note</span>
-                <textarea className="form-input" rows={3} value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: 16 }} /></label>
+                <textarea className="form-input" rows={3} value={note} onChange={e => setNote(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} /></label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button type="button" className="secondary-btn" onClick={() => setMode('')}>Cancel</button>
                 <button type="button" className="primary-btn" disabled={busy} onClick={() => act(() => api.perfPlanAct(p.id, 'close', { outcome, note, results }), 'Closed - they have been told.')}>Close Plan</button>
@@ -218,13 +218,13 @@ export function PlanModal({ planId = '', newFor = null, onClose, onChanged, toas
               {p.checkins.map(c => (
                 <div key={c.id} style={{ display: 'grid', gap: 2 }}>
                   <span style={muted}>{c.byName} · {formatDateTime(c.at)}</span>
-                  <span style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{c.note}</span>
+                  <span style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{c.note}</span>
                 </div>
               ))}
               {p.can.checkin && (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
                   <label style={{ ...field, flex: '1 1 260px' }}><span style={LBL}>Add a Check-In</span>
-                    <textarea className="form-input" rows={2} value={checkin} onChange={e => setCheckin(e.target.value)} style={{ fontSize: 16 }}
+                    <textarea className="form-input" rows={2} value={checkin} onChange={e => setCheckin(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }}
                       placeholder="How it is going against each expectation." /></label>
                   <button type="button" className="secondary-btn" style={TAP} disabled={busy || checkin.trim().length < 3}
                     onClick={async () => { if (await act(() => api.perfPlanAct(p.id, 'checkins', { note: checkin }), 'Check-in added - they have been told.')) setCheckin(''); }}>Add Check-In</button>
@@ -232,8 +232,8 @@ export function PlanModal({ planId = '', newFor = null, onClose, onChanged, toas
               )}
             </Part>
           )}
-          {p?.employeeComment && <Part title="Employee Comments"><div style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{p.employeeComment}</div></Part>}
-          {p?.outcomeNote && <Part title="Outcome"><div style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{p.outcomeNote}</div></Part>}
+          {p?.employeeComment && <Part title="Employee Comments"><div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{p.employeeComment}</div></Part>}
+          {p?.outcomeNote && <Part title="Outcome"><div style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{p.outcomeNote}</div></Part>}
           {p?.history?.length > 0 && (
             <Part title="History">
               {p.history.map((h, i) => <div key={i} style={muted}>{formatDateTime(h.at)} · {h.label} by {h.byName}{h.note ? ` - ${h.note}` : ''}</div>)}
@@ -252,7 +252,7 @@ function PlanRows({ items, onOpen, showPerson = false }) {
         <div key={p.id} className="nx-perf-row" role="listitem">
           <button type="button" className="nx-perf-fb" onClick={() => onOpen(p)} style={{ gridTemplateColumns: 'minmax(0, 1fr) auto' }}>
             <span style={{ minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{showPerson ? p.employeeName : p.title}</span>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{showPerson ? p.employeeName : p.title}</span>
               <span style={{ display: 'block', ...muted, fontSize: 12 }}>
                 {[showPerson ? p.managerName && `Manager ${p.managerName}` : '', p.startOn && p.endOn ? `${formatDate(p.startOn)} to ${formatDate(p.endOn)}` : 'No dates yet',
                   p.status === 'active' && !p.acknowledgedAt ? 'Not acknowledged yet' : ''].filter(Boolean).join(' · ')}

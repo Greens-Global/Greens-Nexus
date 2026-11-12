@@ -34,8 +34,8 @@ const RESULT_META = {
   skipped: { label: 'Skipped', fg: 'var(--muted)',             bg: 'var(--mist)',                    Icon: MinusCircle },
 };
 const PRI_COLOR = { High: 'hsl(var(--color-red))', Medium: 'hsl(var(--color-orange))', Low: 'var(--muted)' };
-const FL = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
-const inputStyle = { width: '100%', padding: '9px 12px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', fontFamily: 'Inter,sans-serif', fontSize: 13.5, color: 'var(--ink)' };
+const FL = { fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
+const inputStyle = { width: '100%', padding: '9px 12px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', fontFamily: 'Inter,sans-serif', fontSize: 13, color: 'var(--ink)' };
 
 // Evidence uploads land in the qa-evidence bucket (create on the Supabase project).
 async function uploadEvidence(file, prefix = 'shot') {
@@ -125,9 +125,9 @@ function Shot({ url, onRemove, size = 34 }) {
 
 function ResultPill({ result }) {
   const m = RESULT_META[result];
-  if (!m) return <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Not run</span>;
+  if (!m) return <span style={{ fontSize: 12, color: 'var(--muted)' }}>Not run</span>;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: m.bg, color: m.fg, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: m.bg, color: m.fg, whiteSpace: 'nowrap' }}>
       <m.Icon size={12} /> {m.label}
     </span>
   );
@@ -257,7 +257,7 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
                 style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${stepState[i]?.done ? 'hsl(var(--color-green))' : 'var(--line-strong,rgba(0,0,0,0.25))'}`, background: stepState[i]?.done ? 'hsl(var(--color-green))' : 'transparent', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0, marginTop: 1 }}>
                 {stepState[i]?.done && <Check size={13} />}
               </button>
-              <div style={{ flex: 1, fontSize: 13.5, textDecoration: stepState[i]?.done ? 'none' : 'none', color: 'var(--ink)' }}>
+              <div style={{ flex: 1, fontSize: 13, textDecoration: stepState[i]?.done ? 'none' : 'none', color: 'var(--ink)' }}>
                 <span style={{ color: 'var(--muted)', fontWeight: 700, marginRight: 6 }}>{i + 1}.</span>{s}
               </div>
               {stepState[i]?.shot
@@ -288,7 +288,7 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
               ? <Shot url={overallShot} size={54} onRemove={() => setOverallShot('')} />
               : (
                 <button onClick={() => { pendingStep.current = -1; setActiveStep(-1); fileRef.current?.click(); }}
-                  style={{ width: 88, height: 54, border: '2px dashed var(--line)', borderRadius: 9, background: activeStep === -1 ? 'hsla(var(--color-blue),0.06)' : 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 10.5, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                  style={{ width: 88, height: 54, border: '2px dashed var(--line)', borderRadius: 9, background: activeStep === -1 ? 'hsla(var(--color-blue),0.06)' : 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
                   <Camera size={14} /> add / paste
                 </button>
               )}
@@ -425,7 +425,7 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
           <label style={FL}>Note (goes in the email / Teams message)</label>
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. please finish before Friday's release" style={inputStyle} />
         </div>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
           {pool.length} case{pool.length !== 1 ? 's' : ''} will be assigned. They'll get a bell notification, an email, and a Teams message (sent from you).
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -509,7 +509,7 @@ function RecOption({ Icon, title, sub, onClick }) {
       style={{ display: 'flex', alignItems: 'flex-start', gap: 9, width: '100%', textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer', padding: '8px 9px', borderRadius: 8 }}>
       <Icon size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 1 }} />
       <span>
-        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
+        <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
         <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{sub}</span>
       </span>
     </button>
@@ -636,7 +636,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
     <div onPaste={e => { const fs = filesFromPaste(e); if (fs.length) { e.preventDefault(); addShots(fs); } }}>
       <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 18, marginBottom: 20 }}>
         <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 4 }}>Found something broken?</div>
-        <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 14px' }}>
           Describe it in your own words. Record your steps while you reproduce it, paste screenshots (Ctrl+V), and the AI turns it into a proper test case.
         </p>
         {linked?.case_id && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', fontWeight: 600, marginBottom: 10 }}>Linked to the failing test case - evidence carried over.</div>}
@@ -673,9 +673,9 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: '9px 11px', marginBottom: 12 }}>
             <Mic size={13} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 3 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 3 }}>Narration (from your voice)</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 3 }}>Narration (from your voice)</div>
               <textarea value={narration} onChange={e => setNarration(e.target.value)} rows={2}
-                style={{ ...inputStyle, fontSize: 12.5, padding: '6px 9px', background: 'var(--card)', resize: 'vertical' }} />
+                style={{ ...inputStyle, fontSize: 13, padding: '6px 9px', background: 'var(--card)', resize: 'vertical' }} />
             </div>
             <button onClick={() => setNarration('')} title="Remove narration" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', marginTop: 2 }}><X size={13} /></button>
           </div>
@@ -709,20 +709,20 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
               <div key={b.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 12px', borderBottom: '1px solid var(--line)' }}>
                 <Bug size={15} style={{ color: b.status === 'converted' ? 'hsl(var(--color-green))' : 'var(--muted)', flexShrink: 0, marginTop: 2 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5 }}>{b.description}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ fontSize: 13 }}>{b.description}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {nameOf(b.createdBy)} · {formatDate((b.createdAt || '').slice(0, 10))}
                     {b.moduleHint && <span>· {b.moduleHint}</span>}
                     {b.stepsLog.length > 0 && (
                       <button onClick={() => setOpenLog(openLog === b.id ? '' : b.id)}
-                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 11.5, fontWeight: 600, padding: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 12, fontWeight: 600, padding: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         <ChevronRight size={11} style={{ transform: openLog === b.id ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
                         {b.stepsLog.length} recorded steps
                       </button>
                     )}
                     {b.recordingUrl && (
                       <button onClick={() => setOpenVid(openVid === b.id ? '' : b.id)}
-                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 11.5, fontWeight: 600, padding: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 12, fontWeight: 600, padding: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         <Play size={11} /> {openVid === b.id ? 'Hide recording' : 'Watch recording'}
                       </button>
                     )}
@@ -732,7 +732,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                     <BugVideo src={b.recordingUrl} style={{ marginTop: 8, width: '100%', maxWidth: 480, borderRadius: 8, border: '1px solid var(--line)', background: '#000' }} />
                   )}
                   {openLog === b.id && (
-                    <div style={{ marginTop: 8, background: 'var(--mist)', borderRadius: 8, padding: '10px 14px', fontSize: 12.5, maxHeight: 240, overflowY: 'auto' }}>
+                    <div style={{ marginTop: 8, background: 'var(--mist)', borderRadius: 8, padding: '10px 14px', fontSize: 13, maxHeight: 240, overflowY: 'auto' }}>
                       {(() => {
                         let n = 0;
                         const VERB = { clicked: 'Click', 'typed into': 'Type into', 'picked from': 'Choose from' };
@@ -985,7 +985,7 @@ export default function Testing() {
                     style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '13px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
                     <ChevronRight size={15} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s', color: 'var(--muted)', flexShrink: 0 }} />
                     <span style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>{mod}</span>
-                    {failed > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-red))' }}>{failed} failed</span>}
+                    {failed > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-red))' }}>{failed} failed</span>}
                     <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{done}/{list.length}</span>
                     <span style={{ width: 90, height: 6, borderRadius: 4, background: 'var(--mist)', overflow: 'hidden', flexShrink: 0 }}>
                       <span style={{ display: 'block', width: `${(done / list.length) * 100}%`, height: '100%', background: failed ? 'hsl(var(--color-orange))' : 'hsl(var(--color-green))' }} />
@@ -998,8 +998,8 @@ export default function Testing() {
                       <button key={c.id} onClick={() => setRunner(c)}
                         style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 16px 10px 43px', background: 'none', border: 'none', borderTop: '1px solid var(--line)', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: PRI_COLOR[c.priority], flexShrink: 0 }} title={`${c.priority} priority`} />
-                        <span style={{ flex: 1, fontSize: 13.5, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {c.title}{mine && <span style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', marginLeft: 8 }}>YOURS</span>}
+                        <span style={{ flex: 1, fontSize: 13, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {c.title}{mine && <span style={{ fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-blue))', marginLeft: 8 }}>YOURS</span>}
                         </span>
                         {r?.testedBy && <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{nameOf(r.testedBy)}</span>}
                         <ResultPill result={r?.result} />
@@ -1009,7 +1009,7 @@ export default function Testing() {
                 </div>
               );
             })}
-            {!runId && <div style={{ color: 'var(--muted)', fontSize: 13.5, textAlign: 'center', padding: 30 }}>Create a run to start testing - e.g. “Jul 15 regression”.</div>}
+            {!runId && <div style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'center', padding: 30 }}>Create a run to start testing - e.g. “Jul 15 regression”.</div>}
           </>
         )
       )}
@@ -1039,12 +1039,12 @@ export default function Testing() {
                 <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--line)' }}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: PRI_COLOR[c.priority], flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{c.module} · {c.feature} · {(c.steps || []).length} steps</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>{c.module} · {c.feature} · {(c.steps || []).length} steps</div>
                   </div>
-                  {c.status === 'draft' && <span style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)', padding: '2px 8px', borderRadius: 20 }}>AI DRAFT</span>}
-                  {(c.flow || []).length > 0 && <span title="Has a recorded flow - replayable" style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.10)', padding: '2px 8px', borderRadius: 20 }}>FLOW</span>}
-                  {c.e2eSpec && <span title="Has a Playwright test - runs automatically in CI" style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.10)', padding: '2px 8px', borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Bot size={10} /> E2E</span>}
+                  {c.status === 'draft' && <span style={{ fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)', padding: '2px 8px', borderRadius: 20 }}>AI DRAFT</span>}
+                  {(c.flow || []).length > 0 && <span title="Has a recorded flow - replayable" style={{ fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.10)', padding: '2px 8px', borderRadius: 20 }}>FLOW</span>}
+                  {c.e2eSpec && <span title="Has a Playwright test - runs automatically in CI" style={{ fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.10)', padding: '2px 8px', borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Bot size={10} /> E2E</span>}
                   {c.source === 'ai' && c.status !== 'draft' && <Sparkles size={13} style={{ color: 'var(--muted)' }} title="Converted from a bug report" />}
                   {canEdit && (
                     <>
@@ -1071,14 +1071,14 @@ export default function Testing() {
       {/* ── LOG ── */}
       {tab === 'log' && (
         !activity ? <div style={{ padding: 40, textAlign: 'center' }}><Spinner size="inline" /></div> :
-        activity.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13.5, textAlign: 'center', padding: 30 }}>No testing activity yet.</div> : (
+        activity.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, textAlign: 'center', padding: 30 }}>No testing activity yet.</div> : (
           <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
             {activity.map((e, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
                 {e.kind === 'result'
                   ? <><ResultPill result={e.result} /><span style={{ flex: 1, minWidth: 0 }}><b>{nameOf(e.by)}</b> ran “{e.case}”{e.run ? ` in ${e.run}` : ''}</span></>
                   : <><UserPlus size={14} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} /><span style={{ flex: 1, minWidth: 0 }}><b>{nameOf(e.by)}</b> assigned {e.count} case{e.count !== 1 ? 's' : ''} to <b>{nameOf(e.assignee)}</b>{e.due ? ` (due ${e.due})` : ''}{e.run ? ` in ${e.run}` : ''}</span></>}
-                <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatPacificDateTime(e.at, '-')}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatPacificDateTime(e.at, '-')}</span>
               </div>
             ))}
           </div>

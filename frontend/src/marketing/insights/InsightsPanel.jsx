@@ -30,7 +30,7 @@ export default function InsightsPanel({ insights, onNavigate, onViewMetric }) {
             {(['High', 'Medium', 'Low']).map(
               (s) =>
                 counts[s] > 0 && (
-                  <span key={s} style={{ padding: '2px 8px', borderRadius: 9999, fontSize: 10.5, fontWeight: 600, ...CHIP_STYLE[s] }}>
+                  <span key={s} style={{ padding: '2px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 600, ...CHIP_STYLE[s] }}>
                     {counts[s]} {s}
                   </span>
                 ),
@@ -41,7 +41,7 @@ export default function InsightsPanel({ insights, onNavigate, onViewMetric }) {
       </div>
 
       {insights.length === 0 ? (
-        <div style={{ textAlign: 'center', color: C.gray400, fontSize: 12.5, padding: '32px 0' }}>
+        <div style={{ textAlign: 'center', color: C.gray400, fontSize: 13, padding: '32px 0' }}>
           No notable changes this period - performance is holding steady across all monitored channels.
         </div>
       ) : (

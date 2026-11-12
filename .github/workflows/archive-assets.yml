@@ -85,6 +85,11 @@ jobs:
           VITE_REDIRECT_URI: ${{ github.ref_name == 'dev' && 'https://dev.nexus.greensglobal.com' || vars.VITE_REDIRECT_URI }}
           VITE_SUPABASE_URL: ${{ github.ref_name == 'dev' && 'https://xemoocdvqzhfbwjxcjdx.supabase.co' || secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ github.ref_name == 'dev' && 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhlbW9vY2R2cXpoZmJ3anhjamR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMDkxNDEsImV4cCI6MjA5NTg4NTE0MX0.DjSAmTAobHsm-e_xcr99YkNWB-mYAOPC2-UQm1XMxoE' || secrets.VITE_SUPABASE_ANON_KEY }}
+          # Source marks (11/12/2026): the deployed sites carry them - dev
+          # since Oct 24 (Cloudflare's own build), production from
+          # deploy-cloudflare.yml - so this build must too, or every stamped
+          # chunk is archived under a name the site never asks for.
+          VITE_NX_SRC: handlers
         run: npm run build
 
       - name: Upload dist/assets to R2

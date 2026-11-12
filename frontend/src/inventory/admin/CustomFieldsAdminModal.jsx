@@ -64,7 +64,7 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
     <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column' }}>
         <div style={{ padding:'20px 24px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
-          <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Custom Fields</h3>
+          <h3 style={{ margin:0, fontSize:15, fontWeight:700 }}>Custom Fields</h3>
           <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY:'auto', flex:1, padding:'14px 24px' }}>
@@ -92,13 +92,13 @@ export function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
                 </div>
               ))}
               {!canDelete && (
-                <div style={{ fontSize:11.5, color:'var(--muted)' }}>Only a Super Administrator or someone with Full Inventory access can delete a custom field.</div>
+                <div style={{ fontSize:12, color:'var(--muted)' }}>Only a Super Administrator or someone with Full Inventory access can delete a custom field.</div>
               )}
             </div>
           )}
           {/* Add new */}
           <div style={{ borderTop:'1px solid var(--line)', paddingTop:14 }}>
-            <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', marginBottom:10 }}>ADD A FIELD</div>
+            <div style={{ fontSize:11, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', marginBottom:10 }}>ADD A FIELD</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
               <div>
                 <label style={FL}>LABEL</label>

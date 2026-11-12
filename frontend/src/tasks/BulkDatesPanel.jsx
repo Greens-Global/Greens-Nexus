@@ -69,14 +69,14 @@ export default function BulkDatesPanel({ ids, tasks, store, onDone }) {
       </div>
       {op === 'shift' && (
         <>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
             Shift By
             <input type="number" inputMode="numeric" value={days} min={-MAX_SHIFT_DAYS} max={MAX_SHIFT_DAYS} step={1}
               aria-label="Days" onChange={(e) => setDays(e.target.value)}
-              style={{ ...inputStyle, width: 90, padding: '5px 8px', fontSize: 12.5 }} />
+              style={{ ...inputStyle, width: 90, padding: '5px 8px', fontSize: 13 }} />
             Days
           </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
             <input type="checkbox" checked={skipWeekends} onChange={(e) => setSkipWeekends(e.target.checked)} />
             Skip Weekends
           </label>
@@ -89,13 +89,13 @@ export default function BulkDatesPanel({ ids, tasks, store, onDone }) {
       )}
       {(op === 'set_due' || op === 'set_start') && (
         <DateField value={on} onChange={(v) => setOn(v || '')} title={op === 'set_due' ? 'Due Date' : 'Start Date'}
-          placeholder="Pick a date" style={{ ...inputStyle, padding: '6px 9px', fontSize: 12.5 }} />
+          placeholder="Pick a date" style={{ ...inputStyle, padding: '6px 9px', fontSize: 13 }} />
       )}
       {op === 'clear_due' && <div style={hint}>Removes the due date from the selected tasks.</div>}
       {op === 'set_due' && <div style={hint}>A later date that needs approval is sent as a request, as on one task.</div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <button type="button" onClick={apply} disabled={!valid || busy}
-          style={{ ...btn('primary'), fontSize: 12.5, opacity: !valid || busy ? 0.6 : 1 }}>Apply</button>
+          style={{ ...btn('primary'), fontSize: 13, opacity: !valid || busy ? 0.6 : 1 }}>Apply</button>
       </div>
     </div>
   );

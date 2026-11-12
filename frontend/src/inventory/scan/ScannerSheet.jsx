@@ -187,9 +187,9 @@ export default function ScannerSheet({ items = [], onFound, onPlace, onClose, de
         <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 2px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ width: 38, height: 38, borderRadius: 12, background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><CameraOff size={19} /></span>
-            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink }}>{help.title}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{help.title}</div>
           </div>
-          <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13.5, color: NX.dim, lineHeight: 1.5 }}>
+          <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: NX.dim, lineHeight: 1.5 }}>
             {help.steps.map((s) => <li key={s}>{s}</li>)}
           </ol>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -211,19 +211,19 @@ export default function ScannerSheet({ items = [], onFound, onPlace, onClose, de
           <form data-nx-noguard onSubmit={(e) => { e.preventDefault(); findTyped(); }} style={{ display: 'flex', gap: 8 }}>
             <input id="nx-scan-typed" className="form-input" value={typed} autoFocus autoComplete="off" autoCapitalize="characters"
               placeholder="e.g. GG-00042" onChange={(e) => { setTyped(e.target.value); setResult(null); }}
-              style={{ flex: 1, minWidth: 0, fontSize: 16 }} />
+              style={{ flex: 1, minWidth: 0, fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
             <button type="submit" style={btn('primary')} disabled={!typed.trim() || typedBusy}>
               {typedBusy ? <Spinner size="inline" color="#fff" /> : <Search size={14} />} Find
             </button>
           </form>
-          <div style={{ fontSize: 12.5, color: NX.dim }}>The serial is printed under the QR code on the tag.</div>
+          <div style={{ fontSize: 13, color: NX.dim }}>The serial is printed under the QR code on the tag.</div>
           {matches.length > 0 && (
             <div role="list" aria-label="Matching items" style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
               {matches.map((i) => (
                 <button key={i.id} type="button" role="listitem" onClick={() => { stopAll(); onFound?.(i); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', background: NX.surface, border: 'none', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter, sans-serif', minHeight: 44 }}>
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.name}</span>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.name}</span>
                     <span style={{ display: 'block', fontSize: 12, color: NX.dim }}>{[i.serialNumber, i.location].filter(Boolean).join(' - ')}</span>
                   </span>
                 </button>
@@ -244,13 +244,13 @@ export function ScanResult({ result, onAgain, onType, onPick }) {
     const list = (result.items || []).slice(0, 8);
     return (
       <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '6px 2px' }}>
-        <div style={{ fontSize: 15.5, fontWeight: 700, color: NX.ink }}>Several Items Match - Pick One</div>
-        <div style={{ fontSize: 13.5, color: NX.dim, lineHeight: 1.5 }}>{`More than one item has a serial like "${String(result.code || result.raw || '').slice(0, 80)}".`}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>Several Items Match - Pick One</div>
+        <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5 }}>{`More than one item has a serial like "${String(result.code || result.raw || '').slice(0, 80)}".`}</div>
         <div role="list" aria-label="Items that match" style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
           {list.map((i) => (
             <button key={i.id} type="button" role="listitem" onClick={() => onPick?.(i)}
               style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '11px 12px', background: NX.surface, border: 'none', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter, sans-serif', minHeight: 44 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink }}>{i.name || 'Item'}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{i.name || 'Item'}</span>
               <span style={{ fontSize: 12, color: NX.dim }}>{[i.serialNumber, i.location].filter(Boolean).join(' - ')}</span>
             </button>
           ))}
@@ -270,9 +270,9 @@ export function ScanResult({ result, onAgain, onType, onPick }) {
     <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '6px 2px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ width: 38, height: 38, borderRadius: 12, background: NX.surface2, color: NX.dim, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: `1px solid ${NX.border}` }}>{t.icon}</span>
-        <div style={{ fontSize: 15.5, fontWeight: 700, color: NX.ink }}>{t.title}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{t.title}</div>
       </div>
-      <div style={{ fontSize: 13.5, color: NX.dim, lineHeight: 1.5 }}>{t.body}</div>
+      <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5 }}>{t.body}</div>
       {(onAgain || onType) && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {onAgain && <button type="button" style={btn('primary')} onClick={onAgain}><ScanLine size={14} /> Scan Again</button>}

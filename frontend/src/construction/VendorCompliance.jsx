@@ -29,7 +29,7 @@ const draftOf = (c) => ({
   coiExpiresOn: c?.coiExpiresOn || '', wcExpiresOn: c?.wcExpiresOn || '', licenseExpiresOn: c?.licenseExpiresOn || '',
   licenseNumber: c?.licenseNumber || '', w9OnFile: !!c?.w9OnFile, notes: c?.notes || '',
 });
-const quiet = { fontSize: '0.8rem', color: 'var(--text-secondary)' };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)' };
 
 export default function VendorCompliance({ vendorId, initial = null, onSaved }) {
   const [c, setC] = useState(initial);
@@ -73,12 +73,12 @@ export default function VendorCompliance({ vendorId, initial = null, onSaved }) 
         ))}
         <label className="form-label" style={{ margin: 0 }}>License Number
           <input className="form-input" value={draft.licenseNumber} onChange={(e) => setDraft((d) => ({ ...d, licenseNumber: e.target.value }))} /></label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'end', fontSize: '0.86rem', paddingBottom: 8 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, alignSelf: 'end', fontSize: 14, paddingBottom: 8 }}>
           <input type="checkbox" checked={draft.w9OnFile} onChange={(e) => setDraft((d) => ({ ...d, w9OnFile: e.target.checked }))} />W-9 On File</label>
       </div>
       <label className="form-label" style={{ margin: 0 }}>Notes
         <input className="form-input" value={draft.notes} placeholder="e.g. COI names Greens as additional insured" onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))} /></label>
-      {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</div>}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="submit" className="primary-btn" disabled={!dirty || busy}>{busy ? 'Saving…' : 'Save Papers'}</button>
         {c?.updatedAt && <span style={quiet}>Updated {formatDate(c.updatedAt)}{c.updatedBy ? ` by ${c.updatedBy}` : ''}</span>}

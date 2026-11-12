@@ -165,13 +165,13 @@ export function rowInStates(row, picked, [from, to]) {
 const money = formatAmount;
 const whole = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 // The Nexus date picker in a box shaped like the other inputs (Oct 22, Urmi:
 // native date inputs showed dd-mm-yyyy in a browser set to another language).
 const dateBox = { ...control, display: 'flex', alignItems: 'center', width: '100%' };
-const chipStyle = (tone) => ({ display: 'inline-block', marginLeft: 6, padding: '0 7px', borderRadius: 999, fontSize: '0.66rem', fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'middle',
+const chipStyle = (tone) => ({ display: 'inline-block', marginLeft: 6, padding: '0 7px', borderRadius: 999, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'middle',
   color: tone === 'bad' ? 'var(--bad-fg, #dc2626)' : 'var(--text-secondary)', background: tone === 'bad' ? 'rgba(220,38,38,0.10)' : 'var(--bg-secondary)', border: '1px solid var(--border-color)' });
 const monthName = (key) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
 // Oct 7: a new source starts on the 1st of this month, and its first rent
@@ -565,7 +565,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
     }
     setFocus((f) => ({ id: g.id, n: (f?.n || 0) + 1 }));
   };
-  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' };
+  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' };
   const noun = (n) => `${n} ${n === 1 ? 'source' : 'sources'}`;
 
   return (
@@ -603,9 +603,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             <BarMore level={1} active={showInactive ? 1 : 0}>
             <CustomizeButton {...cz} active={showInactive}>
               {[['mriShowInactiveLeases', showInactive, 'Show Inactive Leases', 'Ended, expired and vacant leases, and payers inactive in Intacct. The text filter finds them either way.']].map(([k, on, text, hint]) => (
-                <label key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+                <label key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
                   <input type="checkbox" checked={on} onChange={(e) => setPrefs({ [k]: e.target.checked })} style={{ marginTop: 2 }} />
-                  <span>{text}<span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{hint}</span></span>
+                  <span>{text}<span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{hint}</span></span>
                 </label>
               ))}
             </CustomizeButton>
@@ -643,7 +643,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
         </ControlBar>
 
         {section === 'roll' && <StateFilter value={states} onChange={setStates} />}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums', padding: '0 4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 13, fontVariantNumeric: 'tabular-nums', padding: '0 4px' }}>
           <span>Expected <strong><Amount value={figures.expected} /></strong></span>
           <span>Received <strong><Amount value={figures.received} /></strong></span>
           <span title="Expected less received. A credit (in parentheses) is a prepayment.">Balance <strong style={{ color: figures.balance > 0.005 ? 'var(--bad-fg, #dc2626)' : figures.balance < -0.005 ? 'var(--ok-fg, #15803d)' : undefined }}><Amount value={figures.balance} /></strong>{figures.balance < -0.005 ? <span style={{ color: 'var(--ok-fg, #15803d)' }}> Credit</span> : null}</span>
@@ -654,12 +654,12 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
 
         {error && <div style={bad}>{error}</div>}
         {roll?.warning && (
-          <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: 'var(--warn-fg)' }}>
+          <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--warn-fg)' }}>
             <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{roll.warning}
           </div>
         )}
         {(linked.length > 0 || synced?.created?.length > 0) && (
-          <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>
+          <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>
             <span style={{ flex: 1 }}>
               {linked.length > 0 && <>Linked {linked.length} {linked.length === 1 ? 'lease' : 'leases'} to the Intacct customer by name: {linked.map((x) => `${x.tenantName || x.propertyName} (${x.customerId})`).join(', ')}. </>}
               {synced?.created?.length > 0 && <>Added {synced.created.length} new {synced.created.length === 1 ? 'tenant' : 'tenants'} from the ledger: {synced.created.map((x) => `${x.tenantName} at ${x.entityName}`).join(', ')}.</>}
@@ -667,9 +667,9 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             <button type="button" onClick={() => { setSynced(null); setRoll((d) => d && { ...d, linked: [] }); }} aria-label="Dismiss" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}><X size={14} /></button>
           </div>
         )}
-        {synced && !linked.length && !synced.created?.length && <div role="status" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '0 4px' }}>The ledger sync found nothing new: every lease is linked and no new tenant posted rent.</div>}
+        {synced && !linked.length && !synced.created?.length && <div role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '0 4px' }}>The ledger sync found nothing new: every lease is linked and no new tenant posted rent.</div>}
         {sent && (
-          <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>
+          <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>
             <span style={{ flex: 1 }}>{sent.text}{sent.url && <> <a href={sent.url} target="_blank" rel="noreferrer">Open the File</a></>}</span>
             <button type="button" onClick={() => setSent(null)} aria-label="Dismiss" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}><X size={14} /></button>
           </div>
@@ -710,7 +710,7 @@ function StateFilter({ value, onChange }) {
   const on = new Set(value);
   const toggle = (k) => { const n = new Set(on); if (n.has(k)) n.delete(k); else n.add(k); onChange(STATE_FILTERS.map((f) => f.key).filter((x) => n.has(x))); };
   return (
-    <div role="group" aria-label="Show rows with a month that is" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: '0.74rem', padding: '0 4px' }}>
+    <div role="group" aria-label="Show rows with a month that is" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12, padding: '0 4px' }}>
       <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Show Rows With:</span>
       {STATE_FILTERS.map((f) => {
         const st = STATUS[f.key];
@@ -756,19 +756,19 @@ function MultiPicker({ label: aria, allLabel, noun, Icon, options, value, onChan
         {showCodes && <input type="text" value={find} onChange={(e) => setFind(e.target.value)} placeholder={findHint} aria-label={findHint} autoFocus style={{ ...control, width: '100%' }} />}
         <div style={{ maxHeight: 'min(480px, calc(100vh - 230px))', overflowY: 'auto', marginTop: showCodes ? 6 : 0, display: 'grid', gap: 1 }}>
           {!s && (
-            <button type="button" onClick={() => onChange([])} style={{ display: 'flex', alignItems: 'center', gap: 8, border: 'none', borderRadius: 6, background: !value.length ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', textAlign: 'left', color: 'var(--text-primary)' }}>
+            <button type="button" onClick={() => onChange([])} style={{ display: 'flex', alignItems: 'center', gap: 8, border: 'none', borderRadius: 6, background: !value.length ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left', color: 'var(--text-primary)' }}>
               <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{!value.length ? <Check size={14} /> : null}</span>{allLabel}
             </button>
           )}
           {shown.map((o) => (
             <button key={o.code} type="button" role="option" aria-selected={chosen.has(o.code)} onClick={() => toggle(o.code)}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, border: 'none', borderRadius: 6, background: chosen.has(o.code) ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textAlign: 'left', color: o.off ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 8, border: 'none', borderRadius: 6, background: chosen.has(o.code) ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: 13, cursor: 'pointer', textAlign: 'left', color: o.off ? 'var(--text-muted)' : 'var(--text-primary)' }}>
               <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{chosen.has(o.code) ? <Check size={14} /> : null}</span>
-              {showCodes && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>{o.code}</span>}
+              {showCodes && <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>{o.code}</span>}
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.name}</span>
             </button>
           ))}
-          {!shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>{options.length ? 'No match.' : empty}</div>}
+          {!shown.length && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 6 }}>{options.length ? 'No match.' : empty}</div>}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
           <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={() => setOpen(false)}>Done</button>
@@ -800,7 +800,7 @@ function TenantName({ row, style }) {
   const hide = () => { clearTimeout(timer.current); timer.current = setTimeout(() => setOpen(false), 200); };
   const c = info || row.customer || {};
   const fact = (k, v) => (
-    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8, fontSize: '0.8rem', padding: '2px 0' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8, fontSize: 13, padding: '2px 0' }}>
       <span style={{ color: 'var(--text-secondary)' }}>{k}</span><span style={{ overflowWrap: 'anywhere' }}>{v || <span style={{ color: 'var(--text-muted)' }}>Not on file</span>}</span>
     </div>
   );
@@ -813,12 +813,12 @@ function TenantName({ row, style }) {
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} role="dialog" aria-label={`${name} details`} onMouseEnter={() => clearTimeout(timer.current)} onMouseLeave={hide}
         style={{ width: 340, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 12, display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span className="acct-code" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginRight: 0 }}>{code}</span>
-          <strong style={{ fontSize: '0.9rem' }}>{c.name || name}</strong>
+          <span className="acct-code" style={{ fontSize: 12, color: 'var(--text-muted)', marginRight: 0 }}>{code}</span>
+          <strong style={{ fontSize: 15 }}>{c.name || name}</strong>
           {(info ? info.active === false : row.customerActive === false) && <StatusLabel size="sm" color="#dc2626" label="Inactive" style={{ marginLeft: 6 }} />}
           {row.expired && <StatusLabel size="sm" color="#64748b" label="Expired" style={{ marginLeft: 6 }} />}
         </div>
-        {failed ? <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>{failed}</div> : !info && !row.customer ? <SkeletonBlocks count={2} /> : (
+        {failed ? <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{failed}</div> : !info && !row.customer ? <SkeletonBlocks count={2} /> : (
           <div>
             {fact('Name', c.name || name)}
             {fact('Telephone Number', c.phone || l.phone)}
@@ -827,7 +827,7 @@ function TenantName({ row, style }) {
             {(c.contactName || l.contactName) ? fact('Contact', c.contactName || l.contactName) : null}
           </div>
         )}
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.source === 'intacct' ? 'From the Intacct customer record.' : 'From the ledger and the lease - Intacct contact details show here once the accounting app shares them.'}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.source === 'intacct' ? 'From the Intacct customer record.' : 'From the ledger and the lease - Intacct contact details show here once the accounting app shares them.'}</div>
       </PopoverPanel>
     </span>
   );
@@ -861,16 +861,16 @@ function NoteCell({ lease, canEdit, onSaved, monthNotes = '' }) {
     );
   }
   const months = monthNotes
-    ? <span data-testid="month-notes" style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{monthNotes}</span>
+    ? <span data-testid="month-notes" style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'var(--text-secondary)' }}>{monthNotes}</span>
     : null;
   const body = note.text
-    ? <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.text}<span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>{who}</span>{months}</span>
+    ? <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.text}<span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{who}</span>{months}</span>
     : months ? <span style={{ display: 'block', minWidth: 0 }}>{months}</span> : <span style={{ color: 'var(--text-muted)' }}>{canEdit ? 'Add a Note' : '-'}</span>;
   const tip = [note.text ? `${note.text} - ${who}` : '', monthNotes].filter(Boolean).join('\n');
   if (!canEdit) return <span title={tip || undefined}>{body}</span>;
   return (
     <button type="button" onClick={() => { setText(note.text || ''); setEditing(true); }} aria-label={note.text ? `Change the note on ${lease.propertyName}` : `Add a note on ${lease.propertyName}`} title={tip ? `${tip}${note.text ? '' : '\nClick to add a note'}` : 'Add a Note'}
-      style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: '0.76rem', color: 'var(--text-primary)', cursor: 'text', textAlign: 'left', width: '100%', minWidth: 0 }}>
+      style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: 12, color: 'var(--text-primary)', cursor: 'text', textAlign: 'left', width: '100%', minWidth: 0 }}>
       {body}
     </button>
   );
@@ -924,9 +924,9 @@ function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, 
   const fitHeight = useFitToScreen(wrapRef, rows.length > 0 || boxed);
   if (!rows.length && !boxed) {
     return (
-      <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 10 }}>
         <span>{any ? 'Nothing matches these filters.' : `No leases yet.${canEdit ? ' + Add > New Lease: the tenant, the dates and the rent.' : ''}`}</span>
-        {any && view.dirty && <button type="button" className="secondary-btn" onClick={view.clear} style={{ fontSize: '0.76rem' }}>Clear</button>}
+        {any && view.dirty && <button type="button" className="secondary-btn" onClick={view.clear} style={{ fontSize: 12 }}>Clear</button>}
       </div>
     );
   }
@@ -982,7 +982,7 @@ function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, 
                       property: propertyCell(
                         <>
                           <span style={{ fontWeight: 600 }}><span className="acct-code">{r.account.code}</span>{r.account.title}</span>
-                          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>From the ledger - every posting to this account, no schedule</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>From the ledger - every posting to this account, no schedule</div>
                         </>,
                       ),
                       type: <td><TypeChip type={r.type} /></td>,
@@ -1019,7 +1019,7 @@ function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, 
                       {/* 10/29 (Neil: the bare "c" was "not intuitive"): a small
                           return arrow - the money came back from another month's
                           payment - with its own words on hover. */}
-                      {c.covered ? <sup data-testid="covered-mark" aria-hidden="true" title="Settled by another month's payment" style={{ marginLeft: 1, fontSize: '0.62rem', color: 'var(--ok-fg, #15803d)' }}>&#8617;</sup> : null}
+                      {c.covered ? <sup data-testid="covered-mark" aria-hidden="true" title="Settled by another month's payment" style={{ marginLeft: 1, fontSize: 11, color: 'var(--ok-fg, #15803d)' }}>&#8617;</sup> : null}
                     </button>
                   </td>
                 )];
@@ -1032,11 +1032,11 @@ function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, 
                         <button type="button" className="acct-drill" onClick={() => onLease(l)} style={{ fontWeight: 600, textAlign: 'left' }}>{l.propertyName}</button>
                         <StandingChips row={r} />
                         <PossiblyEndedChip flag={l.possiblyEnded} kind="mri" />
-                        <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}><TenantName row={r} />{l.status === 'ended' ? ` · ended ${l.leaseEnd ? formatDate(l.leaseEnd) : ''}` : ''}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}><TenantName row={r} />{l.status === 'ended' ? ` · ended ${l.leaseEnd ? formatDate(l.leaseEnd) : ''}` : ''}</div>
                       </>,
                     ),
                     type: <td><TypeChip type={typeOf(r)} /></td>,
-                    amount: <td className="acct-num">{rate ? whole(rate.rent + rate.cam + rate.other) : '-'}{stepMonths(l) > 1 ? <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{frequencyLabel(l)}</span> : null}</td>,
+                    amount: <td className="acct-num">{rate ? whole(rate.rent + rate.cam + rate.other) : '-'}{stepMonths(l) > 1 ? <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{frequencyLabel(l)}</span> : null}</td>,
                     ...months,
                     total: (
                       <td className="acct-num" style={{ fontWeight: 700 }}>
@@ -1072,7 +1072,7 @@ function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, 
         </table>
       </div>
       <Pager {...paged} />
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
         <span>A paid month shows what came in; a month not yet paid shows what is expected. * has a note. Click a month for the detail and its journal entries. A dash is a month the lease is not in force (or, for a source that is not monthly, a month it does not fall due). A payment above what a month expects settles the oldest open month first: that month reads Covered, and a small &#8617; marks a month part or wholly settled that way (hover it for the payment that covered it). Balance is expected less received; a credit (in parentheses) is a prepayment. Total and Balance open the ledger lines. The colors filter the rows above the table.</span>
       </div>
     </div>
@@ -1094,7 +1094,7 @@ function Outstanding({ view, filters = null, rows, year, py, pageSize = 0, pageK
   const wrapRef = useRef(null);
   const boxed = !!filters?.filtering;
   const fitHeight = useFitToScreen(wrapRef, rows.length > 0 || boxed);
-  if (!rows.length && !boxed) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{view.count ? 'Nobody behind passes the filters.' : `Nobody is behind for ${year}.`}</div>;
+  if (!rows.length && !boxed) return <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>{view.count ? 'Nobody behind passes the filters.' : `Nobody is behind for ${year}.`}</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
       <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-outstanding-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
@@ -1122,8 +1122,8 @@ function Outstanding({ view, filters = null, rows, year, py, pageSize = 0, pageK
                     write: (
                       <td style={{ textAlign: 'right' }}>
                         {l.email
-                          ? <a className="secondary-btn" href={reminder(r, year)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', padding: '3px 10px', textDecoration: 'none' }}><Mail size={13} /> Write to Tenant</a>
-                          : <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No email on file</span>}
+                          ? <a className="secondary-btn" href={reminder(r, year)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '3px 10px', textDecoration: 'none' }}><Mail size={13} /> Write to Tenant</a>
+                          : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No email on file</span>}
                       </td>
                     ),
                   })}
@@ -1141,7 +1141,7 @@ function Outstanding({ view, filters = null, rows, year, py, pageSize = 0, pageK
         </table>
       </div>
       <Pager {...paged} />
-      <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>Write to Tenant opens your own email with the months and amounts filled in. Nothing is sent until you press send.</div>
+      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>Write to Tenant opens your own email with the months and amounts filled in. Nothing is sent until you press send.</div>
     </div>
   );
 }
@@ -1151,7 +1151,7 @@ function Tenants({ view, filters = null, rows, py, canEdit, onEdit, onReplace, p
   const wrapRef = useRef(null);
   const boxed = !!filters?.filtering;
   const fitHeight = useFitToScreen(wrapRef, rows.length > 0 || boxed);
-  if (!rows.length && !boxed) return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{view.count ? 'No lease passes the filters.' : 'No lease matches.'}</div>;
+  if (!rows.length && !boxed) return <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>{view.count ? 'No lease passes the filters.' : 'No lease matches.'}</div>;
   return (
     <div style={{ ...card, padding: 10 }}>
       <div ref={wrapRef} className="acct-lines-wrap" data-testid="mri-tenants-box" style={fitHeight ? { maxHeight: fitHeight } : undefined}>
@@ -1169,11 +1169,11 @@ function Tenants({ view, filters = null, rows, py, canEdit, onEdit, onReplace, p
               return (
                 <tr key={l.id}>
                   {viewCells(view, {
-                    property: <td style={{ fontWeight: 600, whiteSpace: 'normal' }}>{l.propertyName}{l.region ? <div style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{l.region}</div> : null}</td>,
+                    property: <td style={{ fontWeight: 600, whiteSpace: 'normal' }}>{l.propertyName}{l.region ? <div style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-secondary)' }}>{l.region}</div> : null}</td>,
                     type: <td><TypeChip type={typeOf(r)} /></td>,
                     payer: <td style={{ whiteSpace: 'normal' }}>{l.customerId ? <span className="acct-code">{l.customerId}</span> : null}<TenantName row={r} /></td>,
                     landlord: <td style={{ whiteSpace: 'normal' }}>{l.landlord || '-'}</td>,
-                    dates: <td>{l.leaseStart ? formatDate(l.leaseStart) : '-'} to {l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month'}{leaseTermLabel(l) ? <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>Term: {leaseTermLabel(l)}</div> : null}</td>,
+                    dates: <td>{l.leaseStart ? formatDate(l.leaseStart) : '-'} to {l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month'}{leaseTermLabel(l) ? <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Term: {leaseTermLabel(l)}</div> : null}</td>,
                     amount: <td className="acct-num">{rate ? <Amount value={rate.rent} /> : '-'}</td>,
                     cam: <td className="acct-num">{rate?.cam ? <Amount value={rate.cam} /> : '-'}</td>,
                     deposit: <td className="acct-num">{l.securityDeposit ? <Amount value={l.securityDeposit} /> : '-'}</td>,
@@ -1225,9 +1225,9 @@ function MonthEntries({ row, month, onOpen }) {
       .catch((e) => { if (alive) setState({ lines: [], error: e?.message || 'Could not read the entries.' }); });
     return () => { alive = false; };
   }, [queries]);
-  if (!queries.length) return <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>No customer code on this source, so no entries can be matched to it.</div>;
+  if (!queries.length) return <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No customer code on this source, so no entries can be matched to it.</div>;
   if (state.lines === null) return <SkeletonBlocks count={2} />;
-  if (state.error) return <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>{state.error}</div>;
+  if (state.error) return <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{state.error}</div>;
   const ids = [...new Set(state.lines.filter((l) => l.entry_id).map((l) => l.entry_id))];
   return (
     <div style={{ display: 'grid', gap: 6 }}>
@@ -1235,12 +1235,12 @@ function MonthEntries({ row, month, onOpen }) {
         <span style={{ ...label, marginBottom: 0, flex: 1 }}>Journal Entries ({state.lines.length})</span>
         {ids.length === 1 && (
           <button type="button" className="secondary-btn" onClick={() => { const l = state.lines.find((x) => x.entry_id === ids[0]); onOpen({ id: l.entry_id, no: l.entry_no }); }}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', padding: '3px 10px' }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '3px 10px' }}>
             <ExternalLink size={13} /> Open Entry
           </button>
         )}
       </div>
-      {!state.lines.length ? <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Nothing posted this month.</div> : (
+      {!state.lines.length ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Nothing posted this month.</div> : (
         <div className="acct-lines-wrap" style={{ maxHeight: 220 }}>
           <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
             <thead><tr><th scope="col">Date</th><th scope="col">Entry</th><th scope="col">Description</th><th scope="col" className="acct-num">Amount</th></tr></thead>
@@ -1294,7 +1294,7 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
     setError('');
     api.setLeasingMonth(row.lease.id, month.month, { adjustment: Number(adjustment) || 0, note }).then(onSaved).catch((e) => { setError(e?.message || 'Could not save.'); setBusy(false); });
   };
-  const fact = (k, v, strong) => (<div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: '0.86rem', padding: '3px 0' }}><span style={{ color: 'var(--text-secondary)' }}>{k}</span><span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: strong ? 700 : 400 }}>{v}</span></div>);
+  const fact = (k, v, strong) => (<div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 14, padding: '3px 0' }}><span style={{ color: 'var(--text-secondary)' }}>{k}</span><span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: strong ? 700 : 400 }}>{v}</span></div>);
   const title = ledgerRow ? `${row.account.code} ${row.account.title}` : row.lease.propertyName;
   return (
     <div className="modal-overlay" onClick={tryClose} role="presentation">
@@ -1302,12 +1302,12 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
         <div className="modal-header">
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>{monthName(month.month)}</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{title} · {ledgerRow ? 'From the ledger' : row.lease.tenantName || 'Vacant'}</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{title} · {ledgerRow ? 'From the ledger' : row.lease.tenantName || 'Vacant'}</div>
           </div>
           <button type="button" onClick={tryClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 10, maxHeight: '70vh', overflowY: 'auto' }}>
-          {!ledgerRow && <span style={{ justifySelf: 'start', padding: '2px 10px', borderRadius: 999, fontSize: '0.76rem', fontWeight: 700, color: s.fg, background: s.bg, border: `1px solid ${s.fg}` }}>{s.label}</span>}
+          {!ledgerRow && <span style={{ justifySelf: 'start', padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, color: s.fg, background: s.bg, border: `1px solid ${s.fg}` }}>{s.label}</span>}
           <div>
             {!ledgerRow && fact('Expected', money(month.expected))}
             {month.adjustment ? fact('Includes a deduction of', money(month.adjustment)) : null}
@@ -1315,10 +1315,10 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
             {!ledgerRow && fact('Balance', month.status === 'unknown' ? '-' : money(month.balance), true)}
             {month.lateFee ? fact('Late fee under the lease', money(month.lateFee)) : null}
           </div>
-          {month.status === 'outside' && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Nothing is expected this month under the lease dates.</div>}
-          {month.offCycle && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Not a month this source falls due ({frequencyLabel(row.lease)}).</div>}
-          {coverText(month) && <div data-testid="cover-text" style={{ fontSize: '0.78rem', color: 'var(--ok-fg, #15803d)' }}>{coverText(month)}.</div>}
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+          {month.status === 'outside' && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Nothing is expected this month under the lease dates.</div>}
+          {month.offCycle && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Not a month this source falls due ({frequencyLabel(row.lease)}).</div>}
+          {coverText(month) && <div data-testid="cover-text" style={{ fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>{coverText(month)}.</div>}
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             {ledgerRow ? `Received is everything that posted to account ${row.account.code} this month, less what the sources in this list already count.` : `Received is what posted to account ${row.lease.incomeAccounts.join(', ')} for customer ${row.lease.customerId || '(none set)'} in this month.`}
           </div>
           {month.status !== 'unknown' && <MonthEntries row={row} month={month} onOpen={setEntry} />}
@@ -1327,7 +1327,7 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
               <div>
                 <label style={label} htmlFor="lease-m-adj">Agreed Deduction</label>
                 <input id="lease-m-adj" type="number" min="0" step="0.01" value={adjustment} onChange={(e) => setAdjustment(e.target.value)} style={{ ...control, width: 160 }} />
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Taken off what is expected this month, such as a repair the tenant paid for.</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Taken off what is expected this month, such as a repair the tenant paid for.</div>
               </div>
               <div>
                 <label style={label} htmlFor="lease-m-note">Note</label>
@@ -1335,7 +1335,7 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
               </div>
             </>
           )}
-          {!edits && month.note && <div style={{ fontSize: '0.84rem' }}>{month.note}</div>}
+          {!edits && month.note && <div style={{ fontSize: 13 }}>{month.note}</div>}
           {error && <div style={bad}>{error}</div>}
         </div>
         {leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
@@ -1357,7 +1357,7 @@ function LeaveConfirm({ onKeep, onDiscard }) {
   useEffect(() => { keep.current?.focus(); }, []);
   return (
     <div className="modal-footer" role="alertdialog" aria-label="Unsaved changes" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />You have unsaved changes.</span>
+      <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />You have unsaved changes.</span>
       <span style={{ display: 'inline-flex', gap: 8 }}>
         <button type="button" className="secondary-btn" onClick={onDiscard} style={{ color: 'var(--bad-fg, #dc2626)' }}>Discard Edits</button>
         <button type="button" ref={keep} className="primary-btn" onClick={onKeep}>Keep Editing</button>
@@ -1436,7 +1436,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
     <div>
       <label style={label} htmlFor={`lease-${key}`}>{text}</label>
       <input id={`lease-${key}`} type="text" value={l[key] ?? ''} onChange={(e) => { set({ [key]: e.target.value }); if (fromIntacct[key]) setFromIntacct((f) => ({ ...f, [key]: false })); }} style={{ ...control, width: '100%' }} {...props} />
-      {fromIntacct[key] && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Filled from Intacct</div>}
+      {fromIntacct[key] && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Filled from Intacct</div>}
     </div>
   );
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 };
@@ -1482,7 +1482,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
             </div>
           </div>
           {vacant ? (
-            <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>The space is vacant - no {who.toLowerCase()} until the status changes.</p>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>The space is vacant - no {who.toLowerCase()} until the status changes.</p>
           ) : (
             <div style={grid}>
               <CustomerCombo id="lease-tenantName" text={isLease ? 'Tenant Name' : 'Payer Name'} value={l.tenantName || ''} customers={customers} picked={l.customerId}
@@ -1521,12 +1521,12 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
             <div>
               <span style={label}>{isLease ? 'Lease Start' : 'Starts'}</span>
               <div id="lease-leaseStart" style={dateBox}><DateField value={l.leaseStart || ''} onChange={(v) => setStart(v || '')} placeholder="MM/DD/YYYY" title={isLease ? 'Lease Start' : 'Starts'} style={{ width: '100%' }} /></div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>When the tenant started paying. Expected rent counts from here.</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>When the tenant started paying. Expected rent counts from here.</div>
             </div>
             <div>
               <span style={label}>{isLease ? 'Lease End' : 'Ends'}</span>
               <div id="lease-leaseEnd" style={dateBox}><DateField value={l.leaseEnd || ''} onChange={(v) => set({ leaseEnd: v || '' })} placeholder="MM/DD/YYYY" title={isLease ? 'Lease End' : 'Ends'} style={{ width: '100%' }} /></div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Leave empty for month to month.</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Leave empty for month to month.</div>
             </div>
             <div>
               <label style={label} htmlFor="lease-termType">Lease Term</label>
@@ -1540,8 +1540,8 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
                     onChange={(e) => set({ termMonths: e.target.value.replace(/\D/g, '') })} style={{ ...control, width: 90 }} />
                 )}
               </div>
-              {l.termType === 'custom' && !termOk && <div style={{ fontSize: '0.7rem', color: 'var(--bad-fg, #dc2626)', marginTop: 3 }}>A whole number of months, 1 to {TERM_MAX_MONTHS}.</div>}
-              {!l.termType && l.termLegacy && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }} data-testid="lease-term-legacy">Saved as "{l.termLegacy}" - pick a term.</div>}
+              {l.termType === 'custom' && !termOk && <div style={{ fontSize: 11, color: 'var(--bad-fg, #dc2626)', marginTop: 3 }}>A whole number of months, 1 to {TERM_MAX_MONTHS}.</div>}
+              {!l.termType && l.termLegacy && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }} data-testid="lease-term-legacy">Saved as "{l.termLegacy}" - pick a term.</div>}
             </div>
             <div>
               <label style={label} htmlFor="lease-frequency">Frequency</label>
@@ -1554,7 +1554,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
                     onChange={(e) => set({ frequencyMonths: e.target.value === '' ? '' : Math.floor(Number(e.target.value)) })} style={{ ...control, width: 90 }} />
                 )}
               </div>
-              <div style={{ fontSize: '0.7rem', color: freqOk ? 'var(--text-muted)' : 'var(--bad-fg, #dc2626)', marginTop: 3 }}>
+              <div style={{ fontSize: 11, color: freqOk ? 'var(--text-muted)' : 'var(--bad-fg, #dc2626)', marginTop: 3 }}>
                 {!freqOk ? `Enter 1 to ${CUSTOM_MAX_MONTHS} months.` : stepMonths(l) > 1 ? `Falls due every ${stepMonths(l)} months from the start month; the rent below is the amount each time.` : 'Due every month.'}
               </div>
             </div>
@@ -1573,7 +1573,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={label}>Rent - each change is a new line, in force until the next one</span>
-              <button type="button" className="secondary-btn" onClick={() => set({ rates: [...l.rates, { startDate: '', rent: l.rates[l.rates.length - 1]?.rent || 0, cam: l.rates[l.rates.length - 1]?.cam || 0, other: 0, note: '' }] })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', padding: '3px 10px' }}><Plus size={12} /> Add Rent Change</button>
+              <button type="button" className="secondary-btn" onClick={() => set({ rates: [...l.rates, { startDate: '', rent: l.rates[l.rates.length - 1]?.rent || 0, cam: l.rates[l.rates.length - 1]?.cam || 0, other: 0, note: '' }] })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '3px 10px' }}><Plus size={12} /> Add Rent Change</button>
             </div>
             {/* Oct 15 (Neil): a normal table - the labels sit over their inputs. */}
             <div style={{ overflowX: 'auto', marginTop: 4 }}>
@@ -1604,7 +1604,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
                   </tbody>
                 </table>
               )}
-              {!l.rates.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>No rent yet. Without one, nothing is expected from this lease.</div>}
+              {!l.rates.length && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No rent yet. Without one, nothing is expected from this lease.</div>}
             </div>
           </div>
 
@@ -1617,7 +1617,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
             <div>
               <label style={label} htmlFor="lease-accounts">{isLease ? 'Rental Income Accounts' : 'Income Accounts'}</label>
               <input id="lease-accounts" type="text" value={Array.isArray(l.incomeAccounts) ? l.incomeAccounts.join(', ') : l.incomeAccounts} onChange={(e) => set({ incomeAccounts: e.target.value })} style={{ ...control, width: '100%' }} />
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>GL codes, separated by commas. What posts here for the tenant counts as rent received.</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>GL codes, separated by commas. What posts here for the tenant counts as rent received.</div>
             </div>
           </div>
         </div>
@@ -1671,13 +1671,13 @@ function CustomerCombo({ id, text, value, customers, picked, onType, onPick }) {
           style={{ position: 'absolute', left: 0, right: 0, top: '100%', zIndex: 20, marginTop: 2, maxHeight: 240, overflowY: 'auto', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 4, display: 'grid', gap: 1 }}>
           {options.map((c, i) => (
             <button key={c.code} type="button" role="option" aria-selected={c.code === picked} onClick={() => choose(c)} onMouseEnter={() => setActive(i)}
-              style={{ display: 'flex', gap: 8, border: 'none', background: i === active ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', borderRadius: 6, padding: '4px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textAlign: 'left', color: c.active === false ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+              style={{ display: 'flex', gap: 8, border: 'none', background: i === active ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', borderRadius: 6, padding: '4px 8px', font: 'inherit', fontSize: 13, cursor: 'pointer', textAlign: 'left', color: c.active === false ? 'var(--text-muted)' : 'var(--text-primary)' }}>
               <span style={{ color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{c.code}</span>
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name || c.code}</span>
               {c.active === false && <StatusLabel size="sm" color="#dc2626" label="Inactive" style={{ marginLeft: 6 }} />}
             </button>
           ))}
-          {!options.length && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', padding: 6 }}>{customers.length ? 'No Intacct customer matches - the name typed is kept.' : 'No Intacct customers to pick from - type the name.'}</div>}
+          {!options.length && <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: 6 }}>{customers.length ? 'No Intacct customer matches - the name typed is kept.' : 'No Intacct customers to pick from - type the name.'}</div>}
         </div>
       )}
     </div>

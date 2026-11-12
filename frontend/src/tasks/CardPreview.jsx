@@ -80,8 +80,8 @@ function ChecklistPreview({ preview, store, canEdit }) {
           </label>
         );
       })}
-      {preview.more > 0 && <div style={{ fontSize: 11.5, color: NX.faint, paddingLeft: 20 }}>+{preview.more} more</div>}
-      {error && <div role="alert" style={{ fontSize: 11.5, color: NX.red }}>{error}</div>}
+      {preview.more > 0 && <div style={{ fontSize: 12, color: NX.faint, paddingLeft: 20 }}>+{preview.more} more</div>}
+      {error && <div role="alert" style={{ fontSize: 12, color: NX.red }}>{error}</div>}
     </div>
   );
 }

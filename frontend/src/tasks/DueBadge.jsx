@@ -36,7 +36,7 @@ export default function DueBadge({ task, count, nameOf, compact = false, style }
     <span title={title} aria-label={`Due date extended ${timesLabel(n)}`} style={{
       display: 'inline-flex', alignItems: 'center', whiteSpace: 'nowrap', flexShrink: 0,
       padding: compact ? '1px 6px' : '2px 8px', borderRadius: 999,
-      fontSize: compact ? 10.5 : 11.5, fontWeight: 700, lineHeight: 1.4,
+      fontSize: compact ? 11 : 12, fontWeight: 700, lineHeight: 1.4,
       color, background: `${color}1f`, border: `1px solid ${color}59`, cursor: 'help',
       ...style,
     }}>

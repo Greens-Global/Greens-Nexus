@@ -491,6 +491,10 @@ def _esign_action_rows(db: Session, email: str) -> list:
         req = reqs.get(p.request_id)
         if not req or not _its_their_turn(req, p):
             continue
+        own_sheet = _own_time_sheet_to_sign(db, req, p)
+        if own_sheet:
+            rows.append(own_sheet)
+            continue
         rows.append({
             "title": f"Sign: {req.title}",
             "detail": "Signature required",
@@ -502,6 +506,29 @@ def _esign_action_rows(db: Session, email: str) -> list:
             **_since(req.created_at),
         })
     return rows
+
+
+def _own_time_sheet_to_sign(db: Session, req, party) -> dict | None:
+    """The person's OWN Time Sheet out for their signature, as a Time Sheet
+    row with a Sign Time Sheet button (Neil, 11/12/2026: the reminder stays
+    until the time sheet is finalized, and the signature is that last step).
+    None for any other envelope, or a manager / HR party on an old
+    three-signer one - those stay plain "Sign:" Documents rows."""
+    import timesheet_review as tsr
+    if (getattr(req, "link_kind", "") or "") != tsr.LINK_KIND or party.role_key != "employee":
+        return None
+    r = db.query(models.TimesheetReview).filter(models.TimesheetReview.id == req.link_id).first()
+    if r is None:
+        return None
+    span = f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)}"
+    if tsr.in_correction(r):
+        title, detail = "Sign Your Corrected Time Sheet", f"HR corrected {span} - sign it to finalize your pay."
+    else:
+        who = tsr.display_name(db, r.agreed_by) if r.agreed_by else "Your manager"
+        title, detail = "Sign Your Time Sheet", f"{who} approved {span} - sign it to finalize your pay."
+    url = f"{app_url()}/workday/sign:{party.id}"
+    return {"title": title, "detail": detail, "url": url, "module": "timecard",
+            "cta": ("Sign Time Sheet", url), "urgency": "overdue", **_since(req.created_at)}
 
 
 def _envelope_url(request_id: str) -> str:
@@ -800,6 +827,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
                       + (" - resubmitted" if q["resubmitted"] else ""),
             # That person's card on that period - the same place the bell opens.
             "url": _timecard_url(q["employeeEmail"], q["periodStart"], q["payType"]),
+            "cta": ("Review Time Sheet", _timecard_url(q["employeeEmail"], q["periodStart"], q["payType"])),
             "module": "timecard",
             **_since(q.get("submittedAt")),
         })
@@ -811,6 +839,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
             "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(q['periodStart'])} - {_fmt_date(q['periodEnd'])} - {hours} - not submitted",
             "url": _timecard_url(q.get("employeeEmail"), q.get("periodStart"), q.get("payType")),
+            "cta": ("Review Time Sheet", _timecard_url(q.get("employeeEmail"), q.get("periodStart"), q.get("payType"))),
             "module": "timecard",
             **_since(q["periodEnd"]),
         })
@@ -821,53 +850,147 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
             "title": "Sign Your Updated Time Sheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - HR changed your time sheet",
             # Your own Time Sheet on THAT period, not the current one.
-            "url": f"{app_url()}/timeclock/timesheet?{urlencode({'start': r.period_start, 'type': r.pay_type or ''})}",
-            "module": "timecard",
+            "url": _own_sheet_url(r.period_start, r.pay_type),
+            "cta": ("Sign Time Sheet", _own_sheet_url(r.period_start, r.pay_type)),
+            "module": "timecard", "urgency": "overdue",
             **_since(r.updated_at),
         })
     return rows
 
 
 def _timecard_rows(db: Session, email: str) -> list:
-    """Pay-period reminders (Neil, 8/21: 'we want to make sure you get paid on
-    time. You need to do this.'). Reuses the SAME period math + sign-off state
-    the Time module's own timecard header uses - no fresh TimePunch/TimeApproval
-    query, just the existing _pay_type/_pay_period/_month_bounds/_signoff_state
-    (routers/timeclock.py). Auto-drafting an actual contractor invoice (Neil's
-    India idea) is a separate feature with no existing hook to build on - out
-    of scope here; this is the reminder half only."""
-    from routers.timeclock import _period_of, _signoff_state, _employee_today, is_time_tracking_exempt
-    # Time-tracking exempt (salaried leadership - a group flagged in Settings >
-    # Access) has no time sheet, so nothing to confirm or submit (Oct 30 2026:
-    # Neil was asked to confirm one). Their review rows for OTHER people's
-    # time sheets are separate (_timesheet_review_rows) and stay.
-    if is_time_tracking_exempt(db, email):
+    """The person's OWN Time Sheets waiting on them (Neil, 11/12/2026: "people
+    whose pay period has come to an end ... need to finalize their time sheet
+    and submit it for approval", with a button straight to it; it shows every
+    day until the time sheet is finalized). Hourly, salaried (bi-weekly or
+    monthly) and contractors (India contractors included) alike - the ONE
+    rule is timesheet_due.py, which the bell reads too. One row per period:
+    closes today / submit / fix first / resubmit, each with a solid button
+    (`cta`) opening that period's Time Sheet at its Send to Manager box.
+    Replaces the Aug 21 reminder, which checked the retired one-click
+    signature and never fired once a period had closed. Never raises: a
+    problem here must not cost the person their whole briefing."""
+    try:
+        import timesheet_due
+        return [_due_row(d) for d in timesheet_due.due_cached(db, email)
+                if d["state"] in timesheet_due.ACTION_STATES]
+    except Exception as e:   # noqa: BLE001
+        print(f"[daily-briefing] time sheet rows failed for {email}: {e}")
         return []
-    today = _employee_today(db, email)
-    start, end = _period_of(db, email, today)
-    end_d = datetime.strptime(end, "%Y-%m-%d").date()
-    today_d = datetime.strptime(today, "%Y-%m-%d").date()
-    days_to_close = (end_d - today_d).days
 
-    state = _signoff_state(db, email, start, end)
-    signed = state["signed"]
-    needs_action = signed is None or signed["stale"]
-    if not needs_action:
+
+def _timecard_update_rows(db: Session, email: str) -> list:
+    """Updates for You: the person's Time Sheet is with their manager (or HR
+    is correcting it) - nothing to do, but it stays in view until it is
+    finalized (Neil, 11/12/2026). The signature it then needs is the Nexus
+    Sign row under Action Required."""
+    try:
+        import timesheet_due
+        return [_due_row(d) for d in timesheet_due.due_cached(db, email)
+                if d["state"] in timesheet_due.UPDATE_STATES]
+    except Exception as e:   # noqa: BLE001
+        print(f"[daily-briefing] time sheet updates failed for {email}: {e}")
         return []
-    # `since` is the moment the reminder started, not a stored stamp: the
-    # Confirm row first shows two days before the period closes, the Submit
-    # row the moment it has closed (midnight after the last day, local).
-    if 0 <= days_to_close <= 2:
-        return [{"title": "Confirm Your Time Sheet",
-                 "detail": f"Pay period closes {_fmt_date(end)} - review and sign off before it locks",
-                 "url": f"{app_url()}/timeclock", "module": "timecard",
-                 **_since((end_d - timedelta(days=2)).strftime("%Y-%m-%dT00:00:00"))}]
-    if days_to_close == -1:
-        return [{"title": "Submit Your Time Sheet",
-                 "detail": f"Pay period ending {_fmt_date(end)} is closed - sign off is still open",
-                 "url": f"{app_url()}/timeclock", "module": "timecard",
-                 **_since((end_d + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00"))}]
-    return []
+
+
+def _own_sheet_url(start: str, pay_type: str, submit: bool = False) -> str:
+    """My own Time Sheet on THAT period (PayrollTimecard reads start / type on
+    mount); do=submit also takes them to its Send to Manager box. Never a
+    link that submits - mail scanners open every link in a message."""
+    q = {"start": start, "type": pay_type or ""}
+    if submit:
+        q["do"] = "submit"
+    return f"{app_url()}/timeclock/timesheet?{urlencode(q)}"
+
+
+def _period_words(d: dict) -> str:
+    """'Pay period 11/01/2026 - 11/14/2026', or 'November 2026 (11/01/2026 -
+    11/30/2026)' for a calendar month."""
+    s, e = d["start"], d["end"]
+    span = f"{_fmt_date(s)} - {_fmt_date(e)}"
+    try:
+        sd, ed = datetime.strptime(s, "%Y-%m-%d"), datetime.strptime(e, "%Y-%m-%d")
+        if sd.day == 1 and (ed + timedelta(days=1)).day == 1 and sd.month == ed.month:
+            return f"{sd.strftime('%B %Y')} ({span})"
+    except ValueError:
+        pass
+    return f"Pay period {span}"
+
+
+def _ended_words(d: dict) -> str:
+    """'ended yesterday' / 'ended Saturday' (within the week) / 'ended 10/31/2026'."""
+    try:
+        days = (datetime.strptime(d["today"], "%Y-%m-%d") - datetime.strptime(d["end"], "%Y-%m-%d")).days
+    except (KeyError, ValueError):
+        return f"ended {_fmt_date(d.get('end', ''))}"
+    if days <= 1:
+        return "ended yesterday"
+    if days < 7:
+        return f"ended {datetime.strptime(d['end'], '%Y-%m-%d').strftime('%A')}"
+    return f"ended {_fmt_date(d['end'])}"
+
+
+def _hm(minutes) -> str:
+    m = int(minutes or 0)
+    return f"{m // 60}h {m % 60:02d}m"
+
+
+def _due_row(d: dict) -> dict:
+    """One timesheet_due entry as a briefing row."""
+    period, approver = _period_words(d), d.get("approver") or ""
+    to = f"send it to {approver} for approval" if approver else "send it for approval"
+    no_manager = not d.get("approverEmail")
+    xt = int(d.get("extraTimePending") or 0)
+    extra = (f" {xt} Extra Time claim{'' if xt == 1 else 's'} still "
+             f"{'waits' if xt == 1 else 'wait'} on approval.") if xt else ""
+    base = {"module": "timecard", **_since(d.get("since"))}
+    state = d["state"]
+    if state in ("closes_today", "submit") and no_manager:
+        # Submit is refused with nobody to send it to; HR reviews it.
+        when = "ends today" if state == "closes_today" else _ended_words(d)
+        return {**base, "title": "Check Your Time Sheet",
+                "detail": f"{period} {when} - {_hm(d.get('workedMin'))} worked. You have no manager set in "
+                          f"Nexus People, so HR reviews it - check your hours now.{extra}",
+                "url": _own_sheet_url(d["start"], d["payType"]),
+                "cta": ("Review Time Sheet", _own_sheet_url(d["start"], d["payType"])),
+                "urgency": "today" if state == "closes_today" else "overdue"}
+    if state == "closes_today":
+        return {**base, "title": "Submit Your Time Sheet - Closes Today",
+                "detail": f"{period} ends today - {_hm(d.get('workedMin'))} so far. After your last shift, "
+                          f"check your hours and {to}.{extra}",
+                "url": _own_sheet_url(d["start"], d["payType"], True),
+                "cta": ("Review and Submit", _own_sheet_url(d["start"], d["payType"], True)),
+                "urgency": "today"}
+    if state == "submit" and d.get("blocker"):
+        return {**base, "title": "Fix Your Time Sheet, Then Submit",
+                "detail": f"{period} {_ended_words(d)}. {d['blocker']}{extra}",
+                "url": _own_sheet_url(d["start"], d["payType"], True),
+                "cta": ("Fix and Submit", _own_sheet_url(d["start"], d["payType"], True)),
+                "urgency": "overdue"}
+    if state == "submit":
+        return {**base, "title": "Submit Your Time Sheet",
+                "detail": f"{period} {_ended_words(d)} - {_hm(d.get('workedMin'))} worked. Check your hours "
+                          f"and {to} so you are paid on time.{extra}",
+                "url": _own_sheet_url(d["start"], d["payType"], True),
+                "cta": ("Review and Submit", _own_sheet_url(d["start"], d["payType"], True)),
+                "urgency": "overdue"}
+    if state == "resubmit":
+        who = d.get("sentBackBy") or approver or "Your manager"
+        note = (d.get("note") or "").strip()
+        said = f': "{note[:200]}"' if note else "."
+        fix = f" {d['blocker']}" if d.get("blocker") else ""
+        return {**base, "title": "Resubmit Your Time Sheet",
+                "detail": f"{who} sent {_fmt_date(d['start'])} - {_fmt_date(d['end'])} back{said}{fix}{extra}",
+                "url": _own_sheet_url(d["start"], d["payType"], True),
+                "cta": ("Review and Resubmit", _own_sheet_url(d["start"], d["payType"], True)),
+                "urgency": "overdue"}
+    if state == "with_manager":
+        return {**base, "title": f"Time Sheet With {approver} for Review" if approver else "Time Sheet Sent for Review",
+                "detail": f"{period} - you will be asked to sign it once it is approved.",
+                "url": _own_sheet_url(d["start"], d["payType"])}
+    return {**base, "title": "HR Is Correcting Your Time Sheet",
+            "detail": f"{period} - you will be asked to sign the corrected time sheet.",
+            "url": _own_sheet_url(d["start"], d["payType"])}
 
 
 def _item_needs_to_know_rows(db: Session, email: str, since_iso: str, is_manager: bool) -> list:
@@ -1271,6 +1394,7 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
         "action_required": _red_rows(db, email, my_reports) + due_today,
         "needs_to_know":   [r for r in _amber_rows(db, email, since_iso, my_reports)
                             if r.get("task_id") not in today_ids]
+                           + _timecard_update_rows(db, email)
                            + _blue_rows_manager(db, email, my_reports, briefing_date)
                            + _blue_rows_my_manager(db, email, briefing_date),
         "completed":       _green_rows(db, email, since_iso),
@@ -1341,7 +1465,8 @@ _MODULE_META = {
     "team":     "Team",
     "holidays": "Holidays",   # Weekly Digest Upcoming Holidays (Oct 29 2026)
 }
-_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "shifts", "items", "team", "holidays"]
+# Time Sheet first (Neil, 11/12/2026): getting paid on time leads the email.
+_MODULE_ORDER = ["timecard", "tasks", "tickets", "documents", "time_off", "shifts", "items", "team", "holidays"]
 # "View all" target per module for the overflow rows - a plain link, so it
 # works identically in every client (Pranshu, Sep 20).
 _MODULE_VIEW_URL = {
@@ -1483,6 +1608,13 @@ def _actions_cell_html(row: dict, td: str) -> str:
     decision - all on ONE line, as cells of one table row so Outlook desktop
     lines them up too."""
     cells = []
+    if row.get("cta"):
+        # One solid button that says what it does (Neil, 11/12/2026: "a link
+        # directly to do so as a button") in place of the small Open link.
+        label, url = row["cta"]
+        cells.append(_button(label, url, "open", pad="7px 16px", size="12.5px"))
+        return (f"<td class='nx-td nx-act' align='right' style='{td};text-align:right;white-space:nowrap;"
+                f"vertical-align:middle'>{_button_bar(cells, 'right')}</td>")
     links = _row_links(row)
     if links:
         cells.append(f"<td class='nx-links' style='white-space:nowrap;vertical-align:middle;padding-right:4px'>"
@@ -1844,6 +1976,12 @@ def _page_row(db: Session, row: dict, status_cache: dict) -> dict:
         # When the item started waiting on this person - the My Day widget
         # shows "3d" / "5h" from it and sorts oldest first.
         out["createdAt"] = row["since"]
+    if row.get("cta"):
+        # The row's one button (a Time Sheet to submit / sign / review).
+        label, curl = row["cta"]
+        out["cta"] = {"label": label, "path": curl[len(base):] if base and curl.startswith(base) else curl}
+    if row.get("urgency"):
+        out["urgency"] = row["urgency"]   # My Day: overdue / today, instead of reading the wording
     if row.get("action_kind"):
         out["decision"] = {"kind": row["action_kind"], "id": row["action_id"]}
     if row.get("sub_actions"):

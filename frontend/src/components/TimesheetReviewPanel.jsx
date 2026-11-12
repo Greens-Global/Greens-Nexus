@@ -19,7 +19,7 @@
 // one bordered card - the title with the steps on the same line, the status
 // in a sentence, and the note box (one line until it is used) beside its
 // button; the signatures read as one line of facts, not a row of boxes.
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle, Clock, FileSignature, Send, Undo2, ChevronRight, Lock, ShieldCheck, Info } from 'lucide-react';
 import { api } from '../api';
@@ -168,7 +168,11 @@ export const approveCallFor = (r, anchor, note = '') => (r.status === 'not_submi
 // `below`: a card the time card hangs under the panel (a contractor's Invoice card, Oct 21).
 // `next` ({ name, go }): the next person still waiting for review - adds
 // Approve and Next beside Review & Approve (Neil, 11/04/2026).
-function TimesheetReviewPanel({ review, self, anchor, periodLabel, nameFor, onChanged, toastOk, toastErr, below = null, next = null }, ref) {
+// `focusAction` (a period start): the Daily Briefing's Review and Submit
+// button (do=submit, Neil 11/12/2026) - once THAT period's panel is drawn it
+// scrolls into view with its main button focused, then `onFocused` clears
+// it. It never submits; the person still reads their hours and clicks.
+function TimesheetReviewPanel({ review, self, anchor, periodLabel, nameFor, onChanged, toastOk, toastErr, below = null, next = null, focusAction = '', onFocused = null }, ref) {
   const sectionRef = useRef(null);
   useImperativeHandle(ref, () => sectionRef.current);
   const [note, setNote] = useState('');
@@ -179,6 +183,15 @@ function TimesheetReviewPanel({ review, self, anchor, periodLabel, nameFor, onCh
   // shows the meal and rest break statement and Report a Missed Break.
   const startSign = (partyId) => setSigning(partyId);
   const [reason, setReason] = useState('');
+  useEffect(() => {
+    if (!focusAction || !review || review.periodStart !== focusAction) return;
+    const el = sectionRef.current;
+    if (!el) return;
+    el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    const btn = el.querySelector('button.primary-btn:not([disabled])') || el.querySelector('textarea');
+    btn?.focus?.({ preventScroll: true });
+    onFocused?.();
+  }, [focusAction, review, onFocused]);
   if (!review) return below;
   const r = review;
   const name = (e) => (e ? nameFor?.(e) || e : '');

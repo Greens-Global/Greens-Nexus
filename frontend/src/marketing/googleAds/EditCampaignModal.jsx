@@ -8,7 +8,7 @@ import { C } from '../theme'
 
 const STATUSES = ['Active', 'Paused', 'Completed']
 
-const labelStyle = { display: 'block', fontSize: 12.5, fontWeight: 500, color: C.gray600, marginBottom: 6 }
+const labelStyle = { display: 'block', fontSize: 13, fontWeight: 500, color: C.gray600, marginBottom: 6 }
 const fieldStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }
 
 export default function EditCampaignModal({ campaigns, initialCampaignId, onClose, onSave }) {
@@ -76,7 +76,7 @@ export default function EditCampaignModal({ campaigns, initialCampaignId, onClos
               >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 500, color: C.gray900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
-                  <div style={{ fontSize: 11.5, color: C.gray400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.facility}</div>
+                  <div style={{ fontSize: 12, color: C.gray400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.facility}</div>
                 </div>
                 <span
                   style={{
@@ -84,7 +84,7 @@ export default function EditCampaignModal({ campaigns, initialCampaignId, onClos
                     marginLeft: 8,
                     padding: '2px 8px',
                     borderRadius: 6,
-                    fontSize: 10.5,
+                    fontSize: 11,
                     fontWeight: 500,
                     ...(c.status === 'Active'
                       ? { background: C.gray900, color: C.white }
@@ -97,7 +97,7 @@ export default function EditCampaignModal({ campaigns, initialCampaignId, onClos
                 </span>
               </button>
             ))}
-            {filtered.length === 0 && <div style={{ textAlign: 'center', color: C.gray400, fontSize: 12.5, padding: '24px 0' }}>No campaigns match your search.</div>}
+            {filtered.length === 0 && <div style={{ textAlign: 'center', color: C.gray400, fontSize: 13, padding: '24px 0' }}>No campaigns match your search.</div>}
           </div>
         </div>
       </Modal>
@@ -156,7 +156,7 @@ export default function EditCampaignModal({ campaigns, initialCampaignId, onClos
                     padding: '6px 12px',
                     borderRadius: 8,
                     border: '1px solid ' + (active ? C.gray900 : C.gray200),
-                    fontSize: 12.5,
+                    fontSize: 13,
                     fontWeight: 500,
                     background: active ? C.gray900 : 'transparent',
                     color: active ? C.white : C.gray600,
@@ -174,7 +174,7 @@ export default function EditCampaignModal({ campaigns, initialCampaignId, onClos
           <label style={labelStyle}>Budget ($)</label>
           <input type="number" min={0} step="0.01" value={budget} onChange={(e) => setBudget(e.target.value)} style={fieldStyle} />
         </div>
-        {error && <div style={{ fontSize: 12.5, color: C.red500 }}>{error}</div>}
+        {error && <div style={{ fontSize: 13, color: C.red500 }}>{error}</div>}
 
         <div style={{ borderRadius: 8, background: C.gray50, border: '1px solid ' + C.gray100, padding: 12, display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 8, fontSize: 12 }}>
           <div>

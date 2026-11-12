@@ -50,7 +50,7 @@ const localTime = (iso) => { try { return new Date(iso + (iso.endsWith('Z') ? ''
 
 const CARD = { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '18px 20px', boxShadow: 'var(--wk-shadow)' };
 // Card-header title (Work OS grammar - sentence case, no uppercase tracking).
-const H = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 7 };
+const H = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 7 };
 
 // ── Productivity ring ─────────────────────────────────────────────────────────
 function Ring({ pct, size = 118, stroke = 12, color }) {
@@ -64,8 +64,8 @@ function Ring({ pct, size = 118, stroke = 12, color }) {
           strokeLinecap="round" strokeDasharray={c} strokeDashoffset={off} style={{ '--ring-c': c }} />
       </svg>
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ fontSize: 27, fontWeight: 700, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
-        <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', marginTop: 3 }}>Productive</span>
+        <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--ink)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginTop: 3 }}>Productive</span>
       </div>
     </div>
   );
@@ -76,9 +76,9 @@ function StatBlock({ icon: Icon, label, value, accent, bar }) {
     <div style={{ flex: '1 1 130px', minWidth: 120 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
         <Icon size={13} style={{ color: accent }} />
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)' }}>{label}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{label}</span>
       </div>
-      <div style={{ fontSize: 21, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{value}</div>
       {bar != null && (
         <div style={{ height: 5, borderRadius: 3, background: 'var(--mist)', overflow: 'hidden', marginTop: 8 }}>
           <div className="ti-grow" style={{ width: `${bar}%`, height: '100%', background: accent, borderRadius: 3 }} />
@@ -91,7 +91,7 @@ function StatBlock({ icon: Icon, label, value, accent, bar }) {
 // ── Hourly activity strip (active vs idle across the day) ─────────────────────
 function HourStrip({ hourly }) {
   const withData = hourly.filter(h => h.totalSec > 0);
-  if (!withData.length) return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>No activity recorded yet.</div>;
+  if (!withData.length) return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0' }}>No activity recorded yet.</div>;
   const lo = Math.max(0, Math.min(...withData.map(h => h.hour)) - 1);
   const hi = Math.min(23, Math.max(...withData.map(h => h.hour)) + 1);
   const span = hourly.slice(lo, hi + 1);
@@ -115,7 +115,7 @@ function HourStrip({ hourly }) {
       </div>
       <div style={{ display: 'flex', gap: 3, marginTop: 6 }}>
         {span.map((h, i) => (
-          <span key={h.hour} style={{ flex: 1, textAlign: 'center', fontSize: 9, color: 'var(--muted)', minWidth: 0 }}>
+          <span key={h.hour} style={{ flex: 1, textAlign: 'center', fontSize: 11, color: 'var(--muted)', minWidth: 0 }}>
             {(span.length <= 12 || i % 2 === 0) ? label(h.hour) : ''}
           </span>
         ))}
@@ -137,10 +137,10 @@ function ItemRow({ name, seconds, pct, max, rating, isSite }) {
     <div className="ti-row" style={{ padding: '7px 8px', margin: '0 -8px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
         <span style={{ width: 22, height: 22, flexShrink: 0, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 9.5, fontWeight: 800, color: '#fff', background: `hsl(${hueOf(disp)} 55% 52%)` }}>{initials(disp)}</span>
-        <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{disp}</span>
+          fontSize: 11, fontWeight: 800, color: '#fff', background: `hsl(${hueOf(disp)} 55% 52%)` }}>{initials(disp)}</span>
+        <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{disp}</span>
         {rating && (
-          <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.03em', color: R.c,
+          <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.03em', color: R.c,
             background: `${R.c}18`, padding: '2px 6px', borderRadius: 5, flexShrink: 0 }}>{R.label[0]}</span>
         )}
         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums', minWidth: 52, textAlign: 'right' }}>{fmtDur(seconds)}</span>
@@ -149,7 +149,7 @@ function ItemRow({ name, seconds, pct, max, rating, isSite }) {
         <div style={{ flex: 1, height: 7, borderRadius: 5, background: 'var(--mist)', overflow: 'hidden' }}>
           <div className="ti-grow" style={{ width: `${w}%`, height: '100%', background: R.c, borderRadius: 5, opacity: 0.9 }} />
         </div>
-        <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700, width: 30, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, width: 30, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
       </div>
     </div>
   );
@@ -208,7 +208,7 @@ export function RatingsList({ seed, onChanged }) {
   );
 
   if (loading) return <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="inline" /></div>;
-  if (apps.length + sites.length === 0) return <div style={{ fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 20 }}>No apps or websites tracked yet - they'll appear here once activity comes in.</div>;
+  if (apps.length + sites.length === 0) return <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: 20 }}>No apps or websites tracked yet - they'll appear here once activity comes in.</div>;
   return <><Group title="Applications" icon={Monitor} list={apps} /><Group title="Websites" icon={Globe} list={sites} /></>;
 }
 
@@ -221,7 +221,7 @@ function RatingsModal({ seed, onClose, onChanged }) {
           <span className="wkc-chip"><SlidersHorizontal size={14} /></span>
           <div style={{ flex: 1 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Rate apps &amp; websites</h3>
-            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>Sets the productive / neutral / unproductive split across the dashboard. Also under Settings &gt; Workforce Analytics.</p>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Sets the productive / neutral / unproductive split across the dashboard. Also under Settings &gt; Workforce Analytics.</p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
@@ -278,7 +278,7 @@ export default function TimeInsights({ start, end, people = [] }) {
         </select>
         <ChevronDown size={14} style={{ position: 'absolute', right: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
       </div>
-      <span style={{ flex: 1, fontSize: 11.5, color: 'var(--muted)', minWidth: 120 }}>Captured by the Nexus desktop agent while clocked in.</span>
+      <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)', minWidth: 120 }}>Captured by the Nexus desktop agent while clocked in.</span>
       {canRate && (
         <button className="secondary-btn" onClick={() => setRateOpen(true)}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
@@ -295,7 +295,7 @@ export default function TimeInsights({ start, end, people = [] }) {
     <div>{selector}
       <div style={{ ...CARD, textAlign: 'center', padding: '52px 24px' }}>
         <Monitor size={32} style={{ color: 'var(--muted)', opacity: 0.4, marginBottom: 12 }} />
-        <div style={{ fontSize: 15.5, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>No activity yet</div>
+        <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>No activity yet</div>
         <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 400, margin: '0 auto', lineHeight: 1.55 }}>
           App, website and activity insights appear here once the Nexus desktop agent is deployed to {isTeam ? "the team's computers" : "this person's computer"} and they're clocked in.
         </p>
@@ -353,12 +353,12 @@ export default function TimeInsights({ start, end, people = [] }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, marginBottom: 14 }}>
         <div className="ti-fade" style={{ ...CARD, animationDelay: '.1s' }}>
           <div style={H}><Monitor size={13} /> Top apps</div>
-          {data.topApps.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No app data.</div>
+          {data.topApps.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No app data.</div>
             : data.topApps.map(a => <ItemRow key={a.name} name={a.name} seconds={a.seconds} pct={a.pct} max={maxApp} rating={a.rating} />)}
         </div>
         <div className="ti-fade" style={{ ...CARD, animationDelay: '.14s' }}>
           <div style={H}><Globe size={13} /> Top websites</div>
-          {data.topSites.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No website data.</div>
+          {data.topSites.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No website data.</div>
             : data.topSites.map(a => <ItemRow key={a.name} name={a.name} seconds={a.seconds} pct={a.pct} max={maxSite} rating={a.rating} isSite />)}
         </div>
       </div>
@@ -370,9 +370,9 @@ export default function TimeInsights({ start, end, people = [] }) {
           {data.byMember.map((m, i) => (
             <div key={m.email} className="ti-row" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px', margin: '0 -8px' }}>
               <span style={{ width: 20, textAlign: 'center', fontSize: 12, fontWeight: 800, color: i < 3 ? 'hsl(var(--color-gold))' : 'var(--muted)' }}>{i + 1}</span>
-              <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: '#fff', background: `hsl(${hueOf(m.name)} 55% 50%)` }}>{initials(m.name)}</span>
+              <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', background: `hsl(${hueOf(m.name)} 55% 50%)` }}>{initials(m.name)}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
                   <span style={{ fontWeight: 700, color: 'var(--ink)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{fmtDur(m.totalSec)}</span>
                 </div>
@@ -380,7 +380,7 @@ export default function TimeInsights({ start, end, people = [] }) {
                   <div style={{ flex: 1, height: 6, borderRadius: 99, background: 'var(--mist)', overflow: 'hidden' }}>
                     <div className="ti-grow" style={{ width: `${(m.totalSec / maxMember) * 100}%`, height: '100%', background: 'var(--wk-brand)', borderRadius: 99 }} />
                   </div>
-                  <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 700, flexShrink: 0 }}>{m.activePct}% active · {m.prodPct}% prod.</span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, flexShrink: 0 }}>{m.activePct}% active · {m.prodPct}% prod.</span>
                 </div>
               </div>
             </div>
@@ -406,7 +406,7 @@ export default function TimeInsights({ start, end, people = [] }) {
             const label = l.domain || l.title || l.app;
             const isLast = i === data.log.length - 1;
             return (
-              <div key={i} className="ti-row" style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '9px 8px', fontSize: 12.5 }}>
+              <div key={i} className="ti-row" style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '9px 8px', fontSize: 13 }}>
                 <span style={{ color: 'var(--muted)', width: 46, flexShrink: 0, fontVariantNumeric: 'tabular-nums', paddingTop: 8 }}>{localTime(l.at)}</span>
                 {/* timeline rail with a category-coloured node */}
                 <span style={{ position: 'relative', width: 12, flexShrink: 0, alignSelf: 'stretch' }}>
@@ -420,7 +420,7 @@ export default function TimeInsights({ start, end, people = [] }) {
                   <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                     {isTeam && <span style={{ fontWeight: 700, color: 'var(--wk-brand)' }}>{l.name}</span>}
                     <span style={{ fontWeight: 800, color: 'var(--ink)' }}>{l.app}</span>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, color: R.c }}>{R.label}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: R.c }}>{R.label}</span>
                   </span>
                   <span style={{ display: 'block', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }} title={l.title}>{label}</span>
                 </span>

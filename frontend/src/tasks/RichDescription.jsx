@@ -376,7 +376,7 @@ export default function RichDescription({
             style={{ position: 'absolute', left: 8, zIndex: 70, ...(compact ? { top: -6, transform: 'translateY(-100%)' } : { bottom: -6, transform: 'translateY(100%)' }),
                      minWidth: 280, maxWidth: 420, background: NX.surface, border: `1px solid ${NX.border}`,
                      borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
-            {!recRows.length && <div style={{ padding: '6px 8px', fontSize: 12.5, color: NX.faint }}>Searching…</div>}
+            {!recRows.length && <div style={{ padding: '6px 8px', fontSize: 13, color: NX.faint }}>Searching…</div>}
             {recRows.map((row, i) => {
               const meta = RECORD_META[row.kind] || RECORD_META.note;
               const Icon = meta.icon;
@@ -388,7 +388,7 @@ export default function RichDescription({
                            background: i === rec.index ? NX.hover : 'transparent' }}>
                   <Icon size={14} style={{ color: NX.faint, flexShrink: 0 }} aria-hidden="true" />
                   <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.title}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>{row.detail || meta.label}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>{row.detail || meta.label}</span>
                 </div>
               );
             })}
@@ -425,7 +425,7 @@ export default function RichDescription({
 
       {ai?.suggestion && (
         <div style={{ borderTop: `1px solid ${NX.border2}`, padding: '10px 12px', background: NX.hover }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, color: NX.purple, marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: NX.purple, marginBottom: 6 }}>
             <Sparkles size={13} />Suggested rewrite
           </div>
           <div style={{ fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{ai.suggestion}</div>
@@ -446,7 +446,7 @@ export default function RichDescription({
       )}
 
       {(dictation.listening || dictation.error) && (
-        <div role={dictation.error ? 'alert' : 'status'} style={{ borderTop: `1px solid ${NX.border2}`, padding: '6px 12px', fontSize: 12.5,
+        <div role={dictation.error ? 'alert' : 'status'} style={{ borderTop: `1px solid ${NX.border2}`, padding: '6px 12px', fontSize: 13,
           color: dictation.error ? NX.red : NX.dim, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           {!dictation.error && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: NX.red, flexShrink: 0 }} />}
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -455,7 +455,7 @@ export default function RichDescription({
         </div>
       )}
       {(voice.recording || voice.error) && (
-        <div role={voice.error ? 'alert' : 'status'} style={{ borderTop: `1px solid ${NX.border2}`, padding: '5px 8px 5px 12px', fontSize: 12.5,
+        <div role={voice.error ? 'alert' : 'status'} style={{ borderTop: `1px solid ${NX.border2}`, padding: '5px 8px 5px 12px', fontSize: 13,
           color: voice.error ? NX.red : NX.ink, display: 'flex', alignItems: 'center', gap: 8 }}>
           {voice.error || (<>
             <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: NX.red, flexShrink: 0 }} />

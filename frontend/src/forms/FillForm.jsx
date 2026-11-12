@@ -57,10 +57,10 @@ const SignaturePad = lazy(() => import('../components/ESign').then((m) => ({ def
 
 const FOLDER = (entryKey) => `forms/${entryKey}`;
 const GPS_MS = 9000;
-const label = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.ink, marginBottom: 5 };
-const hint = { fontSize: 11.5, color: NX.dim, marginTop: 4, lineHeight: 1.45 };
-const errStyle = { fontSize: 11.5, color: NX.red, fontWeight: 600, marginTop: 4 };
-const chipBtn = { ...btn('outline'), padding: '8px 12px', fontSize: 12.5 };
+const label = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.ink, marginBottom: 5 };
+const hint = { fontSize: 12, color: NX.dim, marginTop: 4, lineHeight: 1.45 };
+const errStyle = { fontSize: 12, color: NX.red, fontWeight: 600, marginTop: 4 };
+const chipBtn = { ...btn('outline'), padding: '8px 12px', fontSize: 13 };
 // On a phone every tap target is at least 44px tall (a gloved thumb on a site).
 const tap = (phone) => (phone ? { minHeight: 44 } : null);
 const chip = (phone) => ({ ...chipBtn, ...tap(phone) });
@@ -148,7 +148,7 @@ function GpsField({ value, onChange, workSites, disabled, phone }) {
   return (
     <div>
       {value && Number.isFinite(Number(value.lat)) && (
-        <div style={{ fontSize: 12.5, color: NX.ink, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, color: NX.ink, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <MapPin size={13} style={{ color: NX.green }} />
           <span>{Number(value.lat).toFixed(5)}, {Number(value.lng).toFixed(5)}</span>
           {value.accuracyM ? <span style={{ color: NX.dim }}>{formatAccuracy(value.accuracyM)}</span> : null}
@@ -587,20 +587,20 @@ export default function FillForm({ templateId, template: given = null, preview =
           ) : (
             <>
               {preview && (
-                <div role="status" style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(217,119,6,0.10)', color: NX.amber, fontSize: 12.5, fontWeight: 600, marginBottom: 12 }}>
+                <div role="status" style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(217,119,6,0.10)', color: NX.amber, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
                   Preview - nothing you enter here is sent.
                 </div>
               )}
               {offer && (
-                <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', border: `1px solid ${NX.border}`, marginBottom: 14, fontSize: 12.5, color: NX.ink }}>
+                <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', border: `1px solid ${NX.border}`, marginBottom: 14, fontSize: 13, color: NX.ink }}>
                   <RefreshCw size={14} style={{ color: NX.blue, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 160 }}>{draftNotice(offer)}</span>
-                  <button type="button" style={{ ...btn('primary'), padding: '6px 12px', fontSize: 12.5 }} onClick={continueDraft}>Continue</button>
-                  <button type="button" style={{ ...btn('outline'), padding: '6px 12px', fontSize: 12.5 }} onClick={discardDraft}>Discard</button>
+                  <button type="button" style={{ ...btn('primary'), padding: '6px 12px', fontSize: 13 }} onClick={continueDraft}>Continue</button>
+                  <button type="button" style={{ ...btn('outline'), padding: '6px 12px', fontSize: 13 }} onClick={discardDraft}>Discard</button>
                 </div>
               )}
               {savedAt && (
-                <div role="status" style={{ padding: '8px 12px', borderRadius: 8, background: NX.surface2, color: NX.dim, fontSize: 12.5, marginBottom: 12 }}>
+                <div role="status" style={{ padding: '8px 12px', borderRadius: 8, background: NX.surface2, color: NX.dim, fontSize: 13, marginBottom: 12 }}>
                   Opened from this phone (saved {formatDateTime(savedAt)}). Fill it in and it sends when you are back online.
                 </div>
               )}
@@ -630,7 +630,7 @@ export default function FillForm({ templateId, template: given = null, preview =
               )}
               {sections.map((s, si) => (
                 <section key={s.section || `s${si}`} aria-label={s.section || undefined} style={{ marginBottom: 8 }}>
-                  {s.section && <h3 style={{ fontSize: 13.5, fontWeight: 800, color: NX.ink, margin: '6px 0 12px', paddingBottom: 6, borderBottom: `1px solid ${NX.border2}` }}>{s.section}</h3>}
+                  {s.section && <h3 style={{ fontSize: 13, fontWeight: 800, color: NX.ink, margin: '6px 0 12px', paddingBottom: 6, borderBottom: `1px solid ${NX.border2}` }}>{s.section}</h3>}
                   {s.items.map((item) => (item.repeat ? (
                     <RepeatGroup key={item.repeat} item={item} rows={Array.isArray(answers[item.repeat]) ? answers[item.repeat] : []} errors={errors} ctx={ctx}
                       groupError={errors[item.repeat]} onRow={(i, token, v) => setRow(item.repeat, i, token, v)} onAdd={() => addRow(item.repeat)} onRemove={(i) => removeRow(item.repeat, i)} />

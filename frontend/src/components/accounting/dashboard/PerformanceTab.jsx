@@ -45,7 +45,7 @@ export default function PerformanceTab({ canEdit }) {
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      <Toolbar right={<button type="button" className="secondary-btn" style={{ fontSize: '0.74rem', padding: '4px 10px' }} onClick={() => nav('reports')}>Open Income Statement</button>} />
+      <Toolbar right={<button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => nav('reports')}>Open Income Statement</button>} />
       {loading || !perf ? <LoadingBox height={84} /> : (
         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
           {perf.tiles.map((t) => (
@@ -67,7 +67,7 @@ export default function PerformanceTab({ canEdit }) {
                   { key: 'netBudget', label: 'Net Income Budget', color: '#d97706', dashed: true },
                   { key: 'net', label: 'Net Income', color: '#d97706' },
                 ]} />
-                <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: '0.7rem', color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Revenue</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Net Income</span><span>Dashed = budget</span></div>
+                <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Revenue</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Net Income</span><span>Dashed = budget</span></div>
               </>
             )}
           </Panel>
@@ -75,7 +75,7 @@ export default function PerformanceTab({ canEdit }) {
             {loading || !perf ? <LoadingBox /> : !hasBudget ? <EmptyBox title="No budget for this month" body="Post a budget journal in Nexus Accounting covering this month to rank variances." /> : !material.length ? <EmptyBox title="Nothing material" body="Every line is within threshold this month." /> : (
               <div>
                 {material.map((v, i) => (
-                  <div key={v.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', fontSize: '0.84rem', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
+                  <div key={v.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', fontSize: 13, borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
                     <span style={{ marginTop: 6, width: 8, height: 8, flexShrink: 0, borderRadius: 99, background: v.good ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' }} />
                     <span style={{ minWidth: 0, flex: 1 }}><b>{v.name}</b> {v.text}</span>
                   </div>
@@ -101,8 +101,8 @@ export default function PerformanceTab({ canEdit }) {
 
       {section === 'commentary' ? (
         <Panel title="Month commentary" sub={commentary ? `Shared with everyone · ${commentary.written_by} · ${whenTxt(commentary.written_at)}` : 'Shared with everyone · nothing written yet'}>
-          <textarea className="form-input" value={note} onChange={(e) => setNote(e.target.value)} rows={5} disabled={!canEdit} style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: '0.86rem' }} placeholder="Explain the month for the Principals: what drove the variances, what is timing, what needs a decision." />
-          {canEdit ? <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}><button type="button" className="primary-btn" style={{ fontSize: '0.78rem' }} onClick={save} disabled={saving || !note.trim()}>Save commentary</button></div> : null}
+          <textarea className="form-input" value={note} onChange={(e) => setNote(e.target.value)} rows={5} disabled={!canEdit} style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: 14 }} placeholder="Explain the month for the Principals: what drove the variances, what is timing, what needs a decision." />
+          {canEdit ? <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}><button type="button" className="primary-btn" style={{ fontSize: 13 }} onClick={save} disabled={saving || !note.trim()}>Save commentary</button></div> : null}
         </Panel>
       ) : null}
     </div>
@@ -124,8 +124,8 @@ function BvaTable({ rows }) {
     return (
       <tr style={{ fontWeight: 700, borderTop: strong ? '2px solid var(--border-color)' : '1px solid var(--border-color)' }}>
         <td>{label}</td>{cell(a, strong ? toneColor(a >= 0) : undefined)}{cell(b || null)}{cell(b ? v : null, b ? toneColor(v >= 0) : undefined)}
-        <td style={{ ...num, fontSize: '0.76rem', color: b ? toneColor(v >= 0) : undefined }}>{b ? pctTxt(v / Math.abs(b)) : '-'}</td>
-        {cell(hasPy ? p : null)}<td style={{ ...num, fontSize: '0.76rem', color: hasPy && p ? toneColor(a - p >= 0) : undefined }}>{hasPy && p ? pct((a - p) / Math.abs(p)) : '-'}</td>
+        <td style={{ ...num, fontSize: 12, color: b ? toneColor(v >= 0) : undefined }}>{b ? pctTxt(v / Math.abs(b)) : '-'}</td>
+        {cell(hasPy ? p : null)}<td style={{ ...num, fontSize: 12, color: hasPy && p ? toneColor(a - p >= 0) : undefined }}>{hasPy && p ? pct((a - p) / Math.abs(p)) : '-'}</td>
       </tr>
     );
   };
@@ -142,8 +142,8 @@ function BvaTable({ rows }) {
                 <tr key={r.id} style={!r.material ? { color: 'var(--text-muted)' } : undefined}>
                   <td><span style={mono}>{r.gl}</span>{r.name}{r.material && r.budget ? <Chip tone={r.good ? 'ok' : 'bad'} style={{ marginLeft: 8 }}>material</Chip> : null}</td>
                   {cell(r.actual, undefined, () => drill(r))}{cell(r.budget || null)}{cell(r.budget ? r.v : null, r.budget ? toneColor(r.good) : undefined)}
-                  <td style={{ ...num, fontSize: '0.76rem', color: r.budget ? toneColor(r.good) : undefined }}>{r.budget ? pctTxt(r.p) : '-'}</td>
-                  {cell(hasPy ? r.py : null, undefined, r.py ? () => drill(r, { yearsAgo: 1 }) : undefined)}<td style={{ ...num, fontSize: '0.76rem', color: r.py != null ? toneColor(r.actual - r.py >= 0) : undefined }}>{r.py ? pct((r.actual - r.py) / Math.abs(r.py)) : '-'}</td>
+                  <td style={{ ...num, fontSize: 12, color: r.budget ? toneColor(r.good) : undefined }}>{r.budget ? pctTxt(r.p) : '-'}</td>
+                  {cell(hasPy ? r.py : null, undefined, r.py ? () => drill(r, { yearsAgo: 1 }) : undefined)}<td style={{ ...num, fontSize: 12, color: r.py != null ? toneColor(r.actual - r.py >= 0) : undefined }}>{r.py ? pct((r.actual - r.py) / Math.abs(r.py)) : '-'}</td>
                 </tr>
               ))}
               {totals(`Total ${label}`, ls, false)}

@@ -291,19 +291,25 @@ class ExemptTimeSheetTests(_Case):
     digest never ask them to confirm one."""
 
     def test_no_confirm_your_time_sheet_for_the_exempt(self):
-        self._emp(AMY)
+        self._emp(AMY, manager_email="lead@greensglobal.com")
         self.db.query(models.NexusGroupMember).delete()
         self.db.query(models.NexusGroup).delete()
+        self.db.add(models.TimePunch(id=gen_id(), employee_email=AMY, kind="in", at="2026-10-27T16:00:00",
+                                     local_date="2026-10-27"))
         self.db.commit()
-        two_days_before_close = "2026-10-29"
-        with mock.patch("routers.timeclock._employee_today", lambda db, email: two_days_before_close):
-            self.assertEqual([r["title"] for r in daily_briefing._timecard_rows(self.db, AMY)], ["Confirm Your Time Sheet"])
+        # The 10/18 - 10/31 period's last day (timesheet_due, 11/12/2026: the
+        # reminder starts on the last day, for a period with a punch in it).
+        last_day = "2026-10-31"
+        with mock.patch("routers.timeclock._employee_today", lambda db, email: last_day):
+            self.assertEqual([r["title"] for r in daily_briefing._timecard_rows(self.db, AMY)],
+                             ["Submit Your Time Sheet - Closes Today"])
             self.db.add(models.NexusGroup(id="g-exempt", name="Leadership", time_tracking_exempt=1))
             self.db.add(models.NexusGroupMember(group_id="g-exempt", email=AMY))
             self.db.commit()
             self.assertEqual(daily_briefing._timecard_rows(self.db, AMY), [])
         self.db.query(models.NexusGroupMember).delete()
         self.db.query(models.NexusGroup).delete()
+        self.db.query(models.TimePunch).delete()
         self.db.commit()
 
 

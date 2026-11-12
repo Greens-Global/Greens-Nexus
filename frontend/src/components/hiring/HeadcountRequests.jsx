@@ -29,7 +29,7 @@ const ACTIONS = {
 };
 const PERIOD = { year: 'per year', month: 'per month', hour: 'per hour' };
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
-const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };
+const hint = { fontSize: 12, color: 'var(--muted)', marginTop: 4 };
 const OTHER = '__other__';
 
 function salaryText(r) {
@@ -87,11 +87,11 @@ export default function HeadcountRequests({ toastOk, toastErr }) {
         <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 4 }}>
           {[['all', 'All'], ['waiting', `Waiting On Me${waiting ? ` (${waiting})` : ''}`], ['open', 'In Progress']].map(([k, label]) => (
             <button key={k} type="button" role="tab" aria-selected={filter === k} onClick={() => setFilter(k)}
-              className={filter === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 12.5, padding: '5px 12px' }}>{label}</button>
+              className={filter === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 13, padding: '5px 12px' }}>{label}</button>
           ))}
         </div>
         {meta.canRaise && (
-          <button className="primary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
+          <button className="primary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}
             onClick={() => setEditing({})}><Plus size={14} /> New Headcount Request</button>
         )}
       </div>
@@ -100,7 +100,7 @@ export default function HeadcountRequests({ toastOk, toastErr }) {
         <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
           <Briefcase size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
           <div style={{ fontSize: 14, fontWeight: 600 }}>{filter === 'waiting' ? 'Nothing waiting on you.' : 'No headcount requests yet.'}</div>
-          {meta.canRaise && filter === 'all' && <div style={{ fontSize: 12.5, marginTop: 4 }}>Need someone new on the team? Raise a request - the department and HR approve it, then HR posts the job.</div>}
+          {meta.canRaise && filter === 'all' && <div style={{ fontSize: 13, marginTop: 4 }}>Need someone new on the team? Raise a request - the department and HR approve it, then HR posts the job.</div>}
         </div>
       ) : (
         <div role="list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -108,7 +108,7 @@ export default function HeadcountRequests({ toastOk, toastErr }) {
             <button key={r.id} role="listitem" onClick={() => setOpenId(r.id)}
               style={{ textAlign: 'left', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 260px', minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
                   {r.openings > 1 ? `${r.openings} x ` : ''}{r.roleTitle || 'Untitled role'}
                   <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: 12 }}> · {r.code}</span>
                 </div>
@@ -136,7 +136,7 @@ function Fact({ label, children }) {
   return (
     <div style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
-      <div style={{ fontSize: 13.5, marginTop: 2, color: 'var(--ink)', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{children}</div>
+      <div style={{ fontSize: 13, marginTop: 2, color: 'var(--ink)', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{children}</div>
     </div>
   );
 }
@@ -172,7 +172,7 @@ function RequestDetail({ r, meta, onClose, onChanged, onEdit, toastOk, toastErr 
     <Modal title={`${r.code} - ${r.roleTitle || 'Headcount Request'}`} onClose={onClose} footer={footer}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
         <StatusLabel label={STATUS[r.status]?.label || r.status} color={STATUS[r.status]?.color} />
-        <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{stepText(r)}</span>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>{stepText(r)}</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '0 28px' }}>
         <Fact label="Company">{r.companyName || '-'}</Fact>
@@ -202,7 +202,7 @@ function RequestDetail({ r, meta, onClose, onChanged, onEdit, toastOk, toastErr 
           <div style={FL}>History</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {r.history.map((h, i) => (
-              <div key={i} style={{ fontSize: 12.5, color: 'var(--ink)' }}>
+              <div key={i} style={{ fontSize: 13, color: 'var(--ink)' }}>
                 <b>{ACTIONS[h.action] || h.action}</b> - {h.byName ? <AvatarName email={h.by} name={h.byName} size={16} /> : 'Nexus'} · {formatDateTime(h.at)}
                 {h.note && <div style={{ color: 'var(--muted)', marginTop: 1 }}>{h.note}</div>}
               </div>
@@ -278,7 +278,7 @@ export function RequestForm({ initial, meta: baseMeta, onClose, onSaved, toastEr
 
   const footer = (
     <>
-      {problems.length > 0 && dirty && <span style={{ fontSize: 11.5, color: 'var(--muted)', marginRight: 'auto' }}>Still needed: {problems.join(', ')}</span>}
+      {problems.length > 0 && dirty && <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: 'auto' }}>Still needed: {problems.join(', ')}</span>}
       <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
       <button className="secondary-btn" onClick={() => save(false)} disabled={busy || !f.company}>Save Draft</button>
       <button className="primary-btn" onClick={() => save(true)} disabled={busy || problems.length > 0} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>

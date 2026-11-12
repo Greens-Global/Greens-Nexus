@@ -277,7 +277,7 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // stamps - data-nx-src="<fileId>:<line>:<col>" on host elements with a
 // handler or an aria / role attribute plus each component's root element
 // (scripts/nxsrc-plugin.mjs): +317 KB. The stamps are debugging metadata
-// that never ships to production, so a dev-stamped build gets its own
+// that never shipped to production then (it does since 11/12/2026, see below), so a stamped build gets its own
 // allowance on top of the cap instead of the cap moving for everyone: the
 // prod budget below is unchanged, and the stamped dev build (14669 KB after
 // the 10/23 accounting work landed on dev) is judged against cap + 350 KB.
@@ -302,6 +302,9 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // but this cap sums every shipped file, so lazy loading cannot lower it. CI's
 // clean install reads ~200 KB above a local build, so 15200 leaves ~150 KB.
 // App code only, no new dependency. Needs Neil's OK with the release.
+// 11/12/2026: production carries the stamps too (deploy-cloudflare.yml sets
+// VITE_NX_SRC; Neil: yes, once everyone files through tickets), so a
+// production build is judged with the same stamped allowance as dev's.
 const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE_NX_SRC;
 // Oct 28 2026: 15200 -> 15600. The Workflows module (builder, runs and the
 // actions review, templates, catalog browser, Settings panel) is ~135 KB in

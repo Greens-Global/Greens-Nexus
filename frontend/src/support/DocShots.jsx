@@ -1,3 +1,4 @@
+// type-ok-file: drawn pictures of screens at their own small scale, not screen type.
 // Illustrated "screenshots" for Support -> Documentation.
 //
 // Deliberately drawn, not captured: a real screenshot is a few hundred KB,

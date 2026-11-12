@@ -120,11 +120,11 @@ export default function ProjectPicker({
   const rowStyle = (active) => ({
     display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
     padding: '8px 12px', border: 'none', background: active ? NX.hover : 'transparent',
-    cursor: 'pointer', fontSize: 13.5, color: NX.ink, fontFamily: FONT,
+    cursor: 'pointer', fontSize: 13, color: NX.ink, fontFamily: FONT,
   });
 
   const heading = {
-    padding: '8px 12px 4px', fontSize: 10.5, fontWeight: 800, letterSpacing: '.07em',
+    padding: '8px 12px 4px', fontSize: 11, fontWeight: 800, letterSpacing: '.07em',
     textTransform: 'uppercase', color: NX.faint,
   };
 
@@ -163,7 +163,7 @@ export default function ProjectPicker({
             placeholder="Search projects"
             {...nav.inputProps} onFocus={caretToEnd} onKeyDown={nav.onKeyDown}
             style={{ border: 'none', flex: 1,
-              fontSize: 13.5, color: NX.ink, fontFamily: FONT }} />
+              fontSize: 13, color: NX.ink, fontFamily: FONT }} />
         </div>
 
         <div role="listbox" className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>

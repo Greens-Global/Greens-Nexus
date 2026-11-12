@@ -24,7 +24,7 @@ const PREFS_KEY = 'nexus.ops.budget';
 const readPrefs = () => { try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') || {}; } catch { return {}; } };
 const savePrefs = (p) => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* not remembered */ } };
 
-const AXIS = { fontSize: 11.5, fill: 'var(--muted)' };
+const AXIS = { fontSize: 12, fill: 'var(--muted)' };
 const GRID = 'var(--ops-grid)';
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 

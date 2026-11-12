@@ -59,6 +59,9 @@ from database import get_db
 from models import AuditLog, DevNote, DevNoteSession, DevNoteToken, NexusNotification, NexusSetting, QaTestCase
 from routers import files as _files
 import build_mode_chat as _chat
+import build_mode_cloud as _cloud
+import build_mode_merge as _merge
+import build_mode_tickets as _tickets
 import job_switch
 
 router = APIRouter(prefix="/dev-notes", tags=["Build Mode"])
@@ -78,6 +81,8 @@ DICT_FIELD_MAX = 64 * 1024      # serialized size of one JSON dict field (state,
 TEXT_FIELD_MAX = 20 * 1024      # comment / transcript
 STATS_DAYS = 90
 PICKED_UP = "Picked up by Claude Code"
+CLOUD_STARTING = "Claude Code is starting in the cloud"
+CLOUD_RESTART_SEC = 120   # Start Claude Code is refused this long after a start: a second call is a second session
 # Screens Build Mode never captures: the client refuses on these views and the
 # server refuses a pin that names them (the records behind them are the most
 # sensitive in Nexus - CLAUDE.md on PFS and the Credential Vault).
@@ -87,7 +92,9 @@ KINDS = ("bug", "change", "question", "edit")
 PRIORITIES = ("blocking", "normal", "nice")
 STATUSES = ("open", "dispatched", "building", "needs_input", "pr_open", "fixed", "done", "dismissed")
 SESSION_STATUSES = ("collecting", "sent", "building", "pr_open", "fixed", "done")
-ATTACH_KINDS = ("after", "before", "paste")   # before-/after- files are the verify shots, paste- the rest
+ATTACH_KINDS = ("after", "before", "paste", "clip")   # before-/after- files are the verify shots, clip- a video of the fix working, paste- the rest
+CLIP_MAX_BYTES = 25 * 1024 * 1024
+_CLIP_TYPES = {"video/webm": "webm", "video/mp4": "mp4"}
 # Send to Claude Code (on since Oct 27 2026). Off, a stored Send Instantly is
 # read as off, so a saved pin never dispatches on its own. The browser's switch
 # is CLAUDE_SEND_ON in frontend/src/devnotes/meta.js - flip both together.
@@ -188,8 +195,8 @@ def _viewer(user: Optional[dict], db: Session) -> dict:
     """Who is reading, for the per-caller flags - the Global Admin check runs
     ONCE per request here, never once per pin."""
     if not user:
-        return {"email": "", "ga": False}
-    return {"email": (user.get("email") or "").lower(), "ga": bool(_is_ga(user, db))}
+        return {"email": "", "ga": False, "super": False}
+    return {"email": (user.get("email") or "").lower(), "ga": bool(_is_ga(user, db)), "super": _is_super(user)}
 
 
 def _serialize(n: DevNote, viewer: Optional[dict] = None) -> dict:
@@ -211,10 +218,15 @@ def _serialize(n: DevNote, viewer: Optional[dict] = None) -> dict:
         out[_camel(col.name)] = v
     out["held"] = _held(n)
     out["readyToCheck"] = _ready_to_check(n)
+    out["checkable"] = _checkable(n)          # Ready To Check, or the pin carries its proof
     me, ga = (viewer or {}).get("email") or "", bool((viewer or {}).get("ga"))
     out["canRelease"] = bool(me) and out["held"] and (ga or me == (n.owner_email or "").lower())
-    out["canVerdict"] = (bool(me) and (out["readyToCheck"] or n.status == "fixed")
+    out["canVerdict"] = (bool(me) and (out["checkable"] or n.status == "fixed")
                          and (ga or me == (n.created_by or "").lower()))
+    # Merge To Dev (11/12/2026): a Super Administrator, a pin whose PR is open,
+    # and a server that carries the merge credential.
+    out["canMerge"] = (bool((viewer or {}).get("super")) and n.status == "pr_open" and bool(n.pr_number)
+                       and _merge.available())
     return out
 
 
@@ -230,6 +242,22 @@ def _ready_to_check(n: DevNote) -> bool:
     accepted it yet (a reopen sends the pin back to building)."""
     return (n.status == "pr_open" and bool((n.preview or {}).get("url"))
             and (n.preview_verdict or "") != "accepted")
+
+
+def _has_proof(n: DevNote) -> bool:
+    """Proof on the pin (11/12/2026): Claude Code attached what the fix looks
+    like - an after picture (with its before) or a clip of it working - so
+    the author can judge it on the pin itself, from any device, with no
+    preview running on anyone's computer."""
+    v = (n.verification or {}).get("visual") or {}
+    return bool(v.get("afterUrl") or v.get("clipUrl"))
+
+
+def _checkable(n: DevNote) -> bool:
+    """The author can give a verdict before the merge: a preview is running
+    for the pin (Ready To Check), or the pin carries its proof."""
+    return (n.status == "pr_open" and (n.preview_verdict or "") != "accepted"
+            and (bool((n.preview or {}).get("url")) or _has_proof(n)))
 
 
 def _waits_for(n: DevNote) -> str:
@@ -374,7 +402,7 @@ def _upload_bytes(note_id: str, kind: str, data: bytes, content_type: str) -> st
     key = os.getenv("SUPABASE_SERVICE_KEY", "")
     if not base or not key:
         raise HTTPException(503, "File storage is not configured on this deployment (SUPABASE_URL / SUPABASE_SERVICE_KEY)")
-    ext = _IMAGE_TYPES[content_type]
+    ext = _IMAGE_TYPES.get(content_type) or _CLIP_TYPES[content_type]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
     path = f"{MEDIA_PREFIX}{note_id}/{kind}-{stamp}.{ext}"
     r = httpx.post(
@@ -418,15 +446,27 @@ def _sniff_image(data: bytes, declared: str) -> str:
     return declared if declared in _IMAGE_TYPES else ""
 
 
+def _sniff_clip(data: bytes) -> str:
+    """video/webm or video/mp4 by the file's own first bytes, else ''."""
+    if data[:4] == b"\x1a\x45\xdf\xa3":
+        return "video/webm"
+    if data[4:8] == b"ftyp":
+        return "video/mp4"
+    return ""
+
+
 # ── access ────────────────────────────────────────────────────────────────────
 def _allowed(user: dict, db: Session) -> bool:
     email = (user.get("email") or "").lower()
     if not email:
         return False
+    # Build Mode is its own access (Neil, 11/12/2026: "granted as a separate
+    # access through roles but no new role"): only an Access Group that
+    # grants the `build-mode` module opens it. No tier does by itself, Super
+    # Administrator included - build_mode_access_seed.py put the IT
+    # development team and Neil in the group once.
     # Module attributes on purpose (not `from auth import ...`): the tests and
     # any future override patch auth.* and this must see the patch.
-    if auth.is_global_admin(user, db):
-        return True
     return auth._module_level(email, MODULE_ID, db) >= auth._MODULE_LEVEL_RANK["viewer"]
 
 
@@ -467,6 +507,10 @@ def _resolve_token(authorization: str, db: Session) -> dict:
     last = row.last_used_at or ""
     if not last or (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() > TOKEN_TOUCH_SEC:
         row.last_used_at = now
+        # A token in use renews itself (11/12/2026): it expires TOKEN_DAYS
+        # after its LAST use, so a connected Claude Code never needs a new one
+        # and a forgotten token still dies.
+        row.expires_at = (datetime.fromisoformat(now) + timedelta(days=TOKEN_DAYS)).isoformat()
         db.commit()   # also hands the pooled connection back before a long poll
     return user
 
@@ -483,6 +527,16 @@ def require_build_mode_or_token(user: Optional[dict] = Depends(_signed_in_user),
 
 def _is_ga(user: dict, db: Session) -> bool:
     return auth.is_global_admin(user, db)
+
+
+def _is_super(user: Optional[dict]) -> bool:
+    """A Super Administrator by tier (level 5) - the merge rule. Stricter than
+    `_is_ga`, which also passes a member of a group flagged Global Admin. A
+    Super Administrator acting as someone else is that person here."""
+    try:
+        return int((user or {}).get("level") or 0) >= 5
+    except (TypeError, ValueError):
+        return False
 
 
 def _own_or_admin(n_owner: str, user: dict, db: Session, what: str) -> None:
@@ -713,10 +767,75 @@ def _sync_session(db: Session, s: Optional[DevNoteSession]) -> None:
         s.status = "building"
 
 
+def _target_for(db: Session, email: str) -> str:
+    """Where this person's sent pins go: their Claude Code in the cloud when
+    they connected it and it is their choice, else their terminal."""
+    if _settings(db, email).get("dispatchTarget") == "cloud" and _cloud.connected(db, email):
+        return "cloud"
+    return "local"
+
+
+def _terminal_live(db: Session, email: str) -> tuple:
+    """(live, lastSeen): is one of this person's Build Tokens in use right now
+    - their terminal watcher asks every ~25 s (CONNECTED_SEC)."""
+    now = _now()
+    rows = (db.query(DevNoteToken)
+            .filter(DevNoteToken.email == (email or "").lower(), or_(DevNoteToken.revoked_at == "", DevNoteToken.revoked_at.is_(None)))
+            .all())
+    last = max((t.last_used_at for t in rows if t.last_used_at and (t.expires_at or "") > now), default="")
+    live = bool(last) and (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() <= CONNECTED_SEC
+    return live, last
+
+
+def _connected(db: Session, email: str) -> bool:
+    """Can a pin this person sends reach a Claude Code right now: the cloud
+    (nothing has to be running) or a live terminal watcher."""
+    return _target_for(db, email) == "cloud" or _terminal_live(db, email)[0]
+
+
+def _cloud_start(db: Session, notes: list, by: str) -> dict:
+    """Start the sender's Claude Code in the cloud for pins that were just
+    sent or answered (build_mode_cloud.py). Call it AFTER the commit that made
+    them wait for Claude - the session claims them within seconds. Never
+    raises: a session that did not start is said on the pin and in the
+    answer, and Start Claude Code (POST /cloud/start) tries again. Commits."""
+    notes = [n for n in notes if (n.dispatch_target or "") == "cloud"]
+    if not notes:
+        return {}
+    from app_url import public_base
+    by = (by or "").lower()
+    now = _now()
+    try:
+        res = _cloud.fire(db, by, _cloud.fire_text([n.id for n in notes], public_base(), by))
+    except _cloud.CloudError as e:
+        for n in notes:
+            n.progress = f"Claude Code did not start: {e}"[:400]
+            n.progress_at = now
+        db.commit()
+        return {"started": False, "error": str(e)}
+    url = res.get("sessionUrl") or ""
+    seen = set()
+    for n in notes:
+        n.claude_session_url = url
+        n.progress = CLOUD_STARTING
+        n.progress_at = now
+        if n.session_id and n.session_id not in seen:
+            seen.add(n.session_id)
+            s = _session(db, n.session_id)
+            if s:
+                s.claude_session_url = url
+                s.updated_at = now
+    _audit(db, {"email": by, "role": ""}, "cloud_start", notes[0].session_id or "",
+           {"notes": [n.id for n in notes], "session": res.get("sessionId") or ""})
+    db.commit()
+    return {"started": True, "sessionUrl": url}
+
+
 def _dispatch_notes(db: Session, notes: list, by: str) -> list:
     """Mark pins dispatched and their sessions sent."""
     now = _now()
     touched = []
+    target = _target_for(db, by)
     for n in notes:
         if n.status != "open":
             raise HTTPException(409, f"Pin #{n.number} is {n.status}, not open - only open pins can be sent")
@@ -725,6 +844,7 @@ def _dispatch_notes(db: Session, notes: list, by: str) -> list:
         n.status = "dispatched"
         n.dispatched_at = now
         n.dispatched_by = (by or "").lower()      # only this person's Claude Code picks it up
+        n.dispatch_target = target                 # cloud: started by _cloud_start; local: their watcher
         n.updated_at = now
         s = _session(db, n.session_id)
         if s and s not in touched:
@@ -759,8 +879,10 @@ def put_settings(body: dict, user: dict = Depends(require_build_mode), db: Sessi
     if target is not None:
         if target == "github":
             raise HTTPException(400, "GitHub dispatch is not available yet")
-        if target != "local":
-            raise HTTPException(400, "dispatchTarget must be local")
+        if target not in ("local", "cloud"):
+            raise HTTPException(400, "dispatchTarget must be local or cloud")
+        if target == "cloud" and not _cloud.connected(db, user["email"]):
+            raise HTTPException(400, "Connect Claude Code in the cloud first")
         current["dispatchTarget"] = target
     for key in ("sendInstantly", "pinsOnLoad", "onePr"):
         v = _get(body, key)
@@ -855,13 +977,108 @@ def create_note(body: dict, user: dict = Depends(require_build_mode), db: Sessio
     _assign_owner(db, n)
     _audit(db, user, "create", n.id, {"kind": n.kind, "route": n.route, "session": s.id,
                                       "heldFor": n.owner_email if _held(n) else ""}, kind="create")
-    if settings.get("sendInstantly") and not _held(n):
+    # Send Instantly sends only when a Claude Code can receive it (11/12/2026):
+    # with nothing connected the composer says "this saves the pin", and the
+    # server used to send it anyway and call it sent. It now stays open in
+    # the Build Session, to be sent from the Queue once connected.
+    if settings.get("sendInstantly") and not _held(n) and _connected(db, email):
         db.flush()
         _dispatch_notes(db, [n], email)
         _audit(db, user, "dispatch", n.id, {"session": s.id, "instant": True})
     else:
         _sync_session(db, s)
     db.commit()
+    if n.status == "dispatched":
+        _cloud_start(db, [n], email)
+    db.refresh(n)
+    return _serialize(n, _viewer(user, db))
+
+
+def _copy_picture(note_id: str, kind: str, url: str) -> str:
+    """One of a ticket's pictures, copied into the pin's own folder; '' when
+    it could not be read or is not a picture. The pin never points at the
+    ticket's file, so the pin's purge can never delete ticket evidence."""
+    try:
+        signed = _files.fetchable_url(url)
+        if not signed or signed == url:
+            return ""           # storage could not sign it: nothing to fetch
+        r = httpx.get(signed, timeout=30)
+        if r.status_code >= 300 or not r.content or len(r.content) > ATTACH_MAX_BYTES:
+            return ""
+        content_type = _sniff_image(r.content, r.headers.get("content-type") or "")
+        return _upload_bytes(note_id, kind, r.content, content_type) if content_type else ""
+    except Exception as exc:  # noqa: BLE001 - a missing picture must not stop the pin
+        print(f"[build-mode] ticket picture not copied: {type(exc).__name__}")
+        return ""
+
+
+def _ticket_log(db: Session, ticket_id: str, actor: str, detail: str) -> None:
+    """One line in the ticket's activity - never a comment: nothing is mailed
+    or belled to the requester because a developer picked the ticket up."""
+    from models import TaskTicket
+    from routers.task_util import log_activity
+    t = db.query(TaskTicket).filter(TaskTicket.id == ticket_id).first()
+    if t:
+        log_activity(db, type="build_mode", actor_email=actor, entity_kind="ticket", entity_id=t.id,
+                     entity_code=t.code or "", entity_title=t.subject or "", detail=detail)
+
+
+@router.post("/from-ticket/{ticket_id}", status_code=201)
+def from_ticket(ticket_id: str, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Send To Claude Code on a ticket (Neil, 11/12/2026): the ticket becomes
+    ONE pin in the caller's Build Session - its words, the place Point At It
+    recorded, and copies of its pictures. The caller must be able to open the
+    ticket; an Ask HR ticket reads as not found. The pin then goes the way
+    every pin goes (Send Instantly, or Send To Claude Code from the Queue)."""
+    from models import TaskAttachment, TaskTicket
+    from routers import tickets as _tk
+    email = user["email"].lower()
+    t = db.query(TaskTicket).filter(TaskTicket.id == ticket_id).first()
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    _tk._require_ticket_participant(db, user, t)
+    live = (db.query(DevNote).filter(DevNote.ticket_id == t.id, DevNote.status.notin_(("done", "dismissed")))
+            .order_by(DevNote.created_at.desc()).first())
+    if live:
+        raise HTTPException(409, f"This ticket is already in Build Mode as Pin #{live.number} ({STATUS_LABELS.get(live.status, live.status)})")
+    fields = _tickets.note_fields(t)
+    if fields["route"] in BLOCKED_ROUTES:
+        fields["route"], fields["sub"] = "", ""
+    settings = _settings(db, email)
+    s = _collecting_session(db, email)
+    top = db.query(func.max(DevNote.number)).filter(DevNote.session_id == s.id).scalar() or 0
+    now = _now()
+    note_id = str(uuid.uuid4())
+    pictures = [u for u in (_copy_picture(note_id, "ticket", url) for url in _tickets.picture_urls(
+        db.query(TaskAttachment).filter(TaskAttachment.task_id == t.id).all())) if u]
+    code = (t.code or "").strip()
+    n = DevNote(id=note_id, session_id=s.id, number=int(top) + 1, status="open",
+                dispatch_target=settings.get("dispatchTarget") or "local",
+                created_by=email, created_at=now, updated_at=now, ticket_id=t.id, ticket_code=code,
+                kind=fields["kind"], priority=fields["priority"], comment=fields["comment"],
+                route=fields["route"], sub=fields["sub"], target=fields["target"],
+                screenshot_url=pictures[0] if pictures else "", attachments=pictures[1:],
+                thread=[_entry(email, "system", f"From Ticket {code}" if code else "From A Ticket")])
+    for k in _LIST_FIELDS:
+        if getattr(n, k) is None:
+            setattr(n, k, [])
+    for k in _DICT_FIELDS:
+        if getattr(n, k) is None:
+            setattr(n, k, {})
+    db.add(n)
+    _assign_owner(db, n)
+    _ticket_log(db, t.id, email, f"Sent to Claude Code as Build Mode Pin #{n.number}")
+    _audit(db, user, "from_ticket", n.id, {"ticket": t.id, "code": code, "pictures": len(pictures), "session": s.id,
+                                           "heldFor": n.owner_email if _held(n) else ""}, kind="create")
+    if settings.get("sendInstantly") and not _held(n) and _connected(db, email):
+        db.flush()
+        _dispatch_notes(db, [n], email)
+        _audit(db, user, "dispatch", n.id, {"session": s.id, "instant": True})
+    else:
+        _sync_session(db, s)
+    db.commit()
+    if n.status == "dispatched":
+        _cloud_start(db, [n], email)
     db.refresh(n)
     return _serialize(n, _viewer(user, db))
 
@@ -1082,17 +1299,20 @@ def dispatch(body: Optional[dict] = None, user: dict = Depends(require_build_mod
     held_out = [{"id": n.id, "number": n.number or 0, "ownerName": n.owner_name or n.owner_email} for n in held]
     _audit(db, user, "dispatch", s.id if s else "", {"notes": [n.id for n in notes], "held": [n.id for n in held]})
     db.commit()
+    # Claude Code in the cloud (11/12/2026): `cloud` is {} for a terminal
+    # send, else {started, sessionUrl} or {started: False, error}.
+    cloud = _cloud_start(db, notes, email)
     s = s or (touched[0] if touched else None)
     me = _viewer(user, db)
     return {"session": _serialize_session(s) if s else None, "notes": [_serialize(n, me) for n in notes],
-            "held": held_out}
+            "held": held_out, "cloud": cloud}
 
 
 # ── retention ─────────────────────────────────────────────────────────────────
 def _media_urls(n: DevNote) -> list:
     urls = [n.screenshot_url, n.page_shot_url, n.video_url, n.contact_sheet_url, *(n.attachments or [])]
     visual = (n.verification or {}).get("visual") or {}
-    urls += [visual.get("beforeUrl"), visual.get("afterUrl")]
+    urls += [visual.get("beforeUrl"), visual.get("afterUrl"), visual.get("clipUrl")]
     return [u for u in urls if isinstance(u, str) and u]
 
 
@@ -1286,13 +1506,77 @@ def claude_connection(user: dict = Depends(require_build_mode), db: Session = De
     used in the last CONNECTED_SEC. `apiBase` is this API's public address for
     the connect command ('' when running locally - the browser knows it then)."""
     from app_url import public_base
-    now = _now()
-    rows = (db.query(DevNoteToken)
-            .filter(DevNoteToken.email == user["email"].lower(), or_(DevNoteToken.revoked_at == "", DevNoteToken.revoked_at.is_(None)))
-            .all())
-    last = max((t.last_used_at for t in rows if t.last_used_at and (t.expires_at or "") > now), default="")
-    connected = bool(last) and (datetime.fromisoformat(now) - datetime.fromisoformat(last)).total_seconds() <= CONNECTED_SEC
-    return {"connected": connected, "lastSeen": last, "apiBase": public_base()}
+    terminal, last = _terminal_live(db, user["email"])
+    # In the cloud nothing has to be running: a saved trigger that is the
+    # person's choice IS connected (11/12/2026).
+    cloud = _target_for(db, user["email"]) == "cloud"
+    return {"connected": terminal or cloud, "terminal": terminal, "cloud": cloud, "lastSeen": last,
+            "apiBase": public_base()}
+
+
+# ── Claude Code in the cloud (build_mode_cloud.py, Neil 11/12/2026) ───────────
+def _set_target(db: Session, email: str, target: str) -> None:
+    current = _settings(db, email)
+    current["dispatchTarget"] = target
+    _save_settings(db, email, current)
+
+
+@router.get("/cloud")
+def cloud_status(user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Is the caller's Claude Code in the cloud connected? Never the token."""
+    return {**_cloud.status(db, user["email"]), "target": _target_for(db, user["email"])}
+
+
+@router.put("/cloud")
+def cloud_connect(body: dict, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Save the caller's Claude Code trigger (the scheduled task's Fire URL and
+    token). Connecting it is choosing it: their pins go to the cloud from now
+    on. Nothing is called - a test call would start a real session."""
+    email = user["email"].lower()
+    try:
+        out = _cloud.save(db, email, str(_get(body, "fireUrl") or ""), str(_get(body, "token") or ""))
+    except _cloud.CloudError as e:
+        raise HTTPException(400, str(e))
+    _set_target(db, email, "cloud")
+    _audit(db, user, "cloud_connect", "", {"task": out["task"]})
+    db.commit()
+    return {**out, "target": "cloud"}
+
+
+@router.delete("/cloud", status_code=204)
+def cloud_disconnect(user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    email = user["email"].lower()
+    if _cloud.connected(db, email):
+        _cloud.clear(db, email)
+        _audit(db, user, "cloud_disconnect", "")
+    _set_target(db, email, "local")
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/cloud/start")
+def cloud_start(body: Optional[dict] = None, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Start Claude Code In The Cloud for the caller's pins that wait for it:
+    sent, or answered. For a session that did not start, and for pins sent
+    before the cloud was connected. `noteIds` narrows it; none = all of them."""
+    email = user["email"].lower()
+    if not _cloud.connected(db, email):
+        raise HTTPException(400, "Connect Claude Code in the cloud first")
+    ids = set(_ids(body or {}))
+    notes = [n for n in _pending(db, email, cloud=True) if not ids or n.id in ids]
+    if not notes:
+        raise HTTPException(400, "No pins are waiting for Claude Code")
+    now = datetime.fromisoformat(_now())
+    for n in notes:
+        # A second call is a second session on the same pins.
+        if (n.progress or "") == CLOUD_STARTING and n.progress_at and \
+                (now - datetime.fromisoformat(n.progress_at)).total_seconds() < CLOUD_RESTART_SEC:
+            raise HTTPException(409, f"Claude Code was started for Pin #{n.number} a moment ago - give it two minutes")
+        n.dispatch_target = "cloud"
+    db.commit()
+    cloud = _cloud_start(db, notes, email)
+    me = _viewer(user, db)
+    return {"cloud": cloud, "notes": [_serialize(n, me) for n in notes]}
 
 
 @router.get("/tokens")
@@ -1331,6 +1615,8 @@ def patch_note(note_id: str, body: dict, user: dict = Depends(require_build_mode
         if not any(k for k in (body or {}) if k != "release"):
             _sync_session(db, _session(db, n.session_id))
             db.commit()
+            if n.status == "dispatched":
+                _cloud_start(db, [n], sent_by(n))
             db.refresh(n)
             return _serialize(n, _viewer(user, db))
     _own_or_admin(n.created_by, user, db, "change this pin")
@@ -1398,10 +1684,16 @@ def add_thread(note_id: str, body: dict, user: dict = Depends(require_build_mode
     if not text and not image_url:
         raise HTTPException(400, "text is required")
     _append(n, _entry(user["email"].lower(), "comment", text, image_url))
-    if n.status == "needs_input":
+    answered = n.status == "needs_input"
+    if answered:
         n.status = "building"   # Claude was waiting on this answer
     _sync_session(db, _session(db, n.session_id))
     db.commit()
+    # In the cloud nothing is listening: the answer starts Claude Code again
+    # (same branch - the brief says so). Only from Needs Input, where Claude
+    # had stopped; a comment on a pin it is still working starts nothing.
+    if answered:
+        _cloud_start(db, [n], sent_by(n))
     db.refresh(n)
     return _serialize(n, _viewer(user, db))
 
@@ -1440,8 +1732,106 @@ def verify(note_id: str, body: dict, user: dict = Depends(require_build_mode),
     db.commit()
     if accepted:
         promote_regression(db, n, user)
+    elif n.status == "dispatched":
+        _cloud_start(db, [n], sent_by(n))
     db.refresh(n)
     return _serialize(n, _viewer(user, db))
+
+
+def _merge_guard(note_id: str, user: dict, db: Session, lock: bool = False) -> DevNote:
+    if not _is_super(user):
+        raise HTTPException(403, "Only a Super Administrator can merge to dev")
+    n = _note(db, note_id, lock=lock)
+    if n.status != "pr_open" or not n.pr_number:
+        raise HTTPException(409, f"Pin #{n.number} has no open pull request to merge")
+    return n
+
+
+def _merge_chat(db: Session, email: str) -> tuple[str, str]:
+    st = _settings(db, email)
+    return str(st.get("teamsChatId") or ""), str(st.get("teamsChatName") or "")
+
+
+def _merge_pins(db: Session, pr_number: int) -> list:
+    return (db.query(DevNote).filter(DevNote.pr_number == pr_number, DevNote.status == "pr_open")
+            .order_by(DevNote.number.asc()).all())
+
+
+def _merge_look(db: Session, n: DevNote, email: str) -> dict:
+    """GitHub's answer for the pin's PR plus what Nexus itself asks for: a
+    team chat for the heads-up. `ok` only when nothing stands in the way."""
+    try:
+        look = _merge.look(n.pr_number)
+    except _merge.MergeError as e:
+        raise HTTPException(e.status, str(e))
+    chat_id, chat_name = _merge_chat(db, email)
+    reasons = list(look["reasons"])
+    if not chat_id:
+        reasons.append("Pick the team chat the heads-up goes to first: Queue, Post To Teams, the arrow beside it.")
+    pins = _merge_pins(db, n.pr_number)
+    unchecked = [x.number for x in pins if x.preview_verdict != "accepted"]
+    return {**look, "ok": not reasons, "reasons": reasons, "chatName": chat_name,
+            "pins": [{"id": x.id, "number": x.number or 0, "checked": x.preview_verdict == "accepted"} for x in pins],
+            # Not a refusal: an unchecked pin goes to Fixed - Verify after the merge.
+            "unchecked": unchecked}
+
+
+@router.get("/{note_id}/merge")
+def merge_look(note_id: str, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """What Merge To Dev would do for this pin's pull request, and every
+    reason it may not go yet. Reads only."""
+    n = _merge_guard(note_id, user, db)
+    if not _merge.available():
+        return {"available": False, "ok": False, "reasons": ["Merge To Dev is not set up on this server."]}
+    return {"available": True, **_merge_look(db, n, user["email"].lower())}
+
+
+def _merge_card(db: Session, email: str, look: dict, pins: list) -> str:
+    e = _html.escape
+    nums = ", ".join(f"#{x.number}" for x in pins[:12]) or "-"
+    return (f"<p><strong>Merging To Dev</strong> · <a href='{e(look['url'])}'>PR #{look['number']}</a> · {e(look['title'])}</p>"
+            f"<p>Merged by {e(_chat.name_of(db, email))} from Build Mode · pins {e(nums)}. "
+            "The dev site updates in about a minute and the dev API restarts for about 4 minutes - "
+            "if you are testing on dev, expect a short interruption.</p>")
+
+
+@router.post("/{note_id}/merge")
+def merge_to_dev(note_id: str, body: dict, background_tasks: BackgroundTasks,
+                 user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Merge To Dev (Neil, 11/12/2026): a Super Administrator merges the
+    pin's pull request into dev, and the heads-up goes to the team chat by
+    the same click. `headSha` is the commit the person looked at - a branch
+    that moved since is refused. One GitHub call, never retried."""
+    email = user["email"].lower()
+    n = _merge_guard(note_id, user, db, lock=True)
+    look = _merge_look(db, n, email)
+    if not look["ok"]:
+        raise HTTPException(409, "Not merged. " + " ".join(look["reasons"]))
+    if str(_get(body, "headSha") or "") != look["headSha"]:
+        raise HTTPException(409, "Not merged. The branch changed since you looked - check it again, then merge.")
+    chat_id, chat_name = _merge_chat(db, email)
+    pins = _merge_pins(db, n.pr_number)
+    # Queued in this transaction and kept only if the merge goes through: a
+    # heads-up never announces a merge that did not happen.
+    row = _chat.queue(db, email, n.session_id or n.id, chat_id, _merge_card(db, email, look, pins))
+    try:
+        sha = _merge.merge(n.pr_number, look["headSha"], look["title"])
+    except _merge.MergeError as e:
+        db.rollback()
+        raise HTTPException(e.status, "Not merged. " + str(e))
+    number = n.pr_number
+    _audit(db, user, "merge_to_dev", n.session_id or "", {"pr": number, "sha": sha, "head": look["headSha"],
+                                                          "chat": chat_name, "notes": [x.id for x in pins]})
+    db.commit()
+    _chat.deliver_later(background_tasks, row)
+    # The webhook does this too when it arrives; whichever comes second finds
+    # nothing left to change.
+    mark_fixed_for_pr(db, number, sha)
+    me = _viewer(user, db)
+    ids = [x.id for x in pins]
+    db.expire_all()
+    rows = db.query(DevNote).filter(DevNote.id.in_(ids)).order_by(DevNote.number.asc()).all() if ids else []
+    return {"merged": True, "sha": sha, "number": number, "chatName": chat_name, "notes": [_serialize(x, me) for x in rows]}
 
 
 @router.post("/{note_id}/preview-verdict")
@@ -1457,8 +1847,10 @@ def preview_verdict(note_id: str, body: dict, user: dict = Depends(require_build
     accepted = _get(body, "accepted")
     if accepted is None:
         raise HTTPException(400, "accepted is required")
-    if not _ready_to_check(n):
+    if not _checkable(n):
         raise HTTPException(409, f"Pin #{n.number} is not Ready To Check")
+    # On the preview when one runs; else from the proof on the pin.
+    where = "On The Preview" if (n.preview or {}).get("url") else "From The Proof On The Pin"
     email = user["email"].lower()
     comment = str(_get(body, "comment") or "").strip()
     if not accepted and not comment:
@@ -1474,22 +1866,30 @@ def preview_verdict(note_id: str, body: dict, user: dict = Depends(require_build
     if accepted:
         n.verified_by = email
         n.verified_at = now
-        _append(n, _entry(email, "system", "Checked On The Preview" + (f": {comment}" if comment else "")))
+        _append(n, _entry(email, "system", f"Checked {where}" + (f": {comment}" if comment else "")))
     else:
         # Counts as a reopen, like the post-merge one.
         n.reopen_count = int(n.reopen_count or 0) + 1
         n.progress = ""
         n.progress_at = ""
-        _append(n, _entry(email, "system", "Reopened On The Preview"))
+        _append(n, _entry(email, "system", f"Reopened {where}"))
         _append(n, _entry(email, "comment", comment))   # LAST: /cli/wait's rule
         n.status = "building"
+        # The proof was of the fix that was just refused: the rework brings
+        # its own (the files stay on the pin's attachments for the record).
+        if (n.verification or {}).get("visual"):
+            n.verification = {**n.verification, "visual": {}}
     _audit(db, user, "preview_verdict", n.id,
-           {"accepted": bool(accepted), "pr": n.pr_number, "commit": commit, "comment": comment[:200]})
+           {"accepted": bool(accepted), "pr": n.pr_number, "commit": commit, "comment": comment[:200],
+            "proof": where != "On The Preview"})
     _sync_session(db, _session(db, n.session_id))
     db.commit()
     if accepted:
         # Not merged yet: the case waits as a draft until mark_fixed_for_pr.
         promote_regression(db, n, user, status="draft")
+    else:
+        # In the cloud nothing is listening: the reopen starts Claude Code again on the same branch.
+        _cloud_start(db, [n], sent_by(n))
     db.refresh(n)
     return _serialize(n, _viewer(user, db))
 
@@ -1628,7 +2028,7 @@ def sent_by(n) -> str:
     return ((getattr(n, "dispatched_by", "") or "") or (n.created_by or "")).lower()
 
 
-def _pending_ids(db: Session, email: str) -> list:
+def _pending_ids(db: Session, email: str, cloud: bool = False) -> list:
     """Ids of the pins THIS person's Claude Code should pick up (Pranshu,
     Oct 26: several watchers run at once - Neil's, Visesh's, mine - and a pin
     must never land in someone else's terminal): the ones they sent, plus pins
@@ -1636,8 +2036,12 @@ def _pending_ids(db: Session, email: str) -> list:
     kind by appending its own entry. Cheap on purpose - this runs every 2 s
     per waiting watcher - so only these columns are read."""
     email = (email or "").lower()
+    # A pin sent to Claude Code in the cloud is started there (_cloud_start):
+    # a terminal watcher that is also running must never pick it up, or two
+    # Claude Codes work one pin. `cloud=True` (Start Claude Code) reads all.
+    where = () if cloud else (or_(DevNote.dispatch_target != "cloud", DevNote.dispatch_target.is_(None)),)
     rows = (db.query(DevNote.id, DevNote.status, DevNote.thread, DevNote.dispatched_by, DevNote.created_by)
-            .filter(DevNote.status.in_(("dispatched", "needs_input", "building")),
+            .filter(*where, DevNote.status.in_(("dispatched", "needs_input", "building")),
                     or_(func.lower(DevNote.dispatched_by) == email,
                         and_(or_(DevNote.dispatched_by == "", DevNote.dispatched_by.is_(None)),
                              func.lower(DevNote.created_by) == email)))
@@ -1645,8 +2049,8 @@ def _pending_ids(db: Session, email: str) -> list:
     return [r.id for r in rows if r.status == "dispatched" or _answered(r.thread or [])]
 
 
-def _pending(db: Session, email: str) -> list:
-    ids = _pending_ids(db, email)
+def _pending(db: Session, email: str, cloud: bool = False) -> list:
+    ids = _pending_ids(db, email, cloud)
     if not ids:
         return []
     rows = db.query(DevNote).filter(DevNote.id.in_(ids)).all()
@@ -1690,7 +2094,22 @@ async def cli_wait(timeout: int = Query(25, ge=0, le=WAIT_MAX_SEC),
 @router.get("/cli/whoami")
 def cli_whoami(user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
     return {"email": user["email"], "tokenLabel": user.get("token_label") or "",
-            "onePr": bool(_settings(db, user["email"]).get("onePr"))}
+            "onePr": bool(_settings(db, user["email"]).get("onePr")),
+            "openPr": _open_pr(db, user["email"].lower())}
+
+
+def _open_pr(db: Session, email: str) -> dict:
+    """The sender's Build Mode pull request that is still open - the newest
+    one with a pin of theirs in PR Open - or {}. With Collect Fixes Into One
+    PR on, a Claude Code cloud session adds its work to this one instead of
+    opening another (11/12/2026): fewer pull requests, fewer dev restarts."""
+    n = (db.query(DevNote)
+         .filter(DevNote.created_by == email, DevNote.status == "pr_open", DevNote.pr_number > 0, DevNote.branch != "")
+         .order_by(DevNote.updated_at.desc()).first())
+    if not n:
+        return {}
+    count = db.query(func.count(DevNote.id)).filter(DevNote.pr_number == n.pr_number, DevNote.status == "pr_open").scalar() or 0
+    return {"number": n.pr_number, "url": n.pr_url or "", "branch": n.branch or "", "pins": int(count)}
 
 
 @router.post("/cli/claim")
@@ -1865,7 +2284,8 @@ def cli_verify(note_id: str, body: dict, user: dict = Depends(require_build_mode
     if visual is not None:
         if not isinstance(visual, dict):
             raise HTTPException(400, "visual must be {beforeUrl, afterUrl}")
-        v["visual"] = {"beforeUrl": _check_media("beforeUrl", _get(visual, "beforeUrl") or ""),
+        v["visual"] = {**{k: u for k, u in (v.get("visual") or {}).items() if k == "clipUrl"},   # a clip attached earlier stays
+                       "beforeUrl": _check_media("beforeUrl", _get(visual, "beforeUrl") or ""),
                        "afterUrl": _check_media("afterUrl", _get(visual, "afterUrl") or "")}
     if all(x is None for x in (repro, style, visual)):
         raise HTTPException(400, "Nothing to record: send repro, styleCheck or visual")
@@ -1883,8 +2303,28 @@ def cli_verify(note_id: str, body: dict, user: dict = Depends(require_build_mode
 def cli_attach(note_id: str, file: UploadFile = File(...), kind: str = Form("paste"),
                user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
     if kind not in ATTACH_KINDS:
-        raise HTTPException(400, "kind must be after, before or paste")
+        raise HTTPException(400, "kind must be after, before, paste or clip")
     n = _note(db, note_id, lock=True)
+    if kind == "clip":
+        # A short video of the fix working (11/12/2026): proof the author can
+        # watch on the pin. WebM (what the browser test tool records) or MP4.
+        data = file.file.read(CLIP_MAX_BYTES + 1)
+        if not data:
+            raise HTTPException(400, "Empty file")
+        if len(data) > CLIP_MAX_BYTES:
+            raise HTTPException(413, "A clip must be 25 MB or smaller")
+        content_type = _sniff_clip(data)
+        if not content_type:
+            raise HTTPException(400, "Only WebM and MP4 clips can be attached")
+        url = _upload_bytes(n.id, kind, data, content_type)
+        v = dict(n.verification or {})
+        v["visual"] = {**(v.get("visual") or {}), "clipUrl": url}
+        v["at"] = _now()
+        n.verification = v
+        _append(n, _entry("claude", "system", "A clip of the fix is attached."))
+        n.updated_at = _now()
+        db.commit()
+        return {"url": url}
     data = file.file.read(ATTACH_MAX_BYTES + 1)
     if not data:
         raise HTTPException(400, "Empty file")
@@ -2122,6 +2562,10 @@ def mark_fixed_for_pr(db: Session, pr_number, merge_sha: str = "") -> int:
                 continue
             n.fixed_build_id = merge_sha or ""
             n.fixed_at = now
+            if n.ticket_id:
+                # The desk reads it in the ticket's activity and resolves the
+                # ticket itself - nothing here changes the ticket's status.
+                _ticket_log(db, n.ticket_id, n.created_by, f"The fix merged to dev (PR #{number}, Build Mode Pin #{n.number})")
             if (n.preview_verdict or "") == "accepted":
                 # Checked on the Ready To Check preview: no second check after merge.
                 _close(n, "done")

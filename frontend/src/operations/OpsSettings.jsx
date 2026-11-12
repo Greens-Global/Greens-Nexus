@@ -48,7 +48,7 @@ export default function OpsSettings({ toastOk, toastErr }) {
       <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 16, background: 'var(--card)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {on ? <Send size={16} aria-hidden="true" /> : <Lock size={16} aria-hidden="true" />}
-          <div style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>Push to Cubby</div>
+          <div style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>Push to Cubby</div>
           <span className={`status-badge ${on ? 'status-approved' : 'pill-muted'}`}>{on ? 'On' : 'Off'}</span>
           <button type="button" role="switch" aria-checked={on} aria-label="Push to Cubby" onClick={flip} disabled={saving || !s.canEdit}
             style={{
@@ -59,7 +59,7 @@ export default function OpsSettings({ toastOk, toastErr }) {
             <span style={{ position: 'absolute', top: 2, left: on ? 16 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
           </button>
         </div>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6, marginTop: 10 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginTop: 10 }}>
           <p style={{ margin: '0 0 6px' }}>
             <strong style={{ color: 'var(--ink)' }}>Off (the default):</strong> Nexus only reads from Cubby. Staff enter rate and rent
             changes in Cubby by hand, then mark them &quot;Entered in Cubby&quot; in Rate Management and Revenue Management.
@@ -88,8 +88,8 @@ export default function OpsSettings({ toastOk, toastErr }) {
       </div>
       {s.history?.length > 0 && (
         <div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Recent Changes</div>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: 'var(--muted)' }} data-testid="ops-settings-history">
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Recent Changes</div>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--muted)' }} data-testid="ops-settings-history">
             {s.history.map((h, i) => (
               <li key={`${h.at}:${i}`}>{formatDateTime(h.at)} - {h.by} turned it {h.to ? 'on' : 'off'}</li>
             ))}

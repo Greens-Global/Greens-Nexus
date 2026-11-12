@@ -50,14 +50,14 @@ import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 // NOI and balances are as of) }.
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const hint = { fontSize: '0.78rem', color: 'var(--text-secondary)' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
+const hint = { fontSize: 13, color: 'var(--text-secondary)' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 };
-const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' };
+const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' };
 const input = { ...control, width: '100%' };
-const sectionTitle = { fontSize: '0.74rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' };
+const sectionTitle = { fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' };
 const pct = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? '-' : `${Number(v).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}%`);
 const x = (v) => (v == null ? '-' : `${Number(v).toFixed(2)}x`);
 const MAX_COMPARE = 3;
@@ -81,7 +81,7 @@ function Chip({ tone = 'muted', children, title }) {
     ok: { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' }, bad: { fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
-  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
+  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
 }
 const resultChip = (impact) => (impact.pass == null ? <Chip>No NOI</Chip> : impact.pass ? <Chip tone="ok">Pass</Chip> : <Chip tone="bad">Below Target</Chip>);
 
@@ -90,7 +90,7 @@ function Field({ id, title, children, note }) {
     <div>
       <label style={label} htmlFor={id}>{title}</label>
       {children}
-      {note && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 3 }}>{note}</div>}
+      {note && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{note}</div>}
     </div>
   );
 }
@@ -98,9 +98,9 @@ function Field({ id, title, children, note }) {
 function Tile({ title, children, sub }) {
   return (
     <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '8px 12px', minWidth: 0 }}>
-      <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{title}</div>
-      <div style={{ fontSize: '1.02rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{children}</div>
-      {sub && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{sub}</div>}
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>{title}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{children}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
@@ -193,13 +193,13 @@ function Schedule({ plan, name }) {
   return (
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--border-color)' }}>
-        <strong style={{ fontSize: '0.86rem' }}>Amortization Schedule</strong>
+        <strong style={{ fontSize: 14 }}>Amortization Schedule</strong>
         <div role="group" aria-label="Schedule by" style={{ display: 'inline-flex', gap: 4 }}>
           {[['month', 'By Payment'], ['year', 'By Year']].map(([k, l]) => (
-            <button key={k} type="button" className={kind === k ? 'primary-btn' : 'secondary-btn'} aria-pressed={kind === k} onClick={() => setKind(k)} style={{ fontSize: '0.74rem', height: 26, padding: '0 10px' }}>{l}</button>
+            <button key={k} type="button" className={kind === k ? 'primary-btn' : 'secondary-btn'} aria-pressed={kind === k} onClick={() => setKind(k)} style={{ fontSize: 12, height: 26, padding: '0 10px' }}>{l}</button>
           ))}
         </div>
-        <span style={{ ...hint, fontSize: '0.74rem' }}>{plan.payments} payments{plan.maturityDate ? `, last ${formatDate(plan.maturityDate)}` : ''}</span>
+        <span style={{ ...hint, fontSize: 12 }}>{plan.payments} payments{plan.maturityDate ? `, last ${formatDate(plan.maturityDate)}` : ''}</span>
         <div style={{ marginLeft: 'auto' }}>
           <ExportMenu disabled={!plan.rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'Amounts as numbers, totals in bold', onPick: () => doExport('excel'), busy: exporting === 'excel' },
@@ -247,9 +247,9 @@ function DscrCheck({ code, entityName, ev, noiInfo, noiLoading, target }) {
   return (
     <div style={{ ...card, padding: '10px 12px', display: 'grid', gap: 8 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-        <strong style={{ fontSize: '0.86rem' }}>DSCR Check{entityName ? ` - ${entityName}` : ''}</strong>
+        <strong style={{ fontSize: 14 }}>DSCR Check{entityName ? ` - ${entityName}` : ''}</strong>
         {resultChip(impact)}
-        <span style={{ ...hint, fontSize: '0.74rem' }}>NOI {basis}{!noiTyped && noiInfo?.addback ? ' plus the Stress Test addback' : ''}; existing debt service is the entity&apos;s {debt.loans} open {debt.loans === 1 ? 'loan' : 'loans'} sized as on the Stress Test.</span>
+        <span style={{ ...hint, fontSize: 12 }}>NOI {basis}{!noiTyped && noiInfo?.addback ? ' plus the Stress Test addback' : ''}; existing debt service is the entity&apos;s {debt.loans} open {debt.loans === 1 ? 'loan' : 'loans'} sized as on the Stress Test.</span>
       </div>
       {impact.noi == null ? (
         <div style={hint}>{noiLoading ? 'Reading the NOI...' : 'No NOI on file for this entity - type one under NOI to check the DSCR.'}</div>
@@ -293,11 +293,11 @@ function PlannedList({ planned, evals, entityName, selected, onToggle, onOpen, o
                   <td onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" aria-label={`Compare ${p.name}`} checked={on} disabled={!on && selected.length >= MAX_COMPARE} onChange={() => onToggle(p.id)} />
                   </td>
-                  <td><strong>{p.name}</strong>{p.params?.notes ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={p.params.notes}>{p.params.notes}</div> : null}</td>
+                  <td><strong>{p.name}</strong>{p.params?.notes ? <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={p.params.notes}>{p.params.notes}</div> : null}</td>
                   <td>{entityName(p.entityCode)}</td>
                   <td>{p.params?.lender || '-'}</td>
                   <td style={num}><Amount value={ev.plan.amount} zero="dash" /></td>
-                  <td style={num}>{pct(ev.plan.rate)}{rateNote(p.params) && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{rateNote(p.params)}</div>}</td>
+                  <td style={num}>{pct(ev.plan.rate)}{rateNote(p.params) && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{rateNote(p.params)}</div>}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>{years(p.params?.amortYears)} / {years(p.params?.termYears || p.params?.amortYears)}</td>
                   <td style={num}>{ev.plan.errors.length ? '-' : <Amount value={ev.plan.monthlyPayment} />}</td>
                   <td style={num}>{ev.plan.errors.length ? '-' : <Amount value={ev.plan.annualDebtService} />}</td>
@@ -361,8 +361,8 @@ function Compare({ items, entityName, onClear }) {
   return (
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--border-color)' }}>
-        <strong style={{ fontSize: '0.86rem' }}>Compare Planned Loans</strong>
-        <span style={{ ...hint, fontSize: '0.74rem' }}>The lowest payment and the highest DSCR are in bold.</span>
+        <strong style={{ fontSize: 14 }}>Compare Planned Loans</strong>
+        <span style={{ ...hint, fontSize: 12 }}>The lowest payment and the highest DSCR are in bold.</span>
         <button type="button" className="secondary-btn" onClick={onClear} style={{ ...btn, height: 26, marginLeft: 'auto' }}>Clear</button>
       </div>
       <div className="req-table-wrapper" style={{ overflow: 'auto' }}>
@@ -400,7 +400,7 @@ function RowsEditor({ id, title, rows = [], fields, addLabel, onChange, note }) 
         </div>
       ))}
       <div><button type="button" className="secondary-btn" onClick={() => onChange([...rows, {}])} style={{ ...btn, height: 28 }}>{addLabel}</button></div>
-      {note && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{note}</div>}
+      {note && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{note}</div>}
     </div>
   );
 }
@@ -509,15 +509,15 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       {msg && (
-        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: msg.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: msg.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
           <span style={{ flex: 1 }}>{msg.text}</span>
-          <button type="button" className="secondary-btn" onClick={() => setMsg(null)} style={{ fontSize: '0.74rem', padding: '2px 10px' }}>Dismiss</button>
+          <button type="button" className="secondary-btn" onClick={() => setMsg(null)} style={{ fontSize: 12, padding: '2px 10px' }}>Dismiss</button>
         </div>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={sectionTitle}>Planned Loans</span>
-        {planned && <span style={{ ...hint, fontSize: '0.74rem' }}>{shown.length} {shown.length === 1 ? 'loan' : 'loans'}{picked.length ? ' in the entities picked' : ''} · tick two or three to compare · click one to open it</span>}
+        {planned && <span style={{ ...hint, fontSize: 12 }}>{shown.length} {shown.length === 1 ? 'loan' : 'loans'}{picked.length ? ' in the entities picked' : ''} · tick two or three to compare · click one to open it</span>}
       </div>
       {loadError && <div style={bad}>{loadError}</div>}
       {planned === undefined ? <SkeletonBlocks count={2} /> : (
@@ -528,7 +528,7 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
       <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Calculator size={16} style={{ color: 'var(--wk-brand, #2b45e1)' }} />
-          <strong style={{ fontSize: '0.92rem' }}>{meta.id ? `Planned Loan - ${meta.name}` : 'Loan Calculator'}</strong>
+          <strong style={{ fontSize: 15 }}>{meta.id ? `Planned Loan - ${meta.name}` : 'Loan Calculator'}</strong>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" style={btn} onClick={startNew}><FilePlus size={14} /> New Calculation</button>
             {canEdit && meta.id && <button type="button" className="secondary-btn" style={btn} disabled={busy === 'save' || !ok} onClick={() => save(true)}><Copy size={14} /> Save as New</button>}
@@ -539,7 +539,7 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
         <div className="scroll-tabs" role="tablist" aria-label="Loan Calculator" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-color)' }}>
           {PLAN_KINDS.map((k) => (
             <button key={k.key} type="button" role="tab" aria-selected={form.kind === k.key} onClick={() => switchKind(k.key)}
-              style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '6px 12px', fontSize: '0.82rem', fontWeight: form.kind === k.key ? 700 : 500, whiteSpace: 'nowrap',
+              style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '6px 12px', fontSize: 13, fontWeight: form.kind === k.key ? 700 : 500, whiteSpace: 'nowrap',
                 color: form.kind === k.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', borderBottom: `2px solid ${form.kind === k.key ? 'var(--wk-brand, #2b45e1)' : 'transparent'}`, marginBottom: -1 }}>{k.label}</button>
           ))}
         </div>

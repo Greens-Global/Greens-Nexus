@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Paperclip, Image as ImageIcon, ScanText, Camera, ImagePlus, Check, Copy, Send, CircleCheck, Circle,
   Monitor, Building2, Warehouse, ShieldCheck, Receipt, Users, HardHat, LifeBuoy, Briefcase, Video,
+  MousePointerClick,
 } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
@@ -13,7 +14,7 @@ import { useRole } from '../contexts/RoleContext';
 import { filesFromPaste, externalizeInlineImages } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import {
-  stashDraft, appendDraftFile, takeDraft, setDraftUiMounted, finishRecording,
+  stashDraft, appendDraftFile, takeDraft, setDraftUiMounted, finishRecording, patchDraftForm,
 } from './recordingDraft';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_ORDER, PRIORITY_META } from '../tasks/theme';
 import { PrioritySignal } from '../components/StatusLabel';
@@ -46,6 +47,7 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import { TicketPropertyIntake } from './TicketPropertyFields';
 import { useTicketPropertyRules, propertyRequiredFor, usePropertyUnits } from './ticketPropertyLink';
 import { uploadTicketEvidence } from './evidenceUpload';
+import { pointAtIt, withWhere } from './pointAtIt';
 import { checkMedia, mediaKind, withType } from '../lib/voice';
 import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import CreateModeTabs from './CreateModeTabs';
@@ -324,6 +326,27 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     if (list.length) setAttachments((prev) => [...prev, ...list]);
   };
   const addFile = (f) => { appendDraftFile(f); setAttachments((prev) => [...prev, f]); };
+  // Point At It (Neil, 11/12/2026): the form steps aside the way it does for
+  // a screen recording (draft stashed, so walking to another screen first
+  // loses nothing), the person clicks the thing that is wrong, and the form
+  // comes back with a picture of it attached and one "Where:" line at the
+  // end of the description. No picture (a canvas, a frame) = the line alone.
+  const [pointing, setPointing] = useState(false);
+  const startPoint = async () => {
+    setPointing(true);
+    onRecChange(true);
+    let got = null;
+    try { got = await pointAtIt(); } catch { got = null; }
+    if (got) {
+      if (got.file) addFile(got.file);
+      const add = (f) => ({ ...f, description: withWhere(f.description, got.where) });
+      patchDraftForm(add);
+      setForm(add);
+      if (!got.file) appDialog.alert('No picture could be taken of that, so only the place was noted in the description. Paste a screenshot if you have one.', { title: 'No Picture' });
+    }
+    setPointing(false);
+    onRecChange(false);
+  };
   // Ctrl+V of a screenshot anywhere in the form. Inside the description the
   // editor has already embedded it in place (and marked the event handled);
   // anywhere else - the title, a dropdown - it is attached instead.
@@ -455,6 +478,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // recorder's Stop pill; this component stays mounted, so on stop the form
   // returns exactly as they left it, with the clip attached. The chip is a
   // pointer-events-free hint - the recorder pill owns Stop/Cancel.
+  if (recActive && pointing) return null;      // Point At It draws its own bar
   if (recActive) {
     return (
       <div style={{ position: 'fixed', left: 18, bottom: 18, zIndex: 5990, pointerEvents: 'none',
@@ -749,6 +773,13 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 10px', marginTop: 6 }}>
           <RecordUploadButtons quiet showRecord={!NO_RECORDING_TYPES.includes(form.type)}
             onFile={addFile} onRecordingChange={onRecChange} onVoiceRecordingChange={setVoiceRec} />
+          {!isMobile && (
+            <button type="button" onClick={startPoint} data-testid="ticket-point"
+              title="Click the thing that is wrong - a picture of it and where it is are added to this ticket"
+              style={{ ...btn('ghost'), fontSize: 13, fontWeight: 600, color: NX.ink, padding: '5px 8px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <MousePointerClick size={14} /> Point At It
+            </button>
+          )}
           {!isMobile && <span style={{ fontSize: 12, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
         </div>
         {attachments.length > 0 && (

@@ -25,8 +25,8 @@ const ink = 'var(--ink, #111827)';
 const muted = 'var(--muted, #6b7280)';
 const line = 'var(--line, #e5e7eb)';
 const brand = '#15803d';
-const lbl = { fontSize: 12.5, fontWeight: 700, color: muted, display: 'block', margin: '14px 0 5px' };
-const input = { width: '100%', boxSizing: 'border-box', border: '1px solid var(--line, #d1d5db)', borderRadius: 10, padding: '11px 12px', fontSize: 16, fontFamily: 'Inter,sans-serif', background: 'var(--card, #fff)', color: ink };
+const lbl = { fontSize: 13, fontWeight: 700, color: muted, display: 'block', margin: '14px 0 5px' };
+const input = { width: '100%', boxSizing: 'border-box', border: '1px solid var(--line, #d1d5db)', borderRadius: 10, padding: '11px 12px', fontSize: /* type-ok: iOS zooms a field under 16px */ 16, fontFamily: 'Inter,sans-serif', background: 'var(--card, #fff)', color: ink };
 const MAX_MB = 10;
 const RESUME_RE = /\.(pdf|docx?)$/i;
 
@@ -98,7 +98,7 @@ export default function PublicCareers({ slug, openingId }) {
     const { company, openings } = page;
     return (
       <Shell company={company}>
-        <h1 style={{ fontSize: 28, margin: '6px 0 4px', fontWeight: 800 }}>Open Positions At {company.name}</h1>
+        <h1 style={{ fontSize: 32, margin: '6px 0 4px', fontWeight: 800 }}>Open Positions At {company.name}</h1>
         <p style={{ color: muted, margin: '0 0 20px' }}>
           {openings.length ? `${openings.length} open position${openings.length === 1 ? '' : 's'}.` : 'There are no open positions right now - check back soon.'}
           {company.website && <> Learn more at <a href={company.website} target="_blank" rel="noopener noreferrer" style={{ color: brand }}>{company.website.replace(/^https?:\/\//, '')}</a>.</>}
@@ -107,7 +107,7 @@ export default function PublicCareers({ slug, openingId }) {
           {openings.map(o => (
             <a key={o.id} role="listitem" href={`/careers/${encodeURIComponent(company.slug)}/${encodeURIComponent(o.id)}`}
               style={{ display: 'block', background: 'var(--card, #fff)', border: `1px solid ${line}`, borderRadius: 14, padding: '16px 18px', textDecoration: 'none', color: ink }}>
-              <div style={{ fontSize: 17, fontWeight: 700 }}>{o.title}</div>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>{o.title}</div>
               <Facts o={o} />
             </a>
           ))}
@@ -122,7 +122,7 @@ export default function PublicCareers({ slug, openingId }) {
       <a href={`/careers/${encodeURIComponent(company.slug)}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: muted, fontSize: 13, textDecoration: 'none', fontWeight: 600 }}>
         <ArrowLeft size={14} /> All Open Positions
       </a>
-      <h1 style={{ fontSize: 28, margin: '12px 0 2px', fontWeight: 800 }}>{opening.title}</h1>
+      <h1 style={{ fontSize: 32, margin: '12px 0 2px', fontWeight: 800 }}>{opening.title}</h1>
       <div style={{ fontSize: 14, fontWeight: 600 }}>{company.name}</div>
       <Facts o={opening} />
       <div style={{ background: 'var(--card, #fff)', border: `1px solid ${line}`, borderRadius: 14, padding: '20px 22px', marginTop: 18 }}>
@@ -172,7 +172,7 @@ export function ApplyForm({ opening, company, consentText }) {
     return (
       <div id="apply" role="status" style={{ background: 'var(--card, #fff)', border: `1px solid ${line}`, borderRadius: 14, padding: '28px 22px', marginTop: 18, textAlign: 'center' }}>
         <CheckCircle size={34} style={{ color: brand }} />
-        <div style={{ fontSize: 20, fontWeight: 800, marginTop: 8 }}>Thank You</div>
+        <div style={{ fontSize: 18, fontWeight: 800, marginTop: 8 }}>Thank You</div>
         <p style={{ color: muted, margin: '6px 0 0' }}>{done} A confirmation is on its way to your email.</p>
       </div>
     );
@@ -183,7 +183,7 @@ export function ApplyForm({ opening, company, consentText }) {
   );
   return (
     <form id="apply" onSubmit={submit} noValidate style={{ background: 'var(--card, #fff)', border: `1px solid ${line}`, borderRadius: 14, padding: '20px 22px', marginTop: 18 }}>
-      <h2 style={{ fontSize: 20, margin: 0, fontWeight: 800 }}>Apply For This Job</h2>
+      <h2 style={{ fontSize: 18, margin: 0, fontWeight: 800 }}>Apply For This Job</h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '0 14px' }}>
         {text('First Name *', 'first_name', { autoComplete: 'given-name', maxLength: 80 })}
         {text('Last Name *', 'last_name', { autoComplete: 'family-name', maxLength: 80 })}
@@ -205,12 +205,12 @@ export function ApplyForm({ opening, company, consentText }) {
         <span style={{ fontSize: 14 }}>{file ? file.name : `Choose your resume - PDF or Word, up to ${MAX_MB} MB`}</span>
       </div>
       <input ref={fileRef} type="file" accept=".pdf,.doc,.docx" aria-label="Resume" style={{ display: 'none' }} onChange={e => { pick(e.target.files?.[0]); e.target.value = ''; }} />
-      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 16, fontSize: 13.5, lineHeight: 1.5, cursor: 'pointer' }}>
+      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 16, fontSize: 13, lineHeight: 1.5, cursor: 'pointer' }}>
         <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} style={{ marginTop: 3, accentColor: brand }} />
         <span>{consentText || `I agree that ${company.name} may keep my application to consider me for this job.`} *</span>
       </label>
-      {problem && <div role="alert" style={{ marginTop: 12, color: '#b91c1c', fontSize: 13.5, fontWeight: 600 }}>{problem}</div>}
-      <button type="submit" disabled={busy} style={{ marginTop: 18, width: '100%', padding: '13px 18px', borderRadius: 10, border: 'none', background: brand, color: '#fff', fontSize: 16, fontWeight: 700, cursor: busy ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: busy ? 0.75 : 1 }}>
+      {problem && <div role="alert" style={{ marginTop: 12, color: '#b91c1c', fontSize: 13, fontWeight: 600 }}>{problem}</div>}
+      <button type="submit" disabled={busy} style={{ marginTop: 18, width: '100%', padding: '13px 18px', borderRadius: 10, border: 'none', background: brand, color: '#fff', fontSize: 15, fontWeight: 700, cursor: busy ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: busy ? 0.75 : 1 }}>
         {busy && <Spinner size={16} color="#fff" />} Send Application
       </button>
     </form>

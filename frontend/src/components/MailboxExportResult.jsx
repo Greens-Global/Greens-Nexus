@@ -35,12 +35,12 @@ export default function MailboxExportResult({ employeeId, toastErr }) {
           <Mail size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Mailbox Export
         </span>
         {job.status === 'done' && (
-          <button className="secondary-btn" onClick={download} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+          <button className="secondary-btn" onClick={download} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
             <FileText size={12} /> Download .zip
           </button>
         )}
       </div>
-      <div style={{ fontSize: 12.5, color: job.status === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>{status}</div>
+      <div style={{ fontSize: 13, color: job.status === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>{status}</div>
     </div>
   );
 }

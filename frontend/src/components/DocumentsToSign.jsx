@@ -36,7 +36,7 @@ export default function DocumentsToSign({ focusParty = '', toastOk, toastErr }) 
       {signPortal}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <PenLine size={15} style={{ color: 'var(--wk-brand)' }} />
-        <span style={{ fontWeight: 800, fontSize: 13.5 }}>Documents to Sign</span>
+        <span style={{ fontWeight: 800, fontSize: 13 }}>Documents to Sign</span>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>{rows.length} waiting on your signature</span>
       </div>
       {rows.map(r => (
@@ -48,7 +48,7 @@ export default function DocumentsToSign({ focusParty = '', toastOk, toastErr }) 
             </div>
           </div>
           <button type="button" className="primary-btn" onClick={() => setSigning(r.partyId)}
-            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <FileSignature size={13} /> Review & Sign
           </button>
         </div>

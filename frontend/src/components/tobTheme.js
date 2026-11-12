@@ -30,11 +30,11 @@ export const TOB_CSS = `
   border-radius:4px; background:var(--tob-accent); }
 .tob-rail .tob-n { margin-left:auto; font-size:11px; font-weight:700; color:#fff; background:var(--tob-red);
   border-radius:20px; padding:1px 7px; font-variant-numeric:tabular-nums; }
-.tob-head h2 { margin:0; font-size:22px; font-weight:700; letter-spacing:-0.015em; }
+.tob-head h2 { margin:0; font-size:24px; font-weight:700; letter-spacing:-0.015em; }
 .tob-head p { margin:3px 0 0; font-size:13px; color:var(--tob-dim); }
 .tob-queue { background:var(--tob-card); border:1px solid var(--tob-line); border-radius:14px; margin-top:16px; overflow:hidden; }
 .tob-q-head { display:flex; align-items:baseline; gap:8px; padding:12px 18px 8px; }
-.tob-q-head b { font-size:13.5px; font-weight:700; }
+.tob-q-head b { font-size:13px; font-weight:700; }
 .tob-q-head span { font-size:12px; color:var(--tob-dim); }
 .tob-q-row { display:flex; align-items:center; gap:12px; padding:11px 18px; border-top:1px solid var(--tob-line);
   animation: tobIn .32s cubic-bezier(.2,.7,.3,1) backwards; }
@@ -45,20 +45,20 @@ export const TOB_CSS = `
   padding:9px 18px; align-items:center; }
 .tob-ledger .tob-grid + .tob-grid { border-top:1px solid var(--tob-line); }
 .tob-lhead { position:sticky; top:0; z-index:1; background:var(--tob-card); box-shadow:0 1px 0 var(--tob-line);
-  font-size:11.5px; font-weight:600; color:var(--tob-faint); letter-spacing:.01em; }
+  font-size:12px; font-weight:600; color:var(--tob-faint); letter-spacing:.01em; }
 .tob-dot { display:inline-block; width:7px; height:7px; border-radius:99px; margin-right:6px; vertical-align:1px; }
 .tob-chip { padding:5px 12px; border-radius:8px; border:1px solid transparent; background:none; cursor:pointer;
-  font:600 12.5px/1.3 inherit; font-family:inherit; color:var(--tob-dim); transition: background .14s ease-out, color .14s ease-out; }
+  font:600 13px/1.3 inherit; font-family:inherit; color:var(--tob-dim); transition: background .14s ease-out, color .14s ease-out; }
 .tob-chip[aria-pressed="true"] { background:var(--tob-ink); color:var(--tob-paper); font-weight:700; }
 .tob-ok { background:var(--tob-accent); color:#fff; border:none; border-radius:9px; padding:6px 14px; cursor:pointer;
-  font:700 12.5px/1.4 inherit; font-family:inherit; display:inline-flex; align-items:center; gap:5px;
+  font:700 13px/1.4 inherit; font-family:inherit; display:inline-flex; align-items:center; gap:5px;
   transition: filter .14s ease-out, transform .1s ease-out; }
 .tob-no { background:none; border:1px solid var(--tob-line); border-radius:9px; padding:6px 12px; cursor:pointer;
-  font:600 12.5px/1.4 inherit; font-family:inherit; color:var(--tob-red); display:inline-flex; align-items:center; gap:5px;
+  font:600 13px/1.4 inherit; font-family:inherit; color:var(--tob-red); display:inline-flex; align-items:center; gap:5px;
   transition: border-color .14s ease-out; }
 .tob input, .tob select { font-family:inherit; }
 .tob-in { border:1px solid var(--tob-line); background:var(--tob-card); color:var(--tob-ink); border-radius:9px;
-  padding:7px 10px; font-size:12.5px; }
+  padding:7px 10px; font-size:13px; }
 .tob button:focus-visible, .tob input:focus-visible, .tob select:focus-visible { outline:2px solid var(--tob-accent); outline-offset:2px; }
 .tob-view { animation: tobFade .18s ease-out; }
 @media (hover:hover) and (pointer:fine) {

@@ -125,9 +125,9 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
             <CustomFieldInput field={field} value={draft} onChange={setDraft} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button type="button" onClick={() => applyField('')} title={`Clear ${field.name} on the selected tasks`}
-                style={{ ...btn('ghost'), fontSize: 12.5 }}>Clear Value</button>
+                style={{ ...btn('ghost'), fontSize: 13 }}>Clear Value</button>
               <button type="button" onClick={() => applyField(draft)} disabled={isBlank(draft)}
-                style={{ ...btn('primary'), fontSize: 12.5, opacity: isBlank(draft) ? 0.6 : 1 }}>Apply</button>
+                style={{ ...btn('primary'), fontSize: 13, opacity: isBlank(draft) ? 0.6 : 1 }}>Apply</button>
             </div>
           </div>
         )}
@@ -229,13 +229,13 @@ export function BulkLabelPanel({ mode, tasks, selected, onApply }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 240, overflowY: 'auto' }}>
         {creating && (
           <button type="button" className="nx-menu-row" onClick={() => take(q)}
-            style={{ ...btn('ghost'), justifyContent: 'flex-start', gap: 8, fontSize: 12.5 }}>
+            style={{ ...btn('ghost'), justifyContent: 'flex-start', gap: 8, fontSize: 13 }}>
             Create <LabelPill name={q} size="sm" />
           </button>
         )}
         {shown.map((o) => (
           <button key={o.key} type="button" className="nx-menu-row" onClick={() => take(o.name)}
-            style={{ ...btn('ghost'), justifyContent: 'flex-start', gap: 8, fontSize: 12.5 }}>
+            style={{ ...btn('ghost'), justifyContent: 'flex-start', gap: 8, fontSize: 13 }}>
             <LabelPill name={o.name} size="sm" />
             {mode === 'remove' && <span style={{ marginLeft: 'auto', fontSize: 11, color: NX.faint }}>{o.count} of {n}</span>}
           </button>

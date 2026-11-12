@@ -45,7 +45,8 @@ _MODULE_LABEL = {
     "tasks": "Tasks", "tickets": "Tickets", "documents": "Documents", "time_off": "Time Off",
     "timecard": "Time Sheet", "shifts": "Shifts", "items": "Items", "team": "Team",
 }
-_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "shifts", "items", "team"]
+# Time Sheet first, as in the email (Neil, 11/12/2026).
+_MODULE_ORDER = ["timecard", "tasks", "tickets", "documents", "time_off", "shifts", "items", "team"]
 # First rows show; the next ones sit behind "Show N More" (still in the email);
 # past that it is a link to Nexus, so one busy module can't blow up the card.
 _ROWS_SHOWN = 3
@@ -153,7 +154,11 @@ def _row(ctx: dict, row: dict, first: bool) -> dict:
         actions += _decision_actions(ctx, row["action_kind"], row["action_id"], row["action_email"])
     if row.get("task_id"):
         actions += _task_actions(ctx, row)
-    if row.get("url"):
+    if row.get("cta"):
+        # A Time Sheet's one button (Review and Submit, Sign Time Sheet ...).
+        label, url = row["cta"]
+        actions.append({"type": "Action.OpenUrl", "title": label, "url": url, "style": "positive"})
+    elif row.get("url"):
         actions.append({"type": "Action.OpenUrl", "title": "Open", "url": row["url"]})
     if actions:
         items.append({"type": "ActionSet", "spacing": "small", "actions": actions})

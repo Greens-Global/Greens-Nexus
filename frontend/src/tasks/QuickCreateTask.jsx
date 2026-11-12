@@ -124,7 +124,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
             onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} aria-label="Task name"
             // Two or more lines pasted into the name are a list: Add Several takes them, one task per line.
             onPaste={(e) => { const list = pastedTaskList(e); if (list) { e.preventDefault(); e.stopPropagation(); setSeveral(list); } }}
-            placeholder="Task name *" style={{ ...inputStyle, flex: 1, minWidth: 0, fontSize: 17, fontWeight: 600, padding: '10px 12px' }} />
+            placeholder="Task name *" style={{ ...inputStyle, flex: 1, minWidth: 0, fontSize: 18, fontWeight: 600, padding: '10px 12px' }} />
           <DictateButton target={titleRef} title="Dictate the Task Name" />
         </div>
 

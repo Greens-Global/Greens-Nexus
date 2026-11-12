@@ -18,10 +18,10 @@ import { formatAmount } from './accounting/Amount';
 import { EntityPicker } from './accounting/reportControls';
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', padding: '14px 16px', marginTop: 16 };
-const th = { textAlign: 'left', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', padding: '6px 8px', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' };
-const td = { fontSize: '0.82rem', padding: '7px 8px', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' };
+const th = { textAlign: 'left', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', padding: '6px 8px', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' };
+const td = { fontSize: 13, padding: '7px 8px', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
-const note = { fontSize: '0.84rem', color: 'var(--text-secondary)', margin: '6px 0 0' };
+const note = { fontSize: 13, color: 'var(--text-secondary)', margin: '6px 0 0' };
 const link = { color: 'var(--wk-brand, #2b45e1)', display: 'inline-flex', marginRight: 8 };
 
 const money = (v) => (v == null || v === '' ? '-' : `$${formatAmount(v)}`);
@@ -65,8 +65,8 @@ export default function PropertyLoans({ property, onSaveEntityCode = null }) {
     <section aria-label="Financing" style={card}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
         <Landmark size={16} style={{ color: 'var(--text-muted)' }} />
-        <h3 style={{ margin: 0, fontSize: '0.98rem' }}>Financing</h3>
-        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+        <h3 style={{ margin: 0, fontSize: 15 }}>Financing</h3>
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
           {code ? `Ledger Entity: ${entityName ? `${entityName} (${code})` : code}` : 'No ledger entity set'}
           {state.data?.asOf ? ` · as of ${formatDate(state.data.asOf)}` : ''}
         </span>
@@ -75,14 +75,14 @@ export default function PropertyLoans({ property, onSaveEntityCode = null }) {
             {picking && entities && !entitiesError ? (
               <EntityPicker entities={entities} value={code} onChange={pick} noneLabel="None" placeholder="Pick the Ledger Entity" ariaLabel="Ledger Entity" align="right" />
             ) : picking && !entities ? (
-              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Loading entities...</span>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Loading entities...</span>
             ) : null}
             {!picking && (
-              <button type="button" className="secondary-btn" onClick={openPicker} style={{ fontSize: '0.78rem', padding: '4px 10px' }}>
+              <button type="button" className="secondary-btn" onClick={openPicker} style={{ fontSize: 13, padding: '4px 10px' }}>
                 {code ? 'Change Entity' : 'Set Ledger Entity'}
               </button>
             )}
-            {picking && <button type="button" className="secondary-btn" onClick={() => setPicking(false)} style={{ fontSize: '0.78rem', padding: '4px 10px' }}>Cancel</button>}
+            {picking && <button type="button" className="secondary-btn" onClick={() => setPicking(false)} style={{ fontSize: 13, padding: '4px 10px' }}>Cancel</button>}
           </div>
         )}
       </div>
@@ -118,7 +118,7 @@ export default function PropertyLoans({ property, onSaveEntityCode = null }) {
             <tbody>
               {loans.map((r) => (
                 <tr key={r.id || `${r.lender}-${r.loanNo}`}>
-                  <td style={td}>{r.lender || '-'}{loans.some((x) => x.entityCode !== code) && r.entityCode ? <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.entityName || r.entityCode}</div> : null}</td>
+                  <td style={td}>{r.lender || '-'}{loans.some((x) => x.entityCode !== code) && r.entityCode ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.entityName || r.entityCode}</div> : null}</td>
                   <td style={td}>{r.loanNo || '-'}</td>
                   <td style={{ ...td, ...num }}>{money(r.balance)}</td>
                   <td style={td}>{rate(r)}</td>
@@ -145,7 +145,7 @@ export default function PropertyLoans({ property, onSaveEntityCode = null }) {
               </tfoot>
             )}
           </table>
-          {(state.data?.notes || []).length > 0 && <p style={{ ...note, fontSize: '0.74rem' }}>{state.data.notes.join(' ')}</p>}
+          {(state.data?.notes || []).length > 0 && <p style={{ ...note, fontSize: 12 }}>{state.data.notes.join(' ')}</p>}
         </div>
       )}
     </section>

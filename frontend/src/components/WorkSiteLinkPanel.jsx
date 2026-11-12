@@ -54,7 +54,7 @@ export default function WorkSiteLinkPanel({ link, point, savedPoint, onResolved,
       <div style={{ display: 'flex', gap: 6 }}>
         <div style={{ position: 'relative', flex: 1 }}>
           <Link2 size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input className="form-input" style={{ width: '100%', paddingLeft: 28, fontSize: 12.5 }} value={text}
+          <input className="form-input" style={{ width: '100%', paddingLeft: 28, fontSize: 13 }} value={text}
             aria-label="Google Maps link or coordinates"
             placeholder={link ? 'Paste a new Google Maps link to move this location' : `Paste the Google Maps link of the ${what}`}
             onChange={e => { setText(e.target.value); setError(''); }}
@@ -75,9 +75,9 @@ export default function WorkSiteLinkPanel({ link, point, savedPoint, onResolved,
       )}
 
       {point && meta && (
-        <div data-testid="link-result" style={{ marginTop: 8, border: `1px solid ${meta.ok ? 'rgba(22,163,74,0.35)' : 'rgba(180,83,9,0.4)'}`, background: meta.ok ? 'rgba(22,163,74,0.06)' : 'rgba(180,83,9,0.07)', borderRadius: 10, padding: '9px 11px', fontSize: 12.5 }}>
+        <div data-testid="link-result" style={{ marginTop: 8, border: `1px solid ${meta.ok ? 'rgba(22,163,74,0.35)' : 'rgba(180,83,9,0.4)'}`, background: meta.ok ? 'rgba(22,163,74,0.06)' : 'rgba(180,83,9,0.07)', borderRadius: 10, padding: '9px 11px', fontSize: 13 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999,
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 999,
               background: meta.ok ? 'rgba(22,163,74,0.14)' : 'rgba(180,83,9,0.14)', color: meta.ok ? '#15803d' : '#b45309' }}>
               {meta.ok ? <CheckCircle size={11} /> : <AlertTriangle size={11} />} {meta.label}
             </span>

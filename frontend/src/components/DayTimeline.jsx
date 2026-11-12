@@ -124,7 +124,7 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
               <div style={{ position: 'absolute', left: `${x}%`, top: -2, bottom: -2, width: 2, borderRadius: 1,
                 background: 'var(--ink)', opacity: 0.55, pointerEvents: 'none' }} />
               <span style={{ position: 'absolute', left: `${x}%`, bottom: '100%',
-                transform: `translate(${x > 88 ? '-100%' : '-50%'}, -1px)`, fontSize: 9, fontWeight: 700,
+                transform: `translate(${x > 88 ? '-100%' : '-50%'}, -1px)`, fontSize: 11, fontWeight: 700,
                 color: 'var(--muted)', pointerEvents: 'none' }}>Now</span>
             </>
           );
@@ -134,7 +134,7 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
         <div style={{ position: 'relative', height: 13, marginTop: 2 }}>
           {tickList.map(t => (
             <span key={t} style={{ position: 'absolute', left: `${pct(t)}%`, transform: 'translateX(-50%)',
-              fontSize: 9, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+              fontSize: 11, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
               {new Date(t).toLocaleTimeString('en-US', { hour: 'numeric' })}
             </span>
           ))}
