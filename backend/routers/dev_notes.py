@@ -2004,7 +2004,22 @@ async def cli_wait(timeout: int = Query(25, ge=0, le=WAIT_MAX_SEC),
 @router.get("/cli/whoami")
 def cli_whoami(user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
     return {"email": user["email"], "tokenLabel": user.get("token_label") or "",
-            "onePr": bool(_settings(db, user["email"]).get("onePr"))}
+            "onePr": bool(_settings(db, user["email"]).get("onePr")),
+            "openPr": _open_pr(db, user["email"].lower())}
+
+
+def _open_pr(db: Session, email: str) -> dict:
+    """The sender's Build Mode pull request that is still open - the newest
+    one with a pin of theirs in PR Open - or {}. With Collect Fixes Into One
+    PR on, a Claude Code cloud session adds its work to this one instead of
+    opening another (11/12/2026): fewer pull requests, fewer dev restarts."""
+    n = (db.query(DevNote)
+         .filter(DevNote.created_by == email, DevNote.status == "pr_open", DevNote.pr_number > 0, DevNote.branch != "")
+         .order_by(DevNote.updated_at.desc()).first())
+    if not n:
+        return {}
+    count = db.query(func.count(DevNote.id)).filter(DevNote.pr_number == n.pr_number, DevNote.status == "pr_open").scalar() or 0
+    return {"number": n.pr_number, "url": n.pr_url or "", "branch": n.branch or "", "pins": int(count)}
 
 
 @router.post("/cli/claim")

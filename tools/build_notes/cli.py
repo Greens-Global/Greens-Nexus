@@ -599,6 +599,10 @@ def cmd_whoami(client, args):
     label = _g(me, "tokenLabel", "token_label", default="")
     print(str(_g(me, "email", default="?")) + ((" (" + str(label) + ")") if label else "") + " on " + client.api_base)
     print("Collect Fixes Into One PR: " + ("on" if _g(me, "onePr", "one_pr", default=False) else "off"))
+    open_pr = _g(me, "openPr", "open_pr", default=None) or {}
+    if open_pr.get("number"):
+        print("Open PR: #" + str(open_pr.get("number")) + " " + str(open_pr.get("url") or "") + " on " + str(open_pr.get("branch") or "")
+              + " (" + str(open_pr.get("pins") or 0) + " pin" + ("" if open_pr.get("pins") == 1 else "s") + ")")
     return 0
 
 

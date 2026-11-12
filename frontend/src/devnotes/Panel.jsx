@@ -12,7 +12,7 @@ import { toViewUrl } from '../lib/storageView';
 import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import HoldButton from '../ui/HoldButton';
-import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND, CLAUDE_SEND_ON, isClaudeSession, canStartInCloud } from './meta';
+import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND, CLAUDE_SEND_ON, isClaudeSession, canStartInCloud, ASKS, waitingOnMe, TEAM_STATES, teamPins, teamAuthors } from './meta';
 import ConnectCloud from './ConnectCloud';
 import { toast, useBuildStore, setAllTools, store } from './store';
 import { MODULES } from '../contexts/RoleContext';
@@ -20,7 +20,7 @@ import { wantsTabCapture, setWantsTabCapture, startTabCapture, stopTabCapture } 
 import { formatHoursWords } from '../lib/hoursText';
 
 // Settings comes back with Send to Claude Code (meta.CLAUDE_SEND_ON).
-const TABS = [{ id: 'queue', label: 'Queue' }, { id: 'sessions', label: 'Sessions' }, ...(CLAUDE_SEND_ON ? [{ id: 'settings', label: 'Settings' }] : [])];
+const TABS = [{ id: 'queue', label: 'Queue' }, { id: 'team', label: 'Team' }, { id: 'sessions', label: 'Sessions' }, ...(CLAUDE_SEND_ON ? [{ id: 'settings', label: 'Settings' }] : [])];
 
 function useCopy() {
   const [done, setDone] = useState('');
@@ -388,6 +388,51 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
   );
 }
 
+// ── Team (11/12/2026) ────────────────────────────────────────────────────────
+// One place for the whole team's pins. On top, what waits on YOU - a question
+// from Claude Code, a fix to check, a pin on your area, a PR to merge - then
+// everyone's pins, filtered by person and by where they stand. Nothing is
+// sent from here; a row opens the pin where it was made.
+function TeamTab({ notes, loading, onOpenPin, onChanged, myEmail }) {
+  const [who, setWho] = useState('');
+  const [state, setState] = useState('live');
+  const mine = waitingOnMe(notes, myEmail);
+  const authors = teamAuthors(notes);
+  const rows = teamPins(notes, { who, state });
+  const counts = Object.fromEntries(TEAM_STATES.map((t) => [t.id, teamPins(notes, { who, state: t.id }).length]));
+  return (
+    <div className="bm-list nx-fill" data-testid="bm-team">
+      <section className="bm-group" data-testid="bm-team-mine">
+        <header className="bm-group-head">
+          <span className="bm-group-title">Waiting On You</span>
+          <span className="bm-dim bm-small">{mine.length ? `${mine.length} pin${mine.length === 1 ? '' : 's'}` : 'Nothing right now'}</span>
+        </header>
+        {mine.map(({ pin, ask }) => (
+          <div key={pin.id} className="bm-team-ask">
+            <StatusLabel label={ASKS[ask].label} color={READY_META.color} size="sm" />
+            <PinRow pin={pin} onOpen={onOpenPin} onChanged={onChanged} />
+          </div>
+        ))}
+      </section>
+      <section className="bm-group">
+        <header className="bm-group-head bm-team-filters">
+          <span className="bm-group-title">Everyone&apos;s Pins</span>
+          <select className="bm-input bm-team-select" value={who} onChange={(e) => setWho(e.target.value)} aria-label="Person">
+            <option value="">Everyone ({notes.length})</option>
+            {authors.map((a) => <option key={a.email} value={a.email}>{a.email === myEmail ? `${a.name} (You)` : a.name} ({a.count})</option>)}
+          </select>
+          <select className="bm-input bm-team-select" value={state} onChange={(e) => setState(e.target.value)} aria-label="State">
+            {TEAM_STATES.map((t) => <option key={t.id} value={t.id}>{t.label} ({counts[t.id]})</option>)}
+          </select>
+        </header>
+        {loading && !notes.length && <div className="bm-dim">Loading…</div>}
+        {!loading && !rows.length && <div className="bm-empty">{notes.length ? 'No pins match - change the person or the state.' : 'No pins yet. Press P, click anything on the page and say what should change.'}</div>}
+        {rows.map((p) => <PinRow key={p.id} pin={p} onOpen={onOpenPin} onChanged={onChanged} />)}
+      </section>
+    </div>
+  );
+}
+
 // ── Sessions ─────────────────────────────────────────────────────────────────
 const pct = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : `${Math.round(Number(v) * 100)}%`);
 // Hours and minutes, never "2.5 h" (Neil, 11/04/2026).
@@ -535,7 +580,7 @@ function SettingsTab({ settings, onSettings }) {
       <section className="bm-settings-sec">
         <div className="bm-sec-title">Sending</div>
         <Switch label="Send Instantly" hint="On: every pin goes to Claude Code the moment you save it. Off: pins collect in your Build Session and go together when you click Done > Send To Claude Code." checked={!!settings.sendInstantly} disabled={busy === 'sendInstantly'} onChange={(v) => change({ sendInstantly: v })} />
-        <Switch label="Collect Fixes Into One PR" hint={'On: Claude Code keeps every batch you send on one branch and waits in its terminal for the next one. Type "open a PR" there when you are done and all of it goes in one PR.'} checked={!!settings.onePr} disabled={busy === 'onePr'} onChange={(v) => change({ onePr: v })} />
+        <Switch label="Collect Fixes Into One PR" hint={'On: Claude Code keeps every batch you send on one branch and waits in its terminal for the next one. Type "open a PR" there when you are done and all of it goes in one PR. In the cloud: each Send adds to your open Build Mode pull request instead of opening another.'} checked={!!settings.onePr} disabled={busy === 'onePr'} onChange={(v) => change({ onePr: v })} />
         <div className="bm-field-block">
           <div className="bm-switch-label">Dispatch Target</div>
           <div className="bm-radios" role="radiogroup" aria-label="Dispatch Target">
@@ -614,6 +659,7 @@ export default function Panel({ open, tab: asked = 'queue', onTab, onClose, sett
         </div>
         <div className="bm-sheet-body">
           {tab === 'queue' && <QueueTab notes={notes} dismissed={dismissed} sessions={sessions} loading={loading} onOpenPin={onOpenPin} onChanged={replace} onDispatched={() => { load(); onDispatched?.(); }} myEmail={myEmail} settings={settings || {}} onSettings={onSettings} postFromDone={postFromDone} />}
+          {tab === 'team' && <TeamTab notes={notes} loading={loading} onOpenPin={onOpenPin} onChanged={replace} myEmail={myEmail} />}
           {tab === 'sessions' && <SessionsTab sessions={sessions} notes={notes} stats={stats} loading={loading} onChanged={replaceSession} />}
           {tab === 'settings' && <SettingsTab settings={settings || {}} onSettings={onSettings} />}
         </div>

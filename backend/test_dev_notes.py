@@ -341,7 +341,7 @@ def test_token_mint_use_and_revoke():
     assert listed[0]["label"] == "MacBook"
 
     r = client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"]))
-    assert r.status_code == 200 and r.json() == {"email": DEV["email"], "tokenLabel": "MacBook", "onePr": False}
+    assert r.status_code == 200 and r.json() == {"email": DEV["email"], "tokenLabel": "MacBook", "onePr": False, "openPr": {}}
     assert client.get("/dev-notes/tokens").json()[0]["lastUsedAt"] != ""
 
     assert client.get("/dev-notes/cli/whoami", headers=_hdr("nxbn_garbage")).status_code == 401
@@ -357,14 +357,14 @@ def test_token_mint_use_and_revoke():
     assert client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"])).status_code == 401
 
     # a signed-in user also passes the CLI gate, with no token label
-    assert client.get("/dev-notes/cli/whoami").json() == {"email": DEV["email"], "tokenLabel": "", "onePr": False}
+    assert client.get("/dev-notes/cli/whoami").json() == {"email": DEV["email"], "tokenLabel": "", "onePr": False, "openPr": {}}
 
 
 def test_one_pr_setting_reaches_the_cli():
     # Collect Fixes Into One PR: saved in Settings, read by Claude Code through whoami
     assert client.put("/dev-notes/settings", json={"onePr": True}).json()["onePr"] is True
     assert client.get("/dev-notes/cli/whoami").json()["onePr"] is True
-    assert client.put("/dev-notes/settings", json={"onePr": False}).json()["onePr"] is False
+    assert client.put("/dev-notes/settings", json={"onePr": False, "openPr": {}}).json()["onePr"] is False
 
 
 def test_token_reads_the_list_and_one_pin():
@@ -2162,3 +2162,16 @@ def test_a_pin_checked_before_the_merge_closes_as_done(github):
         assert [n["status"] for n in got["notes"]] == ["done"]
     finally:
         _as(DEV)
+
+
+def test_whoami_names_the_senders_open_pull_request():
+    token = _token()["token"]
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(token)).json()["openPr"] == {}
+    a = _to_pr_open(token, pr=51)
+    b = _to_pr_open(token, pr=51)
+    got = client.get("/dev-notes/cli/whoami", headers=_hdr(token)).json()["openPr"]
+    assert got["number"] == 51 and got["pins"] == 2 and got["branch"] and got["url"].endswith("/51")
+    # merged: nothing is open any more, the next Send opens its own
+    _mark_fixed(pr=51)
+    assert client.get("/dev-notes/cli/whoami", headers=_hdr(token)).json()["openPr"] == {}
+    assert {a["id"], b["id"]}

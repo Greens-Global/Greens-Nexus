@@ -325,3 +325,57 @@ describe('Panel - Revoke a Build Token', () => {
     api.devNotesTokens.mockImplementation(() => Promise.resolve([]));
   });
 });
+
+// The Team tab (11/12/2026): what waits on you, then everyone's pins with filters.
+describe('Panel - Team', () => {
+  const ME = 'neil@greensglobal.com';
+  const pin = (over) => ({ id: 'x', number: 1, kind: 'bug', priority: 'normal', status: 'open', comment: 'c', thread: [], route: 'tasks', sessionId: 's1', createdBy: ME, createdAt: '2026-11-12T15:00:00Z', ...over });
+  const team = () => [
+    pin({ id: 'a', number: 1, status: 'needs_input', comment: 'Which button?' }),
+    pin({ id: 'b', number: 2, status: 'pr_open', checkable: true, canVerdict: true, comment: 'Mine to check' }),
+    pin({ id: 'c', number: 3, status: 'pr_open', previewVerdict: 'accepted', canMerge: true, createdBy: 'sagar@greensglobal.com', comment: 'Checked by Sagar' }),
+    pin({ id: 'd', number: 4, status: 'pr_open', canMerge: true, createdBy: 'sagar@greensglobal.com', comment: 'Not checked yet' }),
+    pin({ id: 'e', number: 5, status: 'building', createdBy: 'visesh.lodha@greensglobal.com', comment: 'Visesh building' }),
+    pin({ id: 'f', number: 6, status: 'done', createdBy: 'visesh.lodha@greensglobal.com', comment: 'Old one' }),
+    pin({ id: 'g', number: 7, status: 'needs_input', createdBy: 'sagar@greensglobal.com', comment: 'A question for Sagar' }),
+  ];
+
+  it('Waiting On You lists only what asks something of the viewer, most pressing first', async () => {
+    notes = team();
+    render(<Panel {...props} tab="team" myEmail={ME} />);
+    const mine = await screen.findByTestId('bm-team-mine');
+    await waitFor(() => expect(mine.textContent).toContain('3 pins'));
+    const text = mine.textContent;
+    expect(text.indexOf('Answer Claude Code')).toBeLessThan(text.indexOf('Check The Fix'));
+    expect(text.indexOf('Check The Fix')).toBeLessThan(text.indexOf('Merge To Dev'));
+    expect(text).toContain('Checked by Sagar');
+    expect(text).not.toContain('Not checked yet');        // it waits on its author first
+    expect(text).not.toContain('A question for Sagar');   // someone else's answer to give
+  });
+
+  it('everyone\'s pins filter by person and by state, with counts', async () => {
+    notes = team();
+    render(<Panel {...props} tab="team" myEmail={ME} />);
+    const list = await screen.findByTestId('bm-team');
+    await waitFor(() => expect(list.textContent).toContain('Visesh building'));
+    expect(list.textContent).not.toContain('Old one');               // Everything Live leaves Done out
+    const person = screen.getByLabelText('Person');
+    expect(person.textContent).toContain('Everyone (7)');
+    expect(person.textContent).toContain('Neil (You) (2)');
+    fireEvent.change(person, { target: { value: 'visesh.lodha@greensglobal.com' } });
+    const state = screen.getByLabelText('State');
+    expect(state.textContent).toContain('With Claude Code (1)');
+    expect(state.textContent).toContain('Done (1)');
+    fireEvent.change(state, { target: { value: 'done' } });
+    const rows = screen.getAllByTestId('bm-queue-row').map((r) => r.textContent).join(' ');
+    expect(rows).toContain('Old one');
+    fireEvent.change(state, { target: { value: 'ready' } });
+    expect(screen.getByTestId('bm-team').textContent).toContain('No pins match');
+  });
+
+  it('nothing waiting says so', async () => {
+    notes = [pin({ id: 'e', status: 'building', createdBy: 'visesh.lodha@greensglobal.com' })];
+    render(<Panel {...props} tab="team" myEmail={ME} />);
+    await waitFor(() => expect(screen.getByTestId('bm-team-mine').textContent).toContain('Nothing right now'));
+  });
+});

@@ -947,7 +947,22 @@ click.
   `HOLD_MAJOR_MS`) that names the PR, the pins, and the chat.
 - One audit row, `dev_note_merge_to_dev`.
 
-### 8.7 Not built yet
+### 8.7 The Team tab and one pull request (11/12/2026)
+
+- **Team** (the panel's second tab, `TeamTab` in `Panel.jsx`, helpers in
+  `meta.js`): "Waiting On You" on top - a question from Claude Code on your
+  pin, a fix to check, a fixed pin to verify on dev, a pin held for your
+  area, a checked pull request you may merge (`pinAsks`, from the server's
+  `canVerdict` / `canRelease` / `canMerge` flags only) - then everyone's
+  pins with a Person and a State filter. It reads the pins the panel already
+  loaded; nothing new on the server.
+- **One pull request**: `GET /cli/whoami` now also returns `openPr` - the
+  sender's newest pull request with a pin of theirs still PR Open
+  (`_open_pr`), or `{}`. With Collect Fixes Into One PR on, a cloud session
+  adds its work to that pull request instead of opening another (the skill's
+  section 14, step 13). A merge clears it; the next Send opens its own.
+
+### 8.8 Not built yet
 
 A preview anyone can open (a deployed branch preview) - the plan:
 https://claude.ai/artifact/WqEqnaipxNoFveELkctpPB .
