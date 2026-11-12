@@ -931,9 +931,11 @@ keep the diff minimal.
   record_links' task walls; the Transcript Ready bell is OPT-IN per person
   (`meeting_notes.alerts:<email>`) and its pass (`meeting_ready_loop`) asks
   Teams for the transcript LIST only, never the words, and bells once.
-  TESTERS FIRST: only the emails in the `meeting_notes.access`
-  nexus_settings row (per database; `"everyone": true` opens it) may use
-  it - `meetings.may_use`, never a code default.
+  WHO HAS IT: the `meeting_notes.access` nexus_settings row (per database)
+  - `"everyone": true` on dev and prod since 11/12/2026 (Neil: "Open it to
+  everyone now"), after a testers-only start; `meetings.may_use` reads it,
+  never a code default. Set `"everyone": false` to go back to the listed
+  `emails` only.
   Phase 3 (Neil, 11/12/2026): meetings outside Teams are transcribed ON THE
   DEVICE - Whisper in a Web Worker (`notes/meetings/capture/`), the
   browser's own speech service only as the fallback. This is NOT the

@@ -4,20 +4,17 @@ Notes for Teams meetings, in Dashboard > Notes (Neil, 11/12/2026). Teams
 records and transcribes the call; Nexus is the notebook around it. Nothing
 here costs money or uses AI.
 
-## Who has it: testers first (Neil, 11/12/2026)
+## Who has it (Neil, 11/12/2026)
 
-Meeting Notes is off for everyone except the people listed in the
-`meeting_notes.access` row of `nexus_settings` - each database has its own
-(dev and production). The value is JSON:
+**Everyone at Greens** (staff; externals and Act As are always refused):
+the `meeting_notes.access` row of `nexus_settings` is
+`{"everyone": true, ...}` on dev and production since 11/12/2026 ("Open it to
+everyone now"). It started testers-only (Neil first).
 
-```json
-{"everyone": false, "emails": ["neil@greensglobal.com"]}
-```
-
-Add a tester by adding their work email; turn it on for the whole company
-with `"everyone": true`. No row means nobody. Anyone not on the list sees no
-Meetings button and every `/meetings` route answers 403. Never widen it with
-a code default.
+To pull it back to a list of testers, set `"everyone": false` - then only
+the work emails in `"emails"` see the Meetings button, and every `/meetings`
+route answers 403 to anyone else. No row means nobody. Never widen or narrow
+it with a code default.
 
 ## What a person sees
 
