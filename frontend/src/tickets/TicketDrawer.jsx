@@ -57,6 +57,7 @@ import { STOP_VOICE_FIRST } from '../lib/voice';
 import { TicketAttachments } from './TicketAttachments';
 import { TicketActivity } from './TicketActivity';
 import TicketJobAction from './TicketJobAction';
+import TicketBuildAction from './TicketBuildAction';
 import TicketPhoneCard from './TicketPhoneCard';
 import MentionedIn from '../components/MentionedIn';
 
@@ -1051,6 +1052,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         {/* Start Job / Open Job (Neil, 11/03/2026): a ticket that needs a crew,
             materials or more than a day gets a construction Job. Never on Ask HR. */}
         {!confidential && <TicketJobAction ticketId={t.id} onOpen={inline ? undefined : closeDrawer} />}
+        {/* Send To Claude Code (Neil, 11/12/2026): Build Mode grant holders only; never on Ask HR. */}
+        {!confidential && <TicketBuildAction ticketId={t.id} onOpen={inline ? undefined : closeDrawer} />}
         {!CLOSED_STATES.includes(t.status) ? (
           // canEditStatus, not canWorking - Mark Resolved is the same "raw
           // status jump" the requester is carved out of above; their only

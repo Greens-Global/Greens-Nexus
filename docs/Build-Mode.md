@@ -962,7 +962,43 @@ click.
   adds its work to that pull request instead of opening another (the skill's
   section 14, step 13). A merge clears it; the next Send opens its own.
 
-### 8.8 Not built yet
+### 8.8 Everyone through tickets (Neil, 11/12/2026)
+
+People outside the IT development team never get Build Mode. They file a
+ticket, and the ticket is good enough to build from:
+
+- **Point At It** (`frontend/src/tickets/pointAtIt.js`, the button under
+  the description on Create a Ticket, computers only): the form steps aside
+  exactly as it does for a screen recording (draft stashed, Browse First to
+  walk to another screen), the person clicks the thing that is wrong, and
+  the form returns with a picture of it attached (the thing outlined,
+  sensitive fields blacked out by Build Mode's own rule) and ONE line at
+  the end of the description:
+  `Where: Tasks > Home (/tasks/home) - button "Add Task" [src/tasks/Home.jsx:120]`.
+  The bracket is there only when the build carries source marks. No grant,
+  no pin, nothing of Build Mode's is written.
+- **Source marks on production**: `deploy-cloudflare.yml` and
+  `archive-assets.yml` build with `VITE_NX_SRC=handlers` (the two must
+  build the same files). Production pages then carry `data-nx-src` on
+  elements with a handler or an aria / role attribute, and
+  `/nx-src-files.json` lists the source file paths. Remove the variable from
+  both workflows to take them off again.
+- **Send To Claude Code** on a ticket (`TicketBuildAction.jsx` in the
+  drawer's footer, Build Mode grant holders only; `POST
+  /dev-notes/from-ticket/{id}`, `build_mode_tickets.py`): ONE pin in the
+  caller's Build Session - the ticket's words, the route and source read
+  back from the Where line (`parse_where`; the two files must agree), and
+  COPIES of up to four of the ticket's pictures in the pin's own folder, so
+  the pin's 30-day purge can never delete ticket evidence. The pin keeps
+  `ticket_id` / `ticket_code`. One live pin per ticket. An Ask HR ticket
+  reads as not found.
+- The ticket hears about it only through its activity (`log_activity`,
+  type `build_mode`): "Sent to Claude Code as Build Mode Pin #n" and, when
+  the PR merges, "The fix merged to dev (PR #n, ...)". Never a comment,
+  never a bell or an email to the requester, never a status change - the
+  desk resolves the ticket.
+
+### 8.9 Not built yet
 
 A preview anyone can open (a deployed branch preview) - the plan:
 https://claude.ai/artifact/WqEqnaipxNoFveELkctpPB .

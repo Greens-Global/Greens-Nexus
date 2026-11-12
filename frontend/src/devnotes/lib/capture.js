@@ -203,7 +203,7 @@ export function recordFor(el) {
 
 // Where the JSX that rendered this element lives. Dev builds stamp every host
 // element with data-nx-src="src/file.jsx:line:col" (scripts/nxsrc-plugin.mjs
-// through vite.config.js); production builds carry none, so this is null there.
+// through vite.config.js); a build without the marks has none, so this is null there.
 // The stamp is "<fileId>:<line>:<col>" on a built app (the file table is
 // /nx-src-files.json, loaded once when the mode turns on) or a full
 // "path:line:col" (tests, a bare Babel run).

@@ -61,6 +61,7 @@ from routers import files as _files
 import build_mode_chat as _chat
 import build_mode_cloud as _cloud
 import build_mode_merge as _merge
+import build_mode_tickets as _tickets
 import job_switch
 
 router = APIRouter(prefix="/dev-notes", tags=["Build Mode"])
@@ -980,6 +981,95 @@ def create_note(body: dict, user: dict = Depends(require_build_mode), db: Sessio
     # with nothing connected the composer says "this saves the pin", and the
     # server used to send it anyway and call it sent. It now stays open in
     # the Build Session, to be sent from the Queue once connected.
+    if settings.get("sendInstantly") and not _held(n) and _connected(db, email):
+        db.flush()
+        _dispatch_notes(db, [n], email)
+        _audit(db, user, "dispatch", n.id, {"session": s.id, "instant": True})
+    else:
+        _sync_session(db, s)
+    db.commit()
+    if n.status == "dispatched":
+        _cloud_start(db, [n], email)
+    db.refresh(n)
+    return _serialize(n, _viewer(user, db))
+
+
+def _copy_picture(note_id: str, kind: str, url: str) -> str:
+    """One of a ticket's pictures, copied into the pin's own folder; '' when
+    it could not be read or is not a picture. The pin never points at the
+    ticket's file, so the pin's purge can never delete ticket evidence."""
+    try:
+        signed = _files.fetchable_url(url)
+        if not signed or signed == url:
+            return ""           # storage could not sign it: nothing to fetch
+        r = httpx.get(signed, timeout=30)
+        if r.status_code >= 300 or not r.content or len(r.content) > ATTACH_MAX_BYTES:
+            return ""
+        content_type = _sniff_image(r.content, r.headers.get("content-type") or "")
+        return _upload_bytes(note_id, kind, r.content, content_type) if content_type else ""
+    except Exception as exc:  # noqa: BLE001 - a missing picture must not stop the pin
+        print(f"[build-mode] ticket picture not copied: {type(exc).__name__}")
+        return ""
+
+
+def _ticket_log(db: Session, ticket_id: str, actor: str, detail: str) -> None:
+    """One line in the ticket's activity - never a comment: nothing is mailed
+    or belled to the requester because a developer picked the ticket up."""
+    from models import TaskTicket
+    from routers.task_util import log_activity
+    t = db.query(TaskTicket).filter(TaskTicket.id == ticket_id).first()
+    if t:
+        log_activity(db, type="build_mode", actor_email=actor, entity_kind="ticket", entity_id=t.id,
+                     entity_code=t.code or "", entity_title=t.subject or "", detail=detail)
+
+
+@router.post("/from-ticket/{ticket_id}", status_code=201)
+def from_ticket(ticket_id: str, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Send To Claude Code on a ticket (Neil, 11/12/2026): the ticket becomes
+    ONE pin in the caller's Build Session - its words, the place Point At It
+    recorded, and copies of its pictures. The caller must be able to open the
+    ticket; an Ask HR ticket reads as not found. The pin then goes the way
+    every pin goes (Send Instantly, or Send To Claude Code from the Queue)."""
+    from models import TaskAttachment, TaskTicket
+    from routers import tickets as _tk
+    email = user["email"].lower()
+    t = db.query(TaskTicket).filter(TaskTicket.id == ticket_id).first()
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    _tk._require_ticket_participant(db, user, t)
+    live = (db.query(DevNote).filter(DevNote.ticket_id == t.id, DevNote.status.notin_(("done", "dismissed")))
+            .order_by(DevNote.created_at.desc()).first())
+    if live:
+        raise HTTPException(409, f"This ticket is already in Build Mode as Pin #{live.number} ({STATUS_LABELS.get(live.status, live.status)})")
+    fields = _tickets.note_fields(t)
+    if fields["route"] in BLOCKED_ROUTES:
+        fields["route"], fields["sub"] = "", ""
+    settings = _settings(db, email)
+    s = _collecting_session(db, email)
+    top = db.query(func.max(DevNote.number)).filter(DevNote.session_id == s.id).scalar() or 0
+    now = _now()
+    note_id = str(uuid.uuid4())
+    pictures = [u for u in (_copy_picture(note_id, "ticket", url) for url in _tickets.picture_urls(
+        db.query(TaskAttachment).filter(TaskAttachment.task_id == t.id).all())) if u]
+    code = (t.code or "").strip()
+    n = DevNote(id=note_id, session_id=s.id, number=int(top) + 1, status="open",
+                dispatch_target=settings.get("dispatchTarget") or "local",
+                created_by=email, created_at=now, updated_at=now, ticket_id=t.id, ticket_code=code,
+                kind=fields["kind"], priority=fields["priority"], comment=fields["comment"],
+                route=fields["route"], sub=fields["sub"], target=fields["target"],
+                screenshot_url=pictures[0] if pictures else "", attachments=pictures[1:],
+                thread=[_entry(email, "system", f"From Ticket {code}" if code else "From A Ticket")])
+    for k in _LIST_FIELDS:
+        if getattr(n, k) is None:
+            setattr(n, k, [])
+    for k in _DICT_FIELDS:
+        if getattr(n, k) is None:
+            setattr(n, k, {})
+    db.add(n)
+    _assign_owner(db, n)
+    _ticket_log(db, t.id, email, f"Sent to Claude Code as Build Mode Pin #{n.number}")
+    _audit(db, user, "from_ticket", n.id, {"ticket": t.id, "code": code, "pictures": len(pictures), "session": s.id,
+                                           "heldFor": n.owner_email if _held(n) else ""}, kind="create")
     if settings.get("sendInstantly") and not _held(n) and _connected(db, email):
         db.flush()
         _dispatch_notes(db, [n], email)
@@ -2472,6 +2562,10 @@ def mark_fixed_for_pr(db: Session, pr_number, merge_sha: str = "") -> int:
                 continue
             n.fixed_build_id = merge_sha or ""
             n.fixed_at = now
+            if n.ticket_id:
+                # The desk reads it in the ticket's activity and resolves the
+                # ticket itself - nothing here changes the ticket's status.
+                _ticket_log(db, n.ticket_id, n.created_by, f"The fix merged to dev (PR #{number}, Build Mode Pin #{n.number})")
             if (n.preview_verdict or "") == "accepted":
                 # Checked on the Ready To Check preview: no second check after merge.
                 _close(n, "done")

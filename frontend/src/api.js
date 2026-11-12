@@ -3108,6 +3108,8 @@ export const api = {
   devNotesRelease: (id) => req(`/dev-notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ release: true }) }),
   devNotesPreviewVerdict: (id, { accepted, comment = "" } = {}) => req(`/dev-notes/${encodeURIComponent(id)}/preview-verdict`, { method: "POST", body: JSON.stringify({ accepted: !!accepted, comment }) }),
   // Merge To Dev (11/12/2026): a Super Administrator merges the pin's pull request; the look reads only.
+  // A ticket becomes one pin in the caller's Build Session (11/12/2026).
+  devNotesFromTicket: (ticketId) => req(`/dev-notes/from-ticket/${encodeURIComponent(ticketId)}`, { method: "POST" }),
   devNotesMergeLook: (id) => req(`/dev-notes/${encodeURIComponent(id)}/merge`),
   devNotesMerge: (id, headSha) => req(`/dev-notes/${encodeURIComponent(id)}/merge`, { method: "POST", body: JSON.stringify({ headSha }) }),
   // { owner: {name, email} | null, held } for a source stamp - the composer

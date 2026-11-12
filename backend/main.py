@@ -1648,6 +1648,9 @@ def _run_migrations():
             # Build Mode in the cloud (Neil, 11/12/2026) - see the Postgres list.
             "ALTER TABLE dev_notes ADD COLUMN claude_session_url VARCHAR DEFAULT ''",
             "ALTER TABLE dev_note_sessions ADD COLUMN claude_session_url VARCHAR DEFAULT ''",
+            # A pin made from a ticket (11/12/2026) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN ticket_id VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN ticket_code VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3955,6 +3958,11 @@ def _run_migrations():
         # on the pin and its Build Session (build_mode_cloud.py).
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS claude_session_url VARCHAR DEFAULT ''",
         "ALTER TABLE dev_note_sessions ADD COLUMN IF NOT EXISTS claude_session_url VARCHAR DEFAULT ''",
+        # Send To Claude Code on a ticket (Neil, 11/12/2026: everyone outside
+        # the IT development team comes in through a ticket): the pin keeps
+        # which ticket it was made from (build_mode_tickets.py).
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS ticket_code VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

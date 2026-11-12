@@ -3,9 +3,9 @@
 // element (a lowercase tag - never a component or a fragment) a
 // data-nx-src="<file relative to frontend/>:<line>:<col>" attribute, so a
 // pin can say exactly which line of which file drew the element it sits on
-// (devnotes/lib/capture.js sourceOf). vite.config.js enables it only on dev
-// builds (CF_PAGES_BRANCH=dev), with VITE_NX_SRC=1, or in `vite` dev serve -
-// never on a production build. No dependency: Babel hands the plugin its own
+// (devnotes/lib/capture.js sourceOf). vite.config.js enables it on dev
+// builds (CF_PAGES_BRANCH=dev), with VITE_NX_SRC set (the production build
+// sets it since 11/12/2026), or in `vite` dev serve. No dependency: Babel hands the plugin its own
 // `types`. Options: { root } - the directory file paths are made relative to.
 //
 // `only: 'interactive'` (the fallback the contract allows if the dev bundle

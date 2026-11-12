@@ -2175,3 +2175,138 @@ def test_whoami_names_the_senders_open_pull_request():
     _mark_fixed(pr=51)
     assert client.get("/dev-notes/cli/whoami", headers=_hdr(token)).json()["openPr"] == {}
     assert {a["id"], b["id"]}
+
+
+# ── tickets into Build Mode (Neil, 11/12/2026) ────────────────────────────────
+import uuid  # noqa: E402
+
+import build_mode_tickets as BT  # noqa: E402
+
+TICKET_SHOT = "https://test.supabase.co/storage/v1/object/public/ticket-evidence/t1/pointed.png"
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+
+
+def _ticket(**over):
+    db = database.SessionLocal()
+    try:
+        fields = {"id": "tk-" + uuid.uuid4().hex[:8], "code": "TKT-0042", "subject": "Add Task does nothing",
+                  "description": "<p>I click Add Task and nothing happens.</p>"
+                                 "<p>Where: Tasks &gt; Home (/tasks/home) - button \"Add Task\" [src/tasks/Home.jsx:120]</p>",
+                  "type": "bug", "priority": "medium", "status": "open", "requester_email": DEV["email"],
+                  "created_at": "2026-11-12T15:00:00+00:00"}
+        fields.update(over)
+        row = models.TaskTicket(**fields)
+        db.add(row)
+        db.add(models.TaskAttachment(id="att-" + uuid.uuid4().hex[:8], task_id=row.id, name="pointed.png", kind="image",
+                                     url=TICKET_SHOT, added_at="2026-11-12T15:00:01+00:00", added_by=DEV["email"]))
+        db.add(models.TaskAttachment(id="att-" + uuid.uuid4().hex[:8], task_id=row.id, name="notes.pdf", kind="doc",
+                                     url=TICKET_SHOT.replace(".png", ".pdf"), added_at="2026-11-12T15:00:02+00:00"))
+        db.commit()
+        return row.id
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def storage(monkeypatch):
+    """Storage stands in: reads give a PNG, uploads are recorded."""
+    seen = {"read": [], "wrote": []}
+
+    class _Resp:
+        status_code = 200
+        content = PNG_BYTES
+        headers = {"content-type": "image/png"}
+
+    monkeypatch.setattr(D.httpx, "get", lambda url, timeout=30: (seen["read"].append(url), _Resp())[1])
+
+    def upload(note_id, kind, data, content_type):
+        seen["wrote"].append((note_id, kind, content_type, len(data)))
+        return f"https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/{note_id}/{kind}-{len(seen['wrote'])}.png"
+
+    monkeypatch.setattr(D, "_upload_bytes", upload)
+    return seen
+
+
+def test_the_where_line_is_read_back_and_never_trusts_a_path():
+    w = BT.parse_where('Before\nWhere: Tasks > Home (/tasks/home?x=1) - button "Add Task" [src/tasks/Home.jsx:120]\nAfter')
+    assert w == {"label": "Tasks > Home", "path": "/tasks/home?x=1", "route": "tasks", "sub": "home",
+                 "what": 'button "Add Task"', "file": "src/tasks/Home.jsx", "line": 120}
+    assert BT.parse_where("Where: Dashboard (/dashboard)") == {"label": "Dashboard", "path": "/dashboard", "route": "dashboard",
+                                                               "sub": "", "what": "", "file": "", "line": 0}
+    assert BT.parse_where("Where: X (/a/b) - thing [../../etc/passwd:1]")["file"] == ""
+    assert BT.parse_where("Where: X (/a/b) - thing [/etc/passwd:1]")["file"] == ""
+    assert BT.parse_where("no such line") == {}
+    assert BT.plain("<p>One</p><p>Two &amp; three<br>Four</p>") == "One\nTwo & three\nFour"
+
+
+def test_a_ticket_becomes_one_pin_with_its_own_copies_of_the_pictures(storage):
+    tid = _ticket()
+    r = client.post(f"/dev-notes/from-ticket/{tid}")
+    assert r.status_code == 201, r.text
+    n = r.json()
+    assert n["ticketId"] == tid and n["ticketCode"] == "TKT-0042" and n["status"] == "open" and n["kind"] == "bug"
+    assert n["comment"].startswith("Ticket TKT-0042: Add Task does nothing\n\nI click Add Task")
+    assert n["route"] == "tasks" and n["sub"] == "home"
+    assert n["target"]["source"] == {"file": "src/tasks/Home.jsx", "line": 120} and n["target"]["text"] == 'button "Add Task"'
+    # the picture is a COPY in the pin's folder; the PDF is not a picture and is left alone
+    assert storage["read"] == ["signed:" + TICKET_SHOT] and len(storage["wrote"]) == 1
+    assert "/qa-evidence/dev-notes/" in n["screenshotUrl"] and n["id"] in n["screenshotUrl"] and n["attachments"] == []
+    assert n["thread"][0]["text"] == "From Ticket TKT-0042"
+    db = database.SessionLocal()
+    try:
+        # the ticket: one activity line, no comment, status untouched, its file still its own
+        acts = db.query(models.TaskActivity).filter(models.TaskActivity.entity_id == tid).all()
+        assert [a.detail for a in acts] == [f"Sent to Claude Code as Build Mode Pin #{n['number']}"]
+        assert db.query(models.TaskComment).filter(models.TaskComment.task_id == tid).count() == 0
+        assert db.query(models.TaskTicket).filter(models.TaskTicket.id == tid).first().status == "open"
+        assert [a.url for a in db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == tid,
+                                                                      models.TaskAttachment.kind == "image")] == [TICKET_SHOT]
+        # nothing the pin holds points at the ticket's bucket: a purge cannot touch ticket evidence
+        row = db.query(models.DevNote).filter(models.DevNote.id == n["id"]).first()
+        assert all("ticket-evidence" not in u for u in D._media_urls(row))
+    finally:
+        db.close()
+    # once is enough while that pin is live
+    r = client.post(f"/dev-notes/from-ticket/{tid}")
+    assert r.status_code == 409 and f"Pin #{n['number']}" in r.json()["detail"]
+    # the merge tells the ticket, and still changes nothing on it
+    token = _token()["token"]
+    client.post("/dev-notes/dispatch", json={})
+    client.post("/dev-notes/cli/claim", json={"noteIds": [n["id"]]}, headers=_hdr(token))
+    client.post("/dev-notes/cli/complete", headers=_hdr(token),
+                json={"noteIds": [n["id"]], "prUrl": "https://github.com/x/y/pull/61", "prNumber": 61, "branch": "b"})
+    _mark_fixed(pr=61)
+    db = database.SessionLocal()
+    try:
+        details = [a.detail for a in db.query(models.TaskActivity).filter(models.TaskActivity.entity_id == tid)
+                   .order_by(models.TaskActivity.at).all()]
+        assert details[-1] == f"The fix merged to dev (PR #61, Build Mode Pin #{n['number']})"
+        assert db.query(models.TaskTicket).filter(models.TaskTicket.id == tid).first().status == "open"
+    finally:
+        db.close()
+
+
+def test_send_to_claude_code_needs_the_grant_and_the_ticket(storage):
+    theirs = _ticket(requester_email="someone@greensglobal.com", code="TKT-0043")
+    # a ticket the caller cannot open stays shut
+    assert client.post(f"/dev-notes/from-ticket/{theirs}").status_code in (403, 404)
+    assert client.post("/dev-notes/from-ticket/nope").status_code == 404
+    # no Build Mode grant: no door, whoever's ticket it is
+    mine = _ticket(requester_email=ADMIN["email"], code="TKT-0044")
+    _as(ADMIN)
+    try:
+        assert client.post(f"/dev-notes/from-ticket/{mine}").status_code == 403
+    finally:
+        _as(DEV)
+    # an Ask HR ticket is never sent: it reads as not found
+    hr = _ticket(confidential_desk="hr", code="TKT-0045")
+    assert client.post(f"/dev-notes/from-ticket/{hr}").status_code == 404
+    assert storage["wrote"] == []
+
+
+def test_a_ticket_with_no_where_line_or_picture_still_becomes_a_pin(storage, monkeypatch):
+    monkeypatch.setattr(F, "fetchable_url", lambda u: u)       # storage cannot sign: no picture, no failure
+    tid = _ticket(description="<p>The export is slow.</p>", type="feature_request", priority="urgent", code="TKT-0046")
+    n = client.post(f"/dev-notes/from-ticket/{tid}").json()
+    assert n["kind"] == "change" and n["priority"] == "blocking" and n["route"] == "" and n["target"] == {}
+    assert n["screenshotUrl"] == "" and storage["wrote"] == []
