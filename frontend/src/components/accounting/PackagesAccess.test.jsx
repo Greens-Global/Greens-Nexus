@@ -79,6 +79,19 @@ describe('PackagesTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Package' }));
     await waitFor(() => expect(api.createAccountingPackage).toHaveBeenCalledWith({ name: 'Quarterly Lender Package', description: '', shared: false, items: [{ reportId: 'r2', title: '' }] }));
   });
+
+  // 11/11/2026 phone pass: at 390px the list and the form sat side by side
+  // and the form was cut off - both grids stack under 641px.
+  it('stacks the list and the form on a phone', async () => {
+    const { container } = render(<PackagesTab />);
+    await screen.findByLabelText('Package Name');
+    expect(container.querySelector('.acct-packages')).toBeTruthy();
+    expect(screen.getByLabelText('Package Name').closest('.acct-packages-form')).toBeTruthy();
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const css = fs.readFileSync(path.resolve(__dirname, '../../style.css'), 'utf8');
+    expect(css).toMatch(/@media \(max-width: 640px\) \{ \.acct-packages, \.acct-packages-form \{ grid-template-columns: 1fr !important; \} \}/);
+  });
 });
 
 describe('the package PDF', () => {

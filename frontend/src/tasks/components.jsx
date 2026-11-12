@@ -386,7 +386,7 @@ const sameYMD = (a, b) => !!a && !!b && a.getFullYear() === b.getFullYear() && a
 // flipped up when there isn't room below - so it works inside modals/sheets too.
 // `min` (YYYY-MM-DD): days before it are shown but cannot be picked, and
 // months/years wholly before it are greyed out the same way.
-function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '', max = '', repeat = null }) {
+function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '', max = '', repeat = null, monthOnly = false }) {
   const selected = value ? isoToDate(value) : null;
   const today = new Date();
   const minDate = min ? isoToDate(min) : null;
@@ -403,7 +403,8 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   // title zooms out to that year's months, clicking the year zooms out to a
   // page of years, and picking one zooms straight back in. Lets you cross
   // years in two clicks instead of paging a month at a time.
-  const [zoom, setZoom] = useState('days');
+  // monthOnly (11/11/2026): a month box - opens on the months, a month is the pick.
+  const [zoom, setZoom] = useState(monthOnly ? 'months' : 'days');
   // 'repeat': the footer's Repeat button swapped the days for the repeat
   // panel the caller supplied (`repeat.render`).
   const [panel, setPanel] = useState('days');
@@ -495,8 +496,8 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
           {zoom === 'days' && (
             <button onClick={() => setZoom('months')} style={titleBtn} title="Pick a month">{CAL_MONTHS[cursor.getMonth()]}</button>
           )}
-          <button onClick={() => setZoom(zoom === 'years' ? 'days' : 'years')} style={titleBtn}
-            title={zoom === 'years' ? 'Back to days' : 'Pick a year'}>
+          <button onClick={() => setZoom(zoom === 'years' ? (monthOnly ? 'months' : 'days') : 'years')} style={titleBtn}
+            title={zoom === 'years' ? (monthOnly ? 'Back to months' : 'Back to days') : 'Pick a year'}>
             {zoom === 'years' ? `${yearStart} - ${yearStart + CAL_YEAR_PAGE - 1}` : cursor.getFullYear()}
           </button>
         </div>
@@ -543,7 +544,10 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
             const isSel = !!selected && selected.getFullYear() === cursor.getFullYear() && selected.getMonth() === i;
             const off = monthBeforeMin(cursor.getFullYear(), i);
             return (
-              <button key={label} disabled={off} onClick={() => { setCursor(new Date(cursor.getFullYear(), i, 1)); setZoom('days'); }}
+              <button key={label} disabled={off} onClick={() => {
+                if (monthOnly) { onChange(`${cursor.getFullYear()}-${String(i + 1).padStart(2, '0')}`); onClose(); return; }
+                setCursor(new Date(cursor.getFullYear(), i, 1)); setZoom('days');
+              }}
                 style={{ ...cellBtn, background: isSel ? NX.primary : 'transparent', color: isSel ? '#fff' : NX.ink,
                   boxShadow: isNow && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none', ...(off && !isSel ? disabledCell : null) }}>{label}</button>
             );
@@ -566,7 +570,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, borderTop: `1px solid ${NX.border2}`, paddingTop: 8 }}>
-        <button onClick={() => { onChange(null); onClose(); }} style={linkBtn}>Clear</button>
+        {monthOnly ? <span /> : <button onClick={() => { onChange(null); onClose(); }} style={linkBtn}>Clear</button>}
         {/* Repeat sits with the date it repeats from (Sagar, Oct 14 2026),
             the way Asana's date picker has it. Only where the caller can
             save a rule - due dates, not start or end dates. */}
@@ -577,7 +581,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{repeat.on ? repeat.label : 'Repeat'}</span>
           </button>
         )}
-        {!beforeMin(new Date(today.getFullYear(), today.getMonth(), today.getDate())) ? (
+        {monthOnly ? (
+          <button onClick={() => { onChange(dateToISO(today).slice(0, 7)); onClose(); }} style={linkBtn}>This Month</button>
+        ) : !beforeMin(new Date(today.getFullYear(), today.getMonth(), today.getDate())) ? (
           <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
         ) : <span />}
       </div>
@@ -599,7 +605,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
 // displays as it is; it just cannot be moved to another past day.
 // `repeat`: { on, label, render({ back, close }) } adds a Repeat button to the
 // calendar's footer that opens the caller's repeat controls in its place.
-export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, max = '', repeat = null, min: minDate = '' }) {
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, max = '', repeat = null, min: minDate = '', monthOnly = false }) {
   // `min` (YYYY-MM-DD, Items return dates 11/02/2026): the earliest pickable day; noPast is today.
   const min = minDate && (!noPast || minDate > localTodayISO()) ? minDate : noPast ? localTodayISO() : '';
   const [open, setOpen] = useState(false);
@@ -640,7 +646,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
           fontFamily: FONT, fontSize: 'inherit', fontWeight: 'inherit', whiteSpace: 'nowrap',
           color: color || (value ? NX.ink : NX.faint),
         }}
-      >{value ? fmtDate(value) : placeholder}</button>
+      >{value ? (monthOnly ? `${CAL_MONTHS[Number(value.slice(5, 7)) - 1]} ${value.slice(0, 4)}` : fmtDate(value)) : placeholder}</button>
       {!(compact && value) && (
         <CalendarDays
           size={15} strokeWidth={2} color={NX.faint}
@@ -648,7 +654,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
           onClick={toggle}
         />
       )}
-      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} />}
+      {open && rect && <CalendarPopover value={monthOnly && value ? `${value}-01` : value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} monthOnly={monthOnly} />}
     </span>
   );
 }

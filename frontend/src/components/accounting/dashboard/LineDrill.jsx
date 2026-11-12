@@ -1,6 +1,7 @@
 import { Suspense, lazy, useState } from 'react';
 import { mEnd, mStart, shiftKey } from '../../../accounting/dashboard/model/months';
 import { inScope } from '../../../accounting/dashboard/model/scope';
+import { requestStatement } from '../drill';
 import { lineQuery } from '../reportModel';
 import { useDash } from './DashContext';
 
@@ -35,7 +36,16 @@ export function useLineDrill() {
   return [show, panel];
 }
 
+/** open(): the Income Statement on Reports for this year to the dashboard's month, in its scope and book. */
+export function useStatementOpen() {
+  const { ix, entities, scope, period, book } = useDash();
+  return () => requestStatement({
+    entities: scope === 'ALL' ? [] : entities.filter((e) => inScope(ix, e.code, scope)).map((e) => e.code),
+    from: `${period.slice(0, 4)}-01-01`, to: mEnd(period), book: book === 'all' ? '' : book,
+  });
+}
+
 /** A table figure that opens its lines: looks like the figure until hovered. */
-export function DrillFigure({ onOpen, children }) {
-  return <button type="button" className="acct-drill" title="See the ledger lines behind this amount" onClick={onOpen}>{children}</button>;
+export function DrillFigure({ onOpen, children, title = 'See the ledger lines behind this amount' }) {
+  return <button type="button" className="acct-drill" title={title} onClick={onOpen}>{children}</button>;
 }
