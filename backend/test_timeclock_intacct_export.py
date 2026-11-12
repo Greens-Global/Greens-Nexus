@@ -138,7 +138,7 @@ class RouteTests(unittest.TestCase):
         lines = r.text.split("\r\n")
         # No Timer header by default: QuickBooks 2022+ imports with Import > IIF Files (11/12/2026).
         self.assertEqual(lines[0], "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS")
-        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t0", lines)
+        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test(GG-001)\t\tRegular Pay\t8:00\t\t\tY\t0", lines)
 
     def test_iif_route_keeps_one_company_and_approved_sheets(self):
         # Import Hub (Neil, 10/15): the company picker and "approved only".
@@ -149,7 +149,7 @@ class RouteTests(unittest.TestCase):
         self.assertNotIn("Pat Test", r.text)          # not approved yet
         self._approve(PAT)
         r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&company=co-intacct&approved_only=true&finalized_only=false")
-        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t0", r.text.split("\r\n"))
+        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test(GG-001)\t\tRegular Pay\t8:00\t\t\tY\t0", r.text.split("\r\n"))
 
     def test_hours_route_answers_hours_by_class_without_pay(self):
         r = self.client.get(f"/timeclock/export-hours?start={START}&end={END}&company=co-intacct")

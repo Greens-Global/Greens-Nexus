@@ -3224,9 +3224,15 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
     lines.append("!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS")
     book = payroll_codes.codebook(db)
     no_job = payroll_codes.blank_job_reader(db)
+    # EMP is the QuickBooks name: the person's name with their Employee Code in
+    # brackets, no space - "Pat Smith(E-0005)" (Charmi, 11/13/2026, every
+    # company file). A name QuickBooks does not have makes a NEW employee on
+    # import. No code in Nexus = the name alone.
+    emp_codes = {(e or "").lower(): (c or "").strip() for e, c in db.query(
+        NexusEmployee.work_email, NexusEmployee.employee_code).all() if e}
     for r in rows:
         card = _compute_timecard(db, r["email"], start, end)
-        name = _clean(r["name"])
+        name = _iif_emp(_clean(r["name"]), _clean(emp_codes.get((r["email"] or "").lower(), "")))
         # Leave Customer:Job Blank (Charmi, 11/06/2026): the company's QuickBooks
         # file has no customers for the work sites - JOB blank, not billable.
         blank_job = no_job(co_of.get((r["email"] or "").lower(), ""))
@@ -3254,13 +3260,28 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
                 pitem = _clean(codes[pay_class])
                 # Holiday pay is a paid day off, not time at a job: no JOB, not billable.
                 job_c, bill_c = ("", "0") if pay_class == "holiday" else (job, billing)
-                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job_c}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{bill_c}")
+                # Hours:minutes, never decimals (Charmi, 11/12/2026): QuickBooks
+                # adds the rows up and multiplies by the rate, so a decimal row
+                # (7:10 -> 7.17) left the check a few cents off Nexus; 7:10 is
+                # exact, the same as typing the hours into the paycheck.
+                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job_c}\t{name}\t\t{pitem}\t{_iif_hm(mins)}\t\t\tY\t{bill_c}")
     body = "\r\n".join(lines) + "\r\n"
     # Time not yet finalized is a preview - named so nobody imports it by mistake.
     who = f"-{re.sub(r'[^A-Za-z0-9._-]', '', email_q.split('@')[0])}" if email_q else ""
     fname = f"timeclock-{start or 'all'}-to-{end or 'now'}{who}{'' if finalized_only else '-DRAFT'}.iif"
     return PlainTextResponse(body, media_type="application/octet-stream",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+def _iif_emp(name: str, code: str) -> str:
+    """The IIF EMP: "Pat Smith(E-0005)", or the name alone with no code."""
+    return f"{name}({code})" if code else name
+
+
+def _iif_hm(mins) -> str:
+    """The IIF DURATION as hours:minutes (8:00, 7:10, 0:29)."""
+    m = int(round(float(mins or 0)))
+    return f"{m // 60}:{m % 60:02d}"
 
 
 @router.get("/export-hours")
