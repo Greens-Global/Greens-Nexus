@@ -131,7 +131,8 @@ PROCESSORS = [
                "login.windows.net", "login.live.com", "sts.windows.net", "aka.ms"]},
     {"key": "microsoft_graph", "name": "Microsoft 365 (Graph: Outlook, Teams, OneDrive)", "group": "core",
      "always": False, "env": ["AZURE_CLIENT_SECRET"], "where": "server and browser",
-     "purpose": "Sending Nexus email, posting Teams messages, writing shifts and meetings to Outlook "
+     "purpose": "Sending Nexus email, posting Teams messages (and reading the reactions and replies on "
+                "kudos posts back as thanks), writing shifts and meetings to Outlook "
                 "calendars, showing Teams presence, reading the intake mailboxes, interview transcripts "
                 "and recordings, creating work accounts, and converting Word files to PDF.",
      "data": "Names, emails and the content of the message, event or document involved.",

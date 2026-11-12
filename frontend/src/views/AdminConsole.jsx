@@ -602,10 +602,11 @@ const GROUPS = [
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true },
     sub: 'The company values a kudos may be tagged with - the send form asks which one they lived. No values, no question.',
     keywords: 'kudos thanks values recognition appreciation' },
-  { id: 'performance-kudos-chat', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Kudos Teams Chat', flush: true,
+  // Kudos on Teams (Neil, 11/12/2026): a channel per company, two way - reactions come back as thanks.
+  { id: 'performance-kudos-chat', subject: 'performance', face: 'both', scope: 'layered', icon: Target, title: 'Kudos on Teams', flush: true,
     needs: { role: 'administrator', orgWide: true },
-    sub: 'The Teams chat a company\'s kudos are posted to, as the sender. Empty = the send form offers no Teams switch for that company.',
-    keywords: 'kudos teams chat post channel' },
+    sub: 'The Teams channel a company\'s kudos are posted to, as the sender. Reactions and replies there show up in Nexus as thanks.',
+    keywords: 'kudos teams chat post channel reactions thanks two way' },
   // KPI scorecards per department (Charmi, 10/30/2026): a company's own, so a company face.
   { id: 'performance-scorecards', subject: 'performance', face: 'company', scope: 'company', icon: Target, title: 'KPI Scorecards',
     needs: { role: 'administrator', grant: ['hr', 'full'], people: true },

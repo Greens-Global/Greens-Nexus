@@ -307,7 +307,7 @@ def _thanks_rows(db: Session, kudos_ids: list) -> dict:
     return out
 
 
-def _recount_bell(db: Session, k: models.PerfKudos, grew: bool) -> None:
+def recount_bell(db: Session, k: models.PerfKudos, grew: bool) -> None:
     """The recipient's one "Kudos For You" bell for this kudos, rewritten
     with how many people added their thanks - never a bell per thanks. Only
     a new thanks (`grew`) makes it unread; a Take Back refreshes the count
@@ -342,16 +342,24 @@ def add_thanks(db: Session, user: dict, k: models.PerfKudos, note: str = "") -> 
         db.rollback()
         raise HTTPException(409, "You already added your thanks.")
     if me == _low(k.to_email):
-        k.seen_at = k.seen_at or perf.now_iso()
-        _tell(db, k.from_email, f"perf-kudos-thanks:{k.id}", "They Said Thanks",
-              f"{perf.name_of(db, me)} said thanks for your kudos" + (f": \"{t.note}\"" if t.note else ""),
-              f"performance:kudos:{k.id}", k.company_id or "")
+        recipient_said_thanks(db, k, t)
     else:
-        _recount_bell(db, k, grew=True)
+        recount_bell(db, k, grew=True)
     return t
 
 
-def remove_thanks(db: Session, user: dict, k: models.PerfKudos) -> None:
+def recipient_said_thanks(db: Session, k: models.PerfKudos, t: models.PerfKudosThanks) -> None:
+    """The recipient's thanks (Say Thanks here, or their reaction on the
+    Teams post): the kudos is seen and the sender is belled once."""
+    k.seen_at = k.seen_at or perf.now_iso()
+    _tell(db, k.from_email, f"perf-kudos-thanks:{k.id}", "They Said Thanks",
+          f"{perf.name_of(db, t.from_email)} said thanks for your kudos" + (f": \"{t.note}\"" if t.note else ""),
+          f"performance:kudos:{k.id}", k.company_id or "")
+
+
+def remove_thanks(db: Session, user: dict, k: models.PerfKudos) -> dict:
+    """Take a thanks back; returns what it was ({email, reaction}) so a
+    clap on the Teams post can come off too (perf_kudos_teams)."""
     me = _low(user.get("email"))
     if k is None or not can_read_kudos(db, user, k):
         raise HTTPException(404, "Kudos not found")
@@ -361,9 +369,11 @@ def remove_thanks(db: Session, user: dict, k: models.PerfKudos) -> None:
     t = db.query(T).filter(T.kudos_id == k.id, T.from_email == me).first()
     if t is None:
         raise HTTPException(404, "You had not added your thanks.")
+    taken = {"email": me, "reaction": t.teams_reaction or ""}
     db.delete(t)
     db.flush()
-    _recount_bell(db, k, grew=False)
+    recount_bell(db, k, grew=False)
+    return taken
 
 
 def unseen(db: Session, user: dict) -> list:
@@ -391,72 +401,114 @@ def summary(db: Session, user: dict) -> dict:
     return {"thisYear": q.count(), "latestFrom": perf.name_of(db, latest.from_email) if latest else ""}
 
 
-# ── The Teams post (Neil, 11/08/2026) ────────────────────────────────────────
+# ── The Teams post (Neil, 11/08/2026; both ways 11/12/2026) ─────────────────
 # One post per kudos through the ticket Teams queue (kind "kudos", the same
-# retry sweep as every other Teams post) into the chat Settings names
-# (`kudos_teams_chat_id`, a Super Administrator's). Never a Graph call here.
+# retry sweep as every other Teams post) into the channel - or group chat -
+# Settings names for the RECIPIENT's company (performance.kudos_teams_target,
+# a Super Administrator's). The post @mentions the recipient and its message
+# id is kept, so reactions and replies come back as thanks
+# (perf_kudos_teams.py). Never a Graph call outside delivery.
 
 TEAMS_KIND = "kudos"
 SKIPPED_HIDDEN = "skipped: kudos taken down"
 
 
+def teams_target(db: Session, company_id: str) -> dict:
+    """Where a company's kudos go ({} = nowhere) - layered like the values."""
+    return perf.kudos_teams_target(db, company_id)
+
+
 def teams_chat_id(db: Session, company_id: str) -> str:
-    """The chat a company's kudos go to - layered like the values (an
-    organization default, a company's own over it); '' = none."""
-    return perf.settings_for_company(db, company_id).get("kudosTeamsChatId") or ""
+    """The channel or chat id a company's kudos go to; '' = none."""
+    return teams_target(db, company_id).get("id", "")
 
 
 def options(db: Session, user: dict, to: str) -> dict:
     """What the send form needs once a recipient is picked: their company's
-    values and whether their company has a Teams chat."""
+    values and whether (and where) their company posts kudos in Teams."""
     emp = colleague(db, _low(to))
     cid = (emp.company if emp else "") or ""
-    return {"values": kudos_values(db, cid), "teamsChat": bool(teams_chat_id(db, cid))}
+    t = teams_target(db, cid)
+    place = (f"{t.get('teamName') or 'Team'} > {t.get('name') or 'Channel'}" if t.get("type") == "channel"
+             else (t.get("name") or "the company's Teams chat")) if t else ""
+    return {"values": kudos_values(db, cid), "teamsChat": bool(t), "teamsPlace": place}
+
+
+def post_html(db: Session, k: models.PerfKudos, mention_id: str = "") -> tuple:
+    """The post (html, mentions): who to whom - the recipient @mentioned when
+    their Entra id is known - the value, the words, and a link back."""
+    import html as html_lib
+    from app_url import app_url
+    e = html_lib.escape
+    to_name = perf.name_of(db, k.to_email)
+    to_html = f'<at id="0">{e(to_name)}</at>' if mention_id else f"<strong>{e(to_name)}</strong>"
+    head = f"\U0001F44F <strong>Kudos</strong> for {to_html} from {e(perf.name_of(db, k.from_email))}"
+    if k.value:
+        head += f" · <em>{e(k.value)}</em>"
+    words = "<br>".join(e(line) for line in (k.message or "").split("\n"))
+    link = f'{app_url()}/workday/performance:kudos:{k.id}'
+    html = f'<p>{head}</p><p>{words}</p><p><a href="{e(link)}">Open in Nexus</a></p>'
+    mentions = [{"id": 0, "mentionText": to_name,
+                 "mentioned": {"user": {"id": mention_id, "displayName": to_name, "userIdentityType": "aadUser"}}}] \
+        if mention_id else None
+    return html, mentions
 
 
 def queue_teams_post(db: Session, k: models.PerfKudos):
-    """Queue (not send) the kudos post to the RECIPIENT's company's chat;
-    None when that company has none. The caller commits and hands the row to
-    routers.tickets._deliver_teams_dm."""
-    import html as html_lib
+    """Queue (not send) the kudos post to the RECIPIENT's company's channel or
+    chat; None when that company has none. The caller commits and hands the
+    row to routers.tickets._deliver_teams_dm."""
+    import perf_kudos_teams as pkt
     from routers.task_util import gen_id
-    chat_id = teams_chat_id(db, k.company_id or "")
-    if not chat_id:
+    t = teams_target(db, k.company_id or "")
+    if not t:
         return None
-    text = f"Kudos: {perf.name_of(db, k.from_email)} to {perf.name_of(db, k.to_email)} - " \
-           + (f"{k.value} - " if k.value else "") + (k.message or "")
+    pkt._set_post(k, type=t["type"], teamId=t.get("teamId", ""), convId=t["id"], place=t.get("name", ""))
+    html, _ = post_html(db, k)
     row = models.TicketTeamsMessage(id=gen_id(), ticket_id=k.id, agent_email=k.from_email, requester_email=k.from_email,
-                                    html=f"<p>{html_lib.escape(text)}</p>", chat_id=chat_id, created_at=perf.now_iso(),
-                                    kind=TEAMS_KIND)
+                                    html=html, chat_id=t["id"], created_at=perf.now_iso(), kind=TEAMS_KIND)
     db.add(row)
     return row
 
 
 def deliver_teams(db: Session, row) -> bool:
     """One delivery attempt for a claimed kudos row (teams_post.deliver_ticket_row):
-    as the sender when they are in the chat, else the feedback chat's fallback
-    posters. Commits the outcome."""
-    import bff_session
-    from feature_requests import _env_posters
-    from teams_post import send_chat_message
+    as the sender when they can post there, else the fallback posters.
+    Keeps the post's message id on the kudos. Commits the outcome."""
+    import perf_kudos_teams as pkt
+    import teams_post
     k = db.get(models.PerfKudos, row.ticket_id)
     if k is None or k.hidden_at:
         row.sent, row.send_error = 1, SKIPPED_HIDDEN
         db.commit()
         return False
+    tp = pkt.post_of(k)
+    kind = tp.get("type") or "chat"
+    conv = tp.get("convId") or row.chat_id   # a row queued before 11/12/2026 carries only the chat
     errors = []
-    for who in dict.fromkeys([_low(row.requester_email), *_env_posters()]):
+    for who in dict.fromkeys([_low(row.requester_email), *pkt._env_posters()]):
         if not who:
             continue
-        tok = bff_session.graph_token_for_email(db, who)
+        tok = pkt.token_for(db, who, pkt.send_scopes(kind))
         if not tok:
             errors.append(f"{who}: no Teams session")
             continue
+        # The @mention needs the recipient's Entra id: kept, or looked up with
+        # the poster's read token; without it the name is just bold.
+        mention_id = pkt.id_for_email(db, pkt.token_for(db, who, pkt.read_scopes(kind)), k.to_email)
+        html, mentions = post_html(db, k, mention_id)
         try:
-            send_chat_message(tok, row.chat_id, row.html)
-        except Exception as ex:  # noqa: BLE001 - the next person may be in the chat
+            if kind == "channel":
+                msg = teams_post.send_channel_message(tok, tp.get("teamId", ""), conv, html, mentions=mentions)
+            else:
+                msg = teams_post.send_chat_message(tok, conv, html, mentions=mentions)
+        except Exception as ex:  # noqa: BLE001 - the next person may be in the channel
             errors.append(f"{who}: {str(ex)[:120]}")
             continue
+        k = db.get(models.PerfKudos, row.ticket_id)
+        pkt._set_post(k, type=kind, convId=conv, poster=who, url=(msg or {}).get("webUrl", ""))
+        k.teams_message_id = (msg or {}).get("id", "") or ""
+        k.teams_sync_due_at = pkt.due_after(k.created_at) if k.teams_message_id else ""
         row.agent_email, row.sent, row.send_error = who, 1, ""
         db.commit()
         return True
@@ -480,6 +532,7 @@ def hide_kudos(db: Session, user: dict, k: models.PerfKudos) -> None:
     if not (me == _low(k.from_email) or perf.hr_for(db, user, k.company_id or "")):
         raise HTTPException(403, "Only the sender or HR can take kudos down.")
     k.hidden_at, k.hidden_by = perf.now_iso(), me
+    k.teams_sync_due_at = ""   # a taken-down kudos is not read back from Teams
     # A Teams post still waiting for it is marked, not sent.
     M = models.TicketTeamsMessage
     for row in db.query(M).filter(M.kind == TEAMS_KIND, M.ticket_id == k.id, M.sent == 0).all():
@@ -495,11 +548,27 @@ def kudos_out(db: Session, user: dict, k: models.PerfKudos, thanks: Optional[lis
             "toEmail": k.to_email, "toName": perf.name_of(db, k.to_email), "message": k.message or "",
             "value": k.value or "", "seenAt": k.seen_at or "",
             "createdAt": k.created_at or "", "hidden": bool(k.hidden_at),
-            "thanks": [{"email": t.from_email, "name": perf.name_of(db, t.from_email), "note": t.note or ""} for t in thanks],
+            "thanks": [{"email": t.from_email, "name": perf.name_of(db, t.from_email), "note": t.note or "",
+                        "via": t.via or "", "reaction": _emoji(t.teams_reaction)} for t in thanks],
+            "teams": _teams_out(k),
             "thanksCount": len(thanks), "myThanks": {"note": mine.note or ""} if mine else None,
             "can": {"hide": not k.hidden_at and (me == _low(k.from_email) or perf.hr_for(db, user, k.company_id or "")),
                     "thank": not k.hidden_at and me != _low(k.from_email) and mine is None,
                     "takeBack": mine is not None and me != _low(k.to_email)}}
+
+
+def _emoji(reaction: str) -> str:
+    import perf_kudos_teams
+    return perf_kudos_teams.emoji(reaction)
+
+
+def _teams_out(k: models.PerfKudos):
+    """The Teams post under a kudos: a link and how many there who are not
+    colleagues reacted; None when it was never posted."""
+    if not k.teams_message_id:
+        return None
+    tp = k.teams_post if isinstance(k.teams_post, dict) else {}
+    return {"url": tp.get("url", ""), "others": int(tp.get("others") or 0), "type": tp.get("type") or "chat"}
 
 
 def kudos_list(db: Session, user: dict, scope: str = "company", person: str = "", company: str = "", limit: int = 60) -> dict:
