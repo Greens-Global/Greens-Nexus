@@ -884,7 +884,7 @@ export function LevelGuide({ moduleId, onPick, lit = false }) {
       <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px', transition: 'background 1.2s, box-shadow 1.2s',
         background: lit ? 'var(--wk-warn-tint, #fff8dc)' : 'var(--card)', boxShadow: lit ? '0 0 0 2px #f5c518' : 'none' }}>
         {LEVEL_ORDER.map(l => (
-          <div key={l} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 12, alignItems: 'start', padding: '6px 0', fontSize: 12.5, lineHeight: 1.45 }}>
+          <div key={l} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 12, alignItems: 'start', padding: '6px 0', fontSize: 13, lineHeight: 1.45 }}>
             <span><LevelPill level={l} /></span>
             <span>{capabilityText(m.id, l, m.label)}</span>
           </div>
