@@ -17,6 +17,52 @@ With the walls on, an Administrator whose own People record has no company sees 
 rows (records that belong to no company) - the walls fail closed, they never
 open every company.
 
+## Grant Levels
+
+Pranshu, 11/12/2026. A grant is a module plus ONE of three levels
+(`auth.MODULE_LEVELS`):
+
+| Level | Means |
+|---|---|
+| Viewer | Reads the module and works their own records in it. |
+| Editor | Creates and edits records in it. |
+| Full | Manages everything in the module inside their scope, deletes included. |
+
+**Owner is retired.** A stored `:owner` reads as Full, and a one-time startup
+pass (`super_admins_seed.retire_owner_level_once`, mark
+`roles.owner_level_retired_2026_11_12`) rewrites every group and job role to
+`:full` and drops the dead `development` and `purchase` grants. The tier KEY
+`owner` (Super Administrator, level 5) is untouched.
+
+**Tiers still gate on top of grants.** A Full grant never replaces a
+Manager or Administrator tier check: Act As at the Manager tier reaches only
+the caller's own reporting line, and below the Manager tier a What's New
+entry is a submission (Pending Review) - edit and delete need Manager.
+
+**Super Administrator by tier, no grant:** deleting a person, and the
+Workflows organization-wide controls ("Every company" scope, webhooks,
+Settings > Workflows).
+
+Every module row in Settings > People & Access > Roles & Access has a
+"What does this unlock?" link that opens the Level Guide on the Matrix tab:
+the Viewer / Editor / Full lines plus what still needs the Manager,
+Administrator or Super Administrator tier. The text comes from
+`frontend/src/lib/moduleCapabilities.js` - the one source for these
+descriptions; a changed gate changes it in the same PR.
+
+| Module | Viewer | Editor | Full | Still tier-only |
+|---|---|---|---|---|
+| Tasks | Sees tasks assigned to or shared with them; does not create tasks | Creates, edits and completes tasks | Acts as a manager inside Tasks (was Owner) | - |
+| Credentials | see the Level Guide | see the Level Guide | Manages every credential | - |
+| Testing | see the Level Guide | see the Level Guide | Deletes runs | - |
+| Files | Reads | Writes | Deletes | - |
+| Build Mode | Reads | Works their own pins | Works anyone's pins | - |
+| Workforce Analytics | Direct reports | Whole reporting line | Whole company | - |
+| Documents (on top of the People grants) | Views and signs | Sends for signature | Voids and deletes | - |
+| Workflows | Sees workflows and runs in scope | Builds, tests and publishes their own | Manages everyone's in scope and the company's templates | "Every company" scope, webhooks, Settings > Workflows: Super Administrator |
+| People | see the Level Guide | see the Level Guide | see the Level Guide | Deleting a person: Super Administrator |
+| Every other module | see the Level Guide in Roles & Access | | | |
+
 ## Who is a Super Administrator
 
 Set once on 11/02/2026 (`backend/super_admins_seed.py`): Neil Kadakia,

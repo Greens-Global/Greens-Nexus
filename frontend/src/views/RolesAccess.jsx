@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
   LayoutGrid, Copy, MonitorOff, TimerOff, PlayCircle, Users, User, MailPlus, ChevronLeft,
-  Hash, MessageSquare,
+  Hash, MessageSquare, HelpCircle,
 } from 'lucide-react';
 import { ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
 import AccessTab from '../people/AccessTab';
@@ -14,9 +14,9 @@ import { usePeopleDirectory } from '../lib/queries';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
-import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
+import { useRole, MODULES, MODULE_LEVELS, ROLES, grantLevel } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
-import { capabilityText } from '../lib/moduleCapabilities';
+import { MODULE_CAPABILITIES, capabilityText, tierText } from '../lib/moduleCapabilities';
 import GuidedTour from '../components/GuidedTour';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { PersonSelect, Modal as SheetModal } from '../tasks/components';
@@ -31,12 +31,11 @@ import PageTrail from '../components/PageTrail';
 // their access, every line says where it came from), Job roles render as
 // plain-English cards, and the full matrix lives in a tamed Audit tab with
 // module families that expand on demand.
-const LEVEL_ORDER = ['viewer', 'editor', 'full', 'owner'];
-// Not offered in a role's bundle: admin screens, the compensation reveal (its
-// own toggle), and Development - off the nav since Neil, Aug 11 ("the module
-// isn't being built right now"), so a grant on it opened nothing (Oct 2).
-// Existing grants on it stay harmless; the view still resolves for old links.
-const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp', 'development'].includes(m.id));
+// Owner was retired (11/2026): the API reads a stored 'owner' as Full.
+const LEVEL_ORDER = ['viewer', 'editor', 'full'];
+// Not offered in a role's bundle: admin screens and the compensation reveal
+// (its own toggle). Development left MODULES with the dead grant (11/2026).
+const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp'].includes(m.id));
 const TIERS = Object.keys(ROLES);
 
 // Starter bundle for a brand-new Employee-tier job role - prefills the editor
@@ -60,11 +59,13 @@ const FAMILIES = [
   { id: 'company',  label: 'Company',       modules: ['sop', 'hr', 'documents', 'external-links', 'support'] },
   { id: 'money',    label: 'Money',         modules: ['accounting', 'investor-relations'] },
   { id: 'field',    label: 'Field & assets', modules: ['inventory', 'property-asset', 'ops', 'operations'] },
-  { id: 'growth',   label: 'Growth',        modules: ['marketing', 'development'] },
+  { id: 'growth',   label: 'Growth',        modules: ['marketing'] },
   { id: 'adminit',  label: 'Admin & IT',    modules: ['it', 'testing', 'credvault', 'admin-console'] },
 ].map(f => ({ ...f, modules: f.modules.filter(id => GRANTABLE.some(m => m.id === id)) }));
 
 const moduleLabel = id => MODULES.find(m => m.id === id)?.label || id;
+// A row's grants as { moduleId: level }; a stored legacy 'owner' reads as Full.
+const bundleOf = allowed => Object.fromEntries((allowed || []).map(g => [g.id, grantLevel(g.level)]));
 const PEOPLE_PAGE_SIZE = 10;
 
 // Tiny face for chips and rows - falls back to an initial when there's no photo.
@@ -75,17 +76,17 @@ export function Avatar({ name, src, size = 20 }) {
 }
 
 // ── shared bits (also reused by the People card Access section) ───────────────
-export function LevelPill({ level, title }) {
-  if (!level) return <span style={{ color: 'var(--muted)', opacity: 0.4 }}>-</span>;
-  const label = MODULE_LEVELS[level]?.label || level;
+export function LevelPill({ level: raw, title }) {
+  if (!raw) return <span style={{ color: 'var(--muted)', opacity: 0.4 }}>-</span>;
+  const level = grantLevel(raw);   // an old cached 'owner' row reads as Full
+  const label = MODULE_LEVELS[level].label;
   const base = { display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap' };
   const styles = {
     viewer: { ...base, background: 'transparent', color: 'var(--muted)', boxShadow: 'inset 0 0 0 1.5px var(--line-strong,var(--line))' },
     editor: { ...base, background: 'color-mix(in srgb, var(--ink) 12%, transparent)', color: 'var(--ink)' },
     full:   { ...base, background: 'var(--ink)', color: 'var(--card)' },
-    owner:  { ...base, background: 'var(--ink)', color: 'var(--card)', boxShadow: 'inset 0 0 0 1.5px color-mix(in srgb, var(--card) 45%, transparent)' },
   };
-  return <span style={styles[level] || styles.viewer} title={title || MODULE_LEVELS[level]?.description || ''}>{label}</span>;
+  return <span style={styles[level]} title={title || MODULE_LEVELS[level].description}>{label}</span>;
 }
 
 // A level pill that also names the module it's for - so a row of grants reads
@@ -110,14 +111,14 @@ export function TierBadge({ tier }) {
   );
 }
 
-// "Owns: Accounting · Edits: Documents, Tasks · Views: Dashboard +2" - the
+// "Runs: Accounting · Edits: Documents, Tasks · Views: Dashboard +2" - the
 // plain-English one-liner that replaces a row of 20 pills on role cards.
-const LEVEL_VERB = { owner: 'Owns', full: 'Runs', editor: 'Edits', viewer: 'Views' };
+const LEVEL_VERB = { full: 'Runs', editor: 'Edits', viewer: 'Views' };
 function bundleSummary(allowed) {
-  const byLevel = { owner: [], full: [], editor: [], viewer: [] };
-  (allowed || []).forEach(g => { (byLevel[g.level] || byLevel.viewer).push(moduleLabel(g.id)); });
+  const byLevel = { full: [], editor: [], viewer: [] };
+  (allowed || []).forEach(g => { byLevel[grantLevel(g.level)].push(moduleLabel(g.id)); });
   const parts = [];
-  for (const lvl of ['owner', 'full', 'editor', 'viewer']) {
+  for (const lvl of ['full', 'editor', 'viewer']) {
     const list = byLevel[lvl];
     if (!list.length) continue;
     const shown = list.slice(0, 3).join(', ');
@@ -184,6 +185,9 @@ export default function RolesAccess({ embedded = false }) {
   const [toast, setToast] = useState(null);
   const [tour, setTour] = useState(false);
   useEffect(() => registerTour('roles', 'Roles & Access', () => setTour(true)), []);   // the Help panel's Take the Tour (lib/tours.js)
+  // "Open in Matrix" from an editor's Level Guide: the Matrix tab, this module picked and lit.
+  const [guideJump, setGuideJump] = useState(null);
+  const openGuideInMatrix = id => { setSub('audit'); setGuideJump({ id, n: Date.now() }); };
   const [collapsedDepts, setCollapsedDepts] = useState(() => new Set());   // department sections closed
   const toggleDept = d => setCollapsedDepts(s => { const n = new Set(s); n.has(d) ? n.delete(d) : n.add(d); return n; });
   const [dragRole, setDragRole] = useState(null);   // job-role id being dragged
@@ -600,12 +604,12 @@ export default function RolesAccess({ embedded = false }) {
                         onSaved={saved => setJobRoles(list => (list || []).map(x => (x.id === saved.id ? { ...x, ...saved } : x)))} />
                     </div>
                   ) : (<>
-                  {['owner', 'full', 'editor', 'viewer'].map(lvl => {
-                    const mods = (selected.allowed_modules || []).filter(g => g.level === lvl);
+                  {['full', 'editor', 'viewer'].map(lvl => {
+                    const mods = (selected.allowed_modules || []).filter(g => grantLevel(g.level) === lvl);
                     if (!mods.length) return null;
                     return (
                       <div key={lvl}>
-                        <div style={sectLabel}>{{ owner: 'Owns (full + manage access)', full: 'Can run fully', editor: 'Can create and edit', viewer: 'Can view' }[lvl]}</div>
+                        <div style={sectLabel}>{{ full: 'Can run fully', editor: 'Can create and edit', viewer: 'Can view' }[lvl]}</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                           {mods.map(g => (
                             <span key={g.id} title={capabilityText(g.id, g.level, moduleLabel(g.id))}
@@ -716,10 +720,10 @@ export default function RolesAccess({ embedded = false }) {
 
       {/* ── AUDIT (tamed matrix) ── */}
       {sub === 'audit' && (
-        <AuditMatrix jobRoles={jobRoles} groups={groups} companyName={companyName} />
+        <AuditMatrix jobRoles={jobRoles} groups={groups} companyName={companyName} guide={guideJump} />
       )}
 
-      {editing !== undefined && <RoleEditor role={editing} jobRoles={jobRoles} onClose={() => setEditing(undefined)}
+      {editing !== undefined && <RoleEditor role={editing} jobRoles={jobRoles} onClose={() => setEditing(undefined)} onOpenGuide={openGuideInMatrix}
         onSaved={r => {
           setEditing(undefined); toastOk(`Saved “${r.name}”.`); setSelId(r.id);
           // Merge the server's response into local state IMMEDIATELY. The refetch
@@ -729,7 +733,7 @@ export default function RolesAccess({ embedded = false }) {
           setJobRoles(prev => { const arr = prev || []; return arr.some(x => x.id === r.id) ? arr.map(x => x.id === r.id ? r : x) : [...arr, r]; });
           loadRoles();
         }} onErr={toastErr} />}
-      {editGroup !== undefined && <GroupEditor group={editGroup} jobRoles={jobRoles} onClose={() => setEditGroup(undefined)}
+      {editGroup !== undefined && <GroupEditor group={editGroup} jobRoles={jobRoles} onClose={() => setEditGroup(undefined)} onOpenGuide={openGuideInMatrix}
         onSaved={g => {
           setEditGroup(undefined); toastOk(`Saved “${g.name}”.`);
           setGroups(prev => { const arr = prev || []; return arr.some(x => x.id === g.id) ? arr.map(x => x.id === g.id ? g : x) : [...arr, g]; });
@@ -861,10 +865,58 @@ function PeopleTab({ people, membership, entities = [], person, setPerson, nameO
   );
 }
 
+// ── Level Guide - what Viewer / Editor / Full unlock on one module, and what
+// still needs a tier. Above the Matrix, and in the editors' "What does this
+// unlock?" card. `lit` paints it yellow for a beat after a jump from a row.
+export function LevelGuide({ moduleId, onPick, lit = false }) {
+  const m = GRANTABLE.find(x => x.id === moduleId) || GRANTABLE[0];
+  const tiers = tierText(m.id);
+  const note = MODULE_CAPABILITIES[m.id]?.note;
+  return (
+    <div data-tour="level-guide">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>What Does This Unlock?</span>
+        <select value={m.id} onChange={e => onPick(e.target.value)} aria-label="Module"
+          style={{ ...input, width: 'auto', padding: '5px 8px', fontSize: 12 }}>
+          {GRANTABLE.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
+        </select>
+      </div>
+      <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px', transition: 'background 1.2s, box-shadow 1.2s',
+        background: lit ? 'var(--wk-warn-tint, #fff8dc)' : 'var(--card)', boxShadow: lit ? '0 0 0 2px #f5c518' : 'none' }}>
+        {LEVEL_ORDER.map(l => (
+          <div key={l} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 12, alignItems: 'start', padding: '6px 0', fontSize: 13, lineHeight: 1.45 }}>
+            <span><LevelPill level={l} /></span>
+            <span>{capabilityText(m.id, l, m.label)}</span>
+          </div>
+        ))}
+        <div style={{ borderTop: '1px solid var(--line)', margin: '8px 0 10px' }} />
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
+          {tiers.map(t => <div key={t}>{t}</div>)}
+          {note && <div style={{ marginTop: 6, fontStyle: 'italic' }}>{note}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── AUDIT tab - the matrix, tamed with module families ───────────────────────
-function AuditMatrix({ jobRoles, groups, companyName }) {
+function AuditMatrix({ jobRoles, groups, companyName, guide }) {
   const [open, setOpen] = useState(() => new Set());       // expanded family ids
   const [hoverCol, setHoverCol] = useState(null);          // family id or module id
+  // The Level Guide above the table: the picked module, lit for ~4 s after a jump.
+  const [picked, setPicked] = useState(guide?.id || GRANTABLE[0].id);
+  const [lit, setLit] = useState(false);
+  const guideRef = useRef(null);
+  useEffect(() => {
+    if (!guide) return undefined;
+    setPicked(guide.id);
+    const fam = FAMILIES.find(f => f.modules.includes(guide.id));
+    if (fam) setOpen(s => new Set(s).add(fam.id));
+    setLit(true);
+    guideRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    const t = setTimeout(() => setLit(false), 4000);
+    return () => clearTimeout(t);
+  }, [guide]);
 
   const toggle = id => setOpen(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -880,7 +932,11 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
     return { level: top, mixed: new Set(lvls).size > 1 || lvls.length < fam.modules.length };
   };
 
-  const colHl = key => hoverCol === key ? { background: 'color-mix(in srgb, var(--ink) 5%, transparent)' } : {};
+  const colHl = key => ({
+    transition: 'background 1.2s',
+    ...(lit && key === picked ? { background: 'var(--wk-warn-tint, #fff8dc)' }
+      : hoverCol === key ? { background: 'color-mix(in srgb, var(--ink) 5%, transparent)' } : {}),
+  });
 
   // Keyed by id: two companies can each have a role with the same name.
   const renderRow = (id, name, meta, byId, extra) => (
@@ -913,6 +969,9 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
 
   return (
     <>
+      <div ref={guideRef} style={{ marginBottom: 16 }}>
+        <LevelGuide moduleId={picked} onPick={setPicked} lit={lit} />
+      </div>
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', margin: '0 0 12px', fontSize: 12, color: 'var(--muted)' }}>
         <span style={{ fontWeight: 700 }}>Access level:</span>
         {LEVEL_ORDER.map(l => <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title={MODULE_LEVELS[l]?.description || ''}><LevelPill level={l} /></span>)}
@@ -954,7 +1013,7 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
                 <TierBadge tier={r.tier} />
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>{r.member_count} ppl · {r.company_id ? companyName(r.company_id) : 'All companies'}</span>
               </div>,
-              Object.fromEntries((r.allowed_modules || []).map(g => [g.id, g.level])),
+              bundleOf(r.allowed_modules),
               false,
             ))}
             {groups.length > 0 && (
@@ -969,7 +1028,7 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
             {groups.map(g => renderRow(
               g.id, g.name,
               <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>{(g.members || []).length} {(g.members || []).length === 1 ? 'person' : 'people'}</div>,
-              Object.fromEntries((g.allowed_modules || []).map(x => [x.id, x.level])),
+              bundleOf(g.allowed_modules),
               true,
             ))}
           </tbody>
@@ -1060,8 +1119,9 @@ function dashboardScopeOf(bundle) {
     : bundle['manager-dashboard'] ? 'manager' : 'dashboard';
 }
 
-function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 300 }) {
+function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 300, onOpenInMatrix }) {
   const [bulk, setBulk] = useState('');
+  const [guideFor, setGuideFor] = useState(null);   // module id whose Level Guide card is open
   const [inheritFrom, setInheritFrom] = useState('');
   const grant = (id, level) => setBundle(b => {
     const n = { ...b };
@@ -1114,7 +1174,7 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
             onChange={e => {
               const src = inheritSources.find(r => r.id === e.target.value);
               setInheritFrom('');
-              if (src) setBundle(Object.fromEntries((src.allowed_modules || []).map(g => [g.id, g.level])));
+              if (src) setBundle(bundleOf(src.allowed_modules));
             }}
             style={{ ...input, width: 'auto', padding: '5px 8px', fontSize: 12 }}>
             <option value="">Inherit from role…</option>
@@ -1143,8 +1203,17 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
                 {on && <Check size={12} />}
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: on ? 700 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, fontWeight: on ? 700 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</span>
+                  <button type="button" onClick={() => setGuideFor(m.id)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, color: 'var(--muted)', textDecoration: 'underline', textUnderlineOffset: 2 }}>
+                    <HelpCircle size={12} /> What does this unlock?
+                  </button>
+                </div>
                 {on && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>{capabilityText(m.id, on, m.label)}</div>}
+                {on && tierText(m.id).length > 1 && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>Still needs a tier: {tierText(m.id).slice(0, -1).join('; ')}</div>
+                )}
               </div>
               {isDashboard && on && (
                 <select value={scope} onChange={e => setDashboardScope(e.target.value)}
@@ -1191,6 +1260,17 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 7 }}>
         One click grants a screen at that level; the x on the selected level removes it. {checkedCount} of {visibleIds.length} screens granted.
       </div>
+      {/* The Level Guide as a card over the editor, so the draft stays put;
+          Open in Matrix closes the editor (asking about a dirty draft first). */}
+      {guideFor && (
+        <Modal title="Level Guide" onClose={() => setGuideFor(null)}>
+          <LevelGuide moduleId={guideFor} onPick={setGuideFor} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+            {onOpenInMatrix && <button type="button" className="secondary-btn" onClick={() => { const id = guideFor; setGuideFor(null); onOpenInMatrix(id); }}>Open in Matrix</button>}
+            <button type="button" className="primary-btn" onClick={() => setGuideFor(null)}>Done</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1199,13 +1279,27 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
 // `companyId` places a NEW role in that company (Company Settings > Roles);
 // `departments` offers that company's departments instead of the ones other
 // roles happen to use. An existing role's company is never changed from here.
-export function RoleEditor({ role, jobRoles = [], companyId = '', departments, onClose, onSaved, onErr }) {
+// "Open in Matrix" from an editor's Level Guide closes the editor the usual way
+// (a dirty draft still asks Save / Discard / Keep Editing) and jumps once it is
+// gone. Gives the Modal its closeRef and wraps the editor's close / saved.
+function useGuideJump(onClose, onSaved, onOpenGuide) {
+  const closeRef = useRef(null);
+  const afterClose = useRef(null);
+  const thenJump = fn => (...a) => { fn(...a); afterClose.current?.(); afterClose.current = null; };
+  return {
+    closeRef, close: thenJump(onClose), finish: thenJump(onSaved),
+    openInMatrix: onOpenGuide && (id => { afterClose.current = () => onOpenGuide(id); closeRef.current?.(); }),
+  };
+}
+
+export function RoleEditor({ role, jobRoles = [], companyId = '', departments, onClose, onSaved, onErr, onOpenGuide }) {
+  const { closeRef, close, finish, openInMatrix } = useGuideJump(onClose, onSaved, onOpenGuide);
   const [name, setName] = useState(role?.name || '');
   const [tier, setTier] = useState(role?.tier || 'employee');
   const [dept, setDept] = useState(role?.department || '');
   const [desc, setDesc] = useState(role?.description || '');
   const [bundle, setBundle] = useState(() => {
-    const initial = Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level]));
+    const initial = bundleOf(role?.allowed_modules);
     // New role, still on the default Employee tier, nothing picked yet - seed
     // the everyday baseline instead of opening on a blank grid.
     if (!role?.id && !Object.keys(initial).length && (role?.tier || 'employee') === 'employee') {
@@ -1220,7 +1314,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
   const [teams, setTeams] = useState(() => ({ ...EMPTY_TEAMS_TARGET, ...(role?.teams || {}) }));
   const [busy, setBusy] = useState(false);
   const deptOptions = departments || [...new Set((jobRoles || []).map(r => r.department).filter(Boolean))].sort();
-  const initialBundle = useMemo(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])), [role]);
+  const initialBundle = useMemo(() => bundleOf(role?.allowed_modules), [role]);
   const dirty = name !== (role?.name || '') || tier !== (role?.tier || 'employee') || dept !== (role?.department || '')
     || desc !== (role?.description || '') || monExempt !== !!role?.monitoring_exempt
     || bodExempt !== !!role?.bod_exempt
@@ -1237,12 +1331,12 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
       // A seed object with no id (from Duplicate) creates a new role rather than editing the original.
       const saved = role?.id ? await api.updateJobRole(role.id, body)
         : await api.createJobRole({ ...body, company_id: companyId || role?.company_id || '' });
-      onSaved(saved);
+      finish(saved);
     } catch (e) { onErr(e?.message || 'Could not save job role.'); setBusy(false); }
   }
 
   return (
-    <Modal onClose={onClose} title={role?.id ? 'Edit Job Role' : 'New Job Role'} size="xl" isDirty={dirty} onSave={name.trim() ? save : undefined}>
+    <Modal onClose={close} closeRef={closeRef} title={role?.id ? 'Edit Job Role' : 'New Job Role'} size="xl" isDirty={dirty} onSave={name.trim() ? save : undefined}>
       {/* Two columns on a wide screen (Neil, 10/06: "make the screen larger"):
           who the role is on the left, what it opens on the right with room to
           show every module at once. Wraps to one column on a narrow screen. */}
@@ -1330,12 +1424,12 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
       </div>
       <div style={{ flex: '2 1 480px', minWidth: 0 }}>
         <div style={{ ...sectLabel, marginTop: 0 }}>Module Bundle</div>
-        <BundleEditor bundle={bundle} setBundle={setBundle} listMaxHeight="max(320px, calc(94vh - 260px))"
+        <BundleEditor bundle={bundle} setBundle={setBundle} listMaxHeight="max(320px, calc(94vh - 260px))" onOpenInMatrix={openInMatrix}
           inheritSources={(jobRoles || []).filter(r => r.id !== role?.id)} />
       </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-        <button className="secondary-btn" onClick={onClose}>Cancel</button>
+        <button className="secondary-btn" onClick={close}>Cancel</button>
         <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Spinner size={14} />} Save Job Role</button>
       </div>
     </Modal>
@@ -1403,17 +1497,18 @@ function CompanyWallsPanel({ toastOk, toastErr, roleMap, groups }) {
 }
 
 
-function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
+function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr, onOpenGuide }) {
+  const { closeRef, close, finish, openInMatrix } = useGuideJump(onClose, onSaved, onOpenGuide);
   const { myLevel } = useRole();
   const canFlag = (myLevel || 0) >= 5;   // only a Super Administrator flags a group (Tiers, Neil 11/02/2026)
   const [name, setName] = useState(group?.name || '');
-  const [bundle, setBundle] = useState(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])));
+  const [bundle, setBundle] = useState(() => bundleOf(group?.allowed_modules));
   const [companyId, setCompanyId] = useState(group?.company_id || '');
   const [globalAdmin, setGlobalAdmin] = useState(!!group?.is_global_admin);
   const [companies, setCompanies] = useState([]);
   const [busy, setBusy] = useState(false);
   useEffect(() => { api.getEntities().then(list => setCompanies(list || [])).catch(() => setCompanies([])); }, []);
-  const initialBundle = useMemo(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])), [group]);
+  const initialBundle = useMemo(() => bundleOf(group?.allowed_modules), [group]);
   const dirty = name !== (group?.name || '') || JSON.stringify(bundle) !== JSON.stringify(initialBundle)
     || companyId !== (group?.company_id || '') || globalAdmin !== !!group?.is_global_admin;
 
@@ -1424,12 +1519,12 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
       company_id: globalAdmin ? '' : companyId, ...(canFlag ? { is_global_admin: globalAdmin } : {}) };
     try {
       const saved = group ? await api.updateGroup(group.id, body) : await api.createGroup(body);
-      onSaved(saved);
+      finish(saved);
     } catch (e) { onErr(e?.message || 'Could not save group.'); setBusy(false); }
   }
 
   return (
-    <Modal onClose={onClose} title={group ? 'Edit group' : 'New group'} wide isDirty={dirty} onSave={name.trim() ? save : undefined}>
+    <Modal onClose={close} closeRef={closeRef} title={group ? 'Edit group' : 'New group'} wide isDirty={dirty} onSave={name.trim() ? save : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting - Viewer" style={input} /></label>
@@ -1455,11 +1550,11 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
         </div>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Modules this group grants</div>
-          <BundleEditor bundle={bundle} setBundle={setBundle} inheritSources={jobRoles || []} />
+          <BundleEditor bundle={bundle} setBundle={setBundle} inheritSources={jobRoles || []} onOpenInMatrix={openInMatrix} />
         </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
-        <button className="secondary-btn" onClick={onClose}>Cancel</button>
+        <button className="secondary-btn" onClick={close}>Cancel</button>
         <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Spinner size={14} />} Save group</button>
       </div>
     </Modal>
@@ -1593,15 +1688,21 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
 // Every size but xl is .nx-popup: 60% of the screen (CLAUDE.md popup rule).
 // size="xl" (the job-role editor again, Neil, 10/06: "make the screen larger"):
 // nearly the whole screen, details beside a tall module list.
-function Modal({ title, children, onClose, size, isDirty = false, onSave }) {
+// `closeRef` hands the caller requestClose (the Level Guide's Open in Matrix
+// closes the editor the usual way); the top-most open Modal alone takes Escape.
+const modalStack = [];
+function Modal({ title, children, onClose, size, isDirty = false, onSave, closeRef }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [me] = useState(() => ({}));   // this Modal's token on modalStack
   const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
+  useEffect(() => { if (closeRef) closeRef.current = requestClose; });
+  useEffect(() => { modalStack.push(me); return () => { modalStack.splice(modalStack.indexOf(me), 1); }; }, [me]);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
+    const onKey = (e) => { if (e.key === 'Escape' && modalStack[modalStack.length - 1] === me) requestClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, isDirty]);
+  }, [onClose, isDirty, me]);
   const saveAndClose = async () => {
     if (!onSave) { setConfirming(false); onClose(); return; }
     setSaving(true);

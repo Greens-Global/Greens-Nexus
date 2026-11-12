@@ -73,7 +73,7 @@ class DocsTests(unittest.TestCase):
         self.db.add(models.PropertyAsset(id="esc", name="Escondido", updated_at="r0",
                                          payload={"id": "esc", "name": "Escondido", "egnyteFolder": PINNED}))
         self.db.add(models.PropertyAsset(id="bare", name="Bare", updated_at="r0", payload={"id": "bare", "name": "Bare"}))
-        self.db.add(models.NexusGroup(id="g-own", name="Asset Owners", allowed_modules="property-asset:owner"))
+        self.db.add(models.NexusGroup(id="g-own", name="Asset Owners", allowed_modules="property-asset:full"))
         self.db.add(models.NexusGroupMember(group_id="g-own", email=OWNER_GRANT["email"]))
         self.db.commit()
 

@@ -263,8 +263,13 @@ class GroupTests(_Base):
         self.assertEqual(r.status_code, 403, r.text)
         r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "pfs", "level": "viewer"}]})
         self.assertEqual(r.status_code, 403, r.text)
+        # Owner grant level retired (11/12/2026): deleting a person is Super by TIER, no grant
+        # opens it, so hr is an Administrator's to give; a legacy owner is stored as full.
+        self.assertNotIn("hr", auth.OWNER_ONLY_GRANTS)
+        self.assertNotIn("workflows", auth.OWNER_ONLY_GRANTS)
         r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "hr", "level": "owner"}]})
-        self.assertEqual(r.status_code, 403, "hr:owner deletes people - Super only")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["allowed_modules"], [{"id": "hr", "level": "full"}])
         r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "hr", "level": "full"}]})
         self.assertEqual(r.status_code, 200, r.text)
         # A Super Administrator gives company A's group PFS; the Administrator

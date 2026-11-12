@@ -456,7 +456,11 @@ def _sniff_clip(data: bytes) -> str:
 
 
 # ── access ────────────────────────────────────────────────────────────────────
-def _allowed(user: dict, db: Session) -> bool:
+def _allowed(user: dict, db: Session, min_level: str = "viewer") -> bool:
+    """The build-mode grant's levels (11/12/2026): Viewer sees pins and
+    sessions, Editor drops pins, comments and works their own, Full works
+    anyone's (see _own_or_admin). The grant alone decides - no tier opens
+    Build Mode by itself (Neil, 11/12/2026)."""
     email = (user.get("email") or "").lower()
     if not email:
         return False
@@ -467,12 +471,18 @@ def _allowed(user: dict, db: Session) -> bool:
     # development team and Neil in the group once.
     # Module attributes on purpose (not `from auth import ...`): the tests and
     # any future override patch auth.* and this must see the patch.
-    return auth._module_level(email, MODULE_ID, db) >= auth._MODULE_LEVEL_RANK["viewer"]
+    return auth._module_level(email, MODULE_ID, db) >= auth._MODULE_LEVEL_RANK[min_level]
 
 
 def require_build_mode(user: dict = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     if not _allowed(user, db):
         raise HTTPException(403, "Build Mode is not enabled for you")
+    return user
+
+
+def require_build_mode_edit(user: dict = Depends(require_build_mode), db: Session = Depends(get_db)) -> dict:
+    if not _allowed(user, db, "editor"):
+        raise HTTPException(403, "You need Editor access to Build Mode to do this")
     return user
 
 
@@ -525,6 +535,15 @@ def require_build_mode_or_token(user: Optional[dict] = Depends(_signed_in_user),
     return {**user, "token_label": ""}
 
 
+def require_build_mode_edit_or_token(user: dict = Depends(require_build_mode_or_token),
+                                     db: Session = Depends(get_db)) -> dict:
+    """The CLI's writes (claim, progress, reply, verify, attach, complete) need
+    Editor, whichever way the caller signed in."""
+    if not _allowed(user, db, "editor"):
+        raise HTTPException(403, "You need Editor access to Build Mode to do this")
+    return user
+
+
 def _is_ga(user: dict, db: Session) -> bool:
     return auth.is_global_admin(user, db)
 
@@ -540,8 +559,8 @@ def _is_super(user: Optional[dict]) -> bool:
 
 
 def _own_or_admin(n_owner: str, user: dict, db: Session, what: str) -> None:
-    if (n_owner or "").lower() != (user.get("email") or "").lower() and not _is_ga(user, db):
-        raise HTTPException(403, f"Only the author or a Super Administrator can {what}")
+    if (n_owner or "").lower() != (user.get("email") or "").lower() and not _allowed(user, db, "full") and not _is_ga(user, db):
+        raise HTTPException(403, f"Only the author, a Build Mode Full holder or a Super Administrator can {what}")
 
 
 # ── settings ──────────────────────────────────────────────────────────────────
@@ -873,7 +892,7 @@ def get_settings(user: dict = Depends(require_build_mode), db: Session = Depends
 
 
 @router.put("/settings")
-def put_settings(body: dict, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+def put_settings(body: dict, user: dict = Depends(require_build_mode_edit), db: Session = Depends(get_db)):
     current = _settings(db, user["email"])
     target = _get(body, "dispatchTarget")
     if target is not None:
@@ -944,7 +963,7 @@ def _clean_note_input(body: dict, allowed: tuple) -> dict:
 # "" not "/": the route lives at /dev-notes like every other router and api.js
 # path; FastAPI still answers /dev-notes/ with a 307 to it.
 @router.post("", status_code=201)
-def create_note(body: dict, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+def create_note(body: dict, user: dict = Depends(require_build_mode_edit), db: Session = Depends(get_db)):
     email = user["email"].lower()
     fields = _clean_note_input(body, CREATE_FIELDS)
     if (fields.get("route") or "") in BLOCKED_ROUTES:
@@ -1144,7 +1163,7 @@ def list_sessions(status: str = "", mine: int = 0, limit: int = Query(200, ge=1,
 
 
 @router.patch("/sessions/{session_id}")
-def patch_session(session_id: str, body: dict, user: dict = Depends(require_build_mode),
+def patch_session(session_id: str, body: dict, user: dict = Depends(require_build_mode_edit),
                   db: Session = Depends(get_db)):
     s = _session(db, session_id)
     if not s:
@@ -1212,7 +1231,7 @@ STATUS_LABELS = {"open": "Open", "dispatched": "Sent", "building": "Building", "
 
 
 @router.post("/teams-post")
-def teams_post(body: dict, background_tasks: BackgroundTasks, user: dict = Depends(require_build_mode),
+def teams_post(body: dict, background_tasks: BackgroundTasks, user: dict = Depends(require_build_mode_edit),
                db: Session = Depends(get_db)):
     """Post To Teams (Pranshu, Oct 26 2026): the caller's open pins - every
     screen they pinned on, or one Build Session's (`sessionId`) - as ONE card
@@ -1250,7 +1269,7 @@ def teams_post(body: dict, background_tasks: BackgroundTasks, user: dict = Depen
 
 
 @router.post("/dispatch")
-def dispatch(body: Optional[dict] = None, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+def dispatch(body: Optional[dict] = None, user: dict = Depends(require_build_mode_edit), db: Session = Depends(get_db)):
     body = body or {}
     email = user["email"].lower()
     if _settings(db, email).get("dispatchTarget") == "github":
@@ -1480,7 +1499,7 @@ def owner_of(path: str = "", user: dict = Depends(require_build_mode)):
 
 # ── Build Tokens (before the /{note_id} routes: "/tokens" is one segment too) ──
 @router.post("/tokens", status_code=201)
-def mint_token(body: Optional[dict] = None, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+def mint_token(body: Optional[dict] = None, user: dict = Depends(require_build_mode_edit), db: Session = Depends(get_db)):
     body = body or {}
     label = str(_get(body, "label") or "").strip()[:120]
     raw = TOKEN_PREFIX + secrets.token_urlsafe(32)
@@ -1580,7 +1599,7 @@ def cloud_start(body: Optional[dict] = None, user: dict = Depends(require_build_
 
 
 @router.get("/tokens")
-def list_tokens(user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+def list_tokens(user: dict = Depends(require_build_mode_edit), db: Session = Depends(get_db)):
     q = db.query(DevNoteToken)
     if not _is_ga(user, db):
         q = q.filter(DevNoteToken.email == user["email"].lower())
@@ -1588,7 +1607,7 @@ def list_tokens(user: dict = Depends(require_build_mode), db: Session = Depends(
 
 
 @router.delete("/tokens/{token_id}", status_code=204)
-def revoke_token(token_id: str, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+def revoke_token(token_id: str, user: dict = Depends(require_build_mode_edit), db: Session = Depends(get_db)):
     t = db.query(DevNoteToken).filter(DevNoteToken.id == token_id).first()
     if not t:
         raise HTTPException(404, "Build Token not found")
@@ -1607,7 +1626,7 @@ def get_note(note_id: str, user: dict = Depends(require_build_mode_or_token), db
 
 
 @router.patch("/{note_id}")
-def patch_note(note_id: str, body: dict, user: dict = Depends(require_build_mode),
+def patch_note(note_id: str, body: dict, user: dict = Depends(require_build_mode_edit),
                db: Session = Depends(get_db)):
     n = _note(db, note_id, lock=True)
     if _get(body, "release"):
@@ -1676,7 +1695,7 @@ def _release(db: Session, n: DevNote, user: dict) -> None:
 
 
 @router.post("/{note_id}/thread")
-def add_thread(note_id: str, body: dict, user: dict = Depends(require_build_mode),
+def add_thread(note_id: str, body: dict, user: dict = Depends(require_build_mode_edit),
                db: Session = Depends(get_db)):
     n = _note(db, note_id, lock=True)
     text = str(_get(body, "text") or "").strip()
@@ -1699,7 +1718,7 @@ def add_thread(note_id: str, body: dict, user: dict = Depends(require_build_mode
 
 
 @router.post("/{note_id}/verify")
-def verify(note_id: str, body: dict, user: dict = Depends(require_build_mode),
+def verify(note_id: str, body: dict, user: dict = Depends(require_build_mode_edit),
            db: Session = Depends(get_db)):
     n = _note(db, note_id, lock=True)
     _own_or_admin(n.created_by, user, db, "verify this pin")
@@ -1835,7 +1854,7 @@ def merge_to_dev(note_id: str, body: dict, background_tasks: BackgroundTasks,
 
 
 @router.post("/{note_id}/preview-verdict")
-def preview_verdict(note_id: str, body: dict, user: dict = Depends(require_build_mode),
+def preview_verdict(note_id: str, body: dict, user: dict = Depends(require_build_mode_edit),
                     db: Session = Depends(get_db)):
     """The author's verdict on the Ready To Check local preview, before the PR
     merges. Accept counts as checked (the merge then closes the pin with no
@@ -2113,7 +2132,7 @@ def _open_pr(db: Session, email: str) -> dict:
 
 
 @router.post("/cli/claim")
-def cli_claim(body: dict, user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
+def cli_claim(body: dict, user: dict = Depends(require_build_mode_edit_or_token), db: Session = Depends(get_db)):
     ids = _ids(body)
     if not ids:
         raise HTTPException(400, "noteIds is required")
@@ -2187,7 +2206,7 @@ def _batch(db: Session, ids: list, eligible: tuple, verb: str, skip_held: bool =
 
 
 @router.post("/cli/progress/{note_id}")
-def cli_progress(note_id: str, body: dict, user: dict = Depends(require_build_mode_or_token),
+def cli_progress(note_id: str, body: dict, user: dict = Depends(require_build_mode_edit_or_token),
                  db: Session = Depends(get_db)):
     n = _note(db, note_id, lock=True)
     text = " ".join(str(_get(body, "text") or "").split())[:300]
@@ -2202,7 +2221,7 @@ def cli_progress(note_id: str, body: dict, user: dict = Depends(require_build_mo
 
 
 @router.post("/cli/reply/{note_id}")
-def cli_reply(note_id: str, body: dict, user: dict = Depends(require_build_mode_or_token),
+def cli_reply(note_id: str, body: dict, user: dict = Depends(require_build_mode_edit_or_token),
               db: Session = Depends(get_db)):
     n = _note(db, note_id, lock=True)
     text = str(_get(body, "text") or "").strip()
@@ -2253,7 +2272,7 @@ def _verification_summary(v: dict) -> str:
 
 
 @router.post("/cli/verify/{note_id}")
-def cli_verify(note_id: str, body: dict, user: dict = Depends(require_build_mode_or_token),
+def cli_verify(note_id: str, body: dict, user: dict = Depends(require_build_mode_edit_or_token),
                db: Session = Depends(get_db)):
     """What Claude Code checked before opening the PR: a repro script and its
     result before and after, the style check against the pin's Edit In Place
@@ -2301,7 +2320,7 @@ def cli_verify(note_id: str, body: dict, user: dict = Depends(require_build_mode
 
 @router.post("/cli/attach/{note_id}")
 def cli_attach(note_id: str, file: UploadFile = File(...), kind: str = Form("paste"),
-               user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
+               user: dict = Depends(require_build_mode_edit_or_token), db: Session = Depends(get_db)):
     if kind not in ATTACH_KINDS:
         raise HTTPException(400, "kind must be after, before, paste or clip")
     n = _note(db, note_id, lock=True)
@@ -2343,7 +2362,7 @@ def cli_attach(note_id: str, file: UploadFile = File(...), kind: str = Form("pas
 
 
 @router.post("/cli/complete")
-def cli_complete(body: dict, user: dict = Depends(require_build_mode_or_token), db: Session = Depends(get_db)):
+def cli_complete(body: dict, user: dict = Depends(require_build_mode_edit_or_token), db: Session = Depends(get_db)):
     ids = _ids(body)
     if not ids:
         raise HTTPException(400, "noteIds is required")

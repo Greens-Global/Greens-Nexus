@@ -222,6 +222,16 @@ keep the diff minimal.
   small people glyph, nothing for others), fed by the `tier` field on the
   people payloads (`auth.tier_of`). `useRole()` exposes `myLevel`, `myTier`,
   `myTitle`.
+  Grant levels (Pranshu, 11/12/2026): a grant is Viewer, Editor or Full -
+  Owner is retired (a stored `:owner` reads as Full; one-time pass
+  `super_admins_seed.retire_owner_level_once`, mark
+  `roles.owner_level_retired_2026_11_12`, also drops the dead `development`
+  / `purchase` grants). Deleting a person and the Workflows organization-wide
+  controls are Super Administrator by tier, no grant. Tier checks are
+  unchanged: a Full grant never replaces a Manager or Administrator check.
+  The Level Guide (Roles & Access > Matrix, "What does this unlock?") reads
+  `lib/moduleCapabilities.js` - the ONE source of the level descriptions;
+  a PR that changes a gate changes that file too.
 
 ## Frontend conventions
 

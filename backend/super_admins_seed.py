@@ -133,3 +133,47 @@ def clear_tier_words_once(db: Session) -> dict | None:
     db.add(NexusSetting(key=TIER_WORDS_MARK, value=now, updated_by="startup", updated_at=now))
     db.commit()
     return {"renamed": renamed, "cleared": cleared, "titled": titled}
+
+
+# Three grant levels only (Pranshu, 11/12/2026): the Owner GRANT level is
+# retired (auth.MODULE_LEVELS) and two grants nothing reads any more go -
+# `development` (off the navigation since 08/11/2026) and `purchase` (no code
+# ever read it). The tier key `owner` (Super Administrator) is untouched.
+OWNER_LEVEL_MARK = "roles.owner_level_retired_2026_11_12"
+DEAD_GRANTS = frozenset(("development", "purchase"))
+
+
+def clean_modules(raw: str) -> str:
+    """One allowed_modules string with every `:owner` written as `:full` and
+    the dead grants dropped; every other part is kept as it was spelled."""
+    parts = []
+    for part in (raw or "").split(","):
+        part = part.strip()
+        mid, _, level = part.partition(":")
+        mid = mid.strip().lower()
+        if not mid or mid in DEAD_GRANTS:
+            continue
+        parts.append(f"{mid}:full" if level.strip().lower() == "owner" else part)
+    return ",".join(parts)
+
+
+def retire_owner_level_once(db: Session) -> dict | None:
+    """Once (OWNER_LEVEL_MARK): rewrite `allowed_modules` on every group and
+    job role through clean_modules. Returns `groups` (names changed), or None
+    when the mark is already there. Commits and drops the grants cache."""
+    from models import NexusGroup, NexusSetting
+    import cache
+
+    if db.get(NexusSetting, OWNER_LEVEL_MARK):
+        return None
+    now = _now()
+    changed = []
+    for g in db.query(NexusGroup).filter(NexusGroup.allowed_modules != "").all():
+        new = clean_modules(g.allowed_modules)
+        if new != g.allowed_modules:
+            g.allowed_modules = new
+            changed.append(g.name or g.id)
+    db.add(NexusSetting(key=OWNER_LEVEL_MARK, value=now, updated_by="startup", updated_at=now))
+    db.commit()
+    cache.module_grants.invalidate()
+    return {"groups": changed}

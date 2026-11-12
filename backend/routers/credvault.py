@@ -556,7 +556,13 @@ def _can_modify(cred: models.VaultCredential, user: dict, db: Session | None = N
             or email == (cred.owner_email or "").lower()
             or email == (cred.backup_owner_email or "").lower()):
         return True
-    return db is not None and email in VA.heads_for(db, cred)
+    if db is None:
+        return False
+    # A Full grant (11/12/2026) manages every credential on its side of the
+    # company wall like an administrator: edit, share, transfer, trash, delete.
+    # Settings and the whole activity log stay _is_admin's.
+    return (_module_level(email, "credvault", db) >= _MODULE_LEVEL_RANK["full"]
+            or email in VA.heads_for(db, cred))
 
 
 # Multi-company walls (auth.company_scope): a company credential belongs to its

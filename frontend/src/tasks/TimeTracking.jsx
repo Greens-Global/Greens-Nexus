@@ -30,7 +30,7 @@ export default function TimeTracking({ task, canLog = true }) {
   // A manager may change or remove anyone's entry - the server's rule
   // (update_time_entry / delete_time_entry) - everyone else only their own.
   const { canAccessModule } = useRole() || {};
-  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'owner');
+  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'full');
   const [entries, setEntries] = useState(null);
   const [hrs, setHrs] = useState('');
   const [mins, setMins] = useState('');

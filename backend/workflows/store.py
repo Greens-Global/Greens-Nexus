@@ -406,8 +406,8 @@ def _same_branch_ids(s0: dict, s1: dict) -> bool:
 
 # ── who sees / edits what ────────────────────────────────────────────────────
 def grant_rank(db, user: dict) -> int:
-    """0 none, 1 viewer, 2 editor, 3 full, 4 owner. An administrator
-    bypasses as 4 (require_module_grant's bypass)."""
+    """0 none, 1 viewer, 2 editor, 3 full (the top grant; a legacy `owner`
+    reads as 3). An administrator bypasses as 4 (require_module_grant's bypass)."""
     import auth
     if not user:
         return 0

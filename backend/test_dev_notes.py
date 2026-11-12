@@ -27,13 +27,14 @@ from routers import dev_notes as D  # noqa: E402
 from routers import files as F  # noqa: E402
 
 GA = {"email": "ga@greensglobal.com", "role": "owner", "level": 5}
-DEV = {"email": "dev@greensglobal.com", "role": "employee", "level": 1}       # build-mode grant
+DEV = {"email": "dev@greensglobal.com", "role": "employee", "level": 1}       # build-mode Editor grant (works their own pins)
 ADMIN = {"email": "admin@greensglobal.com", "role": "administrator", "level": 4}  # no grant: no access
 
 CURRENT = {"user": DEV}
 # Build Mode is its own grant (Neil, 11/12/2026): GA is a Super Administrator
-# who ALSO holds it - the tier alone opens nothing (its own test below).
-GRANTS = {DEV["email"]: {"build-mode": 1}, GA["email"]: {"build-mode": 1}}
+# who ALSO holds it (Full, as the seed grants) - the tier alone opens nothing
+# (its own test below).
+GRANTS = {DEV["email"]: {"build-mode": 2}, GA["email"]: {"build-mode": 3}}
 MEDIA = "https://test.supabase.co/storage/v1/object/public/qa-evidence/dev-notes/n1/screenshot-1.png"
 
 _app = FastAPI()
@@ -76,8 +77,8 @@ def _patched_auth():
 @pytest.fixture(autouse=True)
 def _clean():
     CURRENT["user"] = DEV
-    GRANTS[DEV["email"]] = {"build-mode": 1}
-    GRANTS[GA["email"]] = {"build-mode": 1}
+    GRANTS[DEV["email"]] = {"build-mode": 2}
+    GRANTS[GA["email"]] = {"build-mode": 3}
     db = database.SessionLocal()
     for m in (models.DevNote, models.DevNoteSession, models.DevNoteToken,
               models.NexusNotification, models.NexusSetting, models.AuditLog, models.QaTestCase):
@@ -349,7 +350,7 @@ def test_token_mint_use_and_revoke():
     # the owner lost access: the token stops working at once
     GRANTS[DEV["email"]] = {}
     assert client.get("/dev-notes/cli/whoami", headers=_hdr(minted["token"])).status_code == 403
-    GRANTS[DEV["email"]] = {"build-mode": 1}
+    GRANTS[DEV["email"]] = {"build-mode": 2}
 
     r = client.delete(f"/dev-notes/tokens/{minted['id']}")
     assert r.status_code == 204
@@ -957,7 +958,7 @@ def test_pin_on_another_developers_file_is_held_and_rings_the_owner():
     assert ("pinned inventory (frontend/src/views/InventoryManagement.jsx). It waits for you - "
             "release it to Claude Code or handle it yourself.") in body
     assert "Ask a Super Administrator for the Build Mode grant if the link does not open." in body   # Visesh has no grant
-    GRANTS[VISESH["email"]] = {"build-mode": 1}
+    GRANTS[VISESH["email"]] = {"build-mode": 2}
     try:
         _held_pin()
         bodies = _owner_bodies()
@@ -970,7 +971,7 @@ def test_pin_on_another_developers_file_is_held_and_rings_the_owner():
 
 
 def test_not_held_when_the_author_owns_the_file_and_held_skips_send_instantly():
-    GRANTS[NEIL["email"]] = {"build-mode": 1}
+    GRANTS[NEIL["email"]] = {"build-mode": 2}
     try:
         _as(NEIL)
         n = _create(target={"source": {"file": "src/asset/lib/sync.js"}})
@@ -1016,8 +1017,8 @@ def test_dispatch_skips_held_pins_and_names_them():
 def test_release_by_owner_or_global_admin_only():
     b = _held_pin()
     assert client.patch(f"/dev-notes/{b['id']}", json={"release": True}).status_code == 403   # the author
-    GRANTS[DEV2["email"]] = {"build-mode": 1}
-    GRANTS[VISESH["email"]] = {"build-mode": 1}
+    GRANTS[DEV2["email"]] = {"build-mode": 2}
+    GRANTS[VISESH["email"]] = {"build-mode": 2}
     try:
         _as(DEV2)
         assert client.patch(f"/dev-notes/{b['id']}", json={"release": True}).status_code == 403
@@ -1066,7 +1067,7 @@ def test_release_by_owner_or_global_admin_only():
 
 
 def test_release_moves_a_pin_out_of_a_sent_session_and_follows_the_authors_send_instantly():
-    GRANTS[VISESH["email"]] = {"build-mode": 1}
+    GRANTS[VISESH["email"]] = {"build-mode": 2}
     try:
         # created held under Send Instantly: the next instant pin sends the
         # session it sits in, so it is left in a sent session
@@ -1148,7 +1149,7 @@ def test_preview_accept_then_merge_goes_straight_to_done():
     p = _to_pr_open(token)
     assert client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).status_code == 409   # no preview yet
     _preview(p, token)
-    GRANTS[DEV2["email"]] = {"build-mode": 1}
+    GRANTS[DEV2["email"]] = {"build-mode": 2}
     try:
         _as(DEV2)
         assert client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True}).status_code == 403
@@ -1445,8 +1446,8 @@ def test_per_caller_flags_and_is_global_admin():
     assert mine[p["id"]]["canVerdict"] is True                     # the author, Ready To Check
     assert mine[held["id"]]["canVerdict"] is False
     assert client.get("/dev-notes/enabled").json()["isGlobalAdmin"] is False
-    GRANTS[VISESH["email"]] = {"build-mode": 1}
-    GRANTS[DEV2["email"]] = {"build-mode": 1}
+    GRANTS[VISESH["email"]] = {"build-mode": 2}
+    GRANTS[DEV2["email"]] = {"build-mode": 2}
     try:
         _as(VISESH)
         assert client.get(f"/dev-notes/{held['id']}").json()["canRelease"] is True
@@ -1482,7 +1483,7 @@ def test_owner_of_endpoint():
     r = client.get("/dev-notes/owner-of", params={"path": "src/views/InventoryManagement.jsx"})
     assert r.json() == {"owner": {"name": "Visesh", "email": VISESH["email"]}, "held": True}
     assert client.get("/dev-notes/owner-of", params={"path": "src/tasks/X.jsx"}).json() == {"owner": None, "held": False}
-    GRANTS[NEIL["email"]] = {"build-mode": 1}
+    GRANTS[NEIL["email"]] = {"build-mode": 2}
     try:
         _as(NEIL)
         got = client.get("/dev-notes/owner-of", params={"path": "./src/asset/lib/sync.js"}).json()

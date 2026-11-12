@@ -27,7 +27,8 @@ from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible
                                require_project_access, wall_rows, wall_teams, wall_tasks,
                                assert_row_wall, assert_team_wall, assert_task_wall,
                                config_admits, config_company_for_new, assert_config_editable,
-                               teams_editable, tenant_company_for_new, person_problem)
+                               teams_editable, tenant_company_for_new, person_problem,
+                               require_task_creator)
 import task_project_follow as project_follow
 from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
@@ -470,7 +471,7 @@ def list_projects(user: dict = Depends(get_current_user), db: Session = Depends(
 
 
 @router.post("/task-projects", status_code=201)
-def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def create_project(body: ProjectBody, user: dict = Depends(require_task_creator), db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Project name is required")
     now = now_iso()

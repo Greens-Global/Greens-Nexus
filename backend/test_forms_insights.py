@@ -108,6 +108,7 @@ class FormsInsightsTests(unittest.TestCase):
         auth.invalidate_role_cache()
         cache.settings_config.invalidate()
         cache.people_directory.invalidate()
+        cache.module_grants.invalidate()
         cache.dashboard_insights.invalidate()
 
     def _cleanup(self):
@@ -119,6 +120,8 @@ class FormsInsightsTests(unittest.TestCase):
             db.query(models.HrEntity).filter(models.HrEntity.id == CO_A).delete(synchronize_session=False)
             db.query(models.HrWorkSite).filter(models.HrWorkSite.id == SITE_A).delete(synchronize_session=False)
             db.query(models.HrCompanyWorkSite).filter(models.HrCompanyWorkSite.company_id == CO_A).delete(synchronize_session=False)
+            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == "grp-fins-bi").delete(synchronize_session=False)
+            db.query(models.NexusGroup).filter(models.NexusGroup.id == "grp-fins-bi").delete(synchronize_session=False)
             db.query(models.DocFormEntry).delete(synchronize_session=False)
             db.query(models.DocTemplateVersion).delete(synchronize_session=False)
             db.query(models.DocTemplate).delete(synchronize_session=False)
@@ -274,14 +277,29 @@ class FormsInsightsTests(unittest.TestCase):
 
     def test_below_supervisor_is_refused_and_a_supervisor_reads(self):
         self._as(REP)
-        self.assertEqual(self.client.get("/dashboards/insights").status_code, 403)
+        self.assertEqual(self.client.get("/dashboards/insights").status_code, 401)
         self.assertEqual(self.client.get("/dashboards/insights/drilldown",
-                                         params={"module": "forms", "metric": "follow_up_open"}).status_code, 403)
+                                         params={"module": "forms", "metric": "follow_up_open"}).status_code, 401)
         vehicle = self._template("Vehicle Check")
         self._submit(vehicle["id"])
         block = self._forms_block(who=SUP)
         self.assertEqual({s["key"]: s["value"] for s in block["stats"]}["entries_7d"], 1)
         self.assertEqual(self._drill("entries_7d", who=SUP)["total"], 1)
+
+    def test_an_employee_with_the_bi_grant_reads(self):
+        """App.jsx opens Insights for a `bi` grant; the API agrees (11/12/2026)."""
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroup(id="grp-fins-bi", name="Insights Readers", allowed_modules="bi:viewer"))
+            db.add(models.NexusGroupMember(group_id="grp-fins-bi", email=REP))
+            db.commit()
+        finally:
+            db.close()
+        self._flush()
+        self._as(REP)
+        self.assertEqual(self.client.get("/dashboards/insights").status_code, 200)
+        self.assertEqual(self.client.get("/dashboards/insights/drilldown",
+                                         params={"module": "forms", "metric": "follow_up_open"}).status_code, 200)
 
     def test_a_new_entry_moves_the_count_because_the_model_is_watched(self):
         self.assertIn(cache.dashboard_insights, cache._WATCHED.get("DocFormEntry", ()))

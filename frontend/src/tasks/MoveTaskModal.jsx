@@ -23,7 +23,7 @@ export default function MoveTaskModal({ taskId, onClose, onMoved }) {
   const { tasks, taskById, projectName, moveTask } = store;
   const task = taskById[taskId];
   const { canAccessModule } = useRole() || {};
-  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'owner');
+  const isManager = typeof canAccessModule === 'function' && !!canAccessModule('tasks', 'manager', 'full');
   const accepts = useMemo(() => moveRule(task, {
     tasks, projects: store.projects, teams: store.teams, taskById, email: store.myEmail, isManager,
   }), [task, tasks, store.projects, store.teams, taskById, store.myEmail, isManager]);

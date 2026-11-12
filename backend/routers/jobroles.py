@@ -49,14 +49,14 @@ def _ts() -> str:
 
 # Starter job-role templates so the screen opens with a usable reference matrix
 # instead of a blank grid (mirrors groups._seed_if_empty). Module ids match
-# RoleContext MODULES; levels ∈ viewer/editor/full/owner.
+# RoleContext MODULES; levels ∈ viewer/editor/full.
 STARTER_ROLES = [
     ("Crew Member", "employee", "Front-line site worker. Clocks in, works their own tasks, sees their own HR.",
      "dashboard:viewer,tasks:editor,myhr:viewer,timeclock:editor,sop:viewer"),
     ("Site Supervisor", "supervisor", "Runs day-to-day site operations, equipment and their crew.",
      "dashboard:viewer,tasks:editor,myhr:viewer,timeclock:full,hr:viewer,inventory:editor,property-asset:viewer,documents:viewer,sop:editor,manager-dashboard:viewer"),
     ("Project Manager", "manager", "Owns construction projects end to end, including budgets and vendors.",
-     "dashboard:viewer,tasks:full,manager-dashboard:viewer,hr:viewer,inventory:editor,property-asset:editor,ops:full,operations:editor,development:editor,documents:editor,timeclock:full,sop:editor,accounting:viewer"),
+     "dashboard:viewer,tasks:full,manager-dashboard:viewer,hr:viewer,inventory:editor,property-asset:editor,ops:full,operations:editor,documents:editor,timeclock:full,sop:editor,accounting:viewer"),
     ("Accountant", "supervisor", "Manages transactions, invoices and vendors day to day.",
      "dashboard:viewer,tasks:editor,accounting:full,investor-relations:viewer,documents:editor,myhr:viewer,sop:viewer"),
     ("HR Manager", "manager", "Owns the people lifecycle, time & attendance, and payroll data.",

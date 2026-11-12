@@ -4400,6 +4400,13 @@ def _tier_seeds():
             db.rollback()
             print(f"[startup] tier words pass skipped: {e}")
         try:
+            res = super_admins_seed.retire_owner_level_once(db)   # :owner -> :full, dead grants dropped (11/12/2026)
+            if res:
+                print(f"[startup] owner grant level retired - groups rewritten: {', '.join(res['groups']) or 'none'}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] owner grant level pass skipped: {e}")
+        try:
             import build_mode_access_seed   # Build Mode is its own access (Neil, 11/12/2026)
             res = build_mode_access_seed.apply_once(db)
             if res is not None:
