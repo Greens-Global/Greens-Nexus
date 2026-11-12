@@ -10523,4 +10523,5 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .acct-page-line button:hover { color: var(--text-primary); text-decoration: underline; }
 .acct-page-line [aria-current="page"] { color: var(--text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .acct-page-line svg { flex: none; opacity: 0.6; }
-@media (max-width: 640px) { .acct-page-line { margin: 0 0 8px; } }
+/* Phones: the line is in the flow and wraps, so a long name ("Income Statement - Year to Date vs. Prior Year") is read whole. */
+@media (max-width: 640px) { .acct-page-line { margin: 0 0 8px; height: auto; flex-wrap: wrap; white-space: normal; } }
