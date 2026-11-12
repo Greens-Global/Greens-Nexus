@@ -28,8 +28,26 @@ describe('board templates', () => {
     const frames = parseScene(templateScene('kanban')).elements.filter((e) => e.type === 'frame');
     expect(frames.map((f) => f.name)).toEqual(['To Do', 'Doing', 'Done']);
     expect(new Set(frames.map((f) => f.x)).size).toBe(3);
-    // the frame names are the headings - no text inside repeats them
-    expect(parseScene(templateScene('kanban')).elements.filter((e) => e.type === 'text')).toEqual([]);
+    // the frame names are the column headings - no text repeats them; the only
+    // words are the board's own title and what it is for (Neil, 11/12/2026)
+    const words = parseScene(templateScene('kanban')).elements.filter((e) => e.type === 'text').map((e) => e.text);
+    expect(words).toEqual(['Kanban', 'One sticky per piece of work. Move it right as it moves on.']);
+  });
+
+  it('every template with sections opens with a title and one line saying what it is for; Blank and Grid stay empty', () => {
+    for (const key of ['kanban', 'retro', 'kickoff', 'swot', 'fishbone', 'sitewalk', 'huddle', 'timeline', 'floorplan']) {
+      const els = parseScene(templateScene(key)).elements;
+      // the two topmost lines of words: the title, then what the board is for
+      const [title, ...rest] = els.filter((e) => e.type === 'text').sort((a, b) => a.y - b.y);
+      const top = Math.min(...els.filter((e) => e.type !== 'text').map((e) => e.y));
+      expect(title.fontSize, key).toBe(28);
+      expect(title.y, key).toBeLessThan(top);
+      const purpose = rest.filter((e) => e.y < top && e.text.length > 12);
+      expect(purpose.length, key).toBeGreaterThanOrEqual(1);
+      for (const e of [title, ...purpose]) expect(e.text, key).not.toMatch(/[\u2014\u2013]/);
+    }
+    expect(parseScene(templateScene('blank')).elements).toEqual([]);
+    expect(parseScene(templateScene('grid')).elements).toEqual([]);
   });
 
   it('Grid is an empty board with the grid on (no stray title)', () => {

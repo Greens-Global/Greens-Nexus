@@ -53,7 +53,10 @@ export function withThread(elements, boxId, thread, { look = 'clean', measure, n
     look, measure, now, ids: { box: p.box.id, text: p.text?.id }, thread, version,
   }));
   const keep = { groupIds: p.box.groupIds || [], frameId: p.box.frameId || null };
-  return elements.map((e) => (e.id === box.id ? { ...box, ...keep } : p.text && e.id === p.text.id ? { ...text, ...keep } : e));
+  // The pin stays tied to the item it sits on (rideAlong.js).
+  const on = p.box.customData?.nexusOn;
+  const tied = on ? { ...box, ...keep, customData: { ...box.customData, nexusOn: on } } : { ...box, ...keep };
+  return elements.map((e) => (e.id === box.id ? tied : p.text && e.id === p.text.id ? { ...text, ...keep } : e));
 }
 
 export const newThread = (text, who, now = Date.now()) => ({ by: who.email || '', name: who.name || '', at: now, text: String(text).trim().slice(0, REPLY_MAX), resolved: null, replies: [] });
