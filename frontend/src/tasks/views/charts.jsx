@@ -74,7 +74,7 @@ export function Donut({ segments, total, unit = 'tasks' }) {
         </svg>
         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1.15 }}>
           <span style={{ fontSize: 24, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{total}</span>
-          <span style={{ fontSize: 10.5, color: NX.faint }}>{unit}</span>
+          <span style={{ fontSize: 11, color: NX.faint }}>{unit}</span>
         </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
@@ -119,7 +119,7 @@ export function TrendArea({ buckets, color = NX.primary, height = 90, ariaLabel 
         </svg>
         <span style={{ position: 'absolute', left: `${(last.x / W) * 100}%`, top: `${(last.y / H) * 100}%`, width: 9, height: 9, borderRadius: '50%', background: color, border: `2px solid ${NX.surface}`, transform: 'translate(-50%, -50%)', pointerEvents: 'none' }} />
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 10.5, color: NX.faint }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 11, color: NX.faint }}>
         <span>{buckets[0]?.label}</span>
         <span>{buckets[Math.floor(buckets.length / 2)]?.label}</span>
         <span>{buckets[buckets.length - 1]?.label}</span>
@@ -233,7 +233,7 @@ function LineChart({ data, labels }) {
         <polyline points={pts.map((p) => p.join(',')).join(' ')} fill="none" stroke={NX.purple} strokeWidth={0.8} vectorEffect="non-scaling-stroke" />
         {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={1.1} fill={NX.purple} />)}
       </svg>
-      <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 10, color: NX.faint }}>
+      <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 11, color: NX.faint }}>
         {data.map((d, i) => <span key={i} style={{ flex: 1, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.label}{labels ? ` (${d.value})` : ''}</span>)}
       </div>
     </div>
@@ -260,7 +260,7 @@ function Lollipop({ data }) {
 }
 
 function ChartRenderer({ cfg, data }) {
-  if (cfg.style === 'number') { const total = data.reduce((n, d) => n + d.value, 0); return <div style={{ height: 128, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48, fontWeight: 700, color: NX.ink }}>{Number.isInteger(total) ? total : total.toFixed(1)}</div>; }
+  if (cfg.style === 'number') { const total = data.reduce((n, d) => n + d.value, 0); return <div style={{ height: 128, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, fontWeight: 700, color: NX.ink }}>{Number.isInteger(total) ? total : total.toFixed(1)}</div>; }
   if (cfg.style === 'donut') return data.length ? <Donut total={data.reduce((n, d) => n + d.value, 0)} segments={data} /> : <Empty />;
   if (cfg.style === 'line') return <LineChart data={data} labels={cfg.dataLabels} />;
   if (cfg.style === 'lollipop') return <Lollipop data={data} />;
@@ -407,7 +407,7 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
       <div className={`nx-popup${isMobile ? ' nx-sheet' : ''}`} role="dialog" aria-modal="true" aria-label={initial ? 'Edit Chart' : 'Add Chart'}
         style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: isMobile ? 0 : 16, border: `1px solid ${NX.border}`, background: NX.surface, boxShadow: '0 24px 60px rgba(0,0,0,0.28)', ...(isMobile ? { height: '100%', maxHeight: '100%' } : null) }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 20px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{initial ? 'Edit Chart' : 'Add Chart'}</h2>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{initial ? 'Edit Chart' : 'Add Chart'}</h2>
           <button onClick={guard.requestClose} aria-label="Close" title="Close" style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>
         </div>
         {/* nx-fill grows into the popup's height; flexDirection row (inline)
@@ -416,7 +416,7 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
           {/* Preview */}
           <div className="nx-scroll" style={{ minWidth: 300, flex: '1 1 340px', overflow: 'auto', borderRight: `1px solid ${NX.border}`, padding: 24 }}>
             <input value={title} onChange={(e) => { setTitleTouched(true); patch({ title: e.target.value }); }}
-              style={{ marginBottom: 16, width: '100%', border: '1px solid transparent', borderRadius: 8, background: 'transparent', fontSize: 20, fontWeight: 700, color: NX.ink, padding: '4px 6px', fontFamily: FONT }} />
+              style={{ marginBottom: 16, width: '100%', border: '1px solid transparent', borderRadius: 8, background: 'transparent', fontSize: 18, fontWeight: 700, color: NX.ink, padding: '4px 6px', fontFamily: FONT }} />
             <ChartRenderer cfg={{ ...cfg, title }} data={data} />
           </div>
           {/* Controls */}

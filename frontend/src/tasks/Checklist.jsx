@@ -128,7 +128,7 @@ export default function Checklist({ task, people = [], canEdit = true, canConver
     if (v && v !== item.title) update(item, { title: v });
   };
 
-  if (items === null) return <div style={{ fontSize: 12.5, color: NX.faint, padding: '4px 0' }}>Loading checklist…</div>;
+  if (items === null) return <div style={{ fontSize: 13, color: NX.faint, padding: '4px 0' }}>Loading checklist…</div>;
   const done = items.filter((i) => i.done).length;
 
   return (
@@ -138,7 +138,7 @@ export default function Checklist({ task, people = [], canEdit = true, canConver
           <div style={{ flex: 1, height: 5, borderRadius: 999, background: NX.border2 || NX.border, overflow: 'hidden' }}>
             <div style={{ width: `${Math.round((done / items.length) * 100)}%`, height: '100%', background: done === items.length ? NX.green : NX.blue, transition: 'width 0.2s' }} />
           </div>
-          <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap' }}>{done}/{items.length}</span>
+          <span style={{ fontSize: 12, color: NX.faint, whiteSpace: 'nowrap' }}>{done}/{items.length}</span>
         </div>
       )}
       <ReorderList items={items} getKey={(i) => i.id} onReorder={reorder} gap={1} label="checklist item" disabled={!canEdit}
@@ -186,7 +186,7 @@ export default function Checklist({ task, people = [], canEdit = true, canConver
           {draft.trim() && <button type="button" onClick={() => add()} style={{ ...btn('primary'), padding: '5px 10px', fontSize: 12 }}>Add</button>}
         </div>
       )}
-      {!canEdit && items.length === 0 && <div style={{ fontSize: 12.5, color: NX.faint }}>No checklist on this task.</div>}
+      {!canEdit && items.length === 0 && <div style={{ fontSize: 13, color: NX.faint }}>No checklist on this task.</div>}
       {error && <div style={{ fontSize: 12, color: NX.red, marginTop: 6 }}>{error}</div>}
     </div>
   );

@@ -111,12 +111,12 @@ export function RequestThread({ row, nameOf = (e) => e, onBeforeOpen }) {
     <div style={{ marginTop: 8 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
-          style={{ ...btn('ghost'), padding: 0, fontSize: 12.5, color: NX.dim }}>
+          style={{ ...btn('ghost'), padding: 0, fontSize: 13, color: NX.dim }}>
           <MessageSquare size={13} />{count} {count === 1 ? 'Comment' : 'Comments'}{open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </button>
         {row.ticketCode && (
           <button type="button" onClick={() => { onBeforeOpen?.(); openRequestTicket(row.ticketId); }} title="Open the ticket this request is"
-            style={{ ...btn('ghost'), padding: 0, fontSize: 12.5, color: NX.blue }}>
+            style={{ ...btn('ghost'), padding: 0, fontSize: 13, color: NX.blue }}>
             <TicketIcon size={13} />{row.ticketCode}<ArrowRight size={12} />
           </button>
         )}
@@ -124,7 +124,7 @@ export function RequestThread({ row, nameOf = (e) => e, onBeforeOpen }) {
       {open && (
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {comments === null ? <LoadingState /> : comments.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: NX.dim }}>No comments yet. Replies from the Nexus team show here and on the ticket.</div>
+            <div style={{ fontSize: 13, color: NX.dim }}>No comments yet. Replies from the Nexus team show here and on the ticket.</div>
           ) : comments.map((c) => (
             <div key={c.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
               <Avatar email={c.authorId} name={nameOf(c.authorId)} size={22} />
@@ -183,7 +183,7 @@ export function MyRequestsDialog({ onClose, onOpenEntry, nameOf }) {
         <div className="nx-fill" style={{ ...card, padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}><Lightbulb size={14} />Request a Feature</div>
-            <button type="button" onClick={() => setView('mine')} style={{ ...btn('outline'), fontSize: 12.5, padding: '5px 10px' }}>
+            <button type="button" onClick={() => setView('mine')} style={{ ...btn('outline'), fontSize: 13, padding: '5px 10px' }}>
               <ListChecks size={14} />My Requests{count ? ` (${count})` : ''}
             </button>
           </div>
@@ -203,7 +203,7 @@ export function MyRequestsDialog({ onClose, onOpenEntry, nameOf }) {
         <div className="nx-fill" style={{ ...card, padding: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0, margin: 0 }}><ListChecks size={14} />My Requests{count ? ` (${count})` : ''}</h3>
-            <button type="button" onClick={() => setView('new')} style={{ ...btn('outline'), fontSize: 12.5, padding: '5px 10px' }}>
+            <button type="button" onClick={() => setView('new')} style={{ ...btn('outline'), fontSize: 13, padding: '5px 10px' }}>
               <ArrowLeft size={14} />New Request
             </button>
           </div>
@@ -220,13 +220,13 @@ export function MyRequestsDialog({ onClose, onOpenEntry, nameOf }) {
                     </span>
                   </div>
                   <div style={{ marginTop: 6, fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap' }}>{r.note}</div>
-                  {r.statusNote && <div style={{ marginTop: 6, fontSize: 12.5, color: NX.dim }}><strong>Nexus team:</strong> {r.statusNote}</div>}
+                  {r.statusNote && <div style={{ marginTop: 6, fontSize: 13, color: NX.dim }}><strong>Nexus team:</strong> {r.statusNote}</div>}
                   {r.status === 'Shipped' && r.shippedEntryId && (
                     r.shippedReleased ? (
-                      <button type="button" onClick={() => { onClose(); onOpenEntry?.(r.shippedEntryId); }} style={{ ...btn('ghost'), padding: 0, marginTop: 6, color: NX.blue, fontSize: 12.5 }}>
+                      <button type="button" onClick={() => { onClose(); onOpenEntry?.(r.shippedEntryId); }} style={{ ...btn('ghost'), padding: 0, marginTop: 6, color: NX.blue, fontSize: 13 }}>
                         Shipped In: {r.shippedTitle} <ArrowRight size={13} />
                       </button>
-                    ) : <div style={{ marginTop: 6, fontSize: 12.5, color: NX.dim }}>Goes out with &quot;{r.shippedTitle}&quot; soon.</div>
+                    ) : <div style={{ marginTop: 6, fontSize: 13, color: NX.dim }}>Goes out with &quot;{r.shippedTitle}&quot; soon.</div>
                   )}
                   <RequestThread row={r} nameOf={nameOf} onBeforeOpen={onClose} />
                 </div>
@@ -502,7 +502,7 @@ export function MediaEditor({ images, onImages, attachments, onAttachments }) {
         {images.length < MAX_IMAGES && (
           <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, aspectRatio: '16 / 9', cursor: 'pointer', borderRadius: 8, border: `1px dashed ${NX.border}`, textAlign: 'center', fontSize: 12, color: NX.dim, padding: 6 }}>
             <Upload size={15} />Add Screenshots
-            <span style={{ fontSize: 10.5, color: NX.faint }}>or press Ctrl+V to paste</span>
+            <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste</span>
             <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { addImages(e.target.files || []); e.target.value = ''; }} />
           </label>
         )}
@@ -512,7 +512,7 @@ export function MediaEditor({ images, onImages, attachments, onAttachments }) {
           <div key={a.url} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>
             <Paperclip size={13} style={{ color: NX.faint, flexShrink: 0 }} />
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</span>
-            <span style={{ fontSize: 11.5, color: NX.faint }}>{sizeWords(a.size)}</span>
+            <span style={{ fontSize: 12, color: NX.faint }}>{sizeWords(a.size)}</span>
             <button type="button" aria-label={`Remove ${a.name}`} onClick={() => onAttachments((cur) => cur.filter((_, j) => j !== i))} style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={13} /></button>
           </div>
         ))}
@@ -695,7 +695,7 @@ function TourStep({ tour, index, onBack, onNext, onClose }) {
   </>);
   const content = (<>
     {step.image && <img src={step.image} alt="" style={{ width: '100%', borderRadius: 8, border: `1px solid ${NX.border}`, marginBottom: 10 }} />}
-    {step.body && <div style={{ fontSize: 13.5, lineHeight: 1.55, color: NX.ink, whiteSpace: 'pre-wrap' }}>{step.body}</div>}
+    {step.body && <div style={{ fontSize: 13, lineHeight: 1.55, color: NX.ink, whiteSpace: 'pre-wrap' }}>{step.body}</div>}
   </>);
 
   // Nothing to point at (or a phone): the step is a normal popup.

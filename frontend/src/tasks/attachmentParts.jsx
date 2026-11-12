@@ -71,12 +71,12 @@ export function VersionsModal({ att, onClose, onChanged, canRemoveAny = false, m
   );
   return (
     <Modal title={`Versions of ${att.name}`} onClose={onClose} footer={footer}>
-      {error && <div role="alert" style={{ fontSize: 12.5, color: NX.red, marginBottom: 10 }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: NX.red, marginBottom: 10 }}>{error}</div>}
       <div className="nx-fill" data-testid="versions-list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows === null ? <LoadingState /> : rows.map((r, i) => {
           const href = r.dataUrl || r.url;
           return (
-            <div key={r.id} data-testid="version-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: `1px solid ${NX.border}`, borderRadius: 10, padding: '8px 12px', fontSize: 12.5 }}>
+            <div key={r.id} data-testid="version-row" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: `1px solid ${NX.border}`, borderRadius: 10, padding: '8px 12px', fontSize: 13 }}>
               <VersionChip version={r.version} />
               {i === 0 && <StatusLabel size="sm" label="Current" color="#16a34a" />}
               <span style={{ ...ELLIPSIS, flex: '1 1 160px', fontWeight: 600, color: NX.ink }} title={r.name}>{r.name}</span>
@@ -110,7 +110,7 @@ export function EgnyteLinkRow({ a, onRemove }) {
       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <span style={{ ...ELLIPSIS, maxWidth: 200, color: NX.ink }} title={a.egnytePath || a.name}>{a.name}</span>
         {crumbs.length > 0 && (
-          <span style={{ ...ELLIPSIS, maxWidth: 220, fontSize: 10.5, color: NX.faint }} title={a.egnytePath}>{crumbs.join(' › ')}</span>
+          <span style={{ ...ELLIPSIS, maxWidth: 220, fontSize: 11, color: NX.faint }} title={a.egnytePath}>{crumbs.join(' › ')}</span>
         )}
       </span>
       {href && (
@@ -207,7 +207,7 @@ export function EgnyteLinkPicker({ taskId, onClose, onAdded }) {
         <button type="button" onClick={() => go(item.path)} title={`Open ${item.name}`}
           style={{ ...ELLIPSIS, flex: 1, textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: NX.ink, font: 'inherit' }}>{item.name}</button>
       ) : <span style={{ ...ELLIPSIS, flex: 1, color: NX.ink }} title={item.path}>{item.name}</span>}
-      {!isFolder && <span style={{ color: NX.faint, fontSize: 11.5 }}>{formatBytes(item.size)}</span>}
+      {!isFolder && <span style={{ color: NX.faint, fontSize: 12 }}>{formatBytes(item.size)}</span>}
       <button type="button" disabled={busy || !item.webUrl} onClick={() => pick(item, isFolder)}
         style={{ ...btn('outline'), padding: '4px 10px', fontSize: 12 }}>
         <Link2 size={12} /> {isFolder ? 'Link Folder' : 'Link File'}
@@ -218,12 +218,12 @@ export function EgnyteLinkPicker({ taskId, onClose, onAdded }) {
   const crumbs = egnyteCrumbs(path, { withLast: true });
   const tabBtn = (key, label) => (
     <button type="button" role="tab" aria-selected={tab === key} onClick={() => { setTab(key); setError(''); }}
-      style={{ ...btn(tab === key ? 'outline' : 'ghost'), padding: '5px 12px', fontSize: 12.5 }}>{label}</button>
+      style={{ ...btn(tab === key ? 'outline' : 'ghost'), padding: '5px 12px', fontSize: 13 }}>{label}</button>
   );
 
   return (
     <Modal title="Add From Egnyte" onClose={onClose} footer={<button type="button" onClick={onClose} style={btn('outline')}>Close</button>}>
-      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 10 }}>
+      <div style={{ fontSize: 13, color: NX.dim, marginBottom: 10 }}>
         Adds a link to the file or folder, not a copy. It opens in Egnyte, where each person&apos;s own Egnyte access applies.
       </div>
       {!blocked && (
@@ -232,12 +232,12 @@ export function EgnyteLinkPicker({ taskId, onClose, onAdded }) {
           {tabBtn('paste', 'Paste Egnyte Link')}
         </div>
       )}
-      {error && <div role="alert" style={{ fontSize: 12.5, color: NX.red, marginBottom: 10 }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: NX.red, marginBottom: 10 }}>{error}</div>}
       {status.loading ? <LoadingState /> : showPaste ? (
         <div className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {blocked && <div data-testid="egnyte-blocked" style={{ fontSize: 13, color: NX.ink, lineHeight: 1.5 }}>{blocked}</div>}
           {!status.webHost && !status.configured ? (
-            <div style={{ fontSize: 12.5, color: NX.dim }}>Egnyte links can be added once an administrator connects Egnyte to Nexus.</div>
+            <div style={{ fontSize: 13, color: NX.dim }}>Egnyte links can be added once an administrator connects Egnyte to Nexus.</div>
           ) : (
             <form onSubmit={submitPaste} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <input aria-label="Egnyte link" value={pasted} onChange={(e) => { setPasted(e.target.value); setError(''); }}
@@ -247,7 +247,7 @@ export function EgnyteLinkPicker({ taskId, onClose, onAdded }) {
                 <Link2 size={13} /> Add Link
               </button>
               {pasteProblem && <div data-testid="paste-problem" style={{ flexBasis: '100%', fontSize: 12, color: NX.red }}>{pasteProblem}</div>}
-              <div style={{ flexBasis: '100%', fontSize: 11.5, color: NX.faint }}>Copy the link from Egnyte (the address bar, or Copy Link) and paste it here.</div>
+              <div style={{ flexBasis: '100%', fontSize: 12, color: NX.faint }}>Copy the link from Egnyte (the address bar, or Copy Link) and paste it here.</div>
             </form>
           )}
         </div>
@@ -309,7 +309,7 @@ export function WebLinkRow({ a, onEdit, onRemove }) {
   const text = (
     <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       <span style={{ ...ELLIPSIS, maxWidth: 220, color: href ? NX.ink : NX.faint }}>{label}</span>
-      {host && <span data-testid="link-host" style={{ ...ELLIPSIS, maxWidth: 220, fontSize: 10.5, color: NX.faint }}>{host}</span>}
+      {host && <span data-testid="link-host" style={{ ...ELLIPSIS, maxWidth: 220, fontSize: 11, color: NX.faint }}>{host}</span>}
     </span>
   );
   return (
@@ -369,18 +369,18 @@ export function WebLinkModal({ taskId, link = null, onClose, onSaved }) {
   return (
     <Modal title={editing ? 'Edit Web Link' : 'Add Web Link'} onClose={onClose} footer={footer} isDirty={changed && !!url.trim()} onSave={save}>
       <form id="nx-web-link-form" onSubmit={save} className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ fontSize: 12.5, color: NX.dim }}>
+        <div style={{ fontSize: 13, color: NX.dim }}>
           Links a web page to this task - a SharePoint or OneDrive file, a vendor portal, a listing. It opens in a new tab; nothing is copied into Nexus.
         </div>
-        {error && <div role="alert" style={{ fontSize: 12.5, color: NX.red }}>{error}</div>}
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, fontWeight: 600, color: NX.ink }}>
+        {error && <div role="alert" style={{ fontSize: 13, color: NX.red }}>{error}</div>}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 600, color: NX.ink }}>
           Web Address
           <input aria-label="Web address" autoFocus value={url} onChange={(e) => { setUrl(e.target.value); setError(''); }}
             placeholder="https://..." inputMode="url" autoComplete="off" spellCheck={false}
             style={{ ...inputStyle, fontSize: 13, fontWeight: 400 }} />
         </label>
         {problem && <div data-testid="link-problem" style={{ fontSize: 12, color: NX.red, marginTop: -6 }}>{problem}</div>}
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, fontWeight: 600, color: NX.ink }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 600, color: NX.ink }}>
           Display Name
           <input aria-label="Display name" value={name} onChange={(e) => setName(e.target.value)} maxLength={250}
             placeholder="Optional - the address shows when this is blank"
@@ -388,12 +388,12 @@ export function WebLinkModal({ taskId, link = null, onClose, onSaved }) {
         </label>
         {previewHost && (
           <div data-testid="link-preview" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
-            <span style={{ fontSize: 11.5, color: NX.faint }}>How it shows on the task</span>
+            <span style={{ fontSize: 12, color: NX.faint }}>How it shows on the task</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '6px 10px', fontSize: 12, maxWidth: '100%', alignSelf: 'flex-start' }}>
               <Link2 size={14} style={{ color: NX.blue, flexShrink: 0 }} />
               <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 <span style={{ ...ELLIPSIS, maxWidth: 260, color: NX.ink }}>{name.trim() || url.trim()}</span>
-                <span style={{ ...ELLIPSIS, maxWidth: 260, fontSize: 10.5, color: NX.faint }}>{previewHost}</span>
+                <span style={{ ...ELLIPSIS, maxWidth: 260, fontSize: 11, color: NX.faint }}>{previewHost}</span>
               </span>
             </div>
           </div>

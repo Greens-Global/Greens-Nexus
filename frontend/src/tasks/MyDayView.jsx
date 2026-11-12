@@ -28,7 +28,7 @@ function Progress({ done, total, isMobile }) {
   if (!total) return null;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, width: isMobile ? '100%' : 'auto' }}>
-      <span data-testid="myday-progress" style={{ fontSize: 12.5, fontWeight: 600, color: done === total ? NX.green : NX.dim, whiteSpace: 'nowrap' }}>
+      <span data-testid="myday-progress" style={{ fontSize: 13, fontWeight: 600, color: done === total ? NX.green : NX.dim, whiteSpace: 'nowrap' }}>
         {done === total ? 'All done for today' : progressLabel(done, total)}
       </span>
       <ProgressTrack size="sm" value={done / total} label="My Day progress" valueText={progressLabel(done, total)}
@@ -63,7 +63,7 @@ function QuickAdd({ onAdd, onSeveral }) {
         style={{ ...inputStyle, border: 'none', padding: '6px 2px', background: 'transparent', fontSize: 14 }} />
       {!busy && <DictateButton target={ref} title="Dictate a Task" />}
       {title.trim() && (
-        <button type="button" onClick={submit} disabled={busy} style={{ ...btn('primary'), padding: '5px 12px', fontSize: 12.5, flexShrink: 0 }}>
+        <button type="button" onClick={submit} disabled={busy} style={{ ...btn('primary'), padding: '5px 12px', fontSize: 13, flexShrink: 0 }}>
           {busy ? 'Adding...' : 'Add'}
         </button>
       )}
@@ -196,12 +196,12 @@ function Row({ t, index, openCount, day, store, canEdit, isMobile, onOpen, onTog
       </span>
       {isMobile ? (
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14.5, fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none', overflowWrap: 'anywhere' }}>{t.title}</div>
+          <div style={{ fontSize: 15, fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none', overflowWrap: 'anywhere' }}>{t.title}</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 4 }}>{meta}</div>
         </div>
       ) : (
         <>
-          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13.5, fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 500, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, minWidth: 0 }}>{meta}</span>
         </>
       )}
@@ -221,7 +221,7 @@ function Row({ t, index, openCount, day, store, canEdit, isMobile, onOpen, onTog
 function SuggestionRow({ t, day, store, onAdd, onOpen }) {
   return (
     <div className="nx-row-hover" style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer' }} onClick={() => onOpen(t.id)}>
-      <div style={{ fontSize: 13.5, fontWeight: 500, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.title}>{t.title}</div>
+      <div style={{ fontSize: 13, fontWeight: 500, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.title}>{t.title}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, minWidth: 0 }}>
         <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
           <ProjectPill t={t} store={store} />
@@ -243,7 +243,7 @@ function Suggestions({ groups, day, store, onAdd, onOpen }) {
   }
   return shown.map((g) => (
     <section key={g.key} aria-label={g.label} style={{ marginBottom: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: g.key === 'overdue' ? NX.red : NX.faint }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: g.key === 'overdue' ? NX.red : NX.faint }}>
         {g.label}<span style={{ fontWeight: 600, color: NX.faint }}>{g.rows.length}</span>
       </div>
       {g.rows.map((t) => <SuggestionRow key={t.id} t={t} day={day} store={store} onAdd={onAdd} onOpen={onOpen} />)}
@@ -374,14 +374,14 @@ export default function MyDayView({ onOpen }) {
         <Sun size={19} />
       </span>
       <div style={{ minWidth: 0, flex: isMobile ? 1 : 'none' }}>
-        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700, color: NX.ink, lineHeight: 1.2 }}>My Day</h2>
+        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24, fontWeight: 700, color: NX.ink, lineHeight: 1.2 }}>My Day</h2>
         <div data-testid="myday-date" style={{ fontSize: 13, color: NX.dim, marginTop: 2 }}>{myDayDateLabel(day)}</div>
       </div>
       {!isMobile && <div style={{ marginLeft: 16 }}><Progress done={done.length} total={total} /></div>}
       <button type="button" onClick={() => setSuggestOpen((o) => !o)} aria-pressed={suggestOpen} aria-expanded={suggestOpen}
-        style={{ ...btn('outline'), marginLeft: 'auto', padding: '6px 11px', fontSize: 12.5, color: suggestOpen ? NX.blue : NX.ink, ...(suggestOpen ? { borderColor: NX.blue } : null) }}>
+        style={{ ...btn('outline'), marginLeft: 'auto', padding: '6px 11px', fontSize: 13, color: suggestOpen ? NX.blue : NX.ink, ...(suggestOpen ? { borderColor: NX.blue } : null) }}>
         <Lightbulb size={14} style={{ color: NX.amber }} />Suggestions
-        {suggestCount > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: NX.faint }}>{suggestCount}</span>}
+        {suggestCount > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: NX.faint }}>{suggestCount}</span>}
       </button>
       {isMobile && total > 0 && <Progress done={done.length} total={total} isMobile />}
     </div>
@@ -397,7 +397,7 @@ export default function MyDayView({ onOpen }) {
       <div style={{ fontSize: 15, fontWeight: 600, color: NX.ink }}>Nothing planned for today yet.</div>
       <div style={{ fontSize: 13, marginTop: 6 }}>Add a task above, or pick from Suggestions - what is overdue, due tomorrow and in progress.</div>
       {!suggestOpen && (
-        <button type="button" onClick={() => setSuggestOpen(true)} style={{ ...btn('outline'), marginTop: 14, fontSize: 12.5 }}>
+        <button type="button" onClick={() => setSuggestOpen(true)} style={{ ...btn('outline'), marginTop: 14, fontSize: 13 }}>
           <Lightbulb size={14} style={{ color: NX.amber }} />Open Suggestions
         </button>
       )}
@@ -417,7 +417,7 @@ export default function MyDayView({ onOpen }) {
         {header}
         <div className={isMobile ? 'nx-edge-card' : undefined} style={{ ...card, overflow: 'hidden' }}>
           <QuickAdd onAdd={quickAdd} onSeveral={(text) => setSeveral(text)} />
-          {severalNote && <div role="status" style={{ padding: '4px 12px', fontSize: 12.5, color: NX.green, fontWeight: 600 }}>{severalNote}</div>}
+          {severalNote && <div role="status" style={{ padding: '4px 12px', fontSize: 13, color: NX.green, fontWeight: 600 }}>{severalNote}</div>}
           {several && (
             <AddSeveralModal defaults={{ text: several, dueOn: day || todayISO(), assigneeIds: store.myEmail ? [store.myEmail] : [], source: 'paste' }}
               onClose={() => setSeveral(null)}

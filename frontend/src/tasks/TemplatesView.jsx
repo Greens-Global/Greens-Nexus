@@ -35,7 +35,7 @@ const VISIBILITY_OPTS = [
   { key: 'restricted', icon: Lock, label: 'Only Me', desc: 'Only you (and managers) can see or use this template.' },
 ];
 
-const label = { fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
+const label = { fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
 
 // Today as yyyy-mm-dd in the LOCAL day, not UTC. toISOString() is UTC, so
 // anywhere behind it that reads as yesterday and every task lands a day early.
@@ -58,7 +58,7 @@ function OptionRow({ checked, onChange, title, hint, disabled }) {
         style={{ marginTop: 2, cursor: disabled ? 'default' : 'pointer', flexShrink: 0 }} />
       <span style={{ minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 13, color: NX.ink }}>{title}</span>
-        {hint && <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{hint}</span>}
+        {hint && <span style={{ display: 'block', fontSize: 12, color: NX.faint, marginTop: 1 }}>{hint}</span>}
       </span>
     </label>
   );
@@ -160,7 +160,7 @@ export function SaveTemplateModal({ projectId: fixedProjectId = '', onClose, onS
       </>}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
-        <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5 }}>
           A template captures the project's <strong style={{ color: NX.ink }}>structure only</strong> - its sections,
           tasks, custom fields and custom statuses. No owner, members, teams, portfolio, department or visibility
           comes across, and the tasks arrive unassigned. Whoever uses the template is asked for all of that.
@@ -246,14 +246,14 @@ export function SaveTemplateModal({ projectId: fixedProjectId = '', onClose, onS
                 <o.icon size={15} style={{ color: NX.dim, marginTop: 2, flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
-                  <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 1 }}>{o.desc}</div>
+                  <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{o.desc}</div>
                 </div>
               </button>
             ))}
           </div>
         </div>
 
-        {err && <div style={{ fontSize: 12.5, color: NX.red }}>{err}</div>}
+        {err && <div style={{ fontSize: 13, color: NX.red }}>{err}</div>}
       </div>
     </Modal>
   );
@@ -369,7 +369,7 @@ export function DuplicateProjectModal({ project, onClose, onCreated }) {
       </>}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
-        <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5 }}>
           The original is left exactly as it is. The copy is a fresh project of its own.
         </div>
 
@@ -383,7 +383,7 @@ export function DuplicateProjectModal({ project, onClose, onCreated }) {
           <label style={label}>Start Date</label>
           <DateField value={form.startOn} onChange={(v) => set({ startOn: v || '' })} placeholder="Keep the original dates" title="Start Date"
             style={{ ...inputStyle, cursor: 'pointer' }} />
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>
             Leave blank to keep the original's dates. Set one to shift the whole plan onto it.
           </div>
         </div>
@@ -408,7 +408,7 @@ export function DuplicateProjectModal({ project, onClose, onCreated }) {
           <div style={{ marginTop: 8 }}><PreviewLine preview={preview} projectId={project.id} blueprint={false} /></div>
         </div>
 
-        {err && <div style={{ fontSize: 12.5, color: NX.red }}>{err}</div>}
+        {err && <div style={{ fontSize: 13, color: NX.red }}>{err}</div>}
       </div>
     </Modal>
   );
@@ -455,7 +455,7 @@ function EditTemplateModal({ template, onClose }) {
       </>}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
-        <div style={{ fontSize: 12.5, color: NX.faint }}>
+        <div style={{ fontSize: 13, color: NX.faint }}>
           This edits the template's card. To re-capture what it contains, save the project as a template again.
         </div>
         <div>
@@ -492,13 +492,13 @@ function EditTemplateModal({ template, onClose }) {
                 <o.icon size={15} style={{ color: NX.dim, marginTop: 2, flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
-                  <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 1 }}>{o.desc}</div>
+                  <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{o.desc}</div>
                 </div>
               </button>
             ))}
           </div>
         </div>
-        {err && <div style={{ fontSize: 12.5, color: NX.red }}>{err}</div>}
+        {err && <div style={{ fontSize: 13, color: NX.red }}>{err}</div>}
       </div>
     </Modal>
   );
@@ -520,16 +520,16 @@ function DeleteTemplateModal({ template, onClose, onConfirm }) {
           onClick={go}>{busy ? 'Deleting…' : 'Delete Template'}</button>
       </>}
     >
-      <p style={{ fontSize: 13.5, color: NX.ink, marginBottom: 8 }}>
+      <p style={{ fontSize: 13, color: NX.ink, marginBottom: 8 }}>
         This removes the blueprint only.
       </p>
-      <p style={{ fontSize: 12.5, color: NX.dim }}>
+      <p style={{ fontSize: 13, color: NX.dim }}>
         {template.useCount
           ? `The ${template.useCount} project${template.useCount === 1 ? '' : 's'} already built from it are ordinary projects and are not touched.`
           : 'Nothing has been built from it yet, and no project is affected.'}
         {' '}If you want it out of the way but recoverable, archive it instead.
       </p>
-      {err && <div style={{ marginTop: 10, fontSize: 12.5, color: NX.red }}>{err}</div>}
+      {err && <div style={{ marginTop: 10, fontSize: 13, color: NX.red }}>{err}</div>}
     </Modal>
   );
 }
@@ -551,7 +551,7 @@ function TemplateList({ rows, isMobile, nameOf, recapturing, onRecapture, onEdit
           <div style={{
             display: 'grid', gridTemplateColumns: TPL_LIST_COLS, gap: 12, alignItems: 'center',
             padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2,
-            fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.faint,
+            fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.faint,
           }}>
             <span>Template</span><span>Contents</span><span>Source</span><span>Owner</span><span />
           </div>
@@ -574,7 +574,7 @@ function TemplateList({ rows, isMobile, nameOf, recapturing, onRecapture, onEdit
                 <span style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${dcolor}1f`, color: dcolor }}>
                   <LayoutTemplate size={14} />
                 </span>
-                <span title={t.description || t.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                <span title={t.description || t.name} style={{ minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
                 {t.outdated && (
                   <span title={t.sourceProjectId
                     ? 'Saved in an older format, so it carries no custom fields or statuses. Re-capture it from the actions on this row.'
@@ -593,7 +593,7 @@ function TemplateList({ rows, isMobile, nameOf, recapturing, onRecapture, onEdit
                     {t.fieldCount > 0 ? ` · ${t.fieldCount} field${t.fieldCount === 1 ? '' : 's'}` : ''}
                     {t.useCount > 0 ? ` · Used ${t.useCount}x` : ''}
                   </span>
-                  <button style={{ ...btn('primary'), marginLeft: 'auto', padding: '6px 11px', fontSize: 12.5 }}
+                  <button style={{ ...btn('primary'), marginLeft: 'auto', padding: '6px 11px', fontSize: 13 }}
                     onClick={() => onUse(t)}><Copy size={13} />Use Template</button>
                 </div>
               ) : (
@@ -649,7 +649,7 @@ function TemplateList({ rows, isMobile, nameOf, recapturing, onRecapture, onEdit
                     )}
                     <button title="Edit Template" onClick={() => onEdit(t)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Pencil size={13} /></button>
                     <button title="Delete Template" onClick={() => onDelete(t)} style={{ ...btn('ghost'), padding: 5, color: NX.red, borderRadius: 7 }}><Trash2 size={13} /></button>
-                    <button title="Use Template" style={{ ...btn('primary'), marginLeft: 6, padding: '6px 11px', fontSize: 12.5 }}
+                    <button title="Use Template" style={{ ...btn('primary'), marginLeft: 6, padding: '6px 11px', fontSize: 13 }}
                       onClick={() => onUse(t)}><Copy size={13} />Use</button>
                   </div>
                 </Fragment>
@@ -708,9 +708,9 @@ export default function TemplatesView({ onNavigate }) {
       <div style={{ padding: isMobile ? '12px 12px 10px' : '20px 24px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Templates</div>
+            <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Templates</div>
             {!isMobile && (
-              <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>
+              <div style={{ fontSize: 13, color: NX.dim, marginTop: 4 }}>
                 Reusable project blueprints. Save a project once, then stamp out the next one from it.
               </div>
             )}
@@ -767,7 +767,7 @@ export default function TemplatesView({ onNavigate }) {
                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                         background: `${dcolor}1f`, color: dcolor,
                       }}><LayoutTemplate size={15} /></span>
-                      <div title={t.name} style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
+                      <div title={t.name} style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
                       <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
                         {t.sourceProjectId && (
                           <button
@@ -790,11 +790,11 @@ export default function TemplatesView({ onNavigate }) {
                     {t.outdated && (
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7, padding: '8px 10px', borderRadius: 8, background: 'rgba(217,119,6,0.10)', border: '1px solid rgba(217,119,6,0.28)' }}>
                         <AlertTriangle size={14} style={{ color: NX.amber, marginTop: 1, flexShrink: 0 }} />
-                        <div style={{ fontSize: 11.5, color: NX.dim, lineHeight: 1.45 }}>
+                        <div style={{ fontSize: 12, color: NX.dim, lineHeight: 1.45 }}>
                           Saved in an older format, so it carries no custom fields or statuses.
                           {t.sourceProjectId ? (
                             <button onClick={() => recapture(t)} disabled={recapturing === t.id}
-                              style={{ border: 'none', background: 'none', padding: 0, marginLeft: 4, color: NX.blue, fontWeight: 700, fontSize: 11.5, cursor: 'pointer', fontFamily: FONT }}>
+                              style={{ border: 'none', background: 'none', padding: 0, marginLeft: 4, color: NX.blue, fontWeight: 700, fontSize: 12, cursor: 'pointer', fontFamily: FONT }}>
                               {recapturing === t.id ? 'Re-capturing…' : 'Re-capture it'}
                             </button>
                           ) : ' Save the project as a template again to refresh it.'}
@@ -809,7 +809,7 @@ export default function TemplatesView({ onNavigate }) {
                     </div>
 
                     {t.description && (
-                      <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{t.description}</div>
+                      <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{t.description}</div>
                     )}
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 12, color: NX.dim }}>
@@ -840,7 +840,7 @@ export default function TemplatesView({ onNavigate }) {
                     </div>
 
                     {t.sourceProjectName && (
-                      <div style={{ fontSize: 11.5, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         Saved from {t.sourceProjectName}
                         {t.createdAt ? ` on ${formatDate(t.createdAt)}` : ''}
                       </div>
@@ -853,7 +853,7 @@ export default function TemplatesView({ onNavigate }) {
                           <span style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.ownerId)}</span>
                         </span>
                       ) : <span style={{ fontSize: 12, color: NX.faint }}>No owner</span>}
-                      <button style={{ ...btn('primary'), marginLeft: 'auto', padding: '7px 12px', fontSize: 12.5 }}
+                      <button style={{ ...btn('primary'), marginLeft: 'auto', padding: '7px 12px', fontSize: 13 }}
                         onClick={() => setUsing(t)}><Copy size={14} />Use Template</button>
                     </div>
                   </div>
@@ -866,7 +866,7 @@ export default function TemplatesView({ onNavigate }) {
       </div>
 
       {recaptureErr && (
-        <div style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 5000, background: NX.red, color: '#fff', borderRadius: 10, padding: '10px 15px', fontSize: 12.5, maxWidth: 'min(92vw, 480px)' }}
+        <div style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 5000, background: NX.red, color: '#fff', borderRadius: 10, padding: '10px 15px', fontSize: 13, maxWidth: 'min(92vw, 480px)' }}
           onClick={() => setRecaptureErr('')} role="alert">{recaptureErr}</div>
       )}
 

@@ -98,8 +98,8 @@ export default function TeamsView({ onNavigate, actions }) {
       {/* The title block matches Projects and Portfolios (Neil, 11/10/2026). */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: isMobile ? '12px 12px 10px' : '20px 24px 16px', borderBottom: `1px solid ${NX.border}`, flexWrap: 'wrap', background: NX.surface, flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Teams</div>
-          {!isMobile && <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>Teams group members and their work within a project.</div>}
+          <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Teams</div>
+          {!isMobile && <div style={{ fontSize: 13, color: NX.dim, marginTop: 4 }}>Teams group members and their work within a project.</div>}
         </div>
         {/* Right-hand cluster - see ProjectsView for why the group, and not
             ResetColumnsButton, carries the auto margin. */}
@@ -139,7 +139,7 @@ export default function TeamsView({ onNavigate, actions }) {
                     <Avatar email={r.userId} name={nameOf(r.userId)} size={30} />
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink }}>{nameOf(r.userId)}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{nameOf(r.userId)}</span>
                         <span style={{
                           display: 'inline-flex', padding: '2px 8px', borderRadius: 5, fontSize: 11, fontWeight: 700,
                           color: isRemove ? NX.red : NX.green, background: isRemove ? 'rgba(220,38,38,0.15)' : 'rgba(22,163,74,0.15)',
@@ -328,7 +328,7 @@ export function TeamList({ teams, projectsOf, nameOf, taskCountByTeam, isMobile,
         <div style={{
           display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center',
           padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2,
-          fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.faint,
+          fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.faint,
         }}>
           {listCols.map((c) => (
             <TableHead key={c.key} label={c.label} sortKey={c.sort} sort={sort} setSort={setSort}
@@ -370,7 +370,7 @@ export function TeamList({ teams, projectsOf, nameOf, taskCountByTeam, isMobile,
                   <span style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${color}1f`, color }}>
                     <Icon size={14} />
                   </span>
-                  <span title={team.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
+                  <span title={team.name} style={{ minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
                 </div>
                 <div style={{ fontSize: 12, color: NX.faint }}>
                   {members.length} member{members.length === 1 ? '' : 's'}
@@ -384,7 +384,7 @@ export function TeamList({ teams, projectsOf, nameOf, taskCountByTeam, isMobile,
                   <span style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${color}1f`, color }}>
                     <Icon size={14} />
                   </span>
-                  <span title={team.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
+                  <span title={team.name} style={{ minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
                   {/* Says whose team this is and how far along it is. Without
                       it, a personal team looks identical to a real one while
                       behaving completely differently - nobody else can see it,
@@ -452,7 +452,7 @@ function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
           <Icon size={21} />
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 15.5, fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</div>
           {/* Members · projects · tasks. The project count belongs in the count
               line even though the names are listed right below it: a long team
               scrolls its list past the fold, and "4 projects" is the number you
@@ -494,9 +494,9 @@ function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
         </div>
       </div>
       <div style={{ marginTop: 14 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 7 }}>Teammates</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 7 }}>Teammates</div>
         {members.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: NX.faint }}>No members yet.</div>
+          <div style={{ fontSize: 13, color: NX.faint }}>No members yet.</div>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center' }}>
             {shown.map((email) => (
@@ -593,7 +593,7 @@ export function TeamModal({ team, onClose, onDelete, personal = false }) {
           number of projects (here, or from each project's own Teams picker). */}
       <label style={{ ...labelStyle, marginTop: 16 }}>Projects (optional)</label>
       {projects.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: NX.faint }}>No projects yet.</div>
+        <div style={{ fontSize: 13, color: NX.faint }}>No projects yet.</div>
       ) : (
         /* A searchable dropdown, not an inline checkbox list - workspaces carry
            dozens of projects, and the scrolling list pushed Color/Icon/Members
@@ -636,7 +636,7 @@ export function TeamModal({ team, onClose, onDelete, personal = false }) {
       <label style={{ ...labelStyle, marginTop: 16 }}>Members</label>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: members.length ? 10 : 0 }}>
         {members.map((email) => (
-          <span key={email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 6px 3px 3px', fontSize: 12.5 }}>
+          <span key={email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 6px 3px 3px', fontSize: 13 }}>
             <Avatar email={email} name={nameOfLocal(email)} size={20} />
             <span style={{ color: NX.ink }}>{nameOfLocal(email)}</span>
             <button onClick={() => removeMember(email)} title="Remove" style={{ ...btn('ghost'), padding: 1, color: NX.faint }}>
@@ -655,7 +655,7 @@ export function TeamModal({ team, onClose, onDelete, personal = false }) {
   );
 }
 
-const labelStyle = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+const labelStyle = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
 // ── Team detail - Overview / Members / All work / Calendar ──────────────────
 const DETAIL_TABS = [
@@ -685,7 +685,7 @@ function TeamDetail({ team, teamProjects, onBack, onEdit, onNavigate, actions })
           <Icon size={22} />
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <button onClick={onEdit} style={{ ...btn('ghost'), padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 22, fontWeight: 700, color: NX.ink }} title="Edit Team">
+          <button onClick={onEdit} style={{ ...btn('ghost'), padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 24, fontWeight: 700, color: NX.ink }} title="Edit Team">
             {team.name}
           </button>
           {/* Matches TeamCard's count line exactly - the single-project case used

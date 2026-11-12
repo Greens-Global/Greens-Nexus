@@ -1049,7 +1049,7 @@ export function TasksProvider({ children }) {
         }}>
           <span>Not added: {dropped.map((e) => nameOf(e) || e).join(', ')} - not in the Nexus directory or no longer with the company.</span>
           <button type="button" onClick={() => { clearTimeout(droppedTimer.current); setDropped(null); }} aria-label="Dismiss" title="Dismiss"
-            style={{ border: 'none', background: 'none', color: '#cbd5e1', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 2, flexShrink: 0, fontFamily: 'inherit' }}>×</button>
+            style={{ border: 'none', background: 'none', color: '#cbd5e1', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: 2, flexShrink: 0, fontFamily: 'inherit' }}>×</button>
         </div>
       )}
       {/* Undo toast - completes, deletes, and recurring rolls offer a 6s rescue. */}

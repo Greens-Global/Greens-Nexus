@@ -486,7 +486,7 @@ export default function HomeView({ onNavigate, actions }) {
   // on the tiles' card at a desk before).
   const rangePicker = (
     <div>
-      <button ref={rangeRef} onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
+      <button ref={rangeRef} onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 13 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
       <AnchoredMenu anchorRef={rangeRef} open={rangeOpen} onClose={() => setRangeOpen(false)} align="end"
         style={{ width: 150, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
         {RANGES.map((r) => <button key={r.key} onClick={() => { setRange(r.key); setRangeOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: range === r.key ? NX.blue : NX.ink }}>{r.label}</button>)}
@@ -502,7 +502,7 @@ export default function HomeView({ onNavigate, actions }) {
     return <TaskLine key={t.id} t={t} {...p} due={group === 'today' || group === 'tomorrow' ? '' : p.due} compact={isMobile} onOpen={setOpenId} onToggle={toggleComplete} />;
   };
   const groupHead = (label, n, extra) => (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0 4px', fontSize: 11.5, fontWeight: 700, color: NX.faint, letterSpacing: '.02em' }}>
+    <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0 4px', fontSize: 12, fontWeight: 700, color: NX.faint, letterSpacing: '.02em' }}>
       {extra}{label}<span style={{ fontWeight: 600 }}>{n}</span>
     </span>
   );
@@ -590,7 +590,7 @@ export default function HomeView({ onNavigate, actions }) {
         </div>
         {pick && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 6px 3px 10px', borderRadius: 999, background: `${NX.blue}1a`, color: NX.blue, fontSize: 12.5, fontWeight: 600 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 6px 3px 10px', borderRadius: 999, background: `${NX.blue}1a`, color: NX.blue, fontSize: 13, fontWeight: 600 }}>
               {pickLabel}
               <button type="button" onClick={() => setPick(null)} aria-label="Clear Filter" title="Clear Filter"
                 style={{ ...btn('ghost'), padding: 2, color: NX.blue, borderRadius: '50%' }}><X size={13} /></button>
@@ -629,7 +629,7 @@ export default function HomeView({ onNavigate, actions }) {
         ) : (
           <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>
         )}
-        {addedNote && <div role="status" style={{ fontSize: 12.5, color: NX.green, fontWeight: 600, padding: '2px 0 6px' }}>{addedNote}</div>}
+        {addedNote && <div role="status" style={{ fontSize: 13, color: NX.green, fontWeight: 600, padding: '2px 0 6px' }}>{addedNote}</div>}
         {several && (
           <AddSeveralModal defaults={{ text: several.text, dueOn: several.dueOn, assigneeIds: myEmail ? [myEmail] : [], source: 'paste' }}
             onClose={() => setSeveral(null)}
@@ -684,7 +684,7 @@ export default function HomeView({ onNavigate, actions }) {
                   <span style={{ width: 64, height: 5, borderRadius: 3, background: NX.border2, overflow: 'hidden', flexShrink: 0 }}>
                     <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 3, background: pct === 100 ? NX.green : pc }} />
                   </span>
-                  <span style={{ fontSize: 11.5, color: NX.faint, flexShrink: 0, width: 46, textAlign: 'right' }}>
+                  <span style={{ fontSize: 12, color: NX.faint, flexShrink: 0, width: 46, textAlign: 'right' }}>
                     {st.total ? `${st.done}/${st.total}` : '-'}
                   </span>
                 </button>
@@ -785,7 +785,7 @@ export default function HomeView({ onNavigate, actions }) {
       {/* Customize mode: add-widget tray (only unused widgets) */}
       {customizing && availableWidgets.length > 0 && (
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Add Widgets</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Add Widgets</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))', gap: 8 }}>
             {availableWidgets.map(({ key: k, label, Icon, desc }) => (
               <button key={k} type="button" onClick={() => persist([...widgets, k])}

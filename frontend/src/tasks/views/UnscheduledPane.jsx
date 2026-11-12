@@ -56,7 +56,7 @@ const UnscheduledRow = memo(function UnscheduledRow({
       {/* The title is the row's keyboard handle: Enter opens the task. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <button type="button" title={t.title} onClick={(e) => { e.stopPropagation(); onOpen(t.id); }}
-          style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', padding: 0, textAlign: 'left', cursor: 'inherit', fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', padding: 0, textAlign: 'left', cursor: 'inherit', fontFamily: FONT, fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {t.title}
         </button>
         {awaiting ? (
@@ -69,14 +69,14 @@ const UnscheduledRow = memo(function UnscheduledRow({
           <span onClick={stop} onKeyDown={stop} style={{ flexShrink: 0, display: 'inline-flex' }}>
             <DateField value="" placeholder="Schedule" title={`Schedule "${t.title}"`} noPast color={NX.blue}
               onChange={(v) => { if (v) onSchedule?.(t.id, v); }}
-              style={{ border: `1px solid ${NX.border}`, borderRadius: 7, padding: sheet ? '7px 12px' : '2px 7px', fontSize: sheet ? 13 : 11.5, fontWeight: 600, gap: 5 }} />
+              style={{ border: `1px solid ${NX.border}`, borderRadius: 7, padding: sheet ? '7px 12px' : '2px 7px', fontSize: sheet ? 13 : 12, fontWeight: 600, gap: 5 }} />
           </span>
         )}
       </div>
       {(proj || t.priority || people.length > 0) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, minWidth: 0 }}>
           {proj && (
-            <span style={{ padding: '1px 7px', borderRadius: 5, fontSize: 10.5, fontWeight: 600, background: `${projColor}1a`, color: projColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flexShrink: 1 }}>{proj.name}</span>
+            <span style={{ padding: '1px 7px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: `${projColor}1a`, color: projColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flexShrink: 1 }}>{proj.name}</span>
           )}
           {t.priority && <span style={{ flexShrink: 0, display: 'inline-flex' }}><PriorityChip priority={t.priority} /></span>}
           {people.length > 0 && (
@@ -86,7 +86,7 @@ const UnscheduledRow = memo(function UnscheduledRow({
                   <Avatar email={a} name={nameOf?.(a)} size={18} />
                 </span>
               ))}
-              {people.length > 3 && <span style={{ fontSize: 10.5, color: NX.faint, marginLeft: 3 }}>+{people.length - 3}</span>}
+              {people.length > 3 && <span style={{ fontSize: 11, color: NX.faint, marginLeft: 3 }}>+{people.length - 3}</span>}
             </span>
           )}
         </div>
@@ -122,7 +122,7 @@ function UnscheduledPane({
     onDrop: (e) => { e.preventDefault(); setOver(false); onDropClear?.(); },
   } : {};
 
-  const empty = (text) => <div style={{ padding: '24px 8px', textAlign: 'center', fontSize: 12.5, color: NX.dim }}>{text}</div>;
+  const empty = (text) => <div style={{ padding: '24px 8px', textAlign: 'center', fontSize: 13, color: NX.dim }}>{text}</div>;
 
   return (
     <section aria-label="Unscheduled tasks" data-testid="unscheduled-pane" {...dropProps}
@@ -146,7 +146,7 @@ function UnscheduledPane({
         <div style={{ position: 'relative', padding: sheet ? '0 0 10px' : '0 12px 8px' }}>
           <Search size={13} style={{ position: 'absolute', left: sheet ? 9 : 21, top: 9, color: NX.faint, pointerEvents: 'none' }} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search unscheduled…" aria-label="Search unscheduled tasks"
-            style={{ ...inputStyle, padding: '6px 10px 6px 28px', fontSize: sheet ? 16 : 12.5 }} />
+            style={{ ...inputStyle, padding: '6px 10px 6px 28px', fontSize: sheet ? 16 : 13  /* type-ok: iOS zooms a field under 16px */ }} />
         </div>
       )}
       {clearTarget && (
@@ -165,7 +165,7 @@ function UnscheduledPane({
                   onOpen={onOpen} onSchedule={onSchedule} onDragRow={onDragRow} onDragEnd={onDragEnd} />
               ))}
               {rows.length > shown.length && (
-                <div style={{ padding: '6px 4px', fontSize: 11.5, color: NX.faint }}>
+                <div style={{ padding: '6px 4px', fontSize: 12, color: NX.faint }}>
                   Showing {shown.length} of {rows.length} - search to narrow down
                 </div>
               )}

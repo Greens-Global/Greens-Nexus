@@ -223,8 +223,8 @@ export default function ProjectsView({ onNavigate, actions }) {
       <div style={{ padding: isMobile ? '12px 12px 10px' : '20px 24px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Projects</div>
-            {!isMobile && <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>Every project in the workspace with live task rollups.</div>}
+            <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 800, letterSpacing: '-0.02em' }}>Projects</div>
+            {!isMobile && <div style={{ fontSize: 13, color: NX.dim, marginTop: 4 }}>Every project in the workspace with live task rollups.</div>}
           </div>
           {/* No New Project here: creating one is the floating "+" (see
               views/Tasks.jsx's FAB_CREATES) or the bar's Create, and a third
@@ -349,7 +349,7 @@ export default function ProjectsView({ onNavigate, actions }) {
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                       background: `${dcolor}1f`, color: dcolor,
                     }}><ProjectIcon project={p} size={15} /></span>
-                    <div title={p.name} style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                    <div title={p.name} style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                     <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                       <button title="Save as Template" onClick={() => setTemplating(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><LayoutTemplate size={13} /></button>
                       <button title="Duplicate Project" onClick={() => setDuplicating(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><Copy size={13} /></button>
@@ -377,7 +377,7 @@ export default function ProjectsView({ onNavigate, actions }) {
                 </div>
 
                 {p.description && (
-                  <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.description}</div>
+                  <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.description}</div>
                 )}
 
                 {/* Progress rollup */}
@@ -504,7 +504,7 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
           <div style={{
             display: 'grid', gridTemplateColumns: cols, gap: 12, alignItems: 'center',
             padding: '9px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2,
-            fontSize: 11.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.faint,
+            fontSize: 12, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: NX.faint,
           }}>
             {listCols.map((c) => (
               <TableHead key={c.key} label={c.label} sortKey={c.sort} sort={sort} setSort={setSort}
@@ -566,7 +566,7 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   background: `${dcolor}1f`, color: dcolor,
                 }}><ProjectIcon project={p} size={14} /></span>
-                <span title={p.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                <span title={p.name} style={{ minWidth: 0, fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                 {p.archived && <span style={{ ...chip(NX.faint, NX.border2), flexShrink: 0 }}><Archive size={11} />Archived</span>}
                 {pf && !isMobile && <span style={{ ...chip(NX.purple, `${NX.purple}1a`), flexShrink: 0 }}>{pf.name}</span>}
               </div>
@@ -587,7 +587,7 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
                 ),
                 progress: (
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11.5, color: NX.dim, marginBottom: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: NX.dim, marginBottom: 4 }}>
                       <span>{stats.completed}/{stats.total} done</span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                         {stats.overdue > 0 && <span title={`${stats.overdue} overdue`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: NX.red, fontWeight: 600 }}><AlertTriangle size={11} />{stats.overdue}</span>}
@@ -624,7 +624,7 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
               {isMobile && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 34, gridColumn: '1 / -1' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: NX.dim, marginBottom: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: NX.dim, marginBottom: 4 }}>
                       <span>{stats.completed}/{stats.total} done</span>
                       {stats.overdue > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: NX.red, fontWeight: 600 }}><AlertTriangle size={11} />{stats.overdue}</span>}
                       <span style={{ fontWeight: 700, color: NX.ink, marginLeft: 'auto' }}>{stats.pct}%</span>
@@ -663,7 +663,7 @@ export function DeleteProjectModal({ state, onConfirm, onClose }) {
         </>
       )}
     >
-      <p style={{ fontSize: 13.5, color: NX.ink, marginBottom: 12 }}>
+      <p style={{ fontSize: 13, color: NX.ink, marginBottom: 12 }}>
         The project and <strong>all of its tasks</strong> (subtasks, comments and attachments included)
         move to the Recycle Bin and disappear for everyone working in it. Whoever deleted it, or a
         manager, can restore it from the Recycle Bin until it is purged for good.
@@ -696,7 +696,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
   // "why does it say that?" in place, instead of looking like a missing field.
   const stats = useMemo(() => taskStats(form.id ? tasks.filter((t) => taskInProject(t, form.id)) : []), [tasks, form.id]);
   const statusMeta = PROJECT_STATUS_META[projectStatusFor(stats)];
-  const label = { fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
+  const label = { fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
   const valid = form.name.trim().length > 0;
   const [saving, setSaving] = useState(false);
   // autoFocus on a text input inside a modal pops the on-screen keyboard the
@@ -802,7 +802,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
         {template && (
           <div style={{ display: 'flex', gap: 10, padding: '10px 12px', borderRadius: 10, background: NX.surface2, border: `1px solid ${NX.border2}` }}>
             <LayoutTemplate size={16} style={{ color: NX.purple, marginTop: 1, flexShrink: 0 }} />
-            <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5 }}>
               <strong style={{ color: NX.ink }}>{template.name}</strong> brings the structure -{' '}
               {template.taskCount} task{template.taskCount === 1 ? '' : 's'}
               {template.sectionCount ? `, ${template.sectionCount} section${template.sectionCount === 1 ? '' : 's'}` : ''}
@@ -830,7 +830,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
               <label style={label}>Start Date</label>
               <DateField value={form.startOn || ''} onChange={(v) => set({ startOn: v || '' })} placeholder="Pick a date" title="Start Date"
                 style={{ ...inputStyle, cursor: 'pointer' }} />
-              <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>
                 {template.hasDates
                   ? 'Saved dates are day offsets - every one re-hangs from this date.'
                   : 'This template carries no dates, so tasks arrive without them.'}
@@ -866,7 +866,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
           <label style={label}>Status</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={chip(statusMeta.color, statusMeta.tint)}>{statusMeta.label}</span>
-            <span style={{ fontSize: 12.5, color: NX.faint }}>
+            <span style={{ fontSize: 13, color: NX.faint }}>
               {form.id
                 ? (stats.total
                     ? `Set automatically from task progress - ${stats.completed}/${stats.total} done.`
@@ -899,7 +899,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
                             keywords: d.companyName || '',
                           }))]} />
             ) : (
-              <div style={{ fontSize: 12.5, color: NX.faint, padding: '8px 0' }}>
+              <div style={{ fontSize: 13, color: NX.faint, padding: '8px 0' }}>
                 Auto-populated from your own People-module profile once created.
               </div>
             )}
@@ -926,10 +926,10 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
                       { id: 'calendar', label: 'Calendar' }, { id: 'timeline', label: 'Timeline' }, { id: 'dashboard', label: 'Dashboard' }]}
             onPick={(id) => set({ defaultView: id ? { view: id, group: form.defaultView?.group || 'status' } : null })} />
           {form.defaultView?.view && (form.defaultView.view === 'list' || form.defaultView.view === 'board') && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12.5, color: NX.dim }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, color: NX.dim }}>
               grouped by
               <select value={form.defaultView.group || 'status'} onChange={(e) => set({ defaultView: { ...form.defaultView, group: e.target.value } })}
-                style={{ ...inputStyle, width: 'auto', height: 30, padding: '0 8px', fontSize: 12.5 }}>
+                style={{ ...inputStyle, width: 'auto', height: 30, padding: '0 8px', fontSize: 13 }}>
                 {[['status', 'Status'], ['priority', 'Priority'], ['assignee', 'Assignee'], ['none', 'Nothing']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
             </div>
@@ -941,14 +941,14 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
             <label style={label}>{f.name}</label>
             <CustomFieldInput field={f} value={(form.customFieldValues || {})[f.id]}
               onChange={(v) => set({ customFieldValues: { ...(form.customFieldValues || {}), [f.id]: v } })} />
-            {f.description && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{f.description}</div>}
+            {f.description && <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>{f.description}</div>}
           </div>
         ))}
 
         <div>
           <label style={label}>Teams</label>
           {teams.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: NX.faint }}>No teams yet - create one from the Manage tab, then assign it here.</div>
+            <div style={{ fontSize: 13, color: NX.faint }}>No teams yet - create one from the Manage tab, then assign it here.</div>
           ) : (
             <div style={{ maxHeight: 160, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
               {teams.map((t) => {
@@ -981,7 +981,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
             <option value="on">On - tasks in this project are time tracked</option>
             <option value="off">Off - no time tracking in this project</option>
           </select>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>
             Shows the Time and Actual columns, each task's Time Tracking, and Estimated Time when creating a task.
             Off hides them; time already entered on a task still shows on that task.
           </div>
@@ -995,7 +995,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
                 <o.icon size={15} style={{ color: NX.dim, marginTop: 2, flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
-                  <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 1 }}>{o.desc}</div>
+                  <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{o.desc}</div>
                 </div>
               </button>
             ))}
@@ -1095,12 +1095,12 @@ export function ProjectCreateModal({ onClose, onCreated, defaults }) {
     return (
     <div>
       <button onClick={() => { setMode(null); setPickQ(''); }}
-        style={{ ...btn('ghost'), padding: '4px 6px', marginLeft: -6, marginBottom: 10, fontSize: 12.5, color: NX.dim }}>
+        style={{ ...btn('ghost'), padding: '4px 6px', marginLeft: -6, marginBottom: 10, fontSize: 13, color: NX.dim }}>
         <ArrowLeft size={14} />Back
       </button>
-      <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>{title}</div>
       {rows.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: NX.faint, padding: '14px 2px' }}>{empty}</div>
+        <div style={{ fontSize: 13, color: NX.faint, padding: '14px 2px' }}>{empty}</div>
       ) : (
         <>
         <div style={{ position: 'relative', marginBottom: 8 }}>
@@ -1110,7 +1110,7 @@ export function ProjectCreateModal({ onClose, onCreated, defaults }) {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '48vh', overflowY: 'auto' }}>
           {shown.length === 0 && (
-            <div style={{ fontSize: 12.5, color: NX.faint, padding: '12px 2px' }}>No matches for &ldquo;{pickQ.trim()}&rdquo;.</div>
+            <div style={{ fontSize: 13, color: NX.faint, padding: '12px 2px' }}>No matches for &ldquo;{pickQ.trim()}&rdquo;.</div>
           )}
           {shown.map((r) => (
             <button key={r.id} type="button" onClick={() => onPick(r)}
@@ -1150,8 +1150,8 @@ export function ProjectCreateModal({ onClose, onCreated, defaults }) {
           <>
             <span style={tile(t.color || NX.purple)}><LayoutTemplate size={15} /></span>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{t.name}</span>
-              <span style={{ display: 'block', fontSize: 11.5, color: NX.dim, marginTop: 2 }}>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: NX.ink }}>{t.name}</span>
+              <span style={{ display: 'block', fontSize: 12, color: NX.dim, marginTop: 2 }}>
                 {t.taskCount} task{t.taskCount === 1 ? '' : 's'}
                 {t.sectionCount ? ` · ${t.sectionCount} section${t.sectionCount === 1 ? '' : 's'}` : ''}
                 {t.fieldCount ? ` · ${t.fieldCount} field${t.fieldCount === 1 ? '' : 's'}` : ''}
@@ -1159,7 +1159,7 @@ export function ProjectCreateModal({ onClose, onCreated, defaults }) {
                 {t.category ? ` · ${t.category}` : ''}
               </span>
               {t.description && (
-                <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, marginTop: 3 }}>{t.description}</span>
+                <span style={{ display: 'block', fontSize: 12, color: NX.faint, marginTop: 3 }}>{t.description}</span>
               )}
             </span>
           </>
@@ -1173,9 +1173,9 @@ export function ProjectCreateModal({ onClose, onCreated, defaults }) {
           <>
             <span style={tile(projectLook(pr).color)}><ProjectIcon project={pr} size={15} /></span>
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{pr.name}</span>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: NX.ink }}>{pr.name}</span>
               {pr.description && (
-                <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pr.description}</span>
+                <span style={{ display: 'block', fontSize: 12, color: NX.faint, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pr.description}</span>
               )}
             </span>
           </>

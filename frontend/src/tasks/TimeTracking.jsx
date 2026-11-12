@@ -122,7 +122,7 @@ export default function TimeTracking({ task, canLog = true }) {
         )}
       </div>
       {runningElsewhere && canLog && (
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>Your timer is running on "{runningElsewhere.task?.title || 'another task'}".</div>
+        <div style={{ fontSize: 12, color: NX.faint, marginTop: 6 }}>Your timer is running on "{runningElsewhere.task?.title || 'another task'}".</div>
       )}
 
       {canLog && (
@@ -154,7 +154,7 @@ export default function TimeTracking({ task, canLog = true }) {
                 const canChange = mine || isManager;
                 const isEditing = editing?.id === e.id;
                 return (
-                  <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 7, fontSize: 12.5 }}
+                  <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 7, fontSize: 13 }}
                     onMouseEnter={(ev) => (ev.currentTarget.style.background = NX.hover)} onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}>
                     <Avatar email={e.personId} name={nameOf(e.personId)} size={20} />
                     <span style={{ color: NX.dim, width: 84, flexShrink: 0 }}>{fmtDate(e.startedAt)}</span>
@@ -172,7 +172,7 @@ export default function TimeTracking({ task, canLog = true }) {
                       <>
                         <span style={{ fontWeight: 700, color: NX.ink, width: 64, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{fmtMinutes(e.minutes)}</span>
                         <span style={{ flex: 1, minWidth: 0, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.note || (e.source === 'timer' ? 'Timer' : '')}</span>
-                        {e.billable && <span style={{ fontSize: 10, fontWeight: 700, color: NX.green }}>Billable</span>}
+                        {e.billable && <span style={{ fontSize: 11, fontWeight: 700, color: NX.green }}>Billable</span>}
                         {canChange && (
                           <>
                             <button type="button" onClick={() => setEditing({ id: e.id, minutes: e.minutes, note: e.note || '' })} aria-label="Edit entry" title="Edit Entry" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><Pencil size={12} /></button>

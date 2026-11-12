@@ -93,7 +93,7 @@ export default function MoveTaskModal({ taskId, onClose, onMoved }) {
   return (
     <Modal title={`Move "${task.title}"`} onClose={onClose} footer={footer}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minHeight: 0, fontFamily: FONT }}>
-        <div style={{ fontSize: 12.5, color: NX.dim }}>
+        <div style={{ fontSize: 13, color: NX.dim }}>
           Pick the task it should sit under. Its own subtasks move with it.
         </div>
         {isSub && (
@@ -103,16 +103,16 @@ export default function MoveTaskModal({ taskId, onClose, onMoved }) {
                 <ArrowUpToLine size={15} style={{ color: NX.faint, flexShrink: 0 }} />
                 <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                   <span style={{ fontWeight: 600 }}>Make Top-Level Task</span>
-                  <span style={{ fontSize: 11.5, color: NX.faint }}>Stays in {projectName(homeProject) || 'no project'}</span>
+                  <span style={{ fontSize: 12, color: NX.faint }}>Stays in {projectName(homeProject) || 'no project'}</span>
                 </span>
               </>
             ))}
             {pick === TOP && homeProject && !sec.personal && sec.sections.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 8px 35px', fontSize: 12.5, color: NX.dim }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 8px 35px', fontSize: 13, color: NX.dim }}>
                 <span>Section</span>
                 <SearchSelect value={sectionId} onPick={setSectionId} placeholder="No Section"
                   options={[{ id: '', label: 'No Section' }, ...sec.sections.map((s) => ({ id: s.id, label: s.name }))]}
-                  buttonStyle={{ fontSize: 12.5, minWidth: 180 }} />
+                  buttonStyle={{ fontSize: 13, minWidth: 180 }} />
               </div>
             )}
           </div>
@@ -125,7 +125,7 @@ export default function MoveTaskModal({ taskId, onClose, onMoved }) {
         <div role="listbox" aria-label="Tasks to move under" data-testid="move-targets" className="nx-fill nx-scroll"
           style={{ overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10, padding: 4, minHeight: 160 }}>
           {matches.length === 0 && (
-            <div style={{ padding: 16, fontSize: 12.5, color: NX.faint, textAlign: 'center' }}>
+            <div style={{ padding: 16, fontSize: 13, color: NX.faint, textAlign: 'center' }}>
               {query ? 'No task you can edit matches that.' : 'There is no other task you can edit.'}
             </div>
           )}
@@ -136,7 +136,7 @@ export default function MoveTaskModal({ taskId, onClose, onMoved }) {
                 <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {t.title}{t.code ? <span style={{ fontWeight: 400, color: NX.faint }}> {t.code}</span> : null}
                 </span>
-                <span style={{ fontSize: 11.5, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{where(t)}</span>
+                <span style={{ fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{where(t)}</span>
               </span>
             </>
           )))}
@@ -147,11 +147,11 @@ export default function MoveTaskModal({ taskId, onClose, onMoved }) {
           )}
         </div>
         {crossing && (
-          <div data-testid="move-crossing" style={{ fontSize: 12.5, color: NX.dim }}>
+          <div data-testid="move-crossing" style={{ fontSize: 13, color: NX.dim }}>
             This moves it and its subtasks into {projectName(intoProject) || 'no project'}. Their sections and teams there are cleared.
           </div>
         )}
-        {error && <div role="alert" style={{ fontSize: 12.5, color: NX.red }}>{error}</div>}
+        {error && <div role="alert" style={{ fontSize: 13, color: NX.red }}>{error}</div>}
       </div>
     </Modal>
   );
