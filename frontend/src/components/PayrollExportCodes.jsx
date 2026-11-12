@@ -100,6 +100,19 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
 
   // Leave Customer:Job Blank saves on click (the Settings switch rule); the
   // saved names travel with it unchanged.
+  // Old Timer Header (Charmi, 11/12/2026): QuickBooks 2022 and later import
+  // through Import > IIF Files with no TIMERHDR; on brings it back. Saves on click.
+  const setTimerHeader = async (on) => {
+    setBusy('timer');
+    try {
+      const next = await api.timeExportCodesSet(company, saved?.codes || {}, undefined, undefined, undefined, on);
+      setData(next);
+      toastOk?.(on ? 'The QuickBooks file will carry the old Timer header.' : 'The QuickBooks file is ready for Import > IIF Files.');
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not save the switch.');
+    } finally { setBusy(''); }
+  };
+
   const setBlankJob = async (on) => {
     setBusy('job');
     try {
@@ -189,7 +202,7 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
                 ? (qbFile.payrollItems.length
                   ? `Read ${qbFile.payrollItems.length} payroll items from QuickBooks${qbFile.guessed ? ` and matched ${qbFile.guessed}` : ''}. Check each box, then Save.`
                   : 'The file had no payroll items, only the company details. Type the names as QuickBooks shows them under Lists > Payroll Item List.')
-                : 'In QuickBooks Desktop: File > Utilities > Export > Timer Lists, then read that file here. Nexus fills in the payroll item names, the company name and the create time from it.'}
+                : 'If your QuickBooks has File > Utilities > Export > Timer Lists (2021 and earlier), read that file here and Nexus fills in the names. Otherwise type the payroll item names as QuickBooks shows them under Lists > Payroll Item List.'}
             </span>
             <input ref={fileRef} type="file" accept=".iif,.txt" hidden aria-label="QuickBooks Timer Lists file"
               onChange={(e) => { readTimerLists(e.target.files?.[0]); e.target.value = ''; }} />
@@ -231,12 +244,14 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
               placeholder="e.g. 1361233702" aria-label="QuickBooks Company Create Time"
               value={form.qbCreate} onChange={(e) => patch({ qbCreate: e.target.value.replace(/[^0-9]/g, '') })} style={{ fontSize: 12.5 }} />
             <span style={{ fontSize: 11.5 }}>
-              QuickBooks checks each time file against this number; without it the import can fail every row.
-              In QuickBooks Desktop: File &gt; Utilities &gt; Export &gt; Timer Lists, open that file in Notepad and copy the
-              number at the end of its TIMERHDR line. The file is then imported with File &gt; Utilities &gt; Import &gt; Timer Activities.
+              Only with Old Timer Header on (QuickBooks 2021 and earlier): File &gt; Utilities &gt; Export &gt; Timer Lists,
+              open that file in Notepad and copy the number at the end of its TIMERHDR line.
             </span>
           </label>
           <div style={{ marginTop: 12 }}>
+            <SwitchRow id="qb-timer-header" title="Old Timer Header (QuickBooks 2021 and Earlier)"
+              desc="Off: the file is imported with File > Utilities > Import > IIF Files (QuickBooks 2022 and later). Turn on only for an older QuickBooks that imports time with Timer Activities."
+              checked={!!data.quickbooksTimerHeader} disabled={!!busy} onChange={setTimerHeader} />
             <SwitchRow id="qb-blank-job" title="Leave Customer:Job Blank"
               desc="Turn on when the QuickBooks file has no customers for the work sites. Each row then carries only the employee, date, hours and payroll item, not billable."
               checked={!!data.quickbooksBlankJob} disabled={!!busy} onChange={setBlankJob} />
