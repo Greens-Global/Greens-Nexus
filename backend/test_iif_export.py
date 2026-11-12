@@ -111,7 +111,7 @@ class IifExportTests(unittest.TestCase):
         lines = self._lines(f"&company={CO_A}&finalized_only=false")
         self.assertTrue(lines[0].startswith("!TIMEACT	DATE"), lines[0])
         self.assertFalse([ln for ln in lines if "TIMERHDR" in ln])
-        self.assertIn("TIMEACT	9/16/2026	Rental A	Pat Test		Regular Pay	8.00			Y	0", lines)
+        self.assertIn("TIMEACT	9/16/2026	Rental A	Pat Test		Regular Pay	8:00			Y	0", lines)
         # A file spanning companies keeps the header only if every company has it on.
         self.assertTrue(self._lines("&finalized_only=false")[0].startswith("!TIMEACT"))
         # Company B still has it on; switching A back brings it back for A.
@@ -184,8 +184,8 @@ class IifExportTests(unittest.TestCase):
         lines = self._lines(f"&company={CO_A}&finalized_only=false")
         pat = [ln for ln in lines if "Pat Test" in ln]
         self.assertEqual(pat, [
-            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t0",
-            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t4.00\t\t\tY\t0",
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8:00\t\t\tY\t0",
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t4:00\t\t\tY\t0",
         ])
         # A renamed holiday code still saves, and still writes no line for hourly.
         r = self.client.put("/timeclock/payroll/export-codes", json={"company": CO_A, "codes": {"holiday": "HOL"}})
@@ -244,10 +244,10 @@ class IifExportTests(unittest.TestCase):
         lines = self._lines(f"&company={CO_A}&finalized_only=false")
         pat = [ln for ln in lines if "Pat Test" in ln]
         self.assertEqual(pat, [
-            "TIMEACT\t9/14/2026\t\tPat Test\t\tHoliday Pay\t8.00\t\t\tY\t0",
-            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t0",
-            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t4.00\t\t\tY\t0",
-            "TIMEACT\t9/17/2026\t\tPat Test\t\tHoliday Pay\t4.00\t\t\tY\t0",
+            "TIMEACT\t9/14/2026\t\tPat Test\t\tHoliday Pay\t8:00\t\t\tY\t0",
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8:00\t\t\tY\t0",
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t4:00\t\t\tY\t0",
+            "TIMEACT\t9/17/2026\t\tPat Test\t\tHoliday Pay\t4:00\t\t\tY\t0",
         ])
         hours = self.client.get(f"/timeclock/export-hours?start={START}&end={END}&company={CO_A}").json()["rows"]
         self.assertEqual(next(x for x in hours if x["email"] == PAT)["hours"]["holiday"], 12.0)
@@ -261,7 +261,7 @@ class IifExportTests(unittest.TestCase):
         self._finalize(PAT, kind="manager")
         self.assertNotIn("Pat Test", self._get(f"&company={CO_A}").text)
         self._finalize(PAT)
-        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t0",
+        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8:00\t\t\tY\t0",
                       self._lines(f"&company={CO_A}"))
         # Without a company: only the finalized person, Quinn stays out.
         lines = self._lines("")
@@ -400,6 +400,21 @@ class IifExportTests(unittest.TestCase):
         # Company B is untouched throughout.
         self.assertEqual(self._lines(f"&company={CO_B}&finalized_only=false")[1],
                          "TIMERHDR\t8\t0\tIIF Bravo Homes\tN\tY\t0")
+
+    # ── Duration (Charmi, 11/12/2026) ───────────────────────────────────────
+    def test_duration_is_hours_and_minutes_not_decimals(self):
+        """QuickBooks adds the rows and multiplies by the rate: 71:40 sent as
+        decimals came to 71.67 h ($1,791.75 at $25, not $1,791.67) and 0:29 to
+        0.48 h ($18.00 at $37.50, not $18.12). Hours:minutes is exact."""
+        from routers.timeclock import _iif_hm
+        self.assertEqual(_iif_hm(430), "7:10")
+        self.assertEqual(_iif_hm(29), "0:29")
+        self.assertEqual(_iif_hm(480), "8:00")
+        self.assertEqual(_iif_hm(4300), "71:40")
+        self.assertEqual(_iif_hm(29.6), "0:30")
+        for ln in self._lines("&finalized_only=false"):
+            if ln.startswith("TIMEACT\t"):
+                self.assertRegex(ln.split("\t")[6], r"^\d+:[0-5]\d$", ln)
 
 
 if __name__ == "__main__":

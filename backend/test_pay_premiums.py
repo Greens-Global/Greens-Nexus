@@ -380,8 +380,8 @@ class ExportAndFinalizeTests(Base):
 
     def test_exports_carry_the_new_classes(self):
         iif = tc.export_iif(start=PS, end=PE, finalized_only=False, user=HR, _su={}, db=self.db).body.decode()
-        self.assertIn("\tShift Differential\t8.00\t", iif)
-        self.assertIn("\tCall-Back Pay\t1.00\t", iif)
+        self.assertIn("\tShift Differential\t8:00\t", iif)
+        self.assertIn("\tCall-Back Pay\t1:00\t", iif)
         bob_lines = [ln for ln in iif.splitlines() if "Bob Premium" in ln]
         self.assertFalse(any("Shift Differential" in ln or "Call-Back" in ln for ln in bob_lines))
         csv_text = _stream(tc.export_csv(start=PS, end=PE, mode="summary", user=HR, _su={}, db=self.db))
