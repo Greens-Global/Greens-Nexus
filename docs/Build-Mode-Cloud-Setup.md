@@ -36,6 +36,27 @@ environment** allows, and it needs your Build Token to act as you.
      dev: `xemoocdvqzhfbwjxcjdx.supabase.co`) and `cdn.sheetjs.com` (one
      frontend package is downloaded from there; without it `npm ci` fails).
 
+   - a **setup script**, so every session starts with the dependencies the
+     checks and the evidence need (run 11/12/2026 on a cloud machine: the
+     frontend build, all frontend tests and the Build Mode backend tests
+     pass after it). It never blocks a session from starting:
+
+     ```
+     #!/bin/bash
+     if [ -d Greens-Nexus/frontend ]; then
+       (cd Greens-Nexus/frontend && npm ci --no-audit --no-fund) || echo "greens-nexus setup: npm ci failed"
+     fi
+     if [ -d Greens-Nexus/backend ]; then
+       (cd Greens-Nexus/backend && python3 -m venv .venv \
+         && grep -v '^psycopg2' requirements.txt > /tmp/nexus-requirements.txt \
+         && .venv/bin/pip install -q -r /tmp/nexus-requirements.txt pytest ruff) \
+         || echo "greens-nexus setup: backend install failed"
+     fi
+     ```
+
+     (The Postgres driver is left out: it does not build on the cloud
+     machine and the tests run on SQLite.)
+
 Never put the real Build Token in an environment variable, a prompt or a
 file in the repository.
 Claude Code calls the command line with a placeholder token
@@ -92,7 +113,7 @@ token cannot be sent anywhere else. To stop: **Disconnect** in Nexus, or
 | "That scheduled task no longer exists" | The scheduled task was deleted. Make it again (step 2) and Connect. |
 | "Claude Code's hourly limit for starting sessions was reached" | 30 starts an hour per scheduled task. Wait, then Start Claude Code. |
 | The session opens but posts nothing on the pin | The environment cannot reach Nexus or has no Build Token (step 1). The session's last message says which. |
-| The session says a check or the evidence was skipped | The environment has no dependencies installed. Add a setup script to the environment that runs `npm ci` in `frontend/` and installs `backend/requirements.txt`. |
+| The session says a check or the evidence was skipped | The environment has no dependencies installed: add the setup script from step 1, and allow `cdn.sheetjs.com`. |
 
 Not proven yet (11/12/2026): the whole loop has passed its tests but has not
 been run end to end with a real pin. The first real run is the proof; fix
