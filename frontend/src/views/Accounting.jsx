@@ -18,7 +18,7 @@ import { DashNav } from '../components/accounting/dashboard/nav';
 import { useActionCounts, withBadges } from '../lib/useActionCounts';
 import { REPORTS, REPORT_VIEWS, parseActivitySub } from '../components/accounting/reportModel';
 import { STATEMENTS_SUB } from '../components/accounting/drill';
-import { BUILDER_PUBLISH_MIN_LEVEL, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
+import { BUILDER_PUBLISH_MIN_LEVEL, JOURNAL_NAMES, PAYROLL_SUMMARY_LEVEL, RECORDS_JOURNALS, REPORT_MENU_PLACEMENT } from '../components/accounting/assumptions';
 
 // Oct 24 (bundle budget, 10/23 meeting round 2): every screen behind the bar
 // is fetched the first time it is opened, not with the Accounting view - all
@@ -208,7 +208,7 @@ const BASE_TABS = [
     { key: 'customers', label: 'Customers', Icon: Users },
     { key: 'gl-accounts', label: 'General Ledger Accounts', Icon: BookOpen },
     { key: 'entities', label: 'Entities', Icon: Building2 },
-    { key: 'grp-journals', label: 'Journals', Icon: Library, items: RECORDS_JOURNALS.map((s) => ({ key: `${JOURNAL_SUB}${s}`, label: s, Icon: BookOpen })) },
+    { key: 'grp-journals', label: 'Journals', Icon: Library, items: RECORDS_JOURNALS.map((s) => ({ key: `${JOURNAL_SUB}${s}`, label: JOURNAL_NAMES[s] || s, hint: JOURNAL_NAMES[s] ? s : undefined, Icon: BookOpen })) },
   ] },
   // Oct 6 (Neil: "create a Tools section in accounting"): the utility screens.
   { key: 'tools', label: 'Tools', Icon: Wrench, items: [

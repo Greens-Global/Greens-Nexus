@@ -142,8 +142,12 @@ describe('Accounting navigation', () => {
     expect(await screen.findByTestId('tab-entities')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Records/ }));
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Journals' }));
-    expect(menuLabels('Journals')).toEqual(['APJ', 'GJCA', 'GJC', 'PYRJ', 'PEJ', 'PIJ', 'SJI', 'GJ', 'HJCA']);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'PYRJ' }));
+    // Picture 3 (11/11/2026): Intacct's name, then the code in grey.
+    expect(menuLabels('Journals')).toEqual([
+      'Accounts PayableAPJ', 'General Journal, Cash and AccrualGJCA', 'General Journal, CashGJC', 'PayrollPYRJ',
+      'Prepaid ExpensesPEJ', 'Prepaid IncomePIJ', 'Storage Journal ImportSJI', 'General Journal, AccrualGJ', 'Historical, Cash and AccrualHJCA',
+    ]);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Payroll' }));
     expect(screen.getByTestId('sub').textContent).toBe('journal-PYRJ');
     expect((await screen.findByTestId('tab-journal')).getAttribute('data-symbol')).toBe('PYRJ');
     expect(document.querySelectorAll('.module-tabs-inline > button')).toHaveLength(6);
