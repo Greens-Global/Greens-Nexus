@@ -10,6 +10,7 @@ import { dashDensityOf, useAccountingPrefs } from '../prefs';
 import { CustomizeButton } from '../reportControls';
 import { dialog } from '../../../ui/dialog';
 import { SIZE_LABEL, SIZES, WIDGET_CATS, WIDGET_LIST, WIDGETS, WidgetPanel, useDashNav } from './registry';
+import { HOLD_MAJOR_MS } from '../../../ui/HoldButton';
 
 // Overview tab: the attention bar and a customizable widget grid with shared
 // role views (Principal, CFO, Controller, Bookkeeper) plus custom views.
@@ -126,8 +127,8 @@ export default function OverviewTab({ canEdit }) {
     if (!current) return;
     if (DEFAULT_IDS.includes(current.id)) { setNote('Role views cannot be deleted. Use Reset to bring back the default widgets.'); return; }
     setNote('');
-    if (!await dialog.confirm(`Delete the ${current.name} view for everyone?`, { title: 'Delete View', confirmText: 'Delete', danger: true })) return;
-    await act('view-delete', { id: current.id });
+    // Press and hold (11/11/2026 Accounting pass, picture 10): it goes for everyone.
+    if (!await dialog.confirm(`Delete the ${current.name} view for everyone?`, { title: 'Delete View', confirmText: 'Delete View', doneText: 'Deleted', hold: true, holdMs: HOLD_MAJOR_MS, onConfirm: () => act('view-delete', { id: current.id }) })) return;
     setEditing(false);
     setView(DEFAULT_IDS[0]);
   };

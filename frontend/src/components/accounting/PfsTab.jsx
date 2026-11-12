@@ -16,6 +16,7 @@ import { US_STATES, normalizePfsDetails, zipError } from './pfsAddress';
 import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, usePfsLocks } from './PfsLock';
 import { PersonSelect, DateField } from '../../tasks/components';
 import { CompletenessButton, CompletenessPanel, PFS_STALE_DAYS, flashRow, gapCount, pfsGaps, rowSelector } from './completeness';
+import HoldButton from '../../ui/HoldButton';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
 //
@@ -440,7 +441,7 @@ export default function PfsTab({ canEdit = false }) {
                   onBulk={() => setBulk({ section })} onMove={move} onReorder={reorder}
                   onAdd={(category) => setEditing({ section, category, label: '', institution: '', accountRef: '', ownershipPct: 100, source: 'manual', ledgerEntity: '', ledgerAccounts: [], manualValue: 0, manualAsOf: asOf, details: {}, notes: '' })}
                   onEdit={(l, focus = '') => setEditing({ ...l, focus, institution: l.source === 'ledger' && !l.details?.institutionManual ? (figures.get(l.id)?.institution ?? l.institution) : l.institution })}
-                  onDelete={(l) => api.deletePfsLine(profile.id, l.id).then(() => refresh(profile.id, asOf)).catch((e) => setError(e?.message || 'Could not remove the line.'))} />
+                  onDelete={(l) => api.deletePfsLine(profile.id, l.id).then(() => refresh(profile.id, asOf))} />
               )}
               {section === 'history' && (
                 <div style={{ display: 'grid', gap: 10 }}>
@@ -1082,7 +1083,7 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {editable && (confirm === l.id ? (
                       <>
-                        <button type="button" className="acct-drill" style={{ color: 'var(--bad-fg, #dc2626)', marginRight: 10 }} onClick={() => { setConfirm(''); onDelete(l); }}>Remove</button>
+                        <HoldButton size="sm" label="Remove" doneLabel="Removed" style={{ marginRight: 10 }} onConfirm={() => onDelete(l)} onDone={() => setConfirm('')} />
                         <button type="button" className="acct-drill" onClick={() => setConfirm('')}>Keep</button>
                       </>
                     ) : moving === l.id ? (

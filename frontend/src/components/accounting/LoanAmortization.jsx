@@ -12,6 +12,8 @@ import {
 } from './loanMath';
 import { WarnMark } from './warnMark';
 import { DateField } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
+import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // Accounting -> Loans & Financing -> Amortization (Charmi and Neil, 10/06:
 // "Add in Amortization schedule for Commercial loans, allow us to build it or
@@ -120,8 +122,9 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
       .catch((e) => setError(e))
       .finally(() => setBusy(''));
   };
-  const remove = () => {
-    if (!window.confirm('Remove this amortization schedule? The bank file stays in storage; the rows are removed.')) return;
+  // The house dialog, press and hold (11/11/2026 Accounting pass, picture 10).
+  const remove = async () => {
+    if (!await dialog.confirm('Remove this amortization schedule? The bank file stays in storage; the rows are removed.', { title: 'Remove Schedule', confirmText: 'Remove Schedule', doneText: 'Removed', hold: true, holdMs: HOLD_RECORD_MS })) return;
     setBusy('delete');
     api.deleteLoanSchedule(l.id).then(() => setSched(null)).catch((e) => setError(e)).finally(() => setBusy(''));
   };
@@ -356,7 +359,7 @@ function UploadForm({ loan, busy, onCancel, onSave }) {
       if (up.error) note = up.error;
       fileUrl = up.url || '';
     }
-    if (note && !window.confirm(`The bank's file could not be stored (${note}). Save the rows without it?`)) return;
+    if (note && !await dialog.confirm(`The bank's file could not be stored (${note}). Save the rows without it?`, { title: 'Save Without The File?', confirmText: 'Save Without It' })) return;
     const columnMap = Object.fromEntries(Object.entries(map).map(([k, i]) => [k, i >= 0 ? String(headers[i] ?? `Column ${i + 1}`) : '']));
     onSave({ source: 'upload', rows: parsed.rows, columnMap, fileUrl, fileName: file ? file.name : 'Pasted from Excel' });
   };

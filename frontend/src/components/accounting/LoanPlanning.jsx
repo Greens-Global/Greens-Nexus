@@ -10,6 +10,8 @@ import { downloadBlob } from './reportModel';
 import { FREQUENCIES, PLAN_KINDS, RATE_INDEXES, existingDebt, mortgagePlan, normalizeLoan, planImpact, planKind, scheduleTotals, t12From, yearlySchedule } from './loanMath';
 import { NOI_BASES, entityNois } from './LoanStress';
 import { DateField } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
+import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // Accounting -> Loans & Financing -> Loan Planning (Charmi, item 25, Oct 15:
 // "New Loan Planning / Mortgage Calculator").
@@ -486,8 +488,9 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
       setMsg({ text: `Saved ${p.name}.` });
     }).catch((e) => setMsg({ text: e?.message || 'Could not save the planned loan.', bad: true })).finally(() => setBusy(''));
   };
-  const remove = (p) => {
-    if (!window.confirm(`Remove the planned loan "${p.name}"?`)) return;
+  // The house dialog, press and hold (11/11/2026 Accounting pass, picture 10).
+  const remove = async (p) => {
+    if (!await dialog.confirm(`Remove the planned loan "${p.name}"?`, { title: 'Remove Planned Loan', confirmText: 'Remove', doneText: 'Removed', hold: true, holdMs: HOLD_RECORD_MS })) return;
     api.deletePlannedLoan(p.id).then(() => {
       setPlanned((list) => (list || []).filter((y) => y.id !== p.id));
       setSelected((s) => s.filter((v) => v !== p.id));

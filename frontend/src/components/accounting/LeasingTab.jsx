@@ -24,6 +24,7 @@ import { CompletenessButton, CompletenessPanel, gapCount, mriGaps, useJumpToRow 
 import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
 import { StatusLabel } from '../StatusLabel';
+import HoldButton from '../../ui/HoldButton';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
 // Charmi, Sep 25). Rent was tracked in a workbook and chased by hand; this is
@@ -1374,7 +1375,6 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
   const [entities, setEntities] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [confirm, setConfirm] = useState(false);
   const set = (p) => setL((x) => ({ ...x, ...p }));
   // Oct 14 (Neil): unsaved changes ask Keep Editing / Discard Edits when the
   // form is clicked off or Escaped.
@@ -1452,13 +1452,11 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
       footer={leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
         <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
           <span>
-            {canDelete && l.id && !replacing && (confirm ? (
-              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: '0.8rem' }}>
-                Entered by mistake?
-                <button type="button" className="secondary-btn" style={{ color: 'var(--bad-fg, #dc2626)' }} onClick={() => api.deleteLeasingLease(l.id).then(onSaved).catch((e) => setError(e?.message || 'Could not delete.'))}>Delete Lease</button>
-                <button type="button" className="secondary-btn" onClick={() => setConfirm(false)}>Keep</button>
-              </span>
-            ) : <button type="button" style={{ ...icon, fontSize: '0.78rem', gap: 5, alignItems: 'center' }} onClick={() => setConfirm(true)}><Trash2 size={13} /> Delete</button>)}
+            {/* Press and hold (11/11/2026 Accounting pass, picture 10): one record, no second click. */}
+            {canDelete && l.id && !replacing && (
+              <HoldButton size="sm" label="Delete Lease" doneLabel="Deleted" fallbackMessage="Delete this lease? Use it only for one entered by mistake - a tenant who left is ended, not deleted."
+                onConfirm={() => api.deleteLeasingLease(l.id).then(onSaved)} />
+            )}
           </span>
           <span style={{ display: 'inline-flex', gap: 8 }}>
             <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
