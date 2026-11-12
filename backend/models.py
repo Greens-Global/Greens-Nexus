@@ -10328,3 +10328,9 @@ class NexusMeetingNote(Base):
     end_at      = Column(String, default="")
     attendees   = Column(Text, default="[]")                # JSON [{email, name}]
     created_at  = Column(String, default="")
+    # Phase 2 (Neil, 11/12/2026): the series it belongs to (Graph's
+    # seriesMasterId, '' = a one-off) and the ready bell's marks - when Teams
+    # was found to have a transcript, and when the pass last asked.
+    series_id           = Column(String, default="", index=True)
+    transcript_ready_at = Column(String, default="")
+    ready_checked_at    = Column(String, default="")

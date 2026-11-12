@@ -868,10 +868,10 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
           {meetingNote && (
             <MeetingBand note={note} meeting={meeting} people={people} myEmail={myEmail} toast={toast}
               transcriptOpen={tx.open} onTranscript={() => setTx((t) => ({ ...t, open: !t.open }))}
-              onShared={(n) => { sync.replace(n); onSaved?.(n); }} />
+              onShared={(n) => { sync.replace(n); onSaved?.(n); }} onOpenNote={onOpen} />
           )}
           {meetingNote && isPhone && tx.open && (
-            <TranscriptView inline noteId={note.id} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))} />
+            <TranscriptView inline noteId={note.id} note={note} myEmail={myEmail} toast={toast} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))} />
           )}
 
           {trashed && (
@@ -945,7 +945,7 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
         // the note's whole life, so opening it never remounts the editor).
         <div className="nt-pane-row">
           <div className="nt-pane-scroll">{doc}</div>
-          {tx.open && <TranscriptView noteId={note.id} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))} />}
+          {tx.open && <TranscriptView noteId={note.id} note={note} myEmail={myEmail} toast={toast} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))} />}
         </div>
       ) : <div className="nt-pane-scroll">{doc}</div>}
       {dialogs}

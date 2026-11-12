@@ -43,9 +43,27 @@ editing the row (or "everyone": true), never by a code default.
 The Graph lookups reuse routers/meeting_files.py (Visesh, Oct 24 2026: the
 organizer's id from the join link, the Teams application access policy, the
 transcript list and its "switched off for the tenant" answer) - never a second
-copy of them. The rule-based highlights, the background pass and opt-in are
-Phase 2; an AI summary is Phase 4, behind ai_switch, off. Nothing here calls a
-model.
+copy of them. An AI summary is Phase 4, behind ai_switch, off. Nothing here
+calls a model.
+
+Phase 2 (Neil, 11/12/2026):
+
+  Highlights   - the transcript answer carries `highlights` (possible action
+                 items, decisions, open questions) read by RULES from the cues
+                 (meeting_highlights.py); computed per read, never stored.
+  Last time    - a meeting in a recurring series (Graph's seriesMasterId, kept
+                 as `series_id`) shows the reader's note from the series'
+                 previous meeting and the tasks made from it that are still
+                 open, through record_links' own task walls.
+  Ready bell   - OPT-IN per person (`meeting_notes.alerts:<email>` in
+                 nexus_settings, PUT /meetings/alerts): after a meeting with a
+                 note ends, ready_pass (meeting_ready_loop, every 5 minutes, off
+                 the event loop) asks Teams whether a transcript exists - the
+                 list only, never its words - and bells the note's owner once
+                 ("Transcript Ready", opens the note). It looks for 8 hours
+                 after the end, at most every 10 minutes per meeting. Opening
+                 the transcript yourself marks it ready, so nobody is belled
+                 about one they already read.
 """
 from __future__ import annotations
 
@@ -65,6 +83,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+import meeting_highlights
 import models
 from auth import get_current_user
 from database import get_db
@@ -126,10 +145,10 @@ def _guard(user: dict, db: Session) -> str:
 def meetings_access(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Whether the screen shows Meetings to this person."""
     try:
-        _guard(user, db)
+        me = _guard(user, db)
     except HTTPException:
-        return {"enabled": False}
-    return {"enabled": True}
+        return {"enabled": False, "alerts": False}
+    return {"enabled": True, "alerts": alerts_on(db, me)}
 
 
 def _iso(value: str) -> datetime:
@@ -176,7 +195,7 @@ def _calendar_headers() -> dict:
     return {**h, "Prefer": 'outlook.timezone="UTC", outlook.body-content-type="text"'}
 
 
-_EVENT_FIELDS = "subject,start,end,isOnlineMeeting,onlineMeeting,organizer,attendees,iCalUId,isCancelled"
+_EVENT_FIELDS = "subject,start,end,isOnlineMeeting,onlineMeeting,organizer,attendees,iCalUId,isCancelled,seriesMasterId,type"
 
 
 def _meeting_out(ev: dict, me: str) -> dict:
@@ -187,6 +206,7 @@ def _meeting_out(ev: dict, me: str) -> dict:
         "start": _graph_time(ev.get("start")), "end": _graph_time(ev.get("end")),
         "organizer": org, "isOrganizer": org["email"] == me,
         "attendees": _attendees(ev), "joinUrl": _join_url(ev),
+        "seriesId": (ev.get("seriesMasterId") or "")[:500],
     }
 
 
@@ -310,6 +330,7 @@ def open_meeting_note(body: OpenIn, user: dict = Depends(get_current_user), db: 
     row.subject = m["subject"][:300]
     row.start_at, row.end_at = m["start"], m["end"]
     row.attendees = json.dumps([m["organizer"], *m["attendees"]] if m["organizer"]["email"] else m["attendees"])
+    row.series_id = m["seriesId"]
     n.source = json.dumps({"kind": SOURCE_KIND, "id": row.id, "label": m["subject"][:notes.SOURCE_LABEL_MAX], "url": ""})
     notes._content_changed(n, me)
     db.add(n)
@@ -355,7 +376,174 @@ def meeting_of_note(note_id: str, user: dict = Depends(get_current_user), db: Se
         "organizer": row.organizer or "",
         "attendees": [p for p in notes._loads(row.attendees, []) if isinstance(p, dict) and p.get("email")],
         "invited": invited, "joinUrl": row.join_url if invited else "", "mine": can == "owner",
+        "transcriptReady": bool(row.transcript_ready_at) and invited,
+        "previous": _previous_in_series(db, user, me, row),
     }
+
+
+OPEN_TASKS_MAX = 10
+
+
+def _previous_in_series(db: Session, user: dict, me: str, row: models.NexusMeetingNote) -> Optional[dict]:
+    """The reader's note from this series' previous meeting (their own first,
+    else one shared with them) and the tasks made from it that are still open -
+    each task only if the reader may open it (record_links' task walls)."""
+    if not row.series_id or not row.start_at:
+        return None
+    earlier = (db.query(models.NexusMeetingNote)
+               .filter(models.NexusMeetingNote.series_id == row.series_id,
+                       models.NexusMeetingNote.start_at < row.start_at,
+                       models.NexusMeetingNote.note_id != row.note_id)
+               .order_by(models.NexusMeetingNote.start_at.desc()).limit(40).all())
+    if not earlier:
+        return None
+    by_note = {n.id: n for n in db.query(models.NexusNote)
+               .filter(models.NexusNote.id.in_([r.note_id for r in earlier if r.note_id])).all()}
+    newest = earlier[0].start_at
+    # The most recent earlier meeting that has a note this reader may open - their own first on the same day.
+    pick = None
+    for r in sorted(earlier, key=lambda x: (x.start_at, x.owner_email == me), reverse=True):
+        n = by_note.get(r.note_id)
+        if n is not None and not n.trashed_at and notes._access(n, me):
+            pick = (r, n)
+            break
+    if pick is None:
+        return None
+    r, n = pick
+    import record_links
+    tasks = []
+    for ref in record_links.refs_in(n.body or ""):
+        kind, _, tid = ref.partition(":")
+        if kind != "task":
+            continue
+        item = record_links._task_item(db, user, tid)
+        if item and not item["done"]:
+            tasks.append({"id": item["id"], "title": item["title"], "code": item["code"]})
+        if len(tasks) >= OPEN_TASKS_MAX:
+            break
+    return {"noteId": n.id, "title": n.title or r.subject or "", "start": r.start_at,
+            "latest": r.start_at == newest, "openTasks": tasks}
+
+
+# ── the ready bell (opt-in per person) ─────────────────────────────────────
+ALERTS_KEY = "meeting_notes.alerts:"
+READY_LOOK_FOR = timedelta(hours=8)     # after the meeting's end
+READY_RECHECK = timedelta(minutes=10)   # per meeting
+READY_GRACE = timedelta(minutes=2)      # Teams publishes a few minutes after the end
+READY_BATCH = 40
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def alerts_on(db: Session, email: str) -> bool:
+    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == ALERTS_KEY + meeting_files._canon(email)).first()
+    return bool(row and row.value == "on")
+
+
+class AlertsIn(BaseModel):
+    on: bool
+
+
+@router.get("/alerts")
+def get_alerts(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Whether this person is belled when a meeting's transcript is ready."""
+    me = _guard(user, db)
+    return {"on": alerts_on(db, me)}
+
+
+@router.put("/alerts")
+def set_alerts(body: AlertsIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    me = _guard(user, db)
+    key = ALERTS_KEY + me
+    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == key).first()
+    if row is None:
+        row = models.NexusSetting(key=key)
+        db.add(row)
+    row.value = "on" if body.on else ""
+    row.updated_by = me
+    row.updated_at = _now_iso()
+    db.commit()
+    return {"on": bool(body.on)}
+
+
+def _transcript_exists(row: models.NexusMeetingNote, h: dict) -> bool:
+    """Whether Teams has published a transcript - the list only, never its words."""
+    m, oid = _online_meeting(row, h)
+    return bool(meeting_files._list(oid, m["id"], "transcripts", h))
+
+
+def ready_pass(db: Session, now: Optional[datetime] = None) -> int:
+    """Bell each opted-in owner once their meeting's transcript is published.
+    Returns how many were belled. Graph trouble on one meeting never stops the
+    others; Graph saying transcripts are off for the whole tenant stops the pass."""
+    now = now or datetime.now(timezone.utc)
+    lo, hi = (now - READY_LOOK_FOR).strftime("%Y-%m-%dT%H:%M:%SZ"), (now - READY_GRACE).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stale = (now - READY_RECHECK).isoformat()
+    rows = (db.query(models.NexusMeetingNote)
+            .filter(models.NexusMeetingNote.transcript_ready_at == "",
+                    models.NexusMeetingNote.end_at >= lo, models.NexusMeetingNote.end_at <= hi,
+                    models.NexusMeetingNote.ready_checked_at < stale)
+            .order_by(models.NexusMeetingNote.end_at).limit(READY_BATCH).all())
+    rows = [r for r in rows if may_use(db, r.owner_email) and alerts_on(db, r.owner_email)]
+    if not rows:
+        return 0
+    try:
+        h = meeting_files._headers()
+    except HTTPException:
+        return 0
+    import notify_rollup
+    from auth import company_of
+    belled = 0
+    for r in rows:
+        n = db.query(models.NexusNote).filter(models.NexusNote.id == r.note_id).first()
+        r.ready_checked_at = now.isoformat()
+        if n is None or n.trashed_at:
+            db.commit()
+            continue
+        try:
+            ready = _transcript_exists(r, h)
+        except HTTPException as e:
+            db.commit()
+            if e.status_code == 409:
+                break       # transcripts are off for the tenant: nothing to look for
+            continue
+        except httpx.HTTPError:
+            db.commit()
+            continue
+        if ready:
+            r.transcript_ready_at = now.isoformat()
+            title = (r.subject or n.title or "your meeting").strip()
+            notify_rollup.upsert_rollup(
+                db, recipient=r.owner_email, key=f"meeting-ready:{n.id}", title="Meeting Transcript Ready",
+                line=f'The Teams transcript of "{title[:80]}" is ready beside your notes.',
+                action={"view": "dashboard", "sub": f"notes:{n.id}"},
+                company=company_of(r.owner_email, db) or "", requested_by=r.owner_email, replace=True)
+            belled += 1
+        db.commit()
+    return belled
+
+
+def run_ready_pass() -> int:
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        return ready_pass(db)
+    finally:
+        db.close()
+
+
+async def meeting_ready_loop():
+    """The ready bell, every 5 minutes on the leader - Graph and the database in a thread (CLAUDE.md)."""
+    import asyncio
+    await asyncio.sleep(120)
+    while True:
+        try:
+            await asyncio.to_thread(run_ready_pass)
+        except Exception as e:  # noqa: BLE001 - one bad pass never stops the loop
+            print(f"[meeting notes] ready pass failed: {e}")
+        await asyncio.sleep(300)
 
 
 # ── the transcript (read from Teams, never kept) ───────────────────────────
@@ -477,7 +665,13 @@ def meeting_transcript(note_id: str, user: dict = Depends(get_current_user), db:
         recordings = len(meeting_files._list(oid, m["id"], "recordings", h))
     except HTTPException:
         recordings = 0      # a recording it cannot see never hides the transcript
-    out = {"cues": cues[:CUES_MAX], "truncated": len(cues) > CUES_MAX, "recordings": recordings,
-           "chatThreadId": ((m.get("chatInfo") or {}).get("threadId") or ""), "transcripts": len(items)}
+    cues = cues[:CUES_MAX]
+    out = {"cues": cues, "truncated": len(cues) >= CUES_MAX, "recordings": recordings,
+           "chatThreadId": ((m.get("chatInfo") or {}).get("threadId") or ""), "transcripts": len(items),
+           "highlights": meeting_highlights.extract(cues)}
+    if not row.transcript_ready_at:
+        # Read it yourself = it is ready: the ready bell never tells you about one you already opened.
+        row.transcript_ready_at = _now_iso()
+        db.commit()
     _remember(key, out)
     return out

@@ -40,6 +40,33 @@ a code default.
    **Recording in Teams** / **Open in Teams** opens the meeting chat, where
    Teams keeps the recording.
 
+## Phase 2 (Neil, 11/12/2026)
+
+6. **Highlights.** The transcript opens on a **Highlights** tab when there
+   are any: **Possible Action Items** (with any deadline words, such as "by
+   Friday", and a **Make a Task** button that makes the task the same way
+   Make a Task does from a note line), **Decisions** and **Open Questions**.
+   They are picked by wording rules in `backend/meeting_highlights.py`, not
+   AI: "I'll send the quote by Friday", "Can you share the deck?", "Let's go
+   with the Austin vendor", a real question of six words or more. Promises
+   only count with a work verb or a deadline after them, so "I'll be honest"
+   is not one. The time on a highlight jumps to it in the full transcript.
+   Highlights are worked out each time the transcript is read and never
+   stored.
+7. **Last Time.** In a recurring series, the band shows the reader's notes
+   from the previous meeting of the series (their own first, else ones
+   shared with them) and the tasks made from those notes that are still
+   open - each only if the reader may open that task.
+8. **Transcript Ready bell (opt-in).** At the foot of the Meetings sheet,
+   **Tell Me When a Transcript Is Ready** is off until the person turns it
+   on (`meeting_notes.alerts:<email>` in `nexus_settings`). Once on, after a
+   meeting they took notes for ends, a pass every 5 minutes asks Teams
+   whether a transcript exists - the list only, never the words - and bells
+   them once: "Meeting Transcript Ready", which opens the note. It looks for
+   8 hours after the end, at most every 10 minutes per meeting. Opening the
+   transcript yourself marks it ready, so you are never belled about one you
+   already read; the band then says **Transcript Ready**.
+
 ## Links, never copies (Neil, 11/12/2026)
 
 The transcript and the recording stay in Teams. Nexus reads the transcript
@@ -79,21 +106,18 @@ for the app - ask Neil before turning anything on.
 
 ## Code
 
-- `backend/routers/meetings.py` - the four routes; the Graph lookups reuse
-  `routers/meeting_files.py`.
+- `backend/routers/meetings.py` - the routes, `ready_pass` and
+  `meeting_ready_loop`; the Graph lookups reuse `routers/meeting_files.py`.
+- `backend/meeting_highlights.py` - the highlight rules.
 - `backend/models.py` `NexusMeetingNote` (`nexus_meeting_notes`, RLS on dev
   and prod) - which note is whose notes for which meeting occurrence.
 - `frontend/src/notes/meetings/` - `meetingClock.js` (the line stamps, a
   TipTap extension in every Notes schema), `MeetingsSheet.jsx`,
   `MeetingBand.jsx` (band + transcript), `meetingModel.js`.
-- Tests: `backend/test_meetings.py`,
+- Tests: `backend/test_meetings.py`, `backend/test_meeting_highlights.py`,
   `frontend/src/notes/meetings/meetings.test.jsx`.
 
 ## Next phases
 
-- **Phase 2 (opt-in per person):** a background pass attaches the transcript
-  when Teams publishes it and bells the note's owner; rule-based highlights
-  (possible action items, decisions, open questions) with Make a Task; the
-  last meeting of a series and its open tasks at the top.
 - **Phase 3:** meetings outside Teams, transcribed in the browser.
 - **Phase 4:** a written summary, only behind the AI switch (off).

@@ -1625,6 +1625,10 @@ def _run_migrations():
             "ALTER TABLE time_punches ADD COLUMN cost_code VARCHAR DEFAULT ''",
             "ALTER TABLE construction_punch_meta ADD COLUMN sub_vendor_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_rfis ADD COLUMN answered_by VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_meeting_notes ADD COLUMN series_id VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_meeting_notes ADD COLUMN transcript_ready_at VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_meeting_notes ADD COLUMN ready_checked_at VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3892,6 +3896,12 @@ def _run_migrations():
         # Meeting Notes (Neil, 11/12/2026): which note is whose notes for which
         # Teams meeting - a new table, explicit RLS. models.NexusMeetingNote.
         "ALTER TABLE nexus_meeting_notes ENABLE ROW LEVEL SECURITY",
+        # Meeting Notes Phase 2 (Neil, 11/12/2026): the series a meeting belongs
+        # to and the ready bell's marks. Existing table, no new RLS.
+        "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS series_id VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS transcript_ready_at VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS ready_checked_at VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5347,6 +5357,14 @@ async def lifespan(app: FastAPI):
                 print("[startup] Customer Map geocode loop skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Customer Map geocode loop skipped: {e}")
+        # Meeting Notes ready bell (Neil, 11/12/2026, routers/meetings.py):
+        # opted-in owners are belled once Teams publishes a meeting's
+        # transcript. Graph and the database in a thread.
+        try:
+            from routers.meetings import meeting_ready_loop
+            _tasks.append(_a.create_task(meeting_ready_loop()))
+        except Exception as e:
+            print(f"[startup] meeting notes ready bell skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
