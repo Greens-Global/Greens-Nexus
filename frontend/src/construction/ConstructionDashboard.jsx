@@ -152,7 +152,7 @@ function NewProjectModal({ onClose, onCreated }) {
         {/* .modal-content has no padding of its own (it expects modal-header /
             modal-body), so the form brings its own - it sat flush to the edges. */}
         <form onSubmit={save} style={{ padding: '22px 24px 20px' }}>
-          <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>New Job</h3>
+          <h3 style={{ marginBottom: 4 }}>New Job</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
             A work order or a project at a jobsite. With no managers picked you are its manager, so you can review logs straight away.
           </p>
@@ -263,7 +263,7 @@ function ProjectCard({ p, onOpen, overBudget = false }) {
             <Folder size={18} style={{ color: 'var(--text-secondary)', flexShrink: 0, marginTop: 3 }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px 8px', minWidth: 0, flexWrap: 'wrap' }}>
               {/* The name wraps rather than cuts off - on a phone it is the whole point of the card. */}
-              <strong style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", overflowWrap: 'anywhere', minWidth: 0 }}>{p.name}</strong>
+              <strong style={{ fontSize: 18, overflowWrap: 'anywhere', minWidth: 0 }}>{p.name}</strong>
               {p.jobType === 'work_order' && <StatusLabel size="sm" label={JOB_TYPE.work_order.label} color={JOB_TYPE.work_order.color} />}
               {p.phase && <StatusLabel size="sm" label={p.phase} color={TONE.slate} />}
               <StatusChip project={p} />
@@ -379,7 +379,7 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
     <div style={CARD} key="list">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
-          <h3 style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Jobs</h3>
+          <h3 style={{ fontSize: 18, marginBottom: 4 }}>Jobs</h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
             {asTable ? 'Every job on one table: health, dates, money and cost per square foot, compared. Open a row for the job.' : 'Late and at-risk jobs first. Open one for its schedule, punch list, crew and weather.'}
           </p>

@@ -8,6 +8,15 @@ the PR. Standard library only - plain `python3` runs them, no virtualenv.
 What Build Mode is, who can use it and the whole loop: `docs/Build-Mode.md`.
 The procedure Claude Code follows: `.claude/skills/build-notes/SKILL.md`.
 
+## In the cloud, with nothing installed (11/12/2026)
+
+Send To Claude Code can start Claude Code in Claude's cloud instead of this
+terminal: connect once in Nexus (Build Mode > Connect In The Cloud) and no
+watcher has to run anywhere. Setup: `docs/Build-Mode-Cloud-Setup.md`; what
+changes for Claude Code: the skill's section 14. The rest of this file is
+the terminal way, which still works - a pin goes to one or the other, never
+both.
+
 ## Connect your Claude Code (once per machine, Oct 26 2026)
 
 In Nexus, turn Build Mode on > **Done** (or Settings) > **Connect My Claude
@@ -36,8 +45,9 @@ connected Nexus does not offer Send at all (Connect Claude Code First).
 ## Setup by hand (the older way)
 
 1. In Nexus open the profile menu (top right) > **Build Mode** > **Settings** >
-   **Build Tokens**, mint a token with a label ("Neil's MacBook") and copy it -
-   it is shown once. Tokens expire after 30 days and can be revoked there.
+   **Build Tokens**, make a token with a label ("Neil's MacBook") and copy it -
+   it is shown once. A token keeps working while it is in use, stops 30 days
+   after its last use, and can be revoked there.
 2. Save it where the tools look for it:
 
    ```
@@ -367,8 +377,8 @@ python3 tools/build_notes/cli.py verify <id> --repro-script <spec> --before fail
 - **"No Build Token found"** - save the token to
   `~/.config/nexus/build-notes.token` or export `NEXUS_BUILD_TOKEN`.
 - **"Your Build Token was revoked or expired - mint a new one in Nexus > Build
-  Mode > Settings"** - a 401. Tokens live 30 days; mint a new one and replace
-  the file.
+  Mode > Settings"** - a 401. A token stops 30 days after its last use; make
+  a new one and replace the file.
 - **"Build Mode is not enabled for you"** - a 403. Your account is not a Global
   Admin and no Access Group grants the `build-mode` module. The check runs on
   every call, so a token keeps working only while its owner has access.

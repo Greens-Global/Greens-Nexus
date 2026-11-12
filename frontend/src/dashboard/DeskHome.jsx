@@ -2,7 +2,7 @@
 THESIS: the home screen reads like a premium work OS (canon, owner-pinned:
 monday.com-grade) - a personal command center, not a grid of identical
 widgets.
-OWN-WORLD: white cards on #f6f7fb, Figtree type, brand #2b45e1 (Stella cobalt), colored icon
+OWN-WORLD: white cards on #f6f7fb, Inter type, brand #2b45e1 (Stella cobalt), colored icon
 chips carrying meaning, soft shadows, friendly copy. Light always.
 STORY: an employee reads their day in five seconds - greeting, session chip,
 one stat tile, the "needs your attention" list - then acts.

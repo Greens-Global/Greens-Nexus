@@ -12,8 +12,10 @@ import { offlineManifestPlugin } from './scripts/offline-manifest.mjs'
 // (scripts/nxsrc-plugin.mjs; the file table is /nx-src-files.json), so a pin
 // can say which file and line drew the element it sits on (devnotes/lib/
 // capture.js sourceOf). On for Cloudflare's dev branch build, with
-// VITE_NX_SRC=1|interactive|all locally, and in `vite` dev serve; never on a
-// production build. Component names were the other idea: rolldown's
+// VITE_NX_SRC=1|interactive|all locally, in `vite` dev serve, and - since
+// 11/12/2026 (Neil: yes, once everyone files through tickets) - on the
+// production build, which sets VITE_NX_SRC in deploy-cloudflare.yml so a
+// ticket's Point At It can name the file. Component names were the other idea: rolldown's
 // output.keepNames breaks the build (MISSING_EXPORT in underscore, Oct 24
 // 2026) and esbuild.keepNames is a no-op under Vite 8, so the stamps are the
 // one source of truth and componentsFor is best effort.

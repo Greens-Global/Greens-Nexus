@@ -104,6 +104,44 @@ keep the diff minimal.
   standalone script that calls Anthropic, and never add credits, auto-reload
   or billing anywhere or suggest doing so - ask Neil. `test_ai_switch.py`
   pins it.
+- **Build Mode (Neil, 11/12/2026, `docs/Build-Mode.md` section 8).** It is
+  its OWN access: only an Access Group granting the `build-mode` module
+  opens it - no tier does by itself, Super Administrator included, and
+  never a new role. `build_mode_access_seed.apply_once` put the IT
+  development team (Visesh, Pranshu, Sagar) and Neil in the "Build Mode"
+  Access Group ONCE; change it in Settings, never in code. Send To Claude
+  Code may start a Claude Code CLOUD session for a developer
+  (`build_mode_cloud.py`, setup `docs/Build-Mode-Cloud-Setup.md`): the
+  developer saves their own scheduled task's Fire URL and token once and
+  the session runs on THEIR Claude subscription. This is not the AI switch
+  and not a way around it: no `ANTHROPIC_API_KEY`, no Nexus credits, no
+  Nexus AI feature, and the only address ever called is that developer's
+  own trigger - never add another Anthropic call beside it. The trigger
+  token is encrypted, never returned, never logged; one call per Send and
+  no retry (a second call is a second session on the same pins); a pin
+  goes to the cloud or to a terminal watcher, never both. Built the same day
+  (`docs/Build-Mode.md` 8.5 - 8.10), each Neil's call: **proof on the
+  pin** - a cloud session attaches the after picture and a clip
+  (`cli.py clip`, `record_clip.cjs`) and the author Accepts or Reopens on
+  the pin, no preview needed (`_checkable`); **Merge To Dev**
+  (`build_mode_merge.py`) - Super Administrators (tier 5) only, off until
+  `NEXUS_GITHUB_MERGE_TOKEN` is set, only a pin's own PR into `dev` with
+  every check green, pinned to the commit that was looked at, ONE GitHub
+  call never retried, the team-chat heads-up kept only when the merge went
+  through, a hold to confirm - never widen who may merge and never merge to
+  `main`; **everyone outside IT comes in through a TICKET**, never straight
+  to Claude Code: Point At It on Create a Ticket (`tickets/pointAtIt.js`,
+  the "Where:" line `build_mode_tickets.parse_where` reads back - change
+  both together) and Send To Claude Code on a ticket (grant holders; ONE
+  pin with its own COPIES of the pictures, so the pin's purge never takes
+  ticket evidence; the ticket hears only through its activity - never a
+  comment, a bell or a status change; never an Ask HR ticket); production
+  builds carry **source marks** (`VITE_NX_SRC` in `deploy-cloudflare.yml`
+  AND `archive-assets.yml` - the two must match); the **connector**
+  (`routers/build_mode_connector.py`, `docs/Build-Mode-Connector.md`)
+  reaches Build Mode pins ONLY, by Build Token, off until
+  `NEXUS_BUILD_CONNECTOR=true` - never add a tool that touches anything
+  else in Nexus.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,
@@ -254,7 +292,8 @@ keep the diff minimal.
   `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
   Shrink / Expand button; short answers keep the small card
   (`support/HelpWidget.jsx`).
-- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter and every
+- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter, bundled
+  with the app (`src/fonts.css` - never Google Fonts or a second family), and every
   text size is on the scale - `FS` in `lib/typeScale.js` (meta 11, label 12,
   body 13, read 14, title 15, section 18, page 24, figure 32) or the `--fs-*`
   tokens. `scripts/check-type.mjs` (in `npm run lint`) fails a new off-scale

@@ -32,6 +32,9 @@ Pieces:
 ---------------------------------------------------------------------------
 ## 1. Access
 
+(Changed 11/12/2026 - Build Mode is its own grant and no tier opens it by
+itself; section 8.1 is the rule now. The paragraphs below are the Oct 24 design.)
+
 `backend/routers/dev_notes.py` gate, used by every endpoint:
 
     allowed = auth.is_global_admin(user, db) or _module_level(email, "build-mode", db) >= viewer
@@ -542,9 +545,10 @@ Pieces (one file each, all under `frontend/src/devnotes/`):
   (`components/StatusLabel.jsx` soft labels), thumbnail, video, thread,
   PR link, Dismiss / Reopen; "Send To Claude Code" (dispatches the
   collecting session; disabled with a hint when empty); Sessions: list with
-  PR links and status; Settings: Send Instantly switch, Dispatch Target
-  (Local Terminal; GitHub Issue shown disabled "Coming later"), Pins On Load
-  switch, Build Tokens (mint with label, copy once, revoke) and the watcher
+  PR links and status; Settings: Send Instantly switch, Where Claude Code Runs
+  (In The Cloud / On My Computer - "Dispatch Target" until 11/12/2026; GitHub
+  Issue shown disabled "Coming later"), Pins On Load
+  switch, Build Tokens (make with label, copy once, revoke) and the watcher
   one-liner to paste in VS Code;
 - `lib/capture.js` (selector, text, headings, html, fiber components via the
   `__reactFiber$` key, record ids from `data-*` and the React Query cache
@@ -808,3 +812,221 @@ New bells: `dev_note_owner` ("Pin #n On Your Area", recipient = the owner)
 and `dev_note_rework` ("Pin #n Needs A New PR", recipient = the author),
 `ref_id` = the pin. New audit actions: `dev_note_release`,
 `dev_note_preview`, `dev_note_preview_verdict`, `dev_note_regression`.
+
+---------------------------------------------------------------------------
+## 8. Claude Code in the cloud, and access as its own grant (Neil, 11/12/2026)
+
+Setup for a developer: `docs/Build-Mode-Cloud-Setup.md`. Code:
+`backend/build_mode_cloud.py`, `frontend/src/devnotes/ConnectCloud.jsx`, the
+skill's section 14.
+
+### 8.1 Access (replaces section 1's rule)
+
+    allowed = _module_level(email, "build-mode", db) >= viewer
+
+Only an Access Group that grants the `build-mode` module opens Build Mode.
+No tier does by itself, Super Administrator included (Neil: "granted as a
+separate access through roles but no new role"). `build_mode_access_seed.
+apply_once` (mark `build_mode.access_set_2026_11_12`, run with the every-boot
+seeds) makes ONE Access Group named "Build Mode" - not a job role, no tier,
+shared by every company - with Neil, Visesh, Pranshu and Sagar in it; a
+group that already grants the module is left alone. After that, who has
+Build Mode is changed in Settings > People & Access, never in code. A Super
+Administrator's extra powers INSIDE Build Mode (release any held pin, see
+every token) are unchanged.
+
+### 8.2 The trigger
+
+A developer's Claude Code scheduled task has an API trigger: a Fire URL and
+a token. `PUT /dev-notes/cloud {fireUrl, token}` keeps them in a
+`NexusSetting` row `dev_notes_cloud:<email>`: `{routineId, token (secret_box
+encrypted), savedAt, lastStartedAt, lastError}`. The token is in no
+response, no audit row and no log. The Fire URL must match
+`https://api.anthropic.com/v1/claude_code/routines/trig_<id>/fire` exactly
+(400 otherwise), so a saved token is never posted anywhere else. Saving
+calls nothing (a test call would start a real session) and sets the
+person's `dispatchTarget` to `cloud`.
+
+| method | path | body -> result |
+| --- | --- | --- |
+| GET | /cloud | `{connected, task: "...<last 6 of the id>", savedAt, lastStartedAt, lastError, target}` |
+| PUT | /cloud | `{fireUrl, token}` -> the same, `target: "cloud"`; audit `dev_note_cloud_connect` |
+| DELETE | /cloud | 204; trigger deleted, `dispatchTarget` back to `local`; audit `dev_note_cloud_disconnect` |
+| POST | /cloud/start | `{noteIds?}` -> `{cloud, notes}`: starts Claude Code for the caller's pins that wait for it (sent, or answered), moving terminal pins to the cloud. 400 not connected / nothing waiting; 409 when one of them was started less than `CLOUD_RESTART_SEC` (120 s) ago |
+| GET | /claude-connection | adds `terminal` (a live watcher) and `cloud` (trigger saved AND the target is cloud); `connected` = either |
+| PUT | /settings | `dispatchTarget` may be `local` or `cloud` (`cloud` needs a saved trigger) |
+
+`/dev-notes/cloud` is in `SENSITIVE_PREFIXES` (it takes a credential).
+
+### 8.3 Starting a session
+
+`_dispatch_notes` stamps each pin's `dispatch_target` with the sender's
+target at send time. `_cloud_start(db, notes, by)` runs AFTER the commit
+that made the pins wait for Claude and posts ONE request for them:
+
+    POST <Fire URL>   Authorization: Bearer <token>
+    {"text": "Build Mode pins to work: <id> <id>\nNexus API: <address>\nSent by: <email>"}
+
+No retry: the endpoint has no idempotency key, so a second call is a second
+session on the same pins. On 200 the session link (only when it starts with
+`https://claude.ai/code/`) is kept on each pin and its Build Session
+(`claude_session_url`, serialized `claudeSessionUrl`) and `progress` becomes
+"Claude Code is starting in the cloud"; audit `dev_note_cloud_start`. On
+anything else the pins stay `dispatched`, `progress` becomes "Claude Code
+did not start: <reason>", the reason is kept as the trigger's `lastError`,
+and the caller's answer carries `cloud: {started: false, error}`.
+
+It is called from: `POST /dispatch` (the answer gains `cloud`), `POST /`
+with Send Instantly, a release that sends at once, a post-merge Reopen that
+sends at once, and `POST /{id}/thread` when the pin was `needs_input` (the
+author's answer). A comment on a pin Claude is still working starts nothing.
+No thread entry is added: an answered pin's last entry must stay the
+author's comment (the brief reads it).
+
+`/cli/wait` never returns a pin whose `dispatch_target` is `cloud`, so a
+terminal watcher that is also running cannot pick it up. The cloud session
+works the pin through the same `/cli/*` routes with the sender's Build
+Token; `/cli/claim`'s "sent to <Name>'s Claude Code, not yours" rule is
+unchanged.
+
+### 8.4 Build Tokens renew
+
+A token expires `TOKEN_DAYS` (30) after its LAST use, not after minting:
+`_resolve_token` moves `expires_at` whenever it stamps `last_used_at` (at
+most once a minute). A connected Claude Code never needs a new token; an
+idle one still dies.
+
+### 8.5 Proof on the pin (11/12/2026)
+
+A cloud session has no computer to run a preview on, so the author checks
+the fix from what Claude Code attached to the pin:
+
+- **Proof** = `verification.visual.afterUrl` (the after picture from
+  `/cli/verify` or `/cli/attach` kind `after`) or `verification.visual.clipUrl`
+  (a WebM / MP4 from `/cli/attach` kind `clip`, 25 MB at most, sniffed by its
+  first bytes; `tools/build_notes/record_clip.cjs` records one, `cli.py clip`
+  sends it). Both live in the private `qa-evidence` bucket like every other
+  pin file.
+- `_checkable(n)`: PR Open, not accepted yet, and a preview url OR proof. The
+  serializer sends `checkable`; `readyToCheck` keeps meaning "a preview
+  runs". The screen shows Ready To Check for either (`meta.js isReady`) and
+  the Accept / Reopen buttons whenever `canVerdict`.
+- `POST /dev-notes/{id}/preview-verdict` takes a verdict on a checkable pin.
+  The thread says where it was judged: "Checked On The Preview" or "Checked
+  From The Proof On The Pin". Accept = the merge closes the pin as Done with
+  no second check, exactly as before. Reopen needs a note, sends the pin
+  back to Building, clears the refused pictures and clip (the files stay in
+  the pin's history) and, for a pin that went to the cloud, starts a new
+  session on it.
+- A later `/cli/verify` keeps a clip that was attached before it.
+
+### 8.6 Merge To Dev (Neil, 11/12/2026)
+
+`build_mode_merge.py` + `GET / POST /dev-notes/{id}/merge`. A Super
+Administrator (tier level 5 - not a Global Admin group, and never while
+acting as someone) merges the pull request recorded on a PR Open pin into
+`dev` from the pin, and the house heads-up goes to the team chat by the same
+click.
+
+- OFF until the server carries `NEXUS_GITHUB_MERGE_TOKEN`: a fine-grained
+  GitHub token for this repository only, Pull requests and Contents: Read
+  and write. Only Neil or Visesh sets it (an Azure app setting). The
+  read-only `GITHUB_TOKEN` is never used to merge. Without it `canMerge` is
+  false and the button is not drawn.
+- The look (`GET`) reads the PR and every check on its head commit and
+  lists each reason it may not go: closed, a draft, not into `dev`, a fork,
+  conflicts, branch rules, a failed or running check, no checks at all, and
+  - Nexus's own - no team chat picked. The chat is the merger's saved Build
+  Mode chat (the one Post To Teams remembers).
+- The merge (`POST`, body `headSha`) runs the look again, refuses a branch
+  that moved since the person looked, queues the heads-up in the same
+  transaction, calls GitHub ONCE (a merge commit, `sha` pinned) and keeps
+  the heads-up only when GitHub merged. Then `mark_fixed_for_pr` runs at
+  once (the webhook finding nothing left is fine): a pin checked before the
+  merge is Done, the rest go to Fixed - Verify.
+- On the screen it is a hold (`dialog.confirm(..., { hold: true })`,
+  `HOLD_MAJOR_MS`) that names the PR, the pins, and the chat.
+- One audit row, `dev_note_merge_to_dev`.
+
+### 8.7 The Team tab and one pull request (11/12/2026)
+
+- **Team** (the panel's second tab, `TeamTab` in `Panel.jsx`, helpers in
+  `meta.js`): "Waiting On You" on top - a question from Claude Code on your
+  pin, a fix to check, a fixed pin to verify on dev, a pin held for your
+  area, a checked pull request you may merge (`pinAsks`, from the server's
+  `canVerdict` / `canRelease` / `canMerge` flags only) - then everyone's
+  pins with a Person and a State filter. It reads the pins the panel already
+  loaded; nothing new on the server.
+- **One pull request**: `GET /cli/whoami` now also returns `openPr` - the
+  sender's newest pull request with a pin of theirs still PR Open
+  (`_open_pr`), or `{}`. With Collect Fixes Into One PR on, a cloud session
+  adds its work to that pull request instead of opening another (the skill's
+  section 14, step 13). A merge clears it; the next Send opens its own.
+
+### 8.8 Everyone through tickets (Neil, 11/12/2026)
+
+People outside the IT development team never get Build Mode. They file a
+ticket, and the ticket is good enough to build from:
+
+- **Point At It** (`frontend/src/tickets/pointAtIt.js`, the button under
+  the description on Create a Ticket, computers only): the form steps aside
+  exactly as it does for a screen recording (draft stashed, Browse First to
+  walk to another screen), the person clicks the thing that is wrong, and
+  the form returns with a picture of it attached (the thing outlined,
+  sensitive fields blacked out by Build Mode's own rule) and ONE line at
+  the end of the description:
+  `Where: Tasks > Home (/tasks/home) - button "Add Task" [src/tasks/Home.jsx:120]`.
+  The bracket is there only when the build carries source marks. No grant,
+  no pin, nothing of Build Mode's is written.
+- **Source marks on production**: `deploy-cloudflare.yml` and
+  `archive-assets.yml` build with `VITE_NX_SRC=handlers` (the two must
+  build the same files). Production pages then carry `data-nx-src` on
+  elements with a handler or an aria / role attribute, and
+  `/nx-src-files.json` lists the source file paths. Remove the variable from
+  both workflows to take them off again.
+- **Send To Claude Code** on a ticket (`TicketBuildAction.jsx` in the
+  drawer's footer, Build Mode grant holders only; `POST
+  /dev-notes/from-ticket/{id}`, `build_mode_tickets.py`): ONE pin in the
+  caller's Build Session - the ticket's words, the route and source read
+  back from the Where line (`parse_where`; the two files must agree), and
+  COPIES of up to four of the ticket's pictures in the pin's own folder, so
+  the pin's 30-day purge can never delete ticket evidence. The pin keeps
+  `ticket_id` / `ticket_code`. One live pin per ticket. An Ask HR ticket
+  reads as not found.
+- The ticket hears about it only through its activity (`log_activity`,
+  type `build_mode`): "Sent to Claude Code as Build Mode Pin #n" and, when
+  the PR merges, "The fix merged to dev (PR #n, ...)". Never a comment,
+  never a bell or an email to the requester, never a status change - the
+  desk resolves the ticket.
+
+### 8.9 The connector (Neil, 11/12/2026: "Build Mode only")
+
+`routers/build_mode_connector.py` - one MCP endpoint, `POST
+/build-connector/mcp` (Streamable HTTP, plain JSON answers, no stream, no
+session), so a developer's own Claude can read and work THEIR pins without
+the CLI. Setup and the exact command: `docs/Build-Mode-Connector.md`.
+
+- OFF until the server carries `NEXUS_BUILD_CONNECTOR=true` (404 otherwise).
+- The caller is a Build Token (`require_build_token`); no browser session,
+  no anonymous tool. A token reaches only the pins its owner sent.
+- Six tools, each a Build Mode `/cli/*` function: `my_pins`, `get_pin`,
+  `claim_pins`, `post_progress`, `reply`, `complete`. Nothing else in Nexus
+  is reachable - `test_build_mode_connector.py` pins that the file imports
+  one model (`DevNote`) and makes no outbound call. Pictures and evidence
+  stay with `cli.py`.
+- Not a Nexus AI feature: Claude calls Nexus; Nexus calls nothing.
+
+### 8.10 The terminal tools on Windows (11/12/2026)
+
+`tools/build_notes/stack.py` is the one place that knows the platform:
+`venv_python` (`Scripts/python.exe`), `node_bin` and `exe` (`.cmd` shims for
+vite / npm / npx), a new process group instead of a session, `tasklist` for
+"is it alive" (never `os.kill(pid, 0)`, which terminates a process on
+Windows), PowerShell for a command line, `taskkill /T` then `/F` to stop a
+tree. `WindowsStackTest` pins the shapes with Windows simulated - a real run
+of `preview.py` and `run_e2e.py` on a Windows laptop is still owed.
+
+### 8.11 Not built yet
+
+A preview anyone can open (a deployed branch preview) - the plan:
+https://claude.ai/artifact/WqEqnaipxNoFveELkctpPB .

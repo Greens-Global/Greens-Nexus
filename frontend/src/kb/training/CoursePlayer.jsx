@@ -42,7 +42,7 @@ function Quiz({ course, onDone }) {
   if (result?.pending_review) {
     return (
       <section className="kb-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, textAlign: 'center', padding: 28 }}>
-        <div style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 24, fontWeight: 700 }}>Waiting for Review</div>
+        <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 24, fontWeight: 700 }}>Waiting for Review</div>
         <div className="kb-meta">Your photo goes to your manager or the course owner. You get a bell with your result; this does not use a try until it is reviewed.</div>
       </section>
     );
@@ -53,7 +53,7 @@ function Quiz({ course, onDone }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <section className="kb-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, textAlign: 'center' }}>
           <div className="kb-ring" style={{ background: `conic-gradient(${result.passed ? '#1e7b4e' : '#dc2626'} 0 ${pct}%, #e5e7eb ${pct}% 100%)` }}><div><b style={{ fontSize: 32, letterSpacing: '-.02em', lineHeight: 1 }}>{pct}%</b><span className="kb-meta">{result.correct} of {result.total}</span></div></div>
-          <div style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 24, fontWeight: 700 }}>{result.passed ? 'You passed.' : `Not quite. You need ${result.pass_pct}%.`}</div>
+          <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 24, fontWeight: 700 }}>{result.passed ? 'You passed.' : `Not quite. You need ${result.pass_pct}%.`}</div>
           <div className="kb-meta">Try {result.tries_used} · {result.locked ? 'no tries left: your manager can unlock another round' : result.passed ? '' : `${result.tries_left} ${result.tries_left === 1 ? 'try' : 'tries'} left`}</div>
         </section>
         {!result.passed && result.missed.length > 0 && (
@@ -380,7 +380,7 @@ export default function CoursePlayer({ id, me, lesson: startLesson = '' }) {
               {(cur === 'done' || (course.my_status === 'Completed' && cur !== 'quiz' && !course.lessons.some((L) => L._id === cur))) && (
                 <section className="kb-card kb-finish">
                   <Award size={30} style={{ color: 'var(--kb-green)' }} />
-                  <div style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 24, fontWeight: 700 }}>Course Completed</div>
+                  <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 24, fontWeight: 700 }}>Course Completed</div>
                   <div className="kb-meta">{fmtDate(course.completed_at)}{course.quiz.score != null && course.quiz.question_count ? ` · ${course.quiz.score}%` : ''}{course.expires ? ` · valid through ${fmtDate(course.expires)}` : ''}</div>
                   {course.certificate && <><div className="kb-meta">Certificate {course.certificate.serial}</div><button type="button" className="kb-btn pri" onClick={download}><Download />Download Certificate</button></>}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>

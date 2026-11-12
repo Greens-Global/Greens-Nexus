@@ -3,7 +3,7 @@ THESIS: signing in feels like opening a premium work OS (canon, owner-pinned:
 monday.com-grade) - a confident split hero: the product's world on the left,
 one calm action on the right.
 OWN-WORLD: Work OS (DESIGN.md) - brand panel with floating module cards
-(CSS-drawn, no fabricated numbers), white sign-in column, Figtree type, one
+(CSS-drawn, no fabricated numbers), white sign-in column, Inter type, one
 Microsoft action. Accent defaults to green (Pranshu, Jul 28) and is a Global
 Admin-configurable setting, not hardcoded - see lib/brandAccent.js and
 backend/routers/branding.py.
@@ -294,7 +294,7 @@ export default function LoginPage() {
         .nxl-page {
           position: fixed; inset: 0; overflow: hidden;
           background: #ffffff; color: #323338;
-          font-family: 'Figtree', 'Inter', sans-serif;
+          font-family: 'Inter', sans-serif;
           display: flex;
         }
 
@@ -420,7 +420,7 @@ export default function LoginPage() {
           padding: 14px 28px;
           background: #ffffff; color: #323338;
           border: 1px solid #d0d4e4; border-radius: 10px;
-          font-family: 'Figtree', 'Inter', sans-serif;
+          font-family: 'Inter', sans-serif;
           font-size: 15px; font-weight: 700;
           cursor: pointer;
           box-shadow: 0 4px 12px rgba(29,33,57,.07);

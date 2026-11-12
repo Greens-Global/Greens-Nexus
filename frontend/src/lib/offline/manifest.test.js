@@ -33,6 +33,22 @@ describe('offlineFiles', () => {
     ]);
   });
 
+  // The bundled app font (src/fonts.css, Neil 11/12/2026): its Latin files
+  // ride along so an offline phone still draws Inter; the other scripts don't.
+  it('takes the Latin Inter files and no other font', () => {
+    const withFonts = {
+      ...bundle,
+      'assets/inter-latin-wght-normal-nx2-f.woff2': { type: 'asset', fileName: 'assets/inter-latin-wght-normal-nx2-f.woff2' },
+      'assets/inter-latin-ext-wght-normal-nx2-g.woff2': { type: 'asset', fileName: 'assets/inter-latin-ext-wght-normal-nx2-g.woff2' },
+      'assets/inter-cyrillic-wght-normal-nx2-h.woff2': { type: 'asset', fileName: 'assets/inter-cyrillic-wght-normal-nx2-h.woff2' },
+      'assets/Assistant-Bold-nx2-i.woff2': { type: 'asset', fileName: 'assets/Assistant-Bold-nx2-i.woff2' },
+    };
+    const files = offlineFiles(withFonts);
+    expect(files).toContain('/assets/inter-latin-wght-normal-nx2-f.woff2');
+    expect(files).toContain('/assets/inter-latin-ext-wght-normal-nx2-g.woff2');
+    expect(files.some((f) => f.includes('cyrillic') || f.includes('Assistant'))).toBe(false);
+  });
+
   it('lists the Forms proof screens and the offline layer itself', () => {
     expect(OFFLINE_SCREENS).toEqual(expect.arrayContaining(['src/lib/offline/', 'src/components/offline/', 'src/forms/FillForm.jsx', 'src/views/MyHR.jsx']));
   });

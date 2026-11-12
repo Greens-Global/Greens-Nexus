@@ -54,11 +54,18 @@ means "in progress / now" and nothing else.**
 ## Type
 
 **Font: Inter, everywhere (Neil, 11/12/2026)** - it holds up better than
-Figtree at 11-13px in dense tables, and Nexus is mostly tables and lists. This
-replaces "Figtree for desk surfaces". Moving `--wk-font` from Figtree to Inter is
-its own release, checked against before / after screenshots (Inter sets wider
-than Figtree at the same size, so tight spots - the rail, tabs, chips - can
-wrap or cut off).
+Figtree at 11-13px in dense tables, and Nexus is mostly tables and lists. It
+replaced Figtree (the frame, Dashboard, Workday, sign-in, Knowledge Base
+headings) and Plus Jakarta Sans (Construction headings); `--wk-font` is Inter,
+and buttons and fields inherit the page font. Checked against before / after
+screenshots at 1440, 1280 and phone widths - nothing new cut off.
+
+Inter is BUNDLED with the app (`frontend/src/fonts.css`, from
+`@fontsource-variable/inter`): one variable file for every weight, served from
+our own origin, never Google Fonts - no third-party request, nothing for the
+CSP to allow (`font-src 'self'`), and it works offline (the Latin files are in
+the offline shell, `scripts/offline-manifest.mjs`). Never add a font from a
+CDN or a second family; a new screen gets Inter by inheriting it.
 
 **The scale (Neil, 11/12/2026)** - the only text sizes. `FS` in
 `frontend/src/lib/typeScale.js`, the same numbers as the `--fs-*` tokens in
