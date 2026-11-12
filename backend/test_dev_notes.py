@@ -1972,3 +1972,193 @@ def test_a_clip_is_proof_too_and_only_a_real_video_is_taken(monkeypatch):
     client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
     v = client.get(f"/dev-notes/{p['id']}").json()["verification"]["visual"]
     assert v["clipUrl"].endswith("/clip-1.webm") and v["afterUrl"] == AFTER
+
+
+# ── Merge To Dev (Neil, 11/12/2026) ───────────────────────────────────────────
+import build_mode_merge as MERGE  # noqa: E402
+
+HEAD = "f" * 40
+
+
+@pytest.fixture
+def github(monkeypatch):
+    """A stand-in GitHub: one open, green PR into dev. Tests bend `pr`,
+    `runs`, `statuses` and `merge` to taste; every call is recorded."""
+    monkeypatch.setenv(MERGE.TOKEN_ENV, "github_pat_test")
+    state = {
+        "pr": {"state": "open", "merged": False, "draft": False, "mergeable": True, "mergeable_state": "clean",
+               "title": "Fix the count", "html_url": "https://github.com/Greens-Global/Greens-Nexus/pull/41",
+               "base": {"ref": "dev"}, "user": {"login": "dev"},
+               "head": {"ref": "claude/b", "sha": HEAD, "repo": {"full_name": "Greens-Global/Greens-Nexus"}}},
+        "runs": [{"name": "backend", "status": "completed", "conclusion": "success"},
+                 {"name": "frontend", "status": "completed", "conclusion": "success"},
+                 {"name": "e2e", "status": "completed", "conclusion": "skipped"}],
+        "statuses": [],
+        "merge": (200, {"merged": True, "sha": "m" * 40}),
+        "calls": [], "posted": [],
+    }
+
+    def request(method, path, body=None):
+        state["calls"].append((method, path, body))
+        if method == "PUT" and path.endswith("/merge"):
+            return state["merge"]
+        if path.startswith("/pulls/"):
+            return 200, state["pr"]
+        if path.endswith("/check-runs?per_page=100"):
+            return 200, {"check_runs": state["runs"]}
+        if path.endswith("/status"):
+            return 200, {"statuses": state["statuses"]}
+        return 404, {}
+
+    monkeypatch.setattr(MERGE, "_request", request)
+    monkeypatch.setattr(D._chat, "deliver_later", lambda bg, row: state["posted"].append(row.id if row else None))
+    return state
+
+
+def _team_chat():
+    r = client.put("/dev-notes/settings", json={"teamsChatId": "19:team@thread.v2", "teamsChatName": "Nexus Dev Team"})
+    assert r.status_code == 200, r.text
+
+
+def _merges(state):
+    return [c for c in state["calls"] if c[0] == "PUT"]
+
+
+def test_merge_to_dev_is_a_super_administrators_and_says_what_it_did(github):
+    p = _to_pr_open(pr=41)
+    # the author is not a Super Administrator: no flag, no look, no merge
+    assert client.get(f"/dev-notes/{p['id']}").json()["canMerge"] is False
+    assert client.get(f"/dev-notes/{p['id']}/merge").status_code == 403
+    assert client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD}).status_code == 403
+    # an Administrator with the Build Mode grant is not one either
+    GRANTS[ADMIN["email"]] = {"build-mode": 1}
+    try:
+        _as(ADMIN)
+        assert client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD}).status_code == 403
+    finally:
+        GRANTS.pop(ADMIN["email"], None)
+    assert _merges(github) == []
+    _as(GA)
+    try:
+        assert client.get(f"/dev-notes/{p['id']}").json()["canMerge"] is True
+        # no team chat picked yet: it says so and does not merge
+        look = client.get(f"/dev-notes/{p['id']}/merge").json()
+        assert look["available"] is True and look["ok"] is False and "team chat" in look["reasons"][0]
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD})
+        assert r.status_code == 409 and "team chat" in r.json()["detail"] and _merges(github) == []
+        _team_chat()
+        look = client.get(f"/dev-notes/{p['id']}/merge").json()
+        assert look["ok"] is True and look["reasons"] == [] and look["chatName"] == "Nexus Dev Team"
+        assert look["headSha"] == HEAD and look["checks"] == {"total": 3, "passed": 3, "failed": 0, "pending": 0, "failing": []}
+        assert look["pins"] == [{"id": p["id"], "number": p["number"], "checked": False}] and look["unchecked"] == [p["number"]]
+        # the commit the person looked at must still be the head
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": "0" * 40})
+        assert r.status_code == 409 and "changed since you looked" in r.json()["detail"] and _merges(github) == []
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD})
+        assert r.status_code == 200, r.text
+        got = r.json()
+        assert got["merged"] is True and got["sha"] == "m" * 40 and got["chatName"] == "Nexus Dev Team"
+        assert _merges(github) == [("PUT", "/pulls/41/merge", {"sha": HEAD, "merge_method": "merge"})]   # once, pinned to the head
+        assert [n["status"] for n in got["notes"]] == ["fixed"] and got["notes"][0]["canMerge"] is False
+        assert len(github["posted"]) == 1 and github["posted"][0]
+        db = database.SessionLocal()
+        try:
+            from models import TicketTeamsMessage
+            row = db.query(TicketTeamsMessage).filter(TicketTeamsMessage.id == github["posted"][0]).first()
+            text = " ".join(str(getattr(row, c.name) or "") for c in TicketTeamsMessage.__table__.columns)
+            assert "Merging To Dev" in text and "PR #41" in text and "19:team@thread.v2" in text
+            audit = db.query(models.AuditLog).filter(models.AuditLog.action == "dev_note_merge_to_dev").all()
+            assert len(audit) == 1 and audit[0].user_email == GA["email"] and "github_pat" not in audit[0].details
+        finally:
+            db.close()
+        # a second click finds nothing to merge
+        assert client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD}).status_code == 409
+        assert len(_merges(github)) == 1
+    finally:
+        _as(DEV)
+
+
+@pytest.mark.parametrize("bend,words", [
+    (lambda s: s["pr"].update(mergeable=False, mergeable_state="dirty"), "conflicts with dev"),
+    (lambda s: s["pr"].update(mergeable=None), "still working out"),
+    (lambda s: s["pr"].update(mergeable_state="blocked"), "branch rules"),
+    (lambda s: s["pr"]["base"].update(ref="main"), "targets main, not dev"),
+    (lambda s: s["pr"]["head"]["repo"].update(full_name="someone/fork"), "not in this repository"),
+    (lambda s: s["pr"].update(draft=True), "still a draft"),
+    (lambda s: s["pr"].update(state="closed"), "is closed"),
+    (lambda s: s["runs"].append({"name": "lint", "status": "completed", "conclusion": "failure"}), "Checks failed: lint"),
+    (lambda s: s["runs"].append({"name": "lint", "status": "in_progress", "conclusion": None}), "1 check still running"),
+    (lambda s: s["statuses"].append({"context": "pages", "state": "failure"}), "Checks failed: pages"),
+    (lambda s: s.update(runs=[]), "No checks have run"),
+])
+def test_merge_to_dev_refuses_whatever_is_not_open_green_and_into_dev(github, bend, words):
+    p = _to_pr_open(pr=42)
+    _as(GA)
+    try:
+        _team_chat()
+        bend(github)
+        look = client.get(f"/dev-notes/{p['id']}/merge").json()
+        assert look["ok"] is False and words in " ".join(look["reasons"])
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD})
+        assert r.status_code == 409 and words in r.json()["detail"]
+        assert _merges(github) == [] and github["posted"] == []
+        assert client.get(f"/dev-notes/{p['id']}").json()["status"] == "pr_open"
+    finally:
+        _as(DEV)
+
+
+def test_a_merge_github_refuses_posts_no_heads_up_and_is_not_tried_again(github):
+    p = _to_pr_open(pr=43)
+    _as(GA)
+    try:
+        _team_chat()
+        from models import TicketTeamsMessage
+        db = database.SessionLocal()
+        before = db.query(TicketTeamsMessage).count()
+        db.close()
+        github["merge"] = (409, {"message": "Head branch was modified. Review and try the merge again."})
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD})
+        assert r.status_code == 409 and "changed since you looked" in r.json()["detail"]
+        assert len(_merges(github)) == 1 and github["posted"] == []
+        db = database.SessionLocal()
+        try:
+            assert db.query(TicketTeamsMessage).count() == before
+            assert db.query(models.AuditLog).filter(models.AuditLog.action == "dev_note_merge_to_dev").count() == 0
+        finally:
+            db.close()
+        assert client.get(f"/dev-notes/{p['id']}").json()["status"] == "pr_open"
+    finally:
+        _as(DEV)
+
+
+def test_merge_to_dev_is_off_until_the_server_carries_the_credential(github, monkeypatch):
+    monkeypatch.delenv(MERGE.TOKEN_ENV, raising=False)
+    p = _to_pr_open(pr=44)
+    _as(GA)
+    try:
+        assert client.get(f"/dev-notes/{p['id']}").json()["canMerge"] is False
+        look = client.get(f"/dev-notes/{p['id']}/merge").json()
+        assert look == {"available": False, "ok": False, "reasons": ["Merge To Dev is not set up on this server."]}
+        r = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD})
+        assert r.status_code == 503 and github["calls"] == []
+        # the read-only token What's New uses never merges
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_readonly")
+        assert MERGE.available() is False
+    finally:
+        _as(DEV)
+
+
+def test_a_pin_checked_before_the_merge_closes_as_done(github):
+    token = _token()["token"]
+    p = _to_pr_open(token, pr=45)
+    client.post(f"/dev-notes/cli/verify/{p['id']}", headers=_hdr(token), json={"visual": {"beforeUrl": BEFORE, "afterUrl": AFTER}})
+    client.post(f"/dev-notes/{p['id']}/preview-verdict", json={"accepted": True})
+    _as(GA)
+    try:
+        _team_chat()
+        look = client.get(f"/dev-notes/{p['id']}/merge").json()
+        assert look["unchecked"] == [] and look["pins"][0]["checked"] is True
+        got = client.post(f"/dev-notes/{p['id']}/merge", json={"headSha": HEAD}).json()
+        assert [n["status"] for n in got["notes"]] == ["done"]
+    finally:
+        _as(DEV)

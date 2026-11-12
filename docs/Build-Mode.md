@@ -919,7 +919,35 @@ the fix from what Claude Code attached to the pin:
   session on it.
 - A later `/cli/verify` keeps a clip that was attached before it.
 
-### 8.6 Not built yet
+### 8.6 Merge To Dev (Neil, 11/12/2026)
+
+`build_mode_merge.py` + `GET / POST /dev-notes/{id}/merge`. A Super
+Administrator (tier level 5 - not a Global Admin group, and never while
+acting as someone) merges the pull request recorded on a PR Open pin into
+`dev` from the pin, and the house heads-up goes to the team chat by the same
+click.
+
+- OFF until the server carries `NEXUS_GITHUB_MERGE_TOKEN`: a fine-grained
+  GitHub token for this repository only, Pull requests and Contents: Read
+  and write. Only Neil or Visesh sets it (an Azure app setting). The
+  read-only `GITHUB_TOKEN` is never used to merge. Without it `canMerge` is
+  false and the button is not drawn.
+- The look (`GET`) reads the PR and every check on its head commit and
+  lists each reason it may not go: closed, a draft, not into `dev`, a fork,
+  conflicts, branch rules, a failed or running check, no checks at all, and
+  - Nexus's own - no team chat picked. The chat is the merger's saved Build
+  Mode chat (the one Post To Teams remembers).
+- The merge (`POST`, body `headSha`) runs the look again, refuses a branch
+  that moved since the person looked, queues the heads-up in the same
+  transaction, calls GitHub ONCE (a merge commit, `sha` pinned) and keeps
+  the heads-up only when GitHub merged. Then `mark_fixed_for_pr` runs at
+  once (the webhook finding nothing left is fine): a pin checked before the
+  merge is Done, the rest go to Fixed - Verify.
+- On the screen it is a hold (`dialog.confirm(..., { hold: true })`,
+  `HOLD_MAJOR_MS`) that names the PR, the pins, and the chat.
+- One audit row, `dev_note_merge_to_dev`.
+
+### 8.7 Not built yet
 
 A preview anyone can open (a deployed branch preview) - the plan:
 https://claude.ai/artifact/WqEqnaipxNoFveELkctpPB .

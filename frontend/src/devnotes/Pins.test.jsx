@@ -10,6 +10,8 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 vi.mock('../api', () => ({
   api: {
     devNotesRelease: vi.fn((id) => Promise.resolve({ id, number: 5, status: 'open', createdBy: 'neil@greensglobal.com', held: false })),
+    devNotesMergeLook: vi.fn(),
+    devNotesMerge: vi.fn(),
     devNotesPreviewVerdict: vi.fn((id, body) => Promise.resolve({ id, previewVerdict: body.accepted ? 'accepted' : 'reopened' })),
     devNotesThread: vi.fn(),
     devNotesVerify: vi.fn(),
@@ -23,6 +25,7 @@ const { PinThread } = await import('./Pins');
 const { api } = await import('../api');
 const { store } = await import('./store');
 const { isLocalPreview, pinReopened } = await import('./meta');
+const { dialog } = await import('../ui/dialog');
 
 const AUTHOR = 'neil@greensglobal.com';
 const OWNER = 'visesh.lodha@greensglobal.com';
@@ -241,5 +244,48 @@ describe('PinThread - checked from the proof on the pin', () => {
     render(<PinThread pin={readyPin({ preview: {}, readyToCheck: false, checkable: false, verification: {} })} me={{ email: AUTHOR }} detached />);
     expect(screen.queryByTestId('bm-preview')).toBeNull();
     expect(screen.queryByRole('button', { name: /Accept/ })).toBeNull();
+  });
+});
+
+// Merge To Dev (Neil, 11/12/2026): Super Administrators only; the server says who with canMerge.
+describe('PinThread - Merge To Dev', () => {
+  const LOOK = { available: true, ok: true, reasons: [], number: 812, title: 'Fix the count', headSha: 'abc', chatName: 'Nexus Dev Team',
+    checks: { passed: 3 }, pins: [{ id: 'p2', number: 2, checked: false }], unchecked: [2] };
+
+  it('no flag from the server = no button', () => {
+    render(<PinThread pin={readyPin()} me={{ email: AUTHOR }} detached />);
+    expect(screen.queryByTestId('bm-merge')).toBeNull();
+  });
+
+  it('says what stands in the way and never opens the hold dialog', async () => {
+    const confirm = vi.spyOn(dialog, 'confirm').mockImplementation(() => Promise.resolve(false));
+    api.devNotesMergeLook.mockResolvedValueOnce({ ...LOOK, ok: false, reasons: ['Checks failed: lint.'] });
+    render(<PinThread pin={readyPin({ canMerge: true })} me={{ email: AUTHOR }} detached />);
+    fireEvent.click(screen.getByTestId('bm-merge'));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Not ready to merge. Checks failed: lint.'));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(api.devNotesMerge).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('a clean look opens a HOLD dialog that names the PR and the chat; the hold merges at the commit that was looked at', async () => {
+    const confirm = vi.spyOn(dialog, 'confirm').mockImplementation(() => Promise.resolve(true));
+    api.devNotesMergeLook.mockResolvedValueOnce(LOOK);
+    api.devNotesMerge.mockResolvedValueOnce({ merged: true, number: 812, chatName: 'Nexus Dev Team', notes: [{ id: 'p2', status: 'fixed' }] });
+    const onChanged = vi.fn();
+    render(<PinThread pin={readyPin({ canMerge: true })} me={{ email: AUTHOR }} onChanged={onChanged} detached />);
+    fireEvent.click(screen.getByTestId('bm-merge'));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    const [msg, opts] = confirm.mock.calls[0];
+    expect(msg).toContain('PR #812 - Fix the count');
+    expect(msg).toContain('Nexus Dev Team');
+    expect(msg).toContain('1 not checked yet');
+    expect(opts.hold).toBe(true);
+    expect(opts.confirmText).toBe('Merge To Dev');
+    expect(api.devNotesMerge).not.toHaveBeenCalled();           // nothing merges until the hold finishes
+    await opts.onConfirm();
+    expect(api.devNotesMerge).toHaveBeenCalledWith('p2', 'abc');
+    expect(onChanged).toHaveBeenCalledWith({ id: 'p2', status: 'fixed' });
+    confirm.mockRestore();
   });
 });

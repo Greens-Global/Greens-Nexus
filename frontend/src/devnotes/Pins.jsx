@@ -4,7 +4,7 @@
 // sees everyone's pins. Accept / Reopen live here, on the fixed pin, where
 // the bug was.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { X, ExternalLink, Check, RotateCcw, Send, Loader2, Trash2, Hand, Monitor, FlaskConical } from 'lucide-react';
+import { X, ExternalLink, Check, RotateCcw, Send, Loader2, Trash2, Hand, Monitor, FlaskConical, GitMerge } from 'lucide-react';
 import { api } from '../api';
 import { formatDateTime } from '../lib/datetime';
 import { toViewUrl } from '../lib/storageView';
@@ -15,6 +15,8 @@ import { anchorRect } from './lib/capture';
 import { placeCard } from './lib/anchor';
 import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, pinProof, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf, isClaudeSession } from './meta';
 import { toast } from './store';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 const MINE = import.meta.env.VITE_BUILD_ID || 'dev';
 
@@ -266,6 +268,33 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
     .then((n) => { if (n) { setReply(''); toast(`Pin #${pin.number} checked - it is Done when the PR merges`); } });
   const previewReopen = () => { const t = reply.trim(); if (!t) return; run('preopen', () => api.devNotesPreviewVerdict(pin.id, { accepted: false, comment: t }))
     .then((n) => { if (n) { setReply(''); toast(`Pin #${pin.number} reopened - Claude Code picks it up on the same branch`); } }); };
+  // Merge To Dev (Neil, 11/12/2026): Super Administrators only (the server
+  // says so with canMerge). The look names what stands in the way; with
+  // nothing in the way the hold dialog says what goes - the PR, the pins,
+  // the team chat the heads-up is posted to - and one hold merges.
+  const mergeToDev = async () => {
+    setBusy('merge'); setErr('');
+    let look = null;
+    try { look = await api.devNotesMergeLook(pin.id); } catch (e) { setErr(e?.message || 'GitHub could not be read.'); }
+    setBusy('');
+    if (!look) return;
+    if (!look.ok) { setErr(`Not ready to merge. ${(look.reasons || []).join(' ')}`); return; }
+    const pins = look.pins || [];
+    const unchecked = (look.unchecked || []).length;
+    const lines = [
+      `PR #${look.number} - ${look.title}`,
+      `${look.checks?.passed || 0} check${look.checks?.passed === 1 ? '' : 's'} passed. ${pins.length} pin${pins.length === 1 ? '' : 's'} on it${unchecked ? `, ${unchecked} not checked yet (${unchecked === 1 ? 'it goes' : 'they go'} to Fixed - Verify)` : ''}.`,
+      `A heads-up is posted to ${look.chatName || 'your team chat'} as you. The dev site updates in about a minute and the dev API restarts for about 4 minutes.`,
+    ];
+    dialog.confirm(lines.join('\n\n'), {
+      title: 'Merge To Dev?', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Merge To Dev', doneText: 'Merged', holdIcon: GitMerge,
+      onConfirm: async () => {
+        const r = await api.devNotesMerge(pin.id, look.headSha);
+        (r?.notes || []).forEach((n) => onChanged?.(n));
+        toast(`PR #${r?.number || look.number} merged to dev - heads-up posted to ${r?.chatName || look.chatName || 'Teams'}`);
+      },
+    });
+  };
   const openTesting = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'testing' } }));
   const undismiss = () => run('undismiss', () => api.devNotesPatch(pin.id, { status: 'open' })).then((n) => n && toast(`Pin #${pin.number} is open again`));
 
@@ -379,6 +408,12 @@ export function PinThread({ pin, anchor, onClose, onChanged, detached = false, m
                 <button type="button" className="bm-btn bm-btn-primary" onClick={previewAccept} disabled={!!busy}><Check size={14} /> Accept</button>
                 <button type="button" className="bm-btn" onClick={previewReopen} disabled={!!busy || !reply.trim()} title={reply.trim() ? 'Send it back to Claude Code with your note' : 'Write what is still wrong first'}><RotateCcw size={14} /> Reopen</button>
               </>
+            )}
+            {pin.canMerge === true && !confirm && (
+              <button type="button" className="bm-btn" onClick={mergeToDev} disabled={!!busy} data-testid="bm-merge"
+                title="Merge this pull request into dev and post the heads-up to the team chat">
+                {busy === 'merge' ? <Loader2 size={14} className="bm-spin" /> : <GitMerge size={14} />} Merge To Dev
+              </button>
             )}
             {pin.status === 'fixed' && !confirm && (
               <>

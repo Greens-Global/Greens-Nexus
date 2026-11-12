@@ -3107,6 +3107,9 @@ export const api = {
   // or reopened (a note is required to reopen) against its local preview.
   devNotesRelease: (id) => req(`/dev-notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ release: true }) }),
   devNotesPreviewVerdict: (id, { accepted, comment = "" } = {}) => req(`/dev-notes/${encodeURIComponent(id)}/preview-verdict`, { method: "POST", body: JSON.stringify({ accepted: !!accepted, comment }) }),
+  // Merge To Dev (11/12/2026): a Super Administrator merges the pin's pull request; the look reads only.
+  devNotesMergeLook: (id) => req(`/dev-notes/${encodeURIComponent(id)}/merge`),
+  devNotesMerge: (id, headSha) => req(`/dev-notes/${encodeURIComponent(id)}/merge`, { method: "POST", body: JSON.stringify({ headSha }) }),
   // { owner: {name, email} | null, held } for a source stamp - the composer
   // asks before saving whether the pin would be held for that owner.
   devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),

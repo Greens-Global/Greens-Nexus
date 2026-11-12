@@ -60,6 +60,7 @@ from models import AuditLog, DevNote, DevNoteSession, DevNoteToken, NexusNotific
 from routers import files as _files
 import build_mode_chat as _chat
 import build_mode_cloud as _cloud
+import build_mode_merge as _merge
 import job_switch
 
 router = APIRouter(prefix="/dev-notes", tags=["Build Mode"])
@@ -193,8 +194,8 @@ def _viewer(user: Optional[dict], db: Session) -> dict:
     """Who is reading, for the per-caller flags - the Global Admin check runs
     ONCE per request here, never once per pin."""
     if not user:
-        return {"email": "", "ga": False}
-    return {"email": (user.get("email") or "").lower(), "ga": bool(_is_ga(user, db))}
+        return {"email": "", "ga": False, "super": False}
+    return {"email": (user.get("email") or "").lower(), "ga": bool(_is_ga(user, db)), "super": _is_super(user)}
 
 
 def _serialize(n: DevNote, viewer: Optional[dict] = None) -> dict:
@@ -221,6 +222,10 @@ def _serialize(n: DevNote, viewer: Optional[dict] = None) -> dict:
     out["canRelease"] = bool(me) and out["held"] and (ga or me == (n.owner_email or "").lower())
     out["canVerdict"] = (bool(me) and (out["checkable"] or n.status == "fixed")
                          and (ga or me == (n.created_by or "").lower()))
+    # Merge To Dev (11/12/2026): a Super Administrator, a pin whose PR is open,
+    # and a server that carries the merge credential.
+    out["canMerge"] = (bool((viewer or {}).get("super")) and n.status == "pr_open" and bool(n.pr_number)
+                       and _merge.available())
     return out
 
 
@@ -521,6 +526,16 @@ def require_build_mode_or_token(user: Optional[dict] = Depends(_signed_in_user),
 
 def _is_ga(user: dict, db: Session) -> bool:
     return auth.is_global_admin(user, db)
+
+
+def _is_super(user: Optional[dict]) -> bool:
+    """A Super Administrator by tier (level 5) - the merge rule. Stricter than
+    `_is_ga`, which also passes a member of a group flagged Global Admin. A
+    Super Administrator acting as someone else is that person here."""
+    try:
+        return int((user or {}).get("level") or 0) >= 5
+    except (TypeError, ValueError):
+        return False
 
 
 def _own_or_admin(n_owner: str, user: dict, db: Session, what: str) -> None:
@@ -1631,6 +1646,102 @@ def verify(note_id: str, body: dict, user: dict = Depends(require_build_mode),
         _cloud_start(db, [n], sent_by(n))
     db.refresh(n)
     return _serialize(n, _viewer(user, db))
+
+
+def _merge_guard(note_id: str, user: dict, db: Session, lock: bool = False) -> DevNote:
+    if not _is_super(user):
+        raise HTTPException(403, "Only a Super Administrator can merge to dev")
+    n = _note(db, note_id, lock=lock)
+    if n.status != "pr_open" or not n.pr_number:
+        raise HTTPException(409, f"Pin #{n.number} has no open pull request to merge")
+    return n
+
+
+def _merge_chat(db: Session, email: str) -> tuple[str, str]:
+    st = _settings(db, email)
+    return str(st.get("teamsChatId") or ""), str(st.get("teamsChatName") or "")
+
+
+def _merge_pins(db: Session, pr_number: int) -> list:
+    return (db.query(DevNote).filter(DevNote.pr_number == pr_number, DevNote.status == "pr_open")
+            .order_by(DevNote.number.asc()).all())
+
+
+def _merge_look(db: Session, n: DevNote, email: str) -> dict:
+    """GitHub's answer for the pin's PR plus what Nexus itself asks for: a
+    team chat for the heads-up. `ok` only when nothing stands in the way."""
+    try:
+        look = _merge.look(n.pr_number)
+    except _merge.MergeError as e:
+        raise HTTPException(e.status, str(e))
+    chat_id, chat_name = _merge_chat(db, email)
+    reasons = list(look["reasons"])
+    if not chat_id:
+        reasons.append("Pick the team chat the heads-up goes to first: Queue, Post To Teams, the arrow beside it.")
+    pins = _merge_pins(db, n.pr_number)
+    unchecked = [x.number for x in pins if x.preview_verdict != "accepted"]
+    return {**look, "ok": not reasons, "reasons": reasons, "chatName": chat_name,
+            "pins": [{"id": x.id, "number": x.number or 0, "checked": x.preview_verdict == "accepted"} for x in pins],
+            # Not a refusal: an unchecked pin goes to Fixed - Verify after the merge.
+            "unchecked": unchecked}
+
+
+@router.get("/{note_id}/merge")
+def merge_look(note_id: str, user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """What Merge To Dev would do for this pin's pull request, and every
+    reason it may not go yet. Reads only."""
+    n = _merge_guard(note_id, user, db)
+    if not _merge.available():
+        return {"available": False, "ok": False, "reasons": ["Merge To Dev is not set up on this server."]}
+    return {"available": True, **_merge_look(db, n, user["email"].lower())}
+
+
+def _merge_card(db: Session, email: str, look: dict, pins: list) -> str:
+    e = _html.escape
+    nums = ", ".join(f"#{x.number}" for x in pins[:12]) or "-"
+    return (f"<p><strong>Merging To Dev</strong> · <a href='{e(look['url'])}'>PR #{look['number']}</a> · {e(look['title'])}</p>"
+            f"<p>Merged by {e(_chat.name_of(db, email))} from Build Mode · pins {e(nums)}. "
+            "The dev site updates in about a minute and the dev API restarts for about 4 minutes - "
+            "if you are testing on dev, expect a short interruption.</p>")
+
+
+@router.post("/{note_id}/merge")
+def merge_to_dev(note_id: str, body: dict, background_tasks: BackgroundTasks,
+                 user: dict = Depends(require_build_mode), db: Session = Depends(get_db)):
+    """Merge To Dev (Neil, 11/12/2026): a Super Administrator merges the
+    pin's pull request into dev, and the heads-up goes to the team chat by
+    the same click. `headSha` is the commit the person looked at - a branch
+    that moved since is refused. One GitHub call, never retried."""
+    email = user["email"].lower()
+    n = _merge_guard(note_id, user, db, lock=True)
+    look = _merge_look(db, n, email)
+    if not look["ok"]:
+        raise HTTPException(409, "Not merged. " + " ".join(look["reasons"]))
+    if str(_get(body, "headSha") or "") != look["headSha"]:
+        raise HTTPException(409, "Not merged. The branch changed since you looked - check it again, then merge.")
+    chat_id, chat_name = _merge_chat(db, email)
+    pins = _merge_pins(db, n.pr_number)
+    # Queued in this transaction and kept only if the merge goes through: a
+    # heads-up never announces a merge that did not happen.
+    row = _chat.queue(db, email, n.session_id or n.id, chat_id, _merge_card(db, email, look, pins))
+    try:
+        sha = _merge.merge(n.pr_number, look["headSha"], look["title"])
+    except _merge.MergeError as e:
+        db.rollback()
+        raise HTTPException(e.status, "Not merged. " + str(e))
+    number = n.pr_number
+    _audit(db, user, "merge_to_dev", n.session_id or "", {"pr": number, "sha": sha, "head": look["headSha"],
+                                                          "chat": chat_name, "notes": [x.id for x in pins]})
+    db.commit()
+    _chat.deliver_later(background_tasks, row)
+    # The webhook does this too when it arrives; whichever comes second finds
+    # nothing left to change.
+    mark_fixed_for_pr(db, number, sha)
+    me = _viewer(user, db)
+    ids = [x.id for x in pins]
+    db.expire_all()
+    rows = db.query(DevNote).filter(DevNote.id.in_(ids)).order_by(DevNote.number.asc()).all() if ids else []
+    return {"merged": True, "sha": sha, "number": number, "chatName": chat_name, "notes": [_serialize(x, me) for x in rows]}
 
 
 @router.post("/{note_id}/preview-verdict")
