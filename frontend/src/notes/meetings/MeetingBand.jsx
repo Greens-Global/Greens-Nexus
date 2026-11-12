@@ -17,26 +17,33 @@
 //                      Transcript (who said what at what time, how much each
 //                      person spoke, the cue a note line points at lit).
 //                      Beside the note on a computer, under the band on a phone.
+//                      Phase 3: a meeting outside Teams (or one recorded here
+//                      anyway) shows the transcript recorded IN NEXUS - words
+//                      only, sessions with the consent, voices that can be
+//                      named, Delete Transcript for the note's owner.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Video, ScrollText, UserPlus, X, RefreshCw, ExternalLink, History, ListChecks, Check } from 'lucide-react';
+import { Video, ScrollText, UserPlus, X, RefreshCw, ExternalLink, History, ListChecks, Check, MapPin, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../../components/AsyncState';
 import { formatDate, formatTime } from '../../lib/datetime';
 import { teamsMeetingChatUrl } from '../../lib/teamsLinks';
 import { createTaskFrom, openTask } from '../notesTasks';
+import { dialog } from '../../ui/dialog';
+import HoldButton from '../../ui/HoldButton';
+import Recorder from './Recorder';
 import { attendeeList, cueIndexAt, joinable, meetingPhase, speakerShares } from './meetingModel';
 
 export const isMeetingNote = (note) => !!note && note.kind !== 'board' && note.source?.kind === 'meeting';
 
-export function useMeetingOfNote(noteId, enabled) {
+export function useMeetingOfNote(noteId, enabled, refresh = 0) {
   const [meeting, setMeeting] = useState(null);
+  useEffect(() => { setMeeting(null); }, [noteId]);
   useEffect(() => {
-    setMeeting(null);
     if (!noteId || !enabled) return undefined;
     let live = true;
     api.meetingOfNote(noteId).then((m) => { if (live) setMeeting(m); }).catch(() => {});
     return () => { live = false; };
-  }, [noteId, enabled]);
+  }, [noteId, enabled, refresh]);
   return meeting;
 }
 
@@ -70,7 +77,10 @@ function LastTime({ previous, onOpenNote }) {
   );
 }
 
-export function MeetingBand({ note, meeting, people, myEmail, transcriptOpen, onTranscript, onShared, onOpenNote, toast }) {
+const KIND_WORD = { other: 'Meeting', adhoc: 'Meeting', teams: 'Teams Meeting' };
+
+export function MeetingBand({ note, meeting, people, myEmail, transcriptOpen, onTranscript, onShared, onOpenNote, toast,
+  recording = false, recorderProps = null }) {
   const [sharing, setSharing] = useState(false);
   const [all, setAll] = useState(false);
   if (!meeting) return null;
@@ -97,16 +107,23 @@ export function MeetingBand({ note, meeting, people, myEmail, transcriptOpen, on
   return (
     <section className="nt-mtg-band" aria-label="Meeting">
       <div className="nt-mtg-band-line">
-        <Video size={15} aria-hidden="true" className="nt-mtg-band-ico" />
-        <span>
-          {formatDate(meeting.start)} · {formatTime(meeting.start)} - {formatTime(meeting.end)}
+        {meeting.kind === 'teams' || !meeting.kind
+          ? <Video size={15} aria-hidden="true" className="nt-mtg-band-ico" />
+          : <MapPin size={15} aria-hidden="true" className="nt-mtg-band-ico" />}
+        <span title={KIND_WORD[meeting.kind || 'teams']}>
+          {formatDate(meeting.start)} · {formatTime(meeting.start)}{meeting.end ? ` - ${formatTime(meeting.end)}` : ''}
         </span>
         {phase === 'live' && <span className="nt-mtg-now"><span className="nt-mtg-live" aria-hidden="true" /> In Progress</span>}
         <span className="nt-mtg-band-end">
           {meeting.invited && joinable(meeting) && (
             <a className="nt-text-btn" href={meeting.joinUrl} target="_blank" rel="noopener noreferrer"><Video size={14} aria-hidden="true" /> Join</a>
           )}
-          {meeting.invited && (
+          {meeting.onlineUrl && (
+            <a className="nt-text-btn" href={meeting.onlineUrl} target="_blank" rel="noopener noreferrer" title="Open the meeting's own link">
+              <ExternalLink size={14} aria-hidden="true" /> Open Meeting Link
+            </a>
+          )}
+          {((meeting.invited && meeting.kind !== 'other' && meeting.kind !== 'adhoc') || meeting.recorded?.exists || recording) && (
             <button type="button" className={`nt-text-btn${transcriptOpen ? ' is-on' : ''}`} aria-pressed={transcriptOpen}
               onClick={onTranscript} title={meeting.transcriptReady ? 'Teams has the transcript - open it beside your notes' : 'The Teams transcript of this meeting, beside your notes'}>
               <ScrollText size={14} aria-hidden="true" /> Transcript
@@ -121,7 +138,7 @@ export function MeetingBand({ note, meeting, people, myEmail, transcriptOpen, on
           )}
         </span>
       </div>
-      {invited.length > 0 && (
+      {invited.length > 0 && meeting.kind !== 'adhoc' && (
         <div className="nt-mtg-people">
           {shown.map((p) => (
             <span key={p.email} className="nt-mtg-person" title={p.email}>{p.name}</span>
@@ -131,9 +148,10 @@ export function MeetingBand({ note, meeting, people, myEmail, transcriptOpen, on
           )}
         </div>
       )}
+      {meeting.mayRecord && !note.trashedAt && recorderProps && <Recorder {...recorderProps} />}
       <LastTime previous={meeting.previous} onOpenNote={onOpenNote} />
-      {!meeting.invited && (
-        <div className="nt-mtg-hint">You were not on this meeting's invite, so its transcript and join link are not shown - only the notes.</div>
+      {!meeting.invited && meeting.kind !== 'adhoc' && (
+        <div className="nt-mtg-hint">You were not on this meeting's invite, so its Teams transcript and join link are not shown - only the notes.</div>
       )}
     </section>
   );
@@ -212,27 +230,38 @@ function Highlights({ highlights, note, myEmail, toast, onJump }) {
   );
 }
 
-export function TranscriptView({ noteId, note = null, myEmail = '', toast, focus, onClose, inline = false }) {
+const nameOfBy = (email, myEmail) => (email && email.toLowerCase() === (myEmail || '').toLowerCase() ? 'you' : email);
+
+export function TranscriptView({ noteId, note = null, myEmail = '', toast, focus, onClose, inline = false,
+  sources = ['teams'], liveCues = [], recording = false, reloadKey = 0 }) {
   const [state, setState] = useState({ phase: 'loading' });   // loading | ready | none | error
   const listRef = useRef(null);
   const [hit, setHit] = useState(-1);
   const [tab, setTab] = useState('');          // '' = not picked yet: Highlights when there are any
   const [jump, setJump] = useState(null);      // { k, seq } - a highlight's cue to show
+  const [source, setSource] = useState(sources.includes('recorded') && (recording || sources[0] !== 'teams') ? 'recorded' : sources[0]);
+  useEffect(() => { if (!sources.includes(source)) setSource(sources[0]); }, [sources.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (recording && sources.includes('recorded')) setSource('recorded'); }, [recording]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(async () => {
     setState({ phase: 'loading' });
     try {
-      setState({ phase: 'ready', data: await api.meetingTranscript(noteId) });
+      const data = source === 'recorded' ? await api.meetingRecorded(noteId) : await api.meetingTranscript(noteId);
+      setState({ phase: 'ready', data });
     } catch (e) {
       setState({ phase: e?.status === 404 ? 'none' : 'error', message: e?.message || 'Could not read the transcript' });
     }
-  }, [noteId]);
-  useEffect(() => { load(); }, [load]);
+  }, [noteId, source]);
+  useEffect(() => { load(); }, [load, reloadKey]);
 
-  const cues = state.data?.cues || [];
+  const recorded = source === 'recorded';
+  const stored = state.data?.cues || [];
+  const cues = recorded && liveCues.length
+    ? (() => { const have = new Set(stored.map((c) => c.id)); return [...stored, ...liveCues.filter((c) => !have.has(c.id))].sort((a, b) => a.at - b.at); })()
+    : stored;
   const hl = state.data?.highlights;
   const hlCount = KINDS.reduce((n, k) => n + (hl?.[k.key]?.length || 0), 0);
-  const shown = tab || (focus?.at || !hlCount ? 'transcript' : 'highlights');
+  const shown = tab || (focus?.at || !hlCount || recording ? 'transcript' : 'highlights');
 
   // Show cue k in the transcript: switch there, light it, scroll to it.
   const showCue = useCallback((k) => {
@@ -250,13 +279,35 @@ export function TranscriptView({ noteId, note = null, myEmail = '', toast, focus
     if (!jump || shown !== 'transcript') return;
     listRef.current?.querySelector(`[data-cue="${jump.k}"]`)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
   }, [jump, shown]);
+  // While recording, follow the newest line.
+  useEffect(() => {
+    if (recording && shown === 'transcript' && !jump) listRef.current?.lastElementChild?.scrollIntoView?.({ block: 'end' });
+  }, [cues.length, recording, shown, jump]);
+
+  const rename = async (label, current) => {
+    if (!recorded || !state.data?.mayRecord || !label) return;
+    const name = await dialog.prompt('Who is this voice?', { title: 'Name This Voice', defaultValue: current === label ? '' : current, confirmText: 'Save' });
+    if (name == null) return;
+    try {
+      const data = await api.meetingRecordedSpeakers(noteId, { ...(state.data.speakers || {}), [label]: name.trim() });
+      setState({ phase: 'ready', data });
+    } catch (e) { toast?.(e.message || 'Could not name the voice'); }
+  };
+  const remove = async () => {
+    try { await api.meetingRecordedDelete(noteId); } catch (e) { throw new Error(e.message || 'Could not delete the transcript', { cause: e }); }
+    toast?.('Transcript deleted');
+    load();
+  };
 
   const shares = state.phase === 'ready' ? speakerShares(cues) : [];
   const chat = state.data?.chatThreadId;
+  const sessions = recorded ? (state.data?.sessions || []) : [];
+  const first = sessions[0];
+  const empty = state.phase === 'ready' && recorded && !cues.length;
   return (
     <aside className={`nt-tx${inline ? ' is-inline' : ''}`} aria-label="Transcript">
       <div className="nt-tx-head">
-        {state.phase === 'ready' ? (
+        {state.phase === 'ready' && !empty ? (
           <div className="nt-tx-tabs scroll-tabs" role="tablist" aria-label="Transcript views">
             <button type="button" role="tab" aria-selected={shown === 'highlights'} className={`nt-view${shown === 'highlights' ? ' is-on' : ''}`}
               onClick={() => setTab('highlights')}>Highlights{hlCount > 0 && <span className="nt-count">{hlCount}</span>}</button>
@@ -266,11 +317,17 @@ export function TranscriptView({ noteId, note = null, myEmail = '', toast, focus
         ) : <strong>Transcript</strong>}
         <span className="nt-tx-head-end">
           {state.phase !== 'loading' && (
-            <button type="button" className="nt-icon-btn" aria-label="Read it again from Teams" title="Read It Again" onClick={load}><RefreshCw size={15} /></button>
+            <button type="button" className="nt-icon-btn" aria-label={recorded ? 'Read it again' : 'Read it again from Teams'} title="Read It Again" onClick={load}><RefreshCw size={15} /></button>
           )}
           <button type="button" className="nt-icon-btn" aria-label="Close the transcript" title="Close" onClick={onClose}><X size={16} /></button>
         </span>
       </div>
+      {sources.length > 1 && (
+        <div className="nt-tx-src" role="group" aria-label="Which transcript">
+          <button type="button" aria-pressed={source === 'teams'} className={source === 'teams' ? 'is-on' : ''} onClick={() => { setSource('teams'); setTab(''); }}>From Teams</button>
+          <button type="button" aria-pressed={recorded} className={recorded ? 'is-on' : ''} onClick={() => { setSource('recorded'); setTab(''); }}>Recorded in Nexus</button>
+        </div>
+      )}
       {state.phase === 'loading' && <div style={{ padding: 12 }}><SkeletonBlocks count={4} height={44} /></div>}
       {state.phase === 'none' && <div className="nt-empty"><strong>No transcript yet</strong>{state.message}</div>}
       {state.phase === 'error' && (
@@ -278,27 +335,37 @@ export function TranscriptView({ noteId, note = null, myEmail = '', toast, focus
           <div style={{ marginTop: 10 }}><button type="button" className="nt-text-btn" onClick={load}>Try Again</button></div>
         </div>
       )}
-      {state.phase === 'ready' && shown === 'highlights' && (
+      {empty && (
+        <div className="nt-empty"><strong>{recording ? 'Listening' : 'Nothing recorded yet'}</strong>
+          {recording ? 'The first words show here a few seconds after they are said.' : 'Press Start Transcribing above to turn what is said into text, on this device.'}
+        </div>
+      )}
+      {state.phase === 'ready' && !empty && shown === 'highlights' && (
         <div className="nt-tx-list">
           <Highlights highlights={hl} note={note} myEmail={myEmail} toast={toast} onJump={showCue} />
         </div>
       )}
-      {state.phase === 'ready' && shown === 'transcript' && (<>
-        {shares.length > 0 && (
+      {state.phase === 'ready' && !empty && shown === 'transcript' && (<>
+        {shares.length > 1 && (
           <div className="nt-tx-shares" aria-label="Who spoke how much">
-            {shares.slice(0, 6).map((s) => <span key={s.name}>{s.name} {s.pct}%</span>)}
+            {shares.slice(0, 6).map((sh) => <span key={sh.name}>{sh.name} {sh.pct}%</span>)}
           </div>
         )}
         <ol className="nt-tx-list" ref={listRef}>
           {cues.map((c, k) => (
-            <li key={k} data-cue={k} className={k === hit ? 'is-hit' : ''}>
-              <div className="nt-tx-meta"><span className="nt-tx-who">{c.speaker || 'Unknown Speaker'}</span> <span>{formatTime(new Date(c.at * 1000))}</span></div>
+            <li key={c.id || k} data-cue={k} className={k === hit ? 'is-hit' : ''}>
+              <div className="nt-tx-meta">
+                {recorded && c.label && state.data?.mayRecord
+                  ? <button type="button" className="nt-tx-who nt-link-btn" title="Name this voice" onClick={() => rename(c.label, c.speaker)}>{c.speaker}</button>
+                  : (c.speaker || !recorded) && <span className="nt-tx-who">{c.speaker || 'Unknown Speaker'}</span>}
+                <span>{formatTime(new Date(c.at * 1000))}</span>
+              </div>
               <div className="nt-tx-text">{c.text}</div>
             </li>
           ))}
         </ol>
       </>)}
-      {state.phase === 'ready' && (
+      {state.phase === 'ready' && !recorded && (
         <div className="nt-tx-foot">
           <span>Read from Teams{state.data.truncated ? ' (the first part of a long call)' : ''} - Nexus keeps no copy.</span>
           {chat && (
@@ -306,6 +373,19 @@ export function TranscriptView({ noteId, note = null, myEmail = '', toast, focus
               title={state.data.recordings ? 'The meeting chat in Teams - the recording is there' : 'The meeting chat in Teams'}>
               <ExternalLink size={14} aria-hidden="true" /> {state.data.recordings ? 'Recording in Teams' : 'Open in Teams'}
             </a>
+          )}
+        </div>
+      )}
+      {state.phase === 'ready' && recorded && !empty && (
+        <div className="nt-tx-foot">
+          <span>
+            Recorded in Nexus - only the words are kept, the audio never left the device.
+            {first && ` Started ${formatDate(first.startedAt)} ${formatTime(first.startedAt)} by ${nameOfBy(first.by, myEmail)}; everyone present agreed.`}
+            {first?.engine === 'browser' && " Turned into text by the browser's speech service."}
+          </span>
+          {state.data?.mayDelete && !recording && (
+            <HoldButton size="sm" label="Delete Transcript" doneLabel="Deleted" icon={Trash2} onConfirm={remove}
+              fallbackMessage="Delete this meeting's transcript for good? The notes stay." />
           )}
         </div>
       )}

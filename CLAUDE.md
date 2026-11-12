@@ -630,6 +630,21 @@ keep the diff minimal.
   `/my-timecard/sign` returns 410; never add a signing path around this.
   `test_timesheet_review_matrix` drives every state x actor x action - keep it
   passing so nobody gets stuck.
+- **"Submit Your Time Sheet" reminders (Neil, 11/12/2026,
+  `timesheet_due.py`):** ONE rule for a person's own Time Sheets waiting on
+  them, read by the Daily Briefing (Action Required; "With <manager> for
+  Review" under Updates), the Weekly Digest, My Briefing / My Day and the
+  bell. Every pay type (hourly, salaried bi-weekly or monthly, contractors
+  incl. India), the person's own local date, a period with a punch in it,
+  from the period's last day until it is finalized or the next period
+  closes - only the period that just closed, never an older one (Neil,
+  11/12/2026); never the exempt or people who left. Each row
+  carries a `cta` - one solid button (Review and Submit / Fix and Submit /
+  Review and Resubmit / Sign Time Sheet) to `/timeclock/timesheet?start=
+  &type=&do=submit`, which focuses Send to Manager and never submits by
+  itself. The Time Sheet table leads Action Required. The bell fires on
+  the last day and the day after close; Submit / Approve settle it
+  (`settle_bells`). Never add a second reminder rule.
 - HR signing order (Neil, Oct 22 2026): the company NEVER signs before the
   employee - no pre-signed or countersigned document is ever sent out. An
   offer letter is signed by the candidate only (no company signer, no Signs
@@ -919,6 +934,18 @@ keep the diff minimal.
   TESTERS FIRST: only the emails in the `meeting_notes.access`
   nexus_settings row (per database; `"everyone": true` opens it) may use
   it - `meetings.may_use`, never a code default.
+  Phase 3 (Neil, 11/12/2026): meetings outside Teams are transcribed ON THE
+  DEVICE - Whisper in a Web Worker (`notes/meetings/capture/`), the
+  browser's own speech service only as the fallback. This is NOT the
+  Anthropic key and spends nothing (Neil chose it); never move it to a
+  server or a paid API. The text lives in `nexus_meeting_transcripts` (RLS
+  on dev and prod) - words only, NEVER the audio; every session needs the
+  consent box (refused without it, who and when kept). The runtime and model
+  come only through `functions/ml/[[path]].js` (pinned versions, runtime
+  SHA-256 checked, listed files only) - never a CDN in the page, never a
+  `blob:` script (`env.useWasmCache = false`). The consent question sets
+  `backToClose={false}`: over the phone's note sheet, taking its Back entry
+  off closed the note.
 
 - **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
   `routers/documents.py`, `components/DocumentsBrowser.jsx`,

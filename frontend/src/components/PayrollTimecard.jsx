@@ -664,6 +664,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const [pStart, setPStart] = useState(() => (selfMode ? selfSeed : anchorForStart(seedStart, seedType)) || periodStartFor(new Date()));
   // A notice about my own Time Sheet opens its period (lib/openTarget.js).
   // Hourly periods start on a Sunday, so any other start is a salaried month.
+  const [focusStart, setFocusStart] = useState('');   // do=submit: the period whose Send to Manager to focus
+  const focused = useCallback(() => setFocusStart(''), []);
   useEffect(() => {
     if (!selfMode) return undefined;
     const go = (d) => {
@@ -672,13 +674,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       const type = d.payType || (new Date(y, m - 1, dd).getDay() === 0 ? 'hourly' : 'fixed');
       fixedSnapped.current = true;   // stay on it - no first-load snap to this month
       setPStart(anchorForStart(d.start, type));
+      // Review and Submit (11/12/2026): take them to Send to Manager.
+      if (d.submit) setFocusStart(d.start);
     };
     // The Daily Briefing's "Sign Your Updated Time Sheet" link carries
-    // ?start=<period>&type=<pay type> (11/05/2026); used once, then dropped.
+    // ?start=<period>&type=<pay type> (11/05/2026); Review and Submit adds
+    // do=submit (11/12/2026). Used once, then dropped.
     const q = new URLSearchParams(window.location.search);
-    const fromLink = q.get('start') ? { start: q.get('start'), payType: q.get('type') || '' } : null;
+    const fromLink = q.get('start') ? { start: q.get('start'), payType: q.get('type') || '', submit: q.get('do') === 'submit' } : null;
     if (fromLink) {
-      q.delete('start'); q.delete('type');
+      q.delete('start'); q.delete('type'); q.delete('do');
       const rest = q.toString();
       window.history.replaceState(window.history.state, '', window.location.pathname + (rest ? `?${rest}` : ''));
     }
@@ -2288,6 +2293,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {self && T && (
         <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={periodLabel}
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
+          focusAction={focusStart} onFocused={focused}
           below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />
       )}
       {self && data && selfTop?.(perStart, perEnd)}

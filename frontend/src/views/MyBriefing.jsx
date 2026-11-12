@@ -32,7 +32,8 @@ const MODULE_LABEL = {
   tasks: 'Tasks', tickets: 'Tickets', documents: 'Documents', time_off: 'Time Off',
   timecard: 'Time Sheet', shifts: 'Shifts', items: 'Items', team: 'Team',
 };
-const MODULE_ORDER = ['tasks', 'tickets', 'documents', 'time_off', 'timecard', 'shifts', 'items', 'team'];
+// Time Sheet first, as in the email (Neil, 11/12/2026).
+const MODULE_ORDER = ['timecard', 'tasks', 'tickets', 'documents', 'time_off', 'shifts', 'items', 'team'];
 const ROWS_SHOWN = 5;
 const COLLAPSE_KEY = 'nexus:my-briefing:collapsed';
 
@@ -251,7 +252,7 @@ function Row({ row, color, first, reactions, onChanged }) {
           </div>
           {row.detail && <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.45, marginTop: 3 }}>{row.detail}</div>}
         </div>
-        {(row.taskId || row.path || row.decision) && (
+        {(row.taskId || row.path || row.decision || row.cta) && (
           <div className="mb-act">
             {row.taskId && (
               <>
@@ -263,7 +264,10 @@ function Row({ row, color, first, reactions, onChanged }) {
                 )}
               </>
             )}
-            {row.path && <a href={row.path} style={{ ...rowLink, textDecoration: 'none' }}>Open</a>}
+            {/* A Time Sheet's one button (Review and Submit, Sign Time Sheet ...)
+                in place of Open (Neil, 11/12/2026). */}
+            {row.cta ? <a href={row.cta.path} style={{ ...solid('--color-green'), textDecoration: 'none', whiteSpace: 'nowrap' }}>{row.cta.label}</a>
+              : row.path && <a href={row.path} style={{ ...rowLink, textDecoration: 'none' }}>Open</a>}
             {row.decision && <span style={{ display: 'flex', gap: 6 }}>{decisionButtons(row.decision)}</span>}
           </div>
         )}
