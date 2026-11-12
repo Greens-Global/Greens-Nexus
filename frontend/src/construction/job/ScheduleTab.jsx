@@ -39,7 +39,7 @@ function Portfolio({ project, view, onSaved }) {
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
       <FolderKanban size={16} style={{ color: 'var(--text-secondary)' }} />
-      <label htmlFor="job-portfolio" style={{ fontSize: '0.85rem', fontWeight: 600 }}>Portfolio</label>
+      <label htmlFor="job-portfolio" style={{ fontSize: 13, fontWeight: 600 }}>Portfolio</label>
       <select id="job-portfolio" className="form-input" value={pick} disabled={list === null || busy}
         onChange={(e) => setPick(e.target.value)} style={{ width: 240 }}>
         <option value="">{list === null ? 'Loading…' : 'Not in a portfolio'}</option>
@@ -50,7 +50,7 @@ function Portfolio({ project, view, onSaved }) {
         try { await api.addJobToPortfolio(project.id, pick); onSaved(); } catch (e) { setError(e.message || 'Could not change the portfolio.'); }
         setBusy(false);
       }}>{pick ? 'Add to Portfolio' : 'Take Out'}</button>
-      {error && <span role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{error}</span>}
+      {error && <span role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</span>}
     </div>
   );
 }
@@ -80,18 +80,18 @@ function Inner({ project }) {
       <div style={{ ...CARD, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <div>
-            <h3 style={{ fontSize: '1.05rem', marginBottom: 2 }}>Timeline</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>
+            <h3 style={{ fontSize: 18, marginBottom: 2 }}>Timeline</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
               The job's task project. Drag a bar to move its dates; a diamond is a milestone.
             </p>
           </div>
           <a href={`/tasks/projects?project=${encodeURIComponent(tpId)}`} className="secondary-btn"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: '0.82rem', textDecoration: 'none' }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', fontSize: 13, textDecoration: 'none' }}>
             Open in Tasks <ExternalLink size={12} />
           </a>
         </div>
         {dated.length === 0 ? (
-          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Nothing on the schedule has dates yet. Give tasks a start or due date in Tasks.</div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Nothing on the schedule has dates yet. Give tasks a start or due date in Tasks.</div>
         ) : (
           <TimelineView tasks={dated} onOpen={setOpenId} nameOf={store.nameOf} taskById={store.taskById} />
         )}
@@ -100,42 +100,42 @@ function Inner({ project }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14 }}>
         <section style={{ ...CARD, marginBottom: 0 }} aria-label="Two-Week Look-Ahead">
-          <h3 style={{ fontSize: '1rem', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h3 style={{ fontSize: 15, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
             <CalendarRange size={16} style={{ color: 'var(--text-secondary)' }} />Two-Week Look-Ahead
           </h3>
           {parts.lookAhead.length === 0 ? (
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Nothing is planned for the next two weeks.</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Nothing is planned for the next two weeks.</div>
           ) : parts.lookAhead.map((t) => (
             <button key={t.id} type="button" onClick={() => setOpenId(t.id)} data-lookahead={t.id}
               style={{ display: 'flex', width: '100%', justifyContent: 'space-between', gap: 10, padding: '7px 0', background: 'none',
                 border: 'none', borderTop: '1px solid var(--border-color)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-              <span style={{ minWidth: 0, fontSize: '0.86rem', color: 'var(--text-primary)' }}>
+              <span style={{ minWidth: 0, fontSize: 14, color: 'var(--text-primary)' }}>
                 {t.title}
                 {(t.assigneeIds || []).length > 0 && (
                   <span style={{ color: 'var(--text-secondary)' }}> · {t.assigneeIds.map((e) => (t.assigneeNames || {})[e] || personName(e, project.names)).join(', ')}</span>
                 )}
               </span>
-              <span style={{ flexShrink: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              <span style={{ flexShrink: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
                 {[t.startOn && formatDate(t.startOn, t.startOn), t.dueOn && formatDate(t.dueOn, t.dueOn)].filter(Boolean).join(' - ')}
               </span>
             </button>
           ))}
         </section>
         <section style={{ ...CARD, marginBottom: 0 }} aria-label="Milestones">
-          <h3 style={{ fontSize: '1rem', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h3 style={{ fontSize: 15, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Flag size={16} style={{ color: 'var(--text-secondary)' }} />Milestones
           </h3>
           {parts.milestones.length === 0 ? (
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>No milestones yet. Mark a task as a milestone in Tasks.</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No milestones yet. Mark a task as a milestone in Tasks.</div>
           ) : parts.milestones.map((t) => {
             const st = milestoneState(t, today);
             return (
               <button key={t.id} type="button" onClick={() => setOpenId(t.id)} data-milestone={t.id}
                 style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '7px 0',
                   background: 'none', border: 'none', borderTop: '1px solid var(--border-color)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-                <span style={{ fontSize: '0.86rem', color: 'var(--text-primary)', minWidth: 0 }}>{t.title}</span>
+                <span style={{ fontSize: 14, color: 'var(--text-primary)', minWidth: 0 }}>{t.title}</span>
                 <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t.dueOn ? formatDate(t.dueOn, t.dueOn) : 'No date'}</span>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{t.dueOn ? formatDate(t.dueOn, t.dueOn) : 'No date'}</span>
                   <StatusLabel size="sm" label={st.label} color={st.color} />
                 </span>
               </button>

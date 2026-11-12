@@ -204,7 +204,7 @@ export default function CmaHistory({ facility, view, onSection }) {
             <section className="cma-panel" aria-label="Chart">
               <Chart points={d.points} />
               <details style={{ marginTop: 8 }}>
-                <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 600 }}>Show as a Table</summary>
+                <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Show as a Table</summary>
                 <div className="req-table-wrapper">
                   <table className="req-table stack-table cma-table">
                     <thead><tr><th>Date</th><th>Source</th><th className="num">Web Rate</th><th className="num">Avg In-Place Rent</th><th className="num">Mkt Low</th><th className="num">Mkt Avg</th><th className="num">Mkt High</th><th className="num">Comps</th></tr></thead>
@@ -219,17 +219,17 @@ export default function CmaHistory({ facility, view, onSection }) {
             <div className="cma-cards">
               <div className="cma-kpi">
                 <div className="cma-kpi-label">Gap to Market (Web Rate vs Avg)</div>
-                <div className={`cma-kpi-value${d.cards.gap < 0 ? ' cma-below' : ''}`} style={{ fontSize: 20 }}>{d.cards.gap == null ? dash : `${signedUsd(d.cards.gap)} · ${pctText(d.cards.gapPct)}`}</div>
+                <div className={`cma-kpi-value${d.cards.gap < 0 ? ' cma-below' : ''}`} style={{ fontSize: 18 }}>{d.cards.gap == null ? dash : `${signedUsd(d.cards.gap)} · ${pctText(d.cards.gapPct)}`}</div>
                 <div className="cma-kpi-sub">{formatDate(d.cards.asOf)} · {d.cards.comps} {d.cards.comps === 1 ? 'comp' : 'comps'}</div>
               </div>
               <div className="cma-kpi">
                 <div className="cma-kpi-label">Avg In-Place Rent vs Web Rate</div>
-                <div className="cma-kpi-value" style={{ fontSize: 20 }}>{signedUsd(d.cards.rentVsSell)}</div>
+                <div className="cma-kpi-value" style={{ fontSize: 18 }}>{signedUsd(d.cards.rentVsSell)}</div>
                 <div className="cma-kpi-sub">{d.cards.rentVsSell == null ? 'No tenants in this unit type' : d.cards.rentVsSell > 0 ? 'Existing tenants pay more than new move-ins' : 'New move-ins pay more than existing tenants'}</div>
               </div>
               <div className="cma-kpi">
                 <div className="cma-kpi-label">Occupancy Trend</div>
-                <div className="cma-kpi-value" style={{ fontSize: 20 }}>{d.cards.occupiedThen == null ? count(d.cards.occupiedNow) : `${count(d.cards.occupiedThen)} → ${count(d.cards.occupiedNow)}`}</div>
+                <div className="cma-kpi-value" style={{ fontSize: 18 }}>{d.cards.occupiedThen == null ? count(d.cards.occupiedNow) : `${count(d.cards.occupiedThen)} → ${count(d.cards.occupiedNow)}`}</div>
                 <div className="cma-kpi-sub">Occupied of {count(d.cards.total)}{d.cards.occupiedFrom ? ` · ${formatDate(d.cards.occupiedFrom)} → ${formatDate(d.cards.occupiedTo || d.cards.asOf)}` : ' today'}</div>
               </div>
             </div>

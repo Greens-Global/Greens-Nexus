@@ -62,7 +62,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <Toolbar right={state ? <Chip tone={state.status === 'Behind' ? 'bad' : state.status === 'Closed' ? 'ok' : 'neutral'}>{state.status}{state.late.length ? ` · ${state.late.length} Past Due` : ''}</Chip> : null} />
-      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Close · {monthLong(period)}{state ? ` · Business Day ${state.dayN} · Target Close Day ${TARGET_CLOSE_DAY} (${md(state.targetDate)})` : ''}</div>
+      <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Close · {monthLong(period)}{state ? ` · Business Day ${state.dayN} · Target Close Day ${TARGET_CLOSE_DAY} (${md(state.targetDate)})` : ''}</div>
       {isLoading || !state ? <LoadingBox height={84} /> : state.n ? (
         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
           <Tile label="Tasks Complete" value={`${state.nDone}/${state.n}`} sub={pctTxt(state.nDone / state.n, 0)} />
@@ -76,7 +76,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
       {section === 'checklist' ? (
         <div style={grid}>
           <Panel title="Close Pace" sub={state ? `${state.nDone} of ${state.n} tasks complete · ${state.expected} expected by today` : undefined} style={col(5)}
-            right={canEdit && state?.status === 'Closed' && !history.some((h) => h.period === period) ? <button type="button" className="secondary-btn" style={{ fontSize: '0.7rem', padding: '2px 8px' }} onClick={recordDay}>Record Close Day {state.dayN}</button> : null}>
+            right={canEdit && state?.status === 'Closed' && !history.some((h) => h.period === period) ? <button type="button" className="secondary-btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={recordDay}>Record Close Day {state.dayN}</button> : null}>
             {isLoading || !state ? <LoadingBox /> : !state.n ? <EmptyBox title="No close plan yet" body="Add the checklist under the Data tab. A default plan is seeded for new companies." /> : (
               <>
                 <Lines data={paceData} xKey="label" height={170} count series={[{ key: 'planned', label: 'Planned Pace', color: '#0998c3', dashed: true }, { key: 'actual', label: 'Completed', color: 'var(--wk-brand, #2b45e1)' }]} />
@@ -87,7 +87,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
           <Panel title="Close Checklist" sub="Tick a task and everyone sees who completed it" style={col(7)} bodyStyle={{ padding: 0 }}
             right={state?.n ? (
               <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                <select value={pickedRole} onChange={(e) => setRole(e.target.value)} style={{ ...input, padding: '3px 6px', fontSize: '0.74rem' }} aria-label="My close role">
+                <select value={pickedRole} onChange={(e) => setRole(e.target.value)} style={{ ...input, padding: '3px 6px', fontSize: 12 }} aria-label="My close role">
                   <option value="">I am... (not set)</option>
                   {owners.map((o) => <option key={o} value={o}>I am {o}</option>)}
                 </select>
@@ -106,9 +106,9 @@ export default function CloseTab({ canEdit, meName = '' }) {
                         <tr key={r.id} style={r.done ? { color: 'var(--text-muted)' } : undefined}>
                           <td><input type="checkbox" checked={!!r.done} disabled={!canEdit || busy === r.id} onChange={() => toggle(r)} aria-label={`${r.done ? 'Reopen' : 'Complete'} ${r.title}`} /></td>
                           <td style={r.done ? { textDecoration: 'line-through' } : undefined}>{r.title}</td>
-                          <td style={{ fontSize: '0.78rem' }}>{r.owner}</td>
-                          <td style={{ fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>Day {r.day_offset} · {md(r.due)}</td>
-                          <td>{r.done ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Chip tone="ok">Done</Chip><span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.done.completed_by} · {whenTxt(r.done.completed_at)}</span></span> : r.state === 'past_due' ? <Chip tone="bad">Past Due</Chip> : r.state === 'due_today' ? <Chip tone="wait">Due Today</Chip> : <Chip>Open</Chip>}</td>
+                          <td style={{ fontSize: 13 }}>{r.owner}</td>
+                          <td style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>Day {r.day_offset} · {md(r.due)}</td>
+                          <td>{r.done ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Chip tone="ok">Done</Chip><span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.done.completed_by} · {whenTxt(r.done.completed_at)}</span></span> : r.state === 'past_due' ? <Chip tone="bad">Past Due</Chip> : r.state === 'due_today' ? <Chip tone="wait">Due Today</Chip> : <Chip>Open</Chip>}</td>
                         </tr>
                       ))}
                     </PhaseRows>
@@ -135,14 +135,14 @@ export default function CloseTab({ canEdit, meName = '' }) {
                       <td><span style={mono}>{r.gl}</span>{r.name}</td>
                       <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.prior, { report: true })}</td>
                       <td style={num}>{m(r.balance, { report: true })}</td>
-                      <td style={{ ...num, color: toneColor(r.change >= 0) }}>{m(r.change, { report: true })}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</div></td>
+                      <td style={{ ...num, color: toneColor(r.change >= 0) }}>{m(r.change, { report: true })}<div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</div></td>
                       <td>
-                        {note ? <div style={{ fontSize: '0.84rem' }}>{note.body}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{note.written_by} · {whenTxt(note.written_at)}</div></div> : canEdit ? (
+                        {note ? <div style={{ fontSize: 13 }}>{note.body}<div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{note.written_by} · {whenTxt(note.written_at)}</div></div> : canEdit ? (
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                             <input value={drafts[r.gl] ?? ''} onChange={(e) => setDrafts((d) => ({ ...d, [r.gl]: e.target.value }))} placeholder={r.suggestion ? `Suggested: ${r.suggestion}` : 'Why did this move?'} style={{ ...input, flex: 1 }} />
-                            <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '3px 10px' }} disabled={busy === `flux:${r.gl}` || (!(drafts[r.gl] ?? '').trim() && !r.suggestion)} onClick={() => explain(r)}>Save</button>
+                            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} disabled={busy === `flux:${r.gl}` || (!(drafts[r.gl] ?? '').trim() && !r.suggestion)} onClick={() => explain(r)}>Save</button>
                           </div>
-                        ) : <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Not explained yet</span>}
+                        ) : <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Not explained yet</span>}
                       </td>
                     </tr>
                   );

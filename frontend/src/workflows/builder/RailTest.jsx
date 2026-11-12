@@ -91,7 +91,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
               {(events || []).map((ev) => (
                 <button key={ev.id} type="button" onClick={() => run(ev.id)} disabled={running} style={{
                   display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', width: '100%', textAlign: 'left',
-                  border: '1px solid var(--nx-border2)', background: 'var(--nx-surface)', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, color: 'var(--nx-ink)',
+                  border: '1px solid var(--nx-border2)', background: 'var(--nx-surface)', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--nx-ink)',
                 }}>
                   <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.subjectLabel || ev.subject_label || ev.id}</span>
                   <span style={{ ...hint, flexShrink: 0 }}>{formatDateTime(ev.at)}</span>
@@ -144,7 +144,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div style={{ ...hint, fontWeight: 700 }}>Conditions</div>
               {trace.map((t, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5 }} data-testid="trace-row">
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }} data-testid="trace-row">
                   <span aria-label={t.ok ? 'Passed' : 'Failed'} style={{ color: t.ok ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))', flexShrink: 0, marginTop: 2 }}>{t.ok ? <Check size={14} /> : <X size={14} />}</span>
                   <span>
                     <span style={{ color: 'var(--nx-ink)' }}>{t.field} {t.op} {Array.isArray(t.value) ? t.value.join(', ') : String(t.value ?? '')}</span>
@@ -160,7 +160,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
             {steps.map((s, i) => {
               const meta = RUN_STEP_STATUS[s.status] || { label: s.status, color: '#64748b' };
               return (
-                <div key={s.stepId || i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5 }} data-testid="planned-step">
+                <div key={s.stepId || i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13 }} data-testid="planned-step">
                   <StatusLabel label={meta.label} color={meta.color} size="sm" />
                   <span style={{ color: s.status === 'skipped' ? 'var(--nx-dim)' : 'var(--nx-ink)' }}>{stepLine(s)}</span>
                 </div>
@@ -168,7 +168,7 @@ export default function RailTest({ workflow, definition, dirty, onBeforeTest, on
             })}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ ...chip, fontSize: 11.5 }}>Nothing was sent. This was a dry run.</span>
+            <span style={{ ...chip, fontSize: 12 }}>Nothing was sent. This was a dry run.</span>
             {typeof onReplay === 'function' && steps.length > 0 && (
               <button type="button" onClick={() => onReplay(result)} style={btn('outline')}><Play size={13} /> Show On Canvas</button>
             )}

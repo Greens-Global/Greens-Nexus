@@ -43,17 +43,17 @@ const offerAfter = (role, jdFile) => {
 const openTemplate = (id) => window.open(`/documents/documents-templates?template=${encodeURIComponent(id)}`, '_blank', 'noopener');
 
 const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '18px 0 6px' };
-const hint = { fontSize: 12.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 };
-const h2 = { fontSize: 17, fontWeight: 800, margin: '22px 0 4px', color: 'var(--ink)' };
+const hint = { fontSize: 13, color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 };
+const h2 = { fontSize: 18, fontWeight: 800, margin: '22px 0 4px', color: 'var(--ink)' };
 const lead = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, margin: 0 };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 18px' };
 const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' };
 export const REPORTS_TO = 'Reports To - the person this hire reports to day to day. They become the manager on the profile.';
-const smallBtn = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 };
+const smallBtn = { fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 };
 
 function Warn({ children }) {
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, marginTop: 10 }}>
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '9px 12px', fontSize: 13, marginTop: 10 }}>
       <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} /><span>{children}</span>
     </div>
   );
@@ -66,13 +66,13 @@ function Choice({ on, onClick, title, sub, label }) {
     <button type="button" role="radio" aria-checked={on} aria-label={label || title} onClick={onClick}
       style={{ flex: '1 1 200px', textAlign: 'left', border: `1.5px solid ${on ? 'var(--pine)' : 'var(--line)'}`, borderRadius: 14, padding: '14px 16px', cursor: 'pointer',
         background: on ? 'hsla(var(--color-green),0.06)' : 'var(--card)', fontFamily: 'Inter,sans-serif', color: 'var(--ink)' }}>
-      <div style={{ fontSize: 14.5, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 16, height: 16, borderRadius: 8, border: `1.5px solid ${on ? 'var(--pine)' : 'var(--line)'}`, background: on ? 'var(--pine)' : 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           {on && <Check size={10} color="#fff" />}
         </span>
         {title}
       </div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, marginLeft: 24 }}>{sub}</div>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4, marginLeft: 24 }}>{sub}</div>
     </button>
   );
 }
@@ -322,7 +322,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
                 <div style={{ ...hint, marginTop: 8 }}>
                   {(opts.choices || []).length ? 'Pick another letter below, set one up, or ' : 'This company has no offer letters yet. '}
                   <button type="button" onClick={() => onMoveWithout(c)}
-                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12.5, color: 'hsl(var(--color-blue))', textDecoration: 'underline', fontFamily: 'Inter,sans-serif' }}>
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 13, color: 'hsl(var(--color-blue))', textDecoration: 'underline', fontFamily: 'Inter,sans-serif' }}>
                     move them to Offer without one
                   </button>.
                 </div>
@@ -386,7 +386,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           </label>
           {manager ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 600 }}>{manager.name || manager.email}</span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{manager.name || manager.email}</span>
               <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => set('manager_email', '')}>Change</button>
             </div>
           ) : <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people }]} onPick={v => set('manager_email', v)} />}
@@ -442,7 +442,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
             {DAYS.map(([k, l]) => {
               const on = timing.work_days.includes(k);
               return <button key={k} type="button" aria-pressed={on} onClick={() => setTiming(t => ({ ...t, work_days: on ? t.work_days.filter(x => x !== k) : [...t.work_days, k] }))}
-                style={{ padding: '5px 12px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 12.5, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                style={{ padding: '5px 12px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
                   background: on ? 'var(--pine)' : 'var(--card)', color: on ? '#fff' : 'var(--ink)' }}>{l}</button>;
             })}
           </div>
@@ -453,7 +453,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
 
       {jdFile ? (
         <div><div style={{ ...lbl, marginTop: 26 }}>Job Description</div>
-          <div style={{ fontSize: 13.5 }}>{jdFile}</div>
+          <div style={{ fontSize: 13 }}>{jdFile}</div>
           <div style={hint}>{pickedRole.name}&apos;s own file - sent after the offer letter exactly as uploaded, with a box {first} ticks to say they read it.</div></div>
       ) : (
         <div><label style={{ ...lbl, marginTop: 26 }} htmlFor="of-jd">Job Description</label>
@@ -552,8 +552,8 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <FileSignature size={18} style={{ color: 'var(--pine)' }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 800, fontSize: 17 }}>Make An Offer</div>
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{name}{c.roleTitle ? ` · ${c.roleTitle}` : ''}</div>
+              <div style={{ fontWeight: 800, fontSize: 18 }}>Make An Offer</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{name}{c.roleTitle ? ` · ${c.roleTitle}` : ''}</div>
             </div>
             <button onClick={onClose} disabled={busy} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
           </div>

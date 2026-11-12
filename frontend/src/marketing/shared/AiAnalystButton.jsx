@@ -86,7 +86,7 @@ export default function AiAnalystButton({ insights, onNavigate }) {
             AI Marketing Analyst
           </div>
           {shown.length === 0 ? (
-            <div style={{ padding: '16px 8px', textAlign: 'center', fontSize: 12.5, color: C.gray400 }}>
+            <div style={{ padding: '16px 8px', textAlign: 'center', fontSize: 13, color: C.gray400 }}>
               No notable changes this month - performance is holding steady.
             </div>
           ) : (
@@ -126,10 +126,10 @@ export default function AiAnalystButton({ insights, onNavigate }) {
                   />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 500, color: C.gray900 }}>{insight.title}</span>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: C.gray900 }}>{insight.title}</span>
                       <span
                         style={{
-                          fontSize: 10,
+                          fontSize: 11,
                           padding: '2px 6px',
                           borderRadius: 9999,
                           fontWeight: 500,

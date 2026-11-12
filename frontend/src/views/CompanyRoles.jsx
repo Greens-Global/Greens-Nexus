@@ -128,7 +128,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <div style={{ flex: 1, minWidth: 220 }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Roles at {entity.name}</h4>
-          <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
             Only people at {entity.name} can hold these roles. What each role can reach is set in its bundle; extra groups are managed in People &amp; Access with Applies To on Every Company.
           </p>
         </div>
@@ -150,7 +150,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                 {list.map(r => (
                   <button key={r.id} onClick={() => pickRole(r.id)}
                     style={{ ...roleCard, borderColor: selId === r.id ? 'var(--ink)' : 'var(--line)' }}>
-                    <span style={{ fontWeight: 800, fontSize: 13.5, flex: 1, minWidth: 0 }}>{r.name}</span>
+                    <span style={{ fontWeight: 800, fontSize: 13, flex: 1, minWidth: 0 }}>{r.name}</span>
                     {stepTotal(r.id) > 0 && <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>{stepTotal(r.id)} {stepTotal(r.id) === 1 ? 'step' : 'steps'}</span>}
                     <TierBadge tier={r.tier} />
                     <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{r.member_count}</span>
@@ -167,7 +167,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
           ) : (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <h3 style={{ fontSize: 17, fontWeight: 800, flex: 1, minWidth: 140, margin: 0 }}>{selected.name}</h3>
+                <h3 style={{ fontSize: 18, fontWeight: 800, flex: 1, minWidth: 140, margin: 0 }}>{selected.name}</h3>
                 <TierBadge tier={selected.tier} />
                 <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditing(selected)} title="Edit role" aria-label="Edit role"><Pencil size={13} /></button>
                 <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => onDelete(selected)} title="Delete role" aria-label="Delete role"><Trash2 size={13} /></button>
@@ -182,7 +182,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                   return (
                     <button key={key} type="button" role="tab" aria-selected={on} onClick={() => setTab(key)}
                       style={{ ...tabBtn, color: on ? 'var(--wk-brand)' : 'var(--muted)', borderBottom: `2px solid ${on ? 'var(--wk-brand)' : 'transparent'}` }}>
-                      {label}{n > 0 && <span style={{ fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>{n}</span>}
+                      {label}{n > 0 && <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{n}</span>}
                     </button>
                   );
                 })}
@@ -217,7 +217,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                     {selected.members.map(em => (
                       <div key={em} style={memberRow}>
                         <Avatar name={nameOf(em)} src={personByEmail[em]?.photo} size={24} />
-                        <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</span>
                         <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`} style={iconBtn}><X size={13} /></button>
                       </div>
                     ))}
@@ -238,7 +238,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 800, flex: 1 }}>Shared Across Companies</h4>
           {/* Shared roles are org-wide, so creating and deleting them lives in
               People & Access > Shared Roles (scope: Every company); this jumps there. */}
-          <button className="secondary-btn" style={{ fontSize: 12.5 }}
+          <button className="secondary-btn" style={{ fontSize: 13 }}
             onClick={() => {
               setPendingOpen(PENDING_ACCESS_TAB, 'jobroles');
               window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'access' } }));
@@ -246,7 +246,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
             Manage Shared Roles
           </button>
         </div>
-        <p style={{ margin: '4px 0 12px', fontSize: 12.5, color: 'var(--muted)', maxWidth: '72ch' }}>
+        <p style={{ margin: '4px 0 12px', fontSize: 13, color: 'var(--muted)', maxWidth: '72ch' }}>
           These roles apply in every company, and people from any company can hold them. Editing one changes it everywhere. Move one here when everyone in it works at {entity.name}, or duplicate it to give {entity.name} its own version.
         </p>
         {shared.length === 0 ? (
@@ -259,9 +259,9 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                 <div key={r.id} data-testid={`shared-role-${r.id}`}
                   style={{ padding: '11px 14px', borderTop: i ? '1px solid var(--line)' : 'none', background: 'var(--card)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <span style={{ fontWeight: 700, fontSize: 13.5, flex: 1, minWidth: 140 }}>{r.name}</span>
+                    <span style={{ fontWeight: 700, fontSize: 13, flex: 1, minWidth: 140 }}>{r.name}</span>
                     <TierBadge tier={r.tier} />
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>{r.member_count} {r.member_count === 1 ? 'person' : 'people'}</span>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{r.member_count} {r.member_count === 1 ? 'person' : 'people'}</span>
                     <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditingShared(r)}
                       title="Edit this shared role (applies in every company)" aria-label={`Edit ${r.name}`}><Pencil size={13} /></button>
                     <button className="secondary-btn" onClick={() => setStepsFor(r)}
@@ -287,7 +287,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                       <Copy size={13} /> Duplicate for This Company
                     </button>
                   </div>
-                  {blocker && dir && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5 }}>{blocker}</div>}
+                  {blocker && dir && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>{blocker}</div>}
                 </div>
               );
             })}
@@ -310,14 +310,14 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
       )}
       {stepsFor && (
         <Modal title={`${stepsFor.name} - Checklist Steps`} onClose={() => setStepsFor(null)} minHeight="60vh">
-          <p style={{ margin: '0 0 14px', fontSize: 12.5, color: 'var(--muted)' }}>A shared role&apos;s steps apply in every company that uses it.</p>
+          <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>A shared role&apos;s steps apply in every company that uses it.</p>
           <RoleStepsEditor roleId={stepsFor.id} roleName={stepsFor.name}
             toastOk={toastOk} toastErr={toastErr} onCounts={setCountsFor(stepsFor.id)} />
         </Modal>
       )}
       {jdFor && (
         <Modal title={`${jdFor.name} - Job Description`} onClose={() => setJdFor(null)} minHeight="60vh">
-          <p style={{ margin: '0 0 6px', fontSize: 12.5, color: 'var(--muted)' }}>A shared role&apos;s job description goes with its offers in every company.</p>
+          <p style={{ margin: '0 0 6px', fontSize: 13, color: 'var(--muted)' }}>A shared role&apos;s job description goes with its offers in every company.</p>
           <RoleHiringDocs role={(roles || []).find(x => x.id === jdFor.id) || jdFor} toastOk={toastOk} toastErr={toastErr}
             onSaved={saved => setRoles(list => (list || []).map(x => (x.id === saved.id ? { ...x, ...saved } : x)))} />
         </Modal>
@@ -332,9 +332,9 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
 }
 
 const deptLabel = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', margin: '0 0 7px 2px' };
-const countPill = { fontSize: 10.5, fontWeight: 700, background: 'var(--mist)', borderRadius: 999, padding: '1px 7px', letterSpacing: 0 };
+const countPill = { fontSize: 11, fontWeight: 700, background: 'var(--mist)', borderRadius: 999, padding: '1px 7px', letterSpacing: 0 };
 const roleCard = { display: 'flex', alignItems: 'center', gap: 9, textAlign: 'left', width: '100%', background: 'var(--card)', border: '1.5px solid var(--line)', borderRadius: 12, padding: '10px 13px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', color: 'var(--ink)' };
-const sectLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', margin: '18px 0 9px' };
+const sectLabel = { fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', margin: '18px 0 9px' };
 const memberRow = { display: 'flex', alignItems: 'center', gap: 9, padding: '6px 10px', borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)' };
 const tabBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', whiteSpace: 'nowrap', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, marginBottom: -1 };
 const iconBtn = { border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 };

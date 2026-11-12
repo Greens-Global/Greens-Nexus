@@ -34,7 +34,7 @@ export default function LaborCodesRows({ labor }) {
           {draft.codes.length > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {draft.codes.map((c) => (
-                <span key={c.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 4px 3px 10px', border: '1px solid var(--border-color)', borderRadius: 999, fontSize: '0.8rem' }}>
+                <span key={c.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 4px 3px 10px', border: '1px solid var(--border-color)', borderRadius: 999, fontSize: 13 }}>
                   {c.name ? `${c.code} - ${c.name}` : c.code}
                   <button type="button" aria-label={`Remove ${c.code}`} onClick={() => patch({ codes: draft.codes.filter((x) => x.code !== c.code) })}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'inline-flex', color: 'var(--text-secondary)' }}><X size={12} /></button>
@@ -47,7 +47,7 @@ export default function LaborCodesRows({ labor }) {
               <option value="">{left.length ? 'Pick a cost code' : 'No more cost codes to add'}</option>
               {left.map((o) => <option key={o.code} value={o.code}>{o.name ? `${o.code} - ${o.name}` : o.code}{o.onJob ? '' : ' (no lines on this job yet)'}</option>)}
             </select>
-            <button type="button" className="secondary-btn" onClick={add} disabled={!pick} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>Add</button>
+            <button type="button" className="secondary-btn" onClick={add} disabled={!pick} style={{ padding: '6px 12px', fontSize: 13 }}>Add</button>
           </div>
         </div>
       </SettingRow>

@@ -112,7 +112,7 @@ import { pill } from './dashboard/Bits';
 //     vendor's lines (Change Loan > Vendor; shown in the row detail).
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 // The narrowest a column gets while nobody has dragged its width (Oct 14):
 // figures never wrap, names wrap inside a sensible band.
@@ -142,8 +142,8 @@ export const notAvailable = (e) => e?.status === 503 || /not configured|not avai
 // (Charmi and Neil, 10/06): two buttons that open them over the screen.
 const renderLoanExtras = (loan, { onPlan }) => (
   <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-    <button type="button" className="secondary-btn" onClick={() => onPlan('amortization')} style={{ fontSize: '0.78rem', padding: '4px 12px' }}>Amortization Schedule</button>
-    <button type="button" className="secondary-btn" onClick={() => onPlan('stress')} style={{ fontSize: '0.78rem', padding: '4px 12px' }}>Stress Test</button>
+    <button type="button" className="secondary-btn" onClick={() => onPlan('amortization')} style={{ fontSize: 13, padding: '4px 12px' }}>Amortization Schedule</button>
+    <button type="button" className="secondary-btn" onClick={() => onPlan('stress')} style={{ fontSize: 13, padding: '4px 12px' }}>Stress Test</button>
   </div>
 );
 
@@ -272,9 +272,9 @@ function SkeletonRows({ rows = 6, cols = 14 }) {
 // / Show Historical Entities (Oct 7, item 9: one Customize across the module).
 function ClosedToggle({ checked, onChange, closedCount }) {
   return (
-    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ marginTop: 2 }} />
-      <span>Show Closed Loans<span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{`Loans with nothing owed as of the date, or marked inactive${closedCount ? ` (${closedCount} now)` : ''}.`}</span></span>
+      <span>Show Closed Loans<span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{`Loans with nothing owed as of the date, or marked inactive${closedCount ? ` (${closedCount} now)` : ''}.`}</span></span>
     </label>
   );
 }
@@ -282,7 +282,7 @@ function ClosedToggle({ checked, onChange, closedCount }) {
 function Totals({ title, rows }) {
   return (
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-      <div style={{ padding: '8px 12px', fontSize: '0.8rem', fontWeight: 700, borderBottom: '1px solid var(--border-color)' }}>{title}</div>
+      <div style={{ padding: '8px 12px', fontSize: 13, fontWeight: 700, borderBottom: '1px solid var(--border-color)' }}>{title}</div>
       <div className="req-table-wrapper">
       <table className="req-table acct-loan-totals" style={{ fontVariantNumeric: 'tabular-nums' }}>
         <thead><tr><th>{title === 'By Lender' ? 'Lender' : 'Entity'}</th><th style={{ ...num, minWidth: 52 }}>Loans</th><th style={{ ...num, minWidth: 120 }}>Balance</th><th style={{ ...num, minWidth: 120 }}>Debt Service (T12)</th><th style={{ ...num, minWidth: 110 }}>NOI (T12)</th><th style={{ ...num, minWidth: 64 }}>DSCR</th></tr></thead>
@@ -316,14 +316,14 @@ function Maturities({ month, rows }) {
   });
   return (
     <div style={{ ...card, padding: '8px 12px', display: 'grid', gap: 6 }}>
-      <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>Maturities - Next 24 Months</div>
-      {!by.size ? <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>No loan shown matures in the next 24 months (maturity dates are typed under Change Loan).</div> : (
+      <div style={{ fontSize: 13, fontWeight: 700 }}>Maturities - Next 24 Months</div>
+      {!by.size ? <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No loan shown matures in the next 24 months (maturity dates are typed under Change Loan).</div> : (
         <div className="scroll-tabs" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
           {strip.map((m) => {
             const cell = by.get(m);
             return (
               <div key={m} title={cell ? cell.loans.map((l) => `${l.lender}${l.loanNo ? ` #${l.loanNo}` : ''} (${l.entityName}) ${formatAmount(l.balance)}`).join('\n') : ''}
-                style={{ minWidth: 86, flex: '0 0 auto', border: `1px solid ${cell ? 'var(--warn-fg)' : 'var(--border-color)'}`, borderRadius: 8, padding: '4px 8px', background: cell ? 'var(--warn-bg)' : 'var(--bg-secondary)', fontSize: '0.7rem' }}>
+                style={{ minWidth: 86, flex: '0 0 auto', border: `1px solid ${cell ? 'var(--warn-fg)' : 'var(--border-color)'}`, borderRadius: 8, padding: '4px 8px', background: cell ? 'var(--warn-bg)' : 'var(--bg-secondary)', fontSize: 11 }}>
                 <div style={{ fontWeight: 700 }}>{monthLabel(m)}</div>
                 <div style={{ fontVariantNumeric: 'tabular-nums' }}>{cell ? <><Amount value={cell.balance} /><div style={{ color: 'var(--text-muted)' }}>{cell.loans.map((l) => l.lender || l.loanNo).join(', ')}</div></> : dash}</div>
               </div>
@@ -403,10 +403,10 @@ function RemoveCell({ loan, onRemove, onEdit }) {
   if (asking) {
     return (
       <span role="group" aria-label={`Remove ${name}?`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-        <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Remove?</span>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Remove?</span>
         <button type="button" className="primary-btn" disabled={busy} onClick={() => { setBusy(true); onRemove(loan).finally(() => { setBusy(false); setAsking(false); }); }}
-          style={{ fontSize: '0.72rem', height: 24, padding: '0 8px', background: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)' }}>{busy ? 'Removing...' : 'Remove'}</button>
-        <button type="button" className="secondary-btn" disabled={busy} onClick={() => setAsking(false)} style={{ fontSize: '0.72rem', height: 24, padding: '0 8px' }}>Keep</button>
+          style={{ fontSize: 12, height: 24, padding: '0 8px', background: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)' }}>{busy ? 'Removing...' : 'Remove'}</button>
+        <button type="button" className="secondary-btn" disabled={busy} onClick={() => setAsking(false)} style={{ fontSize: 12, height: 24, padding: '0 8px' }}>Keep</button>
       </span>
     );
   }
@@ -606,32 +606,32 @@ export default function LoansTab({ canEdit = false }) {
           )}
         </div>
         </>}
-        {view === 'stress' && <span style={{ marginLeft: 'auto', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>NOI (T12) and balances as of {formatDate(to)} - the period picks them</span>}
-        {view === 'planning' && <span style={{ marginLeft: 'auto', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Entities filter the planned loans; NOI and existing debt as of {formatDate(to)}</span>}
+        {view === 'stress' && <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-secondary)' }}>NOI (T12) and balances as of {formatDate(to)} - the period picks them</span>}
+        {view === 'planning' && <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-secondary)' }}>Entities filter the planned loans; NOI and existing debt as of {formatDate(to)}</span>}
       </ControlBar>
 
       {sent && (
-        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: sent.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: sent.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
           <span style={{ flex: 1 }}>{sent.text}{sent.url && <> <a href={sent.url} target="_blank" rel="noreferrer">Open the File</a></>}</span>
-          <button type="button" className="secondary-btn" onClick={() => setSent(null)} style={{ fontSize: '0.74rem', padding: '2px 10px' }}>Dismiss</button>
+          <button type="button" className="secondary-btn" onClick={() => setSent(null)} style={{ fontSize: 12, padding: '2px 10px' }}>Dismiss</button>
         </div>
       )}
-      {(review?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' }}><WarnMark />{review.notes.join(' · ')} - open again to retry.</div>}
+      {(review?.notes || []).length > 0 && <div style={{ fontSize: 13, color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' }}><WarnMark />{review.notes.join(' · ')} - open again to retry.</div>}
 
       {error && (unavailable ? (
-        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+        <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>
           <strong style={{ color: 'var(--text-primary)' }}>Loans & Financing is not available here.</strong> The accounting service is not connected on this environment, so there is no ledger to read loans from.
         </div>
       ) : (
         <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ flex: 1 }}>{error.message || 'Could not read the loans.'}</span>
-          <button type="button" className="secondary-btn" onClick={load} style={{ fontSize: '0.76rem' }}>Try Again</button>
+          <button type="button" className="secondary-btn" onClick={load} style={{ fontSize: 12 }}>Try Again</button>
         </div>
       ))}
 
       {/* A failed read is not "no loans" (Oct 6). */}
       {view !== 'planning' && !error && !loading && review && !all.length && (
-        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6, maxWidth: 760 }}>
+        <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)', display: 'grid', gap: 6, maxWidth: 760 }}>
           <strong style={{ color: 'var(--text-primary)' }}>No loans set up for {picked.length ? 'the entities picked' : 'the entities you may read'}.</strong>
           <span>+ Add &gt; From the Ledger reads each active entity's balance sheet as of {formatDate(to)} and proposes a loan for every liability account whose title says {(review?.lookedFor || []).join(', ')}. Accounts payable, credit cards, payroll, accrued, deferred and deposit balances are left out unless the title says loan.</span>
           <span>{canEdit ? 'Or + Add > Manual for a loan that is not in Intacct.' : 'An editor on Accounting can add them here.'}</span>
@@ -643,12 +643,12 @@ export default function LoansTab({ canEdit = false }) {
       {view === 'planning' && <LoanPlanning loans={openLoans} entities={entities} picked={picked} canEdit={canEdit} to={to} />}
 
       {view === 'loans' && !error && !loading && all.length > 0 && !rows.length && !boxes.filtering && (
-        <div style={{ ...card, padding: 14, fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+        <div style={{ ...card, padding: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
           No loan matches the filters{hiddenClosed ? ` - ${hiddenClosed} closed ${hiddenClosed === 1 ? 'loan is' : 'loans are'} hidden (Customize > Show Closed Loans)` : ''}.
         </div>
       )}
       {view === 'loans' && !error && !loading && nothingPosted(rows) && (
-        <div role="status" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px' }}>
+        <div role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px' }}>
           No payments posted {formatDate(from)} - {formatDate(to)} on the loans shown. Balances are as of {formatDate(to)}; pick another period with the arrows.
         </div>
       )}
@@ -667,7 +667,7 @@ export default function LoansTab({ canEdit = false }) {
               </thead>
               {!loading && !rows.length && (
                 <tbody>
-                  <tr><td colSpan={cols || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem' }}>
+                  <tr><td colSpan={cols || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: 13 }}>
                     No loan matches these column filters{hiddenClosed ? ` - ${hiddenClosed} closed ${hiddenClosed === 1 ? 'loan is' : 'loans are'} hidden (Customize > Show Closed Loans)` : ''}.{' '}
                     <button type="button" onClick={boxes.clear} style={{ border: 'none', background: 'none', font: 'inherit', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
                   </td></tr>
@@ -697,10 +697,10 @@ export default function LoansTab({ canEdit = false }) {
                       entity: <td className={mw('entity') ? undefined : 'loan-name'} style={cell('entity', false)} title={mw('entity') ? r.entityName : undefined}>{r.entityName}</td>,
                       monthly: <td style={cell('monthly', true)}><TermCell loan={r} field="monthlyPayment" {...term}>{r.monthlyPayment == null ? dash : <Amount value={r.monthlyPayment} />}</TermCell></td>,
                       original: <td style={cell('original', true)} title={r.originalPrincipalEdited ? `Typed over the ledger${r.originalPrincipalLedger != null ? `'s ${formatAmount(r.originalPrincipalLedger)}` : ''}` : r.originalPrincipalDate ? `The first credit on the account, ${formatDate(r.originalPrincipalDate)}` : undefined}>
-                        {r.originalPrincipal == null ? dash : <><Amount value={r.originalPrincipal} />{r.originalPrincipalEdited && <span style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginLeft: 4 }}>edited</span>}</>}
+                        {r.originalPrincipal == null ? dash : <><Amount value={r.originalPrincipal} />{r.originalPrincipalEdited && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 4 }}>edited</span>}</>}
                       </td>,
                       balance: <td style={cell('balance', true)} title={r.debitBalance ? DEBIT_NOTE : r.wiring === 'ok' ? `GL ${r.glAccount} as of ${formatDate(to)} - click for the ledger lines` : undefined}>
-                        {r.debitBalance && <span style={{ marginRight: 6, fontSize: '0.64rem', fontWeight: 700, color: 'var(--warn-fg)' }}><WarnMark size={11} />Check Sign</span>}
+                        {r.debitBalance && <span style={{ marginRight: 6, fontSize: 11, fontWeight: 700, color: 'var(--warn-fg)' }}><WarnMark size={11} />Check Sign</span>}
                         {r.wiring === 'missing' ? dash : r.wiring === 'ok' && r.glAccount
                           ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the balance of ${r.lender || r.loanNo}`} onClick={(e) => drill(e, r.glAccount, r.glTitle || r.lender, r.entityCode, false)}><Amount value={r.balance} /></button>
                           : <Amount value={r.balance} />}
@@ -756,7 +756,7 @@ export default function LoansTab({ canEdit = false }) {
                       lender: (
                         <td>
                           Total
-                          {hiddenClosed > 0 && <div style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-muted)' }}>{`${hiddenClosed} closed ${hiddenClosed === 1 ? 'loan' : 'loans'} hidden`}</div>}
+                          {hiddenClosed > 0 && <div style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-muted)' }}>{`${hiddenClosed} closed ${hiddenClosed === 1 ? 'loan' : 'loans'} hidden`}</div>}
                         </td>
                       ),
                       monthly: <td style={num}><Amount value={totals.monthly} zero="dash" /></td>,

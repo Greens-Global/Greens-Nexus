@@ -33,14 +33,14 @@ import { PersonSelect } from '../tasks/components';
 const BAR = {
   position: 'sticky', top: 0, zIndex: 60,
   display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', margin: '0 0 8px',
-  background: '#FFF3C4', color: '#5b4300', border: '1px solid #f2d36b', borderRadius: 10, fontSize: '0.84rem',
+  background: '#FFF3C4', color: '#5b4300', border: '1px solid #f2d36b', borderRadius: 10, fontSize: 13,
   boxShadow: '0 2px 8px rgba(91, 67, 0, 0.12)',
 };
-const BTN = { border: '1px solid #d9b93a', background: '#fff8dc', color: '#5b4300', borderRadius: 8, padding: '4px 10px', font: 'inherit', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 };
+const BTN = { border: '1px solid #d9b93a', background: '#fff8dc', color: '#5b4300', borderRadius: 8, padding: '4px 10px', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 };
 const ICON = { border: 'none', background: 'none', padding: 3, cursor: 'pointer', color: '#7a5d00', display: 'inline-flex', flexShrink: 0 };
 const ONE_LINE = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 };
 const TEXT_BTN = { border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer', display: 'block', width: '100%' };
-const PANEL = { background: '#FFFBEA', color: '#5b4300', border: '1px solid #f2d36b', boxShadow: '0 10px 30px rgba(91, 67, 0, 0.22)', fontSize: '0.86rem' };
+const PANEL = { background: '#FFFBEA', color: '#5b4300', border: '1px solid #f2d36b', boxShadow: '0 10px 30px rgba(91, 67, 0, 0.22)', fontSize: 14 };
 
 // The bar's one line: the body's first line, and within that its first
 // sentence, so "X asked to add a punch on 10/15/2026. Reason: ..." stops at
@@ -114,7 +114,7 @@ export default function PriorityBar({ onNavigate }) {
     );
   };
   const pager = open.length > 1 && (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: '0.74rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
       <button type="button" style={ICON} aria-label="Previous notice" disabled={at === 0} onClick={() => setAt((a) => Math.max(0, a - 1))}><ChevronLeft size={14} /></button>
       {Math.min(at, open.length - 1) + 1} of {open.length}
       <button type="button" style={ICON} aria-label="Next notice" disabled={at >= open.length - 1} onClick={() => setAt((a) => Math.min(open.length - 1, a + 1))}><ChevronRight size={14} /></button>
@@ -247,15 +247,15 @@ export function RaiseNotice({ onClose, myEmail }) {
       .catch((err) => setError(err?.message || 'Could not send the notice.'))
       .finally(() => setBusy(false));
   };
-  const input = { height: 32, padding: '0 9px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.84rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)', width: '100%', boxSizing: 'border-box' };
-  const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+  const input = { height: 32, padding: '0 9px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)', width: '100%', boxSizing: 'border-box' };
+  const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
       <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Raise a priority notice" onClick={(e) => e.stopPropagation()} onSubmit={send}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Raise a Priority Notice</h3>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>A yellow bar across the top of their screen until they click it off. Use it for things that cannot wait.</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>A yellow bar across the top of their screen until they click it off. Use it for things that cannot wait.</div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
@@ -280,8 +280,8 @@ export function RaiseNotice({ onClose, myEmail }) {
               {VIEWS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </div>
-          {error && <div style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
-          {sent && <div role="status" style={{ fontSize: '0.8rem', color: 'var(--ok-fg, #15803d)' }}>Sent.</div>}
+          {error && <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
+          {sent && <div role="status" style={{ fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>Sent.</div>}
         </div>
         <div className="modal-footer">
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>

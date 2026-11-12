@@ -13,7 +13,7 @@ export default function HealthRow({ health, compact = false, overBudget = false,
   const meta = HEALTH[health.state] || HEALTH.on_track;
   const facts = healthFacts(health, { overBudget, targetMoves });
   return (
-    <div data-health-row="" style={{ display: 'flex', alignItems: 'center', gap: '6px 12px', flexWrap: 'wrap', fontSize: compact ? '0.78rem' : '0.82rem', color: 'var(--text-secondary)' }}>
+    <div data-health-row="" style={{ display: 'flex', alignItems: 'center', gap: '6px 12px', flexWrap: 'wrap', fontSize: 13, color: 'var(--text-secondary)' }}>
       <StatusLabel label={meta.label} color={meta.color} size={compact ? 'sm' : 'md'}
         title={(health.reasons || []).join('; ') || undefined} />
       {facts.map((f, i) => (

@@ -173,7 +173,7 @@ function FilesField({ value, onChange, disabled, projectId, label }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {list.map((u) => (
             <div key={u} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-              <a href={u} target="_blank" rel="noreferrer" style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{fileName(u)}</a>
+              <a href={u} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{fileName(u)}</a>
               {!disabled && (
                 <button type="button" className="secondary-btn" aria-label={`Remove ${fileName(u)}`} style={{ padding: 4, minHeight: 0 }}
                   onClick={() => onChange(list.filter((x) => x !== u))}><X size={12} /></button>
@@ -185,17 +185,17 @@ function FilesField({ value, onChange, disabled, projectId, label }) {
       {!disabled && (
         <>
           <div>
-            <label className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem', cursor: 'pointer', margin: 0, display: 'inline-flex' }}>
+            <label className="secondary-btn" style={{ padding: '6px 10px', fontSize: 13, cursor: 'pointer', margin: 0, display: 'inline-flex' }}>
               <Paperclip size={13} />{busy ? 'Attaching…' : 'Attach'}
               <input type="file" multiple accept="application/pdf,image/*" hidden disabled={busy}
                 onChange={(e) => { take(e.target.files); e.target.value = ''; }} />
             </label>
           </div>
-          <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>A PDF or a photo - or press Ctrl+V to paste one.</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>A PDF or a photo - or press Ctrl+V to paste one.</span>
         </>
       )}
-      {disabled && list.length === 0 && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No files.</span>}
-      {error && <span role="alert" style={{ fontSize: '0.78rem', color: 'hsl(var(--color-red))' }}>{error}</span>}
+      {disabled && list.length === 0 && <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No files.</span>}
+      {error && <span role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</span>}
     </div>
   );
 }
@@ -274,7 +274,7 @@ function AddForm({ cfg, onCancel, onSave, people, projectId, canSeeCost }) {
       marginBottom: 16, backgroundColor: 'var(--bg-primary)',
     }}>
       {error && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, fontSize: '0.8rem' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, fontSize: 13 }}>
           <AlertTriangle size={14} style={{ color: 'hsl(var(--color-red))' }} />
           <span>{error}</span>
         </div>
@@ -359,12 +359,12 @@ function RegisterSheet({ kind, row, project, canReview, canSeeCost, today, onClo
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <Chip cfg={cfg} status={row.status} />
         {late && <StatusLabel size="sm" label="Overdue" color={TONE.red} />}
-        {open != null && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{open} day{open === 1 ? '' : 's'} open</span>}
+        {open != null && <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{open} day{open === 1 ? '' : 's'} open</span>}
       </div>
       {kind === 'rfis' && canReview && row.status === 'open' && (
-        <div data-rfi-outside style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+        <div data-rfi-outside style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
           <span>Does someone outside the company owe the answer? Send them a link - no sign-in.</span>
-          <button type="button" className="secondary-btn" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => setSendOpen(true)}>Send to Answer</button>
+          <button type="button" className="secondary-btn" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setSendOpen(true)}>Send to Answer</button>
         </div>
       )}
       {sendOpen && (
@@ -372,17 +372,17 @@ function RegisterSheet({ kind, row, project, canReview, canSeeCost, today, onClo
           onClose={() => setSendOpen(false)} />
       )}
       {canPrice && (row.changeOrder || ['answered', 'closed'].includes(row.status)) && (
-        <div data-rfi-change-order style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+        <div data-rfi-change-order style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14, fontSize: 13, color: 'var(--text-secondary)' }}>
           <FileSignature size={15} aria-hidden="true" />
           {row.changeOrder ? (
             <>
               <span>On change order <b style={{ color: 'var(--text-primary)' }}>{row.changeOrder.number}</b>.</span>
-              <button type="button" className="secondary-btn" style={{ padding: '6px 12px', fontSize: '0.8rem' }} onClick={() => onOpenChanges?.()}>Open Changes</button>
+              <button type="button" className="secondary-btn" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => onOpenChanges?.()}>Open Changes</button>
             </>
           ) : (
             <>
               <span>Does the answer change the price or the schedule? Price it as a change order.</span>
-              <button type="button" className="secondary-btn" style={{ padding: '6px 12px', fontSize: '0.8rem' }} disabled={making || dirty}
+              <button type="button" className="secondary-btn" style={{ padding: '6px 12px', fontSize: 13 }} disabled={making || dirty}
                 title={dirty ? 'Save your changes first.' : undefined} onClick={makeChangeOrder}>{making ? 'Making…' : 'Make Change Order'}</button>
             </>
           )}
@@ -470,10 +470,10 @@ export default function Registers({ project, canReview, onChanged, onOpenChanges
     <div style={CARD}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
-          <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>
+          <h3 style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>
             {title}
           </h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>{cfg.blurb}</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>{cfg.blurb}</p>
         </div>
         {canReview && !adding && (
           <button className="primary-btn" onClick={() => setAdding(true)} style={{ flexShrink: 0 }}>
@@ -490,7 +490,7 @@ export default function Registers({ project, canReview, onChanged, onOpenChanges
           return (
             <button key={k} onClick={() => { setKind(k); setAdding(false); setError(''); }}
               className={active ? 'primary-btn' : 'secondary-btn'} aria-pressed={active}
-              style={{ padding: '6px 14px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+              style={{ padding: '6px 14px', fontSize: 13, whiteSpace: 'nowrap' }}>
               <KIcon size={14} />{REGISTERS[k].label}
               {count ? <span style={{ opacity: 0.7, marginLeft: 2 }}>({count})</span> : null}
             </button>
@@ -507,10 +507,10 @@ export default function Registers({ project, canReview, onChanged, onOpenChanges
       ) : list.length === 0 && !adding ? (
         <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-secondary)' }}>
           <cfg.icon size={30} style={{ opacity: 0.4, marginBottom: 12 }} />
-          <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
             {cfg.emptyTitle}
           </div>
-          <p style={{ fontSize: '0.85rem', maxWidth: 420, margin: '0 auto' }}>{cfg.emptyHint}</p>
+          <p style={{ fontSize: 13, maxWidth: 420, margin: '0 auto' }}>{cfg.emptyHint}</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -529,7 +529,7 @@ export default function Registers({ project, canReview, onChanged, onOpenChanges
                 }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <strong style={{ fontSize: '0.95rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                    <strong style={{ fontSize: 15, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                       {cfg.title(r)}
                     </strong>
                     <Chip cfg={cfg} status={r.status} />
@@ -539,12 +539,12 @@ export default function Registers({ project, canReview, onChanged, onOpenChanges
                     )}
                   </div>
                   {meta.length > 0 && (
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                    <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
                       {meta.join(' · ')}
                     </div>
                   )}
                   {(r.question || r.description) && (
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: '8px 0 0' }}>
+                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, margin: '8px 0 0' }}>
                       {r.question || r.description}
                     </p>
                   )}

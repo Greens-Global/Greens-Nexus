@@ -117,7 +117,7 @@ export default function ThirdPartyUpload({ properties = [], defaultPropertyId = 
           </div>
           {preview.errors?.map((m) => <p key={m} className="ops-form-error" role="alert" style={{ margin: '0 0 6px' }}>{m}</p>)}
           {preview.warnings?.map((m) => (
-            <p key={m} style={{ margin: '0 0 6px', fontSize: 12.5 }}><span className="status-badge pill-warn">Check</span> {m}</p>
+            <p key={m} style={{ margin: '0 0 6px', fontSize: 13 }}><span className="status-badge pill-warn">Check</span> {m}</p>
           ))}
           {preview.unknownLabels?.length > 0 && (
             <p className="ops-note" style={{ margin: '0 0 8px' }}>

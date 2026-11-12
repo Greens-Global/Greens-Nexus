@@ -45,4 +45,4 @@ export function usePhotos(prefix = 'field') {
 }
 
 export const field = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--ink)' };
-export const box = { width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 16, fontFamily: 'inherit' };
+export const box = { width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 16, fontFamily: 'inherit' }; // type-ok: iOS zooms a field under 16px

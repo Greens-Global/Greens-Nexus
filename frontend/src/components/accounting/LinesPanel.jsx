@@ -124,14 +124,14 @@ export default function LinesPanel({ title, caption = '', queries, report = null
       <SidePanel label={label} title={title} caption={caption} onClose={onClose}
         footer={toReports ? (
           <div className="modal-footer" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ flex: 1, fontSize: '0.74rem', color: 'var(--text-muted)' }}>{state.more ? `The first ${LINES_LIMIT} lines of each search are here; Reports has them all.` : 'The same lines on the General Ledger, with every filter and the export.'}</span>
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--text-muted)' }}>{state.more ? `The first ${LINES_LIMIT} lines of each search are here; Reports has them all.` : 'The same lines on the General Ledger, with every filter and the export.'}</span>
             <button type="button" className="secondary-btn" onClick={toReports} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ExternalLink size={13} /> Open in Reports</button>
           </div>
         ) : null}>
         {lines === null ? <SkeletonBlocks count={3} /> : state.error ? (
-          <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{state.error}</div>
+          <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>{state.error}</div>
         ) : !lines.length ? (
-          <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>Nothing posted for this figure.</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nothing posted for this figure.</div>
         ) : (
           <div className="acct-report-wrap" style={{ background: 'var(--bg-card)', borderRadius: 8 }}>
             <table className="acct-report" aria-label={`${title} - ledger lines`}>
@@ -159,11 +159,11 @@ export default function LinesPanel({ title, caption = '', queries, report = null
         )}
         {lines && !state.error && figure != null && (
           Math.abs(total - Number(figure)) < 0.005 ? (
-            <div data-lines-check="ok" style={{ marginTop: 8, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            <div data-lines-check="ok" style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
               {lines.length} {lines.length === 1 ? 'line adds' : 'lines add'} up to the figure, {formatAmount(figure)}.
             </div>
           ) : (
-            <div data-lines-check="short" role="status" style={{ marginTop: 8, fontSize: '0.78rem', fontWeight: 600, color: 'var(--bad-fg, #dc2626)' }}>
+            <div data-lines-check="short" role="status" style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: 'var(--bad-fg, #dc2626)' }}>
               These {lines.length} {lines.length === 1 ? 'line adds' : 'lines add'} up to {formatAmount(total)}; the figure is {formatAmount(figure)}.{state.more ? ' There are more lines than shown here - Open in Reports for every one.' : ''}
             </div>
           )

@@ -60,7 +60,7 @@ export function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClos
     <button key={id} type="button" onClick={() => { setPhotoMode(id); setStep('upload'); }}
       style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, padding: '16px 18px', borderRadius: 12, border: '1px solid var(--wk-line, var(--line))', background: 'var(--card)', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
       <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>{title}</span>
-      <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{sub}</span>
+      <span style={{ fontSize: 13, color: 'var(--muted)' }}>{sub}</span>
     </button>
   );
 
@@ -77,7 +77,7 @@ export function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClos
               {uploading ? <><Spinner size={14} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Receipt</>}
             </button>
           </>}>
-      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 16px' }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px' }}>
         {from} handed {isMulti ? `${coItems.length} items` : first.itemName} to you. A photo records the condition it arrived in.
       </p>
       {step === 'mode' && (

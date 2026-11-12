@@ -60,10 +60,10 @@ export default function KudosMoment() {
         <button type="button" className="nx-perf-icon-btn" aria-label="Dismiss" title="Dismiss" disabled={busy}
           onClick={() => act(() => api.perfKudosSeen(k.id))}><X size={15} /></button>
       </div>
-      <div style={{ fontSize: 13.5, color: 'var(--ink)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 160, overflowY: 'auto' }}>{k.message}</div>
+      <div style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 160, overflowY: 'auto' }}>{k.message}</div>
       <form onSubmit={e => { e.preventDefault(); act(() => api.perfKudosThank(k.id, note.trim())); }} style={{ display: 'grid', gap: 8 }}>
         <input className="form-input" value={note} onChange={e => setNote(e.target.value.slice(0, 200))} aria-label="Your reply"
-          placeholder="A word back (optional)" style={{ fontSize: 16, padding: '7px 10px' }} />
+          placeholder="A word back (optional)" style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, padding: '7px 10px' }} />
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" className="secondary-btn" disabled={busy} onClick={() => act(() => api.perfKudosSeen(k.id))} style={{ minHeight: 34 }}>Close</button>
           <button type="submit" className="primary-btn" disabled={busy} style={{ minHeight: 34 }}>Say Thanks</button>

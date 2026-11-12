@@ -84,7 +84,7 @@ function PeoplePicker({ value, onChange, people, label, placeholder }) {
       <Label>{label}</Label>
       <PersonSelect addButton value={null} people={remaining} placeholder={placeholder} ariaLabel={label}
         onChange={(email) => { if (email) onChange([...value, email]); }}
-        style={{ borderRadius: '8px 0 0 8px', padding: '9px 13px', fontSize: 13.5, fontWeight: 400 }} />
+        style={{ borderRadius: '8px 0 0 8px', padding: '9px 13px', fontSize: 13, fontWeight: 400 }} />
       {value.length > 0 && (
         <div style={{ marginTop: 8 }}>
           {value.map((email) => {
@@ -128,13 +128,13 @@ function useSubmit(run, onClose) {
 
 const SubmitBtn = ({ busy, disabled, onClick, children }) => (
   <button onClick={onClick} disabled={busy || disabled}
-    style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'var(--ink)', color: 'var(--paper)', fontSize: 13.5, fontWeight: 600, cursor: busy || disabled ? 'not-allowed' : 'pointer', opacity: busy || disabled ? 0.5 : 1, fontFamily: 'Inter,sans-serif' }}>
+    style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'var(--ink)', color: 'var(--paper)', fontSize: 13, fontWeight: 600, cursor: busy || disabled ? 'not-allowed' : 'pointer', opacity: busy || disabled ? 0.5 : 1, fontFamily: 'Inter,sans-serif' }}>
     {children}
   </button>
 );
 
 const ErrorLine = ({ error }) => error
-  ? <span style={{ flex: 1, fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{error}</span>
+  ? <span style={{ flex: 1, fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</span>
   : <span style={{ flex: 1 }} />;
 
 // ── New Email ────────────────────────────────────────────────────────────────

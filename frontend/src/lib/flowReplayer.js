@@ -43,7 +43,7 @@ const _sleep = ms => new Promise(r => setTimeout(r, ms));
 function _pill() {
   const el = document.createElement('div');
   el.style.cssText = 'position:fixed;bottom:18px;right:18px;z-index:3000;display:flex;flex-direction:column;gap:8px;'
-    + 'background:#0f172a;color:#fff;border-radius:12px;padding:12px 16px;font:600 12.5px Inter,sans-serif;'
+    + 'background:#0f172a;color:#fff;border-radius:12px;padding:12px 16px;font:600 13px Inter,sans-serif;'
     + 'box-shadow:0 8px 30px rgba(0,0,0,.35);max-width:340px';
   el.innerHTML = '<div style="display:flex;align-items:center;gap:8px">'
     + '<span style="width:8px;height:8px;border-radius:50%;background:#3b82f6"></span>'

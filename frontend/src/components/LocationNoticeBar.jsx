@@ -20,10 +20,10 @@ const MAX_AGE_MS = 16 * 60 * 60 * 1000;   // the length of a shift; the server a
 const BAR = {
   position: 'sticky', top: 0, zIndex: 60,
   display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', margin: '0 0 8px',
-  background: '#FDE2E2', color: '#7f1d1d', border: '1px solid #f19999', borderRadius: 10, fontSize: '0.84rem',
+  background: '#FDE2E2', color: '#7f1d1d', border: '1px solid #f19999', borderRadius: 10, fontSize: 13,
   boxShadow: '0 2px 8px rgba(127, 29, 29, 0.14)',
 };
-const BTN = { border: '1px solid #e07a7a', background: '#fff1f1', color: '#7f1d1d', borderRadius: 8, padding: '4px 10px', font: 'inherit', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 };
+const BTN = { border: '1px solid #e07a7a', background: '#fff1f1', color: '#7f1d1d', borderRadius: 8, padding: '4px 10px', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 };
 const PRIMARY = { ...BTN, background: '#b91c1c', borderColor: '#b91c1c', color: '#fff' };
 const DONE = { ...BAR, background: '#DCFCE7', color: '#14532d', border: '1px solid #86efac', boxShadow: 'none' };
 

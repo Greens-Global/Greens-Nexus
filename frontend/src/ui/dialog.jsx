@@ -160,7 +160,7 @@ function DialogCard() {
   };
 
   const btnBase = {
-    padding: '9px 20px', borderRadius: 9, fontSize: 13.5, fontWeight: 600,
+    padding: '9px 20px', borderRadius: 9, fontSize: 13, fontWeight: 600,
     cursor: 'pointer', fontFamily: 'Inter, sans-serif', border: '1px solid transparent',
   };
 
@@ -189,7 +189,7 @@ function DialogCard() {
             boxShadow: '0 12px 40px rgba(0,0,0,.22)', fontFamily: 'Inter, sans-serif',
           }}
         >
-          <div style={{ fontSize: 16.5, fontWeight: 700, color: 'var(--ink, #17211c)', marginBottom: 8 }}>Save your changes?</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink, #17211c)', marginBottom: 8 }}>Save your changes?</div>
           <div style={{ fontSize: 14, color: 'var(--muted, #5b675f)', lineHeight: 1.55 }}>
             You have unsaved changes. Closing now will discard them.
           </div>
@@ -233,7 +233,7 @@ function DialogCard() {
         }}
       >
         {item.title && (
-          <div style={{ fontSize: 16.5, fontWeight: 700, color: 'var(--ink, #17211c)', marginBottom: 8 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink, #17211c)', marginBottom: 8 }}>
             {item.title}
           </div>
         )}

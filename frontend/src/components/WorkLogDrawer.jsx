@@ -44,7 +44,7 @@ export function TaskChecklist({ tasks, kind }) {
                 ? <CheckCircle size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 1.5 }} />
                 : <Circle size={14} style={{ color: 'var(--muted)', flexShrink: 0, marginTop: 1.5 }} />}
             <span style={{ fontSize: 13, lineHeight: 1.4, color: pending ? 'hsl(var(--color-orange))' : 'var(--ink)', fontWeight: pending ? 600 : 400 }}>
-              {pending && <span style={{ fontWeight: 700, fontSize: 10.5, letterSpacing: '.04em', textTransform: 'uppercase', marginRight: 6 }}>Pending:</span>}
+              {pending && <span style={{ fontWeight: 700, fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', marginRight: 6 }}>Pending:</span>}
               {it.text}
             </span>
           </div>
@@ -84,25 +84,25 @@ export function WorkLogButton({ onClick, title = 'View work log' }) {
 // message, and task checklist. `data` is the GET /timeclock/bod/day payload
 // (or null while loading, handled by the caller).
 export function WorkLogContent({ data, err }) {
-  if (err) return <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{err}</div>;
+  if (err) return <div style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{err}</div>;
   if (data === null) return <SkeletonBlocks count={2} height={90} />;
-  if (!data.bod && !data.eod) return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No work log posted for this day.</div>;
+  if (!data.bod && !data.eod) return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '6px 0' }}>No work log posted for this day.</div>;
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       {[['Beginning of day', data.bod, 'bod', 'Punched in', data.punchInAt, data.punchInTz],
         ['End of day', data.eod, 'eod', 'Punched out', data.punchOutAt, data.punchOutTz]].map(([label, slot, kind, punchLabel, punchAt, punchTz]) => (
         <div key={label} style={{ background: 'var(--mist)', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', flex: 1 }}>{label}</span>
             {punchAt && (
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }}>{punchLabel} {punchTime(punchAt, punchTz, data.date)}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--wk-brand, var(--ink))' }}>{punchLabel} {punchTime(punchAt, punchTz, data.date)}</span>
             )}
           </div>
           {slot ? (<>
             <div style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{slot.message || <span style={{ color: 'var(--muted)' }}>(no message)</span>}</div>
             <TaskChecklist tasks={slot.tasks} kind={kind} />
           </>) : (
-            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No {label.toLowerCase()} post.</span>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>No {label.toLowerCase()} post.</span>
           )}
         </div>
       ))}
@@ -141,7 +141,7 @@ export default function WorkLogDrawer({ email, date, name = '', onClose }) {
           <FileText size={17} style={{ color: 'var(--wk-brand, var(--pine))', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 800 }}>Work Log</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{name ? `${name} · ` : ''}{niceDate}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{name ? `${name} · ` : ''}{niceDate}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>

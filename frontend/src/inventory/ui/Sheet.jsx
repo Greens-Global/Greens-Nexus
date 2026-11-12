@@ -37,6 +37,6 @@ export function ItemQuestion({ title, onClose, children, footer, isDirty = false
 }
 
 // Field label: 12px, normal case (DESIGN.md: no uppercase tracking).
-export const LABEL = { fontSize: 12.5, fontWeight: 600, color: 'var(--wk-dim, var(--muted))', display: 'block', marginBottom: 6 };
+export const LABEL = { fontSize: 13, fontWeight: 600, color: 'var(--wk-dim, var(--muted))', display: 'block', marginBottom: 6 };
 export const HINT = { fontSize: 12, color: 'var(--muted)', margin: '6px 0 0', lineHeight: 1.45 };
-export const ERROR = { fontSize: 12.5, color: 'var(--bad-fg)', margin: '10px 0 0' };
+export const ERROR = { fontSize: 13, color: 'var(--bad-fg)', margin: '10px 0 0' };

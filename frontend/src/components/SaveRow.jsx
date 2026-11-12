@@ -32,7 +32,7 @@ export default function SaveRow({
     <div data-save-row="" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)', ...style }}>
       {onUseDefault && (
         <button type="button" className="secondary-btn" onClick={onUseDefault} disabled={busy || useDefaultBusy}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           {useDefaultBusy && <Spinner size={13} />} {useDefaultLabel}
         </button>
       )}
@@ -41,7 +41,7 @@ export default function SaveRow({
         {line}
       </span>
       {dirty && onDiscard && (
-        <button type="button" className="secondary-btn" onClick={onDiscard} disabled={busy} style={{ fontSize: 12.5 }}>Discard Changes</button>
+        <button type="button" className="secondary-btn" onClick={onDiscard} disabled={busy} style={{ fontSize: 13 }}>Discard Changes</button>
       )}
       <LoadingButton onClick={onSave} busy={busy} done={!!seen.savedAt} disabled={!dirty || saveDisabled} icon={<Check size={13} />}>
         {label}

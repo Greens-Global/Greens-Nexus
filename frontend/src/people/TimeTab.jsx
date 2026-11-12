@@ -90,11 +90,11 @@ function ShiftFacts({ email }) {
     <>
       <SectionHead icon={CalendarClock} title="Usual Hours">{link('Edit in Shifts')}</SectionHead>
       {body(state === false
-        ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>Open Shifts to see the usual hours.</div>
+        ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '6px 0' }}>Open Shifts to see the usual hours.</div>
         : <Row icon={CalendarClock} label="Usual Hours" value={state?.usual ? `${state.usual.name} · ${shiftTimeText(state.usual)}` : 'No usual hours'} />)}
       <SectionHead icon={Users} title="Shift Teams">{link('Manage in Shifts')}</SectionHead>
       {body(state === false
-        ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>Open Shifts to see the teams.</div>
+        ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '6px 0' }}>Open Shifts to see the teams.</div>
         : <Row icon={Users} label="Teams" value={state?.teams?.length ? state.teams.map(g => g.name).join(', ') : 'Not on a shift team'} />)}
     </>
   );
@@ -114,7 +114,7 @@ function TimeTrackingRow({ employeeId, canSeeComp }) {
   return (
     <>
       <Row icon={Clock} label="Time Tracking" value={payroll ? timeTrackingText(payroll) : 'Set on the role'} />
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Set on the person's role in Settings &gt; Access, beside the screen-share exemption.</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Set on the person's role in Settings &gt; Access, beside the screen-share exemption.</div>
     </>
   );
 }
@@ -135,7 +135,7 @@ function LeavePolicy({ email }) {
     </button>
   );
   if (b === null) return <SkeletonBlocks count={1} height={18} />;
-  if (!b || b.live === false) return <><div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>Leave balances are kept under People &gt; Time &gt; Time Off.</div>{open}</>;
+  if (!b || b.live === false) return <><div style={{ fontSize: 13, color: 'var(--muted)', padding: '6px 0' }}>Leave balances are kept under People &gt; Time &gt; Time Off.</div>{open}</>;
   if (b.benefitExempt) return <><Row icon={CalendarDays} label="Policy" value="Benefit exempt - no paid leave" />{open}</>;
   const pol = b.policy;
   return (
@@ -215,7 +215,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
 
       {!data ? <SkeletonBlocks count={3} height={40} /> : (
         <>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
             Nobody is tied to a single address. A person works remote, works from our locations - any of them - or is hybrid and does both.
           </div>
 
@@ -229,7 +229,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
                     borderRadius: 12, padding: 14, cursor: canEdit && !busy ? 'pointer' : 'default', font: 'inherit', color: 'inherit', opacity: !canEdit && !on ? 0.6 : 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                     <Icon size={15} style={{ color: on ? 'var(--pine)' : 'var(--muted)' }} />
-                    <span style={{ fontSize: 13.5, fontWeight: 700 }}>{o.title}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700 }}>{o.title}</span>
                     {on && (busy
                       ? <Spinner size={13} style={{ marginLeft: 'auto' }} />
                       : <CheckCircle size={14} style={{ marginLeft: 'auto', color: 'var(--pine)' }} />)}
@@ -241,16 +241,16 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
           </div>
 
           {gf.setBy && (
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
               Last changed by {gf.setBy}{gf.setAt ? ` on ${formatDate(gf.setAt)}` : ''}.
             </div>
           )}
 
           {mode !== 'remote' && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{firstName}'s Usual Locations</div>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{firstName}'s Usual Locations</div>
               {sites.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginBottom: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)', marginBottom: 10, flexWrap: 'wrap' }}>
                   <span>
                     {allowed.length
                       ? `${allowed.length === 1 ? 'This is' : `These ${allowed.length} locations are`} ${firstName}'s usual location${allowed.length === 1 ? '' : 's'} and win where two locations overlap. A punch at any company location counts as on-site; outside all of them is ${mode === 'hybrid' ? 'Remote' : 'Out of Location'}.`
@@ -258,7 +258,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
                   </span>
                   {allowed.length > 0 && canEdit && (
                     <button type="button" className="secondary-btn" disabled={busy} onClick={() => saveSites([])}
-                      style={{ fontSize: 11.5, padding: '3px 10px' }}>Clear Usual Locations</button>
+                      style={{ fontSize: 12, padding: '3px 10px' }}>Clear Usual Locations</button>
                   )}
                 </div>
               )}
@@ -274,7 +274,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
                     return (
                       <button key={st.id} type="button" aria-pressed={picked} disabled={!canEdit || busy} onClick={() => toggleSite(st.id)}
                         title={`${st.radiusM} m fence${canEdit ? (picked ? ' - click to remove' : ' - click to allow') : ''}`}
-                        style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 20, fontFamily: 'inherit', cursor: canEdit && !busy ? 'pointer' : 'default',
+                        style={{ fontSize: 12, fontWeight: 600, padding: '3px 9px', borderRadius: 20, fontFamily: 'inherit', cursor: canEdit && !busy ? 'pointer' : 'default',
                           background: picked ? 'var(--mist)' : 'transparent', border: `1px solid ${picked ? 'var(--pine)' : 'var(--line)'}`,
                           color: on ? 'var(--ink)' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         {picked && <CheckCircle size={11} style={{ color: 'var(--pine)' }} />}

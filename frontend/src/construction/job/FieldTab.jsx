@@ -17,8 +17,8 @@ import { clientId, useLoad } from '../lib/job';
 import { formatHoursWords } from '../../lib/hoursText';
 
 const go = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
-const h3 = { fontSize: '1rem', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 };
-const quiet = { fontSize: '0.85rem', color: 'var(--text-secondary)' };
+const h3 = { fontSize: 15, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)' };
 const FORM_STATUS = {
   submitted: ['Submitted', TONE.blue], reviewed: ['Reviewed', TONE.green],
   follow_up: ['Needs Follow-Up', TONE.yellow], closed: ['Closed', TONE.gray],
@@ -47,24 +47,24 @@ function Hours({ project }) {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
             <div>
-              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>
                 {data.ownOnly ? 'Your Hours' : 'By Person'}
               </div>
               {people.map(([em, h]) => (
-                <div key={em} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.86rem', padding: '4px 0', borderTop: '1px solid var(--border-color)' }}>
+                <div key={em} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '4px 0', borderTop: '1px solid var(--border-color)' }}>
                   <span>{personName(em, names)}</span><b style={{ fontVariantNumeric: 'tabular-nums' }}>{h} h</b>
                 </div>
               ))}
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.86rem', padding: '6px 0', borderTop: '1px solid var(--border-color)', fontWeight: 700 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '6px 0', borderTop: '1px solid var(--border-color)', fontWeight: 700 }}>
                 <span>Total</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{data.total} h</span>
               </div>
             </div>
             {/* Round Three (11/11/2026): the same hours by the cost code picked at punch-in. */}
             {(data.byCode || []).some((c) => c.code) && (
               <div data-hours-by-code="">
-                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>By Cost Code</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>By Cost Code</div>
                 {data.byCode.map((c) => (
-                  <div key={c.code || '-'} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: '0.86rem', padding: '4px 0', borderTop: '1px solid var(--border-color)' }}>
+                  <div key={c.code || '-'} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 14, padding: '4px 0', borderTop: '1px solid var(--border-color)' }}>
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.code ? (c.name ? `${c.code} - ${c.name}` : c.code) : 'Not Coded'}</span>
                     <b style={{ fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{formatHoursWords(c.hours, { compact: true })}</b>
                   </div>
@@ -72,9 +72,9 @@ function Hours({ project }) {
               </div>
             )}
             <div>
-              <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>By Day</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4 }}>By Day</div>
               {days.map((d) => (
-                <div key={d} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.86rem', padding: '4px 0', borderTop: '1px solid var(--border-color)' }}>
+                <div key={d} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, padding: '4px 0', borderTop: '1px solid var(--border-color)' }}>
                   <span>{formatDate(d, d)}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{data.byDay[d]} h</span>
                 </div>
               ))}
@@ -124,7 +124,7 @@ function Forms({ project }) {
             onClick={() => go('documents', `documents-forms:entry:${e.id}`)}
             style={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0',
               background: 'none', border: 'none', borderTop: '1px solid var(--border-color)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-            <span style={{ minWidth: 0, fontSize: '0.86rem' }}>
+            <span style={{ minWidth: 0, fontSize: 14 }}>
               <b>{e.title}</b>
               <span style={{ color: 'var(--text-secondary)' }}> · {e.submittedByName || personName(e.submittedBy, project.names)} · {formatDateTime(e.submittedAt, '')}</span>
             </span>
@@ -157,7 +157,7 @@ function Equipment({ project }) {
           {out.length === 0 ? <div style={quiet}>No equipment on this job. Equipment comes from Items checkouts held by the job's people.</div>
             : out.map((e) => (
               <div key={e.linkId} data-equipment={e.checkoutId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: '1px solid var(--border-color)' }}>
-                <span style={{ fontSize: '0.86rem', minWidth: 0 }}>
+                <span style={{ fontSize: 14, minWidth: 0 }}>
                   <b>{e.itemName}</b>
                   <span style={{ color: 'var(--text-secondary)' }}> · {e.holderName || personName(e.holderEmail, project.names)}{e.handedOverAt ? ` · since ${formatDate(e.handedOverAt, '')}` : ''}</span>
                 </span>
@@ -177,7 +177,7 @@ function Equipment({ project }) {
               <button className="secondary-btn" disabled={!pick || busy} onClick={add}><Plus size={14} />Add to Job</button>
             </div>
           )}
-          {err && <div role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))', marginTop: 6 }}>{err}</div>}
+          {err && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginTop: 6 }}>{err}</div>}
         </>
       )}
     </Section>

@@ -106,11 +106,11 @@ const LOCK_HINT = 'Each file opens with a one-time code emailed to you, for 90 m
 
 const pct = (n) => `${(Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const hint = { fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 };
-const linkBtn = { border: 'none', background: 'none', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', padding: 0 };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
+const hint = { fontSize: 11, color: 'var(--text-muted)', marginTop: 3 };
+const linkBtn = { border: 'none', background: 'none', font: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', padding: 0 };
 
 // The PDF goes to the server and back for its password (pdf-lib cannot
 // encrypt). Bytes <-> base64 in slices, so a large file does not overflow
@@ -354,7 +354,7 @@ export default function PfsTab({ canEdit = false }) {
           <ControlBar>
             <GuarantorPicker profiles={profiles || []} current={current} canEdit={canEdit} locks={locks} onPick={pickFile} onNew={() => setCreating(true)} onReorder={reorderProfiles} />
             {profile && fileOpen && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
                 <span aria-hidden="true">Statement Type</span>
                 <select aria-label="Statement Type" value={profile.kind || 'individual'} disabled={!canEdit || kindBusy} onChange={(e) => changeKind(e.target.value)} style={control}>
                   {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -368,7 +368,7 @@ export default function PfsTab({ canEdit = false }) {
                     and it is there before any file is opened. */}
                 {canEdit && (
                   <button type="button" className="secondary-btn" onClick={() => setShowLog(true)} title="Who opened, viewed and exported each statement, and when"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px', whiteSpace: 'nowrap' }}>
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px', whiteSpace: 'nowrap' }}>
                     <HistoryIcon size={14} /> Access Log
                   </button>
                 )}
@@ -378,7 +378,7 @@ export default function PfsTab({ canEdit = false }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 {locks.untilOf(profile.id) && <PfsLockNow fileId={profile.id} until={locks.untilOf(profile.id)} onLocked={locks.markLocked} />}
                 <CompletenessButton count={gapCount(gaps)} open={completeOpen} onClick={() => setCompleteOpen((o) => !o)} />
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>As of</span>
                 <span style={{ ...control, display: 'flex', alignItems: 'center' }}><DateField value={asOf} onChange={(picked) => { const v = picked || ''; return v && setAsOf(v); }} placeholder="MM/DD/YYYY" title="Statement date" style={{ width: '100%' }} /></span>
                 <SyncButton onSync={onSync} busy={syncing} syncedAt={ts.syncedAt} what="Statement" />
                 {/* Oct 6 (Charmi): "an option to Export to Excel and PDF and not
@@ -411,16 +411,16 @@ export default function PfsTab({ canEdit = false }) {
         {asking && <PdfPassword next={asking} onCancel={() => setAsking('')} onGo={afterPassword} />}
         {error && <div style={bad}>{error}</div>}
         {openId && !fileOpen && <PfsUnlockPanel key={openId} file={current || { id: openId }} onUnlocked={locks.markOpen} />}
-        {(!openId || fileOpen) && !profile && !working && <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{canEdit ? 'Nobody is set up yet. Start with New Guarantor: a person, a couple filing jointly, or a trust.' : 'No guarantor has been set up yet.'}</div>}
+        {(!openId || fileOpen) && !profile && !working && <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>{canEdit ? 'Nobody is set up yet. Start with New Guarantor: a person, a couple filing jointly, or a trust.' : 'No guarantor has been set up yet.'}</div>}
         {fileOpen && !profile && working && <SkeletonBlocks count={3} />}
         {profile && fileOpen && (
           <>
-            {note && <div role="status" style={{ fontSize: '0.8rem', color: 'var(--ok-fg, #15803d)' }}>{note}</div>}
+            {note && <div role="status" style={{ fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>{note}</div>}
             {shownMismatch && <ShareMismatch data={shownMismatch} onUpdate={() => resolveMismatch('update')} onKeep={() => resolveMismatch('keep')} />}
             {(statement?.warnings || []).length > 0 && (
               <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'grid', gap: 4 }}>
                 {statement.warnings.map((w) => (
-                  <div key={w} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.8rem', color: 'var(--warn-fg)' }}><AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{w}</div>
+                  <div key={w} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--warn-fg)' }}><AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{w}</div>
                 ))}
               </div>
             )}
@@ -501,8 +501,8 @@ function GuarantorPicker({ profiles, current, canEdit, locks, onPick, onNew, onR
         style={{ display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%', minWidth: 220, border: '1px solid var(--border-color)', borderRadius: 8, background: 'var(--bg-card)', color: 'var(--text-primary)', font: 'inherit', padding: '4px 10px', cursor: 'pointer', textAlign: 'left' }}>
         {current && lock(current)}
         <span style={{ minWidth: 0, flex: 1 }}>
-          <span style={{ display: 'block', fontSize: '0.95rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current ? nameOf(current) : 'Pick a Guarantor'}</span>
-          {current && <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{KINDS[current.kind] || 'Individual'}{current.archived ? ' · Archived' : ''}</span>}
+          <span style={{ display: 'block', fontSize: 15, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current ? nameOf(current) : 'Pick a Guarantor'}</span>
+          {current && <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{KINDS[current.kind] || 'Individual'}{current.archived ? ' · Archived' : ''}</span>}
         </span>
         <ChevronDown size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
@@ -515,7 +515,7 @@ function GuarantorPicker({ profiles, current, canEdit, locks, onPick, onNew, onR
           </div>
         )}
         <div role="listbox" aria-label="Guarantor files" style={{ display: 'grid', gap: 1, maxHeight: 'min(480px, calc(100vh - 220px))', overflowY: 'auto' }}>
-          {!profiles.length && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '6px 4px' }}>Nobody is set up yet. A guarantor is a person, a couple filing jointly, or a trust.</div>}
+          {!profiles.length && <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '6px 4px' }}>Nobody is set up yet. A guarantor is a person, a couple filing jointly, or a trust.</div>}
           {shown.map((p) => {
             // Oct 14 (Neil): Move Up / Move Down, within the full list (archived
             // files stay last on the server), not while a search narrows it.
@@ -533,8 +533,8 @@ function GuarantorPicker({ profiles, current, canEdit, locks, onPick, onNew, onR
                   style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, textAlign: 'left', border: 'none', borderRadius: 6, padding: '6px 8px', font: 'inherit', cursor: 'pointer', color: 'var(--text-primary)', background: 'none', opacity: p.archived ? 0.55 : 1 }}>
                   {lock(p)}
                   <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'normal' }}>{nameOf(p)}</span>
-                    <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{KINDS[p.kind] || 'Individual'}{p.archived ? ' · Archived' : ''}</span>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'normal' }}>{nameOf(p)}</span>
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{KINDS[p.kind] || 'Individual'}{p.archived ? ' · Archived' : ''}</span>
                   </span>
                 </button>
                 {arrows && (
@@ -546,12 +546,12 @@ function GuarantorPicker({ profiles, current, canEdit, locks, onPick, onNew, onR
               </div>
             );
           })}
-          {profiles.length > 0 && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>No guarantor matches.</div>}
+          {profiles.length > 0 && !shown.length && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 6 }}>No guarantor matches.</div>}
         </div>
         {canEdit && (
           <div style={{ borderTop: '1px solid var(--border-color)', marginTop: 6, paddingTop: 6 }}>
             <button type="button" onClick={() => { setOpen(false); onNew(); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', border: 'none', background: 'none', borderRadius: 6, padding: '6px 8px', font: 'inherit', fontSize: '0.8rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', border: 'none', background: 'none', borderRadius: 6, padding: '6px 8px', font: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer' }}>
               <Plus size={14} /> New Guarantor
             </button>
           </div>
@@ -583,8 +583,8 @@ function PdfPassword({ next, onCancel, onGo }) {
         {short && <div style={{ ...hint, color: 'var(--bad-fg, #dc2626)' }}>A password is at least 4 characters.</div>}
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
-        <button type="button" className="secondary-btn" onClick={onCancel} style={{ fontSize: '0.78rem' }}>Cancel</button>
-        <button type="submit" className="primary-btn" disabled={short} style={{ fontSize: '0.78rem' }}>{action}</button>
+        <button type="button" className="secondary-btn" onClick={onCancel} style={{ fontSize: 13 }}>Cancel</button>
+        <button type="submit" className="primary-btn" disabled={short} style={{ fontSize: 13 }}>{action}</button>
       </div>
     </form>
   );
@@ -598,12 +598,12 @@ function ShareMismatch({ data, onUpdate, onKeep }) {
   const n = data.count;
   return (
     <div role="region" aria-label="Share differs from Affiliated Entities" style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'grid', gap: 6 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: '0.8rem', color: 'var(--warn-fg)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13, color: 'var(--warn-fg)' }}>
         <AlertTriangle size={14} style={{ flexShrink: 0 }} />
         <span style={{ flex: '1 1 260px' }}>{n} {n === 1 ? 'line uses' : 'lines use'} a different % than Affiliated Entities.</span>
         <button type="button" style={linkBtn} onClick={() => setOpen((v) => !v)}>{open ? 'Hide' : 'Show'}</button>
-        <button type="button" className="primary-btn" disabled={busy} onClick={() => act(onUpdate)} style={{ fontSize: '0.76rem', padding: '3px 12px' }}>Update</button>
-        <button type="button" className="secondary-btn" disabled={busy} onClick={() => act(onKeep)} style={{ fontSize: '0.76rem', padding: '3px 12px' }}>Keep</button>
+        <button type="button" className="primary-btn" disabled={busy} onClick={() => act(onUpdate)} style={{ fontSize: 12, padding: '3px 12px' }}>Update</button>
+        <button type="button" className="secondary-btn" disabled={busy} onClick={() => act(onKeep)} style={{ fontSize: 12, padding: '3px 12px' }}>Keep</button>
       </div>
       {open && (
         <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
@@ -647,12 +647,12 @@ function Summary({ statement, past, nameOf, onReprint }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ ...label, color: 'var(--wk-brand, #2b45e1)', marginBottom: 2 }}>Statement of Financial Condition</div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>{statement.profile?.displayName || statement.profile?.name}</div>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>As of {formatDate(statement.asOf)} · {KIND_TEXT[statement.profile?.kind] || 'Individual'} statement · amounts at the share owned</div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>{statement.profile?.displayName || statement.profile?.name}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>As of {formatDate(statement.asOf)} · {KIND_TEXT[statement.profile?.kind] || 'Individual'} statement · amounts at the share owned</div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={label}>Net Worth</div>
-            <div style={{ fontSize: '1.35rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: statement.totals.netWorth < 0 ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}><Amount value={statement.totals.netWorth} /></div>
+            <div style={{ fontSize: 24, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: statement.totals.netWorth < 0 ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}><Amount value={statement.totals.netWorth} /></div>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 14, alignItems: 'start' }}>
@@ -684,7 +684,7 @@ function Summary({ statement, past, nameOf, onReprint }) {
                 </tbody>
               </table>
             ) : (
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                 {a?.answer === 'Yes' ? `Guarantor, co-maker or endorser on other debt: Yes${a.note ? ` - ${a.note}` : ''}.` : a?.answer === 'No' ? 'None. Not a guarantor, co-maker or endorser on any other debt.' : 'None listed. The answer on History and Profile ("guarantor, co-maker or endorser") is printed here.'}
               </div>
             )}
@@ -698,7 +698,7 @@ function Summary({ statement, past, nameOf, onReprint }) {
                   <tr className="acct-grand"><td>Total Annual Income</td><td className="acct-num"><Amount value={cond.income.total} /></td></tr>
                 </tbody>
               </table>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>At the share owned, from each entity's ledger for the calendar year.</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>At the share owned, from each entity's ledger for the calendar year.</div>
             </div>
           )}
         </div>
@@ -706,8 +706,8 @@ function Summary({ statement, past, nameOf, onReprint }) {
       {inv && (
         <section aria-label="Investments" style={{ ...card, padding: '12px 16px', display: 'grid', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
-            <strong style={{ fontSize: '0.9rem' }}>{inv.label || 'Investments'}</strong>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Total Investments <strong style={{ color: 'var(--text-primary)' }}><Amount value={inv.total} /></strong></span>
+            <strong style={{ fontSize: 15 }}>{inv.label || 'Investments'}</strong>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Total Investments <strong style={{ color: 'var(--text-primary)' }}><Amount value={inv.total} /></strong></span>
           </div>
           <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
             <tbody>
@@ -716,7 +716,7 @@ function Summary({ statement, past, nameOf, onReprint }) {
                   <tr className="acct-section"><td>{g.key === 'real_estate_equity' ? 'Real Estate (Equity)' : g.label}</td><td className="acct-num"><Amount value={g.total} /></td></tr>
                   {g.rows.map((r) => (
                     <tr key={r.id}>
-                      <td style={{ paddingLeft: 18 }}>{r.label}{g.key === 'real_estate_equity' && r.categoryLabel ? <span style={{ marginLeft: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.categoryLabel}</span> : null}</td>
+                      <td style={{ paddingLeft: 18 }}>{r.label}{g.key === 'real_estate_equity' && r.categoryLabel ? <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-muted)' }}>{r.categoryLabel}</span> : null}</td>
                       <td className="acct-num"><Amount value={g.key === 'real_estate_equity' ? r.equity : r.adjusted} /></td>
                     </tr>
                   ))}
@@ -725,12 +725,12 @@ function Summary({ statement, past, nameOf, onReprint }) {
               <tr className="acct-grand"><td>Total Investments</td><td className="acct-num"><Amount value={inv.total} /></td></tr>
             </tbody>
           </table>
-          {inv.note && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{inv.note}</div>}
+          {inv.note && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{inv.note}</div>}
         </section>
       )}
       <div style={{ ...card, padding: 12 }}>
         <div style={label}>Statements Produced</div>
-        {!past.length && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>None yet. Every export keeps the statement exactly as it was sent.</div>}
+        {!past.length && <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>None yet. Every export keeps the statement exactly as it was sent.</div>}
         {past.length > 0 && (
           <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
             <thead><tr><th scope="col">As Of</th><th scope="col">Produced</th><th scope="col">By</th><th scope="col" className="acct-num">Net Worth</th><th scope="col" aria-label="Open" /></tr></thead>
@@ -786,16 +786,16 @@ function PhotoField({ title, value, onChange, canEdit, alt, own = false }) {
       <div style={label}>{title}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         {value ? <img src={value} alt={alt} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border-color)' }} />
-          : <div style={{ width: 72, height: 72, borderRadius: 8, border: '1px dashed var(--border-color)', display: 'grid', placeItems: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>No photo</div>}
+          : <div style={{ width: 72, height: 72, borderRadius: 8, border: '1px dashed var(--border-color)', display: 'grid', placeItems: 'center', fontSize: 11, color: 'var(--text-muted)' }}>No photo</div>}
         {canEdit && (
           <div style={{ display: 'grid', gap: 4 }}>
             <div style={{ display: 'flex', gap: 6 }}>
-              <label className="secondary-btn" style={{ fontSize: '0.76rem', cursor: 'pointer' }}>
+              <label className="secondary-btn" style={{ fontSize: 12, cursor: 'pointer' }}>
                 Choose Photo<input type="file" accept="image/*" aria-label={`Choose ${title}`} style={{ display: 'none' }} onChange={(e) => pick(e.target.files?.[0])} />
               </label>
-              {value && <button type="button" className="secondary-btn" style={{ fontSize: '0.76rem' }} onClick={() => onChange('')}>Remove</button>}
+              {value && <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={() => onChange('')}>Remove</button>}
             </div>
-            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{own ? 'or click here and press Ctrl+V to paste one' : 'or press Ctrl+V to paste one'}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{own ? 'or click here and press Ctrl+V to paste one' : 'or press Ctrl+V to paste one'}</span>
           </div>
         )}
       </div>
@@ -920,7 +920,7 @@ function Borrower({ profile, canEdit, onSave }) {
       <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12, display: 'grid', gap: 10 }}>
         <div>
           <div style={{ ...label, marginBottom: 2 }}>Co-Borrower</div>
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>The spouse or co-borrower on the statement, printed with the borrower's name and signing too. Leave the name blank for a statement in one name.</div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>The spouse or co-borrower on the statement, printed with the borrower's name and signing too. Leave the name blank for a statement in one name.</div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
           {CO_BORROWER.map(([k, text, type]) => field(k, text, type, details.coBorrower?.[k], (v) => setCo(k, v), 'pfs-co-'))}
@@ -938,16 +938,16 @@ function Borrower({ profile, canEdit, onSave }) {
                 {canEdit && <button type="button" style={icon} aria-label={`Remove party ${i + 1}`} onClick={() => set('members', members.filter((_, k) => k !== i))}><Trash2 size={14} /></button>}
               </div>
             ))}
-            {canEdit && members.length < 6 && <button type="button" className="secondary-btn" style={{ fontSize: '0.76rem', justifySelf: 'start', display: 'inline-flex', gap: 6, alignItems: 'center' }} onClick={() => set('members', [...members, { name: '', role: '' }])}><Plus size={13} /> Add Party</button>}
+            {canEdit && members.length < 6 && <button type="button" className="secondary-btn" style={{ fontSize: 12, justifySelf: 'start', display: 'inline-flex', gap: 6, alignItems: 'center' }} onClick={() => set('members', [...members, { name: '', role: '' }])}><Plus size={13} /> Add Party</button>}
           </div>
         </div>
       )}
       {error && <div style={bad}>{error}</div>}
-      {saved && !dirty && !error && <div style={{ fontSize: '0.78rem', color: 'hsl(var(--color-green))', fontWeight: 600 }}>Saved. The statement reads these details now.</div>}
+      {saved && !dirty && !error && <div style={{ fontSize: 13, color: 'hsl(var(--color-green))', fontWeight: 600 }}>Saved. The statement reads these details now.</div>}
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy || !name.trim() || zipBad} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : 'Save Changes'}</button>
-          {dirty && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved Changes</span>}
+          <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy || !name.trim() || zipBad} style={{ fontSize: 13 }}>{busy ? 'Saving...' : 'Save Changes'}</button>
+          {dirty && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Unsaved Changes</span>}
         </div>
       )}
     </div>
@@ -975,7 +975,7 @@ function History({ profile, canEdit, onSave }) {
         <div style={{ display: 'grid', gap: 6 }}>
           {history.map((h, i) => (
             <div key={h.question} style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 2fr) 110px minmax(180px, 2fr)', gap: 8, alignItems: 'center' }}>
-              <span style={{ fontSize: '0.82rem' }}>{h.question}</span>
+              <span style={{ fontSize: 13 }}>{h.question}</span>
               <select value={h.answer || ''} disabled={!canEdit} aria-label={`Answer: ${h.question}`} onChange={(e) => set(i, { answer: e.target.value })} style={control}>
                 <option value="">Not answered</option><option value="No">No</option><option value="Yes">Yes</option>
               </select>
@@ -987,8 +987,8 @@ function History({ profile, canEdit, onSave }) {
       {error && <div style={bad}>{error}</div>}
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : 'Save Changes'}</button>
-          {dirty && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved Changes</span>}
+          <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy} style={{ fontSize: 13 }}>{busy ? 'Saving...' : 'Save Changes'}</button>
+          {dirty && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Unsaved Changes</span>}
         </div>
       )}
     </div>
@@ -1070,14 +1070,14 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                   <td>
                     {real ? (l.details?.legal_owner || '')
                       : missing ? (editable
-                        ? <button type="button" className="acct-drill" onClick={() => onEdit(l, 'institution')} style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }} title="No bank record or bank name was found for this account">Not found - Set It</button>
+                        ? <button type="button" className="acct-drill" onClick={() => onEdit(l, 'institution')} style={{ color: 'var(--text-muted)', fontSize: 13 }} title="No bank record or bank name was found for this account">Not found - Set It</button>
                         : <span style={{ color: 'var(--text-muted)' }}>Not found</span>)
                         : (f ? f.institution : l.institution)}
                   </td>
                   <td style={{ color: 'var(--text-secondary)' }} title={from}>{from}</td>
                   <td className="acct-num" title={shareSource(l)}>
                     <Figure text={pct(l.ownershipPct)} />
-                    {l.shareFrom === 'affiliated' && <span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>Affiliated</span>}
+                    {l.shareFrom === 'affiliated' && <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>Affiliated</span>}
                   </td>
                   {real ? <><td className="acct-num"><Amount value={f?.valueAdjusted} /></td><td className="acct-num"><Amount value={f?.loanAdjusted} /></td><td className="acct-num"><Amount value={f?.equity} /></td></>
                     : <><td className="acct-num"><Amount value={f?.balance} /></td><td className="acct-num"><Amount value={f?.adjusted} /></td></>}
@@ -1088,7 +1088,7 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                         <button type="button" className="acct-drill" onClick={() => setConfirm('')}>Keep</button>
                       </>
                     ) : moving === l.id ? (
-                      <select autoFocus value={`${l.section}:${l.category}`} aria-label={`Move ${l.label} to`} style={{ ...control, height: 26, fontSize: '0.76rem' }}
+                      <select autoFocus value={`${l.section}:${l.category}`} aria-label={`Move ${l.label} to`} style={{ ...control, height: 26, fontSize: 12 }}
                         onBlur={() => setMoving('')}
                         onChange={(e) => { const [s, k] = e.target.value.split(':'); setMoving(''); if (s !== l.section || k !== l.category) onMove(l, s, k); }}>
                         {allCategories.map((g) => (
@@ -1128,10 +1128,10 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
     return (
       <div key={c.key} style={nested ? { border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 } : { ...card, padding: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: rows.length ? 6 : 0 }}>
-          <strong style={{ fontSize: '0.86rem' }}>{c.label}</strong>
-          {canEdit && <button type="button" className="secondary-btn" onClick={() => onAdd(c.key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', padding: '3px 10px' }}><Plus size={12} /> Add</button>}
+          <strong style={{ fontSize: 14 }}>{c.label}</strong>
+          {canEdit && <button type="button" className="secondary-btn" onClick={() => onAdd(c.key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '3px 10px' }}><Plus size={12} /> Add</button>}
         </div>
-        {rows.length > 0 ? table(c, rows) : <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Nothing listed.</div>}
+        {rows.length > 0 ? table(c, rows) : <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nothing listed.</div>}
       </div>
     );
   };
@@ -1144,14 +1144,14 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
   const investBlock = investCats.length > 0 && (
     <section key="investments" aria-label="Investments" style={{ ...card, padding: 10, display: 'grid', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-        <strong style={{ fontSize: '0.92rem' }}>Investments</strong>
-        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Total Investments <strong style={{ color: 'var(--text-primary)' }}><Amount value={investTotal} /></strong></span>
+        <strong style={{ fontSize: 15 }}>Investments</strong>
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Total Investments <strong style={{ color: 'var(--text-primary)' }}><Amount value={investTotal} /></strong></span>
       </div>
       {investCats.map((c) => categoryCard(c, true))}
       <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: reEquity?.rows?.length ? 6 : 0 }}>
-          <strong style={{ fontSize: '0.86rem' }}>Real Estate (Equity)</strong>
-          <button type="button" className="acct-drill" onClick={onOpenRealEstate} style={{ fontSize: '0.76rem' }}>Open Real Estate</button>
+          <strong style={{ fontSize: 14 }}>Real Estate (Equity)</strong>
+          <button type="button" className="acct-drill" onClick={onOpenRealEstate} style={{ fontSize: 12 }}>Open Real Estate</button>
         </div>
         {reEquity?.rows?.length ? (
           <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
@@ -1159,7 +1159,7 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
             <tbody>
               {reEquity.rows.map((r) => (
                 <tr key={r.id}>
-                  <td><button type="button" className="acct-drill" onClick={onOpenRealEstate}>{r.label}</button>{r.categoryLabel ? <span style={{ marginLeft: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.categoryLabel}</span> : null}</td>
+                  <td><button type="button" className="acct-drill" onClick={onOpenRealEstate}>{r.label}</button>{r.categoryLabel ? <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-muted)' }}>{r.categoryLabel}</span> : null}</td>
                   <td className="acct-num"><Figure text={pct(r.ownershipPct)} /></td>
                   <td className="acct-num"><Amount value={r.valueAdjusted} /></td><td className="acct-num"><Amount value={r.loanAdjusted} /></td><td className="acct-num"><Amount value={r.equity} /></td>
                 </tr>
@@ -1167,9 +1167,9 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
               <tr className="acct-grand"><td colSpan={4}>Total Real Estate - Equity</td><td className="acct-num"><Amount value={reEquity.total} /></td></tr>
             </tbody>
           </table>
-        ) : <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>No property on the Real Estate tab.</div>}
+        ) : <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No property on the Real Estate tab.</div>}
       </div>
-      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{investments?.note || 'Real estate is shown here at equity; its market value and loans are counted once, in the totals.'}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{investments?.note || 'Real estate is shown here at equity; its market value and loans are counted once, in the totals.'}</div>
     </section>
   );
   let investDone = false;
@@ -1177,10 +1177,10 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
     <div style={{ display: 'grid', gap: 10 }}>
       {canEdit && onBulk && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <button type="button" className="primary-btn" onClick={onBulk} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+          <button type="button" className="primary-btn" onClick={onBulk} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}>
             <Database size={14} /> Add From the Ledger
           </button>
-          <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{bulkHint}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{bulkHint}</span>
         </div>
       )}
       {categories.map((c) => {
@@ -1194,13 +1194,13 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
       {retiredLines.length > 0 && (
         <div style={{ ...card, padding: 10 }}>
           <div style={{ marginBottom: 6 }}>
-            <strong style={{ fontSize: '0.86rem' }}>{retired[0]?.label ? `${retired[0].label} (Retired)` : 'Contingent Liabilities (Retired)'}</strong>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>No longer a section of the statement. These lines are kept as they were, listed here read-only, and never added into total liabilities.</div>
+            <strong style={{ fontSize: 14 }}>{retired[0]?.label ? `${retired[0].label} (Retired)` : 'Contingent Liabilities (Retired)'}</strong>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>No longer a section of the statement. These lines are kept as they were, listed here read-only, and never added into total liabilities.</div>
           </div>
           {table({ key: retiredLines[0].category, label: retired[0]?.label || 'Contingent Liabilities' }, retiredLines, true)}
         </div>
       )}
-      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Figures are as of {formatDate(asOf)}. Adjusted = balance at the share owned; hover a share to see where it comes from.</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Figures are as of {formatDate(asOf)}. Adjusted = balance at the share owned; hover a share to see where it comes from.</div>
     </div>
   );
 }
@@ -1267,7 +1267,7 @@ function FigureSource({ value, onChange, asOf, idPrefix, manualLabel, asOfLabel 
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={label}>Accounts - balance as of {formatDate(asOf)}</span>
-                <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{picked.size} picked · <Amount value={sum} /></span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{picked.size} picked · <Amount value={sum} /></span>
               </div>
               <div style={{ position: 'relative' }}>
                 <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
@@ -1277,20 +1277,20 @@ function FigureSource({ value, onChange, asOf, idPrefix, manualLabel, asOfLabel 
                 {!accounts && <SkeletonBlocks count={2} height={28} />}
                 {shown.map((a) => (
                   <button key={a.code} type="button" role="option" aria-selected={picked.has(a.code)} onClick={() => toggle(a.code)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, background: picked.has(a.code) ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '4px 8px', font: 'inherit', fontSize: '0.8rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, background: picked.has(a.code) ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '4px 8px', font: 'inherit', fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
                     <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{picked.has(a.code) ? <Check size={14} /> : null}</span>
                     <span style={{ color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{a.code}</span>
                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</span>
                     <Amount value={a.amount} />
                   </button>
                 ))}
-                {accounts && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 8 }}>{accounts.length ? 'No account matches.' : 'This entity has no balance sheet accounts as of this date.'}</div>}
+                {accounts && !shown.length && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 8 }}>{accounts.length ? 'No account matches.' : 'This entity has no balance sheet accounts as of this date.'}</div>}
               </div>
             </div>
           )}
         </div>
       )}
-      {error && <div style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
+      {error && <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
     </div>
   );
 }
@@ -1440,7 +1440,7 @@ function LedgerBulkAdd({ section, profileId, categories, asOf, onClose, onSave }
         <div className="modal-header" style={{ flexShrink: 0 }}>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Add {SECTION_LABEL[section]} From the Ledger</h3>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
               {real ? 'Each land or building account picked becomes a property line that reads the ledger; its mortgage account is the loan.' : 'Each account picked becomes a line that reads the ledger as of the statement date.'} Balances shown are as of {formatDate(asOf)}.
             </div>
           </div>
@@ -1480,10 +1480,10 @@ function LedgerBulkAdd({ section, profileId, categories, asOf, onClose, onSave }
                   <Search size={12} style={{ position: 'absolute', left: 8, top: 9, color: 'var(--text-muted)' }} />
                   <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search account by name or code" aria-label="Search account by name or code" style={{ ...control, width: '100%', paddingLeft: 26 }} />
                 </div>
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{picked.length} picked · at share <Amount value={total} /></span>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{picked.length} picked · at share <Amount value={total} /></span>
               </div>
               {!accounts && <SkeletonBlocks count={3} height={28} />}
-              {accounts && !shown.length && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: 8 }}>{accounts.length ? 'No account matches.' : `This entity has no ${real ? 'asset' : section} accounts with a balance as of this date.`}</div>}
+              {accounts && !shown.length && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 8 }}>{accounts.length ? 'No account matches.' : `This entity has no ${real ? 'asset' : section} accounts with a balance as of this date.`}</div>}
               {groups.length > 0 && (
                 <div className="acct-lines-wrap" style={{ maxHeight: 'none' }}>
                   <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
@@ -1507,21 +1507,21 @@ function LedgerBulkAdd({ section, profileId, categories, asOf, onClose, onSave }
                             return (
                               <tr key={a.code}>
                                 <td><input type="checkbox" aria-label={`${a.code} ${a.title}`} checked={st.on} onChange={(e) => setRow(a.code, { on: e.target.checked })} /></td>
-                                <td><span className="acct-code">{a.code}</span>{a.title}{a.suggested && a.suggested.section !== section && <span style={{ marginLeft: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>looks like {SECTION_LABEL[a.suggested.section]?.toLowerCase()}</span>}</td>
+                                <td><span className="acct-code">{a.code}</span>{a.title}{a.suggested && a.suggested.section !== section && <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>looks like {SECTION_LABEL[a.suggested.section]?.toLowerCase()}</span>}</td>
                                 <td>
-                                  <select value={st.category} aria-label={`Category for ${a.code}`} onChange={(e) => setRow(a.code, { category: e.target.value, on: true })} style={{ ...control, height: 26, fontSize: '0.76rem', maxWidth: 180 }}>
+                                  <select value={st.category} aria-label={`Category for ${a.code}`} onChange={(e) => setRow(a.code, { category: e.target.value, on: true })} style={{ ...control, height: 26, fontSize: 12, maxWidth: 180 }}>
                                     {categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
                                   </select>
                                 </td>
                                 {real && (
                                   <td>
-                                    <select value={st.loan || ''} aria-label={`Mortgage account for ${a.code}`} onChange={(e) => setRow(a.code, { loan: e.target.value, on: true })} style={{ ...control, height: 26, fontSize: '0.76rem', maxWidth: 220 }}>
+                                    <select value={st.loan || ''} aria-label={`Mortgage account for ${a.code}`} onChange={(e) => setRow(a.code, { loan: e.target.value, on: true })} style={{ ...control, height: 26, fontSize: 12, maxWidth: 220 }}>
                                       <option value="">No loan on the ledger</option>
                                       {loans.map((x) => <option key={x.code} value={x.code}>{x.code} {x.title}</option>)}
                                     </select>
                                   </td>
                                 )}
-                                <td className="acct-num"><input type="number" min="0" max="100" step="0.01" value={pctOf(st)} aria-label={`Share for ${a.code}`} onChange={(e) => setRow(a.code, { pct: e.target.value, on: true })} style={{ ...control, height: 26, width: 84, fontSize: '0.76rem', textAlign: 'right' }} /></td>
+                                <td className="acct-num"><input type="number" min="0" max="100" step="0.01" value={pctOf(st)} aria-label={`Share for ${a.code}`} onChange={(e) => setRow(a.code, { pct: e.target.value, on: true })} style={{ ...control, height: 26, width: 84, fontSize: 12, textAlign: 'right' }} /></td>
                                 <td className="acct-num"><Amount value={a.amount} /></td>
                               </tr>
                             );
@@ -1533,7 +1533,7 @@ function LedgerBulkAdd({ section, profileId, categories, asOf, onClose, onSave }
                 </div>
               )}
               {picked.length > 0 && (
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
                   Listed under: {[...new Set(picked.map((a) => state(a).category))].map(catLabel).join(', ')}. An account already on this statement from the same entity is skipped.
                 </div>
               )}
@@ -1654,7 +1654,7 @@ function LineEditor({ line, profileId, categories, asOf, onClose, onSave }) {
           </div>
           <div>
             <div style={label}>{real ? 'Market Value' : jewelry ? 'Appraised Value' : 'Balance'}</div>
-            {jewelry && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: 6 }}>Personal holdings - jewelry, art, furnishings, personal property - are kept by hand: the appraised value and the date of the appraisal.</div>}
+            {jewelry && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Personal holdings - jewelry, art, furnishings, personal property - are kept by hand: the appraised value and the date of the appraisal.</div>}
             <FigureSource idPrefix="pfs-fig" asOf={asOf} manualLabel={real ? 'Fair Market Value' : jewelry ? 'Appraised Value' : 'Balance'} asOfLabel={jewelry ? 'Appraisal Date' : 'Figure Taken On'} value={figure}
               onChange={(f) => set({ source: f.source, ledgerEntity: f.entity || '', ledgerAccounts: f.accounts || [], manualValue: f.value, manualAsOf: f.asOf })} />
           </div>
@@ -1742,7 +1742,7 @@ function NewGuarantor({ onClose, onCreate }) {
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>New Guarantor</h3>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>Add each guarantor once; a joint statement lists both names.</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>Add each guarantor once; a joint statement lists both names.</div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>

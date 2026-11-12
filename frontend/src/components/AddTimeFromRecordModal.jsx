@@ -25,8 +25,8 @@ import { TimeField, DateField } from '../tasks/components';
 import { filesFromPaste } from '../tasks/lib';
 
 const field = { border: '1px solid var(--line)', borderRadius: 8, padding: '6px 8px', fontSize: 13, fontFamily: 'inherit', background: 'var(--card)', color: 'var(--ink)' };
-const small = { ...field, padding: '4px 6px', fontSize: 12.5, minWidth: 0, width: '100%', boxSizing: 'border-box' };
-const lab = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'block', marginBottom: 4 };
+const small = { ...field, padding: '4px 6px', fontSize: 13, minWidth: 0, width: '100%', boxSizing: 'border-box' };
+const lab = { fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'block', marginBottom: 4 };
 const SOURCES = ['Fill In A Day', 'Copy A Day'];
 const MODES = { 'All Working Days': 'working', 'All Days': 'all', 'Pick Days': 'days' };
 const TPL_TYPES = ['Work', 'Sick Day', 'Vacation', 'Personal'];
@@ -178,7 +178,7 @@ export default function AddTimeFromRecordModal({ email, name = '', start, end, o
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
           <ClipboardList size={18} style={{ color: 'var(--wk-brand, #15803d)' }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 800 }}>Add Time From Record for {who || email}</div>
+            <div style={{ fontSize: 15, fontWeight: 800 }}>Add Time From Record for {who || email}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>HR only. Key in a time sheet kept outside Nexus: set one day, lay it over the range, then adjust any row.{zone ? ` Times in ${zone}.` : ''}</div>
           </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close" disabled={busy} style={{ padding: 6 }}><X size={16} /></button>
@@ -193,7 +193,7 @@ export default function AddTimeFromRecordModal({ email, name = '', start, end, o
               </div>
             </div>
             <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>{resultRows(done.days || [])}</div>
-            {err && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5, marginTop: 10 }}>{err}</div>}
+            {err && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginTop: 10 }}>{err}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               {done.batchId && (
                 <button type="button" className="secondary-btn" onClick={undo} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -225,7 +225,7 @@ export default function AddTimeFromRecordModal({ email, name = '', start, end, o
                         {copyable.map((d) => <option key={d.date} value={d.date}>{weekday(d.date)} {formatDate(d.date)} - {hm(d.workedMin)}</option>)}
                       </select>
                     </label>
-                  ) : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No day in this range has complete punches to copy - fill one in instead.</div>
+                  ) : <div style={{ fontSize: 13, color: 'var(--muted)' }}>No day in this range has complete punches to copy - fill one in instead.</div>
                 ) : (
                   <>
                     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -238,7 +238,7 @@ export default function AddTimeFromRecordModal({ email, name = '', start, end, o
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <span style={{ ...lab, marginBottom: 0 }}>Unpaid Breaks</span>
                         {breaks.map((b, i) => (
-                          <div key={i} data-break-row style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                          <div key={i} data-break-row style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                             <TimeField ariaLabel={`Break ${i + 1} start`} value={b.start} onChange={(v) => { setBreaks((l) => l.map((x, j) => (j === i ? { ...x, start: v } : x))); touch(); }} style={small} step={5} />
                             <span style={{ color: 'var(--muted)' }}>to</span>
                             <TimeField ariaLabel={`Break ${i + 1} end`} value={b.end} onChange={(v) => { setBreaks((l) => l.map((x, j) => (j === i ? { ...x, end: v } : x))); touch(); }} style={small} step={5} />
@@ -256,7 +256,7 @@ export default function AddTimeFromRecordModal({ email, name = '', start, end, o
               {/* The review grid - one row per day, each its own */}
               <div className="nx-fill" style={{ minHeight: 160 }}>
                 <span style={lab}>Review The Days - {chosen.length} picked, {hm(totalMin)}</span>
-                {rangeErr ? <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{rangeErr}</div>
+                {rangeErr ? <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{rangeErr}</div>
                   : !ready ? <div style={{ padding: 16, display: 'flex', justifyContent: 'center' }}><Spinner /></div> : (
                     <div data-rec-grid className={`nx-rec-grid${india ? ' nx-rec-india' : ''}`} style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'auto', flex: 1, minHeight: 0 }}>
                       <div className="nx-rec-row nx-rec-head" aria-hidden="true">
@@ -281,7 +281,7 @@ export default function AddTimeFromRecordModal({ email, name = '', start, end, o
                 <div>
                   <span style={lab}>Source Document</span>
                   <div data-source-doc tabIndex={0} aria-label="Source document - choose a file or press Ctrl+V to paste a picture"
-                    style={{ border: '1.5px dashed var(--line)', borderRadius: 10, padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
+                    style={{ border: '1.5px dashed var(--line)', borderRadius: 10, padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
                     <input ref={fileRef} type="file" accept={DOC_TYPES} hidden aria-label="Choose the source document"
                       onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; attach(f); }} />
                     {doc ? (
@@ -301,12 +301,12 @@ export default function AddTimeFromRecordModal({ email, name = '', start, end, o
                   </div>
                 </div>
               </div>
-              {err && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{err}</div>}
+              {err && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{err}</div>}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, padding: '12px 18px', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
               {preview && (
-                <span data-preview style={{ marginRight: 'auto', fontSize: 12.5, color: 'var(--muted)', fontWeight: 600 }}>
+                <span data-preview style={{ marginRight: 'auto', fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>
                   {willDo.length ? `${hm(preview.totalMin)} over ${willDo.length} day${willDo.length === 1 ? '' : 's'}${preview.replaced ? ` - ${preview.replaced} replaced` : ''}`
                     : 'Nothing to save - every day was skipped'}
                   {(preview.days || []).some((r) => r.action === 'skip') ? ' - see the rows in red' : ''}
@@ -356,7 +356,7 @@ function RecordRowView({ d, on, row, edited, result, india, onToggle, onEdit, on
   return (
     <div className={`nx-rec-row${picked ? ' is-on' : ''}`} data-rec-day={d.date} data-state={d.state}
       style={{ background: picked ? 'var(--wk-brand-tint, rgba(21,128,61,0.06))' : weekend ? 'var(--wk-hover, var(--bg))' : undefined, opacity: gate.ok ? 1 : 0.6 }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 700, cursor: gate.ok ? 'pointer' : 'not-allowed' }} title={gate.title || undefined}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 700, cursor: gate.ok ? 'pointer' : 'not-allowed' }} title={gate.title || undefined}>
         <input type="checkbox" checked={picked} disabled={!gate.ok} onChange={onToggle} aria-label={`${has ? 'Replace' : 'Add'} ${label}`} style={{ margin: 0 }} />
         <span style={{ whiteSpace: 'nowrap' }}>{label}</span>
       </label>
@@ -387,7 +387,7 @@ function RecordRowView({ d, on, row, edited, result, india, onToggle, onEdit, on
               </div>
             </>
           )}
-          <span data-rec-hours style={{ fontSize: 12.5, fontWeight: 700 }}>{off ? '-' : hm(result && result.action !== 'skip' && !leave ? result.workedMin : mins)}</span>
+          <span data-rec-hours style={{ fontSize: 13, fontWeight: 700 }}>{off ? '-' : hm(result && result.action !== 'skip' && !leave ? result.workedMin : mins)}</span>
           {india && <span data-rec-credit style={{ fontSize: 12, fontWeight: 700, color: credit === 'Full' ? TONE.green : credit === 'Half' ? TONE.amber : credit === 'None' ? TONE.red : 'var(--muted)' }}>{d.india ? credit : '-'}</span>}
         </>
       ) : (

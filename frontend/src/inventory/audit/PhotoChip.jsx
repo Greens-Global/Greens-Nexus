@@ -6,7 +6,7 @@ import { useState } from 'react';
 // new = green ring), everything else as text. Broken images fall back to a label.
 export function PhotoChip({ url, kind }) {
   const [err, setErr] = useState(false);
-  if (err) return <span style={{ fontSize:11.5, color:'var(--muted)' }}>image</span>;
+  if (err) return <span style={{ fontSize:12, color:'var(--muted)' }}>image</span>;
   return <img src={url} alt="item photo" loading="lazy" onError={() => setErr(true)}
     onClick={() => window.open(url, '_blank', 'noopener')} title="Open full image"
     style={{ width:40, height:40, objectFit:'cover', borderRadius:7, cursor:'zoom-in', verticalAlign:'middle',

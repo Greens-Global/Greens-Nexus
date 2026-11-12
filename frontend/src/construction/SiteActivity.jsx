@@ -139,7 +139,7 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
           </button>
         </ModuleActions>
       )}
-      {savedAt && <p style={{ fontSize: '0.78rem', color: 'var(--muted)', margin: '0 0 12px' }}>Opened from this phone (saved {formatDateTime(savedAt, '')}).</p>}
+      {savedAt && <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 12px' }}>Opened from this phone (saved {formatDateTime(savedAt, '')}).</p>}
 
       <ConstructionInbox />
 
@@ -160,7 +160,7 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
           {/* One site: naming it beats a select with a single option. */}
           {projects.length > 1 ? (
             <div style={{ ...CARD, marginBottom: 20, padding: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <label htmlFor="site-activity-project" style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              <label htmlFor="site-activity-project" style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Jobsite
               </label>
               <SearchPicker
@@ -173,13 +173,13 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
                   .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
                   .map((p) => ({ id: p.id, label: p.name, hint: p.phase || '' }))} />
               {project?.phase && (
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                   {project.phase} · {Math.round(project.percentComplete || 0)}% complete
                 </span>
               )}
             </div>
           ) : (
-            <div style={{ marginBottom: 20, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+            <div style={{ marginBottom: 20, fontSize: 15, color: 'var(--text-secondary)' }}>
               {project?.name}
               {project?.phase ? ` · ${project.phase}` : ''}
             </div>
@@ -193,8 +193,8 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
           )}
 
           <div style={CARD}>
-            <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Daily Logs</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
+            <h3 style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Daily Logs</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
               What the crew filed from site, newest first
             </p>
 
@@ -220,7 +220,7 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{formatDate(l.logDate, l.logDate)}</strong>
+                            <strong style={{ fontSize: 15, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{formatDate(l.logDate, l.logDate)}</strong>
                             <StatusLabel size="sm" label={s.label} color={s.color} />
                             {(l.tags || []).map((t) => <StatusLabel key={t} size="sm" label={tagLabel(t)} color={TAG_COLOR[t]} />)}
                             {/* Advisory, never enforced - see _within_geofence. Shown so a
@@ -231,14 +231,14 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
                               </span>
                             )}
                           </div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
                             {l.authorName || personName(l.authorEmail)}
                             {l.crewSize ? ` · crew of ${l.crewSize}` : ''}
                             {l.hoursWorked ? ` · ${formatHoursWords(l.hoursWorked, { compact: true })}` : ''}
                           </div>
                         </div>
                         {canReview && l.status === 'approved' && (
-                          <button type="button" className="secondary-btn" style={{ fontSize: 12.5, flexShrink: 0 }}
+                          <button type="button" className="secondary-btn" style={{ fontSize: 13, flexShrink: 0 }}
                             onClick={(e) => { e.stopPropagation(); reopen(l); }}>
                             <RotateCcw size={13} />Reopen
                           </button>
@@ -248,12 +248,12 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
                           words otherwise. Never both - the summary is derived from the
                           notes and showing the pair just makes the row twice as tall. */}
                       {text && (
-                        <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
+                        <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>
                           {text}
                         </p>
                       )}
                       {l.status === 'needs_info' && l.reviewNote && (
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)' }}>
+                        <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
                           <strong>{l.reviewedByName || personName(l.reviewedBy) || 'Your manager'} asks:</strong> {l.reviewNote}
                         </div>
                       )}

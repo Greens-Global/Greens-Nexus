@@ -46,11 +46,11 @@
    the gaps between them sit over the page too. */
 .nx-board .excalidraw, .nx-board .excalidraw canvas { touch-action: none; }
 /* Our top-right menu rows (Look, Export) live inside the engine's menu. */
-.nx-board .nx-board-menu-kicker { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8b958f); padding: 8px 10px 2px; }
+.nx-board .nx-board-menu-kicker { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8b958f); padding: 8px 10px 2px; }
 .nx-board .nx-board-look { display: flex; gap: 4px; padding: 4px 8px 6px; }
 .nx-board .nx-board-look button {
   flex: 1; border: 1px solid var(--line, rgba(0, 0, 0, .08)); background: transparent; color: var(--ink, #1c2420);
-  font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 8px; border-radius: 8px; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; padding: 6px 8px; border-radius: 8px; cursor: pointer;
 }
 .nx-board .nx-board-look button[aria-pressed="true"] { background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); border-color: transparent; }
 .nx-board .nx-board-look button:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
@@ -58,7 +58,7 @@
 .nx-board .nx-board-note {
   position: absolute; left: 50%; top: 68px; transform: translateX(-50%); z-index: 5;
   background: var(--card, #fff); color: var(--ink, #1c2420); border: 1px solid var(--line, rgba(0, 0, 0, .08));
-  border-radius: 999px; padding: 6px 12px; font-size: 12.5px; box-shadow: 0 6px 20px rgba(0, 0, 0, .08); pointer-events: none;
+  border-radius: 999px; padding: 6px 12px; font-size: 13px; box-shadow: 0 6px 20px rgba(0, 0, 0, .08); pointer-events: none;
 }
 .nx-board .nx-board-note.is-error { color: var(--wk-red, #b91c1c); }
 @media (prefers-reduced-motion: reduce) { .nx-board * { transition-duration: 1ms !important; animation-duration: 1ms !important; } }
@@ -78,11 +78,11 @@
    picture full width, read-only, with Retry. */
 .nx-board .nx-board-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--card, #fff); }
 .nx-board .nx-board-fallback-pic { flex: 1 1 auto; min-height: 0; width: 100%; object-fit: contain; object-position: center top; background: var(--wk-hover, #f1f4f1); padding: 12px; box-sizing: border-box; }
-.nx-board .nx-board-fallback-empty { flex: 1 1 auto; display: grid; align-content: center; justify-items: center; gap: 8px; color: var(--muted, #8b958f); font-size: 13.5px; background: var(--wk-hover, #f1f4f1); }
+.nx-board .nx-board-fallback-empty { flex: 1 1 auto; display: grid; align-content: center; justify-items: center; gap: 8px; color: var(--muted, #8b958f); font-size: 13px; background: var(--wk-hover, #f1f4f1); }
 .nx-board .nx-board-fallback-bar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line, rgba(0, 0, 0, .08)); font-size: 13px; color: var(--ink, #1c2420); }
 .nx-board .nx-board-fallback-retry {
   display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line, rgba(0, 0, 0, .14)); background: var(--card, #fff); color: var(--ink, #1c2420);
-  font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; cursor: pointer;
 }
 .nx-board .nx-board-fallback-retry:hover { background: var(--wk-hover, #f1f4f1); }
 .nx-board .nx-board-fallback-retry:disabled { opacity: .6; cursor: default; }
@@ -92,7 +92,7 @@
 .nx-board .nx-board-draft-text { flex: 1 1 240px; }
 .nx-board .nx-board-draft button {
   border: 1px solid var(--line, rgba(0, 0, 0, .14)); background: var(--card, #fff); color: var(--ink, #1c2420);
-  font: inherit; font-size: 12.5px; font-weight: 600; padding: 5px 11px; border-radius: 8px; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; padding: 5px 11px; border-radius: 8px; cursor: pointer;
 }
 .nx-board .nx-board-draft button.is-primary { background: var(--wk-brand, #15803d); color: #fff; border-color: transparent; }
 .nx-board .nx-board-draft button:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
@@ -150,7 +150,7 @@
   animation: nx-mk-rise 180ms var(--ease-out, ease-out) both;
 }
 [data-theme="dark"] .nx-mk-tray { box-shadow: 0 10px 28px rgba(0, 0, 0, .5), 0 0 0 1px var(--line, rgba(255, 255, 255, .09)); }
-.nx-mk-tray-kicker { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8b958f); }
+.nx-mk-tray-kicker { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8b958f); }
 .nx-mk-inks, .nx-mk-sizes { display: flex; align-items: center; gap: 8px; }
 .nx-mk-ink {
   display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
@@ -235,7 +235,7 @@
 .nx-mk-more { gap: 2px; padding: 6px; min-width: 210px; }
 .nx-mk-more-row {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px;
-  background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer;
+  background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
 }
 .nx-mk-more-row > span { flex: 1; }
 .nx-mk-more-row kbd { font: inherit; font-size: 11px; color: var(--muted, #8b958f); border: 1px solid var(--line, rgba(0, 0, 0, .1)); border-radius: 5px; padding: 0 5px; }
@@ -243,7 +243,7 @@
 .nx-mk-more-row.is-on { background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); }
 .nx-mk-more-row:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -2px; }
 .nx-mk.is-phone .nx-mk-more { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.nx-mk.is-phone .nx-mk-more-row { flex-direction: column; justify-content: center; gap: 4px; min-height: 64px; padding: 6px; font-size: 12.5px; text-align: center; background: var(--wk-hover, #f1f4f1); }
+.nx-mk.is-phone .nx-mk-more-row { flex-direction: column; justify-content: center; gap: 4px; min-height: 64px; padding: 6px; font-size: 13px; text-align: center; background: var(--wk-hover, #f1f4f1); }
 .nx-mk.is-phone .nx-mk-more-row > span { flex: 0 0 auto; }
 .nx-mk.is-phone .nx-mk-more-row.is-on { background: var(--wk-brand-tint, #e3f3e8); }
 
@@ -259,7 +259,7 @@
   background: var(--card, #fff); color: var(--ink, #1c2420); box-shadow: 0 10px 28px rgba(15, 23, 42, .12), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
 }
 [data-theme="dark"] .nx-board-show-tools, [data-theme="dark"] .nx-present-pill { box-shadow: 0 10px 28px rgba(0, 0, 0, .45), 0 0 0 1px var(--line, rgba(255, 255, 255, .09)); }
-.nx-board-show-tools { border: 0; padding: 7px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.nx-board-show-tools { border: 0; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .nx-board-show-tools:hover { background: var(--wk-hover, #f1f4f1); }
 .nx-board-show-tools:focus-visible, .nx-present-exit:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 2px; }
 .nx-board.is-presenting .excalidraw .layer-ui__wrapper,
@@ -272,7 +272,7 @@
 .nx-present-count { min-width: 54px; text-align: center; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .nx-present-exit {
   display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 999px; padding: 7px 12px; cursor: pointer;
-  background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); font: inherit; font-size: 12.5px; font-weight: 700;
+  background: var(--wk-brand-tint, #e3f3e8); color: var(--wk-brand, #15803d); font: inherit; font-size: 13px; font-weight: 700;
 }
 
 /* ---- Diagrams (Neil, 11/06/2026, board/diagram/) ------------------------ */
@@ -306,17 +306,17 @@
 .nx-dg-side { width: 340px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 .nx-dg-starters { display: flex; flex-wrap: wrap; gap: 6px; }
 .nx-dg-chip {
-  font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--line, rgba(0, 0, 0, .12)); background: var(--wk-surface, #fff); color: inherit;
 }
 .nx-dg-chip:hover { border-color: var(--wk-brand, #15803d); color: var(--wk-brand, #15803d); }
 .nx-dg-text {
   flex: 1; min-height: 220px; resize: none; width: 100%; box-sizing: border-box; padding: 10px 12px;
-  font: 13.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: inherit;
+  font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: inherit;
   border: 1px solid var(--line, rgba(0, 0, 0, .14)); border-radius: 10px; background: var(--wk-surface, #fff);
 }
 .nx-dg-text:focus { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -1px; }
-.nx-dg-hint { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted, #6b7570); white-space: pre-line; }
+.nx-dg-hint { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted, #6b7570); white-space: pre-line; }
 .nx-dg-label { font-size: 12px; font-weight: 600; color: var(--muted, #6b7570); }
 .nx-dg-select {
   font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 8px; color: inherit;
@@ -334,19 +334,19 @@
 .nx-dg-svg { width: 100%; height: 100%; max-height: 70vh; }
 .nx-dg-nlabel { font: 600 15px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; fill: #1c2420; }
 .nx-dg-elabel { font: 500 13px Inter, system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; fill: #475569; paint-order: stroke; stroke: #f8faf8; stroke-width: 4px; }
-.nx-dg-empty { font-size: 13.5px; color: var(--muted, #6b7570); }
+.nx-dg-empty { font-size: 13px; color: var(--muted, #6b7570); }
 /* 11/08/2026: group labels, the quiet notes, Group By Company, From a Sentence */
 .nx-dg-glabel { font: 600 12px Inter, system-ui, sans-serif; dominant-baseline: middle; }
 .nx-dg-note { color: var(--muted, #6b7570); font-style: italic; }
-.nx-dg-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
+.nx-dg-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 .nx-dg-sentence { min-height: 110px; flex: 0 0 auto; }
 .nx-dg-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
 .nx-dg-count { flex: 1; font-size: 13px; color: var(--muted, #6b7570); }
 @media (max-width: 640px) {
   .nx-dg { flex-direction: column; }
   .nx-dg-side { width: auto; }
-  .nx-dg-text { min-height: 160px; font-size: 16px; }
-  .nx-dg-select { font-size: 16px; }
+  .nx-dg-text { min-height: 160px; font-size: 16px; } /* type-ok: iOS zooms a field under 16px */
+  .nx-dg-select { font-size: 16px; } /* type-ok: iOS zooms a field under 16px */
   .nx-dg-preview { min-height: 260px; }
 }
 .nx-mk.is-phone .nx-mk-diagram .nx-mk-tray-kicker { grid-column: 1 / -1; padding: 6px 4px 0; }
@@ -355,7 +355,7 @@
 .nx-rc { display: flex; flex-direction: column; gap: 10px; min-height: 0; flex: 1 1 auto; }
 .nx-rc-q { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--wk-line2); border-radius: 9px; font: inherit; font-size: 14px; background: var(--card); color: inherit; }
 .nx-rc-q:focus-visible { outline: 2px solid var(--wk-green); outline-offset: 1px; }
-.nx-rc-hint { font-size: 12.5px; color: var(--muted); }
+.nx-rc-hint { font-size: 13px; color: var(--muted); }
 .nx-rc-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 120px; }
 .nx-rc-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: none; border-radius: 8px; background: transparent; font: inherit; font-size: 14px; color: inherit; text-align: left; cursor: pointer; }
 .nx-rc-row:hover, .nx-rc-row:focus-visible { background: var(--wk-hover); outline: none; }
@@ -363,7 +363,7 @@
 .nx-rc-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .nx-rc-detail { margin-left: auto; flex-shrink: 0; font-size: 12px; color: var(--muted); }
 .nx-rc-empty { padding: 12px 10px; font-size: 13px; color: var(--muted); }
-@media (max-width: 640px) { .nx-rc-q { font-size: 16px; } .nx-rc-row { min-height: 44px; } }
+@media (max-width: 640px) { .nx-rc-q { font-size: 16px; } .nx-rc-row { min-height: 44px; } } /* type-ok: iOS zooms a field under 16px */
 
 /* ---- Meeting kit, stickies, threads, measure (Neil, 11/10/2026) ---- */
 /* The facilitation strip, top center: timer, vote, Private Writing. The running
@@ -382,7 +382,7 @@
 .nx-meet-dim { color: var(--muted, #8b958f); }
 .nx-meet-btn, .nx-meet-text {
   display: inline-grid; place-items: center; height: 26px; min-width: 26px; padding: 0 6px; border: 0; border-radius: 999px;
-  background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 12.5px; cursor: pointer;
+  background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 13px; cursor: pointer;
 }
 .nx-meet-btn:hover, .nx-meet-text:hover { background: var(--wk-hover, #f1f4f1); }
 .nx-meet-text { padding: 0 10px; font-weight: 600; }
@@ -426,7 +426,7 @@
 }
 .nx-sel-pill button:hover { background: var(--wk-hover, #f1f4f1); }
 .nx-sel-pill button:focus-visible { outline: 2px solid var(--wk-brand, #15803d); outline-offset: 1px; }
-.nx-sel-count { padding: 0 8px 0 6px; font-size: 12.5px; color: var(--muted, #8b958f); white-space: nowrap; }
+.nx-sel-count { padding: 0 8px 0 6px; font-size: 13px; color: var(--muted, #8b958f); white-space: nowrap; }
 .nx-sel-sort { position: relative; }
 .nx-sel-menu {
   position: absolute; bottom: calc(100% + 8px); left: 0; display: flex; flex-direction: column; min-width: 170px; padding: 4px; border-radius: 12px;
@@ -442,27 +442,27 @@
 /* A comment's thread, beside its pin; a phone's is a sheet along the bottom. */
 .nx-th {
   position: absolute; z-index: 7; width: 320px; max-height: 360px; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden;
-  background: var(--card, #fff); color: var(--ink, #1c2420); font-size: 13.5px;
+  background: var(--card, #fff); color: var(--ink, #1c2420); font-size: 13px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, .16), 0 0 0 1px var(--line, rgba(0, 0, 0, .08));
   animation: nx-mk-fade 180ms var(--ease-out, ease-out) both;
 }
 .nx-th.is-phone { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-height: 60%; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); z-index: 9; }
 .nx-th-head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--line, rgba(0, 0, 0, .08)); }
 .nx-th-title { flex: 1; font-weight: 700; }
-.nx-th-btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.nx-th-btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .nx-th-btn.is-icon { width: 28px; padding: 0; justify-content: center; }
 .nx-th-btn:hover { background: var(--wk-hover, #f1f4f1); }
 .nx-th-list { flex: 1 1 auto; overflow-y: auto; padding: 4px 14px; }
 .nx-th-entry { padding: 9px 0; border-bottom: 1px solid var(--line, rgba(0, 0, 0, .06)); }
 .nx-th-entry:last-child { border-bottom: 0; }
-.nx-th-who { display: flex; align-items: baseline; gap: 8px; font-weight: 600; font-size: 12.5px; }
-.nx-th-who time { font-weight: 400; color: var(--muted, #8b958f); font-size: 11.5px; }
+.nx-th-who { display: flex; align-items: baseline; gap: 8px; font-weight: 600; font-size: 13px; }
+.nx-th-who time { font-weight: 400; color: var(--muted, #8b958f); font-size: 12px; }
 .nx-th-text { margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
 .nx-th-resolved { padding: 8px 0 10px; font-size: 12px; color: var(--muted, #8b958f); }
 .nx-th-compose { position: relative; padding: 10px 12px; border-top: 1px solid var(--line, rgba(0, 0, 0, .08)); }
 .nx-th-compose textarea {
   width: 100%; box-sizing: border-box; resize: none; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line, rgba(0, 0, 0, .12));
-  background: var(--card, #fff); color: var(--ink, #1c2420); font: inherit; font-size: 13.5px; line-height: 1.4;
+  background: var(--card, #fff); color: var(--ink, #1c2420); font: inherit; font-size: 13px; line-height: 1.4;
 }
 .nx-th-compose textarea:focus { outline: 2px solid var(--wk-brand, #15803d); outline-offset: -1px; border-color: transparent; }
 .nx-th-people {
@@ -472,7 +472,7 @@
 .nx-th-people button { text-align: left; height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink, #1c2420); font: inherit; font-size: 13px; cursor: pointer; }
 .nx-th-people button.is-on, .nx-th-people button:hover { background: var(--wk-brand-tint, #e3f3e8); }
 .nx-th-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
-.nx-th-hint { font-size: 11.5px; color: var(--muted, #8b958f); }
+.nx-th-hint { font-size: 12px; color: var(--muted, #8b958f); }
 .nx-th-post { height: 30px; padding: 0 14px; border: 0; border-radius: 8px; background: var(--wk-brand, #15803d); color: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .nx-th-post:disabled { opacity: .45; cursor: default; }
 .nx-board.is-presenting .nx-meet, .nx-board.is-presenting .nx-sel-pill { display: none; }
@@ -487,14 +487,14 @@
 .nx-kit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .nx-kit-item {
   display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 8px; border: 1px solid var(--line, rgba(0, 0, 0, .08)); border-radius: 10px;
-  background: var(--card, #fff); color: var(--ink, #1c2420); font: inherit; font-size: 12.5px; cursor: pointer; text-align: center;
+  background: var(--card, #fff); color: var(--ink, #1c2420); font: inherit; font-size: 13px; cursor: pointer; text-align: center;
 }
 .nx-kit-item:hover { border-color: var(--wk-brand, #15803d); }
 .nx-kit-item:disabled { opacity: .6; cursor: default; }
 .nx-kit-item svg { width: 100%; height: auto; }
 
 /* The custom width slider under the three widths (11/10/2026). */
-.nx-mk-range { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted, #8b958f); }
+.nx-mk-range { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted, #8b958f); }
 .nx-mk-range input { flex: 1 1 auto; min-width: 0; margin: 0; accent-color: var(--wk-brand, #15803d); cursor: pointer; }
 .nx-mk-range-value { min-width: 22px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink, #1c2420); }
 .nx-mk.is-phone .nx-mk-range input { height: 32px; }

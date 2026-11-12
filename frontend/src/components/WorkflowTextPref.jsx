@@ -40,7 +40,7 @@ export default function WorkflowTextPref() {
         desc={state.phone
           ? 'Automated workflows may text the phone on your People record. Off: they skip you; the bell and email still reach you.'
           : 'There is no phone on your People record, so workflows cannot text you. Ask HR to add one.'} />
-      {msg && <div role="status" className="nx-set-pad" style={{ fontSize: 11.5, color: 'var(--muted)' }}>{msg}</div>}
+      {msg && <div role="status" className="nx-set-pad" style={{ fontSize: 12, color: 'var(--muted)' }}>{msg}</div>}
     </>
   );
 }

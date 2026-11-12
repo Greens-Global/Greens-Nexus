@@ -62,7 +62,7 @@ export default function PublicFindUnit({ token, search = '' }) {
               </div>
               <div>
                 <h2 style={{ fontSize: 14, margin: '0 0 4px' }}>Your Unit</h2>
-                <div style={{ fontSize: 13 }}><b style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 16 }}>{unit.n}</b> · {unitKindLabel(unit)}{unit.w && unit.d ? ` · ${unit.w} × ${unit.d} ft` : ''}</div>
+                <div style={{ fontSize: 13 }}><b style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 15 }}>{unit.n}</b> · {unitKindLabel(unit)}{unit.w && unit.d ? ` · ${unit.w} × ${unit.d} ft` : ''}</div>
                 <div style={{ fontSize: 13, ...muted }}>{data.building}{unit.f > 1 ? `, Level ${unit.f}` : ''}</div>
                 <ol style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13 }} aria-label="Directions">{unitDirections(data, unit).map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ol>
               </div>

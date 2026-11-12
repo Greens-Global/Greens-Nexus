@@ -24,7 +24,7 @@ function Row({ j, done }) {
     <button type="button" onClick={() => open(j.id)} data-property-job={j.id}
       style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 0',
         background: 'none', border: 'none', borderTop: '1px solid var(--border-color)', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-      <span style={{ minWidth: 0, fontSize: '0.86rem', color: 'var(--text-primary)' }}>
+      <span style={{ minWidth: 0, fontSize: 14, color: 'var(--text-primary)' }}>
         <b>{j.name}</b>
         <span style={{ color: 'var(--text-secondary)' }}> · {TYPE[j.jobType] || 'Project'}{j.targetFinishOn ? ` · Target ${formatDate(j.targetFinishOn, j.targetFinishOn)}` : ''}</span>
       </span>
@@ -51,13 +51,13 @@ export default function PropertyJobs({ property }) {
   const recent = data?.recent || [];
   return (
     <section style={card} aria-label="Jobs" data-property-jobs="">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.92rem', fontWeight: 700, marginBottom: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 700, marginBottom: 6 }}>
         <HardHat size={16} style={{ color: 'var(--text-secondary)' }} /> Jobs
-        {data && <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{openJobs.length} open</span>}
+        {data && <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>{openJobs.length} open</span>}
       </div>
       {!data ? <SkeletonBlocks count={2} height={36} borderRadius={8} /> : (
         openJobs.length === 0 && recent.length === 0 ? (
-          <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>No construction or maintenance jobs on this property.</div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No construction or maintenance jobs on this property.</div>
         ) : (
           <>
             {openJobs.map((j) => <Row key={j.id} j={j} />)}

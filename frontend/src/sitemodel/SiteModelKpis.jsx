@@ -32,7 +32,7 @@ const CSS = `
 .smk-m{background:var(--bg-primary,#fff);padding:8px 10px;min-width:0}
 .smk-m b{display:block;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .smk-m span{display:block;font-size:11px;color:var(--text-muted,#5f6358);margin-top:1px}
-.smk-fold{display:flex;align-items:center;gap:8px;width:100%;border:1px solid var(--border-color,#d9d6cc);border-radius:10px;background:var(--bg-primary,#fff);padding:7px 10px;font:inherit;font-size:12.5px;color:inherit;cursor:pointer;text-align:left}
+.smk-fold{display:flex;align-items:center;gap:8px;width:100%;border:1px solid var(--border-color,#d9d6cc);border-radius:10px;background:var(--bg-primary,#fff);padding:7px 10px;font:inherit;font-size:13px;color:inherit;cursor:pointer;text-align:left}
 .smk-fold:hover{background:var(--bg-secondary,#eef0ec)}
 .smk-fold-t{flex:1;min-width:0;font-variant-numeric:tabular-nums;line-height:1.4}
 .smk-i{display:inline-grid;place-items:center;width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--text-muted,#5f6358);cursor:pointer;padding:0}
@@ -117,11 +117,11 @@ export function SiteModelKpis({ buckets, title, total, info = '', kpis = null, f
 const ATT_CSS = `
 .sma{border:1px solid #f1c9c3;border-radius:10px;background:#fff7f5;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
 .sma-head{display:flex;align-items:center;gap:10px}
-.sma-n{font-size:26px;font-weight:700;line-height:1;color:#b42318;font-variant-numeric:tabular-nums}
+.sma-n{font-size:24px;font-weight:700;line-height:1;color:#b42318;font-variant-numeric:tabular-nums}
 .sma-t{font-size:13px;font-weight:600;color:#7a271a;line-height:1.25}
-.sma-sub{font-size:11.5px;color:#8a5a52}
+.sma-sub{font-size:12px;color:#8a5a52}
 .sma-groups{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
-.sma-g{display:flex;align-items:baseline;gap:8px;width:100%;border:0;background:transparent;border-radius:6px;padding:4px 6px;margin:0 -6px;box-sizing:content-box;font:inherit;font-size:12.5px;color:#3d2a26;cursor:pointer;text-align:left}
+.sma-g{display:flex;align-items:baseline;gap:8px;width:100%;border:0;background:transparent;border-radius:6px;padding:4px 6px;margin:0 -6px;box-sizing:content-box;font:inherit;font-size:13px;color:#3d2a26;cursor:pointer;text-align:left}
 .sma-g:hover{background:#fbe4df}
 .sma-g[aria-pressed="true"]{background:#f9d7d0;font-weight:600}
 .sma-g:focus-visible,.sma-u:focus-visible,.sma-fold:focus-visible{outline:2px solid #2a78d6;outline-offset:1px}

@@ -44,7 +44,7 @@ export function ruleSummary(r, siteName = (id) => id) {
 }
 
 const chip = (on) => ({
-  fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer',
+  fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer',
   border: `1px solid ${on ? 'hsl(var(--color-blue))' : 'var(--line)'}`,
   background: on ? 'hsla(var(--color-blue), 0.12)' : 'transparent',
   color: on ? 'hsl(var(--color-blue))' : 'var(--muted)',
@@ -165,14 +165,14 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
           Hourly employees only. A finalized time sheet keeps the rules it was finalized with.
         </span>
         {!scoped && companies && companies.length > 0 && (
-          <select className="form-input" aria-label="Company" value={company} onChange={(e) => pickCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
+          <select className="form-input" aria-label="Company" value={company} onChange={(e) => pickCompany(e.target.value)} style={{ fontSize: 13, width: 'auto', maxWidth: 260 }}>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
           </select>
         )}
         {busy && <Spinner size={14} />}
       </div>
       {err ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'hsl(var(--color-red))', paddingTop: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'hsl(var(--color-red))', paddingTop: 10 }}>
           <span style={{ flex: 1 }}>{err}</span>
           <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={load}>Retry</button>
         </div>
@@ -193,25 +193,25 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, alignItems: 'end' }}>
                     <label style={lbl}>Name
                       <input className="form-input" type="text" maxLength={40} placeholder="Night Differential" aria-label="Differential name"
-                        value={r.name} onChange={(e) => setRule(i, { name: e.target.value })} style={{ fontSize: 12.5 }} />
+                        value={r.name} onChange={(e) => setRule(i, { name: e.target.value })} style={{ fontSize: 13 }} />
                     </label>
                     <label style={lbl}>Pays
-                      <select className="form-input" aria-label="Differential type" value={r.kind} onChange={(e) => setRule(i, { kind: e.target.value })} style={{ fontSize: 12.5 }}>
+                      <select className="form-input" aria-label="Differential type" value={r.kind} onChange={(e) => setRule(i, { kind: e.target.value })} style={{ fontSize: 13 }}>
                         <option value="flat">Flat $ per hour</option>
                         <option value="percent">Percent of base rate</option>
                       </select>
                     </label>
                     <label style={lbl}>{r.kind === 'percent' ? 'Percent' : 'Amount per hour'}
                       <input className="form-input" type="number" min="0" step={r.kind === 'percent' ? '0.5' : '0.01'} aria-label="Differential amount"
-                        value={r.amount} onChange={(e) => setRule(i, { amount: e.target.value })} style={{ fontSize: 12.5 }} />
+                        value={r.amount} onChange={(e) => setRule(i, { amount: e.target.value })} style={{ fontSize: 13 }} />
                     </label>
                     <label style={lbl}>From
                       <TimeField ariaLabel="Window start" value={r.start} step={15} emptyLabel="No Window"
-                        onChange={(v) => setRule(i, { start: v })} style={{ fontSize: 12.5 }} />
+                        onChange={(v) => setRule(i, { start: v })} style={{ fontSize: 13 }} />
                     </label>
                     <label style={lbl}>To
                       <TimeField ariaLabel="Window end" value={r.end} step={15} emptyLabel="No Window"
-                        onChange={(v) => setRule(i, { end: v })} style={{ fontSize: 12.5 }} />
+                        onChange={(v) => setRule(i, { end: v })} style={{ fontSize: 13 }} />
                     </label>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, alignItems: 'center' }}>
@@ -247,7 +247,7 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
                   </button>
                 </div>
               )}
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.45 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45 }}>
                 A differential pays the hours worked inside its window on its own line, on top of regular and overtime pay. A window that crosses midnight counts from the day it starts. Overtime is not recalculated with the differential included - check with payroll whether your overtime rate must include it.
               </div>
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
@@ -256,16 +256,16 @@ export default function PayPremiums({ toastOk, toastErr, company: scoped = '', o
                   desc="When someone clocks in again the same day after being clocked out for a while, and works less than the minimum, the shortfall is paid at the base rate. It is not counted as hours worked or toward overtime." />
                 {callBackOn && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                       <span style={{ color: 'var(--muted)' }}>Minimum paid</span>
                       <input className="form-input" type="number" min="15" max="720" aria-label="Call-back minimum minutes" value={draft.callBack.minimumMin}
-                        onChange={(e) => setDraft((d) => ({ ...d, callBack: { ...d.callBack, minimumMin: e.target.value } }))} style={{ width: 80, fontSize: 12.5 }} />
+                        onChange={(e) => setDraft((d) => ({ ...d, callBack: { ...d.callBack, minimumMin: e.target.value } }))} style={{ width: 80, fontSize: 13 }} />
                       <span style={{ color: 'var(--muted)' }}>min</span>
                     </label>
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                       <span style={{ color: 'var(--muted)' }}>After clocked out at least</span>
                       <input className="form-input" type="number" min="0" max="720" aria-label="Call-back gap minutes" value={draft.callBack.gapMin}
-                        onChange={(e) => setDraft((d) => ({ ...d, callBack: { ...d.callBack, gapMin: e.target.value } }))} style={{ width: 80, fontSize: 12.5 }} />
+                        onChange={(e) => setDraft((d) => ({ ...d, callBack: { ...d.callBack, gapMin: e.target.value } }))} style={{ width: 80, fontSize: 13 }} />
                       <span style={{ color: 'var(--muted)' }}>min</span>
                     </label>
                   </div>

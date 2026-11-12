@@ -93,8 +93,8 @@ export default function UpdatesTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Updates</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Investor communications feed - pinned announcements stay on top</p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Updates</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Investor communications feed - pinned announcements stay on top</p>
         </div>
         <button className="primary-btn" onClick={openAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Plus size={14} /> Post Update
@@ -119,7 +119,7 @@ export default function UpdatesTab() {
                     {u.pinned && <Pin size={13} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{u.title}</div>
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                     {u.fundName || 'All Deals'} · {nameOf(u.createdBy)} · {formatDate(u.createdAt)}
                   </div>
                 </div>
@@ -159,7 +159,7 @@ export default function UpdatesTab() {
                   Pin to Top
                 </label>
               </div>
-              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
+              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{formErr}</div>}
             </div>
             <div className="modal-footer">
               <button type="button" className="secondary-btn" onClick={() => setModal(null)}>Cancel</button>

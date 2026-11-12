@@ -355,7 +355,7 @@ export default function Editor({ id, me }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><button type="button" className="kb-ibtn" style={{ width: 30, height: 30 }} aria-label="Back" onClick={() => goKb('home')}><ArrowLeft /></button><span className="kb-meta">Knowledge Base / New Page</span></div>
         <div className="kb-card" style={{ display: 'flex', flexDirection: 'column', gap: 20, padding: 28 }}>
           <div>
-            <h1 className="kb-h1" style={{ margin: '0 0 2px', fontSize: 26 }}>New Page</h1>
+            <h1 className="kb-h1" style={{ margin: '0 0 2px', fontSize: 24 }}>New Page</h1>
             <div className="kb-sub">Name it, pick what kind of page it is, and start writing. Everything else is set on the page.</div>
           </div>
           <div className="kb-field"><label>Title</label><input className="kb-input" autoFocus style={{ fontSize: 18, padding: '12px 14px' }} value={newCreate.title} onChange={(e) => setNewCreate({ ...newCreate, title: e.target.value })} placeholder="Reset a Tenant's Gate Code" onKeyDown={(e) => { if (e.key === 'Enter') create(); }} /></div>

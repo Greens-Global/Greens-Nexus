@@ -39,14 +39,14 @@ const parseAmount = (s) => {
 };
 const linkBtn = { border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 };
 const statusTone = (s) => (s === 'Reconciled' ? 'ok' : s === 'Difference' || s === 'Behind' ? 'bad' : 'wait');
-const lbl = { fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 };
+const lbl = { fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 4 };
 const factGrid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 };
 
 function Fact({ label, children, color }) {
   return (
     <div>
-      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-      <div style={{ fontSize: '0.92rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', color }}>{children}</div>
+      <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+      <div style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color }}>{children}</div>
     </div>
   );
 }
@@ -137,12 +137,12 @@ function LedgerLines({ gl, entity, entityName, period, book, onOpenEntry }) {
   const credit = Number(state.data?.credit) || 0;
   return (
     <PanelSection title="Ledger Lines" caption={`Every line posted to GL ${gl}${entity ? ` in ${entityName || entity}` : ''}, ${fmtMDY(mStart(period))} - ${fmtMDY(mEnd(period))}.`}>
-      {state.loading ? <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Reading the ledger...</div>
-        : state.error ? <div role="alert" style={{ fontSize: '0.8rem', color: BAD }}>{state.error}</div>
-          : !rows.length ? <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Nothing posted to this account this month.</div>
+      {state.loading ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Reading the ledger...</div>
+        : state.error ? <div role="alert" style={{ fontSize: 13, color: BAD }}>{state.error}</div>
+          : !rows.length ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nothing posted to this account this month.</div>
             : (
               <div style={{ display: 'grid', gap: 8 }}>
-                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)' }}>
                   <span>{total} line{total === 1 ? '' : 's'}</span>
                   <span>Debits <strong>{money2(debit)}</strong></span>
                   <span>Credits <strong>{money2(credit)}</strong></span>
@@ -157,17 +157,17 @@ function LedgerLines({ gl, entity, entityName, period, book, onOpenEntry }) {
                     <tbody>
                       {rows.map((r, i) => (
                         <tr key={r.line_id || `${r.entry_id}-${i}`}>
-                          <td style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}>{r.entry_date ? fmtMDY(String(r.entry_date).slice(0, 10)) : ''}</td>
-                          <td style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}>{r.entry_id ? <button type="button" style={linkBtn} onClick={() => onOpenEntry({ id: r.entry_id, no: r.entry_no })} title="Open this journal entry">{r.entry_no || 'Open'}</button> : r.entry_no}</td>
-                          <td style={{ fontSize: '0.78rem' }}><div>{r.description || r.memo || '-'}</div>{r.memo && r.description ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.memo}</div> : null}</td>
-                          <td style={{ ...num, fontSize: '0.78rem' }}>{Number(r.debit) ? money2(r.debit) : ''}</td>
-                          <td style={{ ...num, fontSize: '0.78rem' }}>{Number(r.credit) ? money2(r.credit) : ''}</td>
+                          <td style={{ whiteSpace: 'nowrap', fontSize: 13 }}>{r.entry_date ? fmtMDY(String(r.entry_date).slice(0, 10)) : ''}</td>
+                          <td style={{ whiteSpace: 'nowrap', fontSize: 13 }}>{r.entry_id ? <button type="button" style={linkBtn} onClick={() => onOpenEntry({ id: r.entry_id, no: r.entry_no })} title="Open this journal entry">{r.entry_no || 'Open'}</button> : r.entry_no}</td>
+                          <td style={{ fontSize: 13 }}><div>{r.description || r.memo || '-'}</div>{r.memo && r.description ? <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.memo}</div> : null}</td>
+                          <td style={{ ...num, fontSize: 13 }}>{Number(r.debit) ? money2(r.debit) : ''}</td>
+                          <td style={{ ...num, fontSize: 13 }}>{Number(r.credit) ? money2(r.credit) : ''}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                {total > rows.length ? <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Showing the first {rows.length} of {total}. Open the full report for every line.</div> : null}
+                {total > rows.length ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Showing the first {rows.length} of {total}. Open the full report for every line.</div> : null}
               </div>
             )}
     </PanelSection>
@@ -208,8 +208,8 @@ function LiabilityRecon({ loanId, period, canEdit, canManage, onDirty, onSaved }
   // A different statement date reads the ledger again on that date.
   const setDate = (v) => { const d = v || mEnd(period); set({ date: d }); if (d !== draft.date) load(d); };
 
-  if (error && !detail) return <PanelSection title={`Reconcile ${monthLong(period)}`}><div role="alert" style={{ fontSize: '0.8rem', color: BAD }}>{error}</div></PanelSection>;
-  if (!detail) return <PanelSection title={`Reconcile ${monthLong(period)}`}><div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Reading the ledger...</div></PanelSection>;
+  if (error && !detail) return <PanelSection title={`Reconcile ${monthLong(period)}`}><div role="alert" style={{ fontSize: 13, color: BAD }}>{error}</div></PanelSection>;
+  if (!detail) return <PanelSection title={`Reconcile ${monthLong(period)}`}><div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Reading the ledger...</div></PanelSection>;
   const noGl = !detail.loan.glAccount;
 
   const save = async (reconcile) => {
@@ -263,7 +263,7 @@ function LiabilityRecon({ loanId, period, canEdit, canManage, onDirty, onSaved }
   return (
     <PanelSection title={`Reconcile ${monthLong(period)}`} caption="The lender statement's ending balance against the ledger. Saved in Nexus only - nothing is sent to Intacct.">
       <div style={{ display: 'grid', gap: 12 }}>
-        {noGl ? <div style={{ fontSize: '0.8rem', color: BAD }}>This loan has no GL account. Set it in Loans & Financing first, so Nexus can read the ledger balance.</div> : null}
+        {noGl ? <div style={{ fontSize: 13, color: BAD }}>This loan has no GL account. Set it in Loans & Financing first, so Nexus can read the ledger balance.</div> : null}
         <div style={factGrid}>
           <label>
             <span style={lbl}>Statement Date</span>
@@ -277,23 +277,23 @@ function LiabilityRecon({ loanId, period, canEdit, canManage, onDirty, onSaved }
           <Fact label={`Ledger Balance${detail.asOf ? ` on ${fmtMDY(detail.asOf)}` : ''}`}>{ledger == null ? '-' : money2(ledger)}</Fact>
           <Fact label="Difference" color={diff == null ? undefined : zero ? OK : BAD}>{diff == null ? '-' : money2(diff)}</Fact>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: '0.8rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
           <input ref={fileRef} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={(e) => { attach(e.target.files?.[0]); e.target.value = ''; }} />
           {!readOnly ? <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => fileRef.current?.click()} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><FileUp size={13} /> {fileUrl ? 'Replace Statement PDF' : 'Attach Statement PDF'}</button> : null}
           {fileUrl ? <a href={fileUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Paperclip size={13} /> {draft.fileName || rec?.statementName || 'Statement'}</a>
             : <span style={{ color: 'var(--text-muted)' }}>{busy === 'upload' ? 'Uploading...' : 'Statement PDF optional'}</span>}
-          {!readOnly && fileUrl ? <button type="button" className="secondary-btn" onClick={() => set({ fileUrl: '', fileName: '' })} style={{ fontSize: '0.72rem', padding: '2px 8px' }}>Remove</button> : null}
+          {!readOnly && fileUrl ? <button type="button" className="secondary-btn" onClick={() => set({ fileUrl: '', fileName: '' })} style={{ fontSize: 12, padding: '2px 8px' }}>Remove</button> : null}
         </div>
         <label>
           <span style={lbl}>Note</span>
           <textarea value={draft.note} disabled={readOnly} rows={2} onChange={(e) => set({ note: e.target.value })} style={{ ...input, width: '100%', resize: 'vertical' }} />
         </label>
-        {error ? <div role="alert" style={{ fontSize: '0.8rem', color: BAD }}>{error}</div> : null}
+        {error ? <div role="alert" style={{ fontSize: 13, color: BAD }}>{error}</div> : null}
         {locked ? (
           <div style={{ display: 'grid', gap: 8 }}>
-            <div style={{ fontSize: '0.8rem', color: OK, fontWeight: 600 }}>Reconciled by {rec.reconciledBy} on {formatDateTime(rec.reconciledAt)}</div>
+            <div style={{ fontSize: 13, color: OK, fontWeight: 600 }}>Reconciled by {rec.reconciledBy} on {formatDateTime(rec.reconciledAt)}</div>
             {canManage && !reopening ? <div><button type="button" className="secondary-btn" onClick={() => setReopening(true)}>Reopen Month</button></div> : null}
-            {!canManage ? <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Only an Accounting admin can reopen a reconciled month.</div> : null}
+            {!canManage ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Only an Accounting admin can reopen a reconciled month.</div> : null}
             {reopening ? (
               <div style={{ display: 'grid', gap: 6 }}>
                 <label><span style={lbl}>Why Reopen</span><textarea aria-label="Why Reopen" value={reason} rows={2} onChange={(e) => setReason(e.target.value)} style={{ ...input, width: '100%' }} /></label>
@@ -309,10 +309,10 @@ function LiabilityRecon({ loanId, period, canEdit, canManage, onDirty, onSaved }
             <button type="button" className="secondary-btn" disabled={!!busy || stmt == null} onClick={() => save(false)}>{busy === 'save' ? 'Saving...' : 'Save'}</button>
             <button type="button" className="primary-btn" disabled={!!busy || !zero} onClick={() => save(true)}
               title={zero ? 'Mark this month reconciled' : 'The difference must be 0.00 first'}>{busy === 'reconcile' ? 'Saving...' : 'Mark Reconciled'}</button>
-            {!zero && diff != null ? <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Mark Reconciled opens at a 0.00 difference.</span> : null}
+            {!zero && diff != null ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Mark Reconciled opens at a 0.00 difference.</span> : null}
           </div>
-        ) : !canEdit ? <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Read only: reconciling needs the Accounting editor level.</div> : null}
-        {rec?.reopenedAt && !locked ? <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Reopened by {rec.reopenedBy} on {formatDateTime(rec.reopenedAt)}: {rec.reopenReason}</div> : null}
+        ) : !canEdit ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Read only: reconciling needs the Accounting editor level.</div> : null}
+        {rec?.reopenedAt && !locked ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Reopened by {rec.reopenedBy} on {formatDateTime(rec.reopenedAt)}: {rec.reopenReason}</div> : null}
         <History history={detail.history} log={detail.log} />
       </div>
     </PanelSection>
@@ -333,10 +333,10 @@ function History({ history = [], log = [] }) {
             <tbody>
               {history.map((h) => (
                 <tr key={h.id}>
-                  <td style={{ fontSize: '0.78rem' }}>{monthLong(h.period)}</td>
-                  <td style={{ fontSize: '0.78rem' }}>{h.statementDate ? fmtMDY(h.statementDate) : '-'}</td>
-                  <td style={{ ...num, fontSize: '0.78rem' }}>{money2(h.statementBalance)}</td>
-                  <td style={{ ...num, fontSize: '0.78rem' }}>{money2(h.difference)}</td>
+                  <td style={{ fontSize: 13 }}>{monthLong(h.period)}</td>
+                  <td style={{ fontSize: 13 }}>{h.statementDate ? fmtMDY(h.statementDate) : '-'}</td>
+                  <td style={{ ...num, fontSize: 13 }}>{money2(h.statementBalance)}</td>
+                  <td style={{ ...num, fontSize: 13 }}>{money2(h.difference)}</td>
                   <td>{h.status === 'reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone="wait">Open</Chip>}</td>
                 </tr>
               ))}
@@ -348,7 +348,7 @@ function History({ history = [], log = [] }) {
         <div>
           <div style={{ ...lbl, marginBottom: 6 }}>Activity</div>
           {log.slice(0, 20).map((x) => (
-            <div key={x.id} style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', padding: '3px 0' }}>
+            <div key={x.id} style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '3px 0' }}>
               {ACTION[x.action] || x.action} {monthLong(x.period)} by {x.by} on {formatDateTime(x.at)}{x.detail?.reason ? ` - ${x.detail.reason}` : ''}
             </div>
           ))}

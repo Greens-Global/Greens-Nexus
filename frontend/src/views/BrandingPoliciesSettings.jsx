@@ -23,8 +23,8 @@ import { PolicyText, formatPolicyVersion } from '../lib/policyText';
 import { formatDateTime } from '../lib/datetime';
 
 // The house label (DESIGN.md: normal case, no uppercase tracking).
-const LABEL = { fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', display: 'block', marginBottom: 6 };
-const HINT = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };
+const LABEL = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', marginBottom: 6 };
+const HINT = { fontSize: 12, color: 'var(--muted)', marginTop: 4 };
 const ROW = { display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' };
 const IB = { display: 'inline-flex', alignItems: 'center', gap: 6 };
 const FIELD = { fontSize: 12, color: 'var(--muted)', display: 'grid', gap: 4 };
@@ -373,7 +373,7 @@ export function SignInPolicyPanel({ toastOk, toastErr }) {
   return (
     <>
       {ood && (
-        <div role="note" style={{ padding: '10px 14px', border: '1px solid hsl(var(--color-orange))', borderRadius: 10, background: 'hsla(var(--color-orange),0.07)', fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.5, marginBottom: 12 }}>
+        <div role="note" style={{ padding: '10px 14px', border: '1px solid hsl(var(--color-orange))', borderRadius: 10, background: 'hsla(var(--color-orange),0.07)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, marginBottom: 12 }}>
           <strong>Out of Date.</strong> The published policy is missing {ood.missing.join(', ')}. Your text stays as it is until you publish a new version.
           <div style={{ marginTop: 8 }}>
             <button type="button" className="secondary-btn" onClick={useDefault} disabled={!!busy}>Start a Draft From the New Default</button>
@@ -385,7 +385,7 @@ export function SignInPolicyPanel({ toastOk, toastErr }) {
           The default text is a draft for counsel review, not legal advice. Have your counsel review the policy and the Privacy Policy (Legal) before you rely on them.
         </div>
       )}
-      <div style={{ padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', fontSize: 12.5, color: 'var(--muted)', marginBottom: 16 }}>
+      <div style={{ padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--paper)', fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
         <strong style={{ color: 'var(--ink)' }}>Current version: {formatPolicyVersion(pub.version)}</strong>
         {pub.publishedAt ? ` - published ${formatDateTime(pub.publishedAt)}${pub.publishedBy ? ` by ${pub.publishedBy}` : ''}.` : ' - the original policy.'}
         {cfg.draft && <> There is an unpublished draft{cfg.draft.savedAt ? ` saved ${formatDateTime(cfg.draft.savedAt)}` : ''}.</>}
@@ -413,8 +413,8 @@ export function SignInPolicyPanel({ toastOk, toastErr }) {
 
       {confirming && (
         <div role="alertdialog" aria-label="Publish new version" style={{ marginTop: 14, padding: 14, borderRadius: 10, border: '1px solid hsl(var(--color-red))', background: 'hsla(var(--color-red),0.06)' }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>Publish this as the new policy?</div>
-          <div style={{ fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.5, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>Publish this as the new policy?</div>
+          <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, marginBottom: 12 }}>
             Everyone, including people who accepted the current version, will have to read and accept this text the next time they open Nexus. Earlier acceptances stay on record. This cannot be undone, only replaced by another version.
           </div>
           <div style={ROW}>
@@ -426,7 +426,7 @@ export function SignInPolicyPanel({ toastOk, toastErr }) {
 
       {showPreview && (
         <div style={{ marginTop: 14, padding: '16px 20px', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', maxHeight: 360, overflowY: 'auto' }}>
-          <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 6 }}>{title}</div>
+          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>{title}</div>
           <PolicyText body={body} />
         </div>
       )}
@@ -454,10 +454,10 @@ export function SignInPolicyPanel({ toastOk, toastErr }) {
                   </button>
                 ))}
               </div>
-              {rows.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{tab === 'accepted' ? 'Nobody has accepted this version yet.' : 'Everyone has accepted this version.'}</div> : (
+              {rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>{tab === 'accepted' ? 'Nobody has accepted this version yet.' : 'Everyone has accepted this version.'}</div> : (
                 <div role="tabpanel" style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
                   {(showAll ? rows : rows.slice(0, 10)).map(p => (
-                    <div key={p.email} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '8px 12px', borderTop: '1px solid var(--line)', fontSize: 12.5, marginTop: -1, color: 'var(--muted)' }}>
+                    <div key={p.email} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '8px 12px', borderTop: '1px solid var(--line)', fontSize: 13, marginTop: -1, color: 'var(--muted)' }}>
                       <span style={{ flex: '1 1 30%', fontWeight: 600, color: 'var(--ink)', minWidth: 0 }}>{p.name}</span>
                       <span style={{ flex: '1 1 30%', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.email}</span>
                       <span style={{ flex: '0 1 18%', minWidth: 0 }}>{p.company}</span>

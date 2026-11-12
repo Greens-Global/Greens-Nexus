@@ -33,13 +33,13 @@ const PERIODS = [
   { key: 'custom', label: 'Custom' },
 ];
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const th = { textAlign: 'right', padding: '6px 8px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)', verticalAlign: 'bottom', minWidth: 96 };
+const th = { textAlign: 'right', padding: '6px 8px', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)', verticalAlign: 'bottom', minWidth: 96 };
 const thLeft = { ...th, textAlign: 'left', minWidth: 200, position: 'sticky', left: 0, background: 'var(--bg-card)', zIndex: 1 };
-const td = { padding: '5px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+const td = { padding: '5px 8px', borderBottom: '1px solid var(--border-color)', fontSize: 13, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const tdLeft = { ...td, textAlign: 'left', position: 'sticky', left: 0, background: 'var(--bg-card)', whiteSpace: 'normal' };
 const cellBtn = { border: 'none', background: 'none', padding: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textDecoration: 'underline dotted', textUnderlineOffset: 3 };
 // 10/23 meeting, item 02 (fix 10/24): the words sit beside the controls, not above them, so the bar is one line.
-const inline = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' };
+const inline = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' };
 
 const rangeOf = (key) => { const [f, t] = presetRange(key); return [iso(f), iso(t)]; };
 
@@ -162,11 +162,11 @@ export default function ProfitabilityReport({ limited = false }) {
 
       <AsyncSection loading={state.loading} error={!!state.error} errorMessage={state.error} onRetry={() => load()} skeleton={<SkeletonBlocks count={2} />}
         isEmpty={!!data && !rows.length}
-        emptyContent={<div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>Nothing posted to income or expense accounts for these entities in this period.</div>}>
+        emptyContent={<div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 14 }}>Nothing posted to income or expense accounts for these entities in this period.</div>}>
         {data && (
           <div className="acct-scroll-box" ref={setBox} data-testid="profitability-box" style={{ ...card, ...fit }}>
             <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
-              <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Profitability Sheet</h3>
+              <h3 style={{ margin: 0, fontSize: 15 }}>Profitability Sheet</h3>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{entityLabel} · {periodLine(data)}{withPrior ? ` · compared with ${priorLine(data)}` : ''}</span>
             </div>
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -187,7 +187,7 @@ export default function ProfitabilityReport({ limited = false }) {
                   return (
                     <tr key={r.code}>
                       <td style={{ ...C('entity', tdLeft), paddingLeft: 8 + r.depth * 18 }}>
-                        <span style={{ fontWeight: r.depth ? 400 : 600 }}>{r.name}</span> <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{r.code}</span>
+                        <span style={{ fontWeight: r.depth ? 400 : 600 }}>{r.name}</span> <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{r.code}</span>
                       </td>
                       {PROFIT_COLUMNS.map((c) => <td key={c.key} style={{ ...C(c.key, td), background: open?.code === r.code && open?.key === c.key ? 'var(--wk-brand-tint, #e8ecfd)' : undefined }}>{figure(r, c)}</td>)}
                       {withPrior && (
@@ -218,7 +218,7 @@ export default function ProfitabilityReport({ limited = false }) {
                 </tr>
               </tfoot>
             </table>
-            <p style={{ margin: 0, padding: '8px 12px 12px', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, padding: '8px 12px 12px', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
               NOI is revenue less operating expenses; interest and depreciation & amortization are left out of it and come off below NOI.
               Debt service is the monthly payment of each loan set up under Loans & Financing, times the months in the period.
               {data.expand ? ' Sub-entities are already inside their parent, so the totals count them once.' : ''}
@@ -231,10 +231,10 @@ export default function ProfitabilityReport({ limited = false }) {
       {openRow && openCol && (
         <div style={{ ...card, overflow: 'auto' }} role="region" aria-label="Accounts Behind the Figure">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 4px' }}>
-            <h3 style={{ margin: 0, fontSize: '0.9rem', flex: 1 }}>{openCol.label} - {openRow.name}</h3>
+            <h3 style={{ margin: 0, fontSize: 15, flex: 1 }}>{openCol.label} - {openRow.name}</h3>
             <button type="button" onClick={() => setOpen(null)} aria-label="Close the accounts" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 4 }}><X size={15} /></button>
           </div>
-          <p style={{ margin: 0, padding: '0 12px 6px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Click an account to open its ledger lines on Reports.</p>
+          <p style={{ margin: 0, padding: '0 12px 6px', fontSize: 12, color: 'var(--text-muted)' }}>Click an account to open its ledger lines on Reports.</p>
           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
             <thead><tr><th style={{ ...th, textAlign: 'left', minWidth: 0 }}>Line</th><th style={{ ...th, textAlign: 'left', minWidth: 0 }}>Account</th><th style={{ ...th, textAlign: 'left', minWidth: 0 }}>Title</th><th style={th}>Amount</th></tr></thead>
             <tbody>

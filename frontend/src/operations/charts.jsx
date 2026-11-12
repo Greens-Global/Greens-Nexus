@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { AGING, count, dayLabel, money, monthLabel, pct } from './model';
 
-const AXIS = { fontSize: 11.5, fill: 'var(--muted)' };
+const AXIS = { fontSize: 12, fill: 'var(--muted)' };
 const GRID = 'var(--ops-grid)';
 const AGE_COLORS = ['var(--ops-age-1)', 'var(--ops-age-2)', 'var(--ops-age-3)', 'var(--ops-age-4)', 'var(--ops-age-5)'];
 const moneyTick = (v) => money(v, { compact: true });
@@ -50,7 +50,7 @@ export function UnitMixChart({ facilities, onPick }) {
       <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, bottom: 0, left: 4 }} barCategoryGap={12}>
         <CartesianGrid horizontal={false} stroke={GRID} />
         <XAxis type="number" tick={AXIS} axisLine={false} tickLine={false} tickFormatter={count} />
-        <YAxis type="category" dataKey="name" tick={{ ...AXIS, fontSize: 12.5, fill: 'var(--ink)' }} axisLine={false} tickLine={false} width={104} />
+        <YAxis type="category" dataKey="name" tick={{ ...AXIS, fontSize: 13, fill: 'var(--ink)' }} axisLine={false} tickLine={false} width={104} />
         <Tooltip cursor={{ fill: 'var(--ops-grid)' }} content={<Tip title={(d) => d.name} rows={(d) => [
           ['Rented', `${count(d.rented)} (${pct(d.rented, d.rented + d.vacant, 0)} of rentable)`, 'var(--ops-s1)'],
           ['Vacant', count(d.vacant), 'var(--ops-s2)'],
@@ -126,7 +126,7 @@ export function AgingChart({ buckets, onPick }) {
         <Bar dataKey="amount" radius={[4, 4, 0, 0]} isAnimationActive={false}
           {...(onPick ? { onClick: (d) => onPick((d?.payload || d)?.key), cursor: 'pointer' } : {})}>
           {data.map((d) => <Cell key={d.label} fill={d.color} />)}
-          <LabelList dataKey="amount" position="top" formatter={(v) => (v ? money(v, { compact: true }) : '')} style={{ fontSize: 11.5, fill: 'var(--ink)', fontWeight: 600 }} />
+          <LabelList dataKey="amount" position="top" formatter={(v) => (v ? money(v, { compact: true }) : '')} style={{ fontSize: 12, fill: 'var(--ink)', fontWeight: 600 }} />
         </Bar>
       </BarChart>
     </Frame>

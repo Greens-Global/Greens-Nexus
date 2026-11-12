@@ -51,7 +51,7 @@ const STATUS_LOOK = {
   Canceled: { bg: 'var(--mist)', fg: 'var(--muted)' },
 };
 const HR_TABS = [['approver_approved', 'To Approve'], ['hr_approved', 'To Pay'], ['paid', 'Paid']];
-const lbl = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '10px 0 4px' };
+const lbl = { fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '10px 0 4px' };
 const full = { width: '100%' };
 const small = { fontSize: 12, padding: '5px 10px' };
 
@@ -162,7 +162,7 @@ function ClaimForm({ people, editing = null, onDone, flash }) {
           const on = f.category === k;
           return (
             <button key={k} type="button" role="radio" aria-checked={on} onClick={() => setF((x) => ({ ...x, category: k }))}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, cursor: 'pointer', fontSize: 12.5, fontWeight: 700,
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 999, cursor: 'pointer', fontSize: 13, fontWeight: 700,
                 border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--line)'}`,
                 background: on ? 'var(--wk-brand-tint, rgba(43,69,225,.08))' : 'var(--card)', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--ink)' }}>
               <Icon size={14} /> {l}
@@ -171,7 +171,7 @@ function ClaimForm({ people, editing = null, onDone, flash }) {
         })}
       </div>
       {!kind ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 10 }}>Pick the kind of expense to fill in the details.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 10 }}>Pick the kind of expense to fill in the details.</div>
       ) : (<>
         <label style={lbl} htmlFor="rb-item">{kind.item}</label>
         <input id="rb-item" className="form-input" style={full} value={f.item} onChange={set('item')} autoFocus placeholder={kind.itemHint} />
@@ -191,7 +191,7 @@ function ClaimForm({ people, editing = null, onDone, flash }) {
               <DateField value={f.purchaseDate} onChange={(v) => setF((x) => ({ ...x, purchaseDate: v || '' }))} placeholder="MM/DD/YYYY"
                 title={kind.date} style={{ width: '100%' }} />
             </div>
-            {future && <div style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', marginTop: 4 }}>That date has not happened yet.</div>}
+            {future && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginTop: 4 }}>That date has not happened yet.</div>}
           </div>
           <div>
             <label style={lbl} htmlFor="rb-vendor">{kind.paidTo}</label>
@@ -204,12 +204,12 @@ function ClaimForm({ people, editing = null, onDone, flash }) {
         <label style={lbl} htmlFor="rb-approver">Who Approves It</label>
         <PersonSelect id="rb-approver" value={f.approver || null} onChange={(v) => setF((x) => ({ ...x, approver: v || '' }))}
           people={people.map((p) => ({ email: p.email, name: p.name || p.email }))} placeholder="My Manager" noneLabel="My Manager"
-          style={{ borderRadius: 10, padding: '9px 13px', fontSize: 13.5, fontWeight: 400 }} />
+          style={{ borderRadius: 10, padding: '9px 13px', fontSize: 13, fontWeight: 400 }} />
         <JobTagSelect id="rb-job" value={f.jobId} onChange={(v) => setF((x) => ({ ...x, jobId: v }))} label="Job (Optional)"
           labelStyle={lbl} style={full} hint="Bought for a construction job? Pick it - it shows on the job's Money tab." />
         <label style={lbl}>Receipts{editing && editing.receipts.length ? ` (${editing.receipts.length} already attached)` : ''}</label>
         <ReceiptPicker files={files} onFiles={setFiles} />
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>No receipt yet? Send it now and add it later. HR approves it once the receipt is attached.</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>No receipt yet? Send it now and add it later. HR approves it once the receipt is attached.</div>
       </>)}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
         <button type="button" className="secondary-btn" onClick={() => onDone(null)} disabled={busy}>Cancel</button>
@@ -261,7 +261,7 @@ function ClaimRow({ r, as, onChanged, onEdit, flash }) {
         <span>Filed {formatDate(r.createdAt)}</span>
         {r.paidOn && <span>Paid {formatDate(r.paidOn + 'T12:00:00')}{r.paymentMethod ? ` · ${PAY_LABEL[r.paymentMethod] || r.paymentMethod}` : ''}{r.paymentRef ? ` · ${r.paymentRef}` : ''}</span>}
       </div>
-      {r.details && <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 4 }}>{r.details}</div>}
+      {r.details && <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 4 }}>{r.details}</div>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
         {r.receipts.map((x, i) => (
           <button key={i} type="button" className="secondary-btn" onClick={() => openReceipt(r.id, i, (m) => flash(m, false))}
@@ -329,15 +329,15 @@ function ClaimRow({ r, as, onChanged, onEdit, flash }) {
       )}
       {mode === 'pay' && (
         <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, alignItems: 'end' }}>
-          <label style={{ display: 'grid', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>Paid On
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Paid On
             <input className="form-input" type="date" value={pay.paidOn} onChange={(e) => setPay((p) => ({ ...p, paidOn: e.target.value }))} />
           </label>
-          <label style={{ display: 'grid', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>Method
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Method
             <select className="form-input" value={pay.method} onChange={(e) => setPay((p) => ({ ...p, method: e.target.value }))}>
               {PAY_METHODS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </label>
-          <label style={{ display: 'grid', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>Reference
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Reference
             <input className="form-input" value={pay.ref} onChange={(e) => setPay((p) => ({ ...p, ref: e.target.value }))} placeholder="Check or transfer number" />
           </label>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -477,7 +477,7 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <div style={{ minWidth: 0 }}>
                 {managing && (
-                  <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', marginBottom: 2 }}>Manage - HR</div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', marginBottom: 2 }}>Manage - HR</div>
                 )}
                 {/* The segmented control Purchase Requests uses (Workday's .wd-seg -
                     Sagar, Oct 27), for the person's tabs and Manage's alike. */}
@@ -527,7 +527,7 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
             <div className="nx-fill">
             {!data ? <div style={{ padding: 20, textAlign: 'center' }}><Spinner size={16} /></div>
               : list.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0' }}>
+                <div style={{ fontSize: 13, color: 'var(--muted)', padding: '14px 0' }}>
                   {tab === 'approve' ? 'Nothing waiting on you.' : tab === 'hr' ? 'Nothing here.' : 'Nothing filed yet. Use New to send one.'}
                 </div>
               ) : list.map((r) => (

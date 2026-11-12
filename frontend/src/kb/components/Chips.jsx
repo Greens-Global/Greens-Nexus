@@ -29,13 +29,13 @@ export function VerifiedChip({ page }) {
 
 export function Av({ name, email, size = 28, color }) {
   const bg = color || colorFor(email || name || '');
-  return <span className={`kb-av${size <= 24 ? ' sm' : ''}`} style={{ background: bg, width: size, height: size, fontSize: size <= 24 ? 10 : 11 }} title={name || email}>{initials(name || email)}</span>;
+  return <span className={`kb-av${size <= 24 ? ' sm' : ''}`} style={{ background: bg, width: size, height: size, fontSize: 11 }} title={name || email}>{initials(name || email)}</span>;
 }
 
 export function SectionHead({ title, sub, right, count }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-      <h3 className="kb-h2" style={{ fontSize: 16 }}>{title}</h3>
+      <h3 className="kb-h2" style={{ fontSize: 15 }}>{title}</h3>
       {count > 0 && <Chip color="#dc2626">{count}</Chip>}
       {sub && <span className="kb-sub" style={{ margin: 0 }}>{sub}</span>}
       {right && <span style={{ marginLeft: 'auto' }}>{right}</span>}

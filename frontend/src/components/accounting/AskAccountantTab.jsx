@@ -44,9 +44,9 @@ import { pill } from './dashboard/Bits';
 //     approves and pushes.
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const muted = { color: 'var(--text-muted)' };
-const fieldLabel = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const fieldLabel = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const ellipsis = { maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 const dash = <span style={muted}>-</span>;
@@ -195,7 +195,7 @@ export function SplitCharges({ row, canMove, busy, onMove }) {
   const charges = row.splitInto || [];
   if (!row.needsRelink || !charges.length) return null;
   return (
-    <div role="note" aria-label="Card charges" style={{ ...card, padding: '8px 10px', fontSize: '0.8rem', boxShadow: 'none', display: 'grid', gap: 6 }}>
+    <div role="note" aria-label="Card charges" style={{ ...card, padding: '8px 10px', fontSize: 13, boxShadow: 'none', display: 'grid', gap: 6 }}>
       <span>
         This question was asked on Intacct&apos;s batch summary line ({amountText(row)}), which is these {charges.length} card charges.
         {canMove ? ' Move it to the charge it is about - the question and its replies stay.' : ' The person who asked, the accountant or an Accounting editor can move it to the right charge.'}
@@ -207,7 +207,7 @@ export function SplitCharges({ row, canMove, busy, onMove }) {
             <span style={num}><Amount value={c.amount} /></span>
             {canMove && (
               <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => onMove(c)} aria-label={`Move the question to ${lineText(c)} ${amountText(c)}`}
-                style={{ fontSize: '0.74rem', height: 26, padding: '0 8px', whiteSpace: 'nowrap' }}>{busy === `relink:${c.lineId}` ? 'Moving...' : 'Move Here'}</button>
+                style={{ fontSize: 12, height: 26, padding: '0 8px', whiteSpace: 'nowrap' }}>{busy === `relink:${c.lineId}` ? 'Moving...' : 'Move Here'}</button>
             )}
           </li>
         ))}
@@ -263,7 +263,7 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
         style={{ width: 'min(480px, 100vw)', height: '100vh', background: 'var(--bg-card)', borderLeft: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg, 0 8px 32px rgba(0,0,0,0.18))' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-color)' }}>
           <MessageCircleQuestion size={16} style={{ color: 'var(--wk-brand, #2b45e1)' }} />
-          <h3 style={{ margin: 0, fontSize: '0.98rem', flex: 1 }}>{isThread ? 'Question' : 'Ask My Accountant Line'}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, flex: 1 }}>{isThread ? 'Question' : 'Ask My Accountant Line'}</h3>
           <StatusChips r={t} />
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
@@ -272,12 +272,12 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
           <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '8px 10px', background: 'var(--bg-secondary)' }}>
             <LineFacts line={{ ...t, entityName: t.entityName || '' }} />
             {row.otherSide?.all?.length > 0 && (
-              <div style={{ fontSize: '0.78rem', marginTop: 4 }}><strong>Other Side: </strong><OtherSideCell side={{ ...row.otherSide, shown: row.otherSide.all }} /></div>
+              <div style={{ fontSize: 13, marginTop: 4 }}><strong>Other Side: </strong><OtherSideCell side={{ ...row.otherSide, shown: row.otherSide.all }} /></div>
             )}
-            {row.note && <div style={{ fontSize: '0.78rem', marginTop: 4 }}><strong>Notes: </strong>{row.note}</div>}
+            {row.note && <div style={{ fontSize: 13, marginTop: 4 }}><strong>Notes: </strong>{row.note}</div>}
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginTop: 6 }}>
               {t.entryId && (
-                <button type="button" className="acct-drill" onClick={() => setEntry({ id: t.entryId, no: t.entryNo })} style={{ fontSize: '0.78rem' }}>
+                <button type="button" className="acct-drill" onClick={() => setEntry({ id: t.entryId, no: t.entryNo })} style={{ fontSize: 13 }}>
                   Open the Journal Entry
                 </button>
               )}
@@ -287,17 +287,17 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
           {isThread && <SplitCharges row={row} canMove={canClose} busy={busy}
             onMove={(c) => act(`relink:${c.lineId}`, () => api.relinkAskThread(t.id, c))} />}
           {t.reclassed && t.status !== 'Resolved' && (
-            <div role="note" style={{ ...card, padding: '8px 10px', fontSize: '0.8rem', display: 'flex', gap: 8, alignItems: 'center', boxShadow: 'none' }}>
+            <div role="note" style={{ ...card, padding: '8px 10px', fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', boxShadow: 'none' }}>
               <span style={{ flex: 1 }}>This line is no longer on the Ask My Accountant account in the ledger - it was reclassed in Intacct.</span>
               {isThread && canClose && (
-                <button type="button" className="primary-btn" disabled={!!busy} onClick={() => resolve('')} style={{ fontSize: '0.76rem', height: 28, padding: '0 10px' }}>Resolve</button>
+                <button type="button" className="primary-btn" disabled={!!busy} onClick={() => resolve('')} style={{ fontSize: 12, height: 28, padding: '0 10px' }}>Resolve</button>
               )}
             </div>
           )}
           {!isThread ? (
-            <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', display: 'grid', gap: 8 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'grid', gap: 8 }}>
               <span>This line is parked on the Ask My Accountant account and nobody has asked about it yet.</span>
-              <button type="button" className="primary-btn" onClick={() => onAsk(row)} style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}>
+              <button type="button" className="primary-btn" onClick={() => onAsk(row)} style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                 <MessageCircleQuestion size={14} /> Ask My Accountant
               </button>
             </div>
@@ -305,25 +305,25 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
             <div className="nx-skel" style={{ height: 80, borderRadius: 8 }} aria-label="Loading the question" />
           ) : thread && (
             <>
-              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                 Asked by <strong>{person(thread.askedByName, thread.askedBy)}</strong> · Accountant <strong>{person(thread.accountantName, thread.accountant)}</strong>
                 {thread.movedToAccount ? <> · Moved To Account <strong>{thread.movedToAccount}</strong></> : null}
               </div>
               <ol aria-label="Thread" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8 }}>
                 {(thread.messages || []).map((m) => (
                   <li key={m.id} style={m.kind === 'event'
-                    ? { fontSize: '0.74rem', color: 'var(--text-muted)', textAlign: 'center' }
+                    ? { fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }
                     : { border: '1px solid var(--border-color)', borderRadius: 10, padding: '8px 10px', background: m.author === thread.accountant ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' }}>
                     {m.kind === 'event' ? (
                       <span>{person(m.authorName, m.author)} - {m.body} · {formatDateTime(m.at)}</span>
                     ) : (
                       <>
-                        <div style={{ display: 'flex', gap: 8, fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 3 }}>
+                        <div style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--text-muted)', marginBottom: 3 }}>
                           <strong style={{ color: 'var(--text-primary)' }}>{person(m.authorName, m.author)}</strong>
                           {m.kind === 'question' && <span>asked</span>}
                           <span style={{ marginLeft: 'auto' }}>{formatDateTime(m.at)}</span>
                         </div>
-                        <div style={{ fontSize: '0.84rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.body}</div>
+                        <div style={{ fontSize: 13, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{m.body}</div>
                       </>
                     )}
                   </li>
@@ -339,14 +339,14 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
                 placeholder={me === thread.accountant ? 'Answer the question...' : 'Write a reply...'}
                 style={{ ...control, width: '100%', height: 'auto', resize: 'vertical', fontFamily: 'inherit' }} />
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <button type="submit" className="primary-btn" disabled={!reply.trim() || !!busy} style={{ fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+                <button type="submit" className="primary-btn" disabled={!reply.trim() || !!busy} style={{ fontSize: 13, height: 30, padding: '0 12px' }}>
                   {busy === 'reply' ? 'Sending...' : 'Reply'}
                 </button>
                 {canClose && thread.status !== 'Resolved' && !resolving && (
-                  <button type="button" className="secondary-btn" onClick={() => setResolving(true)} style={{ fontSize: '0.78rem', height: 30, padding: '0 12px' }}>Resolve</button>
+                  <button type="button" className="secondary-btn" onClick={() => setResolving(true)} style={{ fontSize: 13, height: 30, padding: '0 12px' }}>Resolve</button>
                 )}
                 {canClose && thread.status === 'Resolved' && (
-                  <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => act('reopen', () => api.reopenAskThread(thread.id))} style={{ fontSize: '0.78rem', height: 30, padding: '0 12px' }}>Reopen</button>
+                  <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => act('reopen', () => api.reopenAskThread(thread.id))} style={{ fontSize: 13, height: 30, padding: '0 12px' }}>Reopen</button>
                 )}
               </div>
             </form>
@@ -356,8 +356,8 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
                   <label style={fieldLabel} htmlFor="ask-moved">Moved To Account</label>
                   <input id="ask-moved" type="text" value={moved} maxLength={40} onChange={(e) => setMoved(e.target.value)} placeholder="Optional, e.g. 61000" style={{ ...control, width: '100%' }} />
                 </div>
-                <button type="button" className="primary-btn" disabled={!!busy} onClick={() => resolve()} style={{ fontSize: '0.78rem', height: 30, padding: '0 12px' }}>{busy === 'resolve' ? 'Saving...' : 'Mark Resolved'}</button>
-                <button type="button" className="secondary-btn" onClick={() => setResolving(false)} style={{ fontSize: '0.78rem', height: 30, padding: '0 12px' }}>Cancel</button>
+                <button type="button" className="primary-btn" disabled={!!busy} onClick={() => resolve()} style={{ fontSize: 13, height: 30, padding: '0 12px' }}>{busy === 'resolve' ? 'Saving...' : 'Mark Resolved'}</button>
+                <button type="button" className="secondary-btn" onClick={() => setResolving(false)} style={{ fontSize: 13, height: 30, padding: '0 12px' }}>Cancel</button>
               </div>
             )}
           </div>
@@ -416,7 +416,7 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
       {!limited && (
         <div>
           <span style={fieldLabel}>Ask My Accountant Accounts</span>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', marginBottom: 6 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 6 }}>
             <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
             Find them by title ("Ask My Accountant", "Ask Accountant", "Suspense")
           </label>
@@ -425,7 +425,7 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
               <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Filter accounts" aria-label="Filter accounts" style={{ ...control, width: '100%', marginBottom: 6 }} />
               <div style={{ maxHeight: 200, overflowY: 'auto', display: 'grid', gap: 2 }}>
                 {chart === null ? <div className="nx-skel" style={{ height: 60 }} /> : shown.map((a) => (
-                  <label key={a.code} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem' }}>
+                  <label key={a.code} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                     <input type="checkbox" checked={picked.has(a.code)} onChange={(e) => setPicked((s) => { const n = new Set(s); if (e.target.checked) n.add(a.code); else n.delete(a.code); return n; })} />
                     <span className="acct-code">{a.code}</span>{a.title}{a.detected && <Chip tone="brand">Found By Title</Chip>}
                   </label>
@@ -439,7 +439,7 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
         <span style={fieldLabel}>Accountants</span>
         <div style={{ display: 'grid', gap: 6 }}>
           {everyEntity.length > 0 && (
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               Every Entity: {everyEntity.map((p) => p.name || p.email).join(', ')} - set by someone with access to every entity.
             </div>
           )}
@@ -452,22 +452,22 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
             </div>
           ))}
           <button type="button" className="secondary-btn" onClick={() => setRows((x) => [...x, { entity: limited ? (entities[0]?.code || '') : '', email: '' }])}
-            style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', height: 28, padding: '0 10px' }}>
+            style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, height: 28, padding: '0 10px' }}>
             <Plus size={13} /> Add Accountant
           </button>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>A question goes to the first accountant of its entity, else the first for every entity, else the last one the asker picked.</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>A question goes to the first accountant of its entity, else the first for every entity, else the last one the asker picked.</div>
         </div>
       </div>
       <div>
         <span style={fieldLabel}>Bookkeepers</span>
         {limited ? (
-          <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
             {(settings?.bookkeepers || []).map((p) => p.name || p.email).join(', ') || 'None set'} - set by someone with access to every entity.
           </div>
         ) : (
           <div style={{ display: 'grid', gap: 6 }}>
             {settings?.bookkeepersFromEnv && !keepers.length && (
-              <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                 {settings.bookkeeperSource === 'seed'
                   ? `The team's bookkeepers, matched by name on the People list: ${(settings.bookkeepers || []).map((p) => p.name || p.email).join(', ') || 'nobody yet'}.`
                   : `From the server's settings: ${(settings.bookkeepers || []).map((p) => p.name || p.email).join(', ')}.`}
@@ -482,10 +482,10 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
               </div>
             ))}
             <button type="button" className="secondary-btn" onClick={() => setKeepers((x) => [...x, ''])}
-              style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', height: 28, padding: '0 10px' }}>
+              style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, height: 28, padding: '0 10px' }}>
               <Plus size={13} /> Add Bookkeeper
             </button>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Only a bookkeeper can change, send back, approve and push a GL reclass. Anyone else picks the GL and it waits for them.</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Only a bookkeeper can change, send back, approve and push a GL reclass. Anyone else picks the GL and it waits for them.</div>
           </div>
         )}
       </div>
@@ -494,9 +494,9 @@ export function SettingsDialog({ settings, entities, limited, onClose, onSaved }
           <span style={fieldLabel}>Books Closed Through</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ width: 160 }}><DateField value={closed} onChange={(v) => setClosed(v || '')} placeholder="MM/DD/YYYY" title="Books Closed Through" style={{ width: '100%' }} /></div>
-            {closed && <button type="button" className="secondary-btn" onClick={() => setClosed('')} style={{ fontSize: '0.74rem', height: 26, padding: '0 8px' }}>Clear</button>}
+            {closed && <button type="button" className="secondary-btn" onClick={() => setClosed('')} style={{ fontSize: 12, height: 26, padding: '0 8px' }}>Clear</button>}
           </div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
             No push to Intacct edits an entry dated on or before this day.{settings?.closedThroughDefault && !closed ? ` The server default is ${formatDate(settings.closedThroughDefault)}.` : ''}
             {settings?.pushBatchLimit ? ` Pushes take at most ${settings.pushBatchLimit} ${settings.pushBatchLimit === 1 ? 'line' : 'lines'} at a time.` : ''}
           </div>
@@ -647,7 +647,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
       <style>{GRID_CSS}</style>
       {fullWidth && <style data-testid="ama-full-width">{FULL_WIDTH_CSS}</style>}
       {/* No heading of its own (11/11/2026, picture 1): the page line names the page. */}
-      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+      <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
         Lines parked on the Ask My Accountant account, and questions asked on any ledger line, until the accountant says where they belong.
       </p>
 
@@ -671,11 +671,11 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         </select>
         {period.key === 'custom' && (
           <>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
               <span className="acct-more-only">From</span>
               <span style={{ width: 120 }}><DateField value={from} max={to} onChange={(v) => v && setPeriod({ key: 'custom', from: v, to: v > to ? v : to })} placeholder="MM/DD/YYYY" title="Lines dated from" style={{ ...control, width: '100%' }} /></span>
             </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
               <span className="acct-more-only">To</span>
               <span style={{ width: 120 }}><DateField value={to} onChange={(v) => v && setPeriod({ key: 'custom', from: v < from ? v : from, to: v })} placeholder="MM/DD/YYYY" title="Lines dated to" style={{ ...control, width: '100%' }} /></span>
             </span>
@@ -694,7 +694,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
           {/* Item 05 (chat triage 10/27): the side menu out of the way, kept per person. */}
           <button type="button" className={fullWidth ? 'primary-btn' : 'secondary-btn'} aria-pressed={fullWidth} onClick={() => setPrefs({ amaFullWidth: !fullWidth })}
             title={fullWidth ? 'Exit Full Width - show the side menu again' : 'Full Width - hide the side menu and widen the grid'}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 10px' }}>
             {fullWidth ? <Minimize2 size={14} /> : <Maximize2 size={14} />} <span className="acct-bar-label">{fullWidth ? 'Exit Full Width' : 'Full Width'}</span>
           </button>
           <BarMore level={4}>
@@ -703,12 +703,12 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
           <BarMore level={1}>
           <CustomizeButton {...custom} />
           {bookkeeper && reclassMode !== 'new_entry' && awaiting.length > 0 && (
-            <button type="button" className="secondary-btn" onClick={() => setPushing(true)} title="Push Reclasses" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
+            <button type="button" className="secondary-btn" onClick={() => setPushing(true)} title="Push Reclasses" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 10px' }}>
               <Send size={14} /> <span className="acct-bar-label">Push Reclasses</span> ({awaiting.length})
             </button>
           )}
           {editor && (
-            <button type="button" className="secondary-btn" onClick={openSettings} title="Settings" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}>
+            <button type="button" className="secondary-btn" onClick={openSettings} title="Settings" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 10px' }}>
               <Settings size={14} /> <span className="acct-bar-label">Settings</span>
             </button>
           )}
@@ -724,19 +724,19 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
       </ControlBar>
 
       {data && (
-        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
           {`${formatDate(from)} - ${formatDate(to)} · `}
           {accountsText ? `AMA ${data.accounts.length === 1 ? 'account' : 'accounts'}: ${accountsText}${data.autoDetected ? ' (found by title)' : ''}` : 'No Ask My Accountant account was found on the ledger - questions asked on ledger lines still show here.'}
           {data.ledgerError && <span style={{ color: 'var(--bad-fg, #dc2626)' }}> · The ledger could not be read: {data.ledgerError}</span>}
         </div>
       )}
       {outside && (
-        <div role="note" style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <div role="note" style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
           <span>
             {outside.count.toLocaleString('en-US')} {outside.count === 1 ? 'question is' : 'questions are'} on lines dated outside {formatDate(from)} - {formatDate(to)}
             {outside.open ? ` (${outside.open.toLocaleString('en-US')} not resolved)` : ''}.
           </span>
-          <button type="button" className="acct-drill" style={{ fontSize: '0.76rem' }}
+          <button type="button" className="acct-drill" style={{ fontSize: 12 }}
             onClick={() => setPeriod({ key: 'custom', from: outside.earliest && outside.earliest < from ? outside.earliest : from, to: outside.latest && outside.latest > to ? outside.latest : to })}>
             Include Them
           </button>
@@ -744,25 +744,25 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
       )}
 
       {error && (notAvailable(error) ? (
-        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+        <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>
           <strong style={{ color: 'var(--text-primary)' }}>Ask My Accountant is not available here.</strong> The accounting service is not connected on this environment.
         </div>
       ) : (
         <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ flex: 1 }}>{error.message || 'Could not read the questions.'}</span>
-          <button type="button" className="secondary-btn" onClick={load} style={{ fontSize: '0.76rem' }}>Try Again</button>
+          <button type="button" className="secondary-btn" onClick={load} style={{ fontSize: 12 }}>Try Again</button>
         </div>
       ))}
 
       {filtering && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
           <span>Column filters on - {rows.length.toLocaleString('en-US')} {rows.length === 1 ? 'line matches' : 'lines match'}.</span>
           <button type="button" onClick={clearTyped} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
         </div>
       )}
 
       {!error && !loading && !all.length && (
-        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+        <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>
           Nothing to ask about in this period. Use the question mark on any line in Ledger Search or a journal entry to ask your accountant.
         </div>
       )}

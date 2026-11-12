@@ -20,7 +20,7 @@ import {
   HOLIDAY_TYPES, holidayTypeLabel, dateWithWeekday, realDateOf, yearOptions, plural, countryOfEntity, sourceLabel, daysBetween, HINT, SUBHEAD,
 } from './holidayLib';
 
-const SMALL_BTN = { background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', fontSize: 11.5, whiteSpace: 'nowrap' };
+const SMALL_BTN = { background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', fontSize: 12, whiteSpace: 'nowrap' };
 const CARD = { border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' };
 const SECTION = { display: 'flex', flexDirection: 'column', gap: 8 };
 
@@ -199,7 +199,7 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
     const hint = observedText(h);
     return (
       <div key={h.id} style={{ borderBottom: '1px solid var(--line)', padding: '9px 14px', display: 'flex', flexDirection: 'column', gap: 6 }} data-holiday={h.name}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
           <div style={{ minWidth: 150, display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontWeight: 700 }}>{formatDate(h.date)}</span>
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>{h.weekday || formatWeekday(h.date)}</span>
@@ -224,7 +224,7 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
             )}
           </div>
           <select className="form-input" aria-label={`Type for ${h.name}`} value={h.type || 'mandatory'} disabled={!!busy}
-            onChange={e => changeType(h, e.target.value)} style={{ width: 118, fontSize: 11.5, padding: '4px 8px' }} title="Change Type">
+            onChange={e => changeType(h, e.target.value)} style={{ width: 118, fontSize: 12, padding: '4px 8px' }} title="Change Type">
             {Object.entries(HOLIDAY_TYPES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -280,7 +280,7 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>Export Years</div>
             <div style={{ maxHeight: 220, overflowY: 'auto' }}>
               {exportOptions.map(y => (
-                <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 12.5 }}>
+                <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 13 }}>
                   <input type="checkbox" checked={exportYears.includes(y)} onChange={() => toggleExportYear(y)} /> {y}
                 </label>
               ))}
@@ -338,7 +338,7 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
               <h4 style={{ ...SUBHEAD, color: 'var(--muted)' }}>Skipped For This Company ({skipped.length})</h4>
               <div style={{ ...CARD, opacity: 0.75 }}>
                 {skipped.map(s => (
-                  <div key={`${s.policyId}-${s.key}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: '1px solid var(--line)', fontSize: 12.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
+                  <div key={`${s.policyId}-${s.key}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderBottom: '1px solid var(--line)', fontSize: 13, color: 'var(--muted)', flexWrap: 'wrap' }}>
                     <span style={{ minWidth: 150 }}>{dateWithWeekday(s.date)}</span>
                     <span style={{ flex: '1 1 200px', display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
                       <span style={{ textDecoration: 'line-through' }}>{s.name}</span>
@@ -399,7 +399,7 @@ export default function CompanyHolidayCalendar({ entity, toastOk, toastErr }) {
             <p style={HINT}>These holidays are already on {entity.name}'s calendar. Tick the company's own ones to replace with the policy's, or keep both. Another policy's holidays stay - unassign that policy to remove them.</p>
             <div className="nx-fill" style={{ ...CARD, overflowY: 'auto' }} role="list" aria-label="Already On This Calendar">
               {clash.clashes.map(c => (
-                <label key={c.id} role="listitem" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 14px', borderBottom: '1px solid var(--line)', fontSize: 12.5, cursor: c.replaceable ? 'pointer' : 'default' }}>
+                <label key={c.id} role="listitem" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 14px', borderBottom: '1px solid var(--line)', fontSize: 13, cursor: c.replaceable ? 'pointer' : 'default' }}>
                   <input type="checkbox" aria-label={`Replace ${c.name}`} checked={clash.picked.includes(c.id)} disabled={!c.replaceable || !!busy}
                     onChange={() => togglePick(c.id)} style={{ marginTop: 2 }} />
                   <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>

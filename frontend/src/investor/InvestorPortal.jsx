@@ -46,8 +46,8 @@ const isNum = v => v !== null && v !== undefined;
 
 const stat = (label, value) => (
   <div key={label}>
-    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
-    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
+    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
   </div>
 );
 
@@ -86,7 +86,7 @@ function DealCard({ deal: d, live, onOpen }) {
       </div>
 
       {d.committed > 0 && <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 5, fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 5, fontVariantNumeric: 'tabular-nums' }}>
           <span>Called <strong style={{ color: 'var(--ink)' }}>{formatCurrency(d.called)}</strong></span>
           <span>Committed {formatCurrency(d.committed)}</span>
         </div>
@@ -140,9 +140,9 @@ function PortalDealDetail({ fundId, live, asOf, onBack }) {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Investor Statement</div>
-          <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--ink)', marginTop: 4 }}>{deal.fundName}</div>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Investor Statement</div>
+          <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--ink)', marginTop: 4 }}>{deal.fundName}</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
             {[deal.entityName, deal.strategy, deal.propertyName].filter(Boolean).join(' · ') || 'Deal overview'} · As of {formatDate(deal.asOf)}
           </div>
         </div>
@@ -172,7 +172,7 @@ function PortalDealDetail({ fundId, live, asOf, onBack }) {
               ] : []),
             ].map(([label, value]) => (
               <div key={label}>
-                <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>{label}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>{label}</div>
                 <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
               </div>
             ))}
@@ -191,7 +191,7 @@ function PortalDealDetail({ fundId, live, asOf, onBack }) {
           ...(isNum(deal.irrPct) ? [['Net IRR', formatPercent(deal.irrPct)]] : []),
         ].map(([label, value]) => (
           <div key={label}>
-            <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>{label}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>{label}</div>
             <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
           </div>
         ))}
@@ -217,7 +217,7 @@ function PortalDealDetail({ fundId, live, asOf, onBack }) {
       <div style={{ marginBottom: 24 }}>
         <SectionTitle>Cash-Flow Ledger</SectionTitle>
         {flows.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>No cash flows recorded yet for this position.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0' }}>No cash flows recorded yet for this position.</div>
         ) : (
           <>
             <div style={{ overflowX: 'auto', marginTop: 8 }}>
@@ -254,7 +254,7 @@ function PortalDealDetail({ fundId, live, asOf, onBack }) {
                 </tbody>
               </table>
             </div>
-            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
               Amounts shown from your perspective - capital calls negative, distributions positive.
             </div>
           </>
@@ -264,7 +264,7 @@ function PortalDealDetail({ fundId, live, asOf, onBack }) {
       <div style={{ marginBottom: 24 }}>
         <SectionTitle>Documents</SectionTitle>
         {(deal.documents || []).length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>No documents have been shared for this deal yet.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0' }}>No documents have been shared for this deal yet.</div>
         ) : (
           <div style={{ overflowX: 'auto', marginTop: 8 }}>
             <table className="req-table">
@@ -291,12 +291,12 @@ function PortalDealDetail({ fundId, live, asOf, onBack }) {
                           </div>
                         </div>
                       </td>
-                      <td><span style={{ color: meta.color, fontSize: 12.5, fontWeight: 600 }}>{meta.label}</span></td>
-                      <td style={{ fontSize: 12.5, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{formatDate(doc.createdAt)}</td>
+                      <td><span style={{ color: meta.color, fontSize: 13, fontWeight: 600 }}>{meta.label}</span></td>
+                      <td style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{formatDate(doc.createdAt)}</td>
                       <td style={{ textAlign: 'right' }}>
                         {doc.fileUrl ? (
                           <a href={doc.fileUrl} target="_blank" rel="noreferrer"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-blue))', fontSize: 12.5, fontWeight: 600, textDecoration: 'none' }}>
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-blue))', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
                             <ExternalLink size={13} /> Open
                           </a>
                         ) : (
@@ -315,7 +315,7 @@ function PortalDealDetail({ fundId, live, asOf, onBack }) {
       <div>
         <SectionTitle>Updates</SectionTitle>
         {updates.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>No updates have been posted for this deal yet.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0' }}>No updates have been posted for this deal yet.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
             {updates.map(u => (
@@ -327,7 +327,7 @@ function PortalDealDetail({ fundId, live, asOf, onBack }) {
                   {u.pinned && <Pin size={13} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
                   <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{u.title}</div>
                 </div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                   {u.fundName || 'General Update'} · {formatDate(u.createdAt)}
                 </div>
                 {u.body && <p style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6, margin: '10px 0 0', whiteSpace: 'pre-line' }}>{u.body}</p>}
@@ -370,8 +370,8 @@ export default function InvestorPortal() {
   return (
     <div>
       <div style={{ marginBottom: 18 }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>My Deals</h3>
-        <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Your investments - select a deal for the full statement</p>
+        <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>My Deals</h3>
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Your investments - select a deal for the full statement</p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
         {list.map(d => <DealCard key={d.fundId} deal={d} live={liveOf(d.fundId)} onOpen={() => setSelectedId(d.fundId)} />)}

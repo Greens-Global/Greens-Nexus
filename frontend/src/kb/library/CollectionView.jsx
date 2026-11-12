@@ -68,7 +68,7 @@ export default function CollectionView({ id, me }) {
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
             <Av name={col.owner_name} email={col.owner_email} size={44} color={colorFor(col.id)} />
             <div className="kb-grow">
-              <h1 className="kb-h1" style={{ margin: 0, fontSize: 26 }}>{col.name}</h1>
+              <h1 className="kb-h1" style={{ margin: 0, fontSize: 24 }}>{col.name}</h1>
               <div className="kb-sub">{col.description || 'No description yet.'} {col.owner_name ? `Owner: ${col.owner_name}.` : <Chip color="#dc2626">No owner</Chip>} Review every {col.review_every_months} months.</div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>

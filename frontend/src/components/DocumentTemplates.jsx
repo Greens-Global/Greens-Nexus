@@ -76,7 +76,7 @@ function LetterheadForm({ onSaved, onCancel, toastErr }) {
         {draft.logoPath ? <img src={draft.logoPath} alt="" style={{ height: 44, maxWidth: 120, objectFit: 'contain' }} /> : (
           <div style={{ width: 60, height: 44, borderRadius: 6, background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}><Award size={18} /></div>
         )}
-        <label style={{ fontSize: 11.5, color: 'var(--muted)', cursor: 'pointer' }}>
+        <label style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
           Upload logo (or press Ctrl+V to paste)
           <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" style={{ display: 'none' }}
             onChange={e => { const f = e.target.files?.[0]; if (f) doUpload(f); e.target.value = ''; }} />
@@ -88,7 +88,7 @@ function LetterheadForm({ onSaved, onCancel, toastErr }) {
       <input className="form-input" aria-label="Footer text" placeholder="Footer text (e.g. registration/disclaimer - optional)" value={draft.footerText} onChange={e => patch({ footerText: e.target.value })} />
       <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} label="Add Letterhead" saveDisabled={!draft.name.trim()}
         note="A letterhead needs a name.">
-        {!dirty && <button type="button" className="secondary-btn" onClick={onCancel} style={{ fontSize: 12.5 }}>Cancel</button>}
+        {!dirty && <button type="button" className="secondary-btn" onClick={onCancel} style={{ fontSize: 13 }}>Cancel</button>}
       </SaveRow>
     </div>
   );
@@ -120,7 +120,7 @@ export function LetterheadsPanel({ toastOk, toastErr }) {
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>Only administrators can add or edit letterheads.</div>
       )}
       {letterheads.length === 0 && (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: isAdmin ? 14 : 0 }}>No letterheads yet.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: isAdmin ? 14 : 0 }}>No letterheads yet.</div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: isAdmin && letterheads.length ? 20 : 0 }}>
         {letterheads.map(l => (
@@ -153,7 +153,7 @@ export function LetterheadsPanel({ toastOk, toastErr }) {
       {isAdmin && (adding ? (
         <LetterheadForm toastErr={toastErr} onCancel={() => setAdding(false)} onSaved={() => { setAdding(false); toastOk?.('Letterhead saved'); load(); }} />
       ) : (
-        <button type="button" className="primary-btn" onClick={() => setAdding(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+        <button type="button" className="primary-btn" onClick={() => setAdding(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <Plus size={13} /> Add Letterhead
         </button>
       ))}
@@ -180,7 +180,7 @@ function DepartmentModal({ template, onClose, onSaved, toastErr }) {
           <label htmlFor="template-department" style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Which department maintains "{template.name}"?</label>
           <input id="template-department" className="form-input" autoFocus value={department} onChange={e => setDepartment(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') save(); }} placeholder="e.g. Legal" />
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Leave blank for a company-wide template, which only an administrator can edit.</p>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>Leave blank for a company-wide template, which only an administrator can edit.</p>
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 'auto' }}>
           <button onClick={onClose} className="secondary-btn">Cancel</button>

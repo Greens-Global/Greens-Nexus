@@ -61,7 +61,7 @@ function FieldEditor({ field, company, companyName, onClose, onSaved, toastErr }
   return (
     <Modal title={field ? `Edit ${field.label}` : 'Add Field'} onClose={onClose} footer={footer} isDirty={dirty} onSave={save}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1, minHeight: 0 }}>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
           {field
             ? <>Its values stay as they are when you change it. Documents use it as <code>{`{{${field.token}}}`}</code>.</>
             : <>On the records of {company ? `${companyName || 'this company'}'s people` : 'everyone in every company'}.</>}
@@ -78,7 +78,7 @@ function FieldEditor({ field, company, companyName, onClose, onSaved, toastErr }
               {FIELD_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
             {field && f.field_type !== field.fieldType && (
-              <div style={{ fontSize: 11.5, color: 'hsl(var(--color-orange))', marginTop: 4 }}>Values saved before stay as they were; a value that no longer fits is fixed the next time someone edits it.</div>
+              <div style={{ fontSize: 12, color: 'hsl(var(--color-orange))', marginTop: 4 }}>Values saved before stay as they were; a value that no longer fits is fixed the next time someone edits it.</div>
             )}
           </div>
         </div>
@@ -149,16 +149,16 @@ export default function EmployeeCustomFieldsSettings({ company = '', toastOk, to
   const iconBtn = { padding: '4px 7px', display: 'inline-flex', alignItems: 'center' };
   return (
     <div>
-      {err && <div role="alert" style={{ padding: '12px 18px', fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{err}</div>}
+      {err && <div role="alert" style={{ padding: '12px 18px', fontSize: 13, color: 'hsl(var(--color-red))' }}>{err}</div>}
       {company && (
-        <div style={{ padding: '12px 18px', fontSize: 12.5, color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
+        <div style={{ padding: '12px 18px', fontSize: 13, color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
           {inherited.length
             ? <>Every company&apos;s fields are on these people too: {inherited.map((f) => f.label).join(', ')}. They are set up with Applies To on Every company.</>
             : <>These fields are {companyName ? `${companyName}'s` : "this company's"} alone. Fields for every company are set up with Applies To on Every company.</>}
         </div>
       )}
       {live.length === 0 && (
-        <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--muted)' }}>
+        <div style={{ padding: '16px 18px', fontSize: 13, color: 'var(--muted)' }}>
           No fields yet. Add one to keep something about people that the profile does not have - a shirt size, a badge number, a union local.
         </div>
       )}
@@ -175,7 +175,7 @@ export default function EmployeeCustomFieldsSettings({ company = '', toastOk, to
         )} />
       ))}
       <div style={{ padding: '12px 18px', borderTop: live.length ? '1px solid var(--line)' : undefined }}>
-        <button type="button" className="secondary-btn" onClick={() => setEditing('new')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+        <button type="button" className="secondary-btn" onClick={() => setEditing('new')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <Plus size={13} /> Add Field
         </button>
       </div>

@@ -73,7 +73,7 @@ const pill = (m) => (
 const capLabel = { fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)' };
 const inputStyle = { padding: '7px 10px', borderRadius: 6, border: '1px solid var(--wk-line)', background: 'var(--wk-card)', color: 'var(--wk-ink)', fontSize: 13, fontFamily: FONT };
 const card = { background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 'var(--wk-r)', boxShadow: 'var(--wk-shadow)' };
-const ghostBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--wk-line)', background: 'var(--wk-card)', color: 'var(--wk-ink)', fontSize: 12.5, fontWeight: 600, fontFamily: FONT, cursor: 'pointer' };
+const ghostBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--wk-line)', background: 'var(--wk-card)', color: 'var(--wk-ink)', fontSize: 13, fontWeight: 600, fontFamily: FONT, cursor: 'pointer' };
 
 // Whole days from today to an ISO date (local calendar, not UTC).
 function daysFromToday(iso) {
@@ -138,7 +138,7 @@ function ProgressBar({ done, total, overdue = 0, status }) {
       <ProgressTrack value={total ? done / total : 0} state={checklistTrackState({ done, total, overdue, status })}
         label="Checklist progress" valueText={`${done} of ${total} done${overdue > 0 ? `, ${overdue} overdue` : ''}`}
         style={{ flex: 1, minWidth: 80 }} />
-      <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--wk-dim)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{done} of {total} Done</span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-dim)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{done} of {total} Done</span>
     </div>
   );
 }
@@ -157,7 +157,7 @@ export function WarnNote({ children, block = false }) {
 
 function Avatar({ name, empty }) {
   return (
-    <span aria-hidden="true" style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.5, fontWeight: 700,
+    <span aria-hidden="true" style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
       background: empty ? 'var(--warn-bg)' : 'var(--wk-brand-tint)', color: empty ? 'var(--warn-fg)' : 'var(--wk-brand)', border: empty ? '1.5px dashed var(--warn-fg)' : 'none' }}>
       {empty ? '?' : initials(name)}
     </span>
@@ -226,7 +226,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
         <button onClick={() => setOpen(o => !o)} aria-expanded={open}
           style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', fontFamily: FONT, color: 'inherit' }}>
           <span style={{ flex: '1 1 220px', minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13.5, fontWeight: closed ? 500 : 600, color: closed ? 'var(--wk-faint)' : 'var(--wk-ink)', textDecoration: step.status === 'done' ? 'line-through' : 'none', textDecorationColor: 'var(--wk-line)' }}>
+            <span style={{ fontSize: 13, fontWeight: closed ? 500 : 600, color: closed ? 'var(--wk-faint)' : 'var(--wk-ink)', textDecoration: step.status === 'done' ? 'line-through' : 'none', textDecorationColor: 'var(--wk-line)' }}>
               {step.title}
             </span>
             {late && pill(STEP_META.overdue)}
@@ -240,7 +240,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, color: 'var(--wk-green)' }}><Sparkles size={11} /> Done by Nexus</span>
             )}
           </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flex: '0 1 190px', minWidth: 0, fontSize: 12.5, color: 'var(--wk-dim)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flex: '0 1 190px', minWidth: 0, fontSize: 13, color: 'var(--wk-dim)' }}>
             <Avatar name={step.ownerName || step.ownerEmail} empty={!step.ownerEmail} />
             <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {ownerText(step) || <WarnNote>Unassigned</WarnNote>}
@@ -261,7 +261,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
 
       {open && (
         <div style={{ padding: '0 12px 12px 42px', display: 'grid', gap: 10 }}>
-          {step.hint && <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.55, maxWidth: '70ch' }}>{step.hint}</div>}
+          {step.hint && <div style={{ fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.55, maxWidth: '70ch' }}>{step.hint}</div>}
           {conds.length > 0 && !closed && (
             <div style={{ fontSize: 12, color: 'var(--wk-brand)', display: 'grid', gap: 3 }}>
               <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><Sparkles size={12} /> {conds.length === 1 ? 'Nexus marks this done by itself when:' : 'Nexus marks this done by itself when any one of these is true:'}</span>
@@ -269,7 +269,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
             </div>
           )}
           {step.note && (
-            <div style={{ fontSize: 12.5, color: 'var(--wk-ink)', padding: '8px 10px', background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 6, whiteSpace: 'pre-wrap', maxWidth: '70ch' }}>
+            <div style={{ fontSize: 13, color: 'var(--wk-ink)', padding: '8px 10px', background: 'var(--wk-card)', border: '1px solid var(--wk-line2)', borderRadius: 6, whiteSpace: 'pre-wrap', maxWidth: '70ch' }}>
               <b style={{ fontWeight: 600 }}>{step.status === 'na' ? 'N/A Reason: ' : 'Note: '}</b>{step.note}
             </div>
           )}
@@ -282,7 +282,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
                     <div style={{ fontSize: 12, color: 'var(--wk-dim)', marginBottom: 3 }}>
                       <b style={{ fontWeight: 600, color: 'var(--wk-ink)' }}>{c.authorName || c.author}</b> · {formatDateTime(c.at)}{c.editedAt ? ' · Edited' : ''}
                     </div>
-                    <div style={{ fontSize: 12.5, color: 'var(--wk-ink)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{c.body}</div>
+                    <div style={{ fontSize: 13, color: 'var(--wk-ink)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{c.body}</div>
                   </div>
                 </div>
               ))}
@@ -294,7 +294,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
                 aria-label="Add a comment" disabled={busy}
                 onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addComment(); } }}
                 style={{ ...inputStyle, flex: 1, minHeight: 36, resize: 'vertical', fontFamily: FONT }} />
-              <button className="primary-btn" onClick={addComment} disabled={busy || !comment.trim()} style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>Add Comment</button>
+              <button className="primary-btn" onClick={addComment} disabled={busy || !comment.trim()} style={{ fontSize: 13, whiteSpace: 'nowrap' }}>Add Comment</button>
             </div>
           )}
           {closed && step.doneAt && (
@@ -321,7 +321,7 @@ function StepRow({ step, canEdit, canAct, people, roleOwners = [], onChanged, to
           {mode === 'date' && canEdit && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <DateField value={due} onChange={v => setDue(v || '')} placeholder="MM/DD/YYYY" title="New due date" style={{ minWidth: 150 }} />
-              <button className="primary-btn" disabled={busy} onClick={() => { setMode(''); patch({ due_date: due }, 'Due date changed.'); }} style={{ fontSize: 12.5 }}>Save Date</button>
+              <button className="primary-btn" disabled={busy} onClick={() => { setMode(''); patch({ due_date: due }, 'Due date changed.'); }} style={{ fontSize: 13 }}>Save Date</button>
             </div>
           )}
         </div>
@@ -354,12 +354,12 @@ function PhaseBlock({ phase, isLast, state, defaultOpen, renderStep }) {
       <div style={{ flex: 1, minWidth: 0, paddingBottom: isLast ? 0 : 14 }}>
         <button onClick={() => setOpen(o => !o)} aria-expanded={open}
           style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, textAlign: 'left', color: 'var(--wk-ink)' }}>
-          <span style={{ fontSize: 14.5, fontWeight: 700, color: state === 'upcoming' ? 'var(--wk-dim)' : 'var(--wk-ink)' }}>{phase.name}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: state === 'upcoming' ? 'var(--wk-dim)' : 'var(--wk-ink)' }}>{phase.name}</span>
           <span style={{ fontSize: 12, fontWeight: 600, color: done === phase.steps.length ? 'var(--wk-green)' : 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>
             {done}/{phase.steps.length}
           </span>
           {late > 0 && pill({ label: `${late} Overdue`, ...STEP_META.overdue })}
-          {state === 'current' && <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--wk-brand)' }}>Current</span>}
+          {state === 'current' && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--wk-brand)' }}>Current</span>}
           <span style={{ flex: 1 }} />
           {open ? <ChevronDown size={16} color="var(--wk-faint)" /> : <ChevronRight size={16} color="var(--wk-faint)" />}
         </button>
@@ -375,7 +375,7 @@ function Stat({ label, value, tone }) {
   const color = tone === 'red' ? 'var(--wk-red)' : tone === 'warn' ? 'var(--warn-fg)' : tone === 'green' ? 'var(--wk-green)' : 'var(--wk-ink)';
   return (
     <div style={{ display: 'grid', gap: 1, minWidth: 70 }}>
-      <span style={{ fontSize: 20, fontWeight: 700, color: value ? color : 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>{value}</span>
+      <span style={{ fontSize: 18, fontWeight: 700, color: value ? color : 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>{value}</span>
       {tone === 'warn' && value ? <WarnNote>{label}</WarnNote> : <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{label}</span>}
     </div>
   );
@@ -446,11 +446,11 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
           <span className={`dk-chip ${look.chip}`} style={{ width: 36, height: 36 }}><look.Icon /></span>
           <div style={{ flex: '1 1 200px', minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)', fontFamily: FONT }}>{cl.kindLabel}</h3>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)', fontFamily: FONT }}>{cl.kindLabel}</h3>
               {pill(lm)}
               {cl.audit && pill({ label: 'Audit', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' })}
             </div>
-            <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', marginTop: 2 }}>
+            <div style={{ fontSize: 13, color: 'var(--wk-dim)', marginTop: 2 }}>
               {cl.anchorDate
                 ? <>{cl.audit ? 'Audit from' : look.anchor} {formatDate(cl.anchorDate)}{cl.status === 'open' && anchorDays !== null ? ` · ${anchorDays === 0 ? 'today' : anchorDays > 0 ? `in ${anchorDays} days` : `${-anchorDays} days ago`}` : ''}</>
                 : <WarnNote>{ANCHOR_LABEL[cl.kind]} not set yet</WarnNote>}
@@ -468,7 +468,7 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
           {/* The bar is one track now; this line keeps "which phase is behind"
               in view, collapsed or open. */}
           {cl.status === 'open' && behind.length > 0 && (
-            <div data-behind="" style={{ marginTop: 6, fontSize: 12.5, color: 'var(--bad-fg)', fontWeight: 600 }}>Behind: {behind.join(', ')}</div>
+            <div data-behind="" style={{ marginTop: 6, fontSize: 13, color: 'var(--bad-fg)', fontWeight: 600 }}>Behind: {behind.join(', ')}</div>
           )}
         </div>
         {cl.status === 'open' && (
@@ -480,7 +480,7 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
           </div>
         )}
         {cl.task && (
-          <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--wk-dim)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', lineHeight: 1.5 }}>
+          <div style={{ marginTop: 12, fontSize: 13, color: 'var(--wk-dim)', display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', lineHeight: 1.5 }}>
             <ListChecks size={13} aria-hidden="true" />
             <span>Task: <b style={{ color: 'var(--wk-ink)', fontWeight: 600 }}>{cl.task.title}</b>{' '}
               {cl.task.projectName
@@ -503,7 +503,7 @@ function ChecklistCard({ cl, canEdit, myEmail = '', people, onReplace, toastOk, 
             style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 8, background: 'var(--wk-hover)', marginBottom: 12, maxWidth: '100%' }}>
             {filters.map(([k, l]) => (
               <button key={k} role="tab" aria-selected={filter === k} onClick={() => setFilter(k)}
-                style={{ padding: '5px 12px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, fontFamily: FONT, cursor: 'pointer', whiteSpace: 'nowrap', border: 'none',
+                style={{ padding: '5px 12px', borderRadius: 6, fontSize: 13, fontWeight: 600, fontFamily: FONT, cursor: 'pointer', whiteSpace: 'nowrap', border: 'none',
                   background: filter === k ? 'var(--wk-card)' : 'transparent', color: filter === k ? 'var(--wk-ink)' : 'var(--wk-dim)',
                   boxShadow: filter === k ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
                 {l}
@@ -553,7 +553,7 @@ function StartForm({ employee, meta, onStarted, onClose, toastErr }) {
   return (
     <section style={{ ...card, padding: 18, marginBottom: 16, display: 'grid', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, flex: 1 }}>Start A Checklist</h3>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: FONT, flex: 1 }}>Start A Checklist</h3>
         <button onClick={onClose} aria-label="Close" style={{ ...ghostBtn, padding: 6 }}><X size={14} /></button>
       </div>
       <div role="radiogroup" aria-label="Checklist kind" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
@@ -567,7 +567,7 @@ function StartForm({ employee, meta, onStarted, onClose, toastErr }) {
                 background: on ? 'var(--wk-brand-tint)' : 'var(--wk-card)', border: `1.5px solid ${on ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, transition: 'border-color .15s, background .15s' }}>
               <span className={`dk-chip ${look.chip}`}><look.Icon /></span>
               <span style={{ display: 'grid', gap: 2 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--wk-ink)' }}>{k.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)' }}>{k.label}</span>
                 <span style={{ fontSize: 12, color: 'var(--wk-dim)', lineHeight: 1.45 }}>{KIND_BLURB[k.value]}</span>
               </span>
             </button>
@@ -592,7 +592,7 @@ function StartForm({ employee, meta, onStarted, onClose, toastErr }) {
           </label>
         )}
       </div>
-      <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.55, maxWidth: '70ch' }}>
+      <div style={{ fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.55, maxWidth: '70ch' }}>
         {kind === 'onboarding' && (employee.startDate ? 'Steps count from the start date on the profile and move with it when it changes.' : 'No start date on the profile yet - steps will get their dates once it is added.')}
         {kind === 'offboarding' && 'Start it the day notice is received. Steps already past their date are due today. This changes nothing in Microsoft 365 - Left happens only through Offboard, which records the termination date.'}
         {kind === 'inactive' && 'Inactive itself changes nothing in Microsoft 365, so the access steps are listed for IT.'}
@@ -720,7 +720,7 @@ export function ChecklistChip({ p, onClick, compact = false }) {
   );
   const [bg, fg] = complete ? ['var(--wk-green-bg)', 'var(--wk-green)']
     : late ? ['var(--wk-red-bg)', 'var(--wk-red)'] : ['var(--wk-orange-bg)', 'var(--wk-orange)'];
-  const style = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap', fontFamily: FONT,
+  const style = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 6, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', fontFamily: FONT,
     background: bg, color: fg, border: 'none' };
   const label = complete
     ? `${p.kindLabel} checklist complete: all ${p.total} steps done`
@@ -745,8 +745,8 @@ function BoardTile({ Icon, chip, label, value, sub, active, onClick }) {
       <span className={`dk-chip ${chip}`}><Icon /></span>
       <span style={{ display: 'grid', gap: 1, minWidth: 0 }}>
         <span style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.1, color: 'var(--wk-ink)', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>{label}</span>
-        {sub && <span style={{ fontSize: 11.5, color: 'var(--wk-dim)' }}>{sub}</span>}
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)' }}>{label}</span>
+        {sub && <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{sub}</span>}
       </span>
     </button>
   );
@@ -805,7 +805,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
       <section style={{ ...card, overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '12px 16px', borderBottom: '1px solid var(--wk-line2)' }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)', flex: '1 1 160px' }}>
-            In Progress <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--wk-faint)' }}>{shown.length}</span>
+            In Progress <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-faint)' }}>{shown.length}</span>
           </h3>
           {(kind !== 'all' || focus) && (
             <button onClick={() => { setKind('all'); setFocus(''); }} style={ghostBtn}><X size={12} /> {focus === 'overdue' ? 'Overdue only' : focus === 'mine' ? 'Waiting on you' : KIND_LABEL_OF(kind)}</button>
@@ -855,7 +855,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
               </span>
               {/* What and when */}
               <span style={{ display: 'grid', gap: 3, flex: '1 1 190px', minWidth: 0 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)' }}>
                   <look.Icon size={13} style={{ color: `var(--wk-${r.kind === 'onboarding' ? 'green' : r.kind === 'offboarding' ? 'orange' : r.kind === 'promotion' ? 'blue' : 'brand'})` }} />
                   {r.kindLabel}{r.exitType ? ` · ${EXIT_LABEL[r.exitType] || r.exitType}` : ''}
                 </span>
@@ -869,14 +869,14 @@ export function ChecklistBoard({ entities = [], onOpen }) {
               <span style={{ display: 'grid', gap: 2, flex: '1.4 1 240px', minWidth: 0 }}>
                 {r.next ? (
                   <>
-                    <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', fontWeight: 600 }}>Next Step</span>
+                    <span style={{ fontSize: 12, color: 'var(--wk-faint)', fontWeight: 600 }}>Next Step</span>
                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.next.title}</span>
                     <span style={{ fontSize: 12, color: r.next.overdue ? 'var(--wk-red)' : 'var(--wk-dim)', fontWeight: r.next.overdue ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.next.ownerName || r.next.ownerEmail || <WarnNote>Unassigned</WarnNote>} ({r.next.ownerRoleLabel})
                       {r.next.dueDate ? ` · ${relDue(nextDays)}` : ''}
                     </span>
                   </>
-                ) : <span style={{ fontSize: 12.5, color: 'var(--wk-green)', fontWeight: 600 }}>All steps done</span>}
+                ) : <span style={{ fontSize: 13, color: 'var(--wk-green)', fontWeight: 600 }}>All steps done</span>}
               </span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                 {r.overdue > 0 && pill({ label: `${r.overdue} Overdue`, ...STEP_META.overdue })}
@@ -932,7 +932,7 @@ export function MyChecklistSteps() {
           <div className="dash-card-sub">Onboarding and offboarding steps assigned to you</div>
         </div>
       </div>
-      {msg && <div style={{ fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-green))', marginBottom: 8 }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-green))', marginBottom: 8 }}>{msg}</div>}
       {groups.map(g => (
         <div key={g.key} style={{ marginTop: 6 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
@@ -1015,7 +1015,7 @@ function DepartmentOwnersCard({ entityId, people, onOpenDepartments, onTicked, t
     <section style={{ ...card, padding: 18, marginBottom: 18 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <div style={{ flex: '1 1 300px', minWidth: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Who Does Each Step</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: FONT, color: 'var(--wk-ink)' }}>Who Does Each Step</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
             HR, IT and Accounting steps go to the head and the backup of the department of that name in Departments - both get the task, and either one closing it closes it.
             Manager steps go to the person&apos;s reports-to (no reports-to: their department head). Anything nobody owns goes to the Super Administrators ({admins}).
@@ -1065,7 +1065,7 @@ function DepartmentOwnersCard({ entityId, people, onOpenDepartments, onTicked, t
       </div>
       <div style={{ marginTop: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)' }}>Departments That Own Steps</div>
-        <p style={{ margin: '2px 0 8px', fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+        <p style={{ margin: '2px 0 8px', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
           HR, IT and Accounting always do. Tick another department to pick it as a step&apos;s owner - its head and backup get those steps.
         </p>
         <div style={{ display: 'grid', gap: 2 }}>
@@ -1082,7 +1082,7 @@ function DepartmentOwnersCard({ entityId, people, onOpenDepartments, onTicked, t
             </label>
           ))}
           {!(data.otherDepartments || []).length && (
-            <div style={{ fontSize: 12.5, color: 'var(--wk-faint)', padding: '4px' }}>No other departments yet - add them in Departments.</div>
+            <div style={{ fontSize: 13, color: 'var(--wk-faint)', padding: '4px' }}>No other departments yet - add them in Departments.</div>
           )}
         </div>
       </div>
@@ -1132,7 +1132,7 @@ function signalHint(signal, meta) {
   return lowerFirst(meta?.signals?.find(x => x.value === name)?.label);
 }
 const tag = (text, tone) => (
-  <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 5, whiteSpace: 'nowrap',
+  <span style={{ fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 5, whiteSpace: 'nowrap',
     background: tone === 'brand' ? 'var(--wk-brand-tint)' : 'var(--wk-hover)', color: tone === 'brand' ? 'var(--wk-brand)' : 'var(--wk-dim)' }}>{text}</span>
 );
 
@@ -1169,7 +1169,7 @@ function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, setAppl
             <input type="checkbox" checked={!!r.bd} onChange={e => set(i, { bd: e.target.checked })} /> Business days
           </label>
         )}
-        <span style={{ fontSize: 12.5, color: 'var(--wk-brand)', fontWeight: 600, paddingBottom: 8 }}>{timingText(r, kind)}</span>
+        <span style={{ fontSize: 13, color: 'var(--wk-brand)', fontWeight: 600, paddingBottom: 8 }}>{timingText(r, kind)}</span>
       </div>
       {/* Who gets this step: searchable dropdowns, every country in the world
           (Pranshu, Oct 20 - it was US / India checkboxes). Nothing picked = everyone. */}
@@ -1195,10 +1195,10 @@ function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, setAppl
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--wk-ink)' }}>
           <input type="checkbox" checked disabled /> Done when the owner ticks it (always)
         </label>
-        <span style={{ fontSize: 12.5, color: 'var(--wk-dim)' }}>And automatically when any one of these is true{picked.length ? ` (${picked.length} picked)` : ''}:</span>
+        <span style={{ fontSize: 13, color: 'var(--wk-dim)' }}>And automatically when any one of these is true{picked.length ? ` (${picked.length} picked)` : ''}:</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(260px, 100%), 1fr))', gap: 6 }}>
           {conds.map(c => (
-            <label key={c.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 9px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, lineHeight: 1.4, color: 'var(--wk-ink)',
+            <label key={c.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 9px', borderRadius: 6, cursor: 'pointer', fontSize: 13, lineHeight: 1.4, color: 'var(--wk-ink)',
               border: `1px solid ${picked.includes(c.value) ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, background: picked.includes(c.value) ? 'var(--wk-brand-tint)' : 'transparent' }}>
               <input type="checkbox" checked={picked.includes(c.value)} onChange={() => flipCond(c.value)} style={{ marginTop: 2 }} />
               <span>{c.label.charAt(0).toUpperCase() + c.label.slice(1)}</span>
@@ -1212,7 +1212,7 @@ function TemplateRowEditor({ r, i, total, kind, meta, set, move, remove, setAppl
         <button onClick={() => move(i, 1)} disabled={i === total - 1} style={ghostBtn}><ArrowDown size={13} /> Move Down</button>
         <button onClick={() => remove(i)} style={{ ...ghostBtn, color: 'var(--wk-red)', borderColor: 'var(--wk-red-bg)' }}><Trash2 size={13} /> Delete Step</button>
         <span style={{ flex: 1 }} />
-        <button className="primary-btn" onClick={onDone} disabled={!r.title.trim()} style={{ fontSize: 12.5 }}>Done</button>
+        <button className="primary-btn" onClick={onDone} disabled={!r.title.trim()} style={{ fontSize: 13 }}>Done</button>
       </div>
     </div>
   );
@@ -1324,7 +1324,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
   });
   const allIdx = rows.map((_, i) => i);
   const roles = meta?.roles || [];
-  const selStyle = { ...inputStyle, padding: '6px 8px', fontSize: 12.5 };
+  const selStyle = { ...inputStyle, padding: '6px 8px', fontSize: 13 };
 
   return (
     <div>
@@ -1348,14 +1348,14 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
           padding: '9px 12px', borderRadius: 'var(--wk-r)', background: 'var(--wk-brand-tint)', border: '1px solid var(--wk-brand)', boxShadow: 'var(--wk-shadow)' }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wk-brand)' }}>{picked.size} step{picked.size === 1 ? '' : 's'} selected</span>
           <span style={{ flex: 1 }} />
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--wk-ink)' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--wk-ink)' }}>
             <UserCog size={14} /> Change Owner To
             <select value="" onChange={e => bulkOwner(e.target.value)} style={selStyle} aria-label="Change owner of selected steps">
               <option value="">Pick a role</option>
               {roles.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--wk-ink)' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--wk-ink)' }}>
             Move To Phase
             <select value="" onChange={e => bulkPhase(e.target.value)} style={selStyle} aria-label="Move selected steps to a phase">
               <option value="">Pick a phase</option>
@@ -1377,7 +1377,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 12px', borderRadius: 'var(--wk-r)', background: 'var(--wk-brand-tint)' }}>
               <TriCheck label={`Select every step in ${p.name}`} checked={nPicked === idxs.length} indeterminate={nPicked > 0}
                 onChange={e => togglePick(idxs, e.target.checked)} />
-              <span style={{ fontSize: 11.5, fontWeight: 700, padding: '2px 8px', borderRadius: 5, background: 'var(--wk-brand)', color: '#fff', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 5, background: 'var(--wk-brand)', color: '#fff', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                 Phase {pi + 1}
               </span>
               <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{p.name}</span>
@@ -1402,7 +1402,7 @@ function TemplateEditor({ template, meta, entityId, onSaved, toastOk, toastErr, 
                     onMouseEnter={e => { e.currentTarget.style.background = 'var(--wk-hover)'; }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
                     <span style={{ flex: '1 1 260px', minWidth: 0, display: 'grid', gap: 2 }}>
-                      <span style={{ fontSize: 13.5, fontWeight: 600, color: r.title ? 'var(--wk-ink)' : 'var(--wk-red)' }}>{r.title || 'Untitled Step'}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: r.title ? 'var(--wk-ink)' : 'var(--wk-red)' }}>{r.title || 'Untitled Step'}</span>
                       {r.hint && <span style={{ fontSize: 12, color: 'var(--wk-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.hint}</span>}
                       {sigList(r.signal).length > 0 && (
                         <span style={{ fontSize: 12, color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'flex-start', gap: 4 }}>
@@ -1488,7 +1488,7 @@ function CopyStepsModal({ direction, entityId, entities, kinds, kind, onClose, o
             {kinds.map(k => box(which.has(k.value), k.label, () => flip(which, setWhich, k.value, false), `k:${k.value}`))}
           </div>
         </div>
-        <p style={{ margin: 0, fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
           Each company gets its own copy, so you can still change one later. Open checklists there update too; steps already done stay as they were.
         </p>
       </div>
@@ -1565,12 +1565,12 @@ function TaskPlaceCard({ entityId, kinds, toastOk, toastErr }) {
   };
   return (
     <section style={{ ...card, padding: 18, marginBottom: 18 }}>
-      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Where Checklist Tasks Go</h3>
+      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>Where Checklist Tasks Go</h3>
       <p style={{ margin: '4px 0 12px', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
         Each checklist gets ONE task (for example Onboarding - Jane Doe) assigned to the head of HR, with a subtask for each step on its owner&apos;s My Tasks - IT steps included. Pick the project it goes in, and a section if you like.
       </p>
       {!auto && !Object.keys(data.place || {}).length && (
-        <div role="note" style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 12.5, color: 'var(--wk-orange)', marginBottom: 12 }}>
+        <div role="note" style={{ display: 'flex', gap: 6, alignItems: 'flex-start', fontSize: 13, color: 'var(--wk-orange)', marginBottom: 12 }}>
           <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 2 }} />
           <span>No HR project found for this company (a project of its HR department, or one named Human Resources), so checklist tasks are in no project until you pick one.</span>
         </div>
@@ -1645,7 +1645,7 @@ function AuditCandidatesCard({ entityId, companyName, toastOk, toastErr }) {
     <section style={{ ...card, padding: 18, marginBottom: 18 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <div style={{ flex: '1 1 300px', minWidth: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>People With No Onboarding Record</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>People With No Onboarding Record</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
             {people.length
               ? `${people.length} active ${people.length === 1 ? 'person' : 'people'} at ${companyName} never had an onboarding checklist. An onboarding audit checks each step against their record and keeps the proof: who or what closed each step, and when.`
@@ -1660,7 +1660,7 @@ function AuditCandidatesCard({ entityId, companyName, toastOk, toastErr }) {
       </div>
       {people.length > 0 && (
         <div style={{ border: '1px solid var(--wk-line2)', borderRadius: 'var(--wk-r)', maxHeight: 320, overflowY: 'auto' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--wk-line2)', fontSize: 12.5, fontWeight: 600, color: 'var(--wk-dim)', cursor: 'pointer', position: 'sticky', top: 0, background: 'var(--wk-card)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--wk-line2)', fontSize: 13, fontWeight: 600, color: 'var(--wk-dim)', cursor: 'pointer', position: 'sticky', top: 0, background: 'var(--wk-card)' }}>
             <input type="checkbox" checked={all} onChange={() => setPicked(all ? new Set() : new Set(people.map(p => p.id)))} /> Select All ({people.length})
           </label>
           {people.map(p => (
@@ -1689,7 +1689,7 @@ function BaselineCard({ companyName, entityId, templates, kinds, meta, onCopy, o
     <section style={{ ...card, padding: 18, marginBottom: 18 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <div style={{ flex: '1 1 300px', minWidth: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Baseline Steps</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>Baseline Steps</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: '75ch' }}>
             Every hire at {companyName} gets these first, whatever the role; each role&apos;s own steps come after them, so a role never needs to repeat them.
           </p>
@@ -1707,8 +1707,8 @@ function BaselineCard({ companyName, entityId, templates, kinds, meta, onCopy, o
               <div key={k.value} style={{ border: '1px solid var(--wk-line2)', borderRadius: 'var(--wk-r)', padding: 12, display: 'grid', gap: 6, alignContent: 'start' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <look.Icon size={14} color="var(--wk-dim)" />
-                  <b style={{ fontSize: 13.5, color: 'var(--wk-ink)', flex: 1 }}>{k.label}</b>
-                  <span style={{ fontSize: 12.5, color: 'var(--wk-dim)', fontVariantNumeric: 'tabular-nums' }}>{t?.items?.length || 0} steps</span>
+                  <b style={{ fontSize: 13, color: 'var(--wk-ink)', flex: 1 }}>{k.label}</b>
+                  <span style={{ fontSize: 13, color: 'var(--wk-dim)', fontVariantNumeric: 'tabular-nums' }}>{t?.items?.length || 0} steps</span>
                 </div>
                 <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>
                   {!t || t.inherited ? 'From the Checklist Library' : `Own copy for ${companyName}${t.updatedAt ? `, updated ${formatDate(t.updatedAt)}` : ''}`}
@@ -1764,7 +1764,7 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
           <span className="dk-chip dk-chip--brand"><ListChecks /></span>
           <div style={{ flex: '1 1 260px', minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{entityId ? `Checklists For ${companyName}` : 'Checklist Library'}</div>
-            <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
               {entityId
                 ? 'Each role builds its own onboarding, promotion, offboarding and leave steps (People & Access > Roles > a role > Checklists). Below: the baseline steps every hire gets first, whatever the role, then which roles are built and what is still missing.'
                 : 'The standard steps every new checklist starts with, whatever the role. Each role\'s own steps are built on the role (People & Access, with the company picked > Roles > a role > Checklists).'}
@@ -1797,7 +1797,7 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
       <section style={{ ...card, padding: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
           <div style={{ flex: '1 1 240px' }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Steps Every Hire Gets</h3>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>Steps Every Hire Gets</h3>
             <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>Added to every checklist, before the role&apos;s own steps.</p>
           </div>
           <div className="scroll-tabs" role="tablist" aria-label="Checklist kind"
@@ -1811,7 +1811,7 @@ export function ChecklistSettings({ entityId = '', entities = [], onOpenDepartme
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: FONT, fontSize: 13, fontWeight: 600,
                     background: on ? 'var(--wk-card)' : 'transparent', color: on ? 'var(--wk-ink)' : 'var(--wk-dim)', boxShadow: on ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
                   <look.Icon size={14} /> {k.label}
-                  {n != null && <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>}
+                  {n != null && <span style={{ fontSize: 12, color: 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>}
                 </button>
               );
             })}
@@ -1863,7 +1863,7 @@ function RoleAudit({ entityId, companyName, kinds, toastOk, toastErr }) {
     <section style={{ ...card, padding: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
         <div style={{ flex: '1 1 260px' }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>Role Checklists</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>Role Checklists</h3>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>
             {roles.length
               ? <><b style={{ color: done === roles.length ? 'var(--wk-green)' : 'var(--wk-ink)' }}>{done} of {roles.length}</b> roles at {companyName} have all four checklists built.</>
@@ -1882,7 +1882,7 @@ function RoleAudit({ entityId, companyName, kinds, toastOk, toastErr }) {
             <thead>
               <tr>
                 {['Role', ...kinds.map(k => k.label), ''].map((h, i) => (
-                  <th key={i} style={{ ...cell, textAlign: 'left', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-dim)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</th>
+                  <th key={i} style={{ ...cell, textAlign: 'left', fontSize: 12, fontWeight: 700, color: 'var(--wk-dim)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -1910,7 +1910,7 @@ function RoleAudit({ entityId, companyName, kinds, toastOk, toastErr }) {
                       );
                     })}
                     <td style={{ ...cell, textAlign: 'right' }}>
-                      <button className={gaps.length ? 'primary-btn' : undefined} style={gaps.length ? { fontSize: 12.5 } : ghostBtn}
+                      <button className={gaps.length ? 'primary-btn' : undefined} style={gaps.length ? { fontSize: 13 } : ghostBtn}
                         onClick={() => setBuilding({ role: r, kind: gaps[0]?.value || 'onboarding' })}>
                         {gaps.length ? 'Build' : 'Open'}
                       </button>
@@ -1983,7 +1983,7 @@ function BaselineBlock({ baseline, companyName, roleItems = [], kindLabel = '', 
       )}
       {open && (
         <div style={{ padding: '0 12px 12px 35px', display: 'grid', gap: 10 }}>
-          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
             Read-only here. They are edited in {where}. Add below only what this role needs on top of them.
           </p>
           {phases.map(p => (
@@ -1991,7 +1991,7 @@ function BaselineBlock({ baseline, companyName, roleItems = [], kindLabel = '', 
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--wk-dim)' }}>{p.name}</div>
               <ul style={{ margin: '4px 0 0', paddingLeft: 18, display: 'grid', gap: 2 }}>
                 {p.rows.map(r => (
-                  <li key={r.key || r.title} style={{ fontSize: 12.5, color: 'var(--wk-ink)' }}>
+                  <li key={r.key || r.title} style={{ fontSize: 13, color: 'var(--wk-ink)' }}>
                     {r.title} <span style={{ color: 'var(--wk-faint)' }}>· {roles.find(o => o.value === r.owner)?.label || ROLE_LOOK[r.owner]?.label || (r.owner === 'manager' ? 'Manager' : r.owner === 'employee' ? 'Employee' : String(r.owner || '').startsWith('dept:') ? 'Department' : r.owner)}</span>
                   </li>
                 ))}
@@ -2126,7 +2126,7 @@ export function RoleStepsEditor({ roleId, roleName, toastOk, toastErr, onCounts,
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: FONT, fontSize: 13, fontWeight: 600,
                   background: on ? 'var(--wk-card)' : 'transparent', color: on ? 'var(--wk-ink)' : 'var(--wk-dim)', boxShadow: on ? '0 1px 3px rgba(29,33,57,.12)' : 'none' }}>
                 <look.Icon size={14} /> {k.label}
-                {n > 0 && <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>}
+                {n > 0 && <span style={{ fontSize: 12, color: 'var(--wk-faint)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>}
               </button>
             );
           })}
@@ -2165,7 +2165,7 @@ export function RoleChecklists({ toastOk, toastErr }) {
   if (roles === false) return <div style={{ ...card, padding: 18, fontSize: 13, color: 'var(--wk-dim)' }}>Could not load your roles.</div>;
   if (!roles.length) {
     return (
-      <div style={{ ...card, padding: 24, fontSize: 13.5, color: 'var(--wk-dim)', lineHeight: 1.6, fontFamily: FONT }}>
+      <div style={{ ...card, padding: 24, fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.6, fontFamily: FONT }}>
         <b style={{ color: 'var(--wk-ink)' }}>No roles to look after yet.</b> The head of a department keeps the extra checklist steps for its
         roles - set department heads in Settings &gt; Companies &gt; the company &gt; Departments.
       </div>
@@ -2186,7 +2186,7 @@ export function RoleChecklists({ toastOk, toastErr }) {
         <span className="dk-chip dk-chip--brand"><ListChecks /></span>
         <div style={{ flex: '1 1 260px', minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>Role Checklists</div>
-          <div style={{ fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5 }}>
             The extra steps one role needs - its training, its tools. They are added after the company&apos;s steps whenever someone in the role is onboarded, promoted into it, leaves or goes on leave.
           </div>
         </div>
@@ -2208,7 +2208,7 @@ export function RoleChecklists({ toastOk, toastErr }) {
         <RoleStepsEditor roleId={roleId} roleName={role?.roleName} toastOk={toastOk} toastErr={toastErr} onCounts={onCounts}
           heading={(
             <div style={{ flex: '1 1 240px' }}>
-              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--wk-ink)' }}>{role?.roleName || 'Role'} Steps</h3>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)' }}>{role?.roleName || 'Role'} Steps</h3>
               <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--wk-dim)' }}>{[role?.department, role?.companyName || 'Shared role'].filter(Boolean).join(' · ')}</p>
             </div>
           )} />

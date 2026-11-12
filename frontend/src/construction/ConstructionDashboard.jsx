@@ -153,7 +153,7 @@ function NewProjectModal({ onClose, onCreated }) {
             modal-body), so the form brings its own - it sat flush to the edges. */}
         <form onSubmit={save} style={{ padding: '22px 24px 20px' }}>
           <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>New Job</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
             A work order or a project at a jobsite. With no managers picked you are its manager, so you can review logs straight away.
           </p>
           {error && <ErrorBanner message={error} onRetry={() => setError('')} />}
@@ -164,7 +164,7 @@ function NewProjectModal({ onClose, onCreated }) {
               <ChoicePills label="Job Type" options={Object.keys(TYPE_LABELS)}
                 value={jobType === 'work_order' ? JOB_TYPE.work_order.label : JOB_TYPE.project.label}
                 onChange={(label) => setJobType(TYPE_LABELS[label])} />
-              <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', margin: '6px 0 14px' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '6px 0 14px' }}>
                 {jobType === 'work_order'
                   ? 'A repair or a short job: its steps, a punch list, the field record and closeout.'
                   : 'A build: a full schedule with milestones, punch list, RFIs and submittals.'}
@@ -182,7 +182,7 @@ function NewProjectModal({ onClose, onCreated }) {
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginTop: 6 }}>
                 <label className="form-label" htmlFor="project-address">Address</label>
                 <button type="button" onClick={() => setLoc((l) => ({ ...l, manual: !l.manual }))}
-                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>
                   {loc.manual ? 'Done' : 'Enter Manually'}
                 </button>
               </div>
@@ -190,7 +190,7 @@ function NewProjectModal({ onClose, onCreated }) {
                 onChange={(e) => setForm({ ...form, address: e.target.value })}
                 placeholder={loc.manual ? 'e.g. 25260 N Centre City Pkwy, Escondido, CA 92026' : 'Filled in from the Google Maps link'}
                 style={loc.manual ? undefined : { background: 'var(--mist)' }} />
-              <div data-project-place="" style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.45, color: hasPoint ? 'hsl(var(--color-green))' : 'var(--text-secondary)' }}>
+              <div data-project-place="" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.45, color: hasPoint ? 'hsl(var(--color-green))' : 'var(--text-secondary)' }}>
                 {status}
                 {hasPoint && (
                   <> <a href={/^https?:/i.test(loc.link) ? loc.link : googleMapsUrl(loc.lat, loc.lng)} target="_blank" rel="noreferrer"
@@ -263,13 +263,13 @@ function ProjectCard({ p, onOpen, overBudget = false }) {
             <Folder size={18} style={{ color: 'var(--text-secondary)', flexShrink: 0, marginTop: 3 }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px 8px', minWidth: 0, flexWrap: 'wrap' }}>
               {/* The name wraps rather than cuts off - on a phone it is the whole point of the card. */}
-              <strong style={{ fontSize: '1.05rem', fontFamily: "'Plus Jakarta Sans', sans-serif", overflowWrap: 'anywhere', minWidth: 0 }}>{p.name}</strong>
+              <strong style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", overflowWrap: 'anywhere', minWidth: 0 }}>{p.name}</strong>
               {p.jobType === 'work_order' && <StatusLabel size="sm" label={JOB_TYPE.work_order.label} color={JOB_TYPE.work_order.color} />}
               {p.phase && <StatusLabel size="sm" label={p.phase} color={TONE.slate} />}
               <StatusChip project={p} />
             </div>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: '0.8rem', color: 'var(--text-secondary)', alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 13, color: 'var(--text-secondary)', alignItems: 'center' }}>
             {p.address && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}><MapPin size={13} style={{ flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.address}</span></span>}
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Users size={13} />{(p.workerEmails || []).length} crew
@@ -280,7 +280,7 @@ function ProjectCard({ p, onOpen, overBudget = false }) {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <strong style={{ fontSize: '1.15rem' }}>{pct(p)}%</strong>
+          <strong style={{ fontSize: 18 }}>{pct(p)}%</strong>
           <ChevronRight size={18} style={{ color: 'var(--text-secondary)' }} />
         </div>
       </div>
@@ -379,8 +379,8 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
     <div style={CARD} key="list">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 0 }}>
-          <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Jobs</h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
+          <h3 style={{ fontSize: 18, fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Jobs</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
             {asTable ? 'Every job on one table: health, dates, money and cost per square foot, compared. Open a row for the job.' : 'Late and at-risk jobs first. Open one for its schedule, punch list, crew and weather.'}
           </p>
         </div>

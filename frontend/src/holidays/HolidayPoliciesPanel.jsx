@@ -69,9 +69,9 @@ export default function HolidayPoliciesPanel({ entities = null, toastOk, toastEr
             return (
               <div key={p.id} style={{ display: 'flex', gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line)', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                 <div style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}</div>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</div>
                   {p.description && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{p.description}</div>}
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {plural((p.holidays || []).length, 'holiday')}
                     {years.length > 0 && ` · ${years.join(', ')}`}
                     {` · Weekends: ${weekendRuleLabel(p.weekendRule)}`}
@@ -83,7 +83,7 @@ export default function HolidayPoliciesPanel({ entities = null, toastOk, toastEr
                         {`+${plural(Number(p.otherCompanies), 'Other Company', 'Other Companies')}`}
                       </Chip>
                     )}
-                    {!cos.length && !(Number(p.otherCompanies) > 0) && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Not applied to any company yet.</span>}
+                    {!cos.length && !(Number(p.otherCompanies) > 0) && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Not applied to any company yet.</span>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>

@@ -90,7 +90,7 @@ function Unit({ data, open }) {
         ['Street Rate', usd(data.street)], data.tenant && ['Rent', usd(data.rent)], data.tenant && ['Paid Through', formatDate(data.paidThrough)],
         data.tenant && ['Balance Due', usd(data.balance)], data.reason && ['Off Market', [data.reason, data.note].filter(Boolean).join(': ')],
         ['Overlocked', data.overlocked ? 'Yes' : 'No']]} />
-      {data.tenant && <p style={{ fontSize: 13.5 }}>Rented by {tenantBtn(data.tenant.customerId, data.tenant.name)}</p>}
+      {data.tenant && <p style={{ fontSize: 13 }}>Rented by {tenantBtn(data.tenant.customerId, data.tenant.name)}</p>}
       <Section title="Rental History">
         <Table empty="Cubby has no tenancies for this unit." rows={data.history} cols={[
           ['Tenant', (r) => tenantBtn(r.customerId, r.tenant)], ['Moved In', (r) => formatDate(r.moveIn)],

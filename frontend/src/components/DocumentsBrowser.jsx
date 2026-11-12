@@ -198,7 +198,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>For (optional)</label>
                   <PersonSelect value={personEmail} onChange={pickPerson} people={people} placeholder="Nobody in particular" noneLabel="Nobody in particular" ariaLabel="Who this document is for"
-                    style={{ height: 36, padding: '0 13px', borderRadius: 10, fontSize: 12.5, fontWeight: 400 }} />
+                    style={{ height: 36, padding: '0 13px', borderRadius: 10, fontSize: 13, fontWeight: 400 }} />
                 </div>
               )}
               {entities.length > 0 && (
@@ -215,7 +215,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
 
           {fieldDefs.length > 0 && !importFile && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Fill in the details</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Fill in the details</div>
               {fieldDefs.map(fd => (
                 <div key={fd.token}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>
@@ -239,7 +239,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Or Open a File</label>
             {importFile ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                 <FileText size={14} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{importFile.name}</span>
                 <button onClick={() => setImportFile(null)}
@@ -266,7 +266,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
           </div>
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10, position: 'sticky', bottom: 0, background: 'var(--card)' }}>
-          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button className="primary-btn" disabled={busy} onClick={create} style={{ opacity: busy ? 0.6 : 1 }}>
             {busy ? (importFile ? 'Importing…' : 'Creating…') : (templateId && !importFile ? 'Make Document' : 'Create Draft')}
           </button>
@@ -297,12 +297,12 @@ function NewFolderModal({ onClose, onCreated, toastErr }) {
           <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Folder name</label>
           <input className="form-input" autoFocus value={name} onChange={e => setName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') create(); }} placeholder="e.g. Board Minutes" />
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
             Shared with everyone who can see Documents. Your own drafts can stay in Personal.
           </div>
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button className="primary-btn" disabled={!name.trim() || busy} onClick={create} style={{ opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
             {busy ? 'Creating…' : 'Create Folder'}
           </button>
@@ -352,7 +352,7 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
           Folder and Tags
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.title}</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.title}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Folder</label>
             <select className="form-input" style={{ width: '100%' }} value={folderId} onChange={e => setFolderId(e.target.value)}>
@@ -372,15 +372,15 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
               ))}
               <input className="nx-inline-edit" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onTagKey} onBlur={() => addTag(draft)}
                 aria-label="Add a tag" placeholder={tags.length ? '' : 'Add a tag and press Enter'}
-                style={{ border: 'none', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', flex: '1 1 90px', minWidth: 90 }} />
+                style={{ border: 'none', fontSize: 13, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', flex: '1 1 90px', minWidth: 90 }} />
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
               Tags are searchable from the Documents search bar. Up to 20 per document.
             </div>
           </div>
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button className="primary-btn" disabled={busy} onClick={save} style={{ opacity: busy ? 0.6 : 1 }}>{busy ? 'Saving…' : 'Save'}</button>
         </div>
       </div>

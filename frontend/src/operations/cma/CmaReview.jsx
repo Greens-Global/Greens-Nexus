@@ -73,7 +73,7 @@ function PromoModal({ data, onClose, onSaved }) {
         <legend style={{ fontSize: 12, fontWeight: 600 }}>Pricing Groups</legend>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
           {data.unitTypes.map((u) => (
-            <label key={u.name} style={{ fontSize: 12.5, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            <label key={u.name} style={{ fontSize: 13, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
               <input type="checkbox" checked={f.units.includes(u.name)} onChange={() => toggle(u.name)} /> {u.name}
             </label>
           ))}

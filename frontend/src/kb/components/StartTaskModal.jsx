@@ -73,7 +73,7 @@ export default function StartTaskModal({ page, onClose }) {
           <div className="kb-label" style={{ marginBottom: 8 }}>Checklist Preview</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '50vh', overflow: 'auto' }}>
             {steps.map((s, i) => (
-              <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13.5 }}>
+              <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13 }}>
                 <span style={{ width: 18, height: 18, border: '1.5px solid var(--kb-line)', borderRadius: 5, flex: '0 0 auto', marginTop: 2 }} />
                 <span className="kb-grow">{s.title}{s.photoRequired && <span className="kb-tag" style={{ marginLeft: 6 }}><Camera size={11} /> photo</span>}</span>
               </div>

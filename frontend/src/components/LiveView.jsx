@@ -67,7 +67,7 @@ function remoteXYEl(e, v) {
 }
 
 const hdrBtn = {
-  display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700,
+  display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700,
   padding: '5px 12px', borderRadius: 8, border: '1px solid var(--line)',
   background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer',
 };
@@ -422,7 +422,7 @@ export default function LiveView({ email, name, onClose, assist = false }) {
     d.title = `${name} - Live View`;
     d.body.style.cssText = 'margin:0;background:#0b1220;height:100vh;display:flex;flex-direction:column;overflow:hidden;font-family:Inter,system-ui,sans-serif';
     const bar = d.createElement('div');
-    bar.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 14px;background:#0f172a;color:#e2e8f0;font-size:12.5px;font-weight:600;flex:none';
+    bar.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 14px;background:#0f172a;color:#e2e8f0;font-size:13px;font-weight:600;flex:none';
     const label = d.createElement('span');
     label.textContent = `${name} - live screen view`;
     label.style.cssText = 'flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
@@ -648,7 +648,7 @@ export default function LiveView({ email, name, onClose, assist = false }) {
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--line)', flex: 'none' }}>
           <Avatar email={email} name={name} size={28} card={false} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>Live screen view · {fps}fps</div>
           </div>
           {showPicker && (
@@ -710,7 +710,7 @@ export default function LiveView({ email, name, onClose, assist = false }) {
                 style={{ ...iconBtn, opacity: zoom <= 1 ? 0.4 : 1, cursor: zoom <= 1 ? 'default' : 'pointer' }}>
                 <ZoomOut size={15} />
               </button>
-              {zoom > 1 && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', minWidth: 30, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>}
+              {zoom > 1 && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', minWidth: 30, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>}
               <button onClick={() => setZoom(z => Math.min(4, +(z + 0.5).toFixed(1)))} disabled={zoom >= 4} title="Zoom in"
                 style={{ ...iconBtn, opacity: zoom >= 4 ? 0.4 : 1, cursor: zoom >= 4 ? 'default' : 'pointer' }}>
                 <ZoomIn size={15} />
@@ -750,7 +750,7 @@ export default function LiveView({ email, name, onClose, assist = false }) {
               {streams.map((_, idx) => (
                 <div key={idx} {...tileMouse(idx)} style={{ position: 'relative', background: '#020617', borderRadius: 8, overflow: 'hidden', minHeight: 0 }}>
                   {videoTag(idx)}
-                  <span style={{ position: 'absolute', top: 6, left: 8, fontSize: 10.5, fontWeight: 700, color: '#cbd5e1', background: 'rgba(2,6,23,0.7)', padding: '2px 8px', borderRadius: 999 }}>
+                  <span style={{ position: 'absolute', top: 6, left: 8, fontSize: 11, fontWeight: 700, color: '#cbd5e1', background: 'rgba(2,6,23,0.7)', padding: '2px 8px', borderRadius: 999 }}>
                     {screens[idx] ? screenLabel(screens[idx]) : `Screen ${idx + 1}`}
                   </span>
                 </div>
@@ -783,7 +783,7 @@ export default function LiveView({ email, name, onClose, assist = false }) {
           )}
         </div>
         {(fileProg || note) && (
-          <div style={{ padding: '8px 16px', fontSize: 11.5, fontWeight: 600, color: 'var(--ink)', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ padding: '8px 16px', fontSize: 12, fontWeight: 600, color: 'var(--ink)', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
             {fileProg ? (
               <>
                 <style>{'@keyframes nexusFileStripe{from{background-position:0 0}to{background-position:22px 0}}'}</style>

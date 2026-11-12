@@ -63,7 +63,7 @@ export const NOTIFY_OPTIONS = [
 
 const linkBtn = { background: 'none', border: 'none', padding: 0, color: 'var(--wk-brand, var(--brand, #2563eb))', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' };
 const fieldStyle = { width: '100%', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: 13, padding: '8px 10px', border: '1px solid var(--line, #e5e7eb)', borderRadius: 8, background: 'var(--card, #fff)', color: 'var(--ink)' };
-const labelStyle = { display: 'block', fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 };
+const labelStyle = { display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 };
 
 export function unreadCount(items) {
   return (items || []).filter(a => !a.read_at).length;
@@ -272,17 +272,17 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
             {a.pinned && <Pin size={12} aria-label="Pinned" style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />}
             <span data-testid="ann-title" style={{ fontSize: 13, fontWeight: unread ? 700 : 500, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.title}</span>
             {a.audience === 'department' && a.department && (
-              <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 99, padding: '0 6px', flexShrink: 0 }}>{a.department}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 99, padding: '0 6px', flexShrink: 0 }}>{a.department}</span>
             )}
             {a.audience === 'site' && a.workSiteName && (
-              <span data-testid="ann-site" style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 99, padding: '0 6px', flexShrink: 0 }}>{a.workSiteName}</span>
+              <span data-testid="ann-site" style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 99, padding: '0 6px', flexShrink: 0 }}>{a.workSiteName}</span>
             )}
           </span>
           <span style={expanded
             // overflowWrap: a long URL breaks inside the card instead of
             // scrolling the whole tile sideways.
-            ? { display: 'block', fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', marginTop: 4, lineHeight: 1.5 }
-            : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere', fontSize: 12.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>
+            ? { display: 'block', fontSize: 13, color: 'var(--ink)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', marginTop: 4, lineHeight: 1.5 }
+            : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere', fontSize: 13, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>
             {a.body}
           </span>
           {expanded && a.image_url && (
@@ -295,7 +295,7 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
               <Paperclip size={12} /> {a.file_name || 'Attachment'}
             </a>
           )}
-          <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 12px', fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+          <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 12px', fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
             <span>{meta}</span>
             {a.pinned && a.pinned_until && <span>Pinned until {formatDate(a.pinned_until)}</span>}
             {!expanded && a.image_url && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><Image size={11} /> Picture</span>}
@@ -415,7 +415,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
     if (img) { e.preventDefault(); attach(img, 'image'); }
   };
   // 16px on a phone: iOS zooms the page into any smaller focused field.
-  const field = isMobile ? { ...fieldStyle, fontSize: 16 } : fieldStyle;
+  const field = isMobile ? { ...fieldStyle, fontSize: 16 } : fieldStyle; // type-ok: iOS zooms a field under 16px
   // The composer opens at the top of the card's scroll area; Edit is pressed
   // on a row that may be far below it - bring the form into view.
   const formRef = useRef(null);
@@ -496,7 +496,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
           </button>
         )}
         {form.file_url ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--ink)' }}>
             <Paperclip size={12} /> {form.file_name || 'Attachment'}
             <button type="button" onClick={() => setForm(f => ({ ...f, file_url: '', file_name: '' }))} aria-label="Remove file" style={{ ...linkBtn, display: 'inline-flex', alignItems: 'center', gap: 3, ...tap }}><X size={12} /> Remove</button>
           </span>
@@ -505,7 +505,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
             <Paperclip size={13} /> {upload?.kind === 'file' ? `Uploading ${Math.round((upload.pct || 0) * 100)}%` : 'Add File'}
           </button>
         )}
-        {!form.image_url && !isMobile && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or press Ctrl+V in the body to paste a picture</span>}
+        {!form.image_url && !isMobile && <span style={{ fontSize: 12, color: 'var(--muted)' }}>or press Ctrl+V in the body to paste a picture</span>}
       </div>
       <div style={{ display: 'flex', flexDirection: stack ? 'column' : 'row', gap: 10 }}>
         <label style={{ flex: 1 }}>
@@ -529,7 +529,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
               <option value="">{sites === null ? 'Loading sites...' : 'Pick a site'}</option>
               {(sites || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            <span style={{ display: 'block', fontSize: 11.5, color: sitesErr ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
+            <span style={{ display: 'block', fontSize: 12, color: sitesErr ? 'hsl(var(--color-red))' : 'var(--muted)', marginTop: 4 }}>
               {sitesErr || 'Reaches the people whose allowed work sites include this one.'}
             </span>
           </label>
@@ -545,7 +545,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
           <select value={form.notify} onChange={set('notify')} aria-label="Notify" style={{ ...field, ...tap }}>
             {NOTIFY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
             Everyone in the audience gets a bell, and a phone notification if they installed Nexus. Teams sends each person a message as you; Email sends a mail.
           </span>
         </label>
@@ -553,11 +553,11 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
           {published ? (
             <>
               <span style={labelStyle}>Published</span>
-              <div style={{ fontSize: 12.5, color: 'var(--ink)', padding: '8px 0' }}>{formatDateTime(initial.notified_at)}</div>
+              <div style={{ fontSize: 13, color: 'var(--ink)', padding: '8px 0' }}>{formatDateTime(initial.notified_at)}</div>
             </>
           ) : (
             <>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink)', ...tap }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink)', ...tap }}>
                 <input type="checkbox" checked={later} onChange={(e) => setLater(e.target.checked)} /> Publish Later
               </label>
               {later && (
@@ -570,7 +570,7 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
           )}
         </div>
       </div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink)', ...tap }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink)', ...tap }}>
         <input type="checkbox" checked={!!form.requires_ack} onChange={set('requires_ack')} /> Requires Acknowledgment
       </label>
       {err && <div role="alert" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>{err}</div>}

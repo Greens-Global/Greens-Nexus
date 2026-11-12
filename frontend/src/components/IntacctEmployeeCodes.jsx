@@ -23,13 +23,13 @@ export const ACTION_META = {
 const MATCH_LABEL = { email: 'Work Email', name: 'Name', name_company: 'Name + Company' };
 const FILTERS = ['all', 'update', 'keep', 'no_match', 'conflict'];
 
-const th = { textAlign: 'left', padding: '8px 10px', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'var(--card)' };
+const th = { textAlign: 'left', padding: '8px 10px', fontSize: 12, fontWeight: 700, color: 'var(--muted)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'var(--card)' };
 const td = { padding: '8px 10px', fontSize: 13, borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
-const sub = { display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2 };
+const sub = { display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 };
 
 function Chip({ action }) {
   const m = ACTION_META[action] || ACTION_META.no_match;
-  return <span style={{ display: 'inline-block', padding: '2px 9px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: m.bg, color: m.fg, whiteSpace: 'nowrap' }}>{m.label}</span>;
+  return <span style={{ display: 'inline-block', padding: '2px 9px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: m.bg, color: m.fg, whiteSpace: 'nowrap' }}>{m.label}</span>;
 }
 
 // Settings > Time & Pay > Intacct Nightly Sync (Oct 23): the switch per
@@ -67,13 +67,13 @@ export function IntacctNightlySync({ company = '', embedded = false, toastOk, to
   return (
     <div>
       {!embedded && <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Automatic Nightly Sync</div>}
-      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 8px' }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 8px' }}>
         Once a night, for the companies switched on: fills or updates codes only for work email matches whose Nexus code is empty or was set by this sync. Everything else waits for HR to review on People &gt; Sync Employee Codes From Intacct.
       </p>
       {loadErr && !settings && <ErrorBanner message={loadErr} onRetry={() => setAttempt(n => n + 1)} />}
       {!settings && !loadErr && <SkeletonBlocks count={1} height={36} />}
       {settings && companies.length === 0 && (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{company ? 'This company is not set up for the Intacct sync yet.' : 'No companies set up yet.'}</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{company ? 'This company is not set up for the Intacct sync yet.' : 'No companies set up yet.'}</div>
       )}
       {/* One row per company (the Settings row look): its name, the shared switch. */}
       <div>
@@ -157,7 +157,7 @@ export default function IntacctEmployeeCodes({ onClose, onApplied, toastOk, toas
 
   const footer = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, width: '100%', flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{count} selected</span>
+      <span style={{ fontSize: 13, color: 'var(--muted)' }}>{count} selected</span>
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="secondary-btn" onClick={onClose}>Close</button>
         <button className="primary-btn" onClick={apply} disabled={!count || applying || loading}>
@@ -195,7 +195,7 @@ export default function IntacctEmployeeCodes({ onClose, onApplied, toastOk, toas
                 const n = f === 'all' ? (data.rows || []).length : (data.counts?.[f] || 0);
                 return (
                   <button key={f} role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}
-                    style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid var(--line)', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
+                    style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid var(--line)', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
                       background: filter === f ? 'var(--ink)' : 'var(--card)', color: filter === f ? 'var(--card)' : 'var(--ink)' }}>
                     {f === 'all' ? 'All' : ACTION_META[f].label} {n}
                   </button>
@@ -261,7 +261,7 @@ export default function IntacctEmployeeCodes({ onClose, onApplied, toastOk, toas
           </div>
 
           {result?.skipped?.length > 0 && (
-            <div style={{ marginTop: 12, fontSize: 12.5 }}>
+            <div style={{ marginTop: 12, fontSize: 13 }}>
               <div style={{ fontWeight: 700, marginBottom: 4 }}>Not Changed</div>
               <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--muted)' }}>
                 {result.skipped.map(s => <li key={s.employeeId}>{s.name || s.employeeId}: {s.reason}</li>)}
