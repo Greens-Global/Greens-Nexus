@@ -168,14 +168,14 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
               cursor: 'pointer', padding: '2px 0', fontFamily: 'inherit', textAlign: 'left' }}>
             <ChevronRight size={14} style={{ color: 'var(--muted)', flexShrink: 0, transform: openList ? 'rotate(90deg)' : 'none', transition: 'transform 140ms ease-out' }} />
             <ClipboardCheck size={15} style={{ color: 'var(--wk-brand)' }} />
-            <span style={{ fontWeight: 800, fontSize: 13.5, color: 'var(--ink)' }}>Time Sheets to Review</span>
+            <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--ink)' }}>Time Sheets to Review</span>
             <span style={{ background: 'var(--wk-red, #dc2626)', color: '#fff', borderRadius: 20, fontSize: 11, fontWeight: 700, padding: '1px 7px', lineHeight: 1.4 }}>{rows.length}</span>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>waiting on you{openList ? '' : ' - click to work the list'}</span>
           </button>
           {openList && (<>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0', flexWrap: 'wrap' }}>
             {!clean.length ? (
-              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                 Nothing to review in one pass - every time sheet here needs a closer look first.
               </span>
             ) : <span />}
@@ -183,7 +183,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
               title={clean.length ? 'Look over every time sheet with nothing flagged, then approve the ones you have reviewed'
                 : 'Every time sheet here needs a closer look first - the note on each one says why.'}
               onClick={openBulk}
-              style={{ marginLeft: 'auto', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: clean.length ? 1 : 0.55 }}>
+              style={{ marginLeft: 'auto', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: clean.length ? 1 : 0.55 }}>
               <CheckCheck size={13} /> Review All Clean ({clean.length})
             </button>
           </div>
@@ -218,7 +218,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
                         title={open ? 'Show less' : (warn || `"${r.note}"`)}
                         style={{ display: 'flex', alignItems: 'flex-start', gap: 5, width: '100%', background: 'none', border: 'none', padding: 0, marginTop: 1, cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
                         <ChevronRight size={11} style={{ flex: 'none', marginTop: 3, color: warn ? '#b45309' : 'var(--muted)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 140ms ease-out' }} />
-                        <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, lineHeight: 1.45, ...(open ? {} : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }) }}>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: 1.45, ...(open ? {} : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }) }}>
                           {r.note && <span>"{r.note}"</span>}
                           {r.note && warn ? ' · ' : ''}
                           {r.agreeBlocker && <span style={{ color: '#b45309' }}>{r.agreeBlocker}</span>}
@@ -233,29 +233,29 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
                       where the caller can open it (no onOpen = no button, Oct 1). */}
                   {onOpen && (
                     <button type="button" className="secondary-btn" onClick={() => onOpen(r)}
-                      style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Review <ChevronRight size={13} /></button>
+                      style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Review <ChevronRight size={13} /></button>
                   )}
                   {!r.notSubmitted && (
                     <button type="button" className="secondary-btn" disabled={busyId === rowKey(r)}
                       onClick={() => { setBackFor(backFor === r.id ? '' : r.id); setNote(''); }}
-                      style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Undo2 size={13} /> Send Back</button>
+                      style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Undo2 size={13} /> Send Back</button>
                   )}
                   <button type="button" className="primary-btn" disabled={busyId === rowKey(r) || bulkBusy || !!r.agreeBlocker}
                     title={r.agreeBlocker || 'These hours are accurate - it goes to the employee to sign'}
                     onClick={() => run(r, () => (r.notSubmitted
                       ? api.timesheetReviewApprovePeriod(r.employeeEmail, r.periodStart, '')
                       : api.timesheetReviewApprove(r.id, '')), `Approved - sent to ${r.name} to sign.`)}
-                    style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: r.agreeBlocker ? 0.55 : 1 }}>
+                    style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: r.agreeBlocker ? 0.55 : 1 }}>
                     <CheckCircle size={13} /> Approve
                   </button>
                 </div>
                 {!r.notSubmitted && backFor === r.id && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                     <input className="form-input" value={note} onChange={e => setNote(e.target.value)} maxLength={1000} autoFocus
-                      placeholder="What needs changing?" aria-label={`What needs changing for ${r.name}`} style={{ flex: 1, fontSize: 12.5 }} />
+                      placeholder="What needs changing?" aria-label={`What needs changing for ${r.name}`} style={{ flex: 1, fontSize: 13 }} />
                     <button type="button" className="primary-btn" disabled={!note.trim() || busyId === r.id}
                       onClick={() => run(r, () => api.timesheetReviewSendBack(r.id, note.trim()), `Sent back to ${r.name}.`)}
-                      style={{ fontSize: 12.5 }}>Send</button>
+                      style={{ fontSize: 13 }}>Send</button>
                   </div>
                 )}
               </div>
@@ -268,7 +268,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <PenLine size={15} style={{ color: 'var(--wk-brand)' }} />
-            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Time Sheets to Sign</span>
+            <span style={{ fontWeight: 800, fontSize: 13 }}>Time Sheets to Sign</span>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{toSign.length} waiting on your signature</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -289,7 +289,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
                     the click sends the fresh envelope, then opens it. */}
                 <button type="button" className="primary-btn" disabled={busyId === `resign-${s.id}`}
                   onClick={() => (s.needsResign ? resign(s) : startSign(s.partyId))}
-                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   <FileSignature size={13} /> {s.needsResign ? 'Sign Updated Time Sheet' : s.role === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
                 </button>
               </div>
@@ -324,7 +324,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
                   </div>
                   {onOpen && (
                     <button type="button" className="secondary-btn" onClick={() => { setBulkOpen(false); onOpen(r); }}
-                      style={{ fontSize: 12.5 }}>Open</button>
+                      style={{ fontSize: 13 }}>Open</button>
                   )}
                   <input type="checkbox" aria-label={`Reviewed - ${r.name}`} checked={ticked.has(rowKey(r))} disabled={bulkBusy}
                     onChange={() => toggleTicked(rowKey(r))} style={{ width: 18, height: 18, cursor: 'pointer' }} />
@@ -336,9 +336,9 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount,
                 <div>{plural(flagged.length, 'time sheet stays', 'time sheets stay')} here for one-by-one review:</div>
                 <ul data-bulk="skipped" style={{ margin: 0, paddingLeft: 18 }}>
                   {flagged.map(r => (
-                    <li key={rowKey(r)} style={{ fontSize: 12.5 }}>
+                    <li key={rowKey(r)} style={{ fontSize: 13 }}>
                       <strong>{r.name}</strong> - {formatDate(r.periodStart)} - {formatDate(r.periodEnd)}
-                      <div style={{ fontSize: 11.5, color: '#b45309' }}>{r.agreeBlocker || r.reviewFlag || 'Needs a look first.'}</div>
+                      <div style={{ fontSize: 12, color: '#b45309' }}>{r.agreeBlocker || r.reviewFlag || 'Needs a look first.'}</div>
                     </li>
                   ))}
                 </ul>

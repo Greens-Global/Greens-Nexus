@@ -56,41 +56,41 @@ export default function BreakPremiums({ card, self, locked, onChanged, toastOk, 
         Meal and Rest Premiums
       </div>
       {!list.length && (
-        <div style={{ padding: '8px 12px', fontSize: 12.5, color: 'var(--muted)' }}>No premiums on this time sheet.</div>
+        <div style={{ padding: '8px 12px', fontSize: 13, color: 'var(--muted)' }}>No premiums on this time sheet.</div>
       )}
       {list.map(p => (
-        <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 12px', borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+        <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 12px', borderTop: '1px solid var(--line)', fontSize: 13 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 600, color: p.status === 'removed' ? 'var(--muted)' : 'var(--ink)', textDecoration: p.status === 'removed' ? 'line-through' : 'none' }}>
               {formatDate(p.date)} · {p.label}
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
               {p.source === 'claim' ? 'From the employee at signing' : 'Added by the manager'}{p.note ? ` - "${p.note}"` : ''}
             </div>
             {p.status === 'removed' && (
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Removed {formatDateTime(p.removedAt)}: {p.removedReason}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>Removed {formatDateTime(p.removedAt)}: {p.removedReason}</div>
             )}
           </div>
           {p.status === 'removed'
             ? <StatusLabel size="sm" label="Removed" color="#64748b" />
             : !locked && (
               <button type="button" className="secondary-btn" disabled={busy} onClick={() => remove(p)} aria-label={`Remove ${p.label} ${formatDate(p.date)}`}
-                style={{ padding: '2px 8px', fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} /> Remove</button>
+                style={{ padding: '2px 8px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} /> Remove</button>
             )}
         </div>
       ))}
       {!locked && workDays.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', padding: '8px 12px', borderTop: '1px solid var(--line)' }}>
-          <select className="form-input" aria-label="Day" value={day} onChange={e => setDay(e.target.value)} style={{ fontSize: 12.5, minWidth: 120 }}>
+          <select className="form-input" aria-label="Day" value={day} onChange={e => setDay(e.target.value)} style={{ fontSize: 13, minWidth: 120 }}>
             <option value="">Pick a Day</option>
             {workDays.map(d => <option key={d} value={d}>{formatDate(d)}</option>)}
           </select>
-          <select className="form-input" aria-label="Premium" value={kind} onChange={e => setKind(e.target.value)} style={{ fontSize: 12.5 }}>
+          <select className="form-input" aria-label="Premium" value={kind} onChange={e => setKind(e.target.value)} style={{ fontSize: 13 }}>
             <option value="meal">Meal Premium</option>
             <option value="rest">Rest Premium</option>
           </select>
           <input className="form-input" aria-label="Note" placeholder="Note (optional)" value={note} maxLength={500}
-            onChange={e => setNote(e.target.value)} style={{ fontSize: 12.5, flex: 1, minWidth: 120 }} />
+            onChange={e => setNote(e.target.value)} style={{ fontSize: 13, flex: 1, minWidth: 120 }} />
           <button type="button" className="secondary-btn" disabled={busy || !day} onClick={add}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={12} /> Add Premium</button>
         </div>

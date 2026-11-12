@@ -116,7 +116,7 @@ const signOf = (sub) => (String(sub || '').match(/^sign:(.+)$/) || [])[1] || '';
 // tile opens that form, or its picker.
 const formOf = (sub) => (String(sub || '').match(/^form:(.+)$/) || [])[1] || '';
 // Work OS card-header title (sentence case, no uppercase tracking).
-const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
+const HD = { fontSize: 13, fontWeight: 600, color: 'var(--ink)' };
 
 // Timesheet motion (module-scoped, CSS keyframes - reliable regardless of tab focus).
 if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
@@ -154,10 +154,10 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .wd-punch:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
     .wd-clock-side { padding: 14px 22px 16px; border-left: 1px solid var(--line); background: var(--wk-hover); display: flex; flex-direction: column; min-width: 0; }
     .wd-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: none; }
-    .wd-side-head > span:first-child { color: var(--ink); font-size: 13.5px; font-weight: 600; }
+    .wd-side-head > span:first-child { color: var(--ink); font-size: 13px; font-weight: 600; }
     .wd-link, .wd-flag { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; padding: 0; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; color: var(--wk-brand); }
     .wd-flag { color: #b45309; font-weight: 700; }
-    .wd-empty { font-size: 12.5px; color: var(--muted); padding: 8px 0 2px; }
+    .wd-empty { font-size: 13px; color: var(--muted); padding: 8px 0 2px; }
     .wd-hp-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
     .wd-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--card); border: 1px solid var(--wk-line2); }
     .wd-seg button { border: none; background: none; font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); padding: 5px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
@@ -165,7 +165,7 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .wd-seg button.on { background: color-mix(in srgb, var(--wk-brand) 12%, transparent); color: var(--wk-brand); }
     .wd-seg button:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 1px; }
     .wd-hp-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 14px 0 12px; }
-    .wd-hp-total { font-size: 28px; font-weight: 800; color: var(--ink); letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+    .wd-hp-total { font-size: 32px; font-weight: 800; color: var(--ink); letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
     .wd-hp-cap { font-size: 12px; color: var(--muted); margin-top: 5px; }
     .wd-hp-facts { display: flex; gap: 22px; margin: 0; }
     .wd-hp-facts div { min-width: 0; }
@@ -176,22 +176,22 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .wd-hp-viz > * { width: 100%; }
     .wd-bars-plot { position: relative; display: flex; align-items: flex-end; gap: 8px; height: 92px; padding-top: 14px; border-bottom: 1px solid var(--wk-line2); }
     .wd-bars-target { position: absolute; left: 0; right: 0; border-top: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent); pointer-events: none; }
-    .wd-bars-target em { position: absolute; right: 0; top: -15px; font-style: normal; font-size: 10px; font-weight: 600; color: var(--muted); }
+    .wd-bars-target em { position: absolute; right: 0; top: -15px; font-style: normal; font-size: 11px; font-weight: 600; color: var(--muted); }
     .wd-bar { position: relative; flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
     .wd-bar-fill { width: 100%; max-width: 34px; border-radius: 6px 6px 2px 2px; background: color-mix(in srgb, var(--wk-brand) 34%, transparent); transition: height .5s cubic-bezier(.22,1,.36,1); }
     .wd-bar.is-today .wd-bar-fill { background: var(--wk-brand); }
     .wd-bar.is-zero .wd-bar-fill { height: 3px; background: var(--wk-line2); }
     .wd-bar.is-future .wd-bar-fill { height: 0; }
     .wd-bar.is-future::after { content: ''; position: absolute; bottom: 0; width: 100%; max-width: 34px; height: 10px; border: 1px dashed var(--wk-line2); border-bottom: none; border-radius: 6px 6px 0 0; }
-    .wd-bar-val { font-size: 10.5px; font-weight: 700; color: var(--ink); margin-bottom: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .wd-bar-val { font-size: 11px; font-weight: 700; color: var(--ink); margin-bottom: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .wd-bars-x { display: flex; gap: 8px; margin-top: 6px; }
-    .wd-bars-x span { flex: 1; min-width: 0; text-align: center; font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; }
-    .wd-bars-x b { display: block; font-weight: 500; font-size: 10px; color: var(--wk-faint); }
+    .wd-bars-x span { flex: 1; min-width: 0; text-align: center; font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; }
+    .wd-bars-x b { display: block; font-weight: 500; font-size: 11px; color: var(--wk-faint); }
     .wd-bars-x span.is-today, .wd-bars-x span.is-today b { color: var(--wk-brand); font-weight: 800; }
     .wd-metric { background: var(--card); border: 1px solid var(--wk-line2); border-radius: 10px; padding: 8px 11px; min-width: 0; }
     .wd-metric-l { font-size: 11px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .wd-metric-v { font-size: 16px; font-weight: 700; color: var(--ink); margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .wd-week-total { font-size: 12.5px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .wd-metric-v { font-size: 15px; font-weight: 700; color: var(--ink); margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .wd-week-total { font-size: 13px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
     [data-theme="dark"] .wd-clock-side { background: rgba(255,255,255,.02); }
     /* The Workday actions (Neil, 11/08/2026 - the summary tiles went): ONE
        row of pills under the clock card - Ask HR, Reimbursements, Purchase
@@ -204,8 +204,8 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .wd-actions .wd-askhr-badge { width: 32px; height: 32px; border-radius: 10px; box-shadow: 0 3px 8px rgba(43, 69, 225, .25); }
     .wd-actions .wd-askhr-badge svg { width: 16px; height: 16px; }
     .wd-actions .wd-askhr-dot { top: -3px; right: -3px; width: 9px; height: 9px; }
-    .wd-actions .wd-askhr-title { font-size: 13.5px; }
-    .wd-actions .wd-askhr-sub { font-size: 11.5px; margin-top: 1px; }
+    .wd-actions .wd-askhr-title { font-size: 13px; }
+    .wd-actions .wd-askhr-sub { font-size: 12px; margin-top: 1px; }
     .wd-actions .wd-askhr-cta { display: none; }
     .wd-actions .wd-askhr-go { margin-left: auto; flex-shrink: 0; color: var(--muted); transition: transform .15s ease, color .15s ease; }
     .wd-actions .wd-askhr:hover .wd-askhr-go { color: var(--wk-brand, #2b45e1); transform: translateX(2px); }
@@ -223,10 +223,10 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
       color: #fff; background: linear-gradient(135deg, #4256e8, #16a34a); box-shadow: 0 4px 12px rgba(43, 69, 225, .30); }
     .wd-askhr-dot { position: absolute; top: -4px; right: -4px; width: 11px; height: 11px; border-radius: 50%; background: hsl(var(--color-red)); box-shadow: 0 0 0 2px var(--card); }
     .wd-askhr-title { display: block; font-size: 15px; font-weight: 800; color: var(--ink); letter-spacing: -.01em; }
-    .wd-askhr-sub { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wd-askhr-sub { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .wd-askhr-sub--new { color: hsl(var(--color-red)); font-weight: 700; }
     .wd-askhr-cta { position: relative; z-index: 1; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px;
-      font-size: 11.5px; font-weight: 700; color: #fff; background: var(--wk-brand, #2b45e1); white-space: nowrap; }
+      font-size: 12px; font-weight: 700; color: #fff; background: var(--wk-brand, #2b45e1); white-space: nowrap; }
     [data-theme="dark"] .dk-stat.wd-stat.wd-askhr { background: linear-gradient(135deg, rgba(66, 86, 232, .22) 0%, rgba(22, 163, 74, .16) 100%), var(--card); border-color: rgba(120, 140, 255, .28); }
     /* 1440, not 1200: at a 1280 laptop the pill crushed the tile to "Ask / HR / D.." (Oct 17). */
     @media (max-width: 1440px) { .wd-askhr-cta { display: none; } }
@@ -243,11 +243,11 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
       .wd-clock-main { padding: 14px 16px 16px; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; row-gap: 12px; justify-content: stretch; }
       .wd-punch-row { grid-column: 1 / -1; }
       .wd-punch { flex: 1; justify-content: center; padding: 12px 16px; }
-      .wd-state { font-size: 12.5px; }
-      .wd-since { font-size: 12.5px; margin-top: 5px; }
+      .wd-state { font-size: 13px; }
+      .wd-since { font-size: 13px; margin-top: 5px; }
       .wd-clock-side { padding: 12px 14px 14px; }
       .wd-hp-head { margin: 12px 0 10px; gap: 10px 16px; }
-      .wd-hp-total { font-size: 26px; }
+      .wd-hp-total { font-size: 24px; }
       .wd-hp-facts { gap: 16px; }
       .wd-bars-plot { height: 76px; }
       .wd-overview { display: flex; flex-direction: column; }
@@ -298,8 +298,8 @@ function SessionRing({ seconds, pct, color, label, sub, size = 128 }) {
       </svg>
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
         <TimerDigits seconds={seconds} color={color} size={21} />
-        <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>{label}</span>
-        {sub && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{sub}</span>}
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>{label}</span>
+        {sub && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{sub}</span>}
       </div>
     </div>
   );
@@ -318,11 +318,11 @@ function IdleDial({ now, size = 128 }) {
       </svg>
       <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
         <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 3, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-          <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)' }}>{hm}</span>
+          <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--ink)' }}>{hm}</span>
           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{ap}</span>
         </span>
         {/* The number's caption, not a second state word: the state chip beside it says Clocked Out. */}
-        <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>Time Now</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Time Now</span>
       </div>
     </div>
   );
@@ -423,7 +423,7 @@ function ReasonPicker({ value, options, onChange, style }) {
     <div ref={ref} style={{ position: 'relative', minWidth: 0, ...style }}>
       <button type="button" className="form-input" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
         aria-label={`Reason: ${label}`}
-        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: 'pointer', textAlign: 'left', background: 'var(--card)' }}>
+        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer', textAlign: 'left', background: 'var(--card)' }}>
         {icon(value)}<span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
         <ChevronDown size={13} color="var(--muted)" />
       </button>
@@ -432,7 +432,7 @@ function ReasonPicker({ value, options, onChange, style }) {
           background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, boxShadow: 'var(--wk-shadow)', padding: '4px 0', maxHeight: 280, overflowY: 'auto' }}>
           {options.map(([k, l]) => (
             <button key={k} type="button" role="option" aria-selected={k === value} onClick={() => { onChange(k); setOpen(false); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 12px', border: 'none', cursor: 'pointer', fontSize: 12.5,
+              style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 12px', border: 'none', cursor: 'pointer', fontSize: 13,
                 fontFamily: 'inherit', textAlign: 'left', color: 'var(--ink)', background: k === value ? 'var(--wk-brand-tint)' : 'none' }}>
               {icon(k, 15)}<span style={{ flex: 1 }}>{l}</span>{k === value && <Check size={13} color="var(--wk-brand)" />}
             </button>
@@ -460,22 +460,22 @@ function AllDayToggle({ on, onChange }) {
 function GeoChip({ p }) {
   if (!p) return null;
   if (p.geoStatus === 'in_fence') return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-green))' }}>
       <MapPin size={12} /> at {p.workSiteName || 'site'}
     </span>);
   if (p.geoStatus === 'out_of_fence') return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: '#b45309' }}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: '#b45309' }}
       title={`Not inside any of your company's locations${p.workSiteName ? ` (nearest: ${p.workSiteName}, ${formatDistance(p.distanceM)} away)` : ''}. Recorded and flagged for review - this never blocks your punch.`}>
       <AlertTriangle size={12} /> Out of Location · Flagged for Review
     </span>);
   // Tagged remote by HR: any location is accepted and nothing is flagged.
   if (p.geoStatus === 'remote') return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}
       title="You are set up as remote, so you can punch from anywhere. Your location is still recorded with the punch.">
       <MapPin size={12} /> remote
     </span>);
   if (p.geoStatus === 'low_accuracy') return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}
       title="This device gave only a rough Wi-Fi/IP location (no GPS) - too coarse to judge the geofence. Punch from a phone for a precise fix.">
       <MapPinOff size={12} /> approx. location ({formatAccuracy(p.accuracyM)})
     </span>);
@@ -484,7 +484,7 @@ function GeoChip({ p }) {
   // it doesn't read as "nothing was captured". Only a genuinely location-less
   // punch shows nothing (Neil, Jul 28 - an empty chip read as an error state).
   if (p.lat && p.lng) return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}
       title="Location recorded. No geofenced location to judge against, or the fix was too coarse (Wi-Fi/IP, no GPS - punch from a phone for a precise fix).">
       <MapPin size={12} /> Location Recorded{p.accuracyM ? ` (${formatAccuracy(p.accuracyM)})` : ''}
     </span>);
@@ -1197,7 +1197,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           punching out. It clears itself the moment the punch lands. */}
       {parked && !lostModal && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '9px 13px', borderRadius: 10,
-          background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
+          background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>
           <AlertTriangle size={14} style={{ flexShrink: 0 }} />
           <span style={{ flex: 1, minWidth: 200 }}>
             Your {(KIND_LABEL[parked.kind] || 'punch').toLowerCase()} at {localTime(parked.at)} still
@@ -1211,7 +1211,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       )}
       {staleShift && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 14px', borderRadius: 12,
-          background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
+          background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>
           <AlertTriangle size={14} style={{ flexShrink: 0 }} />
           <span style={{ flex: 1, minWidth: 200 }}>
             Your clock-in{status.staleOpenSince ? ` at ${localTime(status.staleOpenSince)}` : ''} was never closed and is more than 16 hours old, so that shift shows as Missing.
@@ -1475,13 +1475,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             {clearedCount > 0 && (
               <button onClick={() => setShowCleared(v => !v)} aria-pressed={showCleared}
                 title={showCleared ? 'Hide the requests you cleared' : 'Show the requests you cleared from this list - what you asked and what was decided'}
-                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11.5, fontWeight: 700, padding: '2px 4px' }}>
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 12, fontWeight: 700, padding: '2px 4px' }}>
                 {showCleared ? 'Hide Cleared' : `Show Cleared (${clearedCount})`}
               </button>
             )}
             {decidedCount > 1 && (
               <button onClick={dismissAllReqs} title="Clear every approved and rejected request from this list"
-                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11.5, fontWeight: 700, padding: '2px 4px' }}>Clear All</button>
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 12, fontWeight: 700, padding: '2px 4px' }}>Clear All</button>
             )}
           </div>
           {visible.slice(0, 20).map(r => {
@@ -1496,7 +1496,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                  is QUOTED with a label - bare dot-separated fragments read as
                  buttons/errors ("· Reject" looked like a dead action). */
               <div key={r.id}
-                style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 12.5, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', fontSize: 13, padding: '8px 12px', background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
                 <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', color: c, background: tint, padding: '2px 10px', borderRadius: 999, flexShrink: 0 }}>{r.status}</span>
                 {r.localDate && <span style={{ color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{formatWeekday(r.localDate + 'T12:00:00')} {formatDate(r.localDate + 'T12:00:00')}</span>}
                 <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{r.action === 'add' ? `Add ${(KIND_LABEL[r.punchKind] || r.punchKind).toLowerCase()}${when}` : 'Remove a punch'}</span>
@@ -1506,7 +1506,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                     request used to keep out of sight (Neil, Oct 29 2026). */}
                 {decided && r.decisionNote && <span style={{ color: r.status === 'rejected' ? 'hsl(var(--color-red))' : 'var(--ink)' }}>Approver: “{r.decisionNote}”</span>}
                 {decided && (r.decidedByName || r.decidedAt) && (
-                  <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>
+                  <span style={{ color: 'var(--muted)', fontSize: 12 }}>
                     {r.status === 'approved' ? 'Approved' : 'Rejected'}{r.decidedByName ? ` by ${r.decidedByName}` : ''}{r.decidedAt ? ` on ${formatDateTime(r.decidedAt)}` : ''}
                   </span>
                 )}
@@ -1567,7 +1567,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             a day; then a free-text Note - optional, not labeled optional
             ("it's always in our interest to get details"). */}
         {toTypes && toTypes.requestsOn === false ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Time-off requests are turned off. Ask your manager to add your time off.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Time-off requests are turned off. Ask your manager to add your time off.</div>
         ) : (
           <div style={{ display: 'grid', gap: 12 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, alignItems: 'end' }}>
@@ -1579,18 +1579,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 <span style={TO_LBL}>From</span>
                 <input className="form-input" type="date" value={toForm.start} min={toPast ? undefined : toToday}
                   onChange={e => setToForm(f => ({ ...f, start: e.target.value, end: f.allDay ? (f.end && f.end >= e.target.value ? f.end : e.target.value) : e.target.value }))}
-                  style={{ fontSize: 12.5, minWidth: 0 }} />
+                  style={{ fontSize: 13, minWidth: 0 }} />
               </label>
               <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
                 <span style={TO_LBL}>To</span>
                 <input className="form-input" type="date" value={toForm.end} disabled={!toForm.allDay} min={toForm.start || (toPast ? undefined : toToday)}
                   title={toForm.allDay ? undefined : 'A specific-hours request is single-day only'}
                   onChange={e => setToForm(f => ({ ...f, end: e.target.value }))}
-                  style={{ fontSize: 12.5, minWidth: 0, opacity: toForm.allDay ? 1 : 0.55 }} />
+                  style={{ fontSize: 13, minWidth: 0, opacity: toForm.allDay ? 1 : 0.55 }} />
               </label>
               {/* Teams' New Request "All day" switch (Pranshu, Sep 16): on = whole
                   day(s), off = a specific start/end time on that one day. */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap', height: 36 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer', whiteSpace: 'nowrap', height: 36 }}>
                 <AllDayToggle on={toForm.allDay} onChange={toggleAllDay} />
                 All day
               </label>
@@ -1610,12 +1610,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 <label style={{ display: 'grid', gap: 5 }}>
                   <span style={TO_LBL}>Start time</span>
                   <input className="form-input" type="time" value={toForm.startTime}
-                    onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 12.5 }} />
+                    onChange={e => setToForm(f => ({ ...f, startTime: e.target.value }))} style={{ fontSize: 13 }} />
                 </label>
                 <label style={{ display: 'grid', gap: 5 }}>
                   <span style={TO_LBL}>End time</span>
                   <input className="form-input" type="time" value={toForm.endTime}
-                    onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 12.5 }} />
+                    onChange={e => setToForm(f => ({ ...f, endTime: e.target.value }))} style={{ fontSize: 13 }} />
                 </label>
               </div>
             )}
@@ -1624,14 +1624,14 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               <span style={TO_LBL}>Note</span>
               <textarea className="form-input" aria-label="Note" placeholder="Anything your approver should know" value={toForm.note} rows={2}
                 maxLength={400} onChange={e => setToForm(f => ({ ...f, note: e.target.value }))}
-                style={{ fontSize: 12.5, resize: 'vertical', fontFamily: 'inherit', minWidth: 0 }} />
+                style={{ fontSize: 13, resize: 'vertical', fontFamily: 'inherit', minWidth: 0 }} />
             </label>
 
             <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
               {/* Confidential (Neil, Sep 29/30): the team sees that you're out
                   and the type ("Time off - Medical"); the note stays between
                   you and your approver. */}
-              <label style={{ flex: '1 1 320px', display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
+              <label style={{ flex: '1 1 320px', display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer', color: 'var(--ink)' }}>
                 <input type="checkbox" checked={!!toForm.confidential} onChange={e => setToForm(f => ({ ...f, confidential: e.target.checked }))}
                   style={{ marginTop: 2 }} />
                 <span>
@@ -1645,23 +1645,23 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   Specific hours count in hours (Neil, Sep 30: 8:30 AM - 5:30 PM
                   is "9 hours", not "1.13 days"); whole days in working days. */}
               {(toTotalHours > 0 || (!toPartialOk && toTotalDays > 0)) && (
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap', paddingBottom: 9 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wk-brand)', display: 'flex', alignItems: 'baseline', gap: 5, whiteSpace: 'nowrap', paddingBottom: 9 }}>
                   Total
                   {toPartialOk ? (
                     <>
-                      <span style={{ fontSize: 13.5 }}>{formatHoursHM(toTotalHours)}</span>
+                      <span style={{ fontSize: 13 }}>{formatHoursHM(toTotalHours)}</span>
                       <span style={{ fontWeight: 600, color: 'var(--muted)' }}>hour{toTotalHours === 1 ? '' : 's'}</span>
                     </>
                   ) : (
                     <>
-                      <span style={{ fontSize: 13.5 }}>{Math.round(toTotalDays * 100) / 100}</span>
+                      <span style={{ fontSize: 13 }}>{Math.round(toTotalDays * 100) / 100}</span>
                       <span style={{ fontWeight: 600, color: 'var(--muted)' }}>working day{toTotalDays === 1 ? '' : 's'}</span>
                     </>
                   )}
                 </span>
               )}
               <button className="primary-btn" onClick={submitTimeoff} disabled={toBusy}
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 120 }}>
+                style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 120 }}>
                 {toBusy ? <Spinner size={13} /> : <Plus size={13} />} Request
               </button>
             </div>
@@ -1683,11 +1683,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             </span>
           )}
           <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Your manager decides - you get a bell notification</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Your manager decides - you get a bell notification</span>
         </div>
         {timeoff === null && <div style={{ padding: 16 }}><SkeletonBlocks count={2} height={18} /></div>}
         {Array.isArray(timeoff) && timeoff.length === 0 && (
-          <div style={{ padding: '18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
+          <div style={{ padding: '18px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
             No time-off requests yet.
           </div>
         )}
@@ -1820,7 +1820,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               <span className="wkc-chip"><Monitor size={14} /></span>
               <div style={{ flex: 1 }}>
                 <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Before you clock in</h3>
-                <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>Please read and acknowledge how this device is monitored.</p>
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Please read and acknowledge how this device is monitored.</p>
               </div>
               <button onClick={() => setMonGate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
             </div>
@@ -1852,7 +1852,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 function ConfidentialBadge() {
   return (
     <span title="Confidential - only you and your approver see the note"
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)',
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: 'var(--muted)',
         background: 'var(--mist)', borderRadius: 999, padding: '2px 8px' }}>
       <Lock size={10} /> Confidential
     </span>

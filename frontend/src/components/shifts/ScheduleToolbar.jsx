@@ -26,7 +26,7 @@ export const MODAL_BACK = { position: 'fixed', inset: 0, background: 'rgba(0,0,0
 // Size comes from className="nx-popup" (CLAUDE.md popup rule), which also keeps the phone sheet.
 export const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, padding: 20 };
 export const LBL = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 };
-export const CHECK = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' };
+export const CHECK = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' };
 
 export function DialogHead({ title, onClose }) {
   return (
@@ -39,7 +39,7 @@ export function DialogHead({ title, onClose }) {
 
 const ARROW = { width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--line)', borderRadius: 8,
   background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', padding: 0, flexShrink: 0 };
-const TODAY_BTN = { border: 'none', background: 'none', padding: '6px 8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', borderRadius: 7, whiteSpace: 'nowrap' };
+const TODAY_BTN = { border: 'none', background: 'none', padding: '6px 8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--wk-brand)', borderRadius: 7, whiteSpace: 'nowrap' };
 
 export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, onJump, showToday = false, slide = 0, teamSwitcher = null, canManage, busy, ready,
   unsharedCount = 0, onAdd, onShare, actions, phone = false }) {
@@ -108,7 +108,7 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
       </div>
     );
   }
-  const BTN = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 };
+  const BTN = { fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 };
   return (
     <div role="toolbar" aria-label="Shift Planner" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap', rowGap: 10 }}>
       {dateNav}
@@ -117,7 +117,7 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
           const on = view === k || (k === 'week' && view === 'twoweeks');
           return (
             <button key={k} type="button" onClick={() => onView(k)} aria-pressed={on}
-              style={{ border: 'none', padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+              style={{ border: 'none', padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
                 background: on ? 'var(--wk-brand-tint)' : 'transparent', color: on ? 'var(--wk-brand)' : 'var(--muted)' }}>{label}</button>
           );
         })}
@@ -179,7 +179,7 @@ export function ConfirmChip({ c, onNudge, compact = false }) {
   // Nudge" - no chip. The count opens the list; Nudge reminds everyone
   // waiting who has not been nudged yet.
   const label = `${c.confirmed} of ${c.total} Confirmed`;
-  const PLAIN = { border: 'none', background: 'none', padding: compact ? '12px 0' : '2px 0', fontFamily: 'inherit', fontSize: compact ? 12.5 : 12.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
+  const PLAIN = { border: 'none', background: 'none', padding: compact ? '12px 0' : '2px 0', fontFamily: 'inherit', fontSize: compact ? 13 : 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
   return (
     <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       <button ref={btnRef} type="button" data-confirm-chip="" onClick={() => setOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={open} aria-label={label}
@@ -198,14 +198,14 @@ export function ConfirmChip({ c, onNudge, compact = false }) {
         <div ref={listRef} role="dialog" aria-label="Schedule confirmations" style={{ ...POP, ...pos, zIndex: 1350, padding: '4px 0 8px', maxHeight: `calc(100vh - ${Math.round(pos.top) + 12}px)`, overflowY: 'auto' }}>
           <div style={HEAD}>{all ? 'Everyone Has Confirmed' : 'Not Confirmed Yet'}</div>
           {c.pending.map((p) => (
-            <div key={p.email} data-confirm-pending={p.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: compact ? '4px 12px' : '5px 12px', fontSize: 12.5 }}>
+            <div key={p.email} data-confirm-pending={p.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: compact ? '4px 12px' : '5px 12px', fontSize: 13 }}>
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{p.name}</span>
               {p.nudgedAt ? (
-                <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }} title={`Nudged ${formatDateTime(p.nudgedAt)}`}>Nudged {nudgedDay(p.nudgedAt)}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }} title={`Nudged ${formatDateTime(p.nudgedAt)}`}>Nudged {nudgedDay(p.nudgedAt)}</span>
               ) : (
                 <button type="button" onClick={() => send([p], p.email)} disabled={!!busy || !onNudge} aria-label={`Nudge ${p.name}`}
                   style={{ border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 7, padding: compact ? '8px 12px' : '2px 8px', minHeight: compact ? 36 : undefined,
-                    fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <BellRing size={11} /> Nudge
                 </button>
               )}
@@ -214,7 +214,7 @@ export function ConfirmChip({ c, onNudge, compact = false }) {
           {all && <div style={{ padding: '2px 12px 4px', fontSize: 12, color: 'var(--muted)' }}>{c.total} {c.total === 1 ? 'person' : 'people'} confirmed the shared schedule.</div>}
           {!all && (
             <div style={{ padding: '6px 12px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ flex: 1, fontSize: 11.5, color: 'var(--muted)' }}>{waiting.length ? 'A nudge is one notification and email.' : 'Everyone waiting has been nudged.'}</span>
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>{waiting.length ? 'A nudge is one notification and email.' : 'Everyone waiting has been nudged.'}</span>
               <button type="button" className="primary-btn" onClick={() => send(waiting, 'all')} disabled={!!busy || !waiting.length || !onNudge}
                 style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, minHeight: compact ? 36 : undefined }}>
                 <BellRing size={12} /> Nudge Everyone
@@ -257,9 +257,9 @@ export function reviewSummary(changes = [], people = 0) {
 }
 export const REASON_MAX = 300;   // the server keeps 300 (routers/timeclock publish, shift_log)
 const CHANGE_WORD = { added: 'New', changed: 'Changed', removed: 'Removed' };
-const LINKISH = { background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', padding: 0 };
-const TH = { textAlign: 'left', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', padding: '6px 10px 6px 0', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'var(--card)' };
-const TD = { fontSize: 12.5, padding: '6px 10px 6px 0', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
+const LINKISH = { background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--wk-brand)', padding: 0 };
+const TH = { textAlign: 'left', fontSize: 12, fontWeight: 700, color: 'var(--muted)', padding: '6px 10px 6px 0', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'var(--card)' };
+const TD = { fontSize: 13, padding: '6px 10px 6px 0', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
 // What a person sees for one change, before and after: "7:00 AM - 3:30 PM · GSV".
 const seenText = (start, end, label) => `${spanText(start, end)}${label ? ` · ${label}` : ''}`;
 // A warning's kind in one plain word (Oct 30 2026: no uppercase pills).
@@ -424,7 +424,7 @@ export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', las
               {lastPublishedAt ? ` Last shared ${formatDateTime(lastPublishedAt)}.` : ' Not shared yet.'}
             </div>
             {big && (
-              <div data-share-summary="" style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 6 }}>
+              <div data-share-summary="" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
                 <strong style={{ color: 'var(--ink)' }}>{totalCount} changes are waiting.</strong>{' '}
                 {byWeek ? `This week: ${byWeek.tw} · Next week: ${byWeek.nw} · Other weeks: ${byWeek.other}` : 'Counting by week...'}
               </div>
@@ -445,11 +445,11 @@ export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', las
                 )}
               </div>
             )}
-            {(tooLong || (from && to && to < from)) && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginTop: 6 }}>{tooLong ? 'Share at most 92 days at a time.' : 'The end is before the start.'}</div>}
+            {(tooLong || (from && to && to < from)) && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginTop: 6 }}>{tooLong ? 'Share at most 92 days at a time.' : 'The end is before the start.'}</div>}
           </div>
 
-          {reviewErr && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{reviewErr}</div>}
-          {!review && reviewing && <div aria-busy="true" style={{ fontSize: 12.5, color: 'var(--muted)' }}>Reviewing the changes...</div>}
+          {reviewErr && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{reviewErr}</div>}
+          {!review && reviewing && <div aria-busy="true" style={{ fontSize: 13, color: 'var(--muted)' }}>Reviewing the changes...</div>}
 
           {review && (
             <div style={{ ...SECTION, opacity: reviewing ? 0.6 : 1 }}>
@@ -485,14 +485,14 @@ export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', las
             <div data-review-warnings-box="" style={SECTION}>
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{warnings.length ? `Warnings (${warnings.length})` : 'Warnings'}</div>
               {warnings.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No warnings.</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)' }}>No warnings.</div>
               ) : (
                 <>
                   <div data-review-warnings="" style={{ display: 'grid' }}>
                     {warnings.map((w, i) => {
                       const word = warnWord(w);
                       return (
-                        <div key={`${w.date}|${w.shiftId || ''}|${i}`} data-warning={word} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
+                        <div key={`${w.date}|${w.shiftId || ''}|${i}`} data-warning={word} style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
                           <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, alignSelf: 'center', background: word === 'Heads Up' ? 'var(--muted)' : 'hsl(var(--color-orange))' }} />
                           <span style={{ flex: 1, minWidth: 0 }}>
                             <strong>{w.name}</strong> <span style={{ color: 'var(--muted)' }}>· {dayText(w.date)} · {word}</span>
@@ -503,7 +503,7 @@ export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', las
                       );
                     })}
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Warnings never block sharing.</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Warnings never block sharing.</div>
                 </>
               )}
             </div>
@@ -513,7 +513,7 @@ export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', las
             <label style={{ ...SECTION, display: 'block' }}><div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Reason For Sharing With Warnings</div>
               <textarea className="form-input" rows={2} maxLength={REASON_MAX} value={reason} onChange={(e) => setReason(e.target.value.slice(0, REASON_MAX))} required aria-label="Reason for sharing with warnings"
                 placeholder="e.g. Short-staffed this week; overtime approved" style={{ width: '100%', fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }} />
-              <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+              <div style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                 <span style={{ flex: 1 }}>Managers see this reason in the history of the shifts it applies to.</span>
                 {reason.length >= REASON_MAX - 50 && <span data-reason-count="" style={{ color: reason.length >= REASON_MAX ? 'hsl(var(--color-red))' : 'var(--muted)', flexShrink: 0 }}>{reason.length}/{REASON_MAX}</span>}
               </div>
@@ -544,7 +544,7 @@ export function ShareDialog({ defaultStart, defaultEnd, defaultGroupId = '', las
           )}
 
           {recent?.length > 0 && <div style={SECTION}><RecentShares shares={recent} /></div>}
-          {shareErr && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{shareErr}</div>}
+          {shareErr && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{shareErr}</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, paddingTop: 14, marginTop: 4, borderTop: '1px solid var(--line)', justifyContent: 'flex-end' }}>
           <button type="button" className="secondary-btn" onClick={cancel}>Cancel</button>
@@ -609,7 +609,7 @@ export function DayNoteDialog({ date, groups = [], notes = [], busy, onSave, onC
             placeholder="e.g. Inventory day - all hands" aria-label="Day note" style={{ width: '100%', fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }} />
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
-          {existing?.note && <button type="button" onClick={() => onSave(date, '', groupId)} disabled={busy} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>Remove</button>}
+          {existing?.note && <button type="button" onClick={() => onSave(date, '', groupId)} disabled={busy} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Remove</button>}
           <div style={{ flex: 1 }} />
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="primary-btn" onClick={() => onSave(date, text, groupId)} disabled={busy || !text.trim()} style={{ opacity: text.trim() ? 1 : 0.55 }}>Save</button>

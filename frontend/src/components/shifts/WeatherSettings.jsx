@@ -85,7 +85,7 @@ export default function WeatherSettingsPanel({ toastOk, toastErr, company = '' }
     <AsyncSection loading={!data && !error} error={!!error} onRetry={reload} errorMessage="The weather settings could not be loaded right now." skeleton={<SkeletonBlocks count={3} height={56} borderRadius={10} />}>
       {form && (
         <div style={{ fontFamily: 'Inter,sans-serif', display: 'grid', gap: 16 }}>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
             Every half hour Nexus checks the forecast for each watched group's work site over the next two days. Major rain during scheduled hours sends a priority alert to the group's weather deciders and the company's managers so they can make the weather call. Nexus never cancels work by itself.
           </div>
 
@@ -96,16 +96,16 @@ export default function WeatherSettingsPanel({ toastOk, toastErr, company = '' }
                 <label key={c.id} style={ROW}>
                   <input type="checkbox" checked={!!form.companies[c.id]} onChange={(e) => set('companies', { ...form.companies, [c.id]: e.target.checked })} aria-label={`Watch the weather for ${c.name}`} />
                   <span style={{ fontSize: 13, fontWeight: 700, minWidth: 140 }}>{c.name}</span>
-                  <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1 }}>
                     {c.groupsReady.length ? `${c.groupsReady.length} group${c.groupsReady.length === 1 ? '' : 's'} ready: ${c.groupsReady.join(', ')}` : 'No group ready'}
                     {c.groupsNotReady.length ? ` · not ready (no located site or alerts off): ${c.groupsNotReady.join(', ')}` : ''}
                   </span>
                 </label>
               ))}
-              {!(data.companies || []).length && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No companies set up yet.</div>}
-              {!!company && !(data.companies || []).some((c) => c.id === company) && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>This company has no groups to watch yet.</div>}
+              {!(data.companies || []).length && <div style={{ fontSize: 13, color: 'var(--muted)' }}>No companies set up yet.</div>}
+              {!!company && !(data.companies || []).some((c) => c.id === company) && <div style={{ fontSize: 13, color: 'var(--muted)' }}>This company has no groups to watch yet.</div>}
               {/* Weather by department (Neil, 10/29/2026): who the weather applies to. */}
-              <div data-weather-departments="" style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+              <div data-weather-departments="" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
                 Applies to people in departments with Weather Calls on: {(data.companies || []).filter((c) => !company || c.id === company)
                   .map((c) => `${c.name}: ${(c.weatherDepartments || []).join(', ') || 'none'}`).join('; ') || 'none'}.{' '}
                 <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'companies' } }))}
@@ -114,7 +114,7 @@ export default function WeatherSettingsPanel({ toastOk, toastErr, company = '' }
                 </button>
               </div>
               {!company && data.untaggedGroups?.length > 0 && (
-                <div style={{ fontSize: 11.5, color: 'hsl(var(--color-orange))' }}>
+                <div style={{ fontSize: 12, color: 'hsl(var(--color-orange))' }}>
                   Groups whose members have no company, so no switch covers them: {data.untaggedGroups.join(', ')}.
                 </div>
               )}
@@ -148,11 +148,11 @@ export default function WeatherSettingsPanel({ toastOk, toastErr, company = '' }
           </div>
 
           <div style={{ display: 'grid', gap: 8 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={!!form.headsUpTeams} onChange={(e) => set('headsUpTeams', e.target.checked)} aria-label="Post a quiet Teams line for a heads-up" />
               Post one quiet line in the group's Teams chat for a heads-up day (no bell)
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={!!form.smsDefault} onChange={(e) => set('smsDefault', e.target.checked)} aria-label="Text the crew by default when a weather call is made" />
               Text the crew by default when a weather call is made (each person can turn their own texts off)
             </label>
@@ -162,7 +162,7 @@ export default function WeatherSettingsPanel({ toastOk, toastErr, company = '' }
           <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 5 }}><CloudRain size={11} /> Forecast by Open-Meteo. Warnings by the National Weather Service (US sites).</div>
           <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={() => setForm(JSON.parse(baseline.current))} style={{ marginTop: 4 }}
             note={data.lastAdvisoryAt ? `Last notice sent ${formatDateTime(data.lastAdvisoryAt)}.` : 'No notice has been sent yet.'}>
-            <button type="button" className="secondary-btn" onClick={checkNow} disabled={checking || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+            <button type="button" className="secondary-btn" onClick={checkNow} disabled={checking || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               {checking ? <Spinner size={13} /> : <Play size={13} />} Check Now
             </button>
           </SaveRow>

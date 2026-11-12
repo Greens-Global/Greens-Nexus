@@ -101,7 +101,7 @@ export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnB
         aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit',
           color: on ? 'var(--tob-ink)' : 'inherit', fontWeight: on ? 700 : 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        {label}<span aria-hidden="true" style={{ fontSize: 10, opacity: on ? 1 : 0.35 }}>{on ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
+        {label}<span aria-hidden="true" style={{ fontSize: 11, opacity: on ? 1 : 0.35 }}>{on ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
       </button>
     );
   };
@@ -177,7 +177,7 @@ export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnB
                       const d = leaveRequestDays(r);
                       const ov = overlapsOf(r);
                       return (<>
-                        <div style={{ flex: '1 1 260px', minWidth: 0, fontSize: 12.5, color: 'var(--tob-dim)', fontVariantNumeric: 'tabular-nums' }}>
+                        <div style={{ flex: '1 1 260px', minWidth: 0, fontSize: 13, color: 'var(--tob-dim)', fontVariantNumeric: 'tabular-nums' }}>
                           <span style={{ color: 'var(--tob-ink)', fontWeight: 600, textTransform: 'capitalize' }}>{r.type || 'Time off'}</span>
                           {r.confidential && <Confidential />}
                           {' '}· {period(r)} · {fmtDays(d)} {d === 1 ? 'day' : 'days'}{r.note ? ` · "${r.note}"` : ''}
@@ -201,9 +201,9 @@ export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnB
                           <Avatar email={g.first.email} name={who(g.first)} size={28} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: 13.5, fontWeight: 700, textTransform: 'capitalize' }} title={g.first.email}>{who(g.first)}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, textTransform: 'capitalize' }} title={g.first.email}>{who(g.first)}</span>
                               {g.first.forEmail && <ForChip name={g.first.forName} email={g.first.forEmail} />}
-                              {g.reqs.length > 1 && <span style={{ fontSize: 11.5, color: 'var(--tob-dim)' }}>{g.reqs.length} requests</span>}
+                              {g.reqs.length > 1 && <span style={{ fontSize: 12, color: 'var(--tob-dim)' }}>{g.reqs.length} requests</span>}
                             </div>
                             {g.reqs.map((r) => (
                               <div key={r.id} className={leaving.has(r.id) ? 'tob-out' : undefined}
@@ -243,7 +243,7 @@ export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnB
                 {err ? (
                   <div style={{ padding: '14px 16px' }}><ErrorBanner message="Couldn't load time-off requests right now." onRetry={onRetry} /></div>
                 ) : shown.length === 0 && (
-                  <div style={{ padding: '22px 16px', fontSize: 12.5, color: 'var(--tob-dim)', textAlign: 'center' }}>
+                  <div style={{ padding: '22px 16px', fontSize: 13, color: 'var(--tob-dim)', textAlign: 'center' }}>
                     {rows.length === 0 ? 'No time-off requests yet.' : q ? 'Nothing matches your search.' : year || month ? 'No requests in that period.' : `No ${filter === 'all' ? '' : filter + ' '}requests.`}
                   </div>
                 )}
@@ -256,7 +256,7 @@ export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnB
                   const d = leaveRequestDays(r);
                   const [word, color] = STATUS[r.status] || [r.status, 'var(--tob-dim)'];
                   return (
-                    <div key={r.id} className="tob-grid" style={{ fontSize: 12.5 }}>
+                    <div key={r.id} className="tob-grid" style={{ fontSize: 13 }}>
                       {showWho ? (
                         <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, fontWeight: 600 }}>
                           <Avatar email={r.email} name={who(r)} size={22} />
@@ -294,7 +294,7 @@ export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnB
                   });
                   return groups.map(rs => rs.length === 1 ? row(rs[0], true) : (
                     <Fragment key={`g-${rs[0].email || rs[0].name}`}>
-                      <div className="tob-grid" style={{ fontSize: 12.5, backgroundImage: 'linear-gradient(var(--tob-paper), var(--tob-paper))' }}>
+                      <div className="tob-grid" style={{ fontSize: 13, backgroundImage: 'linear-gradient(var(--tob-paper), var(--tob-paper))' }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, fontWeight: 700 }}>
                           <Avatar email={rs[0].email} name={who(rs[0])} size={22} />
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textTransform: 'capitalize' }} title={rs[0].email}>{who(rs[0])}</span>

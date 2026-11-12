@@ -19,10 +19,10 @@ export function DateTile({ iso, size = 40 }) {
   return (
     <span aria-hidden="true" style={{ width: size, height: size, borderRadius: 10, flexShrink: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column',
       background: 'var(--card)', border: '1px solid color-mix(in srgb, var(--wk-brand) 28%, var(--line))', boxShadow: '0 1px 2px rgba(15,23,42,0.05)' }}>
-      <span style={{ background: 'var(--wk-brand)', color: '#fff', fontSize: size < 36 ? 8 : 8.5, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', textAlign: 'center', lineHeight: `${Math.round(size * 0.32)}px` }}>
+      <span style={{ background: 'var(--wk-brand)', color: '#fff', fontSize: size < 36 ? 8 : 8.5, /* type-ok: a drawn date tile, sized to the tile */ fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', textAlign: 'center', lineHeight: `${Math.round(size * 0.32)}px` }}>
         {MON[d.getMonth()]}
       </span>
-      <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size < 36 ? 14 : 16, fontWeight: 800, color: 'var(--wk-brand)',
+      <span style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size < 36 ? 14 : 16, /* type-ok: a drawn date tile, sized to the tile */ fontWeight: 800, color: 'var(--wk-brand)',
         background: 'var(--wk-brand-tint)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}>{d.getDate()}</span>
     </span>
   );
@@ -40,12 +40,12 @@ export function MiniMonth({ first, last, weekStart = 'monday', onPick }) {
   return (
     <div style={{ width: 252 }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
-        <span style={{ flex: 1, fontSize: 13.5, fontWeight: 700, paddingLeft: 4 }}>{formatMonthYear(month)}</span>
+        <span style={{ flex: 1, fontSize: 13, fontWeight: 700, paddingLeft: 4 }}>{formatMonthYear(month)}</span>
         <button type="button" aria-label="Previous month" style={nav} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft size={16} /></button>
         <button type="button" aria-label="Next month" style={nav} onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight size={16} /></button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', rowGap: 2 }}>
-        {heads.map((h) => <span key={h} style={{ textAlign: 'center', fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '4px 0' }}>{h}</span>)}
+        {heads.map((h) => <span key={h} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--muted)', padding: '4px 0' }}>{h}</span>)}
         {cells.map((d, i) => {
           const ds = isoDate(d);
           const inRange = ds >= first && ds <= last;
@@ -54,7 +54,7 @@ export function MiniMonth({ first, last, weekStart = 'monday', onPick }) {
           const out = d.getMonth() !== month.getMonth();
           return (
             <button key={ds} type="button" onClick={() => onPick(ds)} aria-label={`Go to ${formatDate(ds)}`} aria-current={ds === today ? 'date' : undefined}
-              style={{ height: 32, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontVariantNumeric: 'tabular-nums',
+              style={{ height: 32, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontVariantNumeric: 'tabular-nums',
                 fontWeight: inRange || ds === today ? 700 : 500, color: inRange ? 'var(--wk-brand)' : out ? 'var(--muted)' : 'var(--ink)', opacity: out && !inRange ? 0.55 : 1,
                 background: inRange ? 'var(--wk-brand-tint)' : 'transparent',
                 borderRadius: `${edgeL ? 8 : 0}px ${edgeR ? 8 : 0}px ${edgeR ? 8 : 0}px ${edgeL ? 8 : 0}px`,
@@ -87,8 +87,8 @@ export default function DateBlock({ view, first, last, weekStart = 'monday', onP
           borderRadius: 10, minWidth: 0, textAlign: 'left', color: 'var(--ink)' }}>
         <DateTile iso={first} size={compact ? 34 : 40} />
         <span key={`${view}|${first}`} className={anim} style={{ display: 'flex', flexDirection: 'column', minWidth: 0, lineHeight: 1.15 }}>
-          <span data-range-title="" style={{ fontSize: compact ? 15.5 : 17, fontWeight: 650, letterSpacing: '-0.015em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
-          <span data-range-caption="" style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>{caption}</span>
+          <span data-range-title="" style={{ fontSize: compact ? 15 : 18, fontWeight: 650, letterSpacing: '-0.015em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
+          <span data-range-caption="" style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>{caption}</span>
         </span>
       </button>
       {open && pos && createPortal(
