@@ -8225,8 +8225,9 @@ label.nx-set-row-main { cursor: pointer; }
 .nx-set-search input { width: 100%; padding: 8px 34px 8px 30px; font-size: 13px; box-sizing: border-box; }
 .nx-set-search kbd { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font: 600 11px/1 var(--wk-font, inherit); color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; background: var(--card); pointer-events: none; }
 
+/* Every subject uses the full width (Pranshu, 11/12/2026: the 1040px cap on
+   .is-narrow left a blank strip down the right of a wide screen). */
 .nx-set-main { min-width: 0; }
-.nx-set-main.is-narrow { max-width: 1040px; }
 .nx-set-head { position: sticky; top: 0; z-index: 5; background: var(--wk-bg, var(--paper)); padding: 4px 0 14px; margin-bottom: 18px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
 .nx-set-head-text { flex: 1 1 280px; min-width: 0; }
 .nx-set-head h3 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -.01em; color: var(--ink); display: flex; align-items: center; gap: 10px; }
