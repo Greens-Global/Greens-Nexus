@@ -459,7 +459,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     return (
       <div style={{ position: 'fixed', left: 18, bottom: 18, zIndex: 5990, pointerEvents: 'none',
         background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: '10px 14px',
-        boxShadow: '0 8px 30px rgba(0,0,0,.18)', fontSize: 12.5, color: NX.dim, maxWidth: 300, fontFamily: FONT }}>
+        boxShadow: '0 8px 30px rgba(0,0,0,.18)', fontSize: 13, color: NX.dim, maxWidth: 300, fontFamily: FONT }}>
         Recording for your ticket - the form reopens with everything intact when you press Stop.
       </div>
     );
@@ -500,7 +500,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   )); };
 
   const req = <span style={{ color: NX.red }}>*</span>;
-  const sub = (text) => <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{text}</div>;
+  const sub = (text) => <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>{text}</div>;
   const err = (k) => showErrors && missing.has(k);
   const brand = NX.brand ?? 'var(--wk-brand)';
 
@@ -556,10 +556,10 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         <div role="status" style={{ display: 'flex', flexDirection: 'column', padding: isMobile ? '4px 0' : '8px 12px' }}>
           <span aria-hidden="true" style={{ width: 44, height: 44, borderRadius: '50%', border: `2px solid ${brand}`, color: brand,
             display: 'grid', placeItems: 'center', marginBottom: 14 }}><Check size={24} strokeWidth={2.4} /></span>
-          <div style={{ fontSize: 21, fontWeight: 700, color: NX.ink, letterSpacing: '-0.01em' }}>
+          <div style={{ fontSize: 24, fontWeight: 700, color: NX.ink, letterSpacing: '-0.01em' }}>
             {code ? `Ticket ${code} Is In` : 'Your Ticket Is In'}
           </div>
-          <div style={{ fontSize: 13.5, color: NX.dim, lineHeight: 1.55, marginTop: 6 }}>
+          <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.55, marginTop: 6 }}>
             {desk ? `${desk} has it.` : 'The help desk has it.'}{' '}
             {forName
               ? `${forName} gets a bell and an email when someone replies or the status changes, and you are following it too.`
@@ -569,14 +569,14 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
             {facts.map(([k, v]) => (
               <div key={k} style={{ display: 'flex', alignItems: 'baseline', gap: 16, padding: '10px 0', borderBottom: `1px solid ${NX.border2}` }}>
                 <dt style={{ fontSize: 13, color: NX.muted ?? NX.dim, flex: 'none', width: 120 }}>{k}</dt>
-                <dd style={{ margin: 0, fontSize: 13.5, fontWeight: 600, color: NX.ink, flex: 1, minWidth: 0, textAlign: 'right', overflowWrap: 'anywhere' }}>{v}</dd>
+                <dd style={{ margin: 0, fontSize: 13, fontWeight: 600, color: NX.ink, flex: 1, minWidth: 0, textAlign: 'right', overflowWrap: 'anywhere' }}>{v}</dd>
               </div>
             ))}
           </dl>
           <div style={{ fontSize: 12, fontWeight: 700, color: NX.dim, margin: '20px 0 8px' }}>What Happens Next</div>
           <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
             {steps.map(([name, note], i) => (
-              <li key={name} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5, color: i ? NX.dim : NX.ink }}>
+              <li key={name} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: i ? NX.dim : NX.ink }}>
                 <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: '50%', flex: 'none', display: 'grid', placeItems: 'center',
                   fontSize: 11, fontWeight: 700, border: `1.5px solid ${i ? NX.border : brand}`, color: i ? NX.faint : brand }}>{i + 1}</span>
                 <span><b style={{ fontWeight: 600, color: NX.ink }}>{name}</b> - {note}</span>
@@ -653,7 +653,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
       {mapSpot?.spot && <MapSpotIntake spot={mapSpot.spot} propertyName={forProperty?.name} snapshot={mapSpot.snapshot} hasPhoto={hasPhoto} />}
       {fromTask && (
         <div role="status" style={{ border: `1px solid ${NX.border}`, background: NX.surface2, borderRadius: 10,
-          padding: '10px 12px', marginBottom: 14, fontSize: 12.5, lineHeight: 1.5, color: NX.dim }}>
+          padding: '10px 12px', marginBottom: 14, fontSize: 13, lineHeight: 1.5, color: NX.dim }}>
           <div>From the task <b style={{ color: NX.ink }}>{fromTask.title}</b>: {carried.join(', ')} filled in.</div>
           {missing.size > 0
             ? <div style={{ color: NX.red, fontWeight: 600, marginTop: 4 }}>
@@ -689,7 +689,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
                       border: `1px solid ${on ? brand : err('hrDepartmentId') ? NX.red : NX.border}`,
                       boxShadow: on ? `inset 0 0 0 1px ${brand}` : 'none' }}>
                     <Icon size={17} strokeWidth={1.9} style={{ color: on ? brand : NX.dim, flex: 'none' }} aria-hidden="true" />
-                    <span style={{ minWidth: 0, flex: 1, fontSize: 13.5, fontWeight: 600, color: NX.ink, lineHeight: 1.3 }}>{deptDisplayName(d.name)}</span>
+                    <span style={{ minWidth: 0, flex: 1, fontSize: 13, fontWeight: 600, color: NX.ink, lineHeight: 1.3 }}>{deptDisplayName(d.name)}</span>
                   </button>
                 );
               })}
@@ -793,7 +793,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
             {/* Admin switch per type (Settings > Ticket Manager > SLA & Ticket
                 Types) - read from the loaded taxonomy, never a hardcoded list. */}
             {typeRequiresApproval(form.type) && (
-              <div style={{ fontSize: 11.5, color: NX.amber, marginTop: 4 }}>This type needs approval before the team can start work on it.</div>
+              <div style={{ fontSize: 12, color: NX.amber, marginTop: 4 }}>This type needs approval before the team can start work on it.</div>
             )}
           </div>
           <div style={{ ...field, marginBottom: 0 }}>
@@ -802,7 +802,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
             {suggested && suggested === form.priority && !prioTouched
               && sub('Set from who is affected and whether you can keep working.')}
             {suggested && suggested !== form.priority && (
-              <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>
                 Your answers suggest {PRIORITY_META[suggested]?.label}.{' '}
                 <button type="button" onClick={() => { setPrioTouched(false); set('priority', suggested); }}
                   style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 600, color: NX.blue ?? NX.dim, cursor: 'pointer' }}>Use It</button>
@@ -869,7 +869,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         {railHead('Desk-Ready', <span style={{ fontSize: 12, color: NX.faint, fontVariantNumeric: 'tabular-nums' }}>{readyCount} of {readiness.length}</span>)}
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {readiness.map(([name, ok, required]) => (
-            <li key={name} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 12.5, lineHeight: 1.4, color: ok ? NX.ink : NX.dim }}>
+            <li key={name} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 13, lineHeight: 1.4, color: ok ? NX.ink : NX.dim }}>
               {ok
                 ? <CircleCheck size={15} style={{ color: brand, flex: 'none', marginTop: 1 }} aria-label="Done" />
                 : <Circle size={15} style={{ color: NX.faint, flex: 'none', marginTop: 1 }} aria-label="Not yet" />}
@@ -886,7 +886,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         <div style={{ fontSize: 13, fontWeight: 600, color: deptName ? NX.ink : NX.faint }}>
           {deptName || (deptOptions.length ? 'Pick a team to route it' : 'The help desk')}
         </div>
-        <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.55, marginTop: 3 }}>
+        <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.55, marginTop: 3 }}>
           {firstReply ? <div>Usual first reply: within {hoursText(firstReply)}</div> : null}
           <div>Priority: {PRIORITY_META[form.priority]?.label || form.priority} - the desk may change it</div>
           {/* Admin switch per type (Settings > Ticket Manager > SLA & Ticket
@@ -932,12 +932,12 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     footer: (
       <>
         {showErrors && missing.size > 0 && (
-          <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>
+          <span style={{ fontSize: 13, color: NX.red, fontWeight: 600 }}>
             {missing.size} required field{missing.size > 1 ? 's' : ''} still empty
           </span>
         )}
         {fromTask && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.dim, cursor: 'pointer' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.dim, cursor: 'pointer' }}>
             <input type="checkbox" checked={closeSource} onChange={(e) => setCloseSource(e.target.checked)} />
             Close the task
           </label>

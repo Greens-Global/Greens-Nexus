@@ -6,7 +6,7 @@ import { Dot, EmptyBox, Eyebrow, Footnote, LoadingBox, Meter, mono, num, seriesC
 import { Bars, Donut } from './Charts';
 import { useDash } from './DashContext';
 import { usePerf, useTrend } from './hooks';
-import { DrillFigure, useLineDrill } from './LineDrill';
+import { DrillFigure, useLineDrill, useStatementOpen } from './LineDrill';
 
 // Performance widgets: revenue vs expense bars, NOI by entity, budget
 // variances (month and year to date), and the income / expense breakdowns.
@@ -81,6 +81,7 @@ export function VarianceWidget() {
 export function YtdVarianceWidget() {
   const { m, loading } = useDash();
   const perf = usePerf();
+  const openStatement = useStatementOpen();
   if (loading || !perf) return <LoadingBox />;
   const y = perf.ytd;
   if (!y.lines.length) return <EmptyBox title="No activity this year" />;
@@ -91,7 +92,8 @@ export function YtdVarianceWidget() {
     return (
       <tr key={label} style={label === 'Net Income' ? { fontWeight: 700, borderTop: '2px solid var(--border-color)' } : undefined}>
         <td>{label}</td>
-        <td style={num}>{m(a, { report: true })}</td>
+        {/* A total of many accounts opens the Income Statement for the same months; each line there opens its ledger lines (11/11/2026). */}
+        <td style={num}><DrillFigure onOpen={openStatement} title="Open the Income Statement for these months">{m(a, { report: true })}</DrillFigure></td>
         <td style={{ ...num, color: 'var(--text-muted)' }}>{hasBudget ? m(b, { report: true }) : '-'}</td>
         <td style={{ ...num, color: hasBudget ? toneColor(good) : undefined }}>{hasBudget ? m(v, { report: true }) : '-'}</td>
         <td style={{ ...num, fontSize: '0.76rem', color: hasBudget ? toneColor(good) : undefined }}>{hasBudget && b ? pctTxt(v / Math.abs(b)) : '-'}</td>

@@ -55,7 +55,8 @@ export function openNotificationTarget(action) {
   // The employee's OWN Time Sheet on the notice's period (Oct 22): a bonus or
   // a change on a past period opened the current one, where it is not.
   if (action.view === 'timeclock' && action.start && !action.timecard) {
-    const detail = { start: action.start, payType: action.payType || '' };
+    // `submit`: the briefing's Review and Submit - land on Send to Manager (11/12/2026).
+    const detail = { start: action.start, payType: action.payType || '', ...(action.submit ? { submit: true } : {}) };
     setPendingOpen('myTimecard', detail);
     fire('nexus:open-my-timecard', detail);
   }

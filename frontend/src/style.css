@@ -379,7 +379,7 @@ h1,h2,h3,h4,h5,h6,
   flex-shrink: 0;
 }
 
-.company-name { font-family: var(--wk-font); font-weight: 700; font-size: 17px; letter-spacing: -.02em; line-height: 1; }
+.company-name { font-family: var(--wk-font); font-weight: 700; font-size: 18px; letter-spacing: -.02em; line-height: 1; }
 
 /* The mark + wordmark is the way Home (Oct 14 2026). */
 .sidebar-header { border-bottom: none; }   /* padding and gap: the Work OS rule further down */
@@ -553,7 +553,7 @@ h1,h2,h3,h4,h5,h6,
   box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .06);
 }
 .navtip-label { font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -.005em; white-space: nowrap; }
-.navtip-detail { font-size: 12.5px; font-weight: 500; line-height: 1.4; color: var(--navtip-dim); }
+.navtip-detail { font-size: 13px; font-weight: 500; line-height: 1.4; color: var(--navtip-dim); }
 .navtip[data-tone] { padding-left: 20px; }
 .navtip[data-tone]::before {
   content: ''; position: absolute; left: 9px; top: 9px; bottom: 9px; width: 3px; border-radius: 2px;
@@ -727,7 +727,7 @@ h1,h2,h3,h4,h5,h6,
 
 /* nav badge (NEW) */
 .nav-badge {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   background: var(--sage);
   color: #0c2418;
@@ -778,7 +778,7 @@ h1,h2,h3,h4,h5,h6,
   flex-shrink: 0;
 }
 
-.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 14.5px; color: var(--muted); font-weight: 600; }
+.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 15px; color: var(--muted); font-weight: 600; }
 .breadcrumb-icon    { color: var(--muted); }
 .breadcrumb-current { color: var(--ink); }
 .breadcrumb-prev    { color: var(--muted); font-weight: 500; }
@@ -898,7 +898,7 @@ h1,h2,h3,h4,h5,h6,
   border-radius: 50%;
   background: var(--pine);
   color: #fff;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -907,7 +907,7 @@ h1,h2,h3,h4,h5,h6,
 }
 
 .header-user-info { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
-.header-user-name { font-size: 13.5px; font-weight: 600; color: var(--ink); line-height: 1; }
+.header-user-name { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1; }
 .header-user-role { font-size: 11px; color: var(--muted); line-height: 1; }
 
 .header-user-dropdown {
@@ -2463,7 +2463,7 @@ html { overflow-x: hidden; }
     cursor: pointer;
     color: var(--muted);
     font-family: 'Inter', sans-serif;
-    font-size: 10.5px;
+    font-size: 11px;
     font-weight: 600;
   }
   .mobile-nav-item { transition: background .28s ease, transform .08s ease; border-radius: 10px; }
@@ -2603,8 +2603,8 @@ html { overflow-x: hidden; }
 
 .mobile-menu-user { display: flex; gap: 12px; align-items: center; padding: 8px 20px 16px; border-bottom: 1px solid var(--line); }
 .mobile-menu-avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--wk-brand); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; overflow: hidden; }
-.mobile-menu-name { font-weight: 700; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mobile-menu-role { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.mobile-menu-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mobile-menu-role { font-size: 12px; color: var(--muted); margin-top: 1px; }
 
 .mobile-menu-rows { display: flex; flex-direction: column; padding: 8px 8px; }
 .mobile-menu-row {
@@ -2633,7 +2633,7 @@ html { overflow-x: hidden; }
 .mobile-menu-row-label { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .mobile-menu-row-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-menu-rows.secondary { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
-.mobile-menu-rows.secondary .mobile-menu-row { font-size: 13.5px; font-weight: 500; color: var(--muted); padding: 12px 16px; }
+.mobile-menu-rows.secondary .mobile-menu-row { font-size: 13px; font-weight: 500; color: var(--muted); padding: 12px 16px; }
 .mobile-menu-row.signout { color: hsl(var(--color-red)); }
 .mobile-menu-divider { height: 1px; background: var(--line); margin: 4px 20px; }
 
@@ -2990,7 +2990,7 @@ html { overflow-x: hidden; }
 /* PropertyAsset on phones: section tabs live in the bottom action bar */
 @media (max-width: 640px) {
   .pa-tabs { display: none !important; }
-  .mobile-nav-item.no-icon { font-size: 11.5px; padding: 16px 4px; }
+  .mobile-nav-item.no-icon { font-size: 12px; padding: 16px 4px; }
   .mobile-nav-item.no-icon.active { font-weight: 800; }
 }
 
@@ -3470,7 +3470,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 }
 .gs-input::placeholder { color: var(--muted); }
 .gs-kbd {
-  font: 600 10px Inter, sans-serif; color: var(--muted);
+  font: 600 11px Inter, sans-serif; color: var(--muted);
   border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px;
   text-transform: uppercase; letter-spacing: .04em; flex-shrink: 0;
 }
@@ -3486,8 +3486,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   font-family: Inter, sans-serif; color: var(--ink);
 }
 .gs-row[data-active="true"] { background: var(--mist); }
-.gs-row-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 60%; }
-.gs-row-detail { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.gs-row-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 60%; }
+.gs-row-detail { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
 .gs-empty, .gs-hint { padding: 22px 16px; font-size: 13px; color: var(--muted); text-align: center; }
 /* Favorites (11/07/2026, components/search/SearchResults.jsx): the star beside a row - shown on
    hover, focus and the keyboard's row, always once starred, always on touch. */
@@ -4623,11 +4623,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   width: 34px; height: 34px; border-radius: 8px;
   background: var(--wk-brand); color: #fff;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--wk-font); font-weight: 800; font-size: 17px;
+  font-family: var(--wk-font); font-weight: 800; font-size: 18px;
   flex-shrink: 0;
 }
 .sidebar .company-name {
-  font-family: var(--wk-font); font-weight: 800; font-size: 17px;
+  font-family: var(--wk-font); font-weight: 800; font-size: 18px;
   letter-spacing: -.01em; color: var(--ink); line-height: 1;
 }
 /* Rail fit (Neil, 11/07/2026): 28px rows, so all twenty modules and the
@@ -4683,7 +4683,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 
 /* ── Shell polish: header ───────────────────────────────────────────────── */
 .top-header { font-family: var(--wk-font); }
-.top-header .breadcrumb { font-family: var(--wk-font); font-size: 14.5px; font-weight: 600; gap: 9px; }
+.top-header .breadcrumb { font-family: var(--wk-font); font-size: 15px; font-weight: 600; gap: 9px; }
 
 /* Breadcrumb on the kit (Jul 28): the back arrow is a real bordered chip that
    lights up brand on hover; the previous crumb is a clickable step back. */
@@ -4706,7 +4706,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 
 /* Sidebar on the kit (Jul 28): Figtree, brand-tint active pill (no side bars) */
 .sidebar { font-family: var(--wk-font); }
-.nav-item { font-size: 13.5px; }
+.nav-item { font-size: 13px; }
 .nav-item.active { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 700; }
 .nav-item.active:not(.has-submenu) svg { color: var(--wk-brand); }
 [data-theme="dark"] .nav-item.active { background: color-mix(in srgb, var(--wk-brand) 18%, transparent); color: color-mix(in srgb, var(--wk-brand) 55%, #fff); }
@@ -4749,7 +4749,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   background: none;
   cursor: pointer;
   font-family: var(--wk-font);
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1;
   color: var(--wk-dim);
@@ -4885,11 +4885,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
    so the panel hangs straight under it (Neil, 11/07/2026). It grows OVER the
    header's center (the negative margin keeps its flex size), so the module
    tabs never refit into More while someone types. */
-@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; margin-left: -188px; z-index: 2; } }
+@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; margin-left: -188px; z-index: 2; background: var(--card); border-radius: 9px; } }
+/* ...and it is solid while it does: the bar's own fills are see-through
+   (--search-bg-focus, the blue "has text" tint), so without this the module
+   tabs it covers read through the typed words. The card color under the same
+   fills keeps the bar looking as it always did. */
 @media (prefers-reduced-motion: reduce) { .hdr-search { transition: none; } }
 .hdr-search .search-bar { height: 38px; padding: 0 10px 0 12px; box-sizing: border-box; }
 .hdr-search-kbd {
-  font: 600 10.5px Inter, sans-serif; color: var(--muted);
+  font: 600 11px Inter, sans-serif; color: var(--muted);
   border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
   letter-spacing: .02em; white-space: nowrap; flex-shrink: 0; opacity: .85;
 }
@@ -4903,10 +4907,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 }
 .hdr-search-panel .gs-hint { padding: 14px 16px; }
 .gs-row-tag {
-  flex-shrink: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  flex-shrink: 0; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
   padding: 1px 7px; border-radius: 999px; color: var(--muted); border: 1px solid var(--line);
 }
-.gs-more { padding: 6px 10px 10px; font-size: 11.5px; color: var(--muted); }
+.gs-more { padding: 6px 10px 10px; font-size: 12px; color: var(--muted); }
 button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blue)); }
 /* Narrow desktops: the bar gives up a little width and the module tabs drop
    their icons, so a four-tab module and the bar still share the row. */
@@ -4961,7 +4965,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   border: none;
   padding: 10px 14px;
   font-family: var(--wk-font);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
@@ -8355,7 +8359,7 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .nav-more {
   position: sticky; z-index: 2; display: flex; align-items: center; justify-content: center; gap: 6px;
   width: fit-content; margin: 6px auto; padding: 5px 11px; border-radius: 999px; cursor: pointer;
-  font: 550 11.5px/1.2 var(--wk-font, 'Inter', sans-serif); font-variant-numeric: tabular-nums;
+  font: 550 12px/1.2 var(--wk-font, 'Inter', sans-serif); font-variant-numeric: tabular-nums;
   color: var(--ink); background: var(--card); border: 1px solid var(--line);
   box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
   animation: nav-count-in .2s var(--ease-out, ease-out);
@@ -8375,7 +8379,7 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   background: var(--wk-brand); box-shadow: 0 0 0 2px var(--header-bg, var(--card));
   animation: nav-count-in .18s var(--ease-out, ease-out);
 }
-.mobile-menu > .nav-more { margin-top: auto; margin-bottom: calc(12px + env(safe-area-inset-bottom)); bottom: calc(12px + env(safe-area-inset-bottom)); font-size: 12.5px; padding: 7px 14px; }
+.mobile-menu > .nav-more { margin-top: auto; margin-bottom: calc(12px + env(safe-area-inset-bottom)); bottom: calc(12px + env(safe-area-inset-bottom)); font-size: 13px; padding: 7px 14px; }
 @media (prefers-reduced-motion: reduce) { .mobile-toggle-dot { animation: none; } }
 /* Dark mode: the accent dot lightened so it reads on the dark rail (Oct 25). */
 [data-theme="dark"] .nav-count.is-corner, [data-theme="dark"] .mobile-toggle-dot { background: color-mix(in srgb, var(--wk-brand) 55%, #fff); }
@@ -9611,7 +9615,7 @@ body:has(.apv-phone) { overflow-x: clip; }
 /* Phones: only the level just above, as "< Portfolio" - the tap target grows,
    the line does not. */
 @media (max-width: 640px) {
-  .page-trail { font-size: 10.5px; margin-bottom: 2px; }
+  .page-trail { font-size: 11px; margin-bottom: 2px; }
   .page-trail--deep li:not(.page-trail-parent) { display: none; }
   .page-trail--deep li.page-trail-parent::before { content: none; }
   .page-trail--deep .page-trail-up { display: inline-block; }
@@ -9892,7 +9896,7 @@ body:has(.apv-phone) { overflow-x: clip; }
   padding: 0 12px;
   border: 0;
   border-radius: 0;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--muted);
   align-self: stretch;
 }
@@ -9908,7 +9912,7 @@ body:has(.apv-phone) { overflow-x: clip; }
   gap: 8px; margin-bottom: 16px;
 }
 .module-actions-row:empty { display: none; }
-.module-bar-meta { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.module-bar-meta { font-size: 13px; color: var(--muted); white-space: nowrap; }
 /* The module's name: the trail riding the bar, in Title Case as written -
    never the uppercase eyebrow. A record's parent pages follow it, quieter. */
 .page-trail--bar { letter-spacing: normal; text-transform: none; }
@@ -10531,6 +10535,8 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .acct-page-line svg { flex: none; opacity: 0.6; }
 /* Phones: the line is in the flow and wraps, so a long name ("Income Statement - Year to Date vs. Prior Year") is read whole. */
 @media (max-width: 640px) { .acct-page-line { margin: 0 0 8px; height: auto; flex-wrap: wrap; white-space: normal; } }
+/* Phones: Packages' list and form stack (11/11/2026) - the inline grids beside each other cut the form off at 390px. */
+@media (max-width: 640px) { .acct-packages, .acct-packages-form { grid-template-columns: 1fr !important; } }
 
 /* ── Type scale (Neil, 11/12/2026) ─────────────────────────────────────────
    The only text sizes in Nexus - the same numbers as FS in lib/typeScale.js.

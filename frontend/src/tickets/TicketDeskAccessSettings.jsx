@@ -60,7 +60,7 @@ export default function TicketDeskAccessSettings() {
 
   if (!isAdmin) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>
         Administrator access is required to change who works the service desk.
       </div>
     );
@@ -91,7 +91,7 @@ export default function TicketDeskAccessSettings() {
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, maxWidth: 900 }}>
-      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 13, color: NX.dim, marginBottom: 14, lineHeight: 1.5 }}>
         Choose which access puts someone on the service desk. Access itself is still given in Access Groups;
         this only decides which of those grants count here.
       </div>
@@ -113,10 +113,10 @@ export default function TicketDeskAccessSettings() {
                   boxShadow: on ? 'inset 0 0 0 3px var(--surface, #fff)' : 'none',
                   background: on ? 'var(--wk-brand)' : 'transparent',
                 }} />
-                <span style={{ fontSize: 13.5, fontWeight: 700 }}>{o.title}</span>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{o.title}</span>
                 {data.deskAccess === o.key && <span style={{ fontSize: 11, color: NX.faint, fontWeight: 600 }}>Current</span>}
               </div>
-              <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.5, paddingLeft: 22 }}>{o.body}</div>
+              <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5, paddingLeft: 22 }}>{o.body}</div>
             </button>
           );
         })}
@@ -125,18 +125,18 @@ export default function TicketDeskAccessSettings() {
       <div style={{ ...card, padding: 16, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <ShieldCheck size={15} style={{ color: NX.dim }} />
-          <div style={{ fontSize: 13.5, fontWeight: 700 }}>Roles Under Tickets Access Only</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Roles Under Tickets Access Only</div>
         </div>
         <div style={{ display: 'grid', gap: 8 }}>
           {MAPPING.map(([grant, role, what]) => (
-            <div key={role} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 190px) 90px minmax(0, 1fr)', gap: 10, fontSize: 12.5, alignItems: 'baseline' }}>
+            <div key={role} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 190px) 90px minmax(0, 1fr)', gap: 10, fontSize: 13, alignItems: 'baseline' }}>
               <span style={{ color: NX.dim }}>{grant}</span>
               <span style={{ fontWeight: 700 }}>{role}</span>
               <span style={{ color: NX.dim, lineHeight: 1.5 }}>{what}</span>
             </div>
           ))}
         </div>
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 10, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 12, color: NX.faint, marginTop: 10, lineHeight: 1.5 }}>
           Administrators are always supervisors, so the desk can never be locked away from the people who fix it.
           Guests are always requesters.
         </div>
@@ -146,14 +146,14 @@ export default function TicketDeskAccessSettings() {
         <div style={{ ...card, padding: 16, marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <Users size={15} style={{ color: NX.dim }} />
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Who Changes If You Switch</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Who Changes If You Switch</div>
           </div>
           {changes.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: NX.dim }}>Nobody - everyone on the desk keeps what they have.</div>
+            <div style={{ fontSize: 13, color: NX.dim }}>Nobody - everyone on the desk keeps what they have.</div>
           ) : (
             <div style={{ display: 'grid', gap: 6 }}>
               {changes.map((c) => (
-                <div key={c.email} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
+                <div key={c.email} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
                   <span style={{ fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || c.email}</span>
                   {c.name && <span style={{ color: NX.faint }}>{c.email}</span>}
                   <span style={{ color: c.to === 'requester' ? NX.red : NX.amber, fontWeight: 600 }}>
@@ -161,7 +161,7 @@ export default function TicketDeskAccessSettings() {
                   </span>
                 </div>
               ))}
-              <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 12, color: NX.faint, marginTop: 4, lineHeight: 1.5 }}>
                 Give them Tickets access in Access Groups before switching to keep them on the desk.
               </div>
             </div>
@@ -170,10 +170,10 @@ export default function TicketDeskAccessSettings() {
       )}
 
       <div aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 20 }}>
-        {saving ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.dim }}><Spinner size={13} /> Saving…</span>
+        {saving ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.dim }}><Spinner size={13} /> Saving…</span>
           : <SavedCheck show={saved} />}
-        {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
-        {!saving && !saved && !err && <span style={{ fontSize: 11.5, color: NX.faint }}>Picking a rule saves it at once.</span>}
+        {err && <span style={{ fontSize: 13, color: NX.red, fontWeight: 600 }}>{err}</span>}
+        {!saving && !saved && !err && <span style={{ fontSize: 12, color: NX.faint }}>Picking a rule saves it at once.</span>}
       </div>
     </div>
   );

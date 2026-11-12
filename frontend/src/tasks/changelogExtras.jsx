@@ -43,7 +43,7 @@ export function RichText({ text, style }) {
   if (!text) return null;
   const plain = <div style={{ whiteSpace: 'pre-wrap' }}>{text}</div>;
   return (
-    <div className="nx-md" style={{ fontSize: 13.5, lineHeight: 1.6, color: NX.ink, ...style }}>
+    <div className="nx-md" style={{ fontSize: 13, lineHeight: 1.6, color: NX.ink, ...style }}>
       <Suspense fallback={plain}><MarkdownBody>{text}</MarkdownBody></Suspense>
     </div>
   );
@@ -409,7 +409,7 @@ export function FollowDialog({ entries, categories, initial, onClose, onSaved })
     } catch { setSaving(false); }
   };
   const chipBox = (on) => ({
-    display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', borderRadius: 999, padding: '5px 11px', fontSize: 12.5, fontWeight: 600,
+    display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', borderRadius: 999, padding: '5px 11px', fontSize: 13, fontWeight: 600,
     border: `1px solid ${on ? NX.blue : NX.border}`, background: on ? 'rgba(37,99,235,0.10)' : 'transparent', color: on ? NX.blue : NX.dim, fontFamily: FONT,
   });
   const footer = (<>
@@ -664,11 +664,11 @@ export function buildPrintReport(entries, analytics, insights, statusOf) {
     h1 { font-size: 18px; margin: 0 0 2px; } .meta { color: #5b6472; margin: 0 0 14px; }
     .tiles { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
     .tile { border: 1px solid #e5e7eb; border-radius: 6px; padding: 6px 10px; min-width: 90px; }
-    .k { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: #6b7280; } .v { font-size: 16px; font-weight: 700; }
+    .k { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: #6b7280; } .v { font-size: 15px; font-weight: 700; }
     table { width: 100%; border-collapse: collapse; } thead { display: table-header-group; }
-    th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: .4px; color: #6b7280; border-bottom: 1px solid #d1d5db; padding: 5px 6px; }
+    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: #6b7280; border-bottom: 1px solid #d1d5db; padding: 5px 6px; }
     td { border-bottom: 1px solid #eef0f3; padding: 5px 6px; vertical-align: top; } tr { break-inside: avoid; }
-    .n { text-align: right; white-space: nowrap; } .sub { color: #6b7280; font-size: 10px; } .act { color: #b91c1c; font-size: 10px; margin-top: 2px; }
+    .n { text-align: right; white-space: nowrap; } .sub { color: #6b7280; font-size: 11px; } .act { color: #b91c1c; font-size: 11px; margin-top: 2px; }
   </style></head><body>
     <h1>What's New in Nexus</h1><p class="meta">${esc(entries.length)} updates · printed ${esc(today)}</p>
     <div class="tiles">${tiles}</div>
@@ -770,22 +770,22 @@ function ScreenHint({ view }) {
         <Icon size={16} style={{ color: look.color, flexShrink: 0, marginTop: 2 }} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: hint.kind === 'new' ? NX.faint : look.color }}>{heading}</div>
-          <div style={{ marginTop: 2, fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{hint.kind === 'deprecation' ? (hint.what || hint.title) : hint.title}</div>
-          {hint.kind === 'issue' && <div style={{ marginTop: 4, fontSize: 12.5, color: NX.ink }}>{hint.note}</div>}
-          {hint.kind === 'issue' && hint.workaround && <div style={{ marginTop: 4, fontSize: 12.5, color: NX.dim }}><strong>Workaround:</strong> {hint.workaround}</div>}
+          <div style={{ marginTop: 2, fontSize: 13, fontWeight: 700, color: NX.ink }}>{hint.kind === 'deprecation' ? (hint.what || hint.title) : hint.title}</div>
+          {hint.kind === 'issue' && <div style={{ marginTop: 4, fontSize: 13, color: NX.ink }}>{hint.note}</div>}
+          {hint.kind === 'issue' && hint.workaround && <div style={{ marginTop: 4, fontSize: 13, color: NX.dim }}><strong>Workaround:</strong> {hint.workaround}</div>}
           {hint.kind === 'deprecation' && (
-            <div style={{ marginTop: 4, fontSize: 12.5, color: NX.ink }}>
+            <div style={{ marginTop: 4, fontSize: 13, color: NX.ink }}>
               Goes away {inDays(hint.daysLeft)}.{hint.replacement ? ` Use ${hint.replacement} instead.` : ''}
             </div>
           )}
           {hint.actionRequired && <div style={{ marginTop: 4, fontSize: 12, color: '#b91c1c' }}>Action required: {hint.actionRequired}</div>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 6 }}>
             {hint.tour && (
-              <button type="button" onClick={() => { dismiss(); startTour(hint.id, view, view); }} style={{ ...btn('ghost'), padding: 0, color: NX.blue, fontSize: 12.5 }}>
+              <button type="button" onClick={() => { dismiss(); startTour(hint.id, view, view); }} style={{ ...btn('ghost'), padding: 0, color: NX.blue, fontSize: 13 }}>
                 <Compass size={13} />Take the Tour
               </button>
             )}
-            <button type="button" onClick={open} style={{ ...btn('ghost'), padding: 0, color: NX.blue, fontSize: 12.5 }}>
+            <button type="button" onClick={open} style={{ ...btn('ghost'), padding: 0, color: NX.blue, fontSize: 13 }}>
               {hint.kind === 'new' ? <>See What&apos;s Changed <ArrowRight size={13} /></> : <>See Details <ArrowRight size={13} /></>}
             </button>
           </div>

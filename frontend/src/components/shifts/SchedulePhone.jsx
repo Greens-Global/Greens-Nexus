@@ -35,7 +35,7 @@ export function DayStrip({ days, value, onChange, countOf, noteOn, hoursOf, team
               background: on ? 'var(--wk-brand)' : isToday ? 'var(--wk-live-tint)' : 'var(--card)', color: on ? '#fff' : isToday ? TODAY_INK : 'var(--ink)' }}
             aria-current={isToday ? 'date' : undefined}>
             <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', lineHeight: 1.2 }}>{dayShort(d)}</div>
-            <div style={{ fontSize: 10, fontWeight: 600, opacity: on ? 0.9 : 0.7, whiteSpace: 'nowrap', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 3 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, opacity: on ? 0.9 : 0.7, whiteSpace: 'nowrap', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 3 }}>
               {hoursOf ? fmtHrs(hoursOf(ds)) : (n ? `${n} shift${n === 1 ? '' : 's'}` : '-')}
               {noteOn?.(ds) && <StickyNote size={9} aria-label="Has a note" />}
             </div>
@@ -58,9 +58,9 @@ export function PhoneRow({ avatar, name, sub, sub2, extra = null, isMe = false, 
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
         {avatar}
         <span style={{ minWidth: 0 }}>
-          <div title={typeof name === 'string' ? name : undefined} style={{ fontSize: 12.5, fontWeight: isMe ? 800 : 700, color: isMe ? 'var(--wk-brand)' : 'var(--ink)', lineHeight: 1.25, ...CLAMP2 }}>{name}</div>
-          {sub && <div style={{ fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{sub}</div>}
-          {sub2 && <div style={{ fontSize: 10.5, color: 'var(--muted)', ...CLAMP2 }}>{sub2}</div>}
+          <div title={typeof name === 'string' ? name : undefined} style={{ fontSize: 13, fontWeight: isMe ? 800 : 700, color: isMe ? 'var(--wk-brand)' : 'var(--ink)', lineHeight: 1.25, ...CLAMP2 }}>{name}</div>
+          {sub && <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{sub}</div>}
+          {sub2 && <div style={{ fontSize: 11, color: 'var(--muted)', ...CLAMP2 }}>{sub2}</div>}
           {extra && <div style={{ marginTop: 2 }}>{extra}</div>}
         </span>
       </div>
@@ -126,7 +126,7 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
         <div data-day-today={isToday ? '' : undefined} style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)', background: 'var(--bg)', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, ...(isToday ? TODAY_HEAD : null) }}>
           <span style={{ fontSize: 13, fontWeight: 800, color: isToday ? TODAY_INK : undefined }}>{d ? dayShort(d) : ''}</span>
           <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{stats.shifts}{canManage ? ` · ${fmtHrs(stats.min)}` : ''}</span>
-          {hol && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{holidayNames[ds] || 'Holiday'}</span>}
+          {hol && <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-blue))', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{holidayNames[ds] || 'Holiday'}</span>}
           <WeatherChip w={weather[ds]} size={12} onClick={on?.weather && weather[ds] ? () => on.weather(ds) : null} />
           <span style={{ flex: 1 }} />
           {(notes[ds] || canManage) && (
@@ -143,7 +143,7 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
         </div>
         {emptyNote}
         {openCells.__ungrouped && openRow({ id: '' })}
-        {sections.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>Nobody is on the schedule in this view.</div>}
+        {sections.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Nobody is on the schedule in this view.</div>}
         {sections.map((g) => {
           const key = sectionKey(g);
           const open = single || !collapsed.has(key);
@@ -152,7 +152,7 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
             <div key={key} data-team={g.id || undefined}>
               {!single && <button type="button" onClick={() => on.toggleCollapse(key)} aria-expanded={open} aria-label={`${open ? 'Collapse' : 'Expand'} ${g.name}`}
                 style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', border: 'none', borderBottom: '1px solid var(--line)', background: 'var(--bg)',
-                  fontFamily: 'inherit', fontSize: 12.5, fontWeight: 800, color: 'var(--ink)', cursor: 'pointer', textAlign: 'left' }}>
+                  fontFamily: 'inherit', fontSize: 13, fontWeight: 800, color: 'var(--ink)', cursor: 'pointer', textAlign: 'left' }}>
                 <span style={{ transform: open ? 'rotate(90deg)' : 'none', display: 'inline-flex', transition: 'transform .15s' }}>›</span>
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}{g.archived ? ' (Archived)' : ''}</span>
                 <span style={{ color: 'var(--muted)', fontWeight: 600, fontSize: 11 }}>{fmtHrs(groupMin)} · {g.members.length}</span>

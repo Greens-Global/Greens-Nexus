@@ -68,7 +68,7 @@ export default function TimeSheetView({ onOpen }) {
         : groups.length === 0 ? <EmptyState icon={Clock} title="No Time This Week" hint="Start a timer or log time from any task's Time Tracking section." />
           : groups.map((g) => (
             <div key={g.day} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, marginBottom: 10, overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: NX.surface2, fontSize: 12.5 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', background: NX.surface2, fontSize: 13 }}>
                 <span style={{ fontWeight: 700, color: NX.ink }}>{fmtDate(g.day)}</span>
                 <span style={{ color: NX.dim }}>{fmtMinutes(g.minutes)}</span>
               </div>
@@ -76,7 +76,7 @@ export default function TimeSheetView({ onOpen }) {
                 <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: `1px solid ${NX.border2 || NX.border}`, fontSize: 13 }}>
                   <button type="button" onClick={() => onOpen?.(e.taskId)} style={{ ...btn('ghost'), padding: 0, fontWeight: 600, color: NX.ink, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>{e.taskTitle || 'Task'}</button>
                   <span style={{ flex: 1, minWidth: 0, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.note || (e.source === 'timer' ? 'Timer' : '')}</span>
-                  {e.billable && <span style={{ fontSize: 10, fontWeight: 700, color: NX.green }}>Billable</span>}
+                  {e.billable && <span style={{ fontSize: 11, fontWeight: 700, color: NX.green }}>Billable</span>}
                   <span style={{ fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums', width: 64, textAlign: 'right' }}>{fmtMinutes(e.minutes)}</span>
                   <button type="button" onClick={() => remove(e)} aria-label="Delete entry" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={13} /></button>
                 </div>

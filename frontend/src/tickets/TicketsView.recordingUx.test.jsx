@@ -85,6 +85,6 @@ describe('Create a Ticket recording bar', () => {
     expect(screen.getByRole('button', { name: /Attach File/ })).toBeTruthy();
     expect(screen.getByText(/press Ctrl\+V to paste a screenshot/)).toBeTruthy();
     expect(screen.queryByText('Show Us the Problem')).toBeNull();
-    expect(rec.style.fontSize).toBe('12.5px');
+    expect(rec.style.fontSize).toBe('13px');   // the type scale's body size (12.5 rounds up - Neil, 11/12/2026)
   });
 });

@@ -29,8 +29,8 @@ const PREVIEW_LIMIT = 300;
 const newImportId = () => (globalThis.crypto?.randomUUID?.()
   || `imp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 const labelStyle = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
-const th = { textAlign: 'left', fontSize: 11.5, fontWeight: 600, color: NX.dim, padding: '7px 9px', borderBottom: `1px solid ${NX.border}`, whiteSpace: 'nowrap', position: 'sticky', top: 0, background: NX.surface };
-const td = { padding: '7px 9px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5, color: NX.ink, verticalAlign: 'top' };
+const th = { textAlign: 'left', fontSize: 12, fontWeight: 600, color: NX.dim, padding: '7px 9px', borderBottom: `1px solid ${NX.border}`, whiteSpace: 'nowrap', position: 'sticky', top: 0, background: NX.surface };
+const td = { padding: '7px 9px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, color: NX.ink, verticalAlign: 'top' };
 
 function Steps({ step }) {
   const at = STEPS.findIndex((s) => s.key === step);
@@ -51,7 +51,7 @@ function Check({ checked, onChange, children, hint, disabled = false }) {
   return (
     <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: disabled ? NX.faint : NX.ink, cursor: disabled ? 'default' : 'pointer' }}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} style={{ marginTop: 2 }} />
-      <span>{children}{hint && <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, marginTop: 2 }}>{hint}</span>}</span>
+      <span>{children}{hint && <span style={{ display: 'block', fontSize: 12, color: NX.faint, marginTop: 2 }}>{hint}</span>}</span>
     </label>
   );
 }
@@ -255,10 +255,10 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
             <div style={{ fontSize: 14, fontWeight: 600, color: NX.ink }}>
               {file ? file.name : 'Drop a CSV or Excel file here'}
             </div>
-            <div style={{ fontSize: 12.5, color: NX.dim }}>
+            <div style={{ fontSize: 13, color: NX.dim }}>
               {file ? `${rowCount.toLocaleString('en-US')} row${rowCount === 1 ? '' : 's'} found` : 'or click to choose one, or press Ctrl+V to paste a copied file'}
             </div>
-            <div style={{ fontSize: 11.5, color: NX.faint }}>.csv, .xlsx or .xls - up to {MAX_IMPORT_ROWS.toLocaleString('en-US')} rows and 5 MB</div>
+            <div style={{ fontSize: 12, color: NX.faint }}>.csv, .xlsx or .xls - up to {MAX_IMPORT_ROWS.toLocaleString('en-US')} rows and 5 MB</div>
             <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" hidden data-testid="import-file"
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) takeFile(f); }} />
           </div>
@@ -294,7 +294,7 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
               </select>
             </label>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5, color: NX.dim }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13, color: NX.dim }}>
             <button type="button" style={btn('outline')} disabled={!project} onClick={() => downloadTemplate(project, fields).catch(() => setErr('The template could not be built.'))}>
               <Download size={14} />Download Template
             </button>
@@ -305,7 +305,7 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
 
       {step === 'map' && table && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }} className="nx-fill">
-          <div style={{ fontSize: 12.5, color: NX.dim }}>
+          <div style={{ fontSize: 13, color: NX.dim }}>
             Match each column to a task field. Task Name is required; columns set to Don&apos;t Import are left out.
           </div>
           <div className="nx-fill nx-scroll" style={{ overflow: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10 }}>
@@ -332,7 +332,7 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
               </tbody>
             </table>
           </div>
-          {!hasTitle && <div style={{ fontSize: 12.5, color: NX.red }}>Choose the column that holds the task name.</div>}
+          {!hasTitle && <div style={{ fontSize: 13, color: NX.red }}>Choose the column that holds the task name.</div>}
           {mapsSection && (
             <Check checked={createSections} onChange={setCreateSections} hint="Otherwise a section this project does not have is left out.">
               Create Sections That Don&apos;t Exist
@@ -406,7 +406,7 @@ export default function ImportTasksModal({ projectId, canManage = false, onClose
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <CheckCircle2 size={26} style={{ color: NX.green }} />
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>
                 Imported {result.created} Task{result.created === 1 ? '' : 's'}
               </div>
               <div style={{ fontSize: 13, color: NX.dim }}>

@@ -101,7 +101,7 @@ export function CommentAttachments({ items }) {
           <>
             <Paperclip size={16} style={{ color: NX.dim, flexShrink: 0 }} />
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
               <div style={{ fontSize: 11, color: NX.faint, display: 'flex', alignItems: 'center', gap: 4 }}>
                 {href ? <><Download size={10} /> View or download</> : 'Not stored'}
               </div>
@@ -176,7 +176,7 @@ function CommentRow({ c, taskId = '', isReply, nameOf, myEmail, people, attachme
           <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{displayName}</span>
           <span style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(c.createdAt)}</span>
           {c.editedAt && <span style={{ fontSize: 11, fontStyle: 'italic', color: NX.faint }}>(edited)</span>}
-          {c.pinned && <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: NX.amber }}>Pinned</span>}
+          {c.pinned && <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.amber }}>Pinned</span>}
           {!isReply && c.assigneeId && (
             <span title={resolved ? `Resolved by ${nameOf(c.resolvedBy)} on ${fmtDateTime(c.resolvedAt)}` : `Assigned to ${nameOf(c.assigneeId)}`}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: 999,
@@ -253,7 +253,7 @@ export default function CommentThread({ thread, taskId = '', nameOf, myEmail, pe
   if (resolved && folded) {
     return (
       <button type="button" onClick={() => setFolded(false)} aria-label="Show resolved comment"
-        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 8, fontFamily: FONT, textAlign: 'left', color: NX.faint, fontSize: 12.5 }}>
+        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 8, fontFamily: FONT, textAlign: 'left', color: NX.faint, fontSize: 13 }}>
         <CheckCircle2 size={14} style={{ color: NX.green, flexShrink: 0 }} />
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           <b style={{ color: NX.dim }}>{nameOf(root.authorId)}</b>: {textOf(richBodyHtml(root.body, nameOf)).slice(0, 90)}
@@ -279,7 +279,7 @@ export default function CommentThread({ thread, taskId = '', nameOf, myEmail, pe
         </button>
       )}
       {resolved && (
-        <button type="button" onClick={() => setFolded(true)} style={{ ...btn('ghost'), marginLeft: 8, padding: '2px 6px', fontSize: 11.5, color: NX.faint }}>Fold</button>
+        <button type="button" onClick={() => setFolded(true)} style={{ ...btn('ghost'), marginLeft: 8, padding: '2px 6px', fontSize: 12, color: NX.faint }}>Fold</button>
       )}
     </div>
   );

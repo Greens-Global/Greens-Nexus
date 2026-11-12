@@ -269,6 +269,14 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   useEffect(() => {
     const take = (d) => {
       if (!d) return;
+      // 11/11/2026: a dashboard total opens the statement on its window (drill.js requestStatement).
+      if (d.statement) {
+        const s = d.statement;
+        setDrill(null);
+        patch({ entities: s.entities || [], preset: 'custom', from: s.from, to: s.to, ...(s.book ? { book: s.book } : {}) });
+        toTop();
+        return;
+      }
       // Oct 7: a drill may carry a party ({ kind, code, name }) and report
       // filters (`dims`: vendor, customer, departments, journals ...) - they
       // follow into the lines like the report's own. A drill with none of

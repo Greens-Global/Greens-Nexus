@@ -56,7 +56,7 @@ function PairingChip({ d }) {
   const ps = d.pairingStatus;
   const chip = (bg, fg, text, title) => (
     <span title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 5,
-      fontSize: 10.5, fontWeight: 800, letterSpacing: '.02em', padding: '2px 9px', borderRadius: 20,
+      fontSize: 11, fontWeight: 800, letterSpacing: '.02em', padding: '2px 9px', borderRadius: 20,
       background: bg, color: fg }}>{text}</span>
   );
   if (ps === 'owner_fallback')
@@ -169,7 +169,7 @@ export function AgentInstall() {
     <div style={card}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <MonitorSmartphone size={16} style={{ color: 'hsl(var(--color-blue))' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Company Computers</span>
+        <span style={{ fontSize: 13, fontWeight: 800 }}>Company Computers</span>
       </div>
       <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
         Installs the Nexus monitoring agent on a company PC. It's the <b>same command on every machine</b> -
@@ -178,7 +178,7 @@ export function AgentInstall() {
       </p>
 
       {viewOnly ? (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
           <ShieldCheck size={14} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 1 }} />
           <span>You have <b>view-only</b> access to Employee Tracking. Installing, assigning, and removing computers needs a full grant (or Administrator). You can still watch screens and view the enrolled list below.</span>
         </div>
@@ -194,16 +194,16 @@ export function AgentInstall() {
 
       {showHow && (<div style={{ marginTop: 12 }}>
       {info === null ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <Spinner size={14} /> Loading install command…
         </div>
       ) : info === false ? (
-        <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load the install command.</div>
+        <div style={{ fontSize: 13, color: '#b91c1c' }}>Could not load the install command.</div>
       ) : (<>
         {!info.configured && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', border: '1px solid hsla(var(--color-orange),0.35)', borderRadius: 10, padding: '9px 12px', marginBottom: 10 }}>
             <TriangleAlert size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0, marginTop: 1 }} />
-            <span style={{ fontSize: 11.5, color: 'var(--ink)', lineHeight: 1.5 }}>
+            <span style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.5 }}>
               Not fully configured yet - the server is missing the hosted installer URL, bundle URL, or enrollment
               key, so the placeholders below won't run. Set <code>NEXUS_AGENT_INSTALL_URL</code>,{' '}
               <code>NEXUS_AGENT_BUNDLE_URL</code>, and <code>NEXUS_AGENT_ENROLL_KEY</code> on the backend.
@@ -212,13 +212,13 @@ export function AgentInstall() {
         )}
 
         <div style={{ position: 'relative', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--mist)' }}>
-          <pre style={{ margin: 0, padding: '12px 44px 12px 12px', fontSize: 11.5, lineHeight: 1.5, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: 'var(--ink)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{info.command}</pre>
+          <pre style={{ margin: 0, padding: '12px 44px 12px 12px', fontSize: 12, lineHeight: 1.5, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: 'var(--ink)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{info.command}</pre>
           <button onClick={() => copyTo(info.command, setCopied)} title="Copy command"
             style={{ position: 'absolute', top: 8, right: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', padding: '5px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: copied ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
             {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
           </button>
         </div>
-        <p style={{ margin: '9px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+        <p style={{ margin: '9px 0 0', fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
           Run it in an <b>elevated</b> (Administrator) prompt to install the employee-proof service that covers
           every profile on the PC. A normal prompt does a removable per-user install. It runs the same way pasted
           into Command Prompt or PowerShell.
@@ -227,18 +227,18 @@ export function AgentInstall() {
         {/* Uninstall one-liner (served straight from the API - no bundle needed). */}
         {info.uninstallCommand && (
           <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 6 }}>
               Uninstall command
             </div>
             <div style={{ position: 'relative', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--mist)' }}>
-              <pre style={{ margin: 0, padding: '12px 44px 12px 12px', fontSize: 11.5, lineHeight: 1.5, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: 'var(--ink)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{info.uninstallCommand}</pre>
+              <pre style={{ margin: 0, padding: '12px 44px 12px 12px', fontSize: 12, lineHeight: 1.5, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: 'var(--ink)', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{info.uninstallCommand}</pre>
               <button onClick={() => copyTo(info.uninstallCommand, setCopiedU)} title="Copy uninstall command"
                 style={{ position: 'absolute', top: 8, right: 8, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', padding: '5px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: copiedU ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
                 {copiedU ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
               </button>
             </div>
             {info.uninstallNote && (
-              <p style={{ margin: '9px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>{info.uninstallNote}</p>
+              <p style={{ margin: '9px 0 0', fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>{info.uninstallNote}</p>
             )}
           </div>
         )}
@@ -248,19 +248,19 @@ export function AgentInstall() {
 
       {/* Enrolled computers */}
       <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
-        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
           Enrolled Computers
         </div>
         {devices === null ? (
           <LoadingState compact />
         ) : devices.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No computers enrolled yet.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>No computers enrolled yet.</div>
         ) : devices.map(d => (
           <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 170 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 <StatusDot online={d.online} capturing={d.capturing} secs={d.secondsSinceSeen} />
-                <span style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {d.deviceName || d.label || 'Unnamed PC'}
                 </span>
               </div>
@@ -279,7 +279,7 @@ export function AgentInstall() {
             {/* Assign this PC to a Nexus person (its owner). Owner picker + Revoke +
                 Remove need a full grant; a view-only grant sees the owner read-only. */}
             {viewOnly ? (
-              <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>
                 {d.email ? <>Owner: <b style={{ color: 'var(--ink)' }}>{d.name || d.email}</b></> : 'Shared'}
               </span>
             ) : (<>
@@ -297,7 +297,7 @@ export function AgentInstall() {
               )}
             </div>
             <button onClick={() => revoke(d.id)} title="Revoke this computer's token (disable it, keep the PC)"
-              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: '#b91c1c', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, flexShrink: 0 }}>
+              style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: '#b91c1c', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, flexShrink: 0 }}>
               <Ban size={12} /> Revoke
             </button>
             <button onClick={() => remove(d.id, d.deviceName)} title="Remove this entry (after uninstalling / decommissioning)"
@@ -370,8 +370,8 @@ function PresenceBadges({ pres }) {
                 animation: 'nexusPresPop 0.15s var(--ease-out)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px 7px' }}>
                   <Eye size={12} style={{ color: 'hsl(var(--color-blue))' }} />
-                  <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Watching now</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)', borderRadius: 999, padding: '1px 7px' }}>{watchers.length}</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Watching now</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)', borderRadius: 999, padding: '1px 7px' }}>{watchers.length}</span>
                 </div>
                 {watchers.map(w => (
                   <div key={w.email}
@@ -379,7 +379,7 @@ function PresenceBadges({ pres }) {
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                     style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 8px', borderRadius: 8, transition: 'background 0.12s' }}>
                     <Avatar email={w.email} name={w.name} size={24} card={false} />
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</span>
                   </div>
                 ))}
               </div>
@@ -422,7 +422,7 @@ function LiveCoverage({ onOpenPerson }) {
     <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <Activity size={16} style={{ color: 'hsl(var(--color-green))' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Live Coverage</span>
+        <span style={{ fontSize: 13, fontWeight: 800 }}>Live Coverage</span>
         <div style={{ flex: 1 }} />
         {gaps > 0 && (
           <span style={{ fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.1)', padding: '2px 9px', borderRadius: 999 }}>
@@ -436,13 +436,13 @@ function LiveCoverage({ onOpenPerson }) {
       </p>
       {data && <ViewNotice shown={people.length} total={everyone.length} noun="clocked in" />}
       {data === null ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <Spinner size={14} /> Loading…
         </div>
       ) : data === false ? (
-        <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load coverage.</div>
+        <div style={{ fontSize: 13, color: '#b91c1c' }}>Could not load coverage.</div>
       ) : people.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{everyone.length ? 'No one in this view is clocked in right now.' : 'No one is clocked in right now.'}</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{everyone.length ? 'No one in this view is clocked in right now.' : 'No one is clocked in right now.'}</div>
       ) : people.map(p => {
         const m = COV_META[p.status] || COV_META.gap;
         const frame = (p.secsSinceFrame != null)
@@ -457,7 +457,7 @@ function LiveCoverage({ onOpenPerson }) {
                 onClick={() => onOpenPerson?.(p.email)}
                 title="View today's screenshots"
                 style={{ display: 'block', maxWidth: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
-                  fontFamily: 'Inter, sans-serif', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', textDecoration: 'underline', textDecorationColor: 'var(--line)', textUnderlineOffset: 2,
+                  fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: 600, color: 'var(--ink)', textDecoration: 'underline', textDecorationColor: 'var(--line)', textUnderlineOffset: 2,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {p.name}
               </button>
@@ -542,7 +542,7 @@ export function MonitoringPolicy({ companyId }) {
         each day. Changes take effect the next time someone starts a session.
       </p>
       {policy === null ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
           <Spinner size={14} /> Loading policy…
         </div>
       ) : (<>
@@ -552,14 +552,14 @@ export function MonitoringPolicy({ companyId }) {
               <PolicySwitch on={!!policy[key]} onToggle={() => setPolicy(p => ({ ...p, [key]: !p[key] }))} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700 }}>{label}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>{help}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>{help}</div>
               </div>
             </div>
           ))}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 2 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>Capture interval</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>How often a frame is captured, in minutes (1–60).</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>How often a frame is captured, in minutes (1–60).</div>
             </div>
             <input className="form-input" type="number" min={1} max={60}
               value={policy.intervalMinutes ?? 5}
@@ -570,11 +570,11 @@ export function MonitoringPolicy({ companyId }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
           <button className="primary-btn" onClick={savePolicy} disabled={savingPolicy}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
             {savingPolicy ? <Spinner size={13} /> : <Check size={13} />} Save policy
           </button>
           {policyMsg && (
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: policyMsg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{policyMsg.text}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: policyMsg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{policyMsg.text}</span>
           )}
         </div>
       </>)}
@@ -611,7 +611,7 @@ function ActivityInsights() {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <Activity size={16} style={{ color: 'hsl(var(--color-purple))' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Activity &amp; Insights</span>
+        <span style={{ fontSize: 13, fontWeight: 800 }}>Activity &amp; Insights</span>
         <div style={{ flex: 1 }} />
         <input className="form-input" type="date" value={day} onChange={e => setDay(e.target.value)} style={{ fontSize: 12, width: 150 }} />
       </div>

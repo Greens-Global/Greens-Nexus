@@ -455,8 +455,7 @@ export default function ManagementFeesTab({ canEdit = false }) {
       <style>{`.acct-ama tbody > tr > td { padding-top: var(--ama-py, 5px); padding-bottom: var(--ama-py, 5px); }
 ${FILTER_CSS}`}</style>
       <div>
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>Management Fees</h3>
-        <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
           Asset management agreements: each managed entity&apos;s gross revenue and the fee it works out to, with what was billed this year, all read from the ledger.
         </p>
       </div>
