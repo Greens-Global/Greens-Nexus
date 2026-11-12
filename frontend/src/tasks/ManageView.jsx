@@ -36,7 +36,7 @@ import { dialog } from '../ui/dialog';
 const LabelsManageTab = lazy(() => import('./LabelsManageTab'));
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
-const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+const fieldLabel = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const selectStyle = { ...inputStyle, cursor: 'pointer' };
 const iconBadge = { width: 32, height: 32, flexShrink: 0, borderRadius: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: NX.hover };
 
@@ -219,12 +219,12 @@ function TeamsTab({ store }) {
           style={fill && fill.filled ? { ...btn('outline'), color: NX.red, borderColor: NX.red } : btn('outline')}>
           {fillBusy ? 'Checking…' : (fill && fill.filled ? `Fill in ${fill.filled} task(s)` : 'Fill team from project')}
         </button>
-        <span style={{ fontSize: 11.5, color: NX.faint, flex: 1, minWidth: 240 }}>
+        <span style={{ fontSize: 12, color: NX.faint, flex: 1, minWidth: 240 }}>
           Sets the Team on tasks that have none, in projects with exactly one team. Never overwrites a
           team already chosen, and skips projects with several - there'd be no right answer.
         </span>
       </div>
-      {fillMsg && <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 12 }}>{fillMsg}</div>}
+      {fillMsg && <div style={{ fontSize: 13, color: NX.dim, marginBottom: 12 }}>{fillMsg}</div>}
 
       {teams.length === 0 ? (
         <EmptyState icon={Users} title="No Teams Yet" hint="Create a team to group members and their work." />
@@ -309,10 +309,10 @@ function RulesTab({ store }) {
         <RowCard key={r.id}>
           <span style={{ ...iconBadge, color: r.enabled ? NX.amber : NX.faint }}><Zap size={16} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: r.enabled ? NX.ink : NX.dim }}>{r.name}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: r.enabled ? NX.ink : NX.dim }}>{r.name}</div>
             <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{describeRule(r, ctx)}</div>
             <button type="button" onClick={() => setRunsFor(r.id)} title="Show this rule's runs"
-              style={{ ...btn('ghost'), padding: 0, height: 'auto', fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
+              style={{ ...btn('ghost'), padding: 0, height: 'auto', fontSize: 12, color: NX.faint, marginTop: 3 }}>
               {r.runCount ? `Ran ${r.runCount} time${r.runCount === 1 ? '' : 's'} · last ${fmtDateTime(r.lastRunAt)}` : 'Never run'}
             </button>
           </div>
@@ -417,11 +417,11 @@ function RuleValueInput({ kind, value, onChange, ctx, anyLabel }) {
 }
 
 // ── Custom field, create task, move and email editors (Oct 22 2026) ──────────
-const miniLabel = { fontSize: 11.5, fontWeight: 600, color: NX.dim, minWidth: 92, flexShrink: 0 };
+const miniLabel = { fontSize: 12, fontWeight: 600, color: NX.dim, minWidth: 92, flexShrink: 0 };
 const editorBox = { flexBasis: '100%', display: 'flex', flexDirection: 'column', gap: 8, padding: 10, borderRadius: 10, background: NX.hover };
 const editorRow = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' };
 const placeholderHint = (extra) => (
-  <div style={{ fontSize: 11.5, color: NX.faint }}>Fill-ins: {COMMENT_PLACEHOLDERS.join(' ')}.{extra ? ` ${extra}` : ''}</div>
+  <div style={{ fontSize: 12, color: NX.faint }}>Fill-ins: {COMMENT_PLACEHOLDERS.join(' ')}.{extra ? ` ${extra}` : ''}</div>
 );
 
 /** The custom fields this company can see (the store is already company-filtered). */
@@ -511,7 +511,7 @@ function CreateTaskEditor({ value, onChange, ctx }) {
         <input value={v.title ?? ''} maxLength={MAX_TITLE} onChange={(e) => set({ title: e.target.value })}
           placeholder="e.g. Follow up: {title}" style={{ ...inputStyle, flex: 1, minWidth: 160 }} />
       </div>
-      <label style={{ ...editorRow, fontSize: 12.5, color: NX.ink, cursor: 'pointer' }}>
+      <label style={{ ...editorRow, fontSize: 13, color: NX.ink, cursor: 'pointer' }}>
         <input type="checkbox" checked={!!v.asSubtask} onChange={(e) => set({ asSubtask: e.target.checked })} />
         Create it as a subtask of the task that triggered the rule
       </label>
@@ -585,7 +585,7 @@ function MoveEditor({ value, onChange, ctx }) {
           </select>
         </div>
       )}
-      <div style={{ fontSize: 11.5, color: NX.faint }}>Subtasks move with the task. A move made by a rule does not trigger other rules.</div>
+      <div style={{ fontSize: 12, color: NX.faint }}>Subtasks move with the task. A move made by a rule does not trigger other rules.</div>
     </div>
   );
 }
@@ -676,7 +676,7 @@ export function RuleModal({ rule, ctx, onClose, onSave }) {
   return (
     <Modal title={rule ? 'Edit Rule' : 'New Rule'} onClose={onClose} isDirty={dirty} onSave={save} footer={
       <>
-        {tried && problem && <span style={{ fontSize: 12.5, color: NX.red, marginRight: 'auto' }}>{problem}</span>}
+        {tried && problem && <span style={{ fontSize: 13, color: NX.red, marginRight: 'auto' }}>{problem}</span>}
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={btn('primary')} onClick={save}>{rule ? 'Save Rule' : 'Add Rule'}</button>
       </>
@@ -713,7 +713,7 @@ export function RuleModal({ rule, ctx, onClose, onSave }) {
 
       <label style={fieldLabel}>Only if</label>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {draft.conditions.length === 0 && <div style={{ fontSize: 12.5, color: NX.faint }}>Every task that matches the trigger. Add a condition to narrow it.</div>}
+        {draft.conditions.length === 0 && <div style={{ fontSize: 13, color: NX.faint }}>Every task that matches the trigger. Add a condition to narrow it.</div>}
         {draft.conditions.map((c, i) => {
           const f = CONDITION_FIELDS.find((x) => x.value === c.field) || CONDITION_FIELDS[0];
           return (
@@ -764,7 +764,7 @@ export function RuleModal({ rule, ctx, onClose, onSave }) {
                   editor's local state. */}
               {Editor && <Editor key={`${a.key || i}:${a.type}`} value={a.value} ctx={ctx} onChange={(v) => setAction(i, { value: v })} />}
               {def.valueKind === 'comment' && (
-                <div style={{ flexBasis: '100%', fontSize: 11.5, color: NX.faint, marginTop: -4 }}>
+                <div style={{ flexBasis: '100%', fontSize: 12, color: NX.faint, marginTop: -4 }}>
                   Fill-ins: {COMMENT_PLACEHOLDERS.join(' ')}. Posted by "Automation" and emailed like any comment.
                 </div>
               )}
@@ -826,7 +826,7 @@ function RuleRunsModal({ ruleId, rules, onClose }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {rows.map((x) => (
-            <div key={x.id} style={{ ...card, padding: '8px 12px', display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 12.5 }}>
+            <div key={x.id} style={{ ...card, padding: '8px 12px', display: 'flex', gap: 10, alignItems: 'flex-start', fontSize: 13 }}>
               <span style={{ ...iconBadge, width: 26, height: 26, color: x.status === 'error' ? NX.red : NX.amber }}>
                 {x.status === 'error' || x.status === 'partial' ? <AlertTriangle size={14} /> : <Zap size={14} />}
               </span>
@@ -845,7 +845,7 @@ function RuleRunsModal({ ruleId, rules, onClose }) {
                   ))}
                 </div>
               </div>
-              <div style={{ color: NX.faint, whiteSpace: 'nowrap', fontSize: 11.5 }}>{fmtDateTime(x.at)}<br />{x.event}</div>
+              <div style={{ color: NX.faint, whiteSpace: 'nowrap', fontSize: 12 }}>{fmtDateTime(x.at)}<br />{x.event}</div>
             </div>
           ))}
         </div>
@@ -904,10 +904,10 @@ function FieldsTab({ store }) {
         <RowCard key={f.id}>
           <span style={{ ...iconBadge, color: NX.blue }}><ListChecks size={16} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{f.name}</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{f.name}</div>
             {f.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{f.description}</div>}
             {f.type === 'formula' && f.formula && (
-              <code style={{ display: 'block', fontSize: 11.5, color: NX.dim, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>= {f.formula}</code>
+              <code style={{ display: 'block', fontSize: 12, color: NX.dim, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>= {f.formula}</code>
             )}
             {OPTION_TYPES.includes(f.type) && !!(f.options || []).length && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
@@ -921,7 +921,7 @@ function FieldsTab({ store }) {
               </div>
             )}
             {(f.appliesTo || []).includes('task') && (
-              <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
+              <div style={{ fontSize: 12, color: NX.faint, marginTop: 3 }}>
                 {(f.projectIds || []).length
                   ? capList((f.projectIds || []).map(projectName).filter(Boolean))
                   : 'Every project'}
@@ -1073,7 +1073,7 @@ export function FieldModal({ projects = [], field = null, onClose, onSave, store
       <Field label="Name">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points, Location" style={inputStyle} aria-invalid={!!nameProblem || undefined} />
         {nameProblem && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>{nameProblem}</div>}
-        {nameHint && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{nameHint}</div>}
+        {nameHint && <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>{nameHint}</div>}
       </Field>
       <Field label="Description"><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Optional" style={inputStyle} /></Field>
       {!isFormula && <Field label="Applies To">
@@ -1085,13 +1085,13 @@ export function FieldModal({ projects = [], field = null, onClose, onSave, store
             </label>
           ))}
         </div>
-        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>Unchecking a kind moves the field off it - any values already saved under that kind stay stored but stop showing anywhere.</div>}
+        {field && <div style={{ fontSize: 12, color: NX.faint, marginTop: 6 }}>Unchecking a kind moves the field off it - any values already saved under that kind stay stored but stop showing anywhere.</div>}
       </Field>}
       <Field label="Type">
         <select value={type} onChange={(e) => setType(e.target.value)} style={selectStyle}>
           {FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
-        {field && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Switching this can leave existing values in the old kind's shape (e.g. a Select's saved option won't match a Text field) - check them after saving.</div>}
+        {field && <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>Switching this can leave existing values in the old kind's shape (e.g. a Select's saved option won't match a Text field) - check them after saving.</div>}
       </Field>
       {isFormula && (
         <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column' }}>
@@ -1131,7 +1131,7 @@ export function FieldModal({ projects = [], field = null, onClose, onSave, store
       {(isFormula || appliesTo.includes('task')) && (
         <div style={{ marginTop: 16 }}>
           <label style={fieldLabel}>Projects</label>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 6 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginBottom: 6 }}>
             Pick none to use this field in every project.
           </div>
           <ChipMultiSelect value={projectIds} onChange={setProjectIds} options={projectPickerOptions(projects)}
@@ -1149,7 +1149,7 @@ export function FieldModal({ projects = [], field = null, onClose, onSave, store
               </label>
               {!required && (
                 <div style={{ marginTop: 10 }}>
-                  <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 6 }}>Or required only in these projects:</div>
+                  <div style={{ fontSize: 12, color: NX.faint, marginBottom: 6 }}>Or required only in these projects:</div>
                   <ChipMultiSelect value={requiredProjectIds} onChange={setRequiredProjectIds} options={projectPickerOptions(projects)}
                     placeholder="Not required" searchPlaceholder="Search projects…" emptyText="No projects yet." />
                 </div>
@@ -1181,8 +1181,8 @@ function RequiredPerProject({ projectIds, projects, requiredIds, onToggle, onAll
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: NX.surface2 }}>
-            <th style={{ ...cell, borderTop: 'none', textAlign: 'left', fontSize: 11.5, fontWeight: 700, color: NX.dim }}>Project</th>
-            <th style={{ ...cell, borderTop: 'none', width: 110, textAlign: 'center', fontSize: 11.5, fontWeight: 700, color: NX.dim }}>
+            <th style={{ ...cell, borderTop: 'none', textAlign: 'left', fontSize: 12, fontWeight: 700, color: NX.dim }}>Project</th>
+            <th style={{ ...cell, borderTop: 'none', width: 110, textAlign: 'center', fontSize: 12, fontWeight: 700, color: NX.dim }}>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }} title={allOn ? 'Not required in any' : 'Required in all'}>
                 <input type="checkbox" className="nx-check" checked={allOn} onChange={(e) => onAll(e.target.checked)} aria-label="Required in every project listed" style={{ width: 15, height: 15 }} />
                 Required
@@ -1202,7 +1202,7 @@ function RequiredPerProject({ projectIds, projects, requiredIds, onToggle, onAll
           ))}
         </tbody>
       </table>
-      <div style={{ padding: '7px 12px', fontSize: 11.5, color: NX.faint, borderTop: `1px solid ${NX.border2}` }}>
+      <div style={{ padding: '7px 12px', fontSize: 12, color: NX.faint, borderTop: `1px solid ${NX.border2}` }}>
         A task cannot be created in a ticked project until this field is filled in.
       </div>
     </div>
@@ -1270,7 +1270,7 @@ function StatusesTab({ store }) {
         )}
       />
       {mergeNote && (
-        <div style={{ marginBottom: 12, fontSize: 12.5, color: NX.dim }}>{mergeNote}</div>
+        <div style={{ marginBottom: 12, fontSize: 13, color: NX.dim }}>{mergeNote}</div>
       )}
       {customStatuses.length === 0 ? (
         <EmptyState icon={Palette} title="No Custom Statuses" hint="Add a status to model your own workflow stages." />
@@ -1278,8 +1278,8 @@ function StatusesTab({ store }) {
         <RowCard key={s.id}>
           <span style={{ width: 14, height: 14, borderRadius: '50%', background: s.color || NX.dim, flexShrink: 0, marginLeft: 6 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.label}</div>
-            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 3 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{s.label}</div>
+            <div style={{ fontSize: 12, color: NX.faint, marginTop: 3 }}>
               {(s.projectIds || []).length
                 ? capList((s.projectIds || []).map(projectName).filter(Boolean))
                 : 'Every project'}
@@ -1354,7 +1354,7 @@ function TemplatesTab({ store }) {
         <RowCard key={t.id}>
           <span style={{ ...iconBadge, color: NX.purple }}><FileText size={16} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{t.name}</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{t.name}</div>
             {t.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{t.description}</div>}
           </div>
           <span style={chip(NX.dim, NX.border2)}>{(t.subtaskTitles || []).length} subtasks</span>
@@ -1450,7 +1450,7 @@ function IntakeTab({ store }) {
         <RowCard key={f.id}>
           <span style={{ ...iconBadge, color: NX.teal }}><Inbox size={16} /></span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{f.title}</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{f.title}</div>
             <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>
               {(f.fields || []).length} fields
               {f.targetProjectId ? ` → ${projectName(f.targetProjectId) || 'project'}` : ' · no target project'}
@@ -1653,7 +1653,7 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
         hint={mine
           ? 'Tasks you deleted, and tasks you were assigned that someone else deleted. They stay here for 90 days - restore one, or remove it for good.'
           : 'Everything deleted across the workspace. Items stay here for 90 days and can be restored - after that they are removed for good.'} />
-      {err && <div style={{ marginBottom: 12, fontSize: 12.5, color: NX.red }}>{err}</div>}
+      {err && <div style={{ marginBottom: 12, fontSize: 13, color: NX.red }}>{err}</div>}
       {rows === null ? (
         <LoadingState />
       ) : rows.length === 0 ? (
@@ -1671,7 +1671,7 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
               ref={(el) => { if (el) el.indeterminate = somePicked; }}
               onChange={() => setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.id)))}
               title="Select all" style={{ cursor: 'pointer' }} />
-            <span style={{ fontSize: 12.5, color: NX.dim, flex: 1 }}>
+            <span style={{ fontSize: 13, color: NX.dim, flex: 1 }}>
               {picked.size ? `${picked.size} selected` : `${rows.length} item${rows.length === 1 ? '' : 's'} in the Recycle Bin`}
             </span>
             {picked.size > 0 && (
@@ -1701,16 +1701,16 @@ export function DeletedTasksTab({ store, scope = 'all' }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {t.name}
-                    <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: KIND_COLOR[t.kind] || NX.faint }}>
+                    <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: KIND_COLOR[t.kind] || NX.faint }}>
                       {KIND_LABEL[t.kind] || ''}
                     </span>
                   </div>
-                  <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 12, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {t.detail ? `${t.detail} - ` : ''}
                     Deleted by {t.deletedBy ? nameOf(t.deletedBy) : 'someone'} - {fmtDateTime(t.deletedAt)}
                   </div>
                 </div>
-                <span style={{ fontSize: 11.5, fontWeight: 600, color: left !== null && left <= 7 ? NX.red : NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: left !== null && left <= 7 ? NX.red : NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>
                   {left === null ? '' : left === 0 ? 'Purges today' : `${left}d left`}
                 </span>
                 <IconButton icon={RotateCcw} title="Restore" onClick={() => restore(t)} />
@@ -1787,22 +1787,22 @@ function ActivityTab({ store }) {
                         task to a human better than a code did anyway. */}
                     <span style={{ fontWeight: 700 }}>{actor}</span> {e.detail || humanize(e.type)}
                   </div>
-                  {e.entityTitle && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.entityTitle}</div>}
+                  {e.entityTitle && <div style={{ fontSize: 12, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.entityTitle}</div>}
                   {e.type === 'bulk_changed' && (
                     <>
                       <button type="button" onClick={() => toggleBulk(e.id)} aria-expanded={openBulk.has(e.id)}
-                        style={{ ...btn('ghost'), padding: '2px 0', fontSize: 11.5, marginTop: 2 }}>
+                        style={{ ...btn('ghost'), padding: '2px 0', fontSize: 12, marginTop: 2 }}>
                         {openBulk.has(e.id) ? 'Hide Tasks' : 'Show Tasks'}
                       </button>
                       {openBulk.has(e.id) && (
-                        <ul style={{ margin: '4px 0 0', padding: '0 0 0 16px', maxHeight: 200, overflowY: 'auto', fontSize: 11.5, color: NX.dim }}>
+                        <ul style={{ margin: '4px 0 0', padding: '0 0 0 16px', maxHeight: 200, overflowY: 'auto', fontSize: 12, color: NX.dim }}>
                           {e.tasks.map((x) => <li key={x.entityId}>{x.entityTitle || 'Untitled task'}</li>)}
                         </ul>
                       )}
                     </>
                   )}
                 </div>
-                <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap' }}>{when}</span>
+                <span style={{ fontSize: 12, color: NX.faint, whiteSpace: 'nowrap' }}>{when}</span>
               </div>
             );
           })}
@@ -1862,11 +1862,11 @@ function BarRows({ data }) {
       }}>
       {rows.map((d) => (
         <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10, height: BAR_ROW_H, flexShrink: 0 }}>
-          <span style={{ width: 120, fontSize: 12.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>{d.label}</span>
+          <span style={{ width: 120, fontSize: 13, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>{d.label}</span>
           <span style={{ flex: 1, height: 10, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
             <span style={{ display: 'block', height: '100%', width: `${(d.value / max) * 100}%`, background: d.color || NX.blue, borderRadius: 999 }} />
           </span>
-          <span style={{ width: 34, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: NX.ink, flexShrink: 0 }}>{d.value}</span>
+          <span style={{ width: 34, textAlign: 'right', fontSize: 13, fontWeight: 700, color: NX.ink, flexShrink: 0 }}>{d.value}</span>
         </div>
       ))}
     </div>
@@ -1876,7 +1876,7 @@ function BarRows({ data }) {
 function ReportCard({ title, children }) {
   return (
     <div style={{ ...card, padding: 16 }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>{title}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>{title}</div>
       {children}
     </div>
   );
@@ -1949,7 +1949,7 @@ function MultiSelectDropdown({ label, options, value, onChange, placeholder, sea
               );
             })}
             {filtered.length === 0 && (
-              <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+              <div style={{ padding: '10px 12px', fontSize: 13, color: NX.faint }}>
                 {q ? `Nothing matches “${q}”.` : (emptyHint || 'Nothing to pick yet.')}
               </div>
             )}
@@ -2033,7 +2033,7 @@ function ExportExcelModal({ store, onClose }) {
         </button>
       </>
     }>
-      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 16, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 13, color: NX.dim, marginBottom: 16, lineHeight: 1.5 }}>
         One row per task with project, assignee, collaborators, dates, priority and status.
         Pick none in a filter to include everything, or pick several to match any of them.
       </div>
@@ -2061,7 +2061,7 @@ function ExportExcelModal({ store, onClose }) {
         Include completed tasks
       </label>
 
-      {err && <div style={{ marginTop: 14, fontSize: 12.5, color: NX.red }}>{err}</div>}
+      {err && <div style={{ marginTop: 14, fontSize: 13, color: NX.red }}>{err}</div>}
     </Modal>
   );
 }
@@ -2113,8 +2113,8 @@ function ReportingTab({ store }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
         {kpis.map((k) => (
           <div key={k.label} style={{ ...card, padding: 16 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>{k.label}</div>
-            <div style={{ fontSize: 28, fontWeight: 800, marginTop: 8, color: k.color, lineHeight: 1 }}>{k.value}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>{k.label}</div>
+            <div style={{ fontSize: 32, fontWeight: 800, marginTop: 8, color: k.color, lineHeight: 1 }}>{k.value}</div>
           </div>
         ))}
       </div>

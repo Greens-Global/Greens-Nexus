@@ -191,7 +191,7 @@ function EditListingModal({ location, onClose, onSaved }) {
         <div>
           <div style={label}>Hours</div>
           {regular.complex ? (
-            <div style={{ fontSize: 12.5, color: C.gray500 }}>These hours have split, overnight or 24-hour spans - edit them in Google so nothing is flattened.</div>
+            <div style={{ fontSize: 13, color: C.gray500 }}>These hours have split, overnight or 24-hour spans - edit them in Google so nothing is flattened.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {form.days.map((d, i) => (
@@ -216,10 +216,10 @@ function EditListingModal({ location, onClose, onSaved }) {
         <div>
           <div style={label}>Holiday Hours</div>
           {special.complex ? (
-            <div style={{ fontSize: 12.5, color: C.gray500 }}>Some holiday hours span several days - edit them in Google so nothing is flattened.</div>
+            <div style={{ fontSize: 13, color: C.gray500 }}>Some holiday hours span several days - edit them in Google so nothing is flattened.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {form.holidays.length === 0 && <div style={{ fontSize: 12.5, color: C.gray400 }}>No holiday hours set.</div>}
+              {form.holidays.length === 0 && <div style={{ fontSize: 13, color: C.gray400 }}>No holiday hours set.</div>}
               {form.holidays.map((h, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
                   <DateField value={h.date} onChange={(v) => setHoliday(i, { date: v || '' })} placeholder="Pick a date" title="Holiday date" style={{ ...input, width: 160 }} />
@@ -245,7 +245,7 @@ function EditListingModal({ location, onClose, onSaved }) {
           )}
         </div>
 
-        {(problem || err) && <div role="alert" style={{ fontSize: 12.5, color: C.red600 }}>{problem || err}</div>}
+        {(problem || err) && <div role="alert" style={{ fontSize: 13, color: C.red600 }}>{problem || err}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button onClick={onClose} style={{ ...btn, border: 'none', background: 'transparent' }}>Cancel</button>
           <button onClick={save} disabled={!dirty || !!problem || saving} style={{ ...primaryBtn, opacity: !dirty || problem || saving ? 0.6 : 1 }}>
@@ -287,15 +287,15 @@ function LocationCard({ location, canEdit, canPost, onChange }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 15, fontWeight: 600, color: C.gray900 }}>{location.title}</span>
             {location.pendingGoogleReview && (
-              <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 500, background: C.amber50, color: C.amber700 }}>
+              <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 500, background: C.amber50, color: C.amber700 }}>
                 Pending Google Review
               </span>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: C.gray500, marginTop: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, color: C.gray500, marginTop: 2 }}>
             <MapPin size={12} />{location.address || 'No address on Google'}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: C.gray600, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.gray600, marginTop: 4 }}>
             <StarRating value={Math.round(location.avgRating || 0)} size={12} />
             <span>{location.reviewCount ? `${location.avgRating.toFixed(1)} from ${location.reviewCount.toLocaleString('en-US')} review${location.reviewCount === 1 ? '' : 's'}` : 'No reviews yet'}</span>
           </div>
@@ -313,7 +313,7 @@ function LocationCard({ location, canEdit, canPost, onChange }) {
           const active = tab === t.key
           return (
             <button key={t.key} role="tab" aria-selected={active} onClick={() => setTab(t.key)} style={{
-              padding: '6px 0', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12.5, fontWeight: 500,
+              padding: '6px 0', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13, fontWeight: 500,
               color: active ? C.gray900 : C.gray500, boxShadow: active ? 'inset 0 -2px 0 ' + C.emerald600 : 'none', whiteSpace: 'nowrap',
             }}>
               {t.label}{t.key === 'photos' && location.photoCount ? ` (${location.photoCount})` : ''}
@@ -335,7 +335,7 @@ function LocationCard({ location, canEdit, canPost, onChange }) {
           {canPost && <button onClick={() => setTab('photos')} style={{ ...btn, padding: '2px 8px', marginLeft: 8 }}>Add a Photo</button>}
         </Notice>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, fontSize: 12.5, color: C.gray700 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, fontSize: 13, color: C.gray700 }}>
         <div>
           <div style={label}>Description</div>
           <div style={{ whiteSpace: 'pre-wrap', color: location.description ? C.gray700 : C.gray400 }}>{location.description || 'No description on Google'}</div>

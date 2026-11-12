@@ -104,6 +104,44 @@ keep the diff minimal.
   standalone script that calls Anthropic, and never add credits, auto-reload
   or billing anywhere or suggest doing so - ask Neil. `test_ai_switch.py`
   pins it.
+- **Build Mode (Neil, 11/12/2026, `docs/Build-Mode.md` section 8).** It is
+  its OWN access: only an Access Group granting the `build-mode` module
+  opens it - no tier does by itself, Super Administrator included, and
+  never a new role. `build_mode_access_seed.apply_once` put the IT
+  development team (Visesh, Pranshu, Sagar) and Neil in the "Build Mode"
+  Access Group ONCE; change it in Settings, never in code. Send To Claude
+  Code may start a Claude Code CLOUD session for a developer
+  (`build_mode_cloud.py`, setup `docs/Build-Mode-Cloud-Setup.md`): the
+  developer saves their own scheduled task's Fire URL and token once and
+  the session runs on THEIR Claude subscription. This is not the AI switch
+  and not a way around it: no `ANTHROPIC_API_KEY`, no Nexus credits, no
+  Nexus AI feature, and the only address ever called is that developer's
+  own trigger - never add another Anthropic call beside it. The trigger
+  token is encrypted, never returned, never logged; one call per Send and
+  no retry (a second call is a second session on the same pins); a pin
+  goes to the cloud or to a terminal watcher, never both. Built the same day
+  (`docs/Build-Mode.md` 8.5 - 8.10), each Neil's call: **proof on the
+  pin** - a cloud session attaches the after picture and a clip
+  (`cli.py clip`, `record_clip.cjs`) and the author Accepts or Reopens on
+  the pin, no preview needed (`_checkable`); **Merge To Dev**
+  (`build_mode_merge.py`) - Super Administrators (tier 5) only, off until
+  `NEXUS_GITHUB_MERGE_TOKEN` is set, only a pin's own PR into `dev` with
+  every check green, pinned to the commit that was looked at, ONE GitHub
+  call never retried, the team-chat heads-up kept only when the merge went
+  through, a hold to confirm - never widen who may merge and never merge to
+  `main`; **everyone outside IT comes in through a TICKET**, never straight
+  to Claude Code: Point At It on Create a Ticket (`tickets/pointAtIt.js`,
+  the "Where:" line `build_mode_tickets.parse_where` reads back - change
+  both together) and Send To Claude Code on a ticket (grant holders; ONE
+  pin with its own COPIES of the pictures, so the pin's purge never takes
+  ticket evidence; the ticket hears only through its activity - never a
+  comment, a bell or a status change; never an Ask HR ticket); production
+  builds carry **source marks** (`VITE_NX_SRC` in `deploy-cloudflare.yml`
+  AND `archive-assets.yml` - the two must match); the **connector**
+  (`routers/build_mode_connector.py`, `docs/Build-Mode-Connector.md`)
+  reaches Build Mode pins ONLY, by Build Token, off until
+  `NEXUS_BUILD_CONNECTOR=true` - never add a tool that touches anything
+  else in Nexus.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,
@@ -264,7 +302,8 @@ keep the diff minimal.
   `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
   Shrink / Expand button; short answers keep the small card
   (`support/HelpWidget.jsx`).
-- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter and every
+- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter, bundled
+  with the app (`src/fonts.css` - never Google Fonts or a second family), and every
   text size is on the scale - `FS` in `lib/typeScale.js` (meta 11, label 12,
   body 13, read 14, title 15, section 18, page 24, figure 32) or the `--fs-*`
   tokens. `scripts/check-type.mjs` (in `npm run lint`) fails a new off-scale
@@ -313,6 +352,27 @@ keep the diff minimal.
   Bold capped at 1.26, cascade 14ms a row,
   nothing loops, nothing on touch, the phone drawer untouched, the folded
   rail never peeks. The sidebar tooltip (`NavTip`) is the light flyout card.
+- **Quick Actions is the bolt (Neil, 11/12/2026, mock
+  https://claude.ai/artifact/KKVpfc4ZqEjyaTUF3DDoDj):** the green bolt in
+  the top header (where the "+" Create menu was, Oct 29 2026) starts things
+  from any screen, in two steps: the top row is four icons, one tap each -
+  New Task, New Ticket, New Note, New Board, in that order (Neil) - then one
+  row per group, and a group row slides to its own list (New, Request,
+  Send) with a line back. Every row STARTS something that is yours (a thing
+  you make, ask for or send) through the module's own create flow; a place
+  to go is the left menu's and search's job, and the punch stays on the
+  left menu's clock - never a row here. The list, the one visibility rule
+  and the layout are `lib/quickCreate.js` (a group of one shows as that
+  action; a group the top row already covers is left out; a person who
+  cannot use one of the four gets the next action they can); the button and
+  menu are `components/QuickCreate.jsx`. A new action = one `ACTIONS` row
+  whose `go` / `compose` / `run` opens the module's own form - never a form
+  in the header, never a third step, never a second quick menu. The bolt is
+  green, never yellow or orange (Live accent). On a phone the menu is a
+  sheet measured from the header itself, never `position: fixed` (the
+  production CSS drops the header's unprefixed backdrop-filter, so "fixed"
+  lands below the screen in Chrome). Still off on purpose (Neil, Oct 29
+  2026): 1:1s, Ask HR, Credentials, Send for Signature, Workflows.
 - **Hold to confirm (Neil, Oct 30 2026, plan
   https://claude.ai/artifact/MU1RMFQ9nHYxSB31XjDwQ1, PRs #883-#884):** an
   action that cannot be taken back (delete forever, void, offboard, end
@@ -474,7 +534,8 @@ keep the diff minimal.
   (`customData.nexusComment`), so it saves, syncs and exports like any
   shape. ONE tool bar, the best of both: the engine's own tool strip is
   hidden everywhere and its other tools (ellipse, diamond, line, image,
-  frame, laser pointer) are under More Tools; a computer keeps the engine's
+  laser pointer) are under More Tools (Section - the engine's frame - is on
+  the bar itself since 11/12/2026); a computer keeps the engine's
   hints and properties panel, a phone opens that panel above the dock from
   Style. Never bring back a second tool strip.
   **Running a meeting on a board** (Neil, 11/10/2026: "copy from the best of
@@ -505,6 +566,38 @@ keep the diff minimal.
   Pictures) places the KB drawings (`kb/components/drawings.jsx`) as board
   images stored like any picture (`kit-<name>`). Six more templates: Retro,
   Kickoff, SWOT, Fishbone, Site Walk, Weekly Huddle.
+  **Six lifts from Claude Whiteboards** (Neil, 11/12/2026: "Do all 1-6
+  together"; plan https://claude.ai/artifact/VSwYrjHekNh4fhf4vUWd2k). All
+  ordinary board elements and rules - no AI, no new table. SECTIONS
+  (`board/sections.js`): a section is the engine's frame and the ONE way a
+  board groups things - Section is on the main bar ("Section can join the
+  main bar"); Sort puts each group of stickies in a named section they
+  BELONG to (`frameId`; `customData.nexusSortFrame`), never under loose
+  headings, and never touches a section someone drew; a new sticky lands
+  fully inside the section under it (`placeInSection`). THINGS RIDE ALONG
+  (`board/rideAlong.js`): a comment pin belongs to the item it was put on
+  (`customData.nexusOn = { id, dx, dy }`) and moves with it, as does a
+  vote's result line; `Board.jsx`'s `commit` and its `local` change hook
+  both run `rideAlong`, so a new way of moving things gets it for free -
+  whoever moves an item moves its riders, everyone else receives both.
+  WRAP UP (`board/wrapUp.js`): the board as a Note by RULES - sections as
+  headings, stickies with their authors and votes, open comment threads as
+  Open Questions, tasks made as record links, the board embedded on top -
+  shared with the same people as the board ("can be shared with the same
+  people as the board", `wrapUpPeople`), a Record Card on the board
+  (`customData.nexusWrapUp`) opening it, and pressed again it updates that
+  Note. A vote still under way is private and never in it. ARRANGE
+  (`board/arrange.js`): Tidy Up for any selection or a whole section, Align
+  and Space Evenly - the same elements MOVED, never made again; boxes joined
+  by arrows stay with Diagram > Tidy Up. TALK TO THE BOARD: `useDictation`
+  (lib/voice.js) - each sentence a sticky, no button where the browser has
+  no dictation. Every template opens with a title and what it is for
+  (Blank and Grid stay empty); a plain process longer than
+  `graph.CHAIN_WRAP` (6) boxes wraps to the next line. A sticky's words are
+  found among DELETED elements too (`withStickyText`): the engine's repair
+  deletes an empty text, and before 11/12/2026 that lost what was typed on
+  a new sticky - the engine stand-in in the unit tests repairs nothing, so
+  check sticky changes in a real browser.
   Import (the markup bar's Import button, `board/boardImport.js`): a picture
   or every page of a PDF (`pdfPage.renderPdfPages`, 40 at most) goes in
   BEHIND the drawing and LOCKED, stacked top to bottom, and the Pen comes up;
@@ -572,7 +665,7 @@ keep the diff minimal.
   allowed sites is not a site member); a submitter never reviews their own
   entry, and nothing changes an entry's state by itself. Crews fill a form
   from Workday's Fill a Form tile, the shift card (`showOnShifts` for the
-  shift's site), the + menu and the Quick Actions dock; photos and
+  shift's site), the header's Quick Actions (Request) and the Quick Actions dock; photos and
   signatures go to `task-files/forms/<entryKey>/`; the same `entryKey` sent
   twice is one entry. `form.submitted` / `form.reviewed` are emitted through
   `workflows.emit` at the two choke points in `routers/forms.py` with the
@@ -640,6 +733,21 @@ keep the diff minimal.
   `/my-timecard/sign` returns 410; never add a signing path around this.
   `test_timesheet_review_matrix` drives every state x actor x action - keep it
   passing so nobody gets stuck.
+- **"Submit Your Time Sheet" reminders (Neil, 11/12/2026,
+  `timesheet_due.py`):** ONE rule for a person's own Time Sheets waiting on
+  them, read by the Daily Briefing (Action Required; "With <manager> for
+  Review" under Updates), the Weekly Digest, My Briefing / My Day and the
+  bell. Every pay type (hourly, salaried bi-weekly or monthly, contractors
+  incl. India), the person's own local date, a period with a punch in it,
+  from the period's last day until it is finalized or the next period
+  closes - only the period that just closed, never an older one (Neil,
+  11/12/2026); never the exempt or people who left. Each row
+  carries a `cta` - one solid button (Review and Submit / Fix and Submit /
+  Review and Resubmit / Sign Time Sheet) to `/timeclock/timesheet?start=
+  &type=&do=submit`, which focuses Send to Manager and never submits by
+  itself. The Time Sheet table leads Action Required. The bell fires on
+  the last day and the day after close; Submit / Approve settle it
+  (`settle_bells`). Never add a second reminder rule.
 - HR signing order (Neil, Oct 22 2026): the company NEVER signs before the
   employee - no pre-signed or countersigned document is ever sent out. An
   offer letter is signed by the candidate only (no company signer, no Signs
@@ -890,7 +998,7 @@ keep the diff minimal.
   mirrored in `canvas/shape.js`) carries step kinds only.
 
 - **Notes (Neil, Oct 29-31 2026, `routers/notes.py`, `frontend/src/notes/`).**
-  Dashboard > Notes (the page), Quick Note (the slide-over from the + menu's
+  Dashboard > Notes (the page), Quick Note (the slide-over from Quick Actions'
   New Note, or `quickNoteKeys()` - Ctrl+Alt+N / Ctrl+Cmd+N) and the
   dashboard's Notes widget read and write the same rows (`nexus_notes`,
   `nexus_note_versions`, `nexus_note_presence` - each needs RLS on dev and prod). A
@@ -926,9 +1034,23 @@ keep the diff minimal.
   record_links' task walls; the Transcript Ready bell is OPT-IN per person
   (`meeting_notes.alerts:<email>`) and its pass (`meeting_ready_loop`) asks
   Teams for the transcript LIST only, never the words, and bells once.
-  TESTERS FIRST: only the emails in the `meeting_notes.access`
-  nexus_settings row (per database; `"everyone": true` opens it) may use
-  it - `meetings.may_use`, never a code default.
+  WHO HAS IT: the `meeting_notes.access` nexus_settings row (per database)
+  - `"everyone": true` on dev and prod since 11/12/2026 (Neil: "Open it to
+  everyone now"), after a testers-only start; `meetings.may_use` reads it,
+  never a code default. Set `"everyone": false` to go back to the listed
+  `emails` only.
+  Phase 3 (Neil, 11/12/2026): meetings outside Teams are transcribed ON THE
+  DEVICE - Whisper in a Web Worker (`notes/meetings/capture/`), the
+  browser's own speech service only as the fallback. This is NOT the
+  Anthropic key and spends nothing (Neil chose it); never move it to a
+  server or a paid API. The text lives in `nexus_meeting_transcripts` (RLS
+  on dev and prod) - words only, NEVER the audio; every session needs the
+  consent box (refused without it, who and when kept). The runtime and model
+  come only through `functions/ml/[[path]].js` (pinned versions, runtime
+  SHA-256 checked, listed files only) - never a CDN in the page, never a
+  `blob:` script (`env.useWasmCache = false`). The consent question sets
+  `backToClose={false}`: over the phone's note sheet, taking its Back entry
+  off closed the note.
 
 - **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
   `routers/documents.py`, `components/DocumentsBrowser.jsx`,

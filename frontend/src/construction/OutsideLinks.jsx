@@ -17,7 +17,7 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { CARD, TONE } from './ui';
 import { useLoad } from './lib/job';
 
-const quiet = { fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 };
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 function CopyLink({ url }) {
@@ -28,7 +28,7 @@ function CopyLink({ url }) {
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
       <input className="form-input" readOnly value={url} aria-label="The link" onFocus={(e) => e.target.select()} style={{ flex: '1 1 260px', minWidth: 0 }} />
-      <button type="button" className="secondary-btn" onClick={copy} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>
+      <button type="button" className="secondary-btn" onClick={copy} style={{ padding: '6px 12px', fontSize: 13 }}>
         {copied ? <><Check size={13} />Copied</> : <><Copy size={13} />Copy Link</>}
       </button>
     </div>
@@ -76,7 +76,7 @@ export function SendLinkSheet({ project, kind, refId, what, defaultName = '', de
             <SettingRow title="Works For" desc="Days until the link stops working. Turn it off sooner from the Subs tab."
               control={<NumberBox value={days} min={1} max={60} unit="days" label="Works For" onChange={(v) => setDays(v)} />} />
           </SettingCard>
-          {badEmail && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginTop: 8 }}>That is not an email address.</div>}
+          {badEmail && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginTop: 8 }}>That is not an email address.</div>}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 14, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" disabled={busy || badEmail} onClick={() => send(false)}><Link2 size={14} />Make Link to Copy</button>
             <button type="button" className="primary-btn" disabled={busy || badEmail || !email.trim()} onClick={() => send(true)}>{busy ? 'Sending…' : 'Email the Link'}</button>
@@ -95,14 +95,14 @@ export function OutsideLinksSection({ project, refresh = 0 }) {
   const links = data.links || [];
   return (
     <section data-outside-links="" style={{ ...CARD, marginBottom: 14 }} aria-label="Outside Links">
-      <h3 style={{ fontSize: '1.05rem', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><Link2 size={16} />Outside Links</h3>
+      <h3 style={{ fontSize: 18, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><Link2 size={16} />Outside Links</h3>
       <p style={{ ...quiet, margin: '0 0 10px' }}>
         Links sent to people outside the company - an RFI to answer, a sub's punch list. Each reaches one thing, needs no sign-in and runs as the person who sent it.
       </p>
       {links.length === 0 ? <div style={quiet}>No links sent yet. Send one from an RFI or a sub above.</div> : links.map((l) => (
         <div key={l.id} data-outside-link={l.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid var(--border-color)' }}>
           <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-            <div style={{ fontSize: '0.86rem' }}><b>{l.name || l.email || 'No name'}</b>{l.email && l.name ? ` · ${l.email}` : ''}</div>
+            <div style={{ fontSize: 14 }}><b>{l.name || l.email || 'No name'}</b>{l.email && l.name ? ` · ${l.email}` : ''}</div>
             <div style={quiet}>
               {[l.kind === 'rfi' ? 'RFI to answer' : 'Punch list', l.createdByName ? `sent by ${l.createdByName}` : '',
                 l.uses ? `opened ${l.uses} time${l.uses === 1 ? '' : 's'}${l.lastUsedAt ? `, last ${formatDateTime(l.lastUsedAt, '')}` : ''}` : 'not opened yet',

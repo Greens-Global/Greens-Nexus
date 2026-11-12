@@ -77,7 +77,7 @@ const groupIcon = (name) => (GROUP_ICONS.find(([re]) => re.test(name || ''))?.[1
 function PathWords({ value }) {
   const parts = (value || '').split(',').map(s => s.trim()).filter(Boolean);
   if (!parts.length) {
-    return <span style={{ ...BODY, fontSize: 12.5, color: 'var(--wk-faint)' }}>Not set - this screen decides on its own.</span>;
+    return <span style={{ ...BODY, fontSize: 13, color: 'var(--wk-faint)' }}>Not set - this screen decides on its own.</span>;
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
@@ -95,11 +95,11 @@ function PathWords({ value }) {
                 <span key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   {j > 0 && <ChevronRight size={11} style={{ color: 'var(--wk-faint)' }} />}
                   {m ? (
-                    <span title="Filled in automatically for each record" style={{ fontSize: 11.5, fontStyle: 'italic', fontWeight: 600, padding: '1px 7px', borderRadius: 99, background: 'color-mix(in srgb, var(--wk-brand) 9%, transparent)', color: 'var(--wk-brand)', whiteSpace: 'nowrap' }}>
+                    <span title="Filled in automatically for each record" style={{ fontSize: 12, fontStyle: 'italic', fontWeight: 600, padding: '1px 7px', borderRadius: 99, background: 'color-mix(in srgb, var(--wk-brand) 9%, transparent)', color: 'var(--wk-brand)', whiteSpace: 'nowrap' }}>
                       {PLACEHOLDER_WORDS[m[1]] || m[1]}
                     </span>
                   ) : (
-                    <span style={{ fontSize: 12.5, color: 'var(--wk-ink)', whiteSpace: 'nowrap' }}>{seg}</span>
+                    <span style={{ fontSize: 13, color: 'var(--wk-ink)', whiteSpace: 'nowrap' }}>{seg}</span>
                   )}
                 </span>
               );
@@ -121,7 +121,7 @@ function SlotEditor({ slot, initial, onSave, onCancel, saving, scopeId = '', peo
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 0 2px' }}>
       {needsScope && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <label style={{ ...BODY, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>{scopeLabel || 'For person'}</label>
+          <label style={{ ...BODY, fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)' }}>{scopeLabel || 'For person'}</label>
           <input
             className="form-input"
             list={`wiring-people-${slot}`}
@@ -141,7 +141,7 @@ function SlotEditor({ slot, initial, onSave, onCancel, saving, scopeId = '', peo
           value={value}
           onChange={e => setValue(e.target.value)}
           placeholder="/Shared/…"
-          style={{ flex: '1 1 320px', minWidth: 0, fontFamily: 'ui-monospace, monospace', fontSize: 12.5 }}
+          style={{ flex: '1 1 320px', minWidth: 0, fontFamily: 'ui-monospace, monospace', fontSize: 13 }}
         />
         <button type="button" className="secondary-btn" onClick={() => setPicking(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <FolderSearch size={13} /> Browse…
@@ -217,10 +217,10 @@ function SlotRow({ spec, people, onChanged, last }) {
         style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '11px 12px', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', minWidth: 0 }}
       >
         <ChevronRight size={14} style={{ color: 'var(--wk-faint)', flexShrink: 0, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }} />
-        <span style={{ flex: '0 1 285px', minWidth: 180, fontSize: 13.5, fontWeight: 600, color: 'var(--wk-ink)' }}>
+        <span style={{ flex: '0 1 285px', minWidth: 180, fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)' }}>
           {title}
           {spec.customized && (
-            <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: 'color-mix(in srgb, var(--wk-green) 12%, transparent)', color: 'var(--wk-green)', whiteSpace: 'nowrap' }}>
+            <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: 'color-mix(in srgb, var(--wk-green) 12%, transparent)', color: 'var(--wk-green)', whiteSpace: 'nowrap' }}>
               Changed here
             </span>
           )}
@@ -232,7 +232,7 @@ function SlotRow({ spec, people, onChanged, last }) {
 
       {open && (
         <div className="egx-tree-kids" style={{ padding: '0 12px 12px 38px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ ...BODY, fontSize: 12.5, maxWidth: 720 }}>{plain}</div>
+          <div style={{ ...BODY, fontSize: 13, maxWidth: 720 }}>{plain}</div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" onClick={() => setEditing(editing === 'default' ? false : 'default')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -272,7 +272,7 @@ function SlotRow({ spec, people, onChanged, last }) {
               )}
               {exceptions.map(r => (
                 <div key={r.scopeId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', minWidth: 0, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)', flexShrink: 0 }}>{r.scopeId}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)', flexShrink: 0 }}>{r.scopeId}</span>
                   <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, color: 'var(--wk-dim)', flex: '1 1 220px', ...ELLIPSIS }} title={r.path}>{r.path}</span>
                   <button type="button" className="secondary-btn" disabled={saving} onClick={() => setEditing({ scopeId: r.scopeId, path: r.path })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <Pencil size={12} /> Edit
@@ -326,7 +326,7 @@ function RuleChips({ rule }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {(rule || []).map((c, i) => (
-        <span key={i} style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 99, background: 'var(--wk-hover, rgba(0,0,0,0.05))', color: 'var(--wk-ink)', whiteSpace: 'nowrap' }}>
+        <span key={i} style={{ fontSize: 12, fontWeight: 600, padding: '3px 9px', borderRadius: 99, background: 'var(--wk-hover, rgba(0,0,0,0.05))', color: 'var(--wk-ink)', whiteSpace: 'nowrap' }}>
           {condLabel(c)}
         </span>
       ))}
@@ -436,7 +436,7 @@ function FolderGroupDialog({ onClose, onSaved }) {
   return (
     <EgnyteDialog title="New Folder Group" onClose={onClose} width={680}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ ...BODY, fontSize: 12.5 }}>
+        <div style={{ ...BODY, fontSize: 13 }}>
           Pick who the group is for. Everyone who matches every condition - now or hired later -
           automatically gets their documents folder inside the group&apos;s folder.
         </div>
@@ -487,7 +487,7 @@ function FolderGroupDialog({ onClose, onSaved }) {
               <Plus size={13} /> Add Condition
             </button>
             <button type="button" onClick={() => setAiOpen(o => !o)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand)', fontSize: 12.5, fontWeight: 600, padding: 4, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand)', fontSize: 13, fontWeight: 600, padding: 4, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <Sparkles size={13} /> Or describe it in words
             </button>
           </div>
@@ -510,7 +510,7 @@ function FolderGroupDialog({ onClose, onSaved }) {
         </div>
 
         {/* ── live membership preview ── */}
-        <div style={{ ...BODY, fontSize: 12.5, minHeight: 18 }}>
+        <div style={{ ...BODY, fontSize: 13, minHeight: 18 }}>
           {previewing ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Spinner size={12} /> Checking who matches…</span>
           ) : members === null ? (
@@ -528,18 +528,18 @@ function FolderGroupDialog({ onClose, onSaved }) {
 
         {/* ── name + folder ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <label style={{ ...BODY, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>Group name</label>
+          <label style={{ ...BODY, fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)' }}>Group name</label>
           <input className="form-input" value={name} onChange={e => setName(e.target.value)}
             placeholder={validConds.length ? validConds.map(condLabel).join(' · ') : 'e.g. US Biweekly Team'}
             style={{ flex: '1 1 220px', minWidth: 0 }} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ ...BODY, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>Group folder <span style={{ fontWeight: 400, color: 'var(--wk-faint)' }}>- each person gets their subfolder inside it</span></div>
+          <div style={{ ...BODY, fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)' }}>Group folder <span style={{ fontWeight: 400, color: 'var(--wk-faint)' }}>- each person gets their subfolder inside it</span></div>
           {suggestions.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               {suggestions.map(p => (
                 <button key={p} type="button" onClick={() => setPath(p)}
-                  style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, padding: '4px 9px', borderRadius: 8, cursor: 'pointer', border: path === p ? '1.5px solid var(--wk-brand, #16a34a)' : '1px solid var(--wk-line2, rgba(0,0,0,0.12))', background: path === p ? 'var(--wk-brand-tint, rgba(22,163,74,0.08))' : 'transparent', color: 'var(--wk-ink)' }}>
+                  style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, padding: '4px 9px', borderRadius: 8, cursor: 'pointer', border: path === p ? '1.5px solid var(--wk-brand, #16a34a)' : '1px solid var(--wk-line2, rgba(0,0,0,0.12))', background: path === p ? 'var(--wk-brand-tint, rgba(22,163,74,0.08))' : 'transparent', color: 'var(--wk-ink)' }}>
                   {p}
                 </button>
               ))}
@@ -612,7 +612,7 @@ function FolderGroups({ onWiringChanged }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 12px 10px', borderBottom: '1px solid var(--wk-line2)' }}>
         <Sparkles size={15} style={{ color: 'var(--wk-dim)', flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ ...HEADING, fontSize: 13.5 }}>Folder Groups</div>
+          <div style={{ ...HEADING, fontSize: 13 }}>Folder Groups</div>
           <div style={{ ...BODY, fontSize: 12 }}>
             Give a whole group of people (say, everyone in the US on biweekly pay) their folders in one place, automatically.
           </div>
@@ -625,7 +625,7 @@ function FolderGroups({ onWiringChanged }) {
       {groups === null ? (
         <LoadingState compact />
       ) : groups.length === 0 ? (
-        <div style={{ ...BODY, fontSize: 12.5, padding: 12, color: 'var(--wk-faint)' }}>
+        <div style={{ ...BODY, fontSize: 13, padding: 12, color: 'var(--wk-faint)' }}>
           No groups yet. Press &ldquo;New Folder Group&rdquo; and describe one in plain words.
         </div>
       ) : groups.map((g, i) => (
@@ -635,7 +635,7 @@ function FolderGroups({ onWiringChanged }) {
             <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: 'var(--wk-hover, rgba(0,0,0,0.05))', color: 'var(--wk-dim)', flexShrink: 0 }}>
               {g.memberCount} {g.memberCount === 1 ? 'person' : 'people'}
             </span>
-            <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, color: 'var(--wk-dim)', flex: '1 1 200px', ...ELLIPSIS }} title={g.path}>{g.path}</span>
+            <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, color: 'var(--wk-dim)', flex: '1 1 200px', ...ELLIPSIS }} title={g.path}>{g.path}</span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <button type="button" className="secondary-btn" disabled={syncing === g.id} onClick={() => sync(g)} title="Create any missing person folders inside the group folder" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {syncing === g.id ? <Spinner size={13} /> : <RefreshCw size={13} />} Sync Folders
@@ -647,7 +647,7 @@ function FolderGroups({ onWiringChanged }) {
           </div>
           <div style={{ marginTop: 5 }}><RuleChips rule={g.rule} /></div>
           {syncResult?.id === g.id && (
-            <div style={{ ...BODY, fontSize: 12.5, marginTop: 6 }}>
+            <div style={{ ...BODY, fontSize: 13, marginTop: 6 }}>
               {syncResult.created.length
                 ? <>Created {syncResult.created.length} folder{syncResult.created.length === 1 ? '' : 's'}: {syncResult.created.map(c => c.name).join(', ')}. </>
                 : null}
@@ -707,10 +707,10 @@ export default function EgnyteWiring() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
       <div style={{ ...CARD, padding: '12px 14px' }}>
-        <div style={{ ...HEADING, fontSize: 14.5, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+        <div style={{ ...HEADING, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
           <Cable size={15} /> Where Nexus Looks in Egnyte
         </div>
-        <div style={{ ...BODY, fontSize: 12.5, maxWidth: 780 }}>
+        <div style={{ ...BODY, fontSize: 13, maxWidth: 780 }}>
           Every row below is a screen in Nexus that shows files, and the Egnyte folder those files
           come from. Open a row to read what it does or point it at a different folder - the change
           takes effect within a minute, and nothing is moved or copied inside Egnyte.
@@ -721,7 +721,7 @@ export default function EgnyteWiring() {
         const Icon = groupIcon(group);
         return (
           <div key={group} style={{ display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--wk-faint)', paddingLeft: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--wk-faint)', paddingLeft: 2 }}>
               <Icon size={13} /> {group}
             </div>
             <div style={{ ...CARD, minWidth: 0 }}>

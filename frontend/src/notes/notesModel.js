@@ -317,7 +317,7 @@ export function printNote(note, html) {
   const day = note.day ? formatDate(note.day) : '';
   doc.open();
   doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(noteTitle(note))}</title>
-<style>body{font:14px/1.6 Inter,system-ui,sans-serif;color:#111827;margin:40px}h1.t{font-size:22px;margin:0 0 4px}
+<style>body{font:14px/1.6 Inter,system-ui,sans-serif;color:#111827;margin:40px}h1.t{font-size:22px;margin:0 0 4px}/* type-ok: the exported page */
 .d{color:#6b7280;font-size:12px;margin-bottom:24px}table{border-collapse:collapse}td,th{border:1px solid #d1d5db;padding:4px 8px}
 blockquote{border-left:3px solid #d1d5db;margin:0;padding-left:12px;color:#4b5563}pre{background:#f3f4f6;padding:10px;border-radius:6px}
 ul[data-type=taskList]{list-style:none;padding-left:4px}li[data-checked=true]>*{text-decoration:line-through;color:#6b7280}

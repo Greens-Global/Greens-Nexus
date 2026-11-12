@@ -16,8 +16,8 @@ import { Spinner } from './AsyncState';
 import UploadReview from './hiring/UploadReview';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '14px 0 5px', textTransform: 'uppercase', letterSpacing: '.04em' };
-const th = { fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: 'left', padding: '7px 8px', borderBottom: '1px solid var(--line)', position: 'sticky', top: 0, background: 'var(--card)' };
-const td = { fontSize: 12.5, padding: '7px 8px', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const th = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: 'left', padding: '7px 8px', borderBottom: '1px solid var(--line)', position: 'sticky', top: 0, background: 'var(--card)' };
+const td = { fontSize: 13, padding: '7px 8px', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 const FILL_LABEL = { nexus: 'Nexus Fills It', ask: 'The New Hire (Intake Form)', hr: 'HR At The Offer', same: 'Same For Everyone', leave: 'Left Blank' };
 
 const valueOf = (b) => (b.fill === 'nexus' ? `nexus:${b.token}` : b.fill);
@@ -25,7 +25,7 @@ const valueOf = (b) => (b.fill === 'nexus' ? `nexus:${b.token}` : b.fill);
 // The "Filled With" choices - the same list for a found blank and one HR adds.
 function FillSelect({ value, onChange, label }) {
   return (
-    <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={value} onChange={e => onChange(e.target.value)} aria-label={label}>
+    <select className="form-input" style={{ width: '100%', fontSize: 13 }} value={value} onChange={e => onChange(e.target.value)} aria-label={label}>
       <optgroup label="Nexus Fills It">
         {NEXUS_FIELDS.map(([k, l]) => <option key={k} value={`nexus:${k}`}>{l}</option>)}
       </optgroup>
@@ -55,7 +55,7 @@ function MissedOne({ doc, onAdd }) {
   return (
     <div style={{ border: '1px dashed var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 800 }}>Missed One? Turn Any Text Into A Variable</div>
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Type a blank Nexus did not catch (like ____) or text that changes per hire (like Hyderabad or 6:00 PM). Every place it appears is listed - untick any to keep.</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Type a blank Nexus did not catch (like ____) or text that changes per hire (like Hyderabad or 6:00 PM). Every place it appears is listed - untick any to keep.</div>
       <input className="form-input" style={{ width: '100%', marginTop: 8 }} value={q} placeholder="Text from the document..."
         onChange={e => { setQ(e.target.value); setOff(new Set()); }} aria-label="Text to turn into a variable" />
       {q.trim().length >= 2 && (
@@ -66,7 +66,7 @@ function MissedOne({ doc, onAdd }) {
               <div style={{ fontSize: 12, fontWeight: 700, marginTop: 8 }}>Found in {matches.length} place{matches.length === 1 ? '' : 's'}</div>
               <div style={{ maxHeight: 160, overflow: 'auto', marginTop: 4 }}>
                 {matches.map((m, i) => (
-                  <label key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 11.5, padding: '3px 0', cursor: 'pointer' }}>
+                  <label key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, padding: '3px 0', cursor: 'pointer' }}>
                     <input type="checkbox" checked={!off.has(i)} style={{ marginTop: 2, accentColor: 'var(--pine)' }}
                       onChange={() => setOff(s => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; })} />
                     <span style={{ color: 'var(--muted)' }}>{m.context}</span>
@@ -77,9 +77,9 @@ function MissedOne({ doc, onAdd }) {
                 <input className="form-input" value={label} placeholder={`Label - e.g. ${q.trim() || 'Work Location'}`} onChange={e => setLabel(e.target.value)} aria-label="Label for the new variable" />
                 <div>
                   <FillSelect value={fill} onChange={setFill} label="What fills the new variable" />
-                  {fill === 'same' && <input className="form-input" style={{ width: '100%', fontSize: 12.5, marginTop: 5 }} value={value} onChange={e => setValue(e.target.value)} placeholder="Type it once" aria-label="Value for the new variable" />}
+                  {fill === 'same' && <input className="form-input" style={{ width: '100%', fontSize: 13, marginTop: 5 }} value={value} onChange={e => setValue(e.target.value)} placeholder="Type it once" aria-label="Value for the new variable" />}
                 </div>
-                <button type="button" className="primary-btn" disabled={!picked.length} onClick={add} style={{ fontSize: 12.5 }}>
+                <button type="button" className="primary-btn" disabled={!picked.length} onClick={add} style={{ fontSize: 13 }}>
                   Add {picked.length > 1 ? `(${picked.length} Places)` : ''}
                 </button>
               </div>
@@ -218,7 +218,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <FileText size={17} style={{ color: 'var(--pine)' }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{purpose ? (step === 'review' ? 'Check What Nexus Found' : 'Upload A Word File') : 'New Template From A Word File'}</div>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>{purpose ? (step === 'review' ? 'Check What Nexus Found' : 'Upload A Word File') : 'New Template From A Word File'}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
               {purpose ? [title, file?.name].filter(Boolean).join(' - ') || 'Nexus reads the file and finds every blank and signature line for you.'
                 : step === 'upload' ? 'Nexus reads the file and finds every blank and signature line for you.'
@@ -236,7 +236,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
                 onDrop={e => { e.preventDefault(); pick(e.dataTransfer.files?.[0]); }}
                 style={{ marginTop: 14, border: '1.5px dashed var(--line)', borderRadius: 14, padding: '26px 16px', textAlign: 'center', cursor: 'pointer', background: 'var(--mist)', alignItems: 'center', justifyContent: 'center' }}>
                 <Upload size={22} style={{ color: 'var(--muted)' }} />
-                <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 6 }}>{file ? file.name : 'Drop the Word file here, or click to choose'}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginTop: 6 }}>{file ? file.name : 'Drop the Word file here, or click to choose'}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>.docx - the page size, tables and fonts come across as they are.</div>
                 <input ref={inputRef} type="file" accept=".docx" style={{ display: 'none' }} aria-label="Word file" onChange={e => pick(e.target.files?.[0])} />
               </div>
@@ -260,15 +260,15 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
             <>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0 4px' }}>
                 {['nexus', 'ask', 'hr', 'same', 'leave'].map(k => (
-                  <span key={k} style={{ fontSize: 11.5, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: 'var(--mist)' }}>
+                  <span key={k} style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: 'var(--mist)' }}>
                     {FILL_LABEL[k]}: {counts[k] || 0}
                   </span>
                 ))}
-                <span style={{ fontSize: 11.5, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>
                   Signature Spots: {sigs.filter(s => s.fill === 'sign').length}
                 </span>
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
                 <b>Nexus fills it</b> - from the hire and the offer (name, company, start date, pay, work location...). <b>Ask the person</b> - their own details (ID numbers, bank...), asked on their phone form with no login; tick <b>Private</b> for anything only Pay &amp; Benefits should see.
                 {' '}<b>HR answers at offer</b> - only HR knows it and it changes per hire (probation, a bonus...); asked when HR makes the offer. <b>Same for everyone</b> - typed once here (a client's name). <b>Left blank</b> - stays as it is, filled by hand.
               </div>
@@ -281,10 +281,10 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
                       <div key={b.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
                         <PenTool size={14} style={{ color: 'var(--pine)', flexShrink: 0 }} />
                         <div style={{ flex: '1 1 260px', minWidth: 0 }}>
-                          <div style={{ fontSize: 12.5, fontWeight: 700 }}>{b.label}</div>
+                          <div style={{ fontSize: 13, fontWeight: 700 }}>{b.label}</div>
                           <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>"{b.context}"{b.absorb?.length ? ' - and the Date / Name lines under it' : ''}</div>
                         </div>
-                        <select className="form-input" style={{ width: 210, fontSize: 12.5 }} aria-label={`Who signs ${b.label}`}
+                        <select className="form-input" style={{ width: 210, fontSize: 13 }} aria-label={`Who signs ${b.label}`}
                           value={b.fill === 'sign' ? b.who : 'leave'}
                           onChange={e => setBlank(b.id, e.target.value === 'leave' ? { fill: 'leave' } : { fill: 'sign', who: e.target.value })}>
                           <option value="employee">The Person Signs Here</option>
@@ -305,7 +305,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
                     {fields.map(b => (
                       <tr key={b.id} style={{ background: b.fill === 'leave' ? 'transparent' : undefined }}>
                         <td style={{ ...td, fontWeight: 700, maxWidth: 220 }}>{b.label}</td>
-                        <td style={{ ...td, color: 'var(--muted)', fontSize: 11.5, maxWidth: 300 }}>
+                        <td style={{ ...td, color: 'var(--muted)', fontSize: 12, maxWidth: 300 }}>
                           <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.context}>
                             {b.kind === 'text' ? `Added by you - "${b.match}", ${b.places.length} place${b.places.length === 1 ? '' : 's'}` : b.kind === 'cell' ? 'Table' : b.context}
                           </span>
@@ -317,18 +317,18 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
                         <td style={{ ...td, minWidth: 230 }}>
                           <FillSelect value={valueOf(b)} onChange={v => choose(b, v)} label={`What fills ${b.label}`} />
                           {b.fill === 'same' && (
-                            <input className="form-input" style={{ width: '100%', fontSize: 12.5, marginTop: 5 }} placeholder="Type it once - e.g. the client's name"
+                            <input className="form-input" style={{ width: '100%', fontSize: 13, marginTop: 5 }} placeholder="Type it once - e.g. the client's name"
                               value={b.value || ''} onChange={e => setBlank(b.id, { value: e.target.value })} aria-label={`Value for ${b.label}`} />
                           )}
                           {b.fill === 'ask' && (
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, marginTop: 5, cursor: 'pointer' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 5, cursor: 'pointer' }}>
                               <input type="checkbox" checked={b.private ?? guessPrivate(b.label)} style={{ accentColor: 'var(--pine)' }}
                                 onChange={e => setBlank(b.id, { private: e.target.checked })} aria-label={`${b.label} is private`} />
                               Private - only Pay &amp; Benefits sees it
                             </label>
                           )}
                           {b.fill === 'hr' && (
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, marginTop: 5, cursor: 'pointer' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginTop: 5, cursor: 'pointer' }}>
                               <input type="checkbox" checked={b.pay ?? guessPay(b.label)} style={{ accentColor: 'var(--pine)' }}
                                 onChange={e => setBlank(b.id, { pay: e.target.checked })} aria-label={`${b.label} is pay`} />
                               This is pay - only Pay &amp; Benefits enters it
@@ -354,11 +354,11 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
           {step === 'done' && created && (
             <div style={{ textAlign: 'center', padding: '22px 6px 6px' }}>
               <CheckCircle size={34} style={{ color: 'hsl(var(--color-green))' }} />
-              <div style={{ fontSize: 16, fontWeight: 800, marginTop: 8 }}>{created.name}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, marginTop: 8 }}>{created.name}</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
                 Published v{created.version} - {created.variables} variable{created.variables === 1 ? '' : 's'}, {created.signatures} signature spot{created.signatures === 1 ? '' : 's'}.
               </div>
-              <div style={{ fontSize: 12.5, marginTop: 14, lineHeight: 1.6, textAlign: 'left', background: 'var(--mist)', borderRadius: 12, padding: '10px 14px' }}>
+              <div style={{ fontSize: 13, marginTop: 14, lineHeight: 1.6, textAlign: 'left', background: 'var(--mist)', borderRadius: 12, padding: '10px 14px' }}>
                 Next: add it to a packet in <b>People &gt; Hiring &gt; Packets</b> - an <b>Offer Letter</b> for the offer, or a hiring packet. Every "Ask the person" question goes on the person's form by itself, and every "HR answers" question is asked when HR makes the offer.
               </div>
             </div>
@@ -382,7 +382,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
           {step === 'review' && purpose && (
             <>
               {missingValues.length > 0 && (
-                <span style={{ flex: 1, fontSize: 12.5, color: '#b45309', fontWeight: 600 }}>Type the value for {missingValues.map(b => b.label).join(', ')}, or pick who fills it.</span>
+                <span style={{ flex: 1, fontSize: 13, color: '#b45309', fontWeight: 600 }}>Type the value for {missingValues.map(b => b.label).join(', ')}, or pick who fills it.</span>
               )}
               <button type="button" className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
               <button type="button" className="primary-btn" onClick={create} disabled={!!busy || !name.trim() || missingValues.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

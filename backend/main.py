@@ -1643,6 +1643,14 @@ def _run_migrations():
             "ALTER TABLE nexus_meeting_notes ADD COLUMN transcript_ready_at VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_meeting_notes ADD COLUMN ready_checked_at VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
+            "ALTER TABLE nexus_meeting_notes ADD COLUMN kind VARCHAR DEFAULT 'teams'",
+            "ALTER TABLE nexus_meeting_notes ADD COLUMN online_url TEXT DEFAULT ''",
+            # Build Mode in the cloud (Neil, 11/12/2026) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN claude_session_url VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_note_sessions ADD COLUMN claude_session_url VARCHAR DEFAULT ''",
+            # A pin made from a ticket (11/12/2026) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN ticket_id VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN ticket_code VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3939,6 +3947,22 @@ def _run_migrations():
         "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS transcript_ready_at VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS ready_checked_at VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
+        # Meeting Notes Phase 3 (Neil, 11/12/2026): what kind of meeting and
+        # another service's link (existing table); the transcripts made on the
+        # device - a new table, explicit RLS. models.NexusMeetingTranscript.
+        "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'teams'",
+        "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS online_url TEXT DEFAULT ''",
+        "ALTER TABLE nexus_meeting_transcripts ENABLE ROW LEVEL SECURITY",
+        # Build Mode in the cloud (Neil, 11/12/2026): the Claude Code cloud
+        # session a sent pin is being worked in, shown as Open Claude Session
+        # on the pin and its Build Session (build_mode_cloud.py).
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS claude_session_url VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_note_sessions ADD COLUMN IF NOT EXISTS claude_session_url VARCHAR DEFAULT ''",
+        # Send To Claude Code on a ticket (Neil, 11/12/2026: everyone outside
+        # the IT development team comes in through a ticket): the pin keeps
+        # which ticket it was made from (build_mode_tickets.py).
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS ticket_code VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4382,6 +4406,15 @@ def _tier_seeds():
         except Exception as e:
             db.rollback()
             print(f"[startup] owner grant level pass skipped: {e}")
+        try:
+            import build_mode_access_seed   # Build Mode is its own access (Neil, 11/12/2026)
+            res = build_mode_access_seed.apply_once(db)
+            if res is not None:
+                print(f"[startup] Build Mode access set - group: {res['group'] or 'one already grants it, left alone'}; "
+                      f"added: {', '.join(res['added']) or 'none'}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] Build Mode access seed skipped: {e}")
         try:
             import record_links   # [[ links written before the link table existed (11/07/2026)
             res = record_links.backfill_once(db)
@@ -5966,6 +5999,8 @@ from routers import accounting_manual_je  # noqa: E402
 app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)
 from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere, no ALTER lines
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
+from routers import build_mode_connector as build_mode_connector_router  # noqa: E402 - no tables
+app.include_router(build_mode_connector_router.router)  # the Nexus connector for Claude: Build Mode pins only, off until NEXUS_BUILD_CONNECTOR=true (Neil, 11/12/2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
 from routers import hr_custom_fields as hr_custom_fields_router  # noqa: E402 - new table: create_all + explicit RLS line above

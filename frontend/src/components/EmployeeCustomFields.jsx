@@ -17,7 +17,7 @@ export function FieldInput({ field, value, onChange, error, id }) {
   const common = { id, 'aria-label': field.label, 'aria-invalid': error ? true : undefined };
   if (field.fieldType === 'checkbox') {
     return (
-      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13.5, cursor: 'pointer' }}>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
         <input type="checkbox" {...common} checked={!!value} onChange={(e) => onChange(e.target.checked)} />
         {value ? 'Yes' : 'No'}
       </label>
@@ -103,14 +103,14 @@ function MoreDetailsBody({ load, save, readOnly = false, showVisibility = false,
   };
 
   if (!data) return <SkeletonBlocks count={3} height={34} />;
-  if (err) return <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', padding: '8px 0' }}>{err}</div>;
-  if (!fields.length) return emptyText ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>{emptyText}</div> : null;
+  if (err) return <div style={{ fontSize: 13, color: 'hsl(var(--color-red))', padding: '8px 0' }}>{err}</div>;
+  if (!fields.length) return emptyText ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>{emptyText}</div> : null;
 
   return (
     <div>
       {canEdit && !editing && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
-          <button className="secondary-btn" onClick={startEdit} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+          <button className="secondary-btn" onClick={startEdit} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
             <Pencil size={12} /> Edit
           </button>
         </div>
@@ -130,12 +130,12 @@ function MoreDetailsBody({ load, save, readOnly = false, showVisibility = false,
               <div style={{ flex: 1, minWidth: 'min(100%, 220px)' }}>
                 <FieldInput field={f} id={id} value={form[f.fieldKey]} error={errors[f.fieldKey]}
                   onChange={(v) => { setForm((m) => ({ ...m, [f.fieldKey]: v })); setErrors((m) => ({ ...m, [f.fieldKey]: '' })); }} />
-                {errors[f.fieldKey] && <div role="alert" style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', marginTop: 4 }}>{errors[f.fieldKey]}</div>}
+                {errors[f.fieldKey] && <div role="alert" style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginTop: 4 }}>{errors[f.fieldKey]}</div>}
               </div>
             ) : (
-              <span style={{ fontSize: 13.5, color: shown ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0, whiteSpace: f.fieldType === 'text' ? 'pre-wrap' : 'nowrap' }}>
+              <span style={{ fontSize: 13, color: shown ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0, whiteSpace: f.fieldType === 'text' ? 'pre-wrap' : 'nowrap' }}>
                 {shown || '-'}
-                {editing && !f.editable && <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 8 }}>(HR changes this)</span>}
+                {editing && !f.editable && <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 8 }}>(HR changes this)</span>}
               </span>
             )}
           </div>

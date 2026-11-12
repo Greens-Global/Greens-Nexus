@@ -32,7 +32,7 @@ export default function NoteSheet({ row, action, onSubmit, onClose }) {
       <div className="apv-ph-note-wrap nx-fill">
         <label className="apv-ph-note-why" htmlFor="apv-ph-note">Why?</label>
         <p className="apv-ph-note-hint">{ask.message || (required ? 'They see this note with the decision.' : 'Optional - they see it with the decision.')}</p>
-        <textarea id="apv-ph-note" className="form-input apv-ph-note" style={{ fontSize: 16 }} placeholder={placeholder}
+        <textarea id="apv-ph-note" className="form-input apv-ph-note" style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} placeholder={placeholder}
           value={text} onChange={(e) => setText(e.target.value)} autoFocus
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.currentTarget.closest('[role="dialog"]')?.querySelector('[data-note-send]')?.click(); } }} />
         {required && <small className="apv-ph-note-req">A note is required for this one.</small>}

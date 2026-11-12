@@ -123,14 +123,14 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
           {isMe && <span style={{ fontWeight: 600, color: 'var(--wk-brand)', fontSize: 12, flexShrink: 0 }}>You</span>}
         </div>
         {extra && <div style={{ margin: '2px 0' }}>{extra}</div>}
-        {hrs !== null && <div style={{ fontSize: 11.5, color: over.length ? 'hsl(var(--color-orange))' : 'var(--muted)', fontWeight: over.length ? 700 : 500, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
+        {hrs !== null && <div style={{ fontSize: 12, color: over.length ? 'hsl(var(--color-orange))' : 'var(--muted)', fontWeight: over.length ? 700 : 500, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
           title={over.length ? `Over 40 scheduled hours in a week (${over.map(fmtHrs).join(', ')})` : 'Paid hours this week'}>
           {over.length > 0 && <AlertTriangle size={11} aria-label="Over 40 hours" />}
           {fmtHrs(hrs)}{over.length > 0 && ' · over 40'}
           {viewOnly && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4 }}><Lock size={10} /> View Only</span>}
         </div>}
         {prefsText && (
-          <div data-hours-prefs title="Their preferred and most hours a week (My Availability). A guide, never a block." style={{ fontSize: 10.5, color: 'var(--muted)', ...ELLIPSIS }}>{prefsText}</div>
+          <div data-hours-prefs title="Their preferred and most hours a week (My Availability). A guide, never a block." style={{ fontSize: 11, color: 'var(--muted)', ...ELLIPSIS }}>{prefsText}</div>
         )}
         {usual && (
           <div title="Their usual hours (shift type). Fill Automatically places them." style={{ fontSize: 11, color: 'var(--muted)', ...ELLIPSIS }}>
@@ -176,7 +176,7 @@ export function DayHeader({ d, stats, isToday, isHol, note, weather = null, onWe
           {compact ? d.getDate() : dayShort(d)}
           {month && !compact && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)' }}>{month}</span>}
         </button>
-        {isHol && !compact && <span title={typeof isHol === 'string' ? isHol : 'Holiday'} style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', ...ELLIPSIS }}>{typeof isHol === 'string' ? isHol : 'Holiday'}</span>}
+        {isHol && !compact && <span title={typeof isHol === 'string' ? isHol : 'Holiday'} style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-blue))', ...ELLIPSIS }}>{typeof isHol === 'string' ? isHol : 'Holiday'}</span>}
         <span style={{ flex: 1 }} />
         <WeatherChip w={weather} compact={compact} onClick={onWeather} />
         {noteIcon}
@@ -251,7 +251,7 @@ export function TimeOffPill({ t, days, c0, n, lane, row, compact = false, onCanc
       {...cancelProps(onCancel, `${type}, ${fullRange}`)}
       style={{ cursor: onCancel ? 'pointer' : undefined, gridRow: row, gridColumn: `${c0 + 2} / span ${n}`, alignSelf: 'start', margin: `${PAD + lane * (PILL_H + PILL_GAP)}px ${PAD}px 0`, height: PILL_H, zIndex: 1,
         boxSizing: 'border-box', minWidth: 0, display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '0 4px' : '0 8px', borderRadius: 6,
-        background: ROSE_BG, border: `1px ${approved ? 'solid' : 'dashed'} ${ROSE_LINE}`, color: ROSE_INK, fontSize: compact ? 10.5 : 11.5, fontWeight: 700 }}>
+        background: ROSE_BG, border: `1px ${approved ? 'solid' : 'dashed'} ${ROSE_LINE}`, color: ROSE_INK, fontSize: compact ? 11 : 12, fontWeight: 700 }}>
       {before && <ChevronLeft size={12} aria-label="Continues from last week" style={{ flexShrink: 0, marginLeft: -2 }} />}
       <span style={{ ...ELLIPSIS, minWidth: 0 }}>{type}{range && !compact ? <span style={{ fontWeight: 500 }}> · {range}</span> : null}</span>
       {t.confidential && <Lock size={10} aria-label="Confidential" style={{ flexShrink: 0 }} />}
@@ -276,7 +276,7 @@ export function CoverageChip({ c, compact = false, onShort }) {
     <button type="button" data-coverage={c.tone} onClick={short ? (e) => { e.stopPropagation(); onShort(c); } : undefined} title={tip} disabled={!short}
       aria-label={`${c.expected ? `${c.on} of ${c.expected}` : c.on} on. ${tip.replace(/\n/g, '. ')}`}
       style={{ display: 'block', width: '100%', border: 'none', background: 'none', padding: 0, cursor: short ? 'pointer' : 'default', fontFamily: 'inherit', textAlign: 'left', minWidth: 0 }}>
-      <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, fontSize: compact ? 10 : 10.5, fontWeight: 700, color: c.tone === 'met' ? 'var(--muted)' : color, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+      <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, fontSize: compact ? 11 : 11, fontWeight: 700, color: c.tone === 'met' ? 'var(--muted)' : color, whiteSpace: 'nowrap', overflow: 'hidden' }}>
         {c.expected ? `${c.on} of ${c.expected}` : c.on}{!compact && <span style={{ fontWeight: 500 }}>on</span>}
       </span>
       <span aria-hidden="true" style={{ display: 'block', height: 3, borderRadius: 2, background: 'var(--line)', marginTop: 2, overflow: 'hidden' }}>
@@ -377,7 +377,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         {items.map((s) => block(s, email, ds, groupId, items.length === 1))}
         {!items.length && editable && on && (ghost ? (
           <div className="sched-add" data-ghost="" aria-hidden="true" style={{ position: 'absolute', left: compact ? 3 : PAD, right: compact ? 3 : PAD, top: (compact ? 3 : PAD) + top, opacity: 0, pointerEvents: 'none' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '2px 4px' : '4px 8px', borderRadius: 6, border: `1px dashed ${ghost.color || 'var(--wk-line2, var(--line))'}`, background: 'color-mix(in srgb, var(--card) 70%, transparent)', color: 'var(--muted)', fontSize: compact ? 10 : 11.5, fontWeight: 700, ...ELLIPSIS, opacity: 0.85 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '2px 4px' : '4px 8px', borderRadius: 6, border: `1px dashed ${ghost.color || 'var(--wk-line2, var(--line))'}`, background: 'color-mix(in srgb, var(--card) 70%, transparent)', color: 'var(--muted)', fontSize: compact ? 11 : 12, fontWeight: 700, ...ELLIPSIS, opacity: 0.85 }}>
               <Plus size={11} style={{ flexShrink: 0 }} />
               <span style={ELLIPSIS}>{shiftShortText(ghost)}</span>
             </div>
@@ -401,7 +401,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         padding: '9px 14px', display: 'flex', alignItems: 'flex-end', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
         <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
           {showHours && <span title="Paid hours of the people shown. Open shifts are counted on their own row.">Week · {fmtHrs(weekMin)}</span>}
-          {headCover && <span style={{ fontSize: 10.5, fontWeight: 600 }} title="Expected = usual hours on that weekday, minus anyone off. On = anyone with a shift.">Coverage</span>}
+          {headCover && <span style={{ fontSize: 11, fontWeight: 600 }} title="Expected = usual hours on that weekday, minus anyone off. On = anyone with a shift.">Coverage</span>}
         </span>
         {cornerTools}
       </div>
@@ -422,12 +422,12 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
     const nr = addRow('auto');
     out.push(
       <div key="notes" role="row" style={{ display: 'contents' }}>
-        <div style={stickyLeft(nr, { padding: '7px 14px', fontSize: 11.5, fontWeight: 600, color: 'var(--muted)' })}>Day Notes</div>
+        <div style={stickyLeft(nr, { padding: '7px 14px', fontSize: 12, fontWeight: 600, color: 'var(--muted)' })}>Day Notes</div>
         {days.map((d, c) => {
           const note = notes[isoDate(d)];
           return (
             <div key={isoDate(d)} role={cellRole} title={note || undefined}
-              style={cellStyle(nr, c, d, { display: 'block', padding: '7px 10px', fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-orange))', ...ELLIPSIS })}>
+              style={cellStyle(nr, c, d, { display: 'block', padding: '7px 10px', fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-orange))', ...ELLIPSIS })}>
               {note || ''}
             </div>
           );
@@ -461,7 +461,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
           {any ? (
             <span style={{ minWidth: 0, lineHeight: 1.35 }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>Open Shifts</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{cnt} open · {fmtHrs(min)}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{cnt} open · {fmtHrs(min)}</div>
             </span>
           ) : (
             <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Open Shifts</span>
@@ -475,7 +475,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
 
   if (!sections.length) {
     const er = addRow('auto');
-    out.push(<div key="empty" style={{ gridRow: er, gridColumn: '1 / -1', padding: 24, textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>Nobody is on the schedule in this view.</div>);
+    out.push(<div key="empty" style={{ gridRow: er, gridColumn: '1 / -1', padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Nobody is on the schedule in this view.</div>);
   }
 
   // ── Groups ─────────────────────────────────────────────────────────────

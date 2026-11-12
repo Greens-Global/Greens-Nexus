@@ -11,7 +11,7 @@ import { useListNav } from '../../lib/listNav';
 
 const pill = (on) => ({
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', borderRadius: 9, cursor: 'pointer',
-  fontFamily: 'var(--wk-font)', fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap',
+  fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
   border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--wk-line2)'}`,
   background: on ? 'var(--wk-brand-tint)' : 'var(--card)', color: on ? 'var(--wk-brand)' : 'var(--ink)',
 });
@@ -157,11 +157,11 @@ function ViewEditor({ view, onClose, onDone }) {
           </label>
 
           {opts === null ? (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+            <div style={{ fontSize: 13, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
               <Spinner size={14} /> Loading your teams…
             </div>
           ) : opts === false ? (
-            <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load the team options - close and try again.</div>
+            <div style={{ fontSize: 13, color: '#b91c1c' }}>Could not load the team options - close and try again.</div>
           ) : (<>
             <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
               The view shows people who match every filter you set below, plus anyone you pick by name.
@@ -195,7 +195,7 @@ function ViewEditor({ view, onClose, onDone }) {
               </span>
               <div role="listbox" aria-label="People" aria-multiselectable="true" style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 10 }}>
                 {people.length === 0 ? (
-                  <div style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>No one matches.</div>
+                  <div style={{ padding: 12, fontSize: 13, color: 'var(--muted)' }}>No one matches.</div>
                 ) : people.map((p, i) => (
                   <label key={p.email} {...nav.optionProps(i)} aria-selected={picked.has(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 13 }}>
                     <input type="checkbox" checked={picked.has(p.email)} onChange={() => toggle('people', p.email)} />
@@ -216,7 +216,7 @@ function ViewEditor({ view, onClose, onDone }) {
         </div>
 
         <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span role="status" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', marginRight: 'auto' }}>
+          <span role="status" style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginRight: 'auto' }}>
             {nothing ? <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Nothing picked yet</span>
               : counting ? <span style={{ color: 'var(--muted)', fontWeight: 500 }}>Counting…</span>
                 : match.count === null ? '' : `${match.count} ${match.count === 1 ? 'person' : 'people'} match`}
@@ -240,7 +240,7 @@ function ViewEditor({ view, onClose, onDone }) {
 const LBL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em' };
 const chip = (on) => ({
   display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 999, cursor: 'pointer',
-  fontFamily: 'var(--wk-font)', fontSize: 12.5, fontWeight: 600,
+  fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 600,
   border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--wk-line2)'}`,
   background: on ? 'var(--wk-brand-tint)' : 'var(--card)', color: on ? 'var(--wk-brand)' : 'var(--ink)',
 });

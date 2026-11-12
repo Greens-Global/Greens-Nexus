@@ -50,7 +50,7 @@ export function RoleBadge({ role }) {
   const lead = role === 'lead';
   return (
     <span style={{
-      fontSize: 10, fontWeight: 700, letterSpacing: '.03em', padding: '1px 7px', borderRadius: 999, marginLeft: 6, verticalAlign: 'middle',
+      fontSize: 11, fontWeight: 700, letterSpacing: '.03em', padding: '1px 7px', borderRadius: 999, marginLeft: 6, verticalAlign: 'middle',
       background: lead ? 'rgba(22,163,74,0.12)' : NX.border2, color: lead ? '#15803d' : NX.dim,
     }}>{lead ? 'Lead' : 'Backup'}</span>
   );
@@ -83,7 +83,7 @@ export function StatusPills({ p }) {
   if (!pr && !av) return null;
   const pill = (color, tint, label, title) => (
     <span title={title} style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 7px', borderRadius: 999, fontSize: 10.5, fontWeight: 700,
+      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 7px', borderRadius: 999, fontSize: 11, fontWeight: 700,
       background: tint, color, whiteSpace: 'nowrap', flexShrink: 0, lineHeight: '16px',
     }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />{label}
@@ -112,7 +112,7 @@ function Person({ p, onSelect, me }) {
   return (
     <button type="button" onClick={() => onSelect(p.email)} className="dir-pill" title={p.jobTitle || p.email} style={{
       display: 'inline-flex', alignItems: 'center', gap: 7, padding: '3px 10px 3px 3px', borderRadius: 999, cursor: 'pointer',
-      border: `1px solid ${p.email === me ? NX.primary : NX.border}`, background: NX.surface, fontFamily: FONT, fontSize: 12.5, fontWeight: 600,
+      border: `1px solid ${p.email === me ? NX.primary : NX.border}`, background: NX.surface, fontFamily: FONT, fontSize: 13, fontWeight: 600,
       color: NX.ink, maxWidth: '100%',
     }}>
       <Avatar p={p} size={22} radius={7} />
@@ -164,7 +164,7 @@ export default function ProfilePanel({
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
       {mobile && (
-        <button type="button" onClick={onBack} className="dir-tool" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontWeight: 600, fontSize: 13.5, cursor: 'pointer', padding: '8px 14px', borderRadius: 9, marginBottom: 14, fontFamily: FONT, minHeight: 40 }}>
+        <button type="button" onClick={onBack} className="dir-tool" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontWeight: 600, fontSize: 13, cursor: 'pointer', padding: '8px 14px', borderRadius: 9, marginBottom: 14, fontFamily: FONT, minHeight: 40 }}>
           <ArrowLeft size={16} /> Back to List
         </button>
       )}
@@ -173,7 +173,7 @@ export default function ProfilePanel({
         <Avatar p={p} size={76} radius={20} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-            <h3 style={{ margin: 0, fontSize: 19, fontWeight: 800, lineHeight: 1.2, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, lineHeight: 1.2, flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
               {p.name}{p.email === me && <span style={{ fontSize: 12, color: NX.faint, fontWeight: 600, marginLeft: 6 }}>(you)</span>}
             </h3>
             <button type="button" onClick={() => onPin(p.email)} title={isPinned ? 'Unpin' : 'Pin to the top of your list'} aria-pressed={isPinned} style={{
@@ -183,13 +183,13 @@ export default function ProfilePanel({
             </button>
           </div>
           {(p.jobTitle || p.designation) && (
-            <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 2 }}>
+            <div style={{ fontSize: 13, color: NX.dim, marginTop: 2 }}>
               {p.jobTitle}{p.designation && p.designation !== p.jobTitle ? ` · ${p.designation}` : ''}
             </div>
           )}
-          <div style={{ fontSize: 12.5, color: NX.faint, marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: '0 6px', alignItems: 'center' }}>
+          <div style={{ fontSize: 13, color: NX.faint, marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: '0 6px', alignItems: 'center' }}>
             {p.department && (
-              <button type="button" onClick={() => onDepartment?.(p.department)} style={{ border: 'none', background: 'none', padding: 0, color: NX.dim, fontFamily: FONT, fontSize: 12.5, fontWeight: 600, cursor: onDepartment ? 'pointer' : 'default' }}>
+              <button type="button" onClick={() => onDepartment?.(p.department)} style={{ border: 'none', background: 'none', padding: 0, color: NX.dim, fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: onDepartment ? 'pointer' : 'default' }}>
                 {p.department}<RoleBadge role={p.departmentRole} />
               </button>
             )}
@@ -227,7 +227,7 @@ export default function ProfilePanel({
 
       <dl style={{ display: 'grid', gridTemplateColumns: mobile ? 'minmax(70px, auto) minmax(0, 1fr)' : 'minmax(96px, auto) minmax(0, 1fr)', gap: mobile ? '10px 8px' : '9px 14px', margin: '18px 0 0', alignItems: 'center' }}>
         <Row icon={Mail} label="Email">
-          <a href={mailto(p.email)} target="_blank" rel="noreferrer" style={{ color: NX.ink, textDecoration: 'none', overflowWrap: 'anywhere', minWidth: 0, fontSize: mobile ? 12.5 : 13 }}>{p.email}</a>
+          <a href={mailto(p.email)} target="_blank" rel="noreferrer" style={{ color: NX.ink, textDecoration: 'none', overflowWrap: 'anywhere', minWidth: 0, fontSize: 13 }}>{p.email}</a>
           <CopyButton value={p.email} label="email" />
         </Row>
         {p.officePhone && (
@@ -264,7 +264,7 @@ export default function ProfilePanel({
               <Person p={m} onSelect={onSelect} me={me} />
             </span>
           ))
-          : <span style={{ color: NX.faint, fontSize: 12.5 }}>No manager on record</span>}
+          : <span style={{ color: NX.faint, fontSize: 13 }}>No manager on record</span>}
       </Section>
       {reports.length > 0 && (
         <Section icon={Users} title={`Direct Reports (${reports.length})`}>
@@ -275,7 +275,7 @@ export default function ProfilePanel({
         <Section icon={Building2} title={`Also in ${p.department}`}>
           {peers.slice(0, 12).map((r) => <Person key={r.email} p={r} onSelect={onSelect} me={me} />)}
           {peers.length > 12 && (
-            <button type="button" onClick={() => onDepartment?.(p.department)} style={{ border: 'none', background: 'none', color: NX.primary, fontFamily: FONT, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+            <button type="button" onClick={() => onDepartment?.(p.department)} style={{ border: 'none', background: 'none', color: NX.primary, fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               +{peers.length - 12} more
             </button>
           )}
@@ -307,7 +307,7 @@ function Tool({ icon: Icon, onClick, children }) {
   return (
     <button type="button" onClick={onClick} className="dir-tool" style={{
       display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', borderRadius: 8, border: `1px solid ${NX.border}`,
-      background: NX.surface, color: NX.ink, fontFamily: FONT, fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+      background: NX.surface, color: NX.ink, fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: 'pointer',
     }}>
       <Icon size={14} /> {children}
     </button>

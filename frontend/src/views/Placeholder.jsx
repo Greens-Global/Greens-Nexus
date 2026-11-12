@@ -12,7 +12,7 @@ export default function Placeholder({ viewName, onBack }) {
         <SearchX style={{ width: 30, height: 30 }} aria-hidden="true" />
       </div>
       <div>
-        <h2 style={{ fontSize: 22, margin: "0 0 6px" }}>Page Not Found</h2>
+        <h2 style={{ fontSize: 24, margin: "0 0 6px" }}>Page Not Found</h2>
         <p style={{ color: "var(--muted)", margin: 0, lineHeight: 1.5 }}>
           There is no page at this address{viewName ? ` ("/${viewName}")` : ""}. The link may be old or mistyped.
         </p>

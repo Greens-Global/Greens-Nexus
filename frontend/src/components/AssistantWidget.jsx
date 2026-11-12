@@ -155,7 +155,7 @@ function AssistantWidgetInner() {
         {/* Messages */}
         <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {messages.length === 0 && (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
               Ask about your own Nexus data - hours, tasks, items, documents, e-signatures, time off, HR requests, paystubs, payroll status, vault credentials, notifications, or search the Knowledge Base.
             </div>
           )}
@@ -173,7 +173,7 @@ function AssistantWidgetInner() {
             </div>
           ))}
           {sending && (
-            <div style={{ alignSelf: 'flex-start', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+            <div style={{ alignSelf: 'flex-start', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               <Spinner size={13} /> Thinking...
             </div>
           )}

@@ -21,7 +21,7 @@ import { useGroupDirty } from '../lib/groupDirty';
 import { dialog } from '../ui/dialog';
 import TicketInboundLog, { TicketInboundSettings } from './TicketInboundEmail';
 
-const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+const fieldLabel = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
 const EVENT_LABELS = {
   created: 'Ticket created', assigned: 'Ticket assigned', updated: 'Replies to the requester',
@@ -69,7 +69,7 @@ function Field({ label, hint, children }) {
     <div style={field}>
       <label style={fieldLabel}>{label}</label>
       {children}
-      {hint && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>{hint}</div>}
     </div>
   );
 }
@@ -115,7 +115,7 @@ export default function TicketNotifySettings() {
 
   if (myLevel < 3) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>
         Manager access or above is required to view ticket notification settings.
       </div>
     );
@@ -175,7 +175,7 @@ export default function TicketNotifySettings() {
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 480px) minmax(320px, 420px)', gap: 16, alignItems: 'start' }}>
             <div style={{ ...card, padding: 18 }}>
               {locked && (
-                <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
                   The sending mailbox, Default CC and reply-to address apply to every company - only a Super Administrator can change them.
                 </div>
               )}
@@ -208,28 +208,28 @@ export default function TicketNotifySettings() {
                 <label style={{ ...fieldLabel, flex: 1 }}>Notification Types</label>
                 <SavedCheck show={saved} />
               </div>
-              <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 4 }}>Each switch saves as you flip it.</div>
+              <div style={{ fontSize: 12, color: NX.faint, marginBottom: 4 }}>Each switch saves as you flip it.</div>
               {Object.entries(EVENT_LABELS).map(([k, lab]) => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
-                  <span style={{ fontSize: 13.5 }}>{lab}</span>
+                  <span style={{ fontSize: 13 }}>{lab}</span>
                   <Toggle on={!!cfg.enabledEvents?.[k]} label={lab} disabled={instantBusy} onChange={() => setEvent(k, !cfg.enabledEvents?.[k])} />
                 </div>
               ))}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderTop: `1px solid ${NX.border2}`, marginTop: 4 }}>
-                <span style={{ fontSize: 13.5 }}>Comments trigger an email and Teams message</span>
+                <span style={{ fontSize: 13 }}>Comments trigger an email and Teams message</span>
                 <Toggle on={!!cfg.commentsTrigger} label="Comments trigger an email and Teams message" disabled={instantBusy} onChange={() => setNow('commentsTrigger', !cfg.commentsTrigger)} />
               </div>
               {/* Requesters are emailed and messaged on Teams only when their
                   ticket is assigned, gets a reply, or is resolved/closed (Neil,
                   Oct 1 2026) - attachments no longer email anyone, so their
                   toggle is gone (the setting key stays, unused). */}
-              <div style={{ fontSize: 11.5, color: NX.faint, paddingTop: 6 }}>
+              <div style={{ fontSize: 12, color: NX.faint, paddingTop: 6 }}>
                 Requesters get an email and a Teams message only when their ticket is assigned, gets a reply, or is resolved or closed. Their own changes never message them.
               </div>
             </div>
           </div>
 
-          {err && <div role="alert" style={{ fontSize: 12.5, color: NX.red, margin: '14px 0 0' }}>{err}</div>}
+          {err && <div role="alert" style={{ fontSize: 13, color: NX.red, margin: '14px 0 0' }}>{err}</div>}
           <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={reset}
             note="Saves the mailboxes, addresses, logo and auto-close days. Switches and department pickers save as you change them." />
         </>
@@ -269,7 +269,7 @@ function DeliveryLog() {
         <TicketSelect value={status} onChange={(v) => { setOffset(0); setStatus(v); }} style={{ width: 'auto', minWidth: 150 }}
           options={[['', 'All statuses'], ['sent', 'Sent'], ['failed', 'Failed'], ['pending', 'Pending'], ['retrying', 'Retrying']]} />
         <button style={btn('ghost')} onClick={load} title="Refresh"><RefreshCw size={14} /></button>
-        {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
+        {err && <span style={{ fontSize: 13, color: NX.red }}>{err}</span>}
       </div>
       {rows === null ? (
         <LoadingState compact />
@@ -281,7 +281,7 @@ function DeliveryLog() {
             {rows.map((r) => {
               const meta = STATUS_META[r.status] || STATUS_META.pending;
               return (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5 }}>
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13 }}>
                   <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                   <span style={{ fontWeight: 700, flexShrink: 0, width: 78 }}>{r.ticketCode}</span>
                   <span style={{ color: NX.dim, flexShrink: 0, width: 90, textTransform: 'capitalize' }}>{r.eventType}</span>

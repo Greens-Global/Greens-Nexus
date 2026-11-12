@@ -28,9 +28,9 @@ import { isLockedError } from './PfsLock';
 // per borrower, each headed with the person's name (Oct 7, item 15).
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const FALLBACK_META = {
   entityTypes: [
     { key: 'single_member_llc', label: 'Single-Member LLC' }, { key: 'multi_member_llc', label: 'Multi-Member LLC' },
@@ -75,19 +75,19 @@ export default function PfsAffiliated({ profile, canEdit = false, onLocked }) {
       <div style={{ ...card, padding: 12, display: 'grid', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
           <div>
-            <strong style={{ fontSize: '0.9rem' }}>Affiliated Entities</strong>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <strong style={{ fontSize: 15 }}>Affiliated Entities</strong>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
               Every entity {borrowers.length > 1 ? 'the borrowers hold' : 'the borrower holds'} an interest in - LLCs, partnerships, corporations, trusts - with each borrower's ownership and role, and the beneficial ownership. Printed on the statement in this order; a ledger line of a listed entity takes its share from here.
             </div>
           </div>
           {canEdit && (
-            <button type="button" className="primary-btn" onClick={() => setEditing({ ...EMPTY })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+            <button type="button" className="primary-btn" onClick={() => setEditing({ ...EMPTY })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}>
               <Plus size={14} /> Add Entity
             </button>
           )}
         </div>
         {error && <div style={bad}>{error}</div>}
-        {!rows.length && <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>No affiliated entities listed yet.{canEdit ? ' Add Entity lists one; a name can be picked from the ledger.' : ''}</div>}
+        {!rows.length && <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No affiliated entities listed yet.{canEdit ? ' Add Entity lists one; a name can be picked from the ledger.' : ''}</div>}
         {rows.length > 0 && (
           <div className="acct-lines-wrap" style={{ maxHeight: 'none' }}>
             <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
@@ -204,7 +204,7 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
               <EntityPicker entities={entities} value={r.ledgerEntity || ''} onChange={pickEntity} ariaLabel="Prefill From the Ledger"
                 noneLabel="Not Linked to the Ledger" style={{ width: '100%', maxWidth: 'none' }} />
             )}
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Search by name or entity number, or type a name below.</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Search by name or entity number, or type a name below.</div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
             {field('pfs-aff-name', 'Entity Name', <input id="pfs-aff-name" type="text" value={r.name} maxLength={160} autoFocus onChange={(e) => set({ name: e.target.value })} style={{ ...control, width: '100%' }} />)}
@@ -219,7 +219,7 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
             const role = r.roles?.[b.key] || '';
             return (
               <fieldset key={b.key} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: '8px 12px 10px', margin: 0 }}>
-                <legend style={{ fontSize: '0.78rem', fontWeight: 700, padding: '0 4px' }}>{b.name}</legend>
+                <legend style={{ fontSize: 13, fontWeight: 700, padding: '0 4px' }}>{b.name}</legend>
                 <div style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, 1fr) minmax(160px, 2fr)', gap: 10 }}>
                   <div>
                     <label style={label} htmlFor={`pfs-aff-own-${b.key}`}>Ownership %</label>
@@ -241,10 +241,10 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
           <div style={{ maxWidth: 220 }}>
             <label style={label} htmlFor="pfs-aff-ben">Beneficial Ownership %</label>
             <input id="pfs-aff-ben" type="number" min="0" max="100" step="0.01" value={r.beneficialPct ?? ''} onChange={(e) => set({ beneficialPct: e.target.value })} style={{ ...control, width: '100%' }} />
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>When set, it is the statement's share of this entity; otherwise the borrowers' percents add up.</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>When set, it is the statement's share of this entity; otherwise the borrowers' percents add up.</div>
           </div>
           {field('pfs-aff-notes', 'Notes', <input id="pfs-aff-notes" type="text" value={r.notes || ''} maxLength={400} onChange={(e) => set({ notes: e.target.value })} style={{ ...control, width: '100%' }} />)}
-          {invalid && r.name.trim() && <div style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>Percents are between 0 and 100.</div>}
+          {invalid && r.name.trim() && <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>Percents are between 0 and 100.</div>}
           {error && <div style={bad}>{error}</div>}
         </div>
         <div className="modal-footer">
@@ -306,13 +306,13 @@ export function PfsExecutiveProfiles({ profile, canEdit = false, onLocked, onSav
   return (
     <section aria-label="Executive Profiles" style={{ ...card, padding: 14, display: 'grid', gap: 10 }}>
       <div>
-        <strong style={{ fontSize: '0.9rem' }}>Executive Profiles</strong>
-        <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2 }}>One for each borrower: who they are, what they have built, and their history with lenders. Each prints under the person's name.</div>
+        <strong style={{ fontSize: 15 }}>Executive Profiles</strong>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>One for each borrower: who they are, what they have built, and their history with lenders. Each prints under the person's name.</div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
         {saved.map((p) => (
           <div key={p.key}>
-            <label style={{ ...label, fontSize: '0.8rem', color: 'var(--text-primary)' }} htmlFor={`pfs-exec-${p.key}`}>{p.name || (p.key === 'co' ? 'Co-Borrower' : profile.name)}</label>
+            <label style={{ ...label, fontSize: 13, color: 'var(--text-primary)' }} htmlFor={`pfs-exec-${p.key}`}>{p.name || (p.key === 'co' ? 'Co-Borrower' : profile.name)}</label>
             <textarea id={`pfs-exec-${p.key}`} aria-label={`Executive Profile - ${p.name}`} value={texts[p.key] ?? ''} disabled={!canEdit} maxLength={6000} rows={9}
               onChange={(e) => { const v = e.target.value; setTexts((t) => ({ ...t, [p.key]: v })); setDone(false); }}
               placeholder="Who they are, what they have built, and their history with lenders."
@@ -321,11 +321,11 @@ export function PfsExecutiveProfiles({ profile, canEdit = false, onLocked, onSav
         ))}
       </div>
       {error && <div style={bad}>{error}</div>}
-      {done && !changed.length && <div style={{ fontSize: '0.78rem', color: 'hsl(var(--color-green))', fontWeight: 600 }}>Saved.</div>}
+      {done && !changed.length && <div style={{ fontSize: 13, color: 'hsl(var(--color-green))', fontWeight: 600 }}>Saved.</div>}
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button type="button" className="primary-btn" onClick={save} disabled={!changed.length || busy} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : 'Save Profiles'}</button>
-          {changed.length > 0 && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved Changes</span>}
+          <button type="button" className="primary-btn" onClick={save} disabled={!changed.length || busy} style={{ fontSize: 13 }}>{busy ? 'Saving...' : 'Save Profiles'}</button>
+          {changed.length > 0 && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Unsaved Changes</span>}
         </div>
       )}
     </section>

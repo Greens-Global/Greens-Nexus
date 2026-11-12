@@ -38,7 +38,7 @@ import { WarnMark } from './warnMark';
 //   - the button keeps the live count and is disabled at 0.
 
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const KIND = { external: 'External', intercompany: 'Intercompany', given: 'Loan Given' };
 // Item 46 #7: no "Debit Balance" wording - the figure is the plain Balance,
 // and a liability that is overpaid says so in plain words on hover.
@@ -52,7 +52,7 @@ export function Chip({ tone = 'muted', children, title }) {
     wait: { fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
-  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
+  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
 }
 
 /** Which rows start ticked: the new External ones (Charmi, Oct 7 default). */
@@ -73,10 +73,10 @@ export function filterProposals(rows = [], { kind = 'all', status = 'all', entit
 function Segment({ label, value, options, onChange }) {
   return (
     <div role="group" aria-label={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-      <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>{label}</span>
       {options.map(([k, l]) => (
         <button key={k} type="button" aria-pressed={value === k} onClick={() => onChange(k)} className={value === k ? 'primary-btn' : 'secondary-btn'}
-          style={{ fontSize: '0.74rem', height: 26, padding: '0 10px' }}>{l}</button>
+          style={{ fontSize: 12, height: 26, padding: '0 10px' }}>{l}</button>
       ))}
     </div>
   );
@@ -104,7 +104,7 @@ function FoldersDialog({ row, value, onSave, onClose }) {
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Loan Folders</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{row.title} - {row.entityName}. Optional: they can be wired later under Change Loan.</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{row.title} - {row.entityName}. Optional: they can be wired later under Change Loan.</div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
@@ -183,7 +183,7 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Add Loans From the Ledger</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
               Liability accounts that look like loans on the balance sheet as of {formatDate(data?.asOf || asof)}, across {where}{historical ? ' (historical entities included)' : ''}. Nothing is typed: the balance is read from the ledger.
             </div>
           </div>
@@ -194,31 +194,31 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
           {scanError && (
             <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ flex: 1 }}>{scanError}</span>
-              <button type="button" className="secondary-btn" onClick={retry} style={{ fontSize: '0.76rem' }}>Try Again</button>
+              <button type="button" className="secondary-btn" onClick={retry} style={{ fontSize: 12 }}>Try Again</button>
             </div>
           )}
-          {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' }}><WarnMark />{data.notes.join(' · ')} - open again to retry.</div>}
+          {(data?.notes || []).length > 0 && <div style={{ fontSize: 13, color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' }}><WarnMark />{data.notes.join(' · ')} - open again to retry.</div>}
           {data && !done && (
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               {entitiesScannedText(data)} · {data.liabilityAccounts ?? 0} liability {data.liabilityAccounts === 1 ? 'account' : 'accounts'}
               {data.paidOff ? ` · ${data.paidOff} paid off (nothing owed) left out` : ''}
               {removedCount && !showRemoved ? ` · ${removedCount} removed under Loans not offered` : ''}
             </div>
           )}
           {!done && (
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer', justifySelf: 'start' }}
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer', justifySelf: 'start' }}
               title="Historical (H) entities have closed books - their loans are long paid off, and reading them is most of the wait.">
               <input type="checkbox" data-nx-filter="1" checked={historical} disabled={!!progress} onChange={(e) => setHistorical(e.target.checked)} /> Include Historical Entities (slower)
             </label>
           )}
           {progress ? <ScanProgress progress={progress} /> : scanError ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (
-            <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
+            <div style={{ fontSize: 14, display: 'grid', gap: 6 }}>
               <strong>{done.created.length} {done.created.length === 1 ? 'loan' : 'loans'} set up{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>
               {done.created.map((p) => <div key={keyOf(p)}>{p.lender || p.title} - {p.entityName}, GL {p.glAccount}, <Amount value={p.balance} /></div>)}
               {done.skipped.map((p) => <div key={keyOf(p)} style={{ color: 'var(--text-muted)' }}>{p.entityCode} GL {p.glAccount}: {p.why}</div>)}
             </div>
           ) : !rows.length ? (
-            <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
               <strong style={{ color: 'var(--text-primary)' }}>No loan-like liability accounts found.</strong>
               <span>Looked at {data.liabilityAccounts ?? 0} liability {data.liabilityAccounts === 1 ? 'account' : 'accounts'} across {data.entitiesScanned ?? 0} {data.entitiesScanned === 1 ? 'entity' : 'entities'} for a title that says {(data.lookedFor || []).join(', ')}.</span>
               <span>If a loan sits on an account named differently, add it with + Add &gt; Manual and wire its principal account under Change Loan.</span>
@@ -234,10 +234,10 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
                 <Segment label="Status" value={status} onChange={setStatus} options={[['all', 'All'], ['new', 'New'], ['set_up', 'Set Up'], ...(showRemoved ? [['dismissed', 'Removed']] : [])]} />
                 <EntityPicker entities={entityList} value={entity} onChange={setEntity} noneLabel="All Entities" showHistorical />
 
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', cursor: 'pointer' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
                   <input type="checkbox" data-nx-filter="1" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} /> Show Removed{removedCount ? ` (${removedCount})` : ''}
                 </label>
-                <span style={{ marginLeft: 'auto', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{shown.length} of {rows.length} shown · <strong>{count}</strong> ticked</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-secondary)' }}>{shown.length} of {rows.length} shown · <strong>{count}</strong> ticked</span>
               </div>
               <div className="req-table-wrapper" style={{ overflow: 'auto', border: '1px solid var(--border-color)', borderRadius: 8 }}>
                 <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -248,7 +248,7 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
                     </tr>
                   </thead>
                   <tbody>
-                    {!shown.length && <tr><td colSpan={10} style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>No proposed loan matches the filters.</td></tr>}
+                    {!shown.length && <tr><td colSpan={10} style={{ color: 'var(--text-muted)', fontSize: 13 }}>No proposed loan matches the filters.</td></tr>}
                     {shown.map((p) => {
                       const k = keyOf(p);
                       const f = folders[k];
@@ -256,17 +256,17 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
                       return (
                         <tr key={k} style={p.status === 'set_up' ? { color: 'var(--text-muted)' } : undefined}>
                           <td>{selectable(p) ? <input type="checkbox" data-nx-filter="1" checked={picked.has(k)} onChange={() => toggle(k)} aria-label={`Create ${p.title} on ${p.entityName}`} /> : null}</td>
-                          <td style={{ minWidth: 220 }}><span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontVariantNumeric: 'tabular-nums' }}>{p.entityCode}</span> {p.entityName}</td>
+                          <td style={{ minWidth: 220 }}><span style={{ color: 'var(--text-muted)', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{p.entityCode}</span> {p.entityName}</td>
                           <td>{p.glAccount}</td><td style={{ minWidth: 220 }}>{p.title}</td>
-                          <td style={{ ...num, minWidth: 120 }} title={p.debitBalance ? DEBIT_NOTE : undefined}>{p.debitBalance ? <span style={{ marginRight: 6, fontSize: '0.64rem', fontWeight: 700, color: 'var(--warn-fg)' }}><WarnMark size={11} />Check Sign</span> : null}<Amount value={Math.abs(p.balance)} /></td>
+                          <td style={{ ...num, minWidth: 120 }} title={p.debitBalance ? DEBIT_NOTE : undefined}>{p.debitBalance ? <span style={{ marginRight: 6, fontSize: 11, fontWeight: 700, color: 'var(--warn-fg)' }}><WarnMark size={11} />Check Sign</span> : null}<Amount value={Math.abs(p.balance)} /></td>
                           <td>{p.lender || <span style={{ color: 'var(--text-muted)' }}>unknown - type it after</span>}</td>
                           <td><Chip tone={p.kind === 'intercompany' ? 'muted' : 'brand'}>{KIND[p.kind] || p.kind}</Chip></td>
-                          <td style={{ whiteSpace: 'nowrap', fontSize: '0.76rem' }}>{p.loanType === 'line_of_credit' ? 'Line of Credit' : 'Term Loan'}</td>
+                          <td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{p.loanType === 'line_of_credit' ? 'Line of Credit' : 'Term Loan'}</td>
                           <td>{p.status === 'set_up' ? <Chip tone="ok">Set Up</Chip> : p.status === 'dismissed' ? <Chip tone="muted" title={p.removedBy ? `Removed by ${p.removedBy}${p.removedAt ? ` on ${formatDate(p.removedAt)}` : ''} - tick it to set it up again` : 'Tick it to set it up again'}>Removed</Chip> : <Chip tone="wait">New</Chip>}</td>
                           <td>
                             {selectable(p) && (
                               <button type="button" className="secondary-btn" onClick={() => setEditing(p)} aria-label={`Folders of ${p.title} on ${p.entityName}`} title={nFolders ? [f.docsPath, f.statementsPath].filter(Boolean).map(folderName).join(', ') : 'Wire the Egnyte folders now (optional)'}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', height: 24, padding: '0 8px' }}>
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, height: 24, padding: '0 8px' }}>
                                 <FolderOpen size={12} /> {nFolders ? `${nFolders} Set` : 'Add'}
                               </button>
                             )}

@@ -43,7 +43,7 @@ const TOOLS = [
 const TOOL_KEY = 'nexus.importhub.tool';
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const label = { display: 'grid', gap: 4, fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)' };
+const label = { display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' };
 const fmt = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PREVIEW = 300;
 const cellInput = { ...control, width: '100%', minWidth: 90, height: 28 };
@@ -155,7 +155,7 @@ function StatementToIntacct() {
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
         Upload a bank or brokerage statement (Fidelity, or any bank's CSV export) and download it as an Intacct General Ledger journal entry import file. The file is built in your browser - nothing is sent to Intacct.
       </div>
 
@@ -163,23 +163,23 @@ function StatementToIntacct() {
         <label style={{ ...card, padding: 28, display: 'grid', justifyItems: 'center', gap: 8, cursor: 'pointer', borderStyle: 'dashed', textAlign: 'center' }}
           onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onFile(e.dataTransfer.files?.[0]); }}>
           <span style={{ display: 'inline-flex', padding: 10, borderRadius: 10, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}><Upload size={20} /></span>
-          <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>Upload a Statement</span>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>CSV, XLSX or XLS - drop it here or click to choose</span>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>Upload a Statement</span>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>CSV, XLSX or XLS - drop it here or click to choose</span>
           <input type="file" accept=".csv,.xlsx,.xls,text/csv" aria-label="Statement file" style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
         </label>
       ) : (
         <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <FileSpreadsheet size={16} style={{ color: 'var(--wk-brand, #2b45e1)' }} />
-            <strong style={{ fontSize: '0.86rem' }}>{file.name}</strong>
-            <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{file.rows.length} rows read</span>
-            <button type="button" className="secondary-btn" onClick={reset} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
+            <strong style={{ fontSize: 14 }}>{file.name}</strong>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{file.rows.length} rows read</span>
+            <button type="button" className="secondary-btn" onClick={reset} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 10px' }}>
               <X size={13} /> Choose Another File
             </button>
           </div>
 
           <div>
-            <h3 style={{ margin: '0 0 8px', fontSize: '0.86rem' }}>Columns</h3>
+            <h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Columns</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
               <label style={label}>
                 Header Row
@@ -200,14 +200,14 @@ function StatementToIntacct() {
               </label>
               {map?.mode === 'split' ? (<>{colSelect('debit', 'Debit (Money Out)', true)}{colSelect('credit', 'Credit (Money In)', true)}</>) : colSelect('amount', 'Amount')}
             </div>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
               <input type="checkbox" checked={flip} onChange={(e) => setFlip(e.target.checked)} />
               Flip signs (the statement shows money out as positive)
             </label>
           </div>
 
           <div>
-            <h3 style={{ margin: '0 0 8px', fontSize: '0.86rem' }}>Journal Entry</h3>
+            <h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Journal Entry</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
               <label style={label}>Journal<input value={setup.journal} onChange={(e) => set({ journal: e.target.value })} placeholder="GJCA" style={{ ...control, width: '100%' }} /></label>
               <label style={label}>Cash Account<input value={setup.cashAccount} onChange={(e) => set({ cashAccount: e.target.value })} placeholder="e.g. 10100" style={{ ...control, width: '100%' }} /></label>
@@ -218,40 +218,40 @@ function StatementToIntacct() {
               </div>
               <label style={label}>Department<input value={setup.department} onChange={(e) => set({ department: e.target.value })} placeholder="Optional" style={{ ...control, width: '100%' }} /></label>
             </div>
-            <p style={{ margin: '8px 0 0', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+            <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>
               Money in debits the cash account and credits the line's account; money out credits cash and debits it. Each line's account, vendor and customer come from the first matching rule, or what is picked on the line. One balanced entry per statement line, in the column layout of Intacct's journal entry import template.
             </p>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: '0.8rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 13 }}>
             <span><strong>{transactions.length}</strong> transactions</span>
             <span>In <strong>{fmt(totals.in)}</strong></span>
             <span>Out <strong>{fmt(totals.out)}</strong></span>
             {skipped > 0 && <span style={{ color: 'var(--text-muted)' }}>{skipped} rows skipped (no date or no amount)</span>}
             <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
-              <button type="button" className="secondary-btn" onClick={() => setRulesOpen({ draft: null })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', height: 32, padding: '0 12px' }}>
+              <button type="button" className="secondary-btn" onClick={() => setRulesOpen({ draft: null })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 32, padding: '0 12px' }}>
                 <ListChecks size={14} /> Rules ({rules.length})
               </button>
               <button type="button" className="primary-btn" disabled={!ready} onClick={download}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', height: 32, padding: '0 14px' }}>
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 32, padding: '0 14px' }}>
                 <Download size={14} /> Download Intacct Import
               </button>
             </span>
           </div>
-          {rulesError && <div role="alert" style={{ fontSize: '0.76rem', color: 'var(--danger, #dc2626)' }}>The rules could not be loaded ({rulesError}) - lines can still be classified by hand.</div>}
+          {rulesError && <div role="alert" style={{ fontSize: 12, color: 'var(--danger, #dc2626)' }}>The rules could not be loaded ({rulesError}) - lines can still be classified by hand.</div>}
           {open.length > 0 && transactions.length > 0 && (
-            <div role="status" data-testid="unclassified" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '8px 10px', borderRadius: 8, fontSize: '0.78rem',
+            <div role="status" data-testid="unclassified" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '8px 10px', borderRadius: 8, fontSize: 13,
               background: 'var(--warn-bg, #fff7e6)', border: '1px solid var(--warn-border, #f5d08a)', color: 'var(--warn-fg, #7a4b00)' }}>
               <AlertTriangle size={15} style={{ flexShrink: 0 }} />
               <span style={{ flex: '1 1 300px' }}><strong>{open.length} of {lines.length}</strong> lines are not classified - no rule matched and no account was picked. Give each one an account (Save as Rule keeps it for next time), or post them to the default offset account.</span>
-              <button type="button" className="secondary-btn" onClick={() => setFilter((f) => ({ ...f, show: 'open' }))} style={{ fontSize: '0.76rem', padding: '3px 10px' }}>Show Them</button>
+              <button type="button" className="secondary-btn" onClick={() => setFilter((f) => ({ ...f, show: 'open' }))} style={{ fontSize: 12, padding: '3px 10px' }}>Show Them</button>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <input type="checkbox" checked={useDefault} onChange={(e) => setUseDefault(e.target.checked)} />
                 Post them to {offset || 'the default offset account'}
               </label>
             </div>
           )}
-          {file && missing.length > 0 && <div role="status" style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Still needed: {missing.join(', ')}.</div>}
+          {file && missing.length > 0 && <div role="status" style={{ fontSize: 12, color: 'var(--text-muted)' }}>Still needed: {missing.join(', ')}.</div>}
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
             {[['vendor', 'Vendor', vendorsOn, 'vendors'], ['customer', 'Customer', customersOn, 'customers']].map(([k, t, ids, kind]) => (
@@ -271,9 +271,9 @@ function StatementToIntacct() {
               </select>
             </label>
             {(filter.vendor || filter.customer || filter.show !== 'all') && (
-              <button type="button" className="secondary-btn" onClick={() => setFilter({ vendor: '', customer: '', show: 'all' })} style={{ fontSize: '0.76rem', height: 32, padding: '0 10px' }}>Clear</button>
+              <button type="button" className="secondary-btn" onClick={() => setFilter({ vendor: '', customer: '', show: 'all' })} style={{ fontSize: 12, height: 32, padding: '0 10px' }}>Clear</button>
             )}
-            <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', paddingBottom: 8 }}>{shown.length} of {lines.length} lines shown; the download has them all.</span>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', paddingBottom: 8 }}>{shown.length} of {lines.length} lines shown; the download has them all.</span>
           </div>
 
           <div className="req-table-wrapper" style={{ overflowX: 'auto', maxHeight: 520 }}>
@@ -283,7 +283,7 @@ function StatementToIntacct() {
                 {shown.slice(0, PREVIEW).map((l) => (
                   <tr key={l.index} data-unclassified={l.classified ? undefined : '1'} style={l.classified ? undefined : { background: 'var(--warn-bg, #fff7e6)' }}>
                     <td style={{ whiteSpace: 'nowrap' }}>{usDate(l.date)}</td>
-                    <td style={{ minWidth: 200 }}>{l.description}{(l.memo || l.reference) && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{[l.memo, l.reference].filter(Boolean).join(' - ')}</div>}</td>
+                    <td style={{ minWidth: 200 }}>{l.description}{(l.memo || l.reference) && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{[l.memo, l.reference].filter(Boolean).join(' - ')}</div>}</td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{l.amount > 0 ? fmt(l.amount) : ''}</td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{l.amount < 0 ? fmt(-l.amount) : ''}</td>
                     <td><input value={l.account} list="ih-accounts" placeholder={offset && useDefault ? offset : 'Account'} aria-label={`Account for line ${l.index + 1}`} title={accountName(l.account) || undefined}
@@ -292,10 +292,10 @@ function StatementToIntacct() {
                       onChange={(e) => setPick(l.index, { vendorId: e.target.value.trim(), vendorName: partnerName('vendors', e.target.value.trim()) })} style={cellInput} /></td>
                     <td><input value={l.customerId} list="ih-customers" placeholder="None" aria-label={`Customer for line ${l.index + 1}`} title={l.customerName || partnerName('customers', l.customerId) || undefined}
                       onChange={(e) => setPick(l.index, { customerId: e.target.value.trim(), customerName: partnerName('customers', e.target.value.trim()) })} style={cellInput} /></td>
-                    <td style={{ fontSize: '0.74rem', whiteSpace: 'nowrap', color: l.classified ? 'var(--text-secondary)' : 'var(--warn-fg)', fontWeight: l.classified ? 400 : 600 }}>
+                    <td style={{ fontSize: 12, whiteSpace: 'nowrap', color: l.classified ? 'var(--text-secondary)' : 'var(--warn-fg)', fontWeight: l.classified ? 400 : 600 }}>
                       {l.how === 'hand' ? 'Set on the Line' : l.rule ? `Rule: ${l.rule.matchText}` : 'Unclassified'}
                     </td>
-                    <td><button type="button" className="secondary-btn" onClick={() => setRulesOpen({ draft: ruleFromLine(l) })} aria-label={`Save line ${l.index + 1} as a rule`} style={{ fontSize: '0.72rem', padding: '3px 8px', whiteSpace: 'nowrap' }}>Save as Rule</button></td>
+                    <td><button type="button" className="secondary-btn" onClick={() => setRulesOpen({ draft: ruleFromLine(l) })} aria-label={`Save line ${l.index + 1} as a rule`} style={{ fontSize: 12, padding: '3px 8px', whiteSpace: 'nowrap' }}>Save as Rule</button></td>
                   </tr>
                 ))}
                 {lines.length === 0 && <tr><td colSpan={9} style={{ color: 'var(--text-muted)' }}>No transactions read yet - check the header row and the columns.</td></tr>}
@@ -303,10 +303,10 @@ function StatementToIntacct() {
               </tbody>
             </table>
           </div>
-          {shown.length > PREVIEW && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Showing the first {PREVIEW} of {shown.length}; the download has them all.</div>}
+          {shown.length > PREVIEW && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Showing the first {PREVIEW} of {shown.length}; the download has them all.</div>}
         </div>
       )}
-      {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'var(--danger, #dc2626)' }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: 'var(--danger, #dc2626)' }}>{error}</div>}
       <datalist id="ih-accounts">{lists.accounts.map((a) => <option key={a.account_no} value={a.account_no}>{a.title}</option>)}</datalist>
       <datalist id="ih-vendors">{lists.vendors.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</datalist>
       <datalist id="ih-customers">{lists.customers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</datalist>
@@ -334,8 +334,8 @@ export default function ImportHub() {
                 borderColor: on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', boxShadow: on ? '0 0 0 1px var(--wk-brand, #2b45e1)' : card.boxShadow }}>
               <span style={{ display: 'inline-flex', padding: 8, borderRadius: 9, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }}><Icon size={16} /></span>
               <span style={{ display: 'grid', gap: 2 }}>
-                <strong style={{ fontSize: '0.84rem' }}>{title}</strong>
-                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{text}</span>
+                <strong style={{ fontSize: 13 }}>{title}</strong>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{text}</span>
               </span>
             </button>
           );

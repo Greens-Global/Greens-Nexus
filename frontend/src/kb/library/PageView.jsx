@@ -69,7 +69,7 @@ function SignBlock({ page, onSigned }) {
       <div className="kb-meta" style={{ marginBottom: 10 }}>Typing your name confirms you have read and will follow this {typeMeta(page.page_type).label.toLowerCase()}. Nexus stores your name, the time, the version and the exact text you signed.</div>
       {so.version_signed && <div className="kb-meta" style={{ marginBottom: 10 }}>You signed v{so.version_signed} before. This is a new major version, so that signature no longer counts.</div>}
       <label className="kb-label" htmlFor="kb-sig">Your Full Name</label>
-      <input id="kb-sig" className="kb-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your full name" style={{ margin: '4px 0 10px', fontSize: 16 }} onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) sign(); }} />
+      <input id="kb-sig" className="kb-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your full name" style={{ margin: '4px 0 10px', fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) sign(); }} />
       <button type="button" className="kb-btn pri lg" style={{ width: '100%' }} disabled={busy || !name.trim()} onClick={sign}><Check />Sign {page.title} v{page.version}</button>
       {so.due && <div className="kb-meta" style={{ marginTop: 8, textAlign: 'center' }}>Due {fmtDate(so.due)}{so.overdue_days ? ` · ${so.overdue_days} days overdue` : ''}</div>}
     </div>
@@ -115,7 +115,7 @@ function Comments({ page, me }) {
   };
   return (
     <section id="comments" style={{ marginTop: 28 }}>
-      <h2 style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 20, margin: '0 0 8px' }}>Comments <span className="kb-meta" style={{ fontWeight: 400 }}>{rows.length || ''}</span></h2>
+      <h2 style={{ fontFamily: "'Inter', sans-serif", fontSize: 18, margin: '0 0 8px' }}>Comments <span className="kb-meta" style={{ fontWeight: 400 }}>{rows.length || ''}</span></h2>
       {rows.map((c) => (
         <div key={c.id} className="kb-cmt">
           <Av name={c.author_name} email={c.author_email} />
@@ -271,7 +271,7 @@ export default function PageView({ id, me }) {
 
               {page.related.length > 0 && (
                 <>
-                  <h2 id="related" style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 20, margin: '28px 0 10px' }}>Related Pages</h2>
+                  <h2 id="related" style={{ fontFamily: "'Inter', sans-serif", fontSize: 18, margin: '28px 0 10px' }}>Related Pages</h2>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {page.related.map((r) => <button key={r.id} type="button" className="kb-btn" onClick={() => goKb('page', r.id)}><TypeChip type={r.page_type} />{r.title}</button>)}
                   </div>
@@ -329,7 +329,7 @@ export default function PageView({ id, me }) {
                   <div className="kb-meta" style={{ marginBottom: 8 }}>Linked, embedded, taught together or for the same department - found from the links, not picked by hand.</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {page.around.map((r) => (
-                      <a key={r.id} href="#around" onClick={(e) => { e.preventDefault(); goKb('page', r.id); }} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13.5, color: 'var(--kb-ink)', fontWeight: 500 }}>
+                      <a key={r.id} href="#around" onClick={(e) => { e.preventDefault(); goKb('page', r.id); }} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--kb-ink)', fontWeight: 500 }}>
                         <TypeChip type={r.page_type} /><span><span>{r.title}</span><div className="kb-meta" style={{ fontWeight: 400 }}>{r.why}</div></span>
                       </a>
                     ))}
@@ -339,7 +339,7 @@ export default function PageView({ id, me }) {
               {page.used_in_courses.length > 0 && (
                 <section className="kb-card">
                   <h3 className="kb-h3" style={{ marginBottom: 8 }}>Used in Training</h3>
-                  {page.used_in_courses.map((c) => <a key={c.id} href="#c" onClick={(e) => { e.preventDefault(); goKb('course', c.id); }} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5, color: 'var(--kb-ink)', fontWeight: 500 }}><Chip color="#1e7b4e">Course</Chip>{c.title}</a>)}
+                  {page.used_in_courses.map((c) => <a key={c.id} href="#c" onClick={(e) => { e.preventDefault(); goKb('course', c.id); }} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--kb-ink)', fontWeight: 500 }}><Chip color="#1e7b4e">Course</Chip>{c.title}</a>)}
                 </section>
               )}
               {page.page_type === 'sop' && page.status === 'approved' && (
@@ -367,7 +367,7 @@ export default function PageView({ id, me }) {
             <Modal title="Original Source" onClose={() => setOriginal(null)}>
               <div className="kb">
                 <div className="kb-meta" style={{ marginBottom: 10 }}>{original.original_title ? `Imported as "${original.original_title}". ` : ''}The raw text as it was first brought in, kept forever and never edited.</div>
-                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13.5, background: 'var(--kb-paper)', padding: 14, borderRadius: 10 }}>{original.original_content || '(no original text was stored)'}</pre>
+                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13, background: 'var(--kb-paper)', padding: 14, borderRadius: 10 }}>{original.original_content || '(no original text was stored)'}</pre>
               </div>
             </Modal>
           )}

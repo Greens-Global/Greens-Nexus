@@ -13,7 +13,7 @@ export default function ConversionFunnelCard({ sessions, leads, moveIns }) {
 
   return (
     <div style={{ ...card, padding: 16, height: '100%' }}>
-      <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Conversion Funnel</h3>
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Conversion Funnel</h3>
       <ResponsiveContainer width="100%" height={230}>
         <FunnelChart>
           <Tooltip

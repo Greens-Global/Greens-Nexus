@@ -72,7 +72,7 @@ export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, in
             people === null
               ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--muted)' }}><Spinner size="section" /></div>
               : people.length === 0
-                ? <div style={{ textAlign: 'center', padding: '30px 20px', fontSize: 12.5, color: 'var(--muted)' }}>
+                ? <div style={{ textAlign: 'center', padding: '30px 20px', fontSize: 13, color: 'var(--muted)' }}>
                     {everyone.length
                       ? 'No one in this team view has captures on this day.'
                       : 'No captures on this day. Frames are saved every 5 minutes while someone is clocked in with screen capture on.'}
@@ -83,7 +83,7 @@ export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, in
                         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
                           border: '1.5px solid var(--line)', background: 'var(--card)', fontFamily: 'Inter,sans-serif' }}>
                         <Camera size={15} style={{ color: 'var(--pine)' }} />
-                        <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{p.name}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{p.name}</span>
                         <span style={{ fontSize: 12, color: 'var(--muted)' }}>{p.count} frame{p.count === 1 ? '' : 's'}</span>
                       </button>
                     ))}
@@ -100,11 +100,11 @@ export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, in
                       <img src={s.url} alt={`Capture ${localTime(s.at)}`} loading="lazy"
                         style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px' }}>
-                        <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--ink)' }}>{localTime(s.at)}</span>
-                        <span style={{ fontSize: 10.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.activeView}</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--ink)' }}>{localTime(s.at)}</span>
+                        <span style={{ fontSize: 11, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.activeView}</span>
                         {s.idleSec >= 300 && (
                           <span title={`No input for ${Math.round(s.idleSec / 60)} min at capture`}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 800, color: '#b45309' }}>
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 800, color: '#b45309' }}>
                             <MoonStar size={10} /> idle {Math.round(s.idleSec / 60)}m
                           </span>
                         )}

@@ -136,7 +136,7 @@ describe('Panel', () => {
     const github = screen.getByLabelText(/GitHub Issue/);
     expect(github).toBeDisabled();
     expect(screen.getAllByText('python3 tools/build_notes/watch.py').length).toBeGreaterThan(0);
-    await screen.findByRole('button', { name: /Mint Token/ });
+    await screen.findByRole('button', { name: /Make A Token/ });
   });
 
   it('Settings tab: Collect Fixes Into One PR saves as onePr (Pranshu, Oct 27)', async () => {
@@ -254,6 +254,30 @@ describe('Panel - your own Claude Code (Oct 26 2026)', () => {
     expect(screen.getByTestId('bm-claude-connected').textContent).toMatch(/Your Claude Code is connected/);
   });
 
+  // Claude Code in the cloud (Neil, 11/12/2026)
+  it('in the cloud: a sent pin links to its Claude session; one that did not start gets Start Claude Code', async () => {
+    notes = [
+      { ...pinRow, id: 'c1', number: 4, status: 'dispatched', dispatchTarget: 'cloud', comment: 'Working', progress: 'Claude Code is starting in the cloud', claudeSessionUrl: 'https://claude.ai/code/session_01' },
+      { ...pinRow, id: 'c2', number: 5, status: 'dispatched', dispatchTarget: 'cloud', comment: 'Stuck', progress: 'Claude Code did not start: Claude Code did not accept your trigger token', claudeSessionUrl: '' },
+      { ...pinRow, id: 'c3', number: 6, status: 'dispatched', dispatchTarget: 'cloud', comment: 'Spoofed', progress: 'Claude Code is starting in the cloud', claudeSessionUrl: 'https://evil.example/session' },
+    ];
+    const { store } = await import('./store');
+    store.set({ claude: { connected: true, terminal: false, cloud: true, lastSeen: '', apiBase: '' } });
+    const { api } = await import('../api');
+    api.devNotesCloudStart = vi.fn(() => Promise.resolve({ cloud: { started: true, sessionUrl: 'https://claude.ai/code/session_02' }, notes: [{ ...notes[1], progress: 'Claude Code is starting in the cloud', claudeSessionUrl: 'https://claude.ai/code/session_02' }] }));
+    render(<Panel {...props} />);
+    await screen.findByText('Working');
+    expect(screen.getByTestId('bm-claude-connected').textContent).toMatch(/starts it in the cloud, on your Claude subscription/);
+    // Only Claude's own address is ever a link.
+    const links = screen.getAllByRole('link', { name: /Open Claude Session/ });
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['https://claude.ai/code/session_01']);
+    // One Start button: on the pin whose session did not start.
+    const start = screen.getAllByRole('button', { name: /Start Claude Code/ });
+    expect(start).toHaveLength(1);
+    fireEvent.click(start[0]);
+    await waitFor(() => expect(api.devNotesCloudStart).toHaveBeenCalledWith(['c2']));
+  });
+
   it('opened from Done: Send To Claude Code is the way out - the Teams chat list stays shut (Pranshu, Oct 27)', async () => {
     notes = [pinRow];
     const { store } = await import('./store');
@@ -299,5 +323,59 @@ describe('Panel - Revoke a Build Token', () => {
     await act(async () => { vi.advanceTimersByTime(1200); });
     expect(screen.getByRole('alert').textContent).toBe('That token is not yours.');
     api.devNotesTokens.mockImplementation(() => Promise.resolve([]));
+  });
+});
+
+// The Team tab (11/12/2026): what waits on you, then everyone's pins with filters.
+describe('Panel - Team', () => {
+  const ME = 'neil@greensglobal.com';
+  const pin = (over) => ({ id: 'x', number: 1, kind: 'bug', priority: 'normal', status: 'open', comment: 'c', thread: [], route: 'tasks', sessionId: 's1', createdBy: ME, createdAt: '2026-11-12T15:00:00Z', ...over });
+  const team = () => [
+    pin({ id: 'a', number: 1, status: 'needs_input', comment: 'Which button?' }),
+    pin({ id: 'b', number: 2, status: 'pr_open', checkable: true, canVerdict: true, comment: 'Mine to check' }),
+    pin({ id: 'c', number: 3, status: 'pr_open', previewVerdict: 'accepted', canMerge: true, createdBy: 'sagar@greensglobal.com', comment: 'Checked by Sagar' }),
+    pin({ id: 'd', number: 4, status: 'pr_open', canMerge: true, createdBy: 'sagar@greensglobal.com', comment: 'Not checked yet' }),
+    pin({ id: 'e', number: 5, status: 'building', createdBy: 'visesh.lodha@greensglobal.com', comment: 'Visesh building' }),
+    pin({ id: 'f', number: 6, status: 'done', createdBy: 'visesh.lodha@greensglobal.com', comment: 'Old one' }),
+    pin({ id: 'g', number: 7, status: 'needs_input', createdBy: 'sagar@greensglobal.com', comment: 'A question for Sagar' }),
+  ];
+
+  it('Waiting On You lists only what asks something of the viewer, most pressing first', async () => {
+    notes = team();
+    render(<Panel {...props} tab="team" myEmail={ME} />);
+    const mine = await screen.findByTestId('bm-team-mine');
+    await waitFor(() => expect(mine.textContent).toContain('3 pins'));
+    const text = mine.textContent;
+    expect(text.indexOf('Answer Claude Code')).toBeLessThan(text.indexOf('Check The Fix'));
+    expect(text.indexOf('Check The Fix')).toBeLessThan(text.indexOf('Merge To Dev'));
+    expect(text).toContain('Checked by Sagar');
+    expect(text).not.toContain('Not checked yet');        // it waits on its author first
+    expect(text).not.toContain('A question for Sagar');   // someone else's answer to give
+  });
+
+  it('everyone\'s pins filter by person and by state, with counts', async () => {
+    notes = team();
+    render(<Panel {...props} tab="team" myEmail={ME} />);
+    const list = await screen.findByTestId('bm-team');
+    await waitFor(() => expect(list.textContent).toContain('Visesh building'));
+    expect(list.textContent).not.toContain('Old one');               // Everything Live leaves Done out
+    const person = screen.getByLabelText('Person');
+    expect(person.textContent).toContain('Everyone (7)');
+    expect(person.textContent).toContain('Neil (You) (2)');
+    fireEvent.change(person, { target: { value: 'visesh.lodha@greensglobal.com' } });
+    const state = screen.getByLabelText('State');
+    expect(state.textContent).toContain('With Claude Code (1)');
+    expect(state.textContent).toContain('Done (1)');
+    fireEvent.change(state, { target: { value: 'done' } });
+    const rows = screen.getAllByTestId('bm-queue-row').map((r) => r.textContent).join(' ');
+    expect(rows).toContain('Old one');
+    fireEvent.change(state, { target: { value: 'ready' } });
+    expect(screen.getByTestId('bm-team').textContent).toContain('No pins match');
+  });
+
+  it('nothing waiting says so', async () => {
+    notes = [pin({ id: 'e', status: 'building', createdBy: 'visesh.lodha@greensglobal.com' })];
+    render(<Panel {...props} tab="team" myEmail={ME} />);
+    await waitFor(() => expect(screen.getByTestId('bm-team-mine').textContent).toContain('Nothing right now'));
   });
 });

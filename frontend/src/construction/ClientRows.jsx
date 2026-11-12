@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { SettingRow, SettingCard } from '../components/settings/SettingsUI';
 
-const quiet = { fontSize: '0.8rem', color: 'var(--text-secondary)' };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)' };
 
 function CustomerPicker({ projectId, value, onPick }) {
   const [q, setQ] = useState('');
@@ -38,14 +38,14 @@ function CustomerPicker({ projectId, value, onPick }) {
             <li key={c.id}>
               <button type="button" role="option" aria-selected={c.id === value}
                 onClick={() => { onPick(c); setFound([]); setQ(''); }}
-                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '6px 8px', fontFamily: 'inherit', fontSize: '0.86rem', cursor: 'pointer', color: 'var(--text-primary)' }}>
-                {c.name} <span style={{ ...quiet, fontSize: '0.76rem' }}>{c.id}{c.inactive ? ' · Inactive in Intacct' : ''}</span>
+                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '6px 8px', fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', color: 'var(--text-primary)' }}>
+                {c.name} <span style={{ ...quiet, fontSize: 12 }}>{c.id}{c.inactive ? ' · Inactive in Intacct' : ''}</span>
               </button>
             </li>
           ))}
         </ul>
       )}
-      {error && <div role="alert" style={{ marginTop: 4, fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{error}</div>}
+      {error && <div role="alert" style={{ marginTop: 4, fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</div>}
     </div>
   );
 }
@@ -58,9 +58,9 @@ export default function ClientRows({ client }) {
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }} data-job-client="">
           {draft.clientId && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <b style={{ fontSize: '0.88rem' }}>{draft.clientName || draft.clientId}</b>
+              <b style={{ fontSize: 14 }}>{draft.clientName || draft.clientId}</b>
               <span style={quiet}>{draft.clientId}</span>
-              <button type="button" className="secondary-btn" style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+              <button type="button" className="secondary-btn" style={{ padding: '4px 10px', fontSize: 13 }}
                 onClick={() => patch({ clientId: '', clientName: '', contactName: '', contactEmail: '' })}>Clear</button>
             </div>
           )}

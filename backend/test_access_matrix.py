@@ -146,10 +146,12 @@ MATRIX = {
         route("GET", "/egnyte/wiring", None, 3),
     ],
     "build-mode": [
-        route("GET", "/dev-notes", 1, 5, note="dev_notes._allowed: a grant or is_global_admin - an Administrator is refused"),
-        route("POST", "/dev-notes", 2, 5, PIN),
-        route("PATCH", "/dev-notes/pin-theirs", 3, 5, {"status": "dismissed"}, prep=_reset_pin, note="someone else's pin"),
-        route("POST", "/dev-notes/purge", None, 5),
+        route("GET", "/dev-notes", 1, None, note="dev_notes._allowed: the grant alone - no tier opens Build Mode (Neil, 11/12/2026)"),
+        route("POST", "/dev-notes", 2, None, PIN),
+        route("PATCH", "/dev-notes/pin-theirs", 3, None, {"status": "dismissed"}, prep=_reset_pin,
+              allow=lambda t, g: g >= 3 or (t >= 5 and g >= 2), note="someone else's pin: Full, or a Super Administrator with Editor"),
+        route("POST", "/dev-notes/purge", None, None, allow=lambda t, g: t >= 5 and g >= 1,
+              note="a Super Administrator who holds the grant"),
     ],
     "employee-tracking": [
         route("GET", "/timeclock/locations", 1, 4),

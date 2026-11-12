@@ -16,7 +16,7 @@ export default function RankTrackerCard({ rows, onAddKeyword, onRemove }) {
   return (
     <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900 }}>Rank Tracker</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900 }}>Rank Tracker</h3>
         <button
           onClick={onAddKeyword}
           style={{
@@ -27,7 +27,7 @@ export default function RankTrackerCard({ rows, onAddKeyword, onRemove }) {
             borderRadius: 8,
             background: C.emerald600,
             color: C.white,
-            fontSize: 12.5,
+            fontSize: 13,
             fontWeight: 500,
             border: 'none',
             cursor: 'pointer',
@@ -43,7 +43,7 @@ export default function RankTrackerCard({ rows, onAddKeyword, onRemove }) {
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${C.gray100}`, color: C.gray400, fontSize: 10.5, textTransform: 'uppercase' }}>
+            <tr style={{ borderBottom: `1px solid ${C.gray100}`, color: C.gray400, fontSize: 11, textTransform: 'uppercase' }}>
               <th style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px', paddingLeft: 0 }}>Keyword</th>
               <th style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px' }}>Facility</th>
               <th style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px' }}>Priority</th>

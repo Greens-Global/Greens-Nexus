@@ -17,7 +17,7 @@ export function ToastProvider({ children }) {
       {children}
       {msg && (
         <div role="status" style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 6000, maxWidth: 'min(92vw, 560px)',
-          padding: '10px 16px', borderRadius: 999, fontSize: 13.5, fontWeight: 600, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,.18)',
+          padding: '10px 16px', borderRadius: 999, fontSize: 13, fontWeight: 600, color: '#fff', boxShadow: '0 8px 24px rgba(0,0,0,.18)',
           background: msg.kind === 'err' ? '#b91c1c' : '#0f172a' }}>
           {msg.text}
         </div>

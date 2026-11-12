@@ -66,7 +66,9 @@ class _Base(unittest.TestCase):
             for em, (co, role) in PEOPLE.items():
                 db.add(models.NexusEmployee(id=f"e-{em}", first_name=em.split(".")[1].split("@")[0].title(),
                                             last_name="Esc", work_email=em, status="active", deleted_at="",
-                                            company=co, identity_type="guest" if em == GUEST else "internal"))
+                                            company=co, identity_type="guest" if em == GUEST else "internal",
+                                            # A manager acts only within their reporting line (11/12/2026).
+                                            manager_email=AMGR if em == AEMP else ""))
                 db.add(models.NexusRole(email=em, role=role))
             db.add(models.NexusGroup(id=PLAIN, name="Shared Group", allowed_modules="tasks:viewer", company_id=""))
             db.add(models.NexusGroup(id=GRP_A, name="Alpha Group", allowed_modules="tasks:viewer", company_id=COA))

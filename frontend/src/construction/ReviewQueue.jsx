@@ -77,8 +77,8 @@ function LogCard({ log, onDecide, busy, aiEnabled }) {
                 : <ChevronRight size={16} style={{ marginTop: 3, flexShrink: 0 }} />}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <strong style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{log.projectName}</strong>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{formatDate(log.logDate, log.logDate)}</span>
+              <strong>{log.projectName}</strong>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{formatDate(log.logDate, log.logDate)}</span>
               {(log.tags || []).map((t) => <StatusLabel key={t} size="sm" label={tagLabel(t)} color={TAG_COLOR[t]} />)}
               {safety.length > 0 && (
                 <StatusLabel size="sm" color={TONE.red} label={`${safety.length} Safety Flag${safety.length === 1 ? '' : 's'}`} />
@@ -91,7 +91,7 @@ function LogCard({ log, onDecide, busy, aiEnabled }) {
                            color: 'var(--text-secondary)' }}><MapPin size={11} />Off-Site</span>
               )}
             </div>
-            <div style={{ marginTop: 4, fontSize: '0.8rem', color: 'var(--text-secondary)',
+            <div style={{ marginTop: 4, fontSize: 13, color: 'var(--text-secondary)',
                           display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <span>{author}</span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
@@ -113,14 +113,14 @@ function LogCard({ log, onDecide, busy, aiEnabled }) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
               <div>
                 <div style={LABEL}>Crew Notes</div>
-                <p style={{ fontSize: '0.85rem', lineHeight: 1.5, margin: 0,
+                <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0,
                             color: log.notes ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                   {log.notes || 'Nothing written - media only.'}
                 </p>
               </div>
               <div>
                 <div style={LABEL}>AI Summary</div>
-                <p style={{ fontSize: '0.85rem', lineHeight: 1.5, margin: 0,
+                <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0,
                             color: log.aiSummary ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                   {log.aiSummary || (log.awaitingAi ? 'Still processing.' : 'No summary produced.')}
                 </p>
@@ -129,7 +129,7 @@ function LogCard({ log, onDecide, busy, aiEnabled }) {
           ) : (
             <div>
               <div style={LABEL}>Crew Notes</div>
-              <p style={{ fontSize: '0.85rem', lineHeight: 1.5, margin: 0,
+              <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0,
                           color: log.notes ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                 {log.notes || 'Nothing written - media only.'}
               </p>
@@ -140,7 +140,7 @@ function LogCard({ log, onDecide, busy, aiEnabled }) {
             <div style={{ marginTop: 14 }}>
               {safety.map((f, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8,
-                                      fontSize: '0.82rem', marginBottom: 4 }}>
+                                      fontSize: 13, marginBottom: 4 }}>
                   <ShieldAlert size={14} style={{ color: SEV[f.severity] || SEV.low, flexShrink: 0, marginTop: 2 }} />
                   <span><strong style={{ textTransform: 'capitalize' }}>{f.severity}</strong> &middot; {f.issue}</span>
                 </div>
@@ -152,7 +152,7 @@ function LogCard({ log, onDecide, busy, aiEnabled }) {
             <div style={{ marginTop: 10 }}>
               {delays.map((d, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8,
-                                      fontSize: '0.82rem', marginBottom: 4 }}>
+                                      fontSize: 13, marginBottom: 4 }}>
                   <Clock size={14} style={{ color: SEV.medium, flexShrink: 0, marginTop: 2 }} />
                   <span>{d.cause}{d.impact_days ? ` (${d.impact_days} day impact)` : ''}</span>
                 </div>
@@ -182,7 +182,7 @@ function LogCard({ log, onDecide, busy, aiEnabled }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
             <input className="form-input" value={note} onChange={(e) => setNote(e.target.value)}
               placeholder="Question for the crew (required to send back)" aria-label="Question for the crew"
-              style={{ flex: '1 1 220px', fontSize: '0.85rem' }} />
+              style={{ flex: '1 1 220px', fontSize: 13 }} />
             {/* Sending back without saying why just produces a second identical
                 log, so the button stays disabled until there is a question. */}
             <button className="secondary-btn" disabled={busy || !note.trim()}
@@ -248,10 +248,10 @@ export default function ReviewQueue({ projectId = '', onDecided }) {
 
   return (
     <div style={CARD}>
-      <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>
+      <h3 style={{ fontSize: 18, marginBottom: 4 }}>
         Review Queue
       </h3>
-      <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>
+      <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
         {aiEnabled
           ? 'Logs waiting on a decision - low AI confidence and safety first'
           : 'Logs waiting on a decision - the ones the crew tagged Safety first, then the oldest'}
@@ -260,24 +260,24 @@ export default function ReviewQueue({ projectId = '', onDecided }) {
       {error && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 16,
                       borderRadius: 8, backgroundColor: 'hsl(var(--color-red) / 0.08)',
-                      border: '1px solid hsl(var(--color-red) / 0.3)', fontSize: '0.85rem' }}>
+                      border: '1px solid hsl(var(--color-red) / 0.3)', fontSize: 13 }}>
           <AlertTriangle size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0 }} />
           <span style={{ flex: 1 }}>{error}</span>
-          <button className="secondary-btn" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={load}>Retry</button>
+          <button className="secondary-btn" style={{ padding: '4px 12px', fontSize: 13 }} onClick={load}>Retry</button>
         </div>
       )}
 
       {logs === null ? (
-        <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+        <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
           Loading review queue&hellip;
         </div>
       ) : logs.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-secondary)' }}>
           <ClipboardCheck size={32} style={{ opacity: 0.4, marginBottom: 12 }} />
-          <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
             Nothing waiting on you
           </div>
-          <p style={{ fontSize: '0.85rem' }}>Submitted logs appear here once the crew files them.</p>
+          <p style={{ fontSize: 13 }}>Submitted logs appear here once the crew files them.</p>
         </div>
       ) : (
         logs.map((l) => (

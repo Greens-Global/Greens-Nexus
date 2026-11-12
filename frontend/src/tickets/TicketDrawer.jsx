@@ -57,6 +57,7 @@ import { STOP_VOICE_FIRST } from '../lib/voice';
 import { TicketAttachments } from './TicketAttachments';
 import { TicketActivity } from './TicketActivity';
 import TicketJobAction from './TicketJobAction';
+import TicketBuildAction from './TicketBuildAction';
 import TicketPhoneCard from './TicketPhoneCard';
 import MentionedIn from '../components/MentionedIn';
 
@@ -331,7 +332,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
       // The pane has no room for a popup: the same two messages, in place.
       return (
         <div data-testid="ticket-drawer" role={gone ? 'alert' : 'status'} aria-busy={gone ? undefined : 'true'}
-          style={{ padding: 24, fontSize: 13.5, color: NX.dim, fontFamily: FONT }}>
+          style={{ padding: 24, fontSize: 13, color: NX.dim, fontFamily: FONT }}>
           {gone ? 'This ticket is not in your list any more - it may have been deleted, or you may no longer have access to it.' : 'Opening your ticket…'}
         </div>
       );
@@ -758,7 +759,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
               )) : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
             </div>
           )}
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>They can open this ticket, reply and get its updates.</div>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>They can open this ticket, reply and get its updates.</div>
         </div>
         <div style={field}>
           <label style={label}>Company</label>
@@ -827,12 +828,12 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
                 disabled={['resolved', 'closed'].includes(v.status)}
                 onChange={(id) => { if (id !== (v.propertyAssetId || '')) stage({ propertyAssetId: id }); }} />
               {['resolved', 'closed'].includes(v.status) && v.propertyAssetId && (
-                <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Part of this property's maintenance history - reopen the ticket to change it.</div>
+                <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>Part of this property's maintenance history - reopen the ticket to change it.</div>
               )}
             </>) : (<>
               <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.propertyName || '-'}</div>
               {v.propertyLocked && (
-                <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>Raised from this property in Asset Management - it can't be changed.</div>
+                <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>Raised from this property in Asset Management - it can't be changed.</div>
               )}
             </>)}
           </div>
@@ -876,7 +877,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
               check-in cadence, whether or not the due date has passed. */}
           {commentStale(t) && (
             <div title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h`}
-              style={{ ...chip(COMMENT_STALE_META.color, COMMENT_STALE_META.tint), display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '2px 8px', marginTop: 6 }}>
+              style={{ ...chip(COMMENT_STALE_META.color, COMMENT_STALE_META.tint), display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '2px 8px', marginTop: 6 }}>
               <COMMENT_STALE_META.Icon size={12} />{COMMENT_STALE_META.label}
             </div>
           )}
@@ -976,7 +977,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const attachmentsBody = <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete && !confidential}
     markupSource={{ kind: 'ticket', id: t.id, label: [ticketNo(t.code), t.subject].filter(Boolean).join(' ').slice(0, 200) || 'Ticket', url: `/tickets?ticket=${encodeURIComponent(t.id)}` }} />;
   const activityBody = <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />;
-  const navButton = { ...btn('outline'), padding: '5px 10px', fontSize: 12.5, gap: 4 };
+  const navButton = { ...btn('outline'), padding: '5px 10px', fontSize: 13, gap: 4 };
   const nav = hasNav ? (
     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
       <button type="button" style={{ ...navButton, opacity: onPrev ? 1 : 0.5 }} disabled={!onPrev} onClick={() => onPrev?.()}
@@ -1051,6 +1052,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         {/* Start Job / Open Job (Neil, 11/03/2026): a ticket that needs a crew,
             materials or more than a day gets a construction Job. Never on Ask HR. */}
         {!confidential && <TicketJobAction ticketId={t.id} onOpen={inline ? undefined : closeDrawer} />}
+        {/* Send To Claude Code (Neil, 11/12/2026): Build Mode grant holders only; never on Ask HR. */}
+        {!confidential && <TicketBuildAction ticketId={t.id} onOpen={inline ? undefined : closeDrawer} />}
         {!CLOSED_STATES.includes(t.status) ? (
           // canEditStatus, not canWorking - Mark Resolved is the same "raw
           // status jump" the requester is carved out of above; their only
@@ -1102,12 +1105,12 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
       <div style={{ marginBottom: 6 }}>
         {editing && canEditText ? editorBlock : (<>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>
               {v.subject}
               {/* Raised by email (ticket_inbound.py) - a quiet note, not a chip. */}
               {t.source === 'email' && (
                 <span title="Raised by an email to the support mailbox"
-                  style={{ marginLeft: 8, fontSize: 11.5, fontWeight: 500, color: NX.faint, whiteSpace: 'nowrap' }}>
+                  style={{ marginLeft: 8, fontSize: 12, fontWeight: 500, color: NX.faint, whiteSpace: 'nowrap' }}>
                   Via Email
                 </span>
               )}
@@ -1123,7 +1126,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             ? <div className="nx-rich-body" style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim }}
                 dangerouslySetInnerHTML={{ __html: richBodyHtml(v.description, nameOf) }} />
             : canEditText && (
-              <button type="button" onClick={startEdit} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 4, fontSize: 12.5, color: NX.blue, fontWeight: 600 }}>
+              <button type="button" onClick={startEdit} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 4, fontSize: 13, color: NX.blue, fontWeight: 600 }}>
                 <Plus size={13} /> Add a Description
               </button>
             )}
@@ -1140,7 +1143,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
       </div>
 
       {confidential && (
-        <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: NX.ink, background: 'rgba(124,58,237,0.08)',
+        <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, background: 'rgba(124,58,237,0.08)',
           border: '1px solid rgba(124,58,237,0.28)', borderRadius: 8, padding: '7px 11px', marginTop: 12 }}>
           <Lock size={14} style={{ color: NX.purple, flexShrink: 0 }} />
           <span><b>Confidential HR Request.</b> Only the person who asked, the people on it and HR can see it.</span>
@@ -1176,13 +1179,13 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         <div className="scroll-tabs" style={{ display: 'inline-flex', gap: 2, marginBottom: 16, background: NX.border2, borderRadius: 9, padding: 2, maxWidth: '100%', overflowX: 'auto' }}>
           {[['overview', 'Overview', ClipboardList], ['conversation', 'Conversation', MessageSquare], ['attachments', 'Attachments', Paperclip], ['activity', 'Activity', History]].map(([k, lab, Icon]) => (
             <button key={k} onClick={() => { setTab(k); if (k === 'conversation') setNewReplies(0); }} style={{
-              ...btn('ghost'), gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap', flexShrink: 0,
+              ...btn('ghost'), gap: 6, fontSize: 13, fontWeight: 600, padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap', flexShrink: 0,
               background: tab === k ? NX.surface : 'transparent', color: tab === k ? NX.ink : NX.dim,
               boxShadow: tab === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
             }}><Icon size={14} />{lab}
               {k === 'conversation' && newReplies > 0 && (
                 <span title={`${newReplies} new repl${newReplies === 1 ? 'y' : 'ies'}`}
-                  style={{ minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: NX.red, color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'inline-grid', placeItems: 'center' }}>{newReplies}</span>
+                  style={{ minWidth: 16, height: 16, padding: '0 4px', borderRadius: 8, background: NX.red, color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-grid', placeItems: 'center' }}>{newReplies}</span>
               )}
             </button>
           ))}

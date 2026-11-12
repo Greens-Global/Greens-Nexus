@@ -19,11 +19,11 @@ function ReviewListTable({ reviews }) {
               <span style={{ fontSize: 13, fontWeight: 500, color: C.gray900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.customer}</span>
               <StarRating value={r.rating} size={10} />
             </div>
-            <div style={{ fontSize: 11.5, color: C.gray400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 12, color: C.gray400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {r.facility} &middot; via {r.platform}
             </div>
           </div>
-          <div style={{ fontSize: 11.5, color: C.gray400, flexShrink: 0, textAlign: 'right' }}>
+          <div style={{ fontSize: 12, color: C.gray400, flexShrink: 0, textAlign: 'right' }}>
             {formatLocalDateUS(new Date(r.date))}
             <div style={{ color: C.gray300 }}>{r.status}</div>
           </div>

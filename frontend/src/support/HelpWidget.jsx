@@ -342,7 +342,7 @@ function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArt
                 onClick={() => onOpenArticle(moduleArticle(gettingStarted))}>
                 <Compass size={16} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
                 <span className="hw-card-text">
-                  <span className="hw-card-title" style={{ fontSize: 13.5 }}>Getting Started</span>
+                  <span className="hw-card-title" style={{ fontSize: 13 }}>Getting Started</span>
                   <span className="hw-card-sub">{gettingStarted.tagline}</span>
                 </span>
                 <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -416,7 +416,7 @@ function Article({ a, onBack, onOpenArticle, onOpenFull }) {
             {doc.features.map((f) => (
               <div key={f.name} className="hw-feature">
                 <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>{f.name}</div>
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>{f.desc}</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>{f.desc}</div>
               </div>
             ))}
           </>

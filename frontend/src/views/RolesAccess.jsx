@@ -80,7 +80,7 @@ export function LevelPill({ level: raw, title }) {
   if (!raw) return <span style={{ color: 'var(--muted)', opacity: 0.4 }}>-</span>;
   const level = grantLevel(raw);   // an old cached 'owner' row reads as Full
   const label = MODULE_LEVELS[level].label;
-  const base = { display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap' };
+  const base = { display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap' };
   const styles = {
     viewer: { ...base, background: 'transparent', color: 'var(--muted)', boxShadow: 'inset 0 0 0 1.5px var(--line-strong,var(--line))' },
     editor: { ...base, background: 'color-mix(in srgb, var(--ink) 12%, transparent)', color: 'var(--ink)' },
@@ -95,7 +95,7 @@ export function ModuleLevelPill({ moduleId, level }) {
   const mod = MODULES.find(m => m.id === moduleId);
   const label = mod?.label || moduleId;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 5px 3px 11px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap' }}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 5px 3px 11px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
       title={capabilityText(moduleId, level, label)}>
       {label}<LevelPill level={level} />
     </span>
@@ -105,7 +105,7 @@ export function ModuleLevelPill({ moduleId, level }) {
 export function TierBadge({ tier }) {
   const r = ROLES[tier] || ROLES.employee;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, background: r.bg, color: r.color, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: r.bg, color: r.color, whiteSpace: 'nowrap' }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />{r.label}
     </span>
   );
@@ -367,7 +367,7 @@ export default function RolesAccess({ embedded = false }) {
           has it. */}
       <div style={{ marginTop: 8, minHeight: 24, display: 'flex', alignItems: 'center' }}>
         {embedded ? (
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
             {r.member_count ? `${r.member_count} ${r.member_count === 1 ? 'person' : 'people'}` : 'Nobody yet'}
           </span>
         ) : (() => {
@@ -383,7 +383,7 @@ export default function RolesAccess({ embedded = false }) {
               {mem.length > 8 && <span style={{ marginLeft: 5, fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>+{mem.length - 8}</span>}
             </span>
           ) : (
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>{filterOn && r.member_count ? 'None in this filter' : 'Nobody yet'}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{filterOn && r.member_count ? 'None in this filter' : 'Nobody yet'}</span>
           );
         })()}
       </div>
@@ -470,7 +470,7 @@ export default function RolesAccess({ embedded = false }) {
       <div className="scroll-tabs" data-tour="tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1, alignItems: 'center' }}>
         {tabs.map(([key, label, Icon]) => (
           <button key={key} onClick={() => setSub(key)}
-            style={{ background: 'none', border: 'none', padding: '10px 16px', fontFamily: 'Inter,sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
+            style={{ background: 'none', border: 'none', padding: '10px 16px', fontFamily: 'Inter,sans-serif', fontWeight: 600, fontSize: 13, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
             <Icon size={16} /> {label}
             {sub === key && <span style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 2.5, background: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
           </button>
@@ -483,20 +483,20 @@ export default function RolesAccess({ embedded = false }) {
             <label htmlFor="ra-filter-company" style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', margin: '4px 0 8px', whiteSpace: 'nowrap' }}>Filter by Company</label>
             <select id="ra-filter-company" value={co} onChange={e => setCo(e.target.value)} aria-label="Filter every tab by company"
               title="Shows only this company's people on every tab"
-              style={{ ...input, width: 'auto', maxWidth: 170, padding: '6px 9px', fontSize: 12.5, margin: '4px 0 8px' }}>
+              style={{ ...input, width: 'auto', maxWidth: 170, padding: '6px 9px', fontSize: 13, margin: '4px 0 8px' }}>
               <option value="">All Companies</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <select value={dept} onChange={e => setDept(e.target.value)} aria-label="Filter every tab by department"
               title="Shows only this department's people on every tab" disabled={!deptOptions.length}
-              style={{ ...input, width: 'auto', maxWidth: 160, padding: '6px 9px', fontSize: 12.5, margin: '4px 0 8px', opacity: deptOptions.length ? 1 : 0.55 }}>
+              style={{ ...input, width: 'auto', maxWidth: 160, padding: '6px 9px', fontSize: 13, margin: '4px 0 8px', opacity: deptOptions.length ? 1 : 0.55 }}>
               <option value="">{deptOptions.length ? 'All Departments' : 'No Departments'}</option>
               {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           </>
         )}
         <button onClick={() => setTour(true)} title="A guided walkthrough of how to give out access - nothing is changed while it runs."
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '6px 14px', margin: '4px 4px 8px 0', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '6px 14px', margin: '4px 4px 8px 0', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
           <PlayCircle size={15} /> Simulate
         </button>
       </div>
@@ -515,7 +515,7 @@ export default function RolesAccess({ embedded = false }) {
           <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 18 }} className="ra-grid">
             <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
               {embedded && (
-                <p style={{ margin: 0, flex: 1, minWidth: 240, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                <p style={{ margin: 0, flex: 1, minWidth: 240, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
                   Roles people at any company can hold. Editing one changes it for everyone who has it. A company's own roles show with that company picked in Applies To.
                 </p>
               )}
@@ -539,7 +539,7 @@ export default function RolesAccess({ embedded = false }) {
                       onMouseOver={e => { e.currentTarget.style.background = 'var(--mist)'; }}
                       onMouseOut={e => { e.currentTarget.style.background = 'none'; }}>
                       <ChevronRight size={15} style={{ color: 'var(--muted)', transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .25s ease', flexShrink: 0 }} />
-                      <span style={{ flex: 1, fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: isDropTarget ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{deptName}</span>
+                      <span style={{ flex: 1, fontSize: 12, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: isDropTarget ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{deptName}</span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--mist)', borderRadius: 999, padding: '1px 8px' }}>{isDropTarget ? 'Drop here' : deptRoles.length}</span>
                     </button>
                     {/* grid-template-rows 0fr↔1fr = smooth height without layout thrash. */}
@@ -553,7 +553,7 @@ export default function RolesAccess({ embedded = false }) {
               })}
             </div>
             <div ref={rolePanelRef} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', scrollMarginTop: 12 }}>
-              {!selected ? <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Pick a job role to see its full bundle, or create a new one.</div> : (
+              {!selected ? <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13 }}>Pick a job role to see its full bundle, or create a new one.</div> : (
                 <>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                     <div style={{ flex: 1, minWidth: 140 }}><h3 style={{ fontSize: 18, fontWeight: 800 }}>{selected.name}</h3></div>
@@ -579,7 +579,7 @@ export default function RolesAccess({ embedded = false }) {
                   {selected.description && <p style={{ color: 'var(--muted)', fontSize: 13, margin: '8px 0 0', maxWidth: '60ch' }}>{selected.description}</p>}
                   {selected.teams?.id && !selected.bod_exempt && (
                     <div title="Where people in this role post their BOD, EOD and break messages"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10, padding: '5px 11px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10, padding: '5px 11px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 13, fontWeight: 600 }}>
                       {selected.teams.type === 'channel' ? <Hash size={12} /> : <MessageSquare size={12} />} Day messages post to {teamsTargetLabel(selected.teams)}
                     </div>
                   )}
@@ -613,7 +613,7 @@ export default function RolesAccess({ embedded = false }) {
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                           {mods.map(g => (
                             <span key={g.id} title={capabilityText(g.id, g.level, moduleLabel(g.id))}
-                              style={{ padding: '5px 12px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                              style={{ padding: '5px 12px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 13, fontWeight: 600 }}>
                               {moduleLabel(g.id)}
                             </span>
                           ))}
@@ -635,11 +635,11 @@ export default function RolesAccess({ embedded = false }) {
                         return (
                           <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 10px', borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
                             <Avatar name={nameOf(em)} src={photoOf[em]} size={24} />
-                            <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</span>
                             {info.role && <TierBadge tier={info.role} />}
                             {info.pinned && (
                               <span title="Tier set for this person directly - a role-tier change won't move them."
-                                style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 7px', borderRadius: 6 }}>
+                                style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 7px', borderRadius: 6 }}>
                                 Override
                               </span>
                             )}
@@ -649,7 +649,7 @@ export default function RolesAccess({ embedded = false }) {
                               {TIERS.filter(canAssignTier).map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
                             </select>
                             {info.pinned && (
-                              <button className="secondary-btn" onClick={() => resetMemberTier(em)} title="Follow the role tier again" style={{ padding: '4px 9px', fontSize: 11.5 }}>Reset</button>
+                              <button className="secondary-btn" onClick={() => resetMemberTier(em)} title="Follow the role tier again" style={{ padding: '4px 9px', fontSize: 12 }}>Reset</button>
                             )}
                             <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`}
                               style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
@@ -665,7 +665,7 @@ export default function RolesAccess({ embedded = false }) {
                   <button className="secondary-btn" data-tour="assign" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
                     <UserPlus size={14} /> Assign a person
                   </button>
-                  <div style={{ marginTop: 14, background: 'hsla(var(--color-blue),0.08)', border: '1px solid hsla(var(--color-blue),0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 12.5, color: 'var(--ink)' }}>
+                  <div style={{ marginTop: 14, background: 'hsla(var(--color-blue),0.08)', border: '1px solid hsla(var(--color-blue),0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 13, color: 'var(--ink)' }}>
                     Editing the bundle applies to all {selected.member_count} people who hold this role. Extra groups layer on top.
                   </div>
                   </>)}
@@ -690,9 +690,9 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>+ {g.name}</span>
                     {g.is_global_admin
-                      ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(230,50%,55%,0.14)', color: 'hsl(230,45%,50%)' }}>Super Administrators</span>
+                      ? <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(230,50%,55%,0.14)', color: 'hsl(230,45%,50%)' }}>Super Administrators</span>
                       : g.company_id
-                        ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>{companies.find(c => c.id === g.company_id)?.name || 'Company role'}</span>
+                        ? <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>{companies.find(c => c.id === g.company_id)?.name || 'Company role'}</span>
                         : null}
                     <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{(g.members || []).length} {(g.members || []).length === 1 ? 'person' : 'people'}</span>
                     <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => setEditGroup(g)} title="Edit group"><Pencil size={13} /></button>
@@ -703,11 +703,11 @@ export default function RolesAccess({ embedded = false }) {
                   {(g.members || []).filter(inFilter).length > 0 && (
                     <div style={{ marginTop: 9, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {(g.members || []).filter(inFilter).slice(0, 6).map(em => (
-                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px 3px 4px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 11.5, fontWeight: 600 }}>
+                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px 3px 4px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12, fontWeight: 600 }}>
                           <Avatar name={nameOf(em)} src={photoOf[em]} size={18} />{nameOf(em)}
                         </span>
                       ))}
-                      {(g.members || []).filter(inFilter).length > 6 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>+{(g.members || []).filter(inFilter).length - 6} more</span>}
+                      {(g.members || []).filter(inFilter).length > 6 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>+{(g.members || []).filter(inFilter).length - 6} more</span>}
                     </div>
                   )}
                 </div>
@@ -788,7 +788,7 @@ function PeopleTab({ people, membership, entities = [], person, setPerson, nameO
         </div>
         <button className="secondary-btn" onClick={() => setInviteOpen(true)}
           title="Invite a partner-company person as a Microsoft guest - they appear here like anyone else"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 13px', fontSize: 12.5, whiteSpace: 'nowrap' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 13px', fontSize: 13, whiteSpace: 'nowrap' }}>
           <MailPlus size={14} /> Invite External User
         </button>
       </div>
@@ -839,7 +839,7 @@ function PeopleTab({ people, membership, entities = [], person, setPerson, nameO
           <div data-tour="person-panel" style={{ fontFamily: 'Inter,sans-serif' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
               <Avatar name={shownName} src={photoOf[person]} size={34} />
-              <div style={{ fontSize: 16, fontWeight: 800, flex: 1, minWidth: 0 }}>{shownName}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, flex: 1, minWidth: 0 }}>{shownName}</div>
               {extRec && <ExternalBadge />}
             </div>
             <AccessTab key={person} email={person} identityType={extRec ? 'external' : 'internal'}
@@ -997,7 +997,7 @@ function AuditMatrix({ jobRoles, groups, companyName, guide }) {
               ))}
             </tr>
             <tr>
-              <th style={{ ...thCorner, top: 34, fontWeight: 400, fontSize: 10.5 }}>{jobRoles.length} roles · {groups.length} groups</th>
+              <th style={{ ...thCorner, top: 34, fontWeight: 400, fontSize: 11 }}>{jobRoles.length} roles · {groups.length} groups</th>
               {FAMILIES.map(fam => open.has(fam.id)
                 ? fam.modules.map(id => (
                   <th key={id} style={{ ...thCol, top: 34, ...colHl(id) }} onMouseEnter={() => setHoverCol(id)} onMouseLeave={() => setHoverCol(null)}>{moduleLabel(id)}</th>
@@ -1019,7 +1019,7 @@ function AuditMatrix({ jobRoles, groups, companyName, guide }) {
             {groups.length > 0 && (
               <tr>
                 <th style={{ ...thRow, borderTop: '2px solid var(--line)', paddingTop: 14 }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Extra access groups</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Extra access groups</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, fontWeight: 400 }}>Added on top of a job role</div>
                 </th>
                 {FAMILIES.map(fam => (open.has(fam.id) ? fam.modules : [fam.id]).map(k => <td key={k} style={{ ...tdCell, borderTop: '2px solid var(--line)' }} />))}
@@ -1083,7 +1083,7 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
         <div style={{ minWidth: 210 }}>
           <PersonSelect value={val || null} onChange={v => { if ((v || '') !== (val || '')) saveDefault(v || ''); }} disabled={busy === 'save'} people={pickable}
             placeholder="No Default Approver" noneLabel="No Default Approver" ariaLabel="Default approver"
-            style={{ ...input, padding: '7px 10px', fontSize: 12.5, fontWeight: 400 }} />
+            style={{ ...input, padding: '7px 10px', fontSize: 13, fontWeight: 400 }} />
         </div>
         <button className="secondary-btn" disabled={!val || !!busy || !role.member_count} onClick={applyAll}
           style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -1091,7 +1091,7 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
           Apply to all {role.member_count} {role.member_count === 1 ? 'member' : 'members'}
         </button>
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5, maxWidth: '60ch' }}>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5, maxWidth: '60ch' }}>
         Who approves this role's time sheets and punch fixes. New people mapped to the role inherit them automatically (if they don't already have a manager); Apply to all backfills everyone currently in it. A person's own card always wins.
       </div>
     </div>
@@ -1219,7 +1219,7 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
                 <select value={scope} onChange={e => setDashboardScope(e.target.value)}
                   aria-label="Which dashboard screens this grants"
                   title="Manager Dashboard is a tab inside Dashboard now - choose whether this grant includes it"
-                  style={{ ...input, width: 'auto', padding: '4px 8px', fontSize: 11.5, flexShrink: 0 }}>
+                  style={{ ...input, width: 'auto', padding: '4px 8px', fontSize: 12, flexShrink: 0 }}>
                   {DASHBOARD_SCOPES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
               )}
@@ -1233,7 +1233,7 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
                     <span key={l} style={{ position: 'relative', display: 'inline-flex' }}>
                       <button type="button" onClick={pick} aria-pressed={active}
                         title={active ? `${m.label}: ${MODULE_LEVELS[l].label}` : capabilityText(m.id, l, m.label)}
-                        style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                        style={{ padding: '4px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
                           border: `1.5px solid ${active ? 'var(--ink)' : 'var(--line)'}`,
                           background: active ? 'var(--ink)' : 'transparent',
                           color: active ? 'var(--card)' : 'var(--muted)', transition: 'background .12s, color .12s, border-color .12s' }}>
@@ -1257,7 +1257,7 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
           );
         })}
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7 }}>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 7 }}>
         One click grants a screen at that level; the x on the selected level removes it. {checkedCount} of {visibleIds.length} screens granted.
       </div>
       {/* The Level Guide as a card over the editor, so the draft stays put;
@@ -1356,12 +1356,12 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
           }} style={input}>
             {TIERS.map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
           </select>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 400 }}>{ROLES[tier]?.description}</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>{ROLES[tier]?.description}</span>
         </label>
         <label style={fieldLabel}>Department
           <input value={dept} onChange={e => setDept(e.target.value)} placeholder="e.g. Accounting" list="jr-dept-options" style={input} />
           <datalist id="jr-dept-options">{deptOptions.map(d => <option key={d} value={d} />)}</datalist>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 400 }}>Groups this role under a department in the list. Leave blank for “Other”.</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>Groups this role under a department in the list. Leave blank for “Other”.</span>
         </label>
         <label style={fieldLabel}>Description
           <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Plain-language: what this role does" style={{ ...input, resize: 'vertical' }} /></label>
@@ -1375,7 +1375,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
             {monExempt && <Check size={13} />}</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Exempt from screen-share monitoring</span>
-            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
               People in this role clock in without sharing a screen, and no screenshots are captured for them. Everyone else must share a screen to clock in. Use for leadership.
             </span>
           </span>
@@ -1389,7 +1389,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
             {bodExempt && <Check size={13} />}</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Skip day and break messages</span>
-            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
               People in this role are never asked for the beginning/end-of-day or break messages - punches go straight through. Use for field workers who cannot type these out.
             </span>
           </span>
@@ -1403,7 +1403,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
             {ttExempt && <Check size={13} />}</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Exempt from time tracking</span>
-            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
               People in this role have no time clock and no time sheet. Use for salaried leadership who are not tracked.
             </span>
           </span>
@@ -1414,7 +1414,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
         <div style={{ ...sectLabel, marginTop: 10, marginBottom: 0 }}>Teams Messages</div>
         <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '11px 13px' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 3 }}>Where BOD, EOD and break messages post</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.45, marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45, marginBottom: 10 }}>
             {bodExempt
               ? 'People in this role skip these messages (see above), so nothing posts.'
               : 'Everyone given this role posts here, ahead of any shift group setting. Leave empty to keep using the shift group.'}
@@ -1543,7 +1543,7 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr, onOpenGuid
             </label>
           )}
         </div>
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -6 }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: -6 }}>
           {globalAdmin ? 'Members are unrestricted across all companies - the only role that sees past the walls.'
             : companyId ? 'Members are confined to this company once the walls are armed.'
             : 'Org-wide group - members are placed by their own company (or the Super Administrators group).'}
@@ -1629,7 +1629,7 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
 
   return (
     <Modal onClose={onClose} title={`Assign to “${role.name}”`}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like - this stays open until you close it. Someone who already holds another role is a role change: pick them, write the reason, then click Assign.{roleCompany ? ' Only people at this role’s company are listed, plus anyone with no company set.' : ''}</div>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like - this stays open until you close it. Someone who already holds another role is a role change: pick them, write the reason, then click Assign.{roleCompany ? ' Only people at this role’s company are listed, plus anyone with no company set.' : ''}</div>
       <div style={{ position: 'relative', marginBottom: 10 }}>
         <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
         <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
@@ -1648,8 +1648,8 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
                 <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}{roleCompany && !p.company ? ' · No company set' : ''}</div>
                   {held && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Holds {held}{canSwap ? '' : ' - only HR, an Administrator or a Super Administrator can change their role'}</div>}</div>
                 {busy === p.email ? <Spinner size={15} />
-                  : picked ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--pine)' }}><Check size={14} /> Picked</span>
-                  : isAdded ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))' }}><Check size={14} /> Added</span>
+                  : picked ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: 'var(--pine)' }}><Check size={14} /> Picked</span>
+                  : isAdded ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-green))' }}><Check size={14} /> Added</span>
                   : <ChevronRight size={15} style={{ color: 'var(--muted)' }} />}
               </button>
             );
@@ -1662,7 +1662,7 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
             placeholder={`Why ${swaps.length === 1 ? swaps[0].name : `these ${swaps.length} people`} move to ${role.name}`}
             style={{ ...input, resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1 }}>Shown on their Role History. {swaps.length === 1 ? 'They already hold' : 'Each already holds'} another role - it changes now.</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1 }}>Shown on their Role History. {swaps.length === 1 ? 'They already hold' : 'Each already holds'} another role - it changes now.</span>
             <button className="primary-btn" onClick={assignSwaps} disabled={!!busy || !reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'swaps' ? <Spinner size={14} /> : null} Assign {swaps.length}
             </button>
@@ -1670,10 +1670,10 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
         </div>
       )}
       {warning && (
-        <div role="status" style={{ marginTop: 10, background: 'hsla(38,92%,50%,0.1)', border: '1px solid hsla(38,92%,50%,0.35)', borderRadius: 10, padding: '8px 12px', fontSize: 12.5, color: 'var(--ink)' }}>{warning}</div>
+        <div role="status" style={{ marginTop: 10, background: 'hsla(38,92%,50%,0.1)', border: '1px solid hsla(38,92%,50%,0.35)', borderRadius: 10, padding: '8px 12px', fontSize: 13, color: 'var(--ink)' }}>{warning}</div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
-        <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: 1 }}>{addedThisSitting > 0 ? `Added ${addedThisSitting} ${addedThisSitting === 1 ? 'person' : 'people'} this time.` : ''}</span>
+        <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>{addedThisSitting > 0 ? `Added ${addedThisSitting} ${addedThisSitting === 1 ? 'person' : 'people'} this time.` : ''}</span>
         <button className="primary-btn" onClick={onClose}>Done</button>
       </div>
     </Modal>
@@ -1716,7 +1716,7 @@ function Modal({ title, children, onClose, size, isDirty = false, onSave, closeR
         overflow: 'auto', padding: size === 'xl' ? 24 : 20,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 800, flex: 1 }}>{title}</h3>
+          <h3 style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{title}</h3>
           <button onClick={requestClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         {children}
@@ -1744,13 +1744,13 @@ function Modal({ title, children, onClose, size, isDirty = false, onSave, closeR
 // Content-area loading: skeleton placeholders (not a bare spinner) so the layout
 // stays stable and it reads as "loading this list", the standardized pattern.
 const ListSkeleton = () => <div style={{ padding: '8px 4px' }}><SkeletonBlocks count={5} height={54} /></div>;
-const Empty = ({ text }) => <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>{text}</div>;
+const Empty = ({ text }) => <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>{text}</div>;
 
 const thCorner = { position: 'sticky', left: 0, top: 0, zIndex: 3, background: 'var(--card)', textAlign: 'left', padding: '11px 14px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', borderRight: '1px solid var(--line)', borderBottom: '1.5px solid var(--line)', minWidth: 190 };
 const thCol = { position: 'sticky', top: 0, zIndex: 2, background: 'var(--card)', padding: '9px 10px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', borderBottom: '1.5px solid var(--line)', minWidth: 92, textAlign: 'center', verticalAlign: 'bottom' };
 const thRow = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--card)', textAlign: 'left', padding: '10px 14px', borderRight: '1px solid var(--line)', borderBottom: '1px solid var(--line)', minWidth: 190 };
 const tdCell = { padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid var(--line)' };
 const roleTabBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', whiteSpace: 'nowrap', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, marginBottom: -1 };
-const sectLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', margin: '20px 0 10px' };
-const fieldLabel = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' };
+const sectLabel = { fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', margin: '20px 0 10px' };
+const fieldLabel = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--ink)' };
 const input = { padding: '9px 11px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--paper)', color: 'var(--ink)', fontSize: 13, fontFamily: 'Inter,sans-serif', width: '100%' };

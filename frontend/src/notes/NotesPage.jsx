@@ -20,7 +20,7 @@ import { dialog } from '../ui/dialog';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate, formatDateTime, formatTime } from '../lib/datetime';
 import { Modal, DateField, usePeople, Avatar, AvatarName, useEscapeLayer } from '../tasks/components';
 import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useScrollLock } from '../lib/useScrollLock';
@@ -53,6 +53,8 @@ import {
 import MeetingsSheet from './meetings/MeetingsSheet';
 import { MeetingBand, TranscriptView, isMeetingNote, useMeetingOfNote } from './meetings/MeetingBand';
 import { meetingTimes } from './meetings/meetingModel';
+import { setTranscribeOn } from './meetings/access';
+import { EDITED } from './noteMedia';
 import './notes.css';
 
 // The whiteboard engine (board/Board.jsx, Neil 11/02/2026) is its own chunk,
@@ -544,12 +546,51 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
   // meeting carries the meeting band, the clock on its lines and the
   // transcript beside it. `tx.at` is the moment a stamped line points at.
   const meetingNote = isMeetingNote(note);
-  const meeting = useMeetingOfNote(id, meetingNote);
+  // Phase 3: recording in Nexus - whether it runs, its words as they come,
+  // and a reload of the meeting and its transcript when it ends.
+  const [rec, setRec] = useState({ on: false, startedAt: 0 });
+  const [liveCues, setLiveCues] = useState([]);
+  const [recReload, setRecReload] = useState(0);
+  const editorRef = useRef(null);
+  const meeting = useMeetingOfNote(id, meetingNote, recReload);
   const [tx, setTx] = useState({ open: false, at: 0, seq: 0 });
-  useEffect(() => { setTx({ open: false, at: 0, seq: 0 }); }, [id]);
+  useEffect(() => { setTx({ open: false, at: 0, seq: 0 }); setLiveCues([]); setRec({ on: false, startedAt: 0 }); }, [id]);
   const jumpTo = useCallback((at) => setTx((t) => ({ open: true, at, seq: t.seq + 1 })), []);
-  const clock = useMemo(() => (meeting ? { ...meetingTimes(meeting), onJump: meeting.invited ? jumpTo : null } : null), [meeting, jumpTo]);
+  const hasRecorded = !!(meeting && (meeting.kind === 'other' || meeting.kind === 'adhoc' || meeting.recorded?.exists || rec.on));
+  const clock = useMemo(() => {
+    if (!meeting) return null;
+    // While recording, every line written is stamped (any kind of meeting).
+    const times = rec.on ? { startMs: rec.startedAt - 60000, endMs: Date.now() + 4 * 3600000 } : meetingTimes(meeting);
+    return { ...times, onJump: meeting.invited || hasRecorded ? jumpTo : null };
+  }, [meeting, jumpTo, rec.on, rec.startedAt, hasRecorded]);
   const txFocus = useMemo(() => (tx.at ? { at: tx.at, seq: tx.seq } : null), [tx.at, tx.seq]);
+  const txSources = useMemo(() => {
+    if (!meeting) return ['teams'];
+    const list = [];
+    if (meeting.invited && (meeting.kind || 'teams') === 'teams') list.push('teams');
+    if (hasRecorded) list.push('recorded');
+    return list.length ? list : ['teams'];
+  }, [meeting, hasRecorded]);
+  // The consent goes into the note itself as a line of its own.
+  const markStarted = useCallback((ms) => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed || !ed.isEditable) return;
+    const when = formatTime(new Date(ms));
+    ed.chain().setMeta(EDITED, true).insertContentAt(ed.state.doc.content.size,
+      `<p><em>Transcription started at ${when} - everyone present agreed to be transcribed.</em></p>`).run();
+  }, []);
+  const recorderProps = useMemo(() => (id ? {
+    noteId: id,
+    onStarted: markStarted,
+    onLive: setLiveCues,
+    onRecording: (on, startedAt) => {
+      setRec((r) => {
+        if (r.on && !on) setRecReload((k) => k + 1);         // ended: read the saved words and the meeting again
+        if (!r.on && on) setTx((t) => ({ ...t, open: true })); // started: show the words as they come
+        return r.on === on && r.startedAt === startedAt ? r : { on, startedAt };
+      });
+    },
+  } : null), [id, markStarted]);
   // A brand-new note starts in its title.
   useEffect(() => {
     if (note && !note.title && !note.preview && note.mine && !note.trashedAt && note.kind !== 'daily') titleRef.current?.focus();
@@ -571,7 +612,7 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
         <div className="nt-empty" style={{ margin: 'auto' }}>
           <StickyNote size={28} aria-hidden="true" style={{ color: 'var(--wk-faint)', marginBottom: 8 }} />
           <strong>Pick a note or start a new one</strong>
-          Everything you write saves by itself and follows you to Quick Note - New Note in the top bar's + menu.
+          Everything you write saves by itself and follows you to Quick Note - New Note under the bolt in the top bar.
         </div>
       </div>
     );
@@ -868,10 +909,12 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
           {meetingNote && (
             <MeetingBand note={note} meeting={meeting} people={people} myEmail={myEmail} toast={toast}
               transcriptOpen={tx.open} onTranscript={() => setTx((t) => ({ ...t, open: !t.open }))}
-              onShared={(n) => { sync.replace(n); onSaved?.(n); }} onOpenNote={onOpen} />
+              onShared={(n) => { sync.replace(n); onSaved?.(n); }} onOpenNote={onOpen}
+              recording={rec.on} recorderProps={readOnly ? null : recorderProps} />
           )}
           {meetingNote && isPhone && tx.open && (
-            <TranscriptView inline noteId={note.id} note={note} myEmail={myEmail} toast={toast} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))} />
+            <TranscriptView inline noteId={note.id} note={note} myEmail={myEmail} toast={toast} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))}
+              sources={txSources} liveCues={liveCues} recording={rec.on} reloadKey={recReload} />
           )}
 
           {trashed && (
@@ -910,10 +953,12 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
               ? (
                 <LiveBoundary key={`live:${collab.epoch}`} onCrash={collab.fail}>
                   <NoteEditor collab={collab} readOnly={readOnly} people={people} noteId={note.id} meeting={clock} starters={!meetingNote}
+                    onEditor={(ed) => { editorRef.current = ed; }}
                     onChange={(html) => sync.edit({ body: html })} onRemoteChange={sync.seeRemote} onMakeTask={readOnly ? undefined : makeTask} />
                 </LiveBoundary>
               )
               : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people} noteId={note.id} meeting={clock} starters={!meetingNote}
+                  onEditor={(ed) => { editorRef.current = ed; }}
                   onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />}
           {/* The other notes that link here with [[ (Record Links, 11/06/2026); nothing when none. */}
           {!board && !trashed && (
@@ -945,7 +990,8 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
         // the note's whole life, so opening it never remounts the editor).
         <div className="nt-pane-row">
           <div className="nt-pane-scroll">{doc}</div>
-          {tx.open && <TranscriptView noteId={note.id} note={note} myEmail={myEmail} toast={toast} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))} />}
+          {tx.open && <TranscriptView noteId={note.id} note={note} myEmail={myEmail} toast={toast} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))}
+            sources={txSources} liveCues={liveCues} recording={rec.on} reloadKey={recReload} />}
         </div>
       ) : <div className="nt-pane-scroll">{doc}</div>}
       {dialogs}
@@ -1073,7 +1119,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
   const [meetingsOn, setMeetingsOn] = useState(false);
   useEffect(() => {
     let live = true;
-    Promise.resolve(api.meetingsAccess?.()).then((r) => { if (live) setMeetingsOn(!!r?.enabled); }).catch(() => {});
+    Promise.resolve(api.meetingsAccess?.()).then((r) => { if (live) { setMeetingsOn(!!r?.enabled); setTranscribeOn(!!r?.enabled); } }).catch(() => {});
     return () => { live = false; };
   }, []);
   const openedMeeting = async (noteId, created) => {

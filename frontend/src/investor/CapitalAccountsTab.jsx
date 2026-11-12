@@ -46,19 +46,19 @@ function printStatement(det) {
   const cell = (label, value) => `<div class="cell"><div class="cl">${esc(label)}</div><div class="cv">${esc(value)}</div></div>`;
   w.document.write(`<!doctype html><html><head><title>Capital Account Statement - ${esc(det.investorName)}</title><style>
     body { font-family: Inter, -apple-system, 'Segoe UI', sans-serif; color: #0f172a; margin: 40px; }
-    .eyebrow { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #64748b; font-weight: 700; }
-    h1 { font-size: 22px; margin: 6px 0 2px; letter-spacing: -.02em; }
+    .eyebrow { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #64748b; font-weight: 700; } /* type-ok: the printed statement */
+    h1 { font-size: 22px; margin: 6px 0 2px; letter-spacing: -.02em; } /* type-ok: the printed statement */
     .sub { font-size: 12px; color: #64748b; margin-bottom: 24px; }
     .grid { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; padding: 14px 0; margin-bottom: 28px; gap: 12px 20px; }
-    .cl { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; color: #64748b; font-weight: 700; }
+    .cl { font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; color: #64748b; font-weight: 700; } /* type-ok: the printed statement */
     .cv { font-size: 15px; font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; }
     h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 10px; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #64748b; border-bottom: 1px solid #0f172a; padding: 6px 8px; }
+    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #64748b; border-bottom: 1px solid #0f172a; padding: 6px 8px; } /* type-ok: the printed statement */
     td { padding: 7px 8px; border-bottom: 1px solid #e2e8f0; font-variant-numeric: tabular-nums; }
     .r { text-align: right; } th.r { text-align: right; }
     .t { color: #64748b; }
-    .foot { margin-top: 32px; font-size: 10px; color: #94a3b8; }
+    .foot { margin-top: 32px; font-size: 10px; color: #94a3b8; } /* type-ok: the printed statement */
   </style></head><body>
     <div class="eyebrow">Capital Account Statement</div>
     <h1>${esc(det.investorName)}</h1>
@@ -152,8 +152,8 @@ export default function CapitalAccountsTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Capital Accounts</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Every investor position - click a row for the full dated statement</p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Capital Accounts</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Every investor position - click a row for the full dated statement</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <select className="form-select" style={{ width: 200 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -202,7 +202,7 @@ export default function CapitalAccountsTab() {
             <tfoot>
               <tr style={{ borderTop: '2px solid var(--ink)' }}>
                 <td style={{ fontWeight: 700, paddingTop: 10 }}>Total</td>
-                <td style={{ color: 'var(--muted)', fontSize: 11.5, paddingTop: 10 }}>{rows.length} position{rows.length === 1 ? '' : 's'}</td>
+                <td style={{ color: 'var(--muted)', fontSize: 12, paddingTop: 10 }}>{rows.length} position{rows.length === 1 ? '' : 's'}</td>
                 {['committed', 'called', 'unfunded', 'distributed'].map(k => (
                   <td key={k} style={{ textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', paddingTop: 10 }}>{formatCurrency(totals[k])}</td>
                 ))}
@@ -223,12 +223,12 @@ export default function CapitalAccountsTab() {
             <div style={{ padding: '20px 24px 24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Investor Statement</div>
-                  <div style={{ fontSize: 19, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--ink)', marginTop: 4 }}>{det.investorName}</div>
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{det.fundName} · As of {formatDate(det.asOf)}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--muted)' }}>Investor Statement</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--ink)', marginTop: 4 }}>{det.investorName}</div>
+                  <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{det.fundName} · As of {formatDate(det.asOf)}</div>
                 </div>
                 <button className="secondary-btn" onClick={() => printStatement(det)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                   <Printer size={14} /> Print Statement
                 </button>
               </div>
@@ -244,7 +244,7 @@ export default function CapitalAccountsTab() {
                   ['Net IRR', det.irrPct === null || det.irrPct === undefined ? '-' : formatPercent(det.irrPct)],
                 ].map(([label, value]) => (
                   <div key={label}>
-                    <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>{label}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>{label}</div>
                     <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
                   </div>
                 ))}
@@ -252,7 +252,7 @@ export default function CapitalAccountsTab() {
 
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--ink)', marginBottom: 8 }}>Cash-Flow Ledger</div>
               {(det.cashFlows || []).length === 0 ? (
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>No cash flows recorded yet for this position.</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0' }}>No cash flows recorded yet for this position.</div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
                   <table className="req-table">
@@ -290,7 +290,7 @@ export default function CapitalAccountsTab() {
                   </table>
                 </div>
               )}
-              <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 14 }}>
                 Amounts shown from the investor's perspective - capital calls negative, distributions positive.
               </div>
             </div>

@@ -33,7 +33,7 @@ import { WarnMark } from './warnMark';
 
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const muted = { color: 'var(--text-muted)' };
-const head = { fontSize: '0.74rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' };
+const head = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' };
 export const INTEREST_SOURCE = {
   wired: 'wired on this loan',
   matched: 'matched by the account titles',
@@ -83,15 +83,15 @@ export function paymentRows(history, { given = false, owedAtEnd = null, interest
 }
 
 function PaymentsTable({ rows, showBalance, showDraws = true, shareNote = '', onOpenEntry, empty }) {
-  if (!rows.length) return <div style={{ fontSize: '0.8rem', ...muted, padding: '6px 0' }}>{empty}</div>;
+  if (!rows.length) return <div style={{ fontSize: 13, ...muted, padding: '6px 0' }}>{empty}</div>;
   const total = rows.reduce((t, r) => ({ principal: t.principal + r.principal, interest: t.interest + r.interest, draw: t.draw + r.draw }), { principal: 0, interest: 0, draw: 0 });
   return (
     <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 8 }}>
-      <table className="acct-lines" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', '--acct-row-py': '5px' }}>
+      <table className="acct-lines" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, '--acct-row-py': '5px' }}>
         <thead>
           <tr style={{ background: 'var(--bg-secondary)' }}>
             {['Date', 'Entry', 'Description', 'Principal Paid', shareNote ? 'Interest Paid (Share)' : 'Interest Paid', 'Total Payment', ...(showDraws ? ['Draws'] : []), ...(showBalance ? ['Balance After'] : [])].map((h, i) => (
-              <th key={h} title={h.startsWith('Interest') && shareNote ? shareNote : undefined} style={{ padding: '6px 10px', textAlign: i >= 3 ? 'right' : 'left', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{h}</th>
+              <th key={h} title={h.startsWith('Interest') && shareNote ? shareNote : undefined} style={{ padding: '6px 10px', textAlign: i >= 3 ? 'right' : 'left', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -155,7 +155,7 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
   const browse = (which, label) => (canEdit ? (
     <button type="button" className="secondary-btn" disabled={folderBusy} onClick={() => setPicking(which)} aria-haspopup="dialog"
       aria-label={`${label} - Browse Egnyte`} title="Pick the folder in Egnyte"
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', height: 24, padding: '0 8px' }}>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, height: 24, padding: '0 8px' }}>
       <FolderOpen size={12} /> Browse
     </button>
   ) : null);
@@ -177,8 +177,8 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
 
   const fact = (label, value, title) => (
     <div title={title} style={{ minWidth: 150 }}>
-      <div style={{ fontSize: '0.7rem', ...muted }}>{label}</div>
-      <div style={{ fontSize: '0.82rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontSize: 11, ...muted }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
     </div>
   );
   // An account named here opens its ledger lines in Reports (item 33), up to
@@ -203,8 +203,8 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
         {fact('NOI (T12)', formatAmount(loan.noiT12), `Income ${formatAmount(loan.incomeT12)} less operating expenses ${formatAmount(loan.operatingExpensesT12)}; interest, depreciation and amortization left out.`)}
         {fact('Debt Service (T12)', loan.debtServiceT12 == null ? '-' : formatAmount(loan.debtServiceT12), `This loan's principal and interest over the twelve months; the entity's whole debt service is ${formatAmount(loan.entityDebtServiceT12)}.`)}
         <div style={{ minWidth: 150 }}>
-          <div style={{ fontSize: '0.7rem', ...muted }}>Egnyte</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, fontSize: '0.8rem' }}>
+          <div style={{ fontSize: 11, ...muted }}>Egnyte</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, fontSize: 13 }}>
             {loan.docsUrl ? <a href={loan.docsUrl} target="_blank" rel="noreferrer" title={loan.docsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderOpen size={13} /> Documents: {folderName(loan.docsPath) || 'Folder'}</a>
               : loan.docsPath ? <span title={loan.docsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FolderOpen size={13} /> Documents: {folderName(loan.docsPath)}</span>
                 : <span style={{ ...muted, display: 'inline-flex', alignItems: 'center', gap: 6 }}>No documents folder {browse('docs', 'Documents Folder')}</span>}
@@ -212,8 +212,8 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
               : loan.statementsPath ? <span title={loan.statementsPath} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={13} /> Statements: {folderName(loan.statementsPath)}</span>
                 : <span style={{ ...muted, display: 'inline-flex', alignItems: 'center', gap: 6 }}>No statements folder {browse('statements', 'Statements Folder')}</span>}
           </div>
-          {folderBusy && <div style={{ fontSize: '0.72rem', ...muted }}>Saving the folder...</div>}
-          {folderError && <div role="alert" style={{ fontSize: '0.72rem', color: 'hsl(var(--color-red))' }}>{folderError}</div>}
+          {folderBusy && <div style={{ fontSize: 12, ...muted }}>Saving the folder...</div>}
+          {folderError && <div role="alert" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>{folderError}</div>}
           {picking && createPortal(
             <FolderPickModal startPath={(picking === 'docs' ? loan.docsPath : loan.statementsPath) || '/Shared'} showTree
               title={`${picking === 'docs' ? 'Documents Folder' : 'Statements Folder'} - Pick a Folder`}
@@ -225,27 +225,27 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
       </div>
 
       {!ledger ? (
-        <div style={{ fontSize: '0.8rem', ...muted }}>This loan is kept by hand (not in Intacct), so there are no ledger lines to show. Wire its principal and interest accounts under Change Loan to read them.</div>
+        <div style={{ fontSize: 13, ...muted }}>This loan is kept by hand (not in Intacct), so there are no ledger lines to show. Wire its principal and interest accounts under Change Loan to read them.</div>
       ) : (
         <>
           <section style={{ display: 'grid', gap: 6 }}>
             <div style={head}>Payments {from ? `${formatDate(from)} - ${formatDate(to)}` : `to ${formatDate(to)}`}</div>
-            {period.error ? <div style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{period.error}</div>
+            {period.error ? <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{period.error}</div>
               : !period.data ? <SkeletonBlocks count={1} height={60} borderRadius={8} />
                 : <PaymentsTable rows={periodRows} showDraws={loc} shareNote={shareNote} onOpenEntry={onOpenEntry} empty={`No payments posted ${from ? `${formatDate(from)} - ${formatDate(to)}` : `to ${formatDate(to)}`}.`} />}
-            {(period.data?.notes || []).length > 0 && <div style={{ fontSize: '0.74rem', color: 'var(--warn-fg)' }}><WarnMark />{period.data.notes.join(' · ')}</div>}
+            {(period.data?.notes || []).length > 0 && <div style={{ fontSize: 12, color: 'var(--warn-fg)' }}><WarnMark />{period.data.notes.join(' · ')}</div>}
           </section>
           <section style={{ display: 'grid', gap: 6 }}>
             <button type="button" onClick={() => setHistoryOpen((v) => !v)} aria-expanded={historyOpen}
               style={{ ...head, border: 'none', background: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, justifySelf: 'start' }}>
               {historyOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Payment History
             </button>
-            {historyOpen && (all.error ? <div style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{all.error}</div>
+            {historyOpen && (all.error ? <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{all.error}</div>
               : !all.data ? <SkeletonBlocks count={1} height={80} borderRadius={8} />
                 : (
                   <>
                     <PaymentsTable rows={allRows} showDraws={loc} shareNote={shareNote} showBalance={loan.wiring === 'ok' && !all.data.principal?.truncated} onOpenEntry={onOpenEntry} empty="No lines on the principal or interest account yet." />
-                    {all.data.principal?.truncated && <div style={{ fontSize: '0.74rem', ...muted }}>The newest {all.data.principal.lines.length} of {all.data.principal.total} lines are shown.</div>}
+                    {all.data.principal?.truncated && <div style={{ fontSize: 12, ...muted }}>The newest {all.data.principal.lines.length} of {all.data.principal.total} lines are shown.</div>}
                   </>
                 ))}
           </section>

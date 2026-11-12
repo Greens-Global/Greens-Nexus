@@ -147,7 +147,7 @@ export default function PersonHover({ email, name = '', children, disabled = fal
           }}
         >
           {card === null ? (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
               {_cache.has(em) ? (name || em) : 'Loading...'}
             </div>
           ) : (
@@ -160,9 +160,9 @@ export default function PersonHover({ email, name = '', children, disabled = fal
                     </div>}
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.name}<TierMark tier={card.tier} /></div>
-                  {card.jobTitle && <div style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.jobTitle}</div>}
+                  {card.jobTitle && <div style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.jobTitle}</div>}
                   {(card.department || card.location) && (
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
                       {[card.department, card.location].filter(Boolean).join(' · ')}
                     </div>
                   )}
@@ -191,5 +191,5 @@ export default function PersonHover({ email, name = '', children, disabled = fal
 const ACTION = {
   display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1, justifyContent: 'center',
   padding: '5px 8px', borderRadius: 7, background: 'var(--mist)', color: 'var(--ink)',
-  fontSize: 11.5, fontWeight: 600, textDecoration: 'none', font: 'inherit',
+  fontSize: 12, fontWeight: 600, textDecoration: 'none', font: 'inherit',
 };

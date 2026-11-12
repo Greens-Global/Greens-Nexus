@@ -5,6 +5,10 @@
 // for a signed-in user). Adding, editing, reviewing, publishing and commenting
 // stay behind the task family's grant, exactly as the server gates them:
 // require_any_module_grant("tasks", "tickets"), administrators bypassing.
+// A grant holder below the Manager tier only SUBMITS (the server stores
+// every new entry of theirs as Pending Review); editing, deleting, pinning,
+// publishing and status changes are the Manager tier's (level 3+) - the
+// server refuses them below that (11/12/2026).
 export const WHATS_NEW_EDIT_GRANTS = ['tasks', 'tickets'];
 
 export function canEditWhatsNew(role) {

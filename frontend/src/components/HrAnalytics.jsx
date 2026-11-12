@@ -227,7 +227,7 @@ function HeadcountCard({ hc, onDrill }) {
             <span className="bi-shape-label" style={{ margin: 0 }}>Split On {formatDate(last.asOf)}</span>
             <Tones options={SPLITS} value={split} onChange={setSplit} label="Split by" />
           </div>
-          {parts.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nobody was employed on that day.</div> : (
+          {parts.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nobody was employed on that day.</div> : (
             <div className="bi-stages">
               {parts.map((r) => (
                 <button key={r.key} type="button" className="bi-stage hra-stage" title={`See who is behind ${r.label}`}
@@ -371,7 +371,7 @@ function DrillModal({ request, filters, money, onClose, onOpenPerson }) {
                     title={`Open ${r.name}`}>
                     <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, textAlign: 'left' }}>
                       <span style={{ fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.sub}</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.sub}</span>
                     </span>
                     <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                       <span>{r.detail}</span>

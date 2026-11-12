@@ -83,7 +83,7 @@ function useOptions(delegator, enabled) {
   return [opts, failed, load];
 }
 
-const label = { display: 'block', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', marginBottom: 4 };
+const label = { display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 4 };
 
 function PersonField({ title, value, groups, onChange, placeholder = 'Type a name or email', nameOf }) {
   return (
@@ -149,9 +149,9 @@ function DelegationForm({ people, admin, onSave, busy }) {
       )}
       {admin && !delegator ? null : opts === null ? <SkeletonBlocks count={1} height={40} /> : (
         <>
-          {optsErr && <div role="alert" style={{ fontSize: 12.5, color: '#b91c1c' }}>{optsErr}</div>}
+          {optsErr && <div role="alert" style={{ fontSize: 13, color: '#b91c1c' }}>{optsErr}</div>}
           {!off ? (
-            <div data-delegate-disabled style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 12px', borderRadius: 10, background: 'var(--mist)' }}>
+            <div data-delegate-disabled style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 12px', borderRadius: 10, background: 'var(--mist)' }}>
               Available when {whoseOff} approved time off. Request it above - once it is approved, pick who covers those days here.
             </div>
           ) : (
@@ -236,7 +236,7 @@ function DelegationRow({ d, who, onRevoke, busy, revokeLabel = 'Revoke' }) {
       </div>
       <StatusLabel size="sm" label={st.label} color={st.color} />
       {onRevoke && d.state !== 'revoked' && d.state !== 'ended' && (
-        <button type="button" className="secondary-btn" disabled={busy} onClick={() => onRevoke(d)} style={{ fontSize: 12.5 }}>{revokeLabel}</button>
+        <button type="button" className="secondary-btn" disabled={busy} onClick={() => onRevoke(d)} style={{ fontSize: 13 }}>{revokeLabel}</button>
       )}
     </div>
   );
@@ -288,7 +288,7 @@ export default function DelegateApprovalsCard({ toastOk, toastErr }) {
         <UserCheck size={15} style={{ color: 'var(--wk-brand, hsl(var(--color-blue)))', flexShrink: 0 }} />
         <span style={{ fontWeight: 800, fontSize: 14 }}>Delegate My Approvals</span>
         {current > 0 && <StatusLabel size="sm" label={`${current} Current`} color={warned ? '#b45309' : '#2563eb'} />}
-        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 4 }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginLeft: 4 }}>
           {data.canDelegate ? 'Off for a while? Your manager or a peer approves for you on the days you are off.'
             : 'Approvals you cover for someone who is off.'}
         </span>
@@ -297,12 +297,12 @@ export default function DelegateApprovalsCard({ toastOk, toastErr }) {
         <div style={{ marginTop: 12 }}>
           {data.canDelegate && (
             <>
-              <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 12px' }}>
+              <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 12px' }}>
                 For the days you are off, your team's time sheets, punch fixes and time off also go to the person you
                 pick - your manager, someone above them, or a peer. You keep yours.
               </p>
               <DelegationForm onSave={save} busy={busy} />
-              {err && <div role="alert" style={{ fontSize: 12.5, color: '#b91c1c', marginTop: 8 }}>{err}</div>}
+              {err && <div role="alert" style={{ fontSize: 13, color: '#b91c1c', marginTop: 8 }}>{err}</div>}
               {mine.length > 0 && (
                 <div style={{ marginTop: 14 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 2 }}>Your Delegations</div>
@@ -368,17 +368,17 @@ export function ApprovalDelegationsAdmin({ toastOk, toastErr }) {
           <input type="checkbox" checked={past} onChange={e => setPast(e.target.checked)} /> Show ended and revoked
         </label>
       </div>
-      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 12px' }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 12px' }}>
         Who covers whose approvals, and when. Set one for someone on approved time off who could not set it themselves -
         it goes up or across, never to their own team.
       </p>
       {people === null ? <SkeletonBlocks count={1} height={40} /> : <DelegationForm people={people} admin onSave={save} busy={busy} />}
-      {err && <div role="alert" style={{ fontSize: 12.5, color: '#b91c1c', marginTop: 8 }}>{err}</div>}
+      {err && <div role="alert" style={{ fontSize: 13, color: '#b91c1c', marginTop: 8 }}>{err}</div>}
       <div style={{ marginTop: 14 }}>
         {rows === null ? <SkeletonBlocks count={2} height={36} /> : failed ? (
-          <div style={{ fontSize: 12.5, color: '#b91c1c' }}>Could not load the delegations.</div>
+          <div style={{ fontSize: 13, color: '#b91c1c' }}>Could not load the delegations.</div>
         ) : rows.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No delegations right now.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>No delegations right now.</div>
         ) : rows.map(d => (
           <DelegationRow key={d.id} d={d} busy={busy} onRevoke={revoke}
             who={<>

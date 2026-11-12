@@ -38,7 +38,7 @@ export function FormPreview({ template, workSites = [], onClose }) {
   );
 }
 
-const chip = { fontSize: 10.5, fontWeight: 600, padding: '2px 7px', borderRadius: 999, color: 'var(--muted)', background: 'var(--mist)', whiteSpace: 'nowrap' };
+const chip = { fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 999, color: 'var(--muted)', background: 'var(--mist)', whiteSpace: 'nowrap' };
 const iconBtn = { background: 'none', border: '1px solid var(--line)', borderRadius: 7, padding: 5, cursor: 'pointer', display: 'flex', color: 'var(--muted)' };
 const label = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 };
 
@@ -223,7 +223,7 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
           <label style={label} htmlFor="form-on-shifts">Show On Shift Cards</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Switch id="form-on-shifts" label="Show On Shift Cards" checked={!!draft.showOnShifts} onChange={(v) => set('showOnShifts', v ? 1 : 0)} />
-            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>A Fill button under each shift - at the form's work site, or on every shift when the form is for the whole company or a department.</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>A Fill button under each shift - at the form's work site, or on every shift when the form is for the whole company or a department.</span>
           </div>
         </div>
       </section>
@@ -240,7 +240,7 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
         )}
         {sections.map(({ section, fields }) => (
           <div key={section} style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
-            <h4 style={{ margin: 0, padding: '9px 14px', fontSize: 11.5, fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--muted)', background: 'var(--mist)' }}>{section}</h4>
+            <h4 style={{ margin: 0, padding: '9px 14px', fontSize: 12, fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--muted)', background: 'var(--mist)' }}>{section}</h4>
             {fields.map((f) => {
               const name = f.label || f.token;
               return (
@@ -252,8 +252,8 @@ export default function FormBuilder({ templateId, onClose, toastOk, toastErr }) 
                     <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'ui-monospace, monospace' }}>{f.token}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', flex: '2 1 260px' }}>
-                    <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>{typeLabel(f.type)}</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{f.required ? 'Required' : 'Optional'}</span>
+                    <span style={{ fontSize: 13, color: 'var(--ink)' }}>{typeLabel(f.type)}</span>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{f.required ? 'Required' : 'Optional'}</span>
                     {f.showIf?.token && <span style={chip}>{showIfSummary(f, draft.fieldDefs)}</span>}
                     {f.repeat?.group && <span style={chip}>Repeats: {f.repeat.group} (up to {f.repeat.max || 10})</span>}
                     {f.formula && <span style={chip} title={f.formula}>Formula</span>}

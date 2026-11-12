@@ -88,7 +88,7 @@ function splitReason(reason) {
   return { text: (reason || '').replace(m[0], '').trim(), link: m[1] };
 }
 
-const SECTION = { fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', margin:'20px 0 10px' };
+const SECTION = { fontSize:12, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', margin:'20px 0 10px' };
 
 function ModalShell({ title, sub, onClose, children }) {
   const phone = useIsMobile('(max-width: 640px)');
@@ -256,7 +256,7 @@ export default function PurchaseRequests({ toast, openNewKey = 0 }) {
           </span>
         </div>
         {reasonText && (
-          <div style={{ fontSize:12.5, color:'var(--ink)', marginTop:12, background:'var(--mist)', borderLeft:'3px solid var(--line)', borderRadius:'0 8px 8px 0', padding:'8px 12px', lineHeight:1.5, whiteSpace:'pre-line' }}>
+          <div style={{ fontSize:13, color:'var(--ink)', marginTop:12, background:'var(--mist)', borderLeft:'3px solid var(--line)', borderRadius:'0 8px 8px 0', padding:'8px 12px', lineHeight:1.5, whiteSpace:'pre-line' }}>
             <Linkify text={reasonText} />
           </div>
         )}
@@ -305,7 +305,7 @@ export default function PurchaseRequests({ toast, openNewKey = 0 }) {
           ) : approvingId === r.id ? (
             /* Approval = pick who purchases & fulfills (mirrors checkout allocators) */
             <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
-              <label htmlFor={`pr-fulfiller-${r.id}`} style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-green))' }}>Who should purchase & fulfill this?</label>
+              <label htmlFor={`pr-fulfiller-${r.id}`} style={{ fontSize:13, fontWeight:700, color:'hsl(var(--color-green))' }}>Who should purchase & fulfill this?</label>
               <select id={`pr-fulfiller-${r.id}`} className="form-input" autoFocus value={pickedFulfiller} onChange={e => setPickedFulfiller(e.target.value)} style={{ fontSize:13, padding:'8px 12px' }}>
                 <option value="">Select a person…</option>
                 {allocators.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
@@ -427,16 +427,16 @@ export default function PurchaseRequests({ toast, openNewKey = 0 }) {
             </button>
           </div>
         ) : (
-          <div style={{ fontSize:13.5, fontWeight:600, color:'var(--ink)' }}>My Requests</div>
+          <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>My Requests</div>
         )}
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
           {requisitions.length > 0 && exportToCsv && (
-            <button type="button" className="secondary-btn" onClick={exportToCsv} style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px' }}>
+            <button type="button" className="secondary-btn" onClick={exportToCsv} style={{ fontSize:13, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px' }}>
               <FileText size={13} /> Export to CSV
             </button>
           )}
           {/* "+ New", as on Reimbursements and Ask HR (Sagar, Oct 27); the full name stays for screen readers. */}
-          <button type="button" className="primary-btn" aria-label="New Purchase Request" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px' }}
+          <button type="button" className="primary-btn" aria-label="New Purchase Request" style={{ fontSize:13, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px' }}
             onClick={() => setNewOpen(true)}>
             <Plus size={13} /> New
           </button>

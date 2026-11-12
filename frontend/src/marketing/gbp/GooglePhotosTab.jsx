@@ -94,7 +94,7 @@ function AddPhoto({ location, onAdded, onCancel }) {
               {PHOTO_CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
           </div>
-          <span style={{ fontSize: 11.5, color: C.gray400 }}>
+          <span style={{ fontSize: 12, color: C.gray400 }}>
             {file ? file.name : 'JPG or PNG, 10 KB to 5 MB'} - or press Ctrl+V to paste an image.
           </span>
         </div>
@@ -182,7 +182,7 @@ export default function GooglePhotosTab({ location, canEdit, onCountChange }) {
         onRetry={load}
         isEmpty={photos.length === 0}
         skeleton={<SkeletonBlocks count={1} height={110} />}
-        emptyContent={<div style={{ fontSize: 12.5, color: C.gray400, padding: '16px 0' }}>No photos on this Google profile yet.</div>}
+        emptyContent={<div style={{ fontSize: 13, color: C.gray400, padding: '16px 0' }}>No photos on this Google profile yet.</div>}
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
           {photos.map((p) => (

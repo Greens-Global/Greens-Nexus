@@ -64,7 +64,7 @@ export default function DigestEmailPrefs() {
     <div style={{ marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '4px 0 6px' }}>Digest Emails</div>
       {msg && (
-        <div role="status" style={{ fontSize: 12.5, color: 'var(--ink)', background: 'var(--wk-hover, var(--mist))', borderRadius: 8, padding: '8px 10px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div role="status" style={{ fontSize: 13, color: 'var(--ink)', background: 'var(--wk-hover, var(--mist))', borderRadius: 8, padding: '8px 10px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ flex: 1, minWidth: 160 }}>{msg.text}</span>
           {msg.undo && (
             <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => save(msg.undo, true)}

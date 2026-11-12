@@ -402,7 +402,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
             <Spinner size="section" />
             <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>Opening task…</div>
-            <div style={{ fontSize: 12.5, color: NX.faint }}>Getting the task details ready.</div>
+            <div style={{ fontSize: 13, color: NX.faint }}>Getting the task details ready.</div>
           </div>
         </aside>
       </div>,
@@ -629,7 +629,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
             </span>
           </div>
           {!canEdit && (
-            <div data-testid="view-only-note" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '-4px 0 12px', fontSize: 12.5, color: NX.dim }}>
+            <div data-testid="view-only-note" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '-4px 0 12px', fontSize: 13, color: NX.dim }}>
               <Lock size={13} style={{ color: NX.faint, flexShrink: 0 }} />
               {canComment
                 ? 'You can comment on this task, attach files and log time. Ask the project owner for edit access to change it.'
@@ -639,12 +639,12 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           {/* Whose subtask this is, under the title (Sagar, Oct 13 2026) -
               and the way back to it. */}
           {task.parentTaskId && (
-            <div data-testid="subtask-of" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '-6px 0 12px', fontSize: 12.5, color: NX.dim }}>
+            <div data-testid="subtask-of" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '-6px 0 12px', fontSize: 13, color: NX.dim }}>
               <CornerDownRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />
               <span>Subtask of</span>
               {parent ? (
                 <button type="button" onClick={() => goBack()} title="Open the main task"
-                  style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: NX.blue, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 13, fontWeight: 600, color: NX.blue, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {parent.title}
                 </button>
               ) : <span style={{ fontWeight: 600 }}>Private Task</span>}
@@ -769,11 +769,11 @@ function DuplicateTaskModal({ task, subtasks, onClose, onDuplicate }) {
     <Modal title="Duplicate Task" onClose={onClose} footer={footer}>
       <div style={{ display: 'grid', gap: 16, fontFamily: FONT, fontSize: 13 }}>
         <label style={{ display: 'grid', gap: 5 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Task Name</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>Task Name</span>
           <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} style={inputStyle} />
         </label>
         <div style={{ display: 'grid', gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Bring Over</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>Bring Over</span>
           {DUP_PARTS.map(([k, label]) => (
             <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: nothing[k] ? 'default' : 'pointer', color: nothing[k] ? NX.faint : NX.ink }}>
               <input type="checkbox" disabled={!!nothing[k]} checked={!nothing[k] && !!parts[k]} onChange={(e) => setParts((p) => ({ ...p, [k]: e.target.checked }))} />
@@ -785,7 +785,7 @@ function DuplicateTaskModal({ task, subtasks, onClose, onDuplicate }) {
         </div>
         {parts.fields && fields.length > 0 && (
           <div style={{ display: 'grid', gap: 8 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>
               Field Values on the Copy{parts.subtasks && subtasks.length ? ' and Its Subtasks' : ''}
             </span>
             {fields.map((f) => (
@@ -849,15 +849,15 @@ function SaveTemplateModal({ task, subtasks, onClose }) {
     <Modal title="Save as Template" onClose={onClose} footer={footer}>
       <div style={{ display: 'grid', gap: 16, fontFamily: FONT, fontSize: 13 }}>
         <label style={{ display: 'grid', gap: 5 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Template Name</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>Template Name</span>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} style={inputStyle} />
         </label>
         <label style={{ display: 'grid', gap: 5 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Description</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>Description</span>
           <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What it is for (optional)" style={inputStyle} />
         </label>
         <div style={{ display: 'grid', gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Keep</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>Keep</span>
           {TEMPLATE_PARTS.map(([k, label]) => (
             <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: nothing[k] ? 'default' : 'pointer', color: nothing[k] ? NX.faint : NX.ink }}>
               <input type="checkbox" disabled={!!nothing[k]} checked={!nothing[k] && !!parts[k]} onChange={(e) => setParts((p) => ({ ...p, [k]: e.target.checked }))} />
@@ -870,7 +870,7 @@ function SaveTemplateModal({ task, subtasks, onClose }) {
             Dates are kept relative to the due date, so a template starts on whatever date you pick. Comments, files and history are never copied.
           </span>
         </div>
-        {error && <div role="alert" style={{ fontSize: 12.5, color: NX.red }}>{error}</div>}
+        {error && <div role="alert" style={{ fontSize: 13, color: NX.red }}>{error}</div>}
       </div>
     </Modal>
   );
@@ -978,7 +978,7 @@ function ProjectMenuBody({ projects, selected, mine, onToggle }) {
     <label key={p.id} {...nav.optionProps(i)} className="nx-menu-row" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer', color: NX.ink }}>
       <input type="checkbox" checked={selected.includes(p.id)} onChange={() => onToggle(p.id)} />
       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-      {selected[0] === p.id && <span style={{ fontSize: 10.5, fontWeight: 700, color: NX.faint }}>HOME</span>}
+      {selected[0] === p.id && <span style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>HOME</span>}
     </label>
   );
   return (
@@ -1070,7 +1070,7 @@ export function ShareModal({ task, people, nameOf, patch, onClose, canKeepPrivat
       <div className={`nx-popup${isMobile ? ' nx-sheet' : ''}`} role="dialog" aria-modal="true" aria-label={`Share ${task.title}`}
         style={{ background: NX.surface, borderRadius: isMobile ? 0 : 14, boxShadow: '0 24px 60px rgba(0,0,0,0.28)', display: 'flex', flexDirection: 'column', overflow: 'hidden', ...(isMobile ? { height: '100%', maxHeight: '100%' } : null) }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 20px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Share “{task.title}”</div>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Share “{task.title}”</div>
           <button onClick={onClose} aria-label="Close" title="Close" style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>
         </div>
         <div className="nx-fill nx-scroll" style={{ padding: 20, gap: 16, overflowY: 'auto' }}>
@@ -1177,7 +1177,7 @@ function TitleInput({ value, completed, onCommit, readOnly = false }) {
       onBlur={() => { if (!readOnly) onCommit(v); }}
       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
       className="nx-inline-edit"
-      style={{ width: '100%', border: 'none', fontFamily: FONT, fontSize: 20, fontWeight: 700, color: completed ? NX.faint : NX.ink, textDecoration: completed ? 'line-through' : 'none' }}
+      style={{ width: '100%', border: 'none', fontFamily: FONT, fontSize: 18, fontWeight: 700, color: completed ? NX.faint : NX.ink, textDecoration: completed ? 'line-through' : 'none' }}
     />
   );
 }
@@ -1346,7 +1346,7 @@ function CascadeAsk({ ask, onClose }) {
   return (
     <div role="status" style={{
       marginLeft: 108, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '7px 10px',
-      borderRadius: 10, background: `${NX.blue}12`, border: `1px solid ${NX.blue}40`, fontSize: 12.5, color: NX.ink,
+      borderRadius: 10, background: `${NX.blue}12`, border: `1px solid ${NX.blue}40`, fontSize: 13, color: NX.ink,
     }}>
       <CornerDownRight size={14} style={{ color: NX.blue, flexShrink: 0 }} />
       <span style={{ flex: 1, minWidth: 160 }}>{ask.text}</span>
@@ -1490,7 +1490,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
             return (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 6 }}>
                 {rows.map(({ e }) => (
-                  <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--muted)' }}>
+                  <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)' }}>
                     <span>{(nameOf(e) || e).split(' ')[0]}</span>
                     <PersonActions email={e} name={nameOf(e)} myEmail={myEmail} size="sm" />
                   </span>
@@ -1790,7 +1790,7 @@ function PendingAttachments({ files, setFiles }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
       {files.map((f, i) => (
-        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px 2px 2px', fontSize: 11.5, color: NX.dim }}>
+        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px 2px 2px', fontSize: 12, color: NX.dim }}>
           {f.type.startsWith('image/')
             ? <img src={URL.createObjectURL(f)} alt="" style={{ width: 18, height: 18, borderRadius: 4, objectFit: 'cover' }} />
             : f.type.startsWith('audio/') ? <AudioLines size={11} aria-label="Voice Note" /> : <Paperclip size={11} />}
@@ -1838,7 +1838,7 @@ function FailedUploads({ failed, onRetry, onDismiss }) {
       <span style={{ color: NX.ink, minWidth: 0, flex: 1 }}>
         The comment posted, but {n === 1 ? `"${failed.items[0].file.name}" did` : `${n} files did`} not attach: {failed.items[0].error}
       </span>
-      <button type="button" onClick={onRetry} style={{ ...btn('outline'), padding: '3px 8px', fontSize: 11.5 }}>Retry</button>
+      <button type="button" onClick={onRetry} style={{ ...btn('outline'), padding: '3px 8px', fontSize: 12 }}>Retry</button>
       <button type="button" onClick={onDismiss} title="Dismiss" aria-label="Dismiss" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
     </div>
   );
@@ -1950,8 +1950,8 @@ function UnsentPrompt({ drafts, taskById, activeId, onKeep, onDiscard, onSent })
         background: NX.surface, borderRadius: 14, padding: 20, display: 'flex', flexDirection: 'column',
         boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
       }}>
-        <div id="nx-unsent-title" style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>{title}</div>
-        <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 12, lineHeight: 1.5 }}>
+        <div id="nx-unsent-title" style={{ fontSize: 15, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>{title}</div>
+        <div style={{ fontSize: 13, color: NX.dim, marginBottom: 12, lineHeight: 1.5 }}>
           {one ? 'Closing now would lose what you typed.' : 'Closing now would lose everything below.'}
         </div>
         {/* The words themselves, in full, fill the popup (nx-fill) - what
@@ -1961,8 +1961,8 @@ function UnsentPrompt({ drafts, taskById, activeId, onKeep, onDiscard, onSent })
             const words = d.kind === 'checklist' || d.kind === 'subtask' ? (d.text || '').trim() : plainOf(d.text);
             const files = d.files?.length || 0;
             return (
-              <div key={d.key} style={{ padding: '8px 0', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5, color: NX.ink, lineHeight: 1.45 }}>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: NX.faint, marginBottom: 2 }}>
+              <div key={d.key} style={{ padding: '8px 0', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, color: NX.ink, lineHeight: 1.45 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: NX.faint, marginBottom: 2 }}>
                   {DRAFT_NOUN[d.kind].replace(/^\w/, (c) => c.toUpperCase())}
                   {d.taskId !== activeId && taskById[d.taskId] ? ` on ${taskById[d.taskId].title}` : ''}
                   {files ? ` - ${files} file${files === 1 ? '' : 's'} attached` : ''}
@@ -2258,7 +2258,7 @@ function useCommentHandlers(task, addComment, reload, { canComment = true, canPi
 // resolving it). Reads as a dot until someone is chosen.
 function AssignToggle({ value, onChange, people, nameOf }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: value ? NX.ink : NX.faint, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: value ? NX.ink : NX.faint, whiteSpace: 'nowrap' }}>
       <PersonDot value={value} people={people} nameOf={nameOf} onChange={onChange} size={18}
         emptyTitle="Assign this comment to someone" nobodyLabel="Nobody (not an action item)" />
       {value ? <>Assign to <b>{nameOf(value)}</b> <button type="button" onClick={() => onChange('')} aria-label="Do not assign" style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={11} /></button></> : 'Assign to…'}
@@ -2462,7 +2462,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
       {dragOver && canAttach && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '18px 12px', margin: '10px 0',
-          border: `1.5px dashed ${NX.primary}`, borderRadius: 10, color: NX.primary, fontSize: 12.5, fontWeight: 600,
+          border: `1.5px dashed ${NX.primary}`, borderRadius: 10, color: NX.primary, fontSize: 13, fontWeight: 600,
           pointerEvents: 'none',
         }}><Paperclip size={14} /> {dropRow ? 'Drop to upload a new version of that file' : 'Drop to attach'}</div>
       )}
@@ -2477,7 +2477,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
                   <Paperclip size={13} style={{ color: NX.red }} />
                   <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.ink }}>{u.name}</span>
                   <span style={{ color: NX.red, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={u.error}>Did not attach: {u.error}</span>
-                  <button type="button" onClick={() => retryUpload(u)} style={{ ...btn('outline'), padding: '3px 8px', fontSize: 11.5 }}>Retry</button>
+                  <button type="button" onClick={() => retryUpload(u)} style={{ ...btn('outline'), padding: '3px 8px', fontSize: 12 }}>Retry</button>
                   <button type="button" onClick={() => dismissUpload(u)} title="Dismiss" aria-label={`Dismiss ${u.name}`} style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><X size={13} /></button>
                 </div>
               ) : (
@@ -2533,7 +2533,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
                     {href && <a href={toDownloadUrl(href)} download={a.name} title="Download" style={{ color: NX.faint, display: 'flex' }}><Download size={13} /></a>}
                     {nVersions > 1 && (
                       <button type="button" onClick={() => setVersionsOf(a)} title="Versions" aria-label={`Versions of ${a.name}`}
-                        style={{ ...btn('ghost'), padding: '3px 6px', fontSize: 11.5, color: NX.dim }}><History size={13} /> Versions</button>
+                        style={{ ...btn('ghost'), padding: '3px 6px', fontSize: 12, color: NX.dim }}><History size={13} /> Versions</button>
                     )}
                     {mayReplace(a) && (
                       <button type="button" onClick={() => pickVersion(a)} disabled={!!up && !up.error} title="Upload New Version" aria-label={`Upload new version of ${a.name}`}
@@ -2546,7 +2546,7 @@ function AttachmentsTab({ task, refresh, canAttach = true, canRemoveAny = true, 
                         <button type="button" onClick={() => onShowOnCard(onCard ? '' : `${IMAGE_MODE}${a.id}`)} aria-pressed={onCard}
                           title={onCard ? 'Shown on the board card - click to go back to Automatic' : 'Show On Card'}
                           aria-label={onCard ? `Stop showing ${a.name} on the card` : `Show ${a.name} on the card`}
-                          style={{ ...btn('ghost'), padding: '3px 6px', fontSize: 11.5, color: onCard ? NX.blue : NX.dim }}>
+                          style={{ ...btn('ghost'), padding: '3px 6px', fontSize: 12, color: onCard ? NX.blue : NX.dim }}>
                           <ImageIcon size={13} /> {onCard ? 'On Card' : 'Show On Card'}
                         </button>
                       );
@@ -2710,7 +2710,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
           <button type="button" onClick={() => updateTask(task.id, { subtaskOrder: '' })}
             title="Order the subtasks by due date, then priority, again"
-            style={{ ...btn('ghost'), padding: '2px 6px', fontSize: 11.5, color: NX.faint }}>Sort by Due Date</button>
+            style={{ ...btn('ghost'), padding: '2px 6px', fontSize: 12, color: NX.faint }}>Sort by Due Date</button>
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }} onDrop={drop}
@@ -2755,7 +2755,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
             <span style={{ width: SUB_PEOPLE_W, display: 'flex', justifyContent: 'flex-start', flexShrink: 0 }}>
               <SubtaskAssignee subtask={s} people={people} updateTask={updateTask} disabled={!rowEditable(s)} />
             </span>
-            <span onClick={(e) => e.stopPropagation()} style={{ width: SUB_DATE_W, display: 'flex', justifyContent: 'flex-end', fontSize: 11.5, color: NX.faint, flexShrink: 0 }}>
+            <span onClick={(e) => e.stopPropagation()} style={{ width: SUB_DATE_W, display: 'flex', justifyContent: 'flex-end', fontSize: 12, color: NX.faint, flexShrink: 0 }}>
               <DateField value={s.dueOn || ''} onChange={(v) => updateTask(s.id, { dueOn: v || '' })} compact disabled={!rowEditable(s)}
                 title={s.dueOn ? 'Change due date' : 'Set due date'}
                 repeat={subRepeat(s.recurrence, (r) => setSubRecurrence(s, r), s.dueOn)} />
@@ -2785,7 +2785,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
         )}
         <Pop width={150} trigger={(t) => (
           <button type="button" onClick={t} title={`Priority: ${PRIORITY_META[pri]?.label || pri}`} aria-label="Priority"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, fontSize: 11.5, fontWeight: 600, fontFamily: FONT, color: PRIORITY_META[pri]?.color || NX.dim, flexShrink: 0 }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, fontSize: 12, fontWeight: 600, fontFamily: FONT, color: PRIORITY_META[pri]?.color || NX.dim, flexShrink: 0 }}>
             <PriorityMark priority={pri} size={12} />{PRIORITY_META[pri]?.label || pri}<ChevronDown size={11} />
           </button>
         )}>
@@ -2797,13 +2797,13 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
         {/* The Nexus calendar, the one every task date uses (Oct 13 2026) -
             it places itself on screen, flipping above when there is no room
             below. */}
-        <span style={{ width: SUB_DATE_W, display: 'flex', justifyContent: 'flex-end', fontSize: 11.5, color: NX.faint, flexShrink: 0 }}>
+        <span style={{ width: SUB_DATE_W, display: 'flex', justifyContent: 'flex-end', fontSize: 12, color: NX.faint, flexShrink: 0 }}>
           <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} compact noPast title="Due Date"
             repeat={subRepeat(rec, (r) => setRec(r || {}), dueOn)} />
         </span>
         <button onClick={add} style={{ ...btn('primary'), padding: '6px 10px', fontSize: 12 }}>Add</button>
       </div>}
-      {!canAdd && subtasks.length === 0 && <div style={{ fontSize: 12.5, color: NX.faint }}>No subtasks.</div>}
+      {!canAdd && subtasks.length === 0 && <div style={{ fontSize: 13, color: NX.faint }}>No subtasks.</div>}
     </div>
   );
 }
@@ -2887,7 +2887,7 @@ export function TaskCustomFieldRows({ task, customFields, projectName, patch }) 
         <CustomFieldInput field={f} value={values[f.id]}
           onChange={(v) => patch({ customFieldValues: { ...values, [f.id]: v } })} />
         {missing && (
-          <span role="status" style={{ fontSize: 11.5, color: NX.red, flexBasis: '100%' }}>
+          <span role="status" style={{ fontSize: 12, color: NX.red, flexBasis: '100%' }}>
             Required{where ? ` in ${where}` : ''} - pick one.
           </span>
         )}

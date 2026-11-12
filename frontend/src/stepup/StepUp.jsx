@@ -89,13 +89,13 @@ export function StepUpNeeded({ label, onVerified }) {
       <div style={{ width: 48, height: 48, borderRadius: '50%', margin: '0 auto 14px', display: 'grid', placeItems: 'center', background: 'hsla(var(--color-blue),0.12)' }}>
         <ShieldCheck size={26} style={{ color: 'hsl(var(--color-blue))' }} />
       </div>
-      <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Verify your identity</div>
+      <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Verify your identity</div>
       <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 18 }}>
         {label || 'This is sensitive information.'} Re-confirm your Microsoft sign-in to continue (with Authenticator / SMS if prompted).
       </div>
       {err && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginBottom: 12 }}>{err}</div>}
       <button className="primary-btn" onClick={verify} disabled={busy}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13.5 }}>
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
         {busy ? <Spinner size={14} /> : <ShieldCheck size={14} />}
         {busy ? 'Verifying…' : 'Verify to view'}
       </button>
@@ -151,23 +151,23 @@ export function StepUpOverlay() {
     <div style={{ width: 44, height: 44, borderRadius: '50%', margin: '0 auto 14px', display: 'grid', placeItems: 'center', background: 'hsla(var(--color-red),0.12)' }}>
       <X size={22} style={{ color: 'hsl(var(--color-red))' }} /></div>
     <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Verification didn’t complete</div>
-    <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 16 }}>We couldn’t confirm your identity. Nothing was shown. Please try again.</div>
+    <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>We couldn’t confirm your identity. Nothing was shown. Please try again.</div>
     <button className="primary-btn" onClick={() => setState(null)} style={{ fontSize: 13 }}>Close</button>
   </>);
 
   if (state.phase === 'verified') return card(<>
     <div style={{ width: 46, height: 46, borderRadius: '50%', margin: '0 auto 14px', display: 'grid', placeItems: 'center', background: 'hsla(var(--color-green),0.14)' }}>
       <ShieldCheck size={24} style={{ color: 'hsl(var(--color-green))' }} /></div>
-    <div style={{ fontSize: 15.5, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Identity verified</div>
-    <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>You can now view the protected information for the next few minutes.</div>
+    <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Identity verified</div>
+    <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>You can now view the protected information for the next few minutes.</div>
   </>);
 
   // 'start' - redirecting to Microsoft
   return card(<>
     <div style={{ width: 46, height: 46, borderRadius: '50%', margin: '0 auto 14px', display: 'grid', placeItems: 'center', background: 'hsla(var(--color-blue),0.12)' }}>
       <ShieldCheck size={24} style={{ color: 'hsl(var(--color-blue))' }} /></div>
-    <div style={{ fontSize: 15.5, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Confirming it’s you</div>
-    <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 16 }}>
+    <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Confirming it’s you</div>
+    <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 16 }}>
       Taking you to <strong>Microsoft</strong> to re-confirm your sign-in - approve the Authenticator / SMS prompt if asked. You’ll come right back.
     </div>
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 12 }}>

@@ -226,7 +226,7 @@ export function CredentialDetail({
                   <div key={e.id}>
                     <div className="cv-history-row">
                       <b>{e.actor}</b>
-                      <span style={{ ...actionStyle(e.action), borderRadius: 6, padding: "0 6px", fontSize: 11.5, fontWeight: 500 }}>{e.action}</span>
+                      <span style={{ ...actionStyle(e.action), borderRadius: 6, padding: "0 6px", fontSize: 12, fontWeight: 500 }}>{e.action}</span>
                       {e.ip ? <span className="cv-muted" title={e.userAgent || ""} style={{ fontSize: 11 }}>from {e.ip}</span> : null}
                       <time title={formatDateTime(e.ts)}>{agoLabel(e.ts)}</time>
                     </div>

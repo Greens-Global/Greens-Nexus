@@ -55,7 +55,7 @@ export function SpotTooltip({ spot, x, y }) {
       border: '1px solid #d9d6cc', borderRadius: 10, boxShadow: '0 8px 22px rgba(0,0,0,.16)', overflow: 'hidden', font: `400 12px/1.35 ${FONT}` }}>
       {img ? <img src={img} alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ display: 'block', width: '100%', height: 110, objectFit: 'cover', background: '#eef0ec' }} /> : null}
       <div style={{ padding: '7px 9px' }}>
-        <div style={{ fontWeight: 700, fontSize: 12.5 }}>{spot.code ? `#${Number(spot.code) || spot.code} · ` : ''}{spot.title || 'Ticket'}</div>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>{spot.code ? `#${Number(spot.code) || spot.code} · ` : ''}{spot.title || 'Ticket'}</div>
         <div style={{ color: '#5f6358', marginTop: 2 }}>{[STATUS[spot.status] || 'Open', PRIORITY[spot.priority], spot.place].filter(Boolean).join(' · ')}</div>
         <div style={{ color: AMBER, marginTop: 3, fontWeight: 600 }}>Click to open the ticket</div>
       </div>

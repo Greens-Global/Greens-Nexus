@@ -24,7 +24,7 @@ import './portfolio.css';
 
 const CY = 'var(--ops-s1)';
 const PY = 'var(--ops-s2)';
-const AXIS = { fontSize: 11.5, fill: 'var(--muted)' };
+const AXIS = { fontSize: 12, fill: 'var(--muted)' };
 
 // ── Property picker ───────────────────────────────────────────────────────────
 

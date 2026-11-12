@@ -89,7 +89,7 @@ export function ShapeStrip({ shape, max = 12, title = 'Workflow shape' }) {
           background: COLOR[t.kind] || COLOR.action, opacity: t.depth ? .7 : .95,
         }} />
       ))}
-      {more > 0 && <span aria-hidden="true" style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', marginLeft: 2 }}>+{more}</span>}
+      {more > 0 && <span aria-hidden="true" style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginLeft: 2 }}>+{more}</span>}
     </span>
   );
 }

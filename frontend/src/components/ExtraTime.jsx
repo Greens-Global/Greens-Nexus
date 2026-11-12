@@ -23,7 +23,7 @@ export function CreditCell({ fd }) {
   return (
     <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
       <StatusLabel label={text} color={c.color} size="sm" />
-      {rec && <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>{rec}</span>}
+      {rec && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{rec}</span>}
     </span>
   );
 }
@@ -42,7 +42,7 @@ export function ExtraTimeCell({ fd, self, filingOpen, canDecide, onClaim, onDeci
           <span style={{ fontWeight: 700 }}>{hours}</span>
         </span>
         {c.status === 'approved' && fd.extraMin != null && fd.extraMin < c.approvedMin && (
-          <span style={{ fontSize: 10.5, color: 'var(--muted)' }} title="The hours on the day are now fewer than were approved - only the hours worked are paid">{hm(fd.extraMin)} paid</span>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }} title="The hours on the day are now fewer than were approved - only the hours worked are paid">{hm(fd.extraMin)} paid</span>
         )}
         {self && c.status === 'pending' && filingOpen && <button type="button" style={btn} onClick={() => onClaim(fd)}>Edit</button>}
         {!self && canDecide && <button type="button" style={btn} onClick={() => onDecide(fd)}>{c.status === 'pending' ? 'Decide' : 'Change'}</button>}
@@ -55,7 +55,7 @@ export function ExtraTimeCell({ fd, self, filingOpen, canDecide, onClaim, onDeci
   return <span style={{ color: 'var(--muted)' }}>-</span>;
 }
 
-const field = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' };
+const field = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 13, fontWeight: 600, color: 'var(--ink)' };
 const hint = { fontSize: 12, color: 'var(--muted)', fontWeight: 400, lineHeight: 1.45 };
 
 function HoursBox({ minutes, onChange, max, idPrefix }) {
@@ -192,12 +192,12 @@ export function ReconciliationPanel({ data, fmtM, showPay }) {
     <div data-testid="month-end-reconciliation" style={{ flex: '0 1 520px', minWidth: 280, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
       <div style={{ padding: '10px 14px', fontWeight: 800, fontSize: 13, borderBottom: '1px solid var(--line)' }}>
         Month-End Reconciliation{ip.frozen ? ' (Finalized)' : ''}
-        <div style={{ fontWeight: 400, fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+        <div style={{ fontWeight: 400, fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
           Full day at 8 hours, half day at 4. Hours past 9, hours of short days and weekend or holiday hours not paid as Extra Time make the pool; every 4h 30m in the pool buys back a missing half day, and a last 1h 30m or more rounds up.
         </div>
       </div>
       {rows.map(([label, value], i) => (
-        <div key={label} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, padding: '8px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 12.5, fontWeight: showPay && i === last ? 800 : 500, background: showPay && i === last ? 'var(--wk-hover)' : 'transparent' }}>
+        <div key={label} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, padding: '8px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 13, fontWeight: showPay && i === last ? 800 : 500, background: showPay && i === last ? 'var(--wk-hover)' : 'transparent' }}>
           <span style={{ color: 'var(--muted)' }}>{label}</span>
           <span style={{ textAlign: 'right', color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
         </div>

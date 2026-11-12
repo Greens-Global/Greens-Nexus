@@ -379,7 +379,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
         <Sparkles size={isMobile ? 18 : 20} style={{ color: NX.blue, flexShrink: 0 }} />
         <div style={{ minWidth: 0 }}>
           {!managing && <PageTrail title="What's New" />}
-          <div style={{ fontSize: isMobile ? 17 : 20, fontWeight: 700 }}>What&apos;s New</div>
+          <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700 }}>What&apos;s New</div>
           {!isMobile && <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -629,7 +629,7 @@ function WhatsNewTab({ entries: allPublished, nameOf, myEmail, isAdmin, onSetSta
   // own (it repeated it a fourth time, Pranshu Oct 16 2026): the day and the
   // count share one line above the cards.
   const toggle = (on) => ({
-    ...btn('outline'), padding: isMobile ? '7px 12px' : '4px 11px', fontSize: 12.5, borderRadius: 999,
+    ...btn('outline'), padding: isMobile ? '7px 12px' : '4px 11px', fontSize: 13, borderRadius: 999,
     ...(on ? { borderColor: NX.blue, color: NX.blue, background: 'rgba(37,99,235,0.10)' } : null),
   });
   const sectionLabel = {
@@ -780,7 +780,7 @@ function EntryCard({ entry, nameOf, onViewDetails, onEdit }) {
             {entry.pinned && <span title="Pinned" style={{ display: 'inline-flex', color: NX.faint }}><Pin size={13} /></span>}
             {fresh && <span style={chip(NX.blue, 'rgba(37,99,235,0.12)')}>New</span>}
           </div>
-          <h3 style={{ margin: 0, fontSize: isMobile ? 17 : 18, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title || 'Untitled'}</h3>
+          <h3 style={{ margin: 0, fontSize: 18, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title || 'Untitled'}</h3>
           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: NX.dim }}>
             {entry.version && <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{entry.version}</span>}
             <StageChip entry={entry} />
@@ -1123,7 +1123,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
               {/* 16px text: iOS zooms the whole page into a smaller field. */}
               <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search updates"
                 aria-label="Search updates" enterKeyHint="search"
-                style={{ ...inputStyle, height: 44, paddingLeft: 36, paddingRight: query ? 40 : 12, fontSize: 16, borderRadius: 10 }} />
+                style={{ ...inputStyle, height: 44, paddingLeft: 36, paddingRight: query ? 40 : 12, fontSize: 16, /* type-ok: iOS zooms a field under 16px */ borderRadius: 10 }} />
               {query && (
                 <button type="button" onClick={() => setQuery('')} aria-label="Clear search"
                   style={{ position: 'absolute', right: 2, top: 2, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'transparent', color: NX.faint, cursor: 'pointer' }}>
@@ -1137,7 +1137,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
                 ...(chips.length ? { borderColor: NX.blue, color: NX.blue } : null) }}>
               <SlidersHorizontal size={16} />Filter
               {chips.length > 0 && (
-                <span style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: NX.blue, color: '#fff', fontSize: 11.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{chips.length}</span>
+                <span style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: NX.blue, color: '#fff', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{chips.length}</span>
               )}
             </button>
           </div>
@@ -1179,7 +1179,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
             </div>
           ) : (<>
             {anyFilter && filtered.length > 0 && (
-              <div style={{ padding: '12px 2px 0', fontSize: 12.5, fontWeight: 600, color: NX.dim }}>{plural(filtered.length, 'update')} match</div>
+              <div style={{ padding: '12px 2px 0', fontSize: 13, fontWeight: 600, color: NX.dim }}>{plural(filtered.length, 'update')} match</div>
             )}
             {groups.map(([k, group]) => (
               <section key={k} aria-label={formatFullDate(releasedKey(group[0]))}>
@@ -1249,7 +1249,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
         </div>
       </div>
       {/* Date range, version comparison, quick toggles, and the link to this view */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: isMobile ? -4 : -8, marginBottom: isMobile ? 12 : 14, fontSize: 12.5, color: NX.dim }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: isMobile ? -4 : -8, marginBottom: isMobile ? 12 : 14, fontSize: 13, color: NX.dim }}>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>From
           {/* The app's own calendar, MM/DD/YYYY whatever the computer's locale (a native date box said dd-mm-yyyy). */}
           <DateField value={fromDate || null} onChange={(v) => setFromDate(v || '')} placeholder="MM/DD/YYYY" title="From date" style={{ ...inputStyle, width: 'auto', minWidth: 132, padding: '6px 10px', display: 'inline-flex' }} />
@@ -1285,12 +1285,12 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit, l
           <input type="checkbox" checked={!!mineOnly} onChange={(e) => setMineOnly(e.target.checked ? 'me' : '')} />For You
         </label>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 12 }}>
-          {anyFilter && <button type="button" onClick={clearAll} style={{ ...btn('ghost'), padding: 0, fontSize: 12.5, color: NX.dim }}><X size={13} />Clear Filters</button>}
+          {anyFilter && <button type="button" onClick={clearAll} style={{ ...btn('ghost'), padding: 0, fontSize: 13, color: NX.dim }}><X size={13} />Clear Filters</button>}
           <button type="button" onClick={async () => {
             let ok = false;
             try { await navigator.clipboard.writeText(window.location.href); ok = true; } catch { ok = false; }
             flash(ok ? 'Link to this view copied.' : 'Could not copy the link.', !ok);
-          }} style={{ ...btn('ghost'), padding: 0, fontSize: 12.5, color: NX.blue }}><Copy size={13} />Copy Link to This View</button>
+          }} style={{ ...btn('ghost'), padding: 0, fontSize: 13, color: NX.blue }}><Copy size={13} />Copy Link to This View</button>
         </span>
       </div>
 
@@ -1422,7 +1422,7 @@ function TimelineRow({ entry, nameOf, selected, onClick, compact = false }) {
         style={{ position: 'relative', flexShrink: 0, width: 28, height: 28, marginTop: 1 }}>
         {author && <Avatar email={author.email} name={author.name} size={28} card={false} />}
         {author?.more > 0 && (
-          <span style={{ position: 'absolute', right: -6, bottom: -4, padding: '0 4px', borderRadius: 999, background: NX.surface, border: `1px solid ${NX.border}`, fontSize: 9.5, fontWeight: 700, lineHeight: '13px', color: NX.dim }}>+{author.more}</span>
+          <span style={{ position: 'absolute', right: -6, bottom: -4, padding: '0 4px', borderRadius: 999, background: NX.surface, border: `1px solid ${NX.border}`, fontSize: 11, fontWeight: 700, lineHeight: '13px', color: NX.dim }}>+{author.more}</span>
         )}
       </span>
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -1462,7 +1462,7 @@ function DayHeader({ group }) {
   return (
     <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, padding: '0 2px' }}>
       <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{rel || date}</span>
-      {rel && rel !== date && <span style={{ fontSize: 12.5, color: NX.dim }}>{date}</span>}
+      {rel && rel !== date && <span style={{ fontSize: 13, color: NX.dim }}>{date}</span>}
       {versions.map((v) => (
         <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 600, color: NX.dim }}>
           <GitBranch size={12} />{v}
@@ -1488,7 +1488,7 @@ function StickyDayHeader({ group }) {
   return (
     <div data-day-header style={{ position: 'sticky', top: 0, zIndex: 1, display: 'flex', alignItems: 'center', gap: 8, padding: '14px 2px 8px', background: NX.canvas }}>
       <span style={{ fontSize: 14, fontWeight: 700, color: NX.ink, whiteSpace: 'nowrap' }}>{rel || date}</span>
-      {rel && rel !== date && <span style={{ fontSize: 12.5, color: NX.dim, whiteSpace: 'nowrap' }}>{date}</span>}
+      {rel && rel !== date && <span style={{ fontSize: 13, color: NX.dim, whiteSpace: 'nowrap' }}>{date}</span>}
       {versions.map((v) => (
         <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontSize: 12, fontWeight: 700, color: NX.dim }}>
           <GitBranch size={12} style={{ flexShrink: 0 }} />{v}
@@ -1504,8 +1504,8 @@ function StickyDayHeader({ group }) {
 // Filter button. Every control is the desktop bar's own state, so the address
 // bar still carries them and a filtered Timeline is still a link to share.
 function TimelineFilterSheet({ f, count, anyFilter, onClearAll, onClose, flash }) {
-  const lab = { display: 'block', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint, marginBottom: 6 };
-  const sel = { ...inputStyle, height: 44, fontSize: 16, width: '100%', cursor: 'pointer' };
+  const lab = { display: 'block', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint, marginBottom: 6 };
+  const sel = { ...inputStyle, height: 44, fontSize: 16, /* type-ok: iOS zooms a field under 16px */ width: '100%', cursor: 'pointer' };
   // A select that reads as one on every phone: its own chevron, not the
   // browser's (the app's select styling hides that one in some browsers).
   const pick = (value, onChange, label, children) => (
@@ -1520,7 +1520,7 @@ function TimelineFilterSheet({ f, count, anyFilter, onClearAll, onClose, flash }
     <label style={{ display: 'flex', alignItems: 'center', gap: 12, minHeight: 52, padding: '6px 0', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer' }}>
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 15, fontWeight: 600, color: NX.ink }}>{title}</span>
-        {hint && <span style={{ display: 'block', fontSize: 12.5, color: NX.dim, marginTop: 2 }}>{hint}</span>}
+        {hint && <span style={{ display: 'block', fontSize: 13, color: NX.dim, marginTop: 2 }}>{hint}</span>}
       </span>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ width: 22, height: 22, accentColor: NX.blue, flexShrink: 0, cursor: 'pointer' }} />
     </label>
@@ -1733,7 +1733,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onGenerate, 
       <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 8, marginBottom: isMobile ? 10 : 4 }}>
         <div style={{ minWidth: 0 }}>
           <PageTrail title="Manage" />
-          <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700, color: NX.ink }}>Manage</h1>
+          <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 24, fontWeight: 700, color: NX.ink }}>Manage</h1>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, ...(isMobile ? { width: '100%' } : null) }}>
           {onGenerate && (
@@ -1765,7 +1765,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onGenerate, 
         {tiles.map(([label, value]) => (
           <div key={label} style={{ ...card, padding: '12px 14px' }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint }}>{label}</div>
-            <div style={{ marginTop: 4, fontSize: 22, fontWeight: 700, color: NX.ink }}>{value}</div>
+            <div style={{ marginTop: 4, fontSize: 24, fontWeight: 700, color: NX.ink }}>{value}</div>
           </div>
         ))}
       </div>
@@ -1796,7 +1796,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onGenerate, 
                 {!isMobile && <span style={chip(meta.color, meta.tint)}>{meta.label}</span>}
                 <div style={{ minWidth: 0, flex: isMobile ? '1 1 100%' : '1 1 200px' }}>
                   <div className={isMobile ? 'nx-clamp-2' : undefined} style={isMobile
-                    ? { fontSize: 13.5, fontWeight: 600, lineHeight: 1.35, color: NX.ink }
+                    ? { fontSize: 13, fontWeight: 600, lineHeight: 1.35, color: NX.ink }
                     : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink }}>{entry.title}</div>
                   <div style={{ marginTop: isMobile ? 6 : 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.faint }}>
                     {isMobile && <span style={chip(meta.color, meta.tint)}>{meta.label}</span>}
@@ -1884,7 +1884,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onGenerate, 
             <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 6, borderBottom: `1px solid ${NX.border2}`, padding: '10px 6px 10px 14px' }}>
               {tick}
               <button onClick={() => setReviewing(entry)} style={{ minWidth: 0, flex: 1, textAlign: 'left', border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT }}>
-                <div className="nx-clamp-2" style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.35, color: NX.ink }}>{entry.title}</div>
+                <div className="nx-clamp-2" style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.35, color: NX.ink }}>{entry.title}</div>
                 <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.faint }}>
                   <span style={chip(meta.color, meta.tint)}>{meta.label}</span>
                   {entry.module && <span>{entry.module}</span>}
@@ -1980,7 +1980,7 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: 'calc(4px + env(safe-area-inset-top)) 8px 0' }}>
           {onClose && (
             <button type="button" onClick={onClose} aria-label="Back"
-              style={{ ...btn('ghost'), minHeight: 44, padding: '0 12px 0 4px', gap: 2, color: NX.blue, fontSize: 16, fontWeight: 600 }}>
+              style={{ ...btn('ghost'), minHeight: 44, padding: '0 12px 0 4px', gap: 2, color: NX.blue, fontSize: 15, fontWeight: 600 }}>
               <ChevronLeft size={24} />Back
             </button>
           )}
@@ -2066,7 +2066,7 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
             {entry.pinned && <span style={chip(NX.blue, 'rgba(37,99,235,0.10)')}><Pin size={11} />Pinned</span>}
           </div>
         )}
-        <h2 style={{ margin: 0, fontSize: isMobile ? 21 : 22, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title}</h2>
+        <h2 style={{ margin: 0, fontSize: 24, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title}</h2>
         <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? '6px 12px' : 12, fontSize: 13, color: NX.dim }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title={entry.module && entry.module !== placeOf(entry).label ? `Filed as ${entry.module}` : undefined}><Layers size={13} style={{ color: NX.faint }} />{placeOf(entry).label}</span>
           {entry.version && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><GitBranch size={13} style={{ color: NX.faint }} /><span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{entry.version}</span></span>}
@@ -2129,7 +2129,7 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
                 <h3 style={label11}>What's Changed</h3>
                 <ul style={{ margin: '8px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {entry.whatsChanged.map((line, i) => (
-                    <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13.5, color: NX.ink }}>
+                    <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: NX.ink }}>
                       <CheckCircle2 size={15} style={{ flexShrink: 0, marginTop: 1, color: NX.green }} />{line}
                     </li>
                   ))}
@@ -2278,7 +2278,7 @@ function EntryAnalytics({ entryId, nameOf }) {
         {[['People Reached', data.viewers.length], ['Views', views], ['Reactions', data.reactions.length]].map(([k, v]) => (
           <div key={k} style={{ ...card, padding: '10px 12px' }}>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint }}>{k}</div>
-            <div style={{ marginTop: 2, fontSize: 20, fontWeight: 700, color: NX.ink }}>{v}</div>
+            <div style={{ marginTop: 2, fontSize: 18, fontWeight: 700, color: NX.ink }}>{v}</div>
           </div>
         ))}
       </div>
@@ -2615,7 +2615,7 @@ function AddUpdateModal({ entry, submitLabel, publishLabel, myEmail, onClose, on
           <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {[['Patch', bump.patch], ['Minor', bump.minor], ['Major', bump.major]].map(([k, v]) => (
               <button key={k} type="button" onClick={() => setVersion(v)} title={`Next ${k.toLowerCase()} version`}
-                style={{ ...btn('outline'), padding: '2px 8px', fontSize: 11.5 }}>{k} {v}</button>
+                style={{ ...btn('outline'), padding: '2px 8px', fontSize: 12 }}>{k} {v}</button>
             ))}
           </div>
         </Field>

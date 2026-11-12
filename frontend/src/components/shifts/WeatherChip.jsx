@@ -46,7 +46,7 @@ export default function WeatherChip({ w, compact = false, size = 13, onClick = n
   const inner = (
     <>
       <Icon size={size} style={{ flexShrink: 0 }} />
-      {!compact && <span style={{ fontSize: 10.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{w.chance}%</span>}
+      {!compact && <span style={{ fontSize: 11, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{w.chance}%</span>}
     </>
   );
   const style = { display: 'inline-flex', alignItems: 'center', gap: 3, color, flexShrink: 0, lineHeight: 1 };

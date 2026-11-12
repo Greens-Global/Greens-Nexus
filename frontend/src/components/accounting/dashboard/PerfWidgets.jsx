@@ -20,7 +20,7 @@ export function RevExpWidget() {
   return (
     <div>
       <Bars data={data} series={[{ key: 'revenue', label: 'Revenue', color: 'var(--wk-brand, #2b45e1)' }, { key: 'expense', label: 'Expense', color: '#d97706' }]} height={170} />
-      <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: '0.7rem', color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Revenue</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Expense</span></div>
+      <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Revenue</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Expense</span></div>
     </div>
   );
 }
@@ -34,13 +34,13 @@ export function NoiPropWidget() {
   const total = rows.reduce((t, r) => t + r.noi, 0);
   return (
     <div>
-      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><Eyebrow>Total NOI</Eyebrow><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: toneColor(total >= 0) }}>{m(total)}</span></div>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><Eyebrow>Total NOI</Eyebrow><span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: toneColor(total >= 0) }}>{m(total)}</span></div>
       <div style={{ display: 'grid', gap: 8 }}>
         {rows.slice(0, 10).map((r) => (
-          <div key={r.code} style={{ fontSize: '0.84rem', color: r.isPartner ? 'var(--text-muted)' : 'inherit' }}>
+          <div key={r.code} style={{ fontSize: 13, color: r.isPartner ? 'var(--text-muted)' : 'inherit' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}{r.assetType ? <span style={{ marginLeft: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.assetType}</span> : null}</span>
-              <span style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8, fontVariantNumeric: 'tabular-nums' }}><span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.revenue ? pctTxt(r.noi / r.revenue, 0) : '-'} margin</span><span style={{ fontWeight: 600, color: toneColor(r.noi >= 0) }}>{m(r.noi, { compact: true })}</span></span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}{r.assetType ? <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)' }}>{r.assetType}</span> : null}</span>
+              <span style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8, fontVariantNumeric: 'tabular-nums' }}><span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.revenue ? pctTxt(r.noi / r.revenue, 0) : '-'} margin</span><span style={{ fontWeight: 600, color: toneColor(r.noi >= 0) }}>{m(r.noi, { compact: true })}</span></span>
             </div>
             <Meter height={6} style={{ marginTop: 4 }} segments={[{ share: Math.abs(r.noi) / mx, color: r.noi >= 0 ? 'var(--wk-brand, #2b45e1)' : '#dc2626' }]} />
           </div>
@@ -96,7 +96,7 @@ export function YtdVarianceWidget() {
         <td style={num}><DrillFigure onOpen={openStatement} title="Open the Income Statement for these months">{m(a, { report: true })}</DrillFigure></td>
         <td style={{ ...num, color: 'var(--text-muted)' }}>{hasBudget ? m(b, { report: true }) : '-'}</td>
         <td style={{ ...num, color: hasBudget ? toneColor(good) : undefined }}>{hasBudget ? m(v, { report: true }) : '-'}</td>
-        <td style={{ ...num, fontSize: '0.76rem', color: hasBudget ? toneColor(good) : undefined }}>{hasBudget && b ? pctTxt(v / Math.abs(b)) : '-'}</td>
+        <td style={{ ...num, fontSize: 12, color: hasBudget ? toneColor(good) : undefined }}>{hasBudget && b ? pctTxt(v / Math.abs(b)) : '-'}</td>
       </tr>
     );
   };
@@ -113,7 +113,7 @@ export function YtdVarianceWidget() {
           <Eyebrow>Largest variances</Eyebrow>
           <div style={{ marginTop: 4 }}>
             {y.largest.map((l, i) => (
-              <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.84rem', borderTop: i ? '1px solid var(--border-color)' : 'none' }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={mono}>{l.gl}</span>{l.name}</span><span style={{ flexShrink: 0, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: toneColor(l.v >= 0) }}>{m(l.v, { paren: true })}</span></div>
+              <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 13, borderTop: i ? '1px solid var(--border-color)' : 'none' }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={mono}>{l.gl}</span>{l.name}</span><span style={{ flexShrink: 0, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: toneColor(l.v >= 0) }}>{m(l.v, { paren: true })}</span></div>
             ))}
           </div>
         </div>
@@ -176,7 +176,7 @@ function Breakdown({ kind }) {
             </>
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
-              {groups.map((g) => <div key={g.g} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem' }}><span>{g.g}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}><span style={{ fontWeight: 600 }}>{m(g.v)}</span><span style={{ marginLeft: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{pctTxt(g.v / d.tot, 0)}</span></span></div>)}
+              {groups.map((g) => <div key={g.g} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span>{g.g}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}><span style={{ fontWeight: 600 }}>{m(g.v)}</span><span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>{pctTxt(g.v / d.tot, 0)}</span></span></div>)}
             </div>
           )}
         </div>
@@ -190,7 +190,7 @@ function Breakdown({ kind }) {
                 <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginRight: 6 }}><Dot color={seriesColor(i)} /><span style={{ ...mono, marginRight: 0 }}>{r.gl}</span></span>{r.name}</td>
                 <td><Meter height={6} segments={[{ share: r.amt / mx, color: seriesColor(i) }]} /></td>
                 <td style={num}>{m(r.amt, { report: true })}</td>
-                <td style={{ ...num, fontSize: '0.76rem', color: 'var(--text-muted)' }}>{pctTxt(r.amt / d.tot, 0)}</td>
+                <td style={{ ...num, fontSize: 12, color: 'var(--text-muted)' }}>{pctTxt(r.amt / d.tot, 0)}</td>
                 <td style={{ ...num, color: 'var(--text-muted)' }}>{r.prev ? m(r.prev, { report: true }) : '-'}</td>
                 {diffCell(r.amt, r.prev)}
               </tr>
@@ -203,7 +203,7 @@ function Breakdown({ kind }) {
         <div>
           <Eyebrow>Income by entity</Eyebrow>
           <Meter height={10} style={{ marginTop: 6 }} segments={noiRows.filter((r) => r.revenue > 0).map((r, i) => ({ share: d.tot ? r.revenue / d.tot : 0, color: seriesColor(i), title: `${r.name}: ${m(r.revenue)}` }))} />
-          <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+          <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 11, color: 'var(--text-muted)' }}>
             {noiRows.filter((r) => r.revenue > 0).slice(0, 8).map((r, i) => <span key={r.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color={seriesColor(i)} />{r.name} <span style={{ fontVariantNumeric: 'tabular-nums' }}>{m(r.revenue, { compact: true })}</span></span>)}
           </div>
         </div>

@@ -12,7 +12,7 @@ import { spendTrack, usd } from '../lib/money';
 const ActualLines = lazy(() => import('./ActualLines'));
 
 const linkBtn = {
-  background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem',
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
   fontWeight: 600, color: 'var(--wk-brand, #2b45e1)',
 };
 const figureBtn = {
@@ -36,7 +36,7 @@ export default function MoneyLine({ money, onOpen }) {
   else words = null;
   return (
     <div data-money-line="" className="acct-module" style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border-color)', paddingTop: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: '0.84rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
         <b style={{ color: 'var(--text-primary)' }}>Money</b>
         {words && <span style={{ color: 'var(--text-secondary)' }}>{words}</span>}
         <button type="button" style={{ ...linkBtn, marginLeft: 'auto' }} onClick={onOpen}>Open Money</button>

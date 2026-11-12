@@ -31,22 +31,22 @@ export default function RecordsAudit({ entityName, onOpen, refreshKey, row = fal
         <span style={{ flex: 1, minWidth: 200 }}>
           <b>Records Audit:</b> {n} {n === 1 ? 'person is' : 'people are'} missing something on file or {n === 1 ? 'has' : 'have'} an expired document.
         </span>
-        <button type="button" className="secondary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>Review</button>
+        <button type="button" className="secondary-btn" onClick={() => setOpen(true)} style={{ fontSize: 13 }}>Review</button>
       </div>
       )}
       {open && (
         <Modal title="Records Audit" onClose={() => setOpen(false)}>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
             Checked every morning. HR&apos;s department head and backup get one notification per company until these are fixed. Click a person to open their profile.
           </div>
           <div className="nx-fill" style={{ display: 'grid', gap: 8, alignContent: 'start' }}>
             {people.map(p => (
               <button key={p.id} type="button" onClick={() => { setOpen(false); onOpen?.(p.id); }}
                 style={{ textAlign: 'left', border: '1px solid var(--line)', borderRadius: 10, padding: '9px 12px', background: 'var(--card)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
                   {p.name} <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: 12 }}>{[p.jobTitle, entityName?.(p.company)].filter(Boolean).join(' - ')}</span>
                 </div>
-                <div style={{ fontSize: 12.5, color: '#b45309', marginTop: 3 }}>{p.gaps.join(', ')}</div>
+                <div style={{ fontSize: 13, color: '#b45309', marginTop: 3 }}>{p.gaps.join(', ')}</div>
               </button>
             ))}
           </div>

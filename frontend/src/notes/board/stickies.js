@@ -8,7 +8,9 @@
 // is a small text in the same engine group (`customData.nexusStickyFoot`).
 //
 // Sort Stickies is plain sorting, never AI: by color, by author, or by the
-// word the most stickies share. Make Tasks links each sticky to the task the
+// word the most stickies share - each group in a SECTION of its own (Neil,
+// 11/12/2026, sections.js), so a column moves as one and is already a slide.
+// Make Tasks links each sticky to the task the
 // import engine made from it (`customData.nexusRecord`, the record-card
 // mark) and its foot then reads "Task - Open" / "Task - Done".
 import { FONT_HAND, FONT_SANS } from './scene';
@@ -71,13 +73,14 @@ const textPatch = (box, text, look, measureAt) => {
   };
 };
 
-/** A sticky at a board point: [paper, words, author line], one engine group. */
-export function sticky({ x, y, text = '', colorKey = 'yellow', by = '', name = '', look = 'clean', now = Date.now(), measureAt }) {
+/** A sticky at a board point: [paper, words, author line], one engine group.
+ *  `frameId` puts it in the section it was placed on (sections.js). */
+export function sticky({ x, y, text = '', colorKey = 'yellow', by = '', name = '', look = 'clean', now = Date.now(), measureAt, frameId = null }) {
   const c = stickyColor(colorKey);
   const boxId = rid(), textId = rid(), footId = rid(), group = rid();
   const base = {
     angle: 0, strokeColor: 'transparent', fillStyle: 'solid', strokeWidth: 1, strokeStyle: 'solid',
-    roughness: look === 'sketch' ? 1 : 0, opacity: 100, groupIds: [group], frameId: null, seed: nonce(),
+    roughness: look === 'sketch' ? 1 : 0, opacity: 100, groupIds: [group], frameId: frameId || null, seed: nonce(),
     version: 1, versionNonce: nonce(), isDeleted: false, updated: now, link: null, locked: false,
   };
   const box = {
@@ -119,11 +122,21 @@ export function stickyParts(elements) {
   return out;
 }
 
-/** The elements with one sticky's words replaced (refit, re-centered, a new version). */
+/** The elements with one sticky's words replaced (refit, re-centered, a new version).
+ *
+ *  A sticky is born with no words, and the drawing engine's repair marks a
+ *  text with no words DELETED (its restore does, on every element put on the
+ *  board from outside). So the words of a new sticky are found among the
+ *  deleted elements too and brought back - before 11/12/2026 they were looked
+ *  for among the live ones only, never found, and what a person typed on a
+ *  new sticky was thrown away (seen in a real browser; the unit tests' engine
+ *  stand-in repairs nothing, so they passed). */
 export function withStickyText(elements, boxId, text, { look = 'clean', now = Date.now(), measureAt } = {}) {
   const p = stickyParts(elements).get(boxId);
-  if (!p?.text) return elements;
-  const next = bump(p.text, textPatch(p.box, text, look, measureAt), now);
+  if (!p) return elements;
+  const words = p.text || (elements || []).find((e) => e && e.type === 'text' && e.containerId === boxId);
+  if (!words) return elements;
+  const next = bump(words, { ...textPatch(p.box, text, look, measureAt), isDeleted: false }, now);
   return elements.map((e) => (e.id === next.id ? next : e));
 }
 
@@ -165,13 +178,21 @@ export function sortKeys(parts, by) {
   return keys;
 }
 
+export const SECTION_PAD = 24;
+const SORT_DROP = 96;   // how far under the board's last thing a sort lands when it leaves someone's sections
+
 /**
- * Stickies sorted into labeled columns (`by` color | author | word): the
- * selected stickies (or every sticky), from where the first of them sits.
- * The headings of their last sort go; new ones are drawn. Returns the
+ * Stickies sorted into SECTIONS (`by` color | author | word), one named
+ * section per group: the selected stickies (or every sticky), from where the
+ * first of them sits. Each sticky joins its section (`frameId`), so the
+ * column moves as one, is a slide in Present and a heading in Wrap Up. The
+ * sections (and, on an older board, the loose headings) of their last sort
+ * go once nothing is left in them; a section someone drew is never touched -
+ * stickies sorted out of one land under everything on the board instead of
+ * on top of it. Nothing is made again: the same stickies, moved. Returns the
  * elements, or the same array when there is nothing to sort.
  */
-export function sortStickies(elements, ids, by = 'color', { now = Date.now(), look = 'clean' } = {}) {
+export function sortStickies(elements, ids, by = 'color', { now = Date.now() } = {}) {
   const all = stickyParts(elements);
   const pick = ids && Object.keys(ids).some((k) => ids[k]) ? new Set(Object.keys(ids).filter((k) => ids[k])) : null;
   const parts = new Map([...all].filter(([id, p]) => !pick || pick.has(id) || (p.text && pick.has(p.text.id)) || (p.foot && pick.has(p.foot.id))));
@@ -184,37 +205,60 @@ export function sortStickies(elements, ids, by = 'color', { now = Date.now(), lo
     groups.get(k).push(p);
   }
   const order = [...groups.keys()].sort((a, b) => (a === 'Other') - (b === 'Other') || groups.get(b).length - groups.get(a).length || a.localeCompare(b));
-  const x0 = Math.min(...[...parts.values()].map((p) => p.box.x));
-  const y0 = Math.min(...[...parts.values()].map((p) => p.box.y));
   const sortId = rid();
   const oldSorts = new Set([...parts.values()].map((p) => p.box.customData.nexusSticky.sortId).filter(Boolean));
-  const moved = new Map();
-  const heads = [];
+  const frames = new Map(live(elements).filter((e) => e.type === 'frame').map((e) => [e.id, e]));
+  const isOldSort = (f) => !!f?.customData?.nexusSortFrame && oldSorts.has(f.customData.nexusSortFrame);
+  const fromSomeones = [...parts.values()].some((p) => p.box.frameId && frames.has(p.box.frameId) && !isOldSort(frames.get(p.box.frameId)));
+  let x0 = Math.min(...[...parts.values()].map((p) => p.box.x));
+  let y0 = Math.min(...[...parts.values()].map((p) => p.box.y));
+  if (fromSomeones) {
+    const els = live(elements);
+    x0 = Math.min(...els.map((e) => e.x)) + SECTION_PAD;
+    y0 = Math.max(...els.map((e) => e.y + (e.height || 0))) + SORT_DROP;
+  }
+  const moved = new Map();     // id -> its newer copy
+  const columns = [];          // [{ frame, ids: [member ids in order] }]
   const step = STICKY_SIZE + STICKY_GAP;
+  const colStep = STICKY_SIZE + SECTION_PAD * 2 + STICKY_GAP;
   order.forEach((k, col) => {
-    const x = x0 + col * step;
-    const words = `${k} (${groups.get(k).length})`;
-    heads.push({
-      id: rid(), type: 'text', x, y: y0, width: words.length * 18 * 0.55, height: Math.round(18 * LINE), angle: 0,
-      strokeColor: INK, backgroundColor: 'transparent', fillStyle: 'solid', strokeWidth: 1, strokeStyle: 'solid', roughness: 0,
+    const x = x0 + col * colStep;
+    const rows = groups.get(k);
+    const frame = {
+      id: rid(), type: 'frame', x: x - SECTION_PAD, y: y0 - SECTION_PAD, width: STICKY_SIZE + SECTION_PAD * 2,
+      height: rows.length * STICKY_SIZE + (rows.length - 1) * STICKY_GAP + SECTION_PAD * 2, angle: 0, name: k,
+      strokeColor: '#bbb', backgroundColor: 'transparent', fillStyle: 'solid', strokeWidth: 1, strokeStyle: 'solid', roughness: 0,
       opacity: 100, groupIds: [], frameId: null, roundness: null, seed: nonce(), version: 1, versionNonce: nonce(), isDeleted: false,
-      boundElements: null, updated: now, link: null, locked: false, text: words, originalText: words, fontSize: 18,
-      fontFamily: look === 'sketch' ? FONT_HAND : FONT_SANS, textAlign: 'left', verticalAlign: 'top', containerId: null,
-      autoResize: true, lineHeight: LINE, customData: { nexusSortHead: sortId },
-    });
-    groups.get(k).forEach((p, row) => {
-      const dx = x - p.box.x, dy = y0 + 36 + row * step - p.box.y;
-      const shift = (e) => (e ? moved.set(e.id, bump(e, { x: e.x + dx, y: e.y + dy }, now)) : null);
-      moved.set(p.box.id, bump(p.box, { x: p.box.x + dx, y: p.box.y + dy, customData: { ...p.box.customData, nexusSticky: { ...p.box.customData.nexusSticky, sortId } } }, now));
+      boundElements: null, updated: now, link: null, locked: false, customData: { nexusSortFrame: sortId },
+    };
+    const members = [];
+    rows.forEach((p, row) => {
+      const dx = x - p.box.x, dy = y0 + row * step - p.box.y;
+      const shift = (e, extra = {}) => { if (!e) return; moved.set(e.id, bump(e, { x: e.x + dx, y: e.y + dy, frameId: frame.id, ...extra }, now)); members.push(e.id); };
+      shift(p.box, { customData: { ...p.box.customData, nexusSticky: { ...p.box.customData.nexusSticky, sortId } } });
       shift(p.text); shift(p.foot);
     });
+    columns.push({ frame, ids: members });
   });
-  const out = elements.map((e) => {
-    if (moved.has(e.id)) return moved.get(e.id);
-    if (!e.isDeleted && e.customData?.nexusSortHead && oldSorts.has(e.customData.nexusSortHead)) return bump(e, { isDeleted: true }, now);
-    return e;
-  });
-  return [...out, ...heads];
+  // What the last sort left behind: its loose headings (boards sorted before
+  // sections), and its sections once nothing of theirs is left in them.
+  const stillIn = new Set();
+  for (const e of elements) if (e && !e.isDeleted && e.frameId && !moved.has(e.id)) stillIn.add(e.frameId);
+  const rest = [];
+  for (const e of elements) {
+    if (moved.has(e.id)) continue;   // drawn again below, with its section
+    if (!e.isDeleted && e.customData?.nexusSortHead && oldSorts.has(e.customData.nexusSortHead)) rest.push(bump(e, { isDeleted: true }, now));
+    else if (!e.isDeleted && e.type === 'frame' && isOldSort(e) && !stillIn.has(e.id)) rest.push(bump(e, { isDeleted: true }, now));
+    else rest.push(e);
+  }
+  // What rides on a moved sticky - a comment pin with its words, a vote line -
+  // stays on top of it: the stickies are drawn again at the front, so their
+  // riders are too (seen in a real browser: a sorted sticky covered its own pin).
+  const movedBoxes = new Set([...parts.keys()]);
+  const pins = new Set(rest.filter((e) => !e.isDeleted && movedBoxes.has(e.customData?.nexusOn?.id)).map((e) => e.id));
+  const rides = (e) => !e.isDeleted && (pins.has(e.id) || (e.containerId && pins.has(e.containerId)) || movedBoxes.has(e.customData?.nexusVoteLine));
+  // A section is drawn after what it holds (the engine reads a frame's members before it).
+  return [...rest.filter((e) => !rides(e)), ...columns.flatMap((c) => [...c.ids.map((id) => moved.get(id)), c.frame]), ...rest.filter(rides)];
 }
 
 /** Stickies in a selection (by any of their parts), top to bottom, left to right. */

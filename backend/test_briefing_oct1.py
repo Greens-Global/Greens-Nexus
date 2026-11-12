@@ -325,7 +325,7 @@ class ShiftsAndTimesheetFixesTests(_Case):
         self.assertEqual(list(sections)[0], "pending")   # actions first
         intro = weekly_digest._intro(sections)
         self.assertEqual(intro, "Here is everything waiting on you in Nexus this week: 2 items needing your "
-                                "action (Time Off, Time Sheet) and 1 overdue task.")
+                                "action (Time Sheet, Time Off) and 1 overdue task.")   # Time Sheet first (11/12/2026)
 
 
 class TeamSummaryTests(_Case):

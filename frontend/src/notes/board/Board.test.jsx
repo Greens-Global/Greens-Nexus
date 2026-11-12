@@ -47,7 +47,12 @@ vi.mock('@excalidraw/excalidraw', () => {
   MainMenu.Item = ({ children, onSelect }) => React.createElement('button', { type: 'button', onClick: onSelect }, children);
   MainMenu.ItemCustom = pass; MainMenu.Separator = () => null;
   MainMenu.DefaultItems = { ChangeCanvasBackground: () => React.createElement('div', null, 'Canvas background'), ClearCanvas: () => React.createElement('div', null, 'Reset the canvas') };
-  return { Excalidraw, MainMenu, restoreElements, THEME: { LIGHT: 'light', DARK: 'dark' }, CaptureUpdateAction: { IMMEDIATELY: 'IMMEDIATELY', NEVER: 'NEVER', EVENTUALLY: 'EVENTUALLY' } };
+  // The engine's skeleton converter, as far as a Record Card needs it: a box, and its label as bound text.
+  const convertToExcalidrawElements = (skeleton) => (skeleton || []).flatMap(({ label, ...box }) => {
+    const base = { version: 1, versionNonce: 1, isDeleted: false, groupIds: [], frameId: null, ...box };
+    return label?.text ? [base, { id: `${box.id}:label`, type: 'text', containerId: box.id, text: label.text, originalText: label.text, x: box.x, y: box.y, width: 10, height: 10, version: 1, versionNonce: 1, isDeleted: false, groupIds: [], frameId: null }] : [base];
+  });
+  return { Excalidraw, MainMenu, restoreElements, convertToExcalidrawElements, THEME: { LIGHT: 'light', DARK: 'dark' }, CaptureUpdateAction: { IMMEDIATELY: 'IMMEDIATELY', NEVER: 'NEVER', EVENTUALLY: 'EVENTUALLY' } };
 });
 vi.mock('@excalidraw/excalidraw/index.css', () => ({}));
 vi.mock('./files', () => ({ uploadBoardFile, loadBoardFiles }));
@@ -65,6 +70,7 @@ vi.mock('./engine', async (importOriginal) => {
 
 import Board from './Board';
 import { loadEngine } from './engine';
+import { api as nexusApi } from '../../api';
 import { SCENE_TYPE, FONT_SANS, FONT_HAND, DELETED_KEEP_MS } from './scene';
 
 const el = (over = {}) => ({ id: 'e1', type: 'rectangle', x: 0, y: 0, width: 10, height: 10, roughness: 1, version: 1, versionNonce: 1, isDeleted: false, updated: 1, ...over });
@@ -781,7 +787,7 @@ describe('Board', () => {
       expect(stickiesOf()).toHaveLength(0);
     });
 
-    it('selected stickies offer Make Tasks and Sort; By Color puts them in labeled columns', async () => {
+    it('selected stickies offer Make Tasks and Sort; By Color puts them in a named section', async () => {
       await act(async () => { render(<Board note={note()} me={me} />); });
       tapSticky(100, 100);
       write('A', 'Tab');
@@ -792,9 +798,129 @@ describe('Board', () => {
       expect(screen.getByRole('button', { name: 'Make Tasks' })).toBeTruthy();
       act(() => { fireEvent.click(screen.getByRole('button', { name: 'Sort' })); });
       act(() => { fireEvent.click(screen.getByRole('menuitem', { name: 'By Color' })); });
-      const head = fakeApi.scene.find((e) => e.customData?.nexusSortHead);
-      expect(head.text).toBe('Pink (2)');
+      const section = fakeApi.scene.find((e) => e.type === 'frame' && e.customData?.nexusSortFrame);
+      expect(section.name).toBe('Pink');
+      expect(stickiesOf().every((e) => e.frameId === section.id)).toBe(true);
       expect(new Set(stickiesOf().map((e) => e.x)).size).toBe(1);
+    });
+
+    // ---- Six lifts (Neil, 11/12/2026): sections, ride along, Wrap Up, Arrange, Talk ----
+    it('Section is on the main bar (the engine\'s frame), and a sticky tapped onto a section belongs to it', async () => {
+      fakeApi.scene = [el({ id: 'sec', type: 'frame', x: 0, y: 0, width: 600, height: 600, name: 'Wins' })];
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Section' })); });
+      expect(fakeApi.setActiveTool).toHaveBeenLastCalledWith({ type: 'frame', locked: false });
+      tapSticky(300, 300);
+      write('In the section');
+      expect(stickiesOf()[0].frameId).toBe('sec');
+      expect(fakeApi.scene.filter((e) => !e.isDeleted && e.frameId === 'sec')).toHaveLength(3);   // paper, words, author line
+      tapSticky(2000, 2000);
+      write('On open board');
+      expect(stickiesOf().find((e) => wordsOf(e) === 'On open board').frameId).toBeNull();
+    });
+
+    it('a comment put on a sticky belongs to it: Sort moves the sticky and the pin comes too, in one step', async () => {
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      tapSticky(100, 100);
+      write('A', 'Tab');
+      write('B');
+      const [a] = stickiesOf();
+      // a comment tapped onto sticky A
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Comment' })); });
+      act(() => { fireEvent.click(screen.getByTestId('nx-markup-place'), { clientX: a.x + 20, clientY: a.y + 30 }); });
+      act(() => { fireEvent.change(screen.getByRole('dialog', { name: 'New Comment' }).querySelector('textarea'), { target: { value: 'Check this one' } }); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Add Comment' })); });
+      const pinBox = () => fakeApi.scene.find((e) => !e.isDeleted && e.type === 'rectangle' && e.customData?.nexusComment);
+      expect(pinBox().customData.nexusOn).toEqual({ id: a.id, dx: 20, dy: 30 });
+      const before = { x: pinBox().x, y: pinBox().y };
+      // sort both stickies: A moves, and its pin with it
+      const ids = Object.fromEntries(stickiesOf().map((e) => [e.id, true]));
+      fakeApi.appState = { ...fakeApi.appState, selectedElementIds: ids, activeTool: { type: 'selection' } };
+      act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); });
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Sort' })); });
+      act(() => { fireEvent.click(screen.getByRole('menuitem', { name: 'By Author' })); });
+      const moved = stickiesOf().find((e) => e.id === a.id);
+      expect([pinBox().x - before.x, pinBox().y - before.y]).toEqual([moved.x - a.x, moved.y - a.y]);
+      expect([pinBox().x - moved.x, pinBox().y - moved.y]).toEqual([20, 30]);
+    });
+
+    it('Arrange: two or more things selected offer Tidy Up and Align; a section alone offers Tidy This Section', async () => {
+      fakeApi.scene = [el({ id: 'a', x: 0, y: 0, width: 100, height: 60 }), el({ id: 'b', x: 300, y: 40, width: 100, height: 60 }), el({ id: 'c', x: 140, y: 400, width: 100, height: 60 }),
+        el({ id: 'sec', type: 'frame', x: 1000, y: 0, width: 400, height: 300, name: 'Wins' })];
+      await act(async () => { render(<Board note={note()} me={me} />); });
+      expect(screen.queryByRole('button', { name: 'Arrange' })).toBeNull();          // nothing selected
+      const select = (...ids) => {
+        fakeApi.appState = { ...fakeApi.appState, selectedElementIds: Object.fromEntries(ids.map((i) => [i, true])), activeTool: { type: 'selection' } };
+        act(() => { engine.props.onChange(fakeApi.scene, fakeApi.appState, {}); });
+      };
+      select('a');
+      expect(screen.queryByRole('button', { name: 'Arrange' })).toBeNull();          // one thing: nothing to arrange
+      select('a', 'b', 'c');
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Arrange' })); });
+      expect(screen.getAllByRole('menuitem').map((b) => b.textContent)).toEqual(['Tidy Up', 'Align Left', 'Align Center', 'Align Right', 'Align Top', 'Align Middle', 'Align Bottom', 'Space Evenly Across', 'Space Evenly Down']);
+      act(() => { fireEvent.click(screen.getByRole('menuitem', { name: 'Align Left' })); });
+      expect(['a', 'b', 'c'].map((id) => fakeApi.scene.find((e) => e.id === id).x)).toEqual([0, 0, 0]);
+      select('a', 'b');
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Arrange' })); });
+      expect(screen.queryByRole('menuitem', { name: 'Space Evenly Across' })).toBeNull();   // needs three
+      select('sec');
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Arrange' })); });
+      expect(screen.getAllByRole('menuitem').map((b) => b.textContent)).toEqual(['Tidy This Section']);
+    });
+
+    it('Wrap Up makes a Note from the board, shares it with the board\'s people and leaves a card that opens it; again, it updates that Note', async () => {
+      const create = vi.spyOn(nexusApi, 'noteCreate').mockResolvedValue({ id: 'note_wrap1', rev: 1, can: 'owner', sharedWith: [] });
+      const share = vi.spyOn(nexusApi, 'noteShare').mockResolvedValue({});
+      const board = note({ owner: 'neil@greensglobal.com', thumbUrl: '', sharedWith: [{ email: 'ana@x.com', can: 'edit' }, { email: 'bo@x.com', can: 'read' }] });
+      await act(async () => { render(<Board note={board} me={me} />); });
+      // an empty board has nothing to wrap up - nothing is made
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Wrap Up' })); });
+      expect(create).not.toHaveBeenCalled();
+      tapSticky(100, 100);
+      write('Gate repaired early');
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Wrap Up' })); });
+      expect(create).toHaveBeenCalledTimes(1);
+      const sent = create.mock.calls[0][0];
+      expect(sent.title).toMatch(/^Yard - Wrap Up \d\d\/\d\d\/\d{4}$/);
+      expect(sent.body).toContain('<a data-type="boardEmbed" data-note="note_1"');
+      expect(sent.body).toContain('<li>Gate repaired early - Neil Kadakia</li>');
+      // the same people as the board, each as they may use it - never the maker
+      expect(share.mock.calls).toEqual([['note_wrap1', 'ana@x.com', 'edit'], ['note_wrap1', 'bo@x.com', 'read']]);
+      const cards = () => fakeApi.scene.filter((e) => !e.isDeleted && e.customData?.nexusWrapUp);
+      expect(cards()).toHaveLength(1);
+      expect(cards()[0].customData.nexusRecord.ref).toBe('note:note_wrap1');
+      // pressed again: the same Note is brought up to date, nobody is shared with twice, no second card
+      const shared = [{ email: 'ana@x.com', can: 'edit' }, { email: 'bo@x.com', can: 'read' }];
+      vi.spyOn(nexusApi, 'noteGet').mockResolvedValue({ id: 'note_wrap1', rev: 3, can: 'owner', sharedWith: shared });
+      const update = vi.spyOn(nexusApi, 'noteUpdate').mockResolvedValue({ id: 'note_wrap1', rev: 4, can: 'owner', sharedWith: shared });
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Wrap Up' })); });
+      expect(update).toHaveBeenCalledWith('note_wrap1', expect.objectContaining({ rev: 3, body: expect.stringContaining('Gate repaired early') }));
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(share).toHaveBeenCalledTimes(2);
+      expect(cards()).toHaveLength(1);
+      // a viewer has no Wrap Up
+      vi.restoreAllMocks();
+    });
+
+    it('Talk To The Board: no button without the browser\'s dictation; with it, each sentence said lands as a sticky', async () => {
+      const { unmount } = await act(async () => render(<Board note={note()} me={me} />));
+      expect(screen.queryByRole('button', { name: 'Talk To The Board' })).toBeNull();
+      unmount();
+      class FakeRec { start() { FakeRec.last = this; } stop() { this.onend?.(); } abort() {} }
+      window.SpeechRecognition = FakeRec;
+      try {
+        await act(async () => { render(<Board note={note()} me={me} />); });
+        act(() => { fireEvent.click(screen.getByRole('button', { name: 'Talk To The Board' })); });
+        expect(screen.getByRole('status').textContent).toMatch(/Listening - each sentence becomes a sticky/);
+        const say = (words, i) => act(() => { FakeRec.last.onresult({ resultIndex: i, results: Object.assign([...Array(i).fill(null), Object.assign([{ transcript: words }], { isFinal: true })], {}) }); });
+        say('check the gate lock', 0);
+        say('order more paint', 1);
+        expect(stickiesOf().map(wordsOf)).toEqual(['Check the gate lock', 'Order more paint']);
+        expect(stickiesOf()[1].x).toBeGreaterThan(stickiesOf()[0].x);        // beside the last, not on top of it
+        expect(stickiesOf()[0].customData.nexusSticky.name).toBe('Neil Kadakia');
+        act(() => { fireEvent.click(screen.getByRole('button', { name: 'Stop Talking' })); });
+        expect(screen.getByRole('button', { name: 'Talk To The Board' })).toBeTruthy();
+      } finally { delete window.SpeechRecognition; }
     });
 
     it('the shared timer: Run the Meeting starts it for everyone, Stop ends it', async () => {

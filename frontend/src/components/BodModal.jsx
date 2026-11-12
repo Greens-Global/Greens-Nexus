@@ -365,7 +365,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
           <M.Icon size={17} style={{ color: M.color }} />
           <div style={{ flex: 1 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{M.title}</h3>
-            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>{M.sub}</p>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>{M.sub}</p>
           </div>
           <button onClick={() => (required ? onClose() : guard.requestClose())} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
@@ -436,19 +436,19 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
               </div>
             ) : bound ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 13, fontWeight: 700 }}>
                   <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> {bound.name || 'Your team chat'}
                 </div>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Posted as you, with a small "Sent by Nexus" line at the bottom.</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Posted as you, with a small "Sent by Nexus" line at the bottom.</span>
               </div>
             ) : chatErr ? (
               // Couldn't confirm the chat here, but the server resolves it on send -
               // so the post still routes. Never claim "no chat" on a mere blip.
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 13, fontWeight: 700 }}>
                 <MessageSquare size={13} style={{ color: 'var(--wk-brand)' }} /> Your team chat
               </div>
             ) : (
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                 No team chat set up for you yet - your message is recorded in Nexus.
                 An admin sets it on your job role under Access &gt; Job Roles.
               </div>

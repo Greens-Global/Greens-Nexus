@@ -32,12 +32,12 @@ import { WarnMark } from './warnMark';
 // nothing is written to QuickBooks or Intacct.
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const label = { display: 'grid', gap: 4, fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)' };
+const label = { display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-const h3 = { margin: '0 0 8px', fontSize: '0.86rem' };
-const small = { fontSize: '0.74rem', color: 'var(--text-muted)' };
-const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', height: 32, padding: '0 14px' };
+const h3 = { margin: '0 0 8px', fontSize: 14 };
+const small = { fontSize: 12, color: 'var(--text-muted)' };
+const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 32, padding: '0 14px' };
 const cellInput = { ...control, width: '100%', minWidth: 70, height: 28 };
 const fmt = (n) => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // The preview reads hours as H:MM (Neil, 11/04/2026: no decimal hours); the
@@ -89,8 +89,8 @@ function UploadZone({ title, hint, onFile, ariaLabel }) {
     <label style={{ ...card, padding: 24, display: 'grid', justifyItems: 'center', gap: 8, cursor: 'pointer', borderStyle: 'dashed', textAlign: 'center' }}
       onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onFile(e.dataTransfer.files?.[0]); }}>
       <span style={{ display: 'inline-flex', padding: 10, borderRadius: 10, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}><Upload size={20} /></span>
-      <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{title}</span>
-      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{hint}</span>
+      <span style={{ fontWeight: 700, fontSize: 15 }}>{title}</span>
+      <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{hint}</span>
       <input type="file" accept=".csv,.xlsx,.xls,text/csv" aria-label={ariaLabel} style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
     </label>
   );
@@ -100,9 +100,9 @@ function FileBar({ name, detail, onReset }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       <FileSpreadsheet size={16} style={{ color: 'var(--wk-brand, #2b45e1)' }} />
-      <strong style={{ fontSize: '0.86rem' }}>{name}</strong>
-      <span style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{detail}</span>
-      <button type="button" className="secondary-btn" onClick={onReset} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
+      <strong style={{ fontSize: 14 }}>{name}</strong>
+      <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{detail}</span>
+      <button type="button" className="secondary-btn" onClick={onReset} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 10px' }}>
         <X size={13} /> Choose Another File
       </button>
     </div>
@@ -297,14 +297,14 @@ export function PayrollHoursToQb() {
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
         The pay period's hours as a QuickBooks Desktop time import (IIF), so nobody keys hours into QuickBooks by hand, and as Intacct's statistical hours journal. Take them from Nexus time sheets or upload an hours file.
       </div>
 
       <div className="scroll-tabs" role="tablist" aria-label="Hours Source" style={{ display: 'flex', gap: 6 }}>
         {[['nexus', 'Nexus Time Sheets'], ['file', 'Upload an Hours File']].map(([k, t]) => (
           <button key={k} type="button" role="tab" aria-selected={source === k} className={source === k ? 'primary-btn' : 'secondary-btn'} onClick={() => { setSource(k); setError(''); }}
-            style={{ fontSize: '0.78rem', padding: '5px 12px' }}>{t}</button>
+            style={{ fontSize: 13, padding: '5px 12px' }}>{t}</button>
         ))}
       </div>
 
@@ -342,7 +342,7 @@ export function PayrollHoursToQb() {
           )}
           {source === 'nexus' && nexus && !stale && open.length > 0 && (
             <div role="status" data-testid="iif-unfinalized"
-              style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap', padding: '8px 10px', borderRadius: 8, fontSize: '0.78rem',
+              style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap', padding: '8px 10px', borderRadius: 8, fontSize: 13,
                 background: 'var(--warn-bg, #fff7e6)', border: '1px solid var(--warn-border, #f5d08a)', color: 'var(--warn-fg, #7a4b00)' }}>
               <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
               <span style={{ flex: '1 1 320px', minWidth: 0 }}>
@@ -351,7 +351,7 @@ export function PayrollHoursToQb() {
                   : <><strong>{open.length} of {everyone.length}</strong> time {everyone.length === 1 ? 'sheet' : 'sheets'} for {periodLabel(nexus)} {open.length === 1 ? 'is' : 'are'} not finalized yet: {nameList(open.map((p) => p.name))}.{' '}
                     {people.length ? `The QuickBooks file has the ${people.length} finalized ${people.length === 1 ? 'one' : 'ones'} only.` : 'Without them the QuickBooks file would have nobody in it.'}</>}
               </span>
-              <button type="button" className="secondary-btn" onClick={() => setIncludeOpen((v) => !v)} style={{ fontSize: '0.76rem', padding: '3px 10px', flexShrink: 0 }}>
+              <button type="button" className="secondary-btn" onClick={() => setIncludeOpen((v) => !v)} style={{ fontSize: 12, padding: '3px 10px', flexShrink: 0 }}>
                 {includeOpen ? 'Leave Them Out' : 'Include Them'}
               </button>
             </div>
@@ -366,7 +366,7 @@ export function PayrollHoursToQb() {
 
         {(source === 'nexus' ? nexus : file) && (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: '0.8rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 13 }}>
               <span><strong>{people.length}</strong> employees</span>
               <span><strong>{fmtH(totalHours) || '0:00'}</strong> hours</span>
               {source === 'nexus' && nexus && <span style={small}>{formatDate(nexus.start)} to {formatDate(nexus.end)}</span>}
@@ -375,7 +375,7 @@ export function PayrollHoursToQb() {
                 <button type="button" className="secondary-btn" disabled={!have} onClick={downloadStat} title={blocked || undefined} style={btn}><Download size={14} /> Download Intacct Hours Import</button>
               </span>
             </div>
-            {blocked && <div role="status" data-testid="iif-blocked" style={{ fontSize: '0.78rem', color: 'var(--warn-fg)', fontWeight: 600 }}><WarnMark />{blocked}</div>}
+            {blocked && <div role="status" data-testid="iif-blocked" style={{ fontSize: 13, color: 'var(--warn-fg)', fontWeight: 600 }}><WarnMark />{blocked}</div>}
             <HoursPreview people={everyone} showStatus={source === 'nexus'} isIn={isIn} />
             {everyone.length > PREVIEW && <div style={small}>Showing the first {PREVIEW} of {everyone.length}; the downloads have every one in the file.</div>}
             <p style={{ ...small, margin: 0 }}>
@@ -386,7 +386,7 @@ export function PayrollHoursToQb() {
 
         {source === 'nexus' && (
           <details>
-            <summary style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>QuickBooks Import Settings</summary>
+            <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>QuickBooks Import Settings</summary>
             <div style={{ ...grid, marginTop: 10 }}>
               <label style={label}>
                 QuickBooks Company Create Time
@@ -401,7 +401,7 @@ export function PayrollHoursToQb() {
         )}
 
         <details>
-          <summary style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>Intacct Hours Import Settings</summary>
+          <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Intacct Hours Import Settings</summary>
           <div style={{ ...grid, marginTop: 10 }}>
             <IntacctFields settings={s} set={setSettings} entities={entities} />
             <PayDate k="payDate" t="Entry Date" settings={s} set={setSettings} />
@@ -410,7 +410,7 @@ export function PayrollHoursToQb() {
           <EmployeeTable people={people} employeeMap={prefs.employees} setEmployee={setEmployee} />
         </details>
       </div>
-      {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'var(--danger, #dc2626)' }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: 'var(--danger, #dc2626)' }}>{error}</div>}
     </div>
   );
 }
@@ -515,7 +515,7 @@ export function QbPayrollToIntacct() {
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
         Upload the QuickBooks Payroll Summary from QuickBooks Desktop or Online (or a payroll detail export) and download Intacct's payroll journal entry import - one balanced entry per employee - and the statistical hours import. Built in your browser; nothing is sent to QuickBooks or Intacct.
       </div>
 
@@ -544,19 +544,19 @@ export function QbPayrollToIntacct() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
               <h3 style={{ ...h3, margin: 0 }}>Payroll Item Mapping</h3>
               <span style={small}>Remembered in this browser.</span>
-              <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+              <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
                 <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Show items not on this report
               </label>
-              <button type="button" className="secondary-btn" onClick={resetRules} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
+              <button type="button" className="secondary-btn" onClick={resetRules} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 10px' }}>
                 <RotateCcw size={13} /> Reset to Defaults
               </button>
             </div>
             {unmapped.length > 0 && (
-              <div role="status" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8, fontSize: '0.78rem' }}>
+              <div role="status" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8, fontSize: 13 }}>
                 <AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />
                 <span>Not mapped yet:</span>
                 {unmapped.map((u) => (
-                  <button key={u.item} type="button" className="secondary-btn" onClick={() => addRule(u.item, u.amount)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.74rem', padding: '3px 8px' }}>
+                  <button key={u.item} type="button" className="secondary-btn" onClick={() => addRule(u.item, u.amount)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '3px 8px' }}>
                     <Plus size={12} /> {u.item} ({fmt(u.amount)})
                   </button>
                 ))}
@@ -566,12 +566,12 @@ export function QbPayrollToIntacct() {
           </div>
 
           <details>
-            <summary style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700 }}>Employees ({employees.length})</summary>
+            <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Employees ({employees.length})</summary>
             <p style={{ ...small, margin: '8px 0' }}>Employee ID fills GLENTRY_EMPLOYEEID (read from a code in the name, like "(E-0100)"), Vendor ID fills GLENTRY_VENDORID, Department overrides the default. Remembered in this browser.</p>
             <EmployeeTable people={employees} employeeMap={prefs.employees} setEmployee={setEmployee} />
           </details>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: '0.8rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 13 }}>
             <span><strong>{built.entries.length}</strong> entries</span>
             <span>Debits <strong>{fmt(balance.debit)}</strong></span>
             <span>Credits <strong>{fmt(balance.credit)}</strong></span>
@@ -584,12 +584,12 @@ export function QbPayrollToIntacct() {
             </span>
           </div>
           {problems.length > 0 && (
-            <div role="alert" style={{ display: 'grid', gap: 2, fontSize: '0.78rem', color: 'var(--danger, #dc2626)' }}>
+            <div role="alert" style={{ display: 'grid', gap: 2, fontSize: 13, color: 'var(--danger, #dc2626)' }}>
               {problems.map((p) => <span key={p}>{p}</span>)}
             </div>
           )}
           {mismatches.length > 0 && (
-            <div role="status" style={{ fontSize: '0.78rem', color: 'var(--warn-fg)' }}>
+            <div role="status" style={{ fontSize: 13, color: 'var(--warn-fg)' }}>
               Net pay does not match the report for {mismatches.map((m) => `${m.employee} (report ${fmt(m.report)}, entry ${fmt(m.built)})`).join('; ')} - check the mapping of their payroll items.
             </div>
           )}
@@ -616,7 +616,7 @@ export function QbPayrollToIntacct() {
           {allLines.length > PREVIEW && <div style={small}>Showing the first {PREVIEW} of {allLines.length} lines; the download has them all.</div>}
         </div>
       )}
-      {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'var(--danger, #dc2626)' }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: 'var(--danger, #dc2626)' }}>{error}</div>}
     </div>
   );
 }

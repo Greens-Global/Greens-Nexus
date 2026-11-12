@@ -156,7 +156,7 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
           <TeamPicks teams={teams} people={people} selected={value} query={q} inset={8}
             onSaveTeam={({ name, memberIds }) => createTeam({ name, memberIds, personal: true })}
             onChange={pickTeam} />
-          {teamRows > 0 && filtered.length > 0 && <div role="presentation" style={{ padding: '9px 8px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint }}>People</div>}
+          {teamRows > 0 && filtered.length > 0 && <div role="presentation" style={{ padding: '9px 8px 4px', fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint }}>People</div>}
           {filtered.map((u, i) => (
             <label key={u.email} {...nav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" className="nx-check" checked={value.includes(u.email)} onChange={() => toggle(u.email)} /> {u.name}
@@ -259,10 +259,10 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
     // really sits in (its parent's), then "Subtask of: <parent>".
     project: parent ? (
       <button onClick={(e) => { e.stopPropagation(); onOpen(parent.id); }} title={`Subtask of "${parent.title}"${projectId ? ` in ${store.projectName(projectId)}` : ''} - open the parent task`}
-        style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 12.5, color: NX.dim, minWidth: 0, maxWidth: '100%', justifyContent: 'flex-start', textAlign: 'left' }}>
+        style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 13, color: NX.dim, minWidth: 0, maxWidth: '100%', justifyContent: 'flex-start', textAlign: 'left' }}>
         <span style={{ display: 'grid', minWidth: 0, lineHeight: 1.3 }}>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: projectId ? NX.ink : NX.faint }}>{projectId ? store.projectName(projectId) : 'No Project'}</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, fontSize: 11.5, color: NX.faint }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, minWidth: 0, fontSize: 12, color: NX.faint }}>
             <CornerDownRight size={11} style={{ flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Subtask of: {parent.title}</span>
           </span>
@@ -307,7 +307,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
         e.preventDefault();
         onPick(t.id, e);
       }}
-      className={`stack-table-row nx-row-hover${rcAttrs.className ? ` ${rcAttrs.className}` : ''}`} data-selected={selected ? 'true' : undefined} data-task-row data-row-color={rc?.id} style={{ position: 'relative', display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg, ...rcAttrs.style }}>
+      className={`stack-table-row nx-row-hover${rcAttrs.className ? ` ${rcAttrs.className}` : ''}`} data-selected={selected ? 'true' : undefined} data-task-row data-row-color={rc?.id} style={{ position: 'relative', display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13, cursor: 'pointer', background: rowBg, ...rcAttrs.style }}>
       <ChangeFlash value={`${t.status}:${!!t.completed}`} color={store.statusMeta?.[t.status]?.color} isFresh={() => changedRecently(t.id)} />
       <SelectBox checked={selected} onClick={(e) => onPick(t.id, e)} title={selected ? 'Deselect' : 'Select'} />
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
@@ -471,14 +471,14 @@ export default function MyTasksView({ onNavigate }) {
         {/* No avatar: you already know whose tasks these are, and no chevron -
             the title never opened a menu, so a decorative dropdown affordance
             is a lie (owner flag, Jul 28) */}
-        <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>Tasks</div>
+        <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700 }}>Tasks</div>
         {/* How many tasks are actually on screen - so it tracks the filters and
             the completed-hidden default rather than reporting a total the view
             never shows. Board sorts the same rows through its own list, hence
             the two sources. */}
         {/* My Day counts its own rows (its progress), so no count here. */}
         {view === 'myday' ? <span style={{ marginLeft: 'auto' }} /> : <span title={`${shownCount} ${shownCount === 1 ? 'task' : 'tasks'} in this view`}
-          style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border2}`, borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
+          style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border2}`, borderRadius: 999, padding: '3px 10px', whiteSpace: 'nowrap' }}>
           {shownCount} {shownCount === 1 ? 'Task' : 'Tasks'}
         </span>}
         {/* Next to the count rather than in the List toolbar below: the rows
@@ -548,7 +548,7 @@ export default function MyTasksView({ onNavigate }) {
                 scrollbar on a screen with nothing to its right. */}
             <div style={{ overflowX: 'auto' }}>
               <div ref={wrapRef} style={{ minWidth: isMobilePortrait ? 0 : 560, '--nx-grid': template }}>
-                <div style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '6px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, background: NX.surface2, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+                <div style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '6px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, background: NX.surface2, fontSize: 13, fontWeight: 600, color: NX.dim }}>
                   <SelectBox checked={allSel} partial={someSel} onClick={selectAll} title={allSel ? 'Deselect All' : 'Select All'} />
                   {listCols.map((c) => (
                     <TableHead key={c.key} label={c.label} sortKey={c.key} sort={sort} setSort={setSort}
@@ -568,7 +568,7 @@ export default function MyTasksView({ onNavigate }) {
                     <div key={g.key} {...sectionDrop(g)}
                       style={dropGroup === g.key ? { boxShadow: `inset 0 0 0 2px ${NX.blue}` } : undefined}>
                       <div style={{ display: 'flex', alignItems: 'center', background: NX.surface2, boxShadow: `inset 0 -1px 0 ${NX.border}`, paddingRight: 10 }}>
-                        <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, padding: '6px 16px', border: 'none', background: 'transparent', fontSize: 13.5, fontWeight: 700, color: NX.ink, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
+                        <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, padding: '6px 16px', border: 'none', background: 'transparent', fontSize: 13, fontWeight: 700, color: NX.ink, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
                           <ChevronDown size={14} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
                           {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
                         </button>
@@ -582,7 +582,7 @@ export default function MyTasksView({ onNavigate }) {
                         </div>
                       ))}
                       {!isCol && group === 'section' && g.tasks.length === 0 && (
-                        <div style={{ padding: '10px 16px 10px 40px', fontSize: 12.5, color: NX.faint }}>Drag tasks here, or select some and use Move to Section.</div>
+                        <div style={{ padding: '10px 16px 10px 40px', fontSize: 13, color: NX.faint }}>Drag tasks here, or select some and use Move to Section.</div>
                       )}
                     </div>
                   );

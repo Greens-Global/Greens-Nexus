@@ -126,7 +126,7 @@ export default function PackagesTab() {
   };
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-  const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+  const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
   const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
   const describe = (r) => {
     const c = resolveConfig(r.config);
@@ -138,20 +138,20 @@ export default function PackagesTab() {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 300px) 1fr', gap: 12, alignItems: 'start' }} className="acct-packages">
         <div style={{ ...card, padding: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <strong style={{ fontSize: '0.86rem' }}>Packages</strong>
-            <button type="button" className="secondary-btn" onClick={() => { setDraft(blank()); setNote(''); setError(''); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
+            <strong style={{ fontSize: 14 }}>Packages</strong>
+            <button type="button" className="secondary-btn" onClick={() => { setDraft(blank()); setNote(''); setError(''); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 10px' }}>
               <Plus size={13} /> New Package
             </button>
           </div>
-          {(packages || []).length === 0 && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '6px 2px' }}>No packages yet. A package is a set of memorized reports sent out as one PDF.</div>}
+          {(packages || []).length === 0 && <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '6px 2px' }}>No packages yet. A package is a set of memorized reports sent out as one PDF.</div>}
           <div style={{ display: 'grid', gap: 2 }}>
             {(packages || []).map((p) => {
               const on = draft?.id === p.id;
               return (
                 <button key={p.id} type="button" onClick={() => { setDraft({ ...p }); setNote(''); setError(''); setConfirmDelete(false); }} aria-pressed={on}
                   style={{ textAlign: 'left', border: 'none', borderRadius: 8, padding: '7px 9px', cursor: 'pointer', font: 'inherit', background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', color: 'var(--text-primary)' }}>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                     {p.items.length} {p.items.length === 1 ? 'statement' : 'statements'} · {p.mine ? (p.shared ? 'shared with the team' : 'only you') : `shared by ${nameOf(p.owner)}`}
                   </div>
                 </button>
@@ -161,9 +161,9 @@ export default function PackagesTab() {
         </div>
 
         <div style={{ ...card, padding: 14 }}>
-          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem', marginBottom: 10 }}>{error}</div>}
+          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 10 }}>{error}</div>}
           {!draft ? (
-            <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', padding: '18px 4px' }}>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', padding: '18px 4px' }}>
               Start with New Package. You will need memorized reports to put in it - set one up on the Reports tab and press Memorize.
             </div>
           ) : (
@@ -182,24 +182,24 @@ export default function PackagesTab() {
               </div>
 
               <div style={{ ...label, marginTop: 14 }}>Statements, in the order they are printed</div>
-              {draft.items.length === 0 && <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', padding: '4px 0 8px' }}>Nothing in this package yet. Add a memorized report below.</div>}
+              {draft.items.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '4px 0 8px' }}>Nothing in this package yet. Add a memorized report below.</div>}
               <div style={{ display: 'grid', gap: 4 }}>
                 {draft.items.map((it, i) => {
                   const r = byId.get(it.reportId);
                   return (
                     <div key={it.reportId} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border-color)', borderRadius: 8, padding: '5px 8px', background: r ? 'var(--bg-card)' : 'var(--bg-secondary)' }}>
-                      <span style={{ width: 20, fontSize: '0.78rem', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{i + 1}.</span>
+                      <span style={{ width: 20, fontSize: 13, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{i + 1}.</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <input type="text" value={it.title || ''} maxLength={120} disabled={!canEdit || !r} aria-label={`Title of statement ${i + 1}`}
                           onChange={(e) => patch({ items: draft.items.map((x, k) => (k === i ? { ...x, title: e.target.value } : x)) })}
                           placeholder={r ? r.name : 'This memorized report is no longer available'} style={{ ...control, width: '100%', border: 'none', padding: 0, height: 22, fontWeight: 600, background: 'none' }} />
-                        <div style={{ fontSize: '0.7rem', color: r ? 'var(--text-muted)' : 'var(--bad-fg, #dc2626)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 11, color: r ? 'var(--text-muted)' : 'var(--bad-fg, #dc2626)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {r ? describe(r) : 'Deleted, or no longer shared with you. It is left out of the PDF - remove it or pick another.'}
                         </div>
                       </div>
                       {r && (
                         <button type="button" onClick={() => setAdjusting(i)} aria-label={`Adjustments on statement ${i + 1}`} title="Add-backs and notes on this statement's lines"
-                          style={{ ...icon, gap: 4, alignItems: 'center', fontSize: '0.74rem', color: it.adjustments?.length ? 'var(--wk-brand, #2b45e1)' : 'var(--text-muted)', fontWeight: it.adjustments?.length ? 700 : 400 }}>
+                          style={{ ...icon, gap: 4, alignItems: 'center', fontSize: 12, color: it.adjustments?.length ? 'var(--wk-brand, #2b45e1)' : 'var(--text-muted)', fontWeight: it.adjustments?.length ? 700 : 400 }}>
                           <MessageSquareText size={14} /> {it.adjustments?.length ? `${it.adjustments.length} ${it.adjustments.length === 1 ? 'adjustment' : 'adjustments'}` : 'Adjust'}
                         </button>
                       )}
@@ -222,7 +222,7 @@ export default function PackagesTab() {
                     <option value="">{reports.length ? (unused.length ? 'Add a memorized report...' : 'Every memorized report is in this package') : 'No memorized reports yet'}</option>
                     {unused.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
                     <input type="checkbox" checked={!!draft.shared} onChange={(e) => patch({ shared: e.target.checked })} /> <Users size={13} /> Share with the accounting team
                   </label>
                 </div>
@@ -231,33 +231,33 @@ export default function PackagesTab() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
                 <button type="button" className="primary-btn" onClick={buildPdf} disabled={!!build || dirty || !draft.items.some((i) => byId.has(i.reportId))}
                   title={dirty ? 'Save the package first' : 'Read every statement from the ledger and build one PDF'}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                   {build ? <Loader2 size={14} className="spin" /> : <FileDown size={14} />} {build ? `Building ${Math.min(build.done + 1, build.of)} of ${build.of}` : 'Build PDF'}
                 </button>
                 {canEdit && (
-                  <button type="button" className="secondary-btn" onClick={save} disabled={!dirty || !draft.name.trim() || saving} style={{ fontSize: '0.8rem' }}>
+                  <button type="button" className="secondary-btn" onClick={save} disabled={!dirty || !draft.name.trim() || saving} style={{ fontSize: 13 }}>
                     {saving ? 'Saving...' : draft.id ? 'Save Changes' : 'Save Package'}
                   </button>
                 )}
-                {build && <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }} role="status">{build.title}</span>}
-                {!build && note && <span style={{ fontSize: '0.78rem', color: 'var(--ok-fg, #15803d)' }} role="status">{note}</span>}
-                {!build && !note && dirty && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved changes</span>}
-                {!build && missing > 0 && <span style={{ fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>{missing} {missing === 1 ? 'statement is' : 'statements are'} no longer available</span>}
+                {build && <span style={{ fontSize: 13, color: 'var(--text-secondary)' }} role="status">{build.title}</span>}
+                {!build && note && <span style={{ fontSize: 13, color: 'var(--ok-fg, #15803d)' }} role="status">{note}</span>}
+                {!build && !note && dirty && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Unsaved changes</span>}
+                {!build && missing > 0 && <span style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{missing} {missing === 1 ? 'statement is' : 'statements are'} no longer available</span>}
                 {canEdit && draft.id && (
                   <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
                     {confirmDelete ? (
                       <>
-                        <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Delete this package?</span>
-                        <button type="button" className="secondary-btn" style={{ fontSize: '0.76rem', color: 'var(--bad-fg, #dc2626)' }} onClick={remove}>Delete</button>
-                        <button type="button" className="secondary-btn" style={{ fontSize: '0.76rem' }} onClick={() => setConfirmDelete(false)}>Keep</button>
+                        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Delete this package?</span>
+                        <button type="button" className="secondary-btn" style={{ fontSize: 12, color: 'var(--bad-fg, #dc2626)' }} onClick={remove}>Delete</button>
+                        <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setConfirmDelete(false)}>Keep</button>
                       </>
                     ) : (
-                      <button type="button" style={{ ...icon, fontSize: '0.76rem', gap: 5, alignItems: 'center' }} onClick={() => setConfirmDelete(true)}><Trash2 size={13} /> Delete Package</button>
+                      <button type="button" style={{ ...icon, fontSize: 12, gap: 5, alignItems: 'center' }} onClick={() => setConfirmDelete(true)}><Trash2 size={13} /> Delete Package</button>
                     )}
                   </span>
                 )}
               </div>
-              {!canEdit && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 8 }}>Shared by {nameOf(draft.owner)}. You can build the PDF; only they can change the package.</div>}
+              {!canEdit && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>Shared by {nameOf(draft.owner)}. You can build the PDF; only they can change the package.</div>}
             </>
           )}
         </div>
@@ -299,14 +299,14 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
   const list = Object.entries(rows).map(([account, v]) => ({ account, amount: Number(v.amount) || 0, note: (v.note || '').trim() })).filter((a) => a.amount || a.note);
   const total = list.reduce((s, a) => s + a.amount, 0);
   const single = result && result.columns.filter((c) => c.type === 'amount').length === 1 && result.mode === 'single' && ['pnl', 'balance-sheet'].includes(result.config.report);
-  const ctl = { ...control, height: 26, fontSize: '0.76rem' };
+  const ctl = { ...control, height: 26, fontSize: 12 };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Adjustments" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'max(60vw, min(1040px, 96vw))' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Adjustments - {item.title || report.name}</h3>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
               An add-back in the statement's own sign (a negative amount on an expense takes it out), and a note the lender reads beside the line. {single ? 'The PDF prints As Reported, Adjustment, Adjusted and Note.' : 'This layout prints the notes only; amounts need a Total Only income statement or balance sheet.'}
             </div>
           </div>
@@ -318,12 +318,12 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
               <Search size={12} style={{ position: 'absolute', left: 8, top: 8, color: 'var(--text-muted)' }} />
               <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search account by name or code" aria-label="Search account by name or code" style={{ ...ctl, width: '100%', paddingLeft: 26 }} />
             </div>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
               <input type="checkbox" checked={onlyAdjusted} onChange={(e) => setOnlyAdjusted(e.target.checked)} /> Only lines with an adjustment
             </label>
-            <span style={{ marginLeft: 'auto', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>{list.length} {list.length === 1 ? 'line' : 'lines'} · net adjustment <strong><Amount value={total} /></strong></span>
+            <span style={{ marginLeft: 'auto', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{list.length} {list.length === 1 ? 'line' : 'lines'} · net adjustment <strong><Amount value={total} /></strong></span>
           </div>
-          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
+          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>{error}</div>}
           {!result && !error && <SkeletonBlocks count={4} />}
           {result && (
             <div className="acct-lines-wrap" style={{ maxHeight: 'calc(92vh - 230px)' }}>

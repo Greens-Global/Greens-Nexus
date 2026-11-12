@@ -391,7 +391,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
               Tasks mode / assignee filter). Say whose subtask it is, and let the
               parent open on click - otherwise it reads as a stray task. */}
           {parent && (
-            <span title={`Subtask of "${parent.title}"`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: NX.faint, minWidth: 0, flexShrink: 1 }}>
+            <span title={`Subtask of "${parent.title}"`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, color: NX.faint, minWidth: 0, flexShrink: 1 }}>
               <CornerDownRight size={11} style={{ flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{parent.title}</span>
             </span>
@@ -443,7 +443,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
             })}
             {people_.hidden > 0 && (
               <span title={people_.rest.map((pn) => pn.email).join(', ')}
-                style={{ marginLeft: people_.step - AVATAR, zIndex: 1, width: AVATAR, height: AVATAR, borderRadius: '50%', background: NX.border2, color: NX.dim, fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 0 2px ${NX.surface}` }}>
+                style={{ marginLeft: people_.step - AVATAR, zIndex: 1, width: AVATAR, height: AVATAR, borderRadius: '50%', background: NX.border2, color: NX.dim, fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', boxShadow: `0 0 0 2px ${NX.surface}` }}>
                 +{people_.hidden}
               </span>
             )}
@@ -704,7 +704,7 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
                 }}>
                   <Search size={14} style={{ color: NX.dim, flexShrink: 0 }} />
                   <span style={{ flex: 1, fontWeight: 600 }}>Existing Fields</span>
-                  <span style={{ fontSize: 11.5, color: NX.faint, fontWeight: 500 }}>{addable.length}</span>
+                  <span style={{ fontSize: 12, color: NX.faint, fontWeight: 500 }}>{addable.length}</span>
                   <ChevronRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />
                 </button>
               )}
@@ -738,7 +738,7 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {addError && (
-                  <div role="alert" style={{ padding: '6px 8px', marginBottom: 4, borderRadius: 8, fontSize: 12.5, color: NX.red, background: 'rgba(220,38,38,0.08)' }}>{addError}</div>
+                  <div role="alert" style={{ padding: '6px 8px', marginBottom: 4, borderRadius: 8, fontSize: 13, color: NX.red, background: 'rgba(220,38,38,0.08)' }}>{addError}</div>
                 )}
                 {addableShown.map((f) => {
                   const Icon = STORAGE_ICON[f.type] || Hash;
@@ -758,7 +758,7 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
                   );
                 })}
                 {addableShown.length === 0 && (
-                  <div style={{ padding: '8px 8px', fontSize: 12.5, color: NX.faint }}>No fields match “{fieldQuery.trim()}”.</div>
+                  <div style={{ padding: '8px 8px', fontSize: 13, color: NX.faint }}>No fields match “{fieldQuery.trim()}”.</div>
                 )}
               </div>
             </div>
@@ -768,19 +768,19 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
                 <ArrowLeft size={13} />{picked?.label}
               </button>
               <div>
-                <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>Column name</label>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>Column name</label>
                 <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
                   style={{ ...inputStyle, fontSize: 13, padding: '6px 8px' }} onKeyDown={(e) => e.key === 'Enter' && create()} />
                 {fieldNameProblem(name) && <div role="alert" style={{ marginTop: 4, fontSize: 12, color: NX.red }}>{fieldNameProblem(name)}</div>}
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>Column description (optional)</label>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>Column description (optional)</label>
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
-                  style={{ ...inputStyle, fontSize: 12.5, padding: '6px 8px', resize: 'none' }} />
+                  style={{ ...inputStyle, fontSize: 13, padding: '6px 8px', resize: 'none' }} />
               </div>
               {(picked?.storage === 'select' || picked?.storage === 'multiselect') && (
                 <div>
-                  <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 4 }}>
                     {picked.key === 'status' ? 'Status' : 'Dropdown list'} values
                   </label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -788,16 +788,16 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ width: 12, height: 12, borderRadius: 4, background: FIELD_PALETTE[i % FIELD_PALETTE.length], flexShrink: 0 }} />
                         <input value={o} onChange={(e) => setOptions((arr) => arr.map((x, j) => (j === i ? e.target.value : x)))}
-                          placeholder="Enter value" style={{ ...inputStyle, fontSize: 12.5, padding: '5px 7px' }} />
+                          placeholder="Enter value" style={{ ...inputStyle, fontSize: 13, padding: '5px 7px' }} />
                       </div>
                     ))}
                   </div>
-                  <button onClick={() => setOptions((arr) => [...arr, ''])} style={{ ...btn('ghost'), fontSize: 11.5, padding: '4px 6px', marginTop: 4 }}><Plus size={11} />Add Value</button>
+                  <button onClick={() => setOptions((arr) => [...arr, ''])} style={{ ...btn('ghost'), fontSize: 12, padding: '4px 6px', marginTop: 4 }}><Plus size={11} />Add Value</button>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 2 }}>
-                <button onClick={close} style={{ ...btn('ghost'), fontSize: 12.5, padding: '5px 10px' }}>Cancel</button>
-                <button onClick={create} disabled={!name.trim() || !!fieldNameProblem(name)} style={{ ...btn('primary'), fontSize: 12.5, padding: '5px 12px', opacity: name.trim() && !fieldNameProblem(name) ? 1 : 0.5 }}>Add Column</button>
+                <button onClick={close} style={{ ...btn('ghost'), fontSize: 13, padding: '5px 10px' }}>Cancel</button>
+                <button onClick={create} disabled={!name.trim() || !!fieldNameProblem(name)} style={{ ...btn('primary'), fontSize: 13, padding: '5px 12px', opacity: name.trim() && !fieldNameProblem(name) ? 1 : 0.5 }}>Add Column</button>
               </div>
             </div>
           )}
@@ -830,11 +830,11 @@ function MultiPillSelect({ options, picked, onToggle, placeholder = '-' }) {
         width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT,
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, flexWrap: 'wrap', padding: '2px 0', minHeight: 22,
       }}>
-        {chosen.length === 0 && <span style={{ fontSize: 12.5, color: NX.faint }}>{placeholder}</span>}
+        {chosen.length === 0 && <span style={{ fontSize: 13, color: NX.faint }}>{placeholder}</span>}
         {chosen.map((o) => (
           <span key={o.key} style={{
             display: 'inline-flex', alignItems: 'center', gap: 4,
-            fontSize: 11.5, fontWeight: 600, color: o.color, background: `${o.color}1a`,
+            fontSize: 12, fontWeight: 600, color: o.color, background: `${o.color}1a`,
             border: `1px solid ${o.color}55`, borderRadius: 20,
             padding: o.email ? '1px 8px 1px 2px' : '1px 8px', whiteSpace: 'nowrap',
           }}>
@@ -846,14 +846,14 @@ function MultiPillSelect({ options, picked, onToggle, placeholder = '-' }) {
       {open && (
         <PortalDropdown anchorRef={ref} panelRef={panelRef} width={208}>
           <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto', padding: 4 }}>
-            {options.length === 0 && <div style={{ padding: '8px 10px', fontSize: 12.5, color: NX.faint }}>No options</div>}
+            {options.length === 0 && <div style={{ padding: '8px 10px', fontSize: 13, color: NX.faint }}>No options</div>}
             {options.map((o) => {
               const on = picked.includes(o.key);
               return (
                 <button key={o.key} onClick={(e) => { e.stopPropagation(); onToggle(o.key); }} style={{
                   display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
                   border: 'none', background: on ? NX.surface2 : 'transparent', cursor: 'pointer',
-                  padding: '6px 8px', borderRadius: 7, fontFamily: FONT, fontSize: 12.5, color: NX.ink,
+                  padding: '6px 8px', borderRadius: 7, fontFamily: FONT, fontSize: 13, color: NX.ink,
                 }}>
                   <span style={{
                     width: 14, height: 14, borderRadius: 3, flexShrink: 0,
@@ -885,7 +885,7 @@ function FieldCell({ field, value, onChange, people = [] }) {
     // Calculated in Asana, which rejects writes - display only.
     return (
       <span title="Calculated in Asana - not editable here"
-        style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        style={{ fontSize: 13, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
         {value || '-'}
         <Lock size={10} style={{ color: NX.faint }} />
       </span>
@@ -932,10 +932,10 @@ function FieldCell({ field, value, onChange, people = [] }) {
   }
   if (field.type === 'number') {
     return <input type="number" className="rl-num nx-inline-edit" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"
-      style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT, textAlign: 'center' }} />;
+      style={{ width: '100%', border: 'none', fontSize: 13, color: NX.dim, fontFamily: FONT, textAlign: 'center' }} />;
   }
   return <input className="nx-inline-edit" type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="-"
-    style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT, textAlign: 'center' }} />;
+    style={{ width: '100%', border: 'none', fontSize: 13, color: NX.dim, fontFamily: FONT, textAlign: 'center' }} />;
 }
 
 // monday-style Timeline cell: a colored date-range pill (start → due); click to
@@ -975,11 +975,11 @@ function TimelineCell({ t, color, onChange }) {
           <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>START
               <DateField value={t.startOn || ''} onChange={(v) => onChange({ startOn: v || '' })} title="Start Date"
-                style={{ ...inputStyle, display: 'flex', marginTop: 3, fontSize: 12.5, padding: '5px 8px', fontWeight: 400 }} />
+                style={{ ...inputStyle, display: 'flex', marginTop: 3, fontSize: 13, padding: '5px 8px', fontWeight: 400 }} />
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>DUE
               <DateField value={t.dueOn || ''} noPast onChange={(v) => { if (!v || v >= localTodayISO()) onChange({ dueOn: v || '' }); }} title="Due Date"
-                style={{ ...inputStyle, display: 'flex', marginTop: 3, fontSize: 12.5, padding: '5px 8px', fontWeight: 400 }} />
+                style={{ ...inputStyle, display: 'flex', marginTop: 3, fontSize: 13, padding: '5px 8px', fontWeight: 400 }} />
             </div>
           </div>
         </PortalDropdown>
@@ -1189,13 +1189,13 @@ function TotalCell({ kind, agg, value, colKey, field, onPick, placeholder }) {
         style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, padding: '2px 4px', borderRadius: 6, display: 'inline-flex', alignItems: 'baseline', gap: 5, maxWidth: '100%', minWidth: 0 }}>
         {agg ? (
           <>
-            <span style={{ fontSize: 10.5, fontWeight: 600, color: NX.faint, flexShrink: 0 }}>{aggLabel(agg)}</span>
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: NX.faint, flexShrink: 0 }}>{aggLabel(agg)}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {formatTotal(value, agg, colKey, field)}
             </span>
           </>
         ) : (
-          <span style={{ fontSize: 11.5, color: NX.faint }}>Calculate</span>
+          <span style={{ fontSize: 12, color: NX.faint }}>Calculate</span>
         )}
       </button>
       {open && (
@@ -1204,7 +1204,7 @@ function TotalCell({ kind, agg, value, colKey, field, onPick, placeholder }) {
             {[{ key: '', label: 'None' }, ...options].map((o) => (
               <button key={o.key || 'none'} role="menuitemradio" aria-checked={(agg || '') === o.key}
                 onClick={(e) => { e.stopPropagation(); onPick(o.key); setOpen(false); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 7, padding: '6px 8px', cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, color: NX.ink, background: (agg || '') === o.key ? NX.surface2 : 'transparent' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 7, padding: '6px 8px', cursor: 'pointer', fontFamily: FONT, fontSize: 13, color: NX.ink, background: (agg || '') === o.key ? NX.surface2 : 'transparent' }}>
                 <span style={{ width: 12, flexShrink: 0, display: 'inline-flex' }}>{(agg || '') === o.key && <Check size={12} />}</span>
                 {o.label}
               </button>
@@ -1646,7 +1646,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   const anyTotal = Object.keys(totals.cols).length > 0;
   const totalsRow = (tasks, overall) => (
     <div data-totals-row={overall ? 'all' : 'group'} style={{
-      display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 12.5,
+      display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 13,
       borderTop: `1px solid ${NX.border2}`, background: NX.surface2,
       ...(overall ? { borderRadius: 12 } : null),
     }}>
@@ -1715,9 +1715,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                 <ChevronDown size={17} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: gc, flexShrink: 0 }} />
                 {g.labelName
-                  ? <LabelPill name={g.labelName} style={{ fontSize: 13.5, lineHeight: '20px', padding: '1px 10px' }} />
-                  : <span style={{ fontSize: 16, fontWeight: 700, color: NX.ink, letterSpacing: -0.2 }}>{g.label}</span>}
-                <span style={{ fontSize: 12.5, color: NX.faint, fontWeight: 500, marginLeft: 4 }}>{total} item{total !== 1 ? 's' : ''}</span>
+                  ? <LabelPill name={g.labelName} style={{ fontSize: 13, lineHeight: '20px', padding: '1px 10px' }} />
+                  : <span style={{ fontSize: 15, fontWeight: 700, color: NX.ink, letterSpacing: -0.2 }}>{g.label}</span>}
+                <span style={{ fontSize: 13, color: NX.faint, fontWeight: 500, marginLeft: 4 }}>{total} item{total !== 1 ? 's' : ''}</span>
                 {/* collapsed: the status mix stays visible on the header line */}
                 {isCol && total > 0 && <span style={{ display: 'inline-flex', width: 130, marginLeft: 10 }}>{statusBar(12)}</span>}
               </button>
@@ -1758,10 +1758,10 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
           <div style={{ marginTop: 16 }}><AddSectionButton sec={customSections} /></div>
         )}
         {renderBudget < totalRows && (
-          <div ref={moreRef} style={{ padding: '18px 2px', textAlign: 'center', fontSize: 12.5, color: NX.faint }}>
+          <div ref={moreRef} style={{ padding: '18px 2px', textAlign: 'center', fontSize: 13, color: NX.faint }}>
             Showing {renderBudget} of {totalRows}
             <button onClick={() => setRenderBudget(totalRows)}
-              style={{ ...btn('ghost'), fontSize: 12.5, padding: '4px 10px', marginLeft: 8 }}>
+              style={{ ...btn('ghost'), fontSize: 13, padding: '4px 10px', marginLeft: 8 }}>
               Show all
             </button>
           </div>
@@ -1785,7 +1785,7 @@ function RowMenu({ t, onOpen, onMove }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const stop = (e) => e.stopPropagation();
-  const item = { ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12.5, color: NX.ink };
+  const item = { ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 13, color: NX.ink };
   return (
     <span onClick={stop} onMouseDown={stop} style={{ display: 'inline-flex', marginLeft: 'auto', flexShrink: 0 }}>
       <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} title="More Actions"

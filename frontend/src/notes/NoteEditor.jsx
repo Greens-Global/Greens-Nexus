@@ -190,7 +190,7 @@ function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
 export default function NoteEditor({
   value, onChange, readOnly = false, people, placeholder = "Write anything. Type / for blocks, @ to mention someone, [[ to link a record.",
   onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy, collab = null, onRemoteChange, noteId = '',
-  starters = true, meeting = null,
+  starters = true, meeting = null, onEditor,
 }) {
   const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention'|'record', query, from, index }
   const [link, setLink] = useState(null);   // { href } while the link bar is open
@@ -273,6 +273,10 @@ export default function NoteEditor({
   });
 
   useEffect(() => { if (editor && !editor.isDestroyed) editor.setEditable(!readOnly); }, [editor, readOnly]);
+
+  // The editor itself, for a page that writes a line in (Meeting Notes'
+  // "Transcription started at ...", 11/12/2026).
+  useEffect(() => { onEditor?.(editor && !editor.isDestroyed ? editor : null); }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Meeting Notes (11/12/2026, meetings/meetingClock.js): a meeting note's
   // lines are stamped with the time they were written and show it; the

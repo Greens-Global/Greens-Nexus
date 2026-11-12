@@ -37,7 +37,9 @@ const withElements = (els, appState = {}) => {
 
 function kanban() {
   const cols = ['To Do', 'Doing', 'Done'];
-  const els = [];
+  // Every template says what it is and what to do with it, at the top (Neil,
+  // 11/12/2026 - a board is read by its shape and its first line).
+  const els = [...heading('Kanban', 'One sticky per piece of work. Move it right as it moves on.')];
   // The frame's own name is the column heading; nothing drawn inside repeats it.
   cols.forEach((name, i) => { els.push(frame(i * 400, 0, 360, 720, name)); });
   return withElements(els);
@@ -74,10 +76,12 @@ function floorPlan() {
 // Named frames on a grid of 360-wide columns, the Kanban spacing (400 apart).
 const frames = (names, perRow, h, top = 0) => names.map((name, i) => frame((i % perRow) * 400, top + Math.floor(i / perRow) * (h + 40), 360, h, name));
 
-const heading = (title, sub) => [
-  text(0, -100, title, { size: 28 }),
-  text(0, -50, sub, { size: 16, color: NEXUS_COLORS.slate }),
-];
+function heading(title, sub) {
+  return [
+    text(0, -100, title, { size: 28 }),
+    text(0, -50, sub, { size: 16, color: NEXUS_COLORS.slate }),
+  ];
+}
 
 function retro() {
   return withElements([
@@ -88,14 +92,14 @@ function retro() {
 
 function kickoff() {
   return withElements([
-    text(0, -60, 'Kickoff', { size: 28 }),
+    ...heading('Kickoff', 'One sticky per point in each section. Agree the first milestones before you close.'),
     ...frames(['Goals', 'Scope', 'People and Roles', 'Risks', 'First Milestones'], 3, 400),
   ]);
 }
 
 function swot() {
   return withElements([
-    text(0, -60, 'SWOT', { size: 28 }),
+    ...heading('SWOT', 'What helps and what hurts, inside and out. One sticky per point.'),
     ...frames(['Strengths', 'Weaknesses', 'Opportunities', 'Threats'], 2, 400),
   ]);
 }

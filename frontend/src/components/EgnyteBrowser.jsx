@@ -105,7 +105,7 @@ export default function EgnyteBrowser({
           {!loading && !error && data && (
             <>
               {data.folders.length === 0 && data.files.length === 0 && (
-                <div style={{ padding: 30, textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>Empty folder.</div>
+                <div style={{ padding: 30, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Empty folder.</div>
               )}
               {data.folders.map(f => (
                 <button key={f.path} onClick={() => load(f.path)}

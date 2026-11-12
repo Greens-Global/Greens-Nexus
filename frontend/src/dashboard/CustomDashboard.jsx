@@ -129,13 +129,13 @@ export default function CustomDashboard() {
 
   const renderWidget = (it, { phone = false } = {}) => {
     const def = WIDGETS[it.type];
-    if (!def) return <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 16 }}>This widget is no longer available.</div>;
+    if (!def) return <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: 16 }}>This widget is no longer available.</div>;
     // Role-gated widget in a layout the user inherited (e.g. a dept template):
     // show an inert card instead of the real panel - and never delete it from
     // their saved layout.
     if (!canSeeWidget(def)) {
       return (
-        <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center', padding: 16 }}>
+        <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13, textAlign: 'center', padding: 16 }}>
           "{def.title}" needs {def.module ? (def.moduleLabel || def.module) : def.minRole} access
         </div>
       );
@@ -202,7 +202,7 @@ export default function CustomDashboard() {
   const guardedNew = () => { if (confirmDiscard()) createNew(); };
   const guardedDone = () => { if (confirmDiscard()) d.cancelEdit(); };
 
-  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'var(--wk-font)', cursor: 'pointer' };
+  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, fontFamily: 'var(--wk-font)', cursor: 'pointer' };
   const saveLabel = d.dirty ? 'Save' : 'Saved';
 
   // Delete: your own personal views always; a department view only if you're a
@@ -241,7 +241,7 @@ export default function CustomDashboard() {
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {toast && (
-        <div role="status" style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12.5, fontWeight: 600,
+        <div role="status" style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 13, fontWeight: 600,
           background: toast.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c',
           // Phone: float it just above the bottom bar - the top of a long
@@ -268,7 +268,7 @@ export default function CustomDashboard() {
             <select value={d.activeId || ''}
               onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
               className="form-input" title="Switch dashboard view"
-              style={{ fontSize: 12.5, fontWeight: 600, width: isMobile ? 'auto' : 170, maxWidth: isMobile ? 176 : undefined, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', flexShrink: 0 }}>
+              style={{ fontSize: 13, fontWeight: 600, width: isMobile ? 'auto' : 170, maxWidth: isMobile ? 176 : undefined, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', flexShrink: 0 }}>
               <option value="">Home</option>
               {d.views.filter(v => v.scope === 'personal').length > 0 && (
                 <optgroup label="My Views">
@@ -320,13 +320,13 @@ export default function CustomDashboard() {
             <AnchoredMenu anchorRef={menuBtn} open={menu} onClose={() => setMenu(false)} align="end" minWidth={220}
               style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6 }}>
               <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
               </div>
               {menuSections.map((section, si) => (
                 <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
                   {section.map((m, i) => (
-                    <button key={i} role="menuitem" onClick={() => { setMenu(false); m.on(); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+                    <button key={i} role="menuitem" onClick={() => { setMenu(false); m.on(); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
                       <m.icon size={14} /> {m.label}
                     </button>
@@ -351,7 +351,7 @@ export default function CustomDashboard() {
           <>
             <div style={{ margin: '2px 0 18px' }}><DeskGreeting right={controls} menu={viewMenu} /></div>
             {d.editing && isPhone && (
-              <p style={{ margin: '0 2px 18px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.45 }}>
+              <p style={{ margin: '0 2px 18px', fontSize: 13, color: 'var(--muted)', lineHeight: 1.45 }}>
                 Use the arrows to reorder, the gear to change what a widget shows. The new order carries over to desktop.
               </p>
             )}

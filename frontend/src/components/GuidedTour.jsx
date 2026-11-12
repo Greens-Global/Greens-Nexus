@@ -187,7 +187,7 @@ export default function GuidedTour({ steps, onClose }) {
       <div ref={cardRef} data-testid="guided-tour-card" style={{ width: 332, maxWidth: 'calc(100vw - 24px)', ...pop, background: 'var(--card)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--shadow-lg)', padding: 16, fontFamily: 'Inter,sans-serif',
         ...(compact ? { maxHeight: maxH, display: 'flex', flexDirection: 'column', boxSizing: 'border-box' } : null) }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
-          <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>
             Walkthrough · step {i + 1} of {steps.length}
           </span>
           <span style={{ flex: 1 }} />
@@ -196,7 +196,7 @@ export default function GuidedTour({ steps, onClose }) {
         {/* The only part that scrolls when the card is capped (compact):
             the step count above and Back/Next/Done below stay put. */}
         <div data-testid="guided-tour-body" style={compact ? { minHeight: 0, flex: '0 1 auto', overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } : undefined}>
-          <div style={{ fontSize: 14.5, fontWeight: 800, marginBottom: 6 }}>{step.title}</div>
+          <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 6 }}>{step.title}</div>
           <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink)' }}>{step.body}</div>
         </div>
         <div style={{ display: 'flex', gap: 4, margin: '14px 0 12px', flexShrink: 0 }}>
@@ -205,14 +205,14 @@ export default function GuidedTour({ steps, onClose }) {
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button className="secondary-btn" onClick={onClose} style={{ fontSize: 12.5 }}>Skip</button>
+          <button className="secondary-btn" onClick={onClose} style={{ fontSize: 13 }}>Skip</button>
           <span style={{ flex: 1 }} />
           {i > 0 && (
-            <button className="secondary-btn" onClick={() => setI(i - 1)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}>
+            <button className="secondary-btn" onClick={() => setI(i - 1)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
               <ArrowLeft size={13} /> Back
             </button>
           )}
-          <button className="primary-btn" onClick={() => (last ? onClose() : setI(i + 1))} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}>
+          <button className="primary-btn" onClick={() => (last ? onClose() : setI(i + 1))} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
             {last ? <>Done <Check size={13} /></> : <>Next <ArrowRight size={13} /></>}
           </button>
         </div>

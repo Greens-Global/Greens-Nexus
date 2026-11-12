@@ -4,20 +4,17 @@ Notes for Teams meetings, in Dashboard > Notes (Neil, 11/12/2026). Teams
 records and transcribes the call; Nexus is the notebook around it. Nothing
 here costs money or uses AI.
 
-## Who has it: testers first (Neil, 11/12/2026)
+## Who has it (Neil, 11/12/2026)
 
-Meeting Notes is off for everyone except the people listed in the
-`meeting_notes.access` row of `nexus_settings` - each database has its own
-(dev and production). The value is JSON:
+**Everyone at Greens** (staff; externals and Act As are always refused):
+the `meeting_notes.access` row of `nexus_settings` is
+`{"everyone": true, ...}` on dev and production since 11/12/2026 ("Open it to
+everyone now"). It started testers-only (Neil first).
 
-```json
-{"everyone": false, "emails": ["neil@greensglobal.com"]}
-```
-
-Add a tester by adding their work email; turn it on for the whole company
-with `"everyone": true`. No row means nobody. Anyone not on the list sees no
-Meetings button and every `/meetings` route answers 403. Never widen it with
-a code default.
+To pull it back to a list of testers, set `"everyone": false` - then only
+the work emails in `"emails"` see the Meetings button, and every `/meetings`
+route answers 403 to anyone else. No row means nobody. Never widen or narrow
+it with a code default.
 
 ## What a person sees
 
@@ -67,9 +64,81 @@ a code default.
    transcript yourself marks it ready, so you are never belled about one you
    already read; the band then says **Transcript Ready**.
 
+## Phase 3: meetings outside Teams (Neil, 11/12/2026)
+
+Neil's calls: the text lives in Nexus; consent is asked every time; Whisper
+on the device, with the browser's own speech service as the fallback; testers
+first.
+
+9. **Every meeting.** The Meetings sheet lists every meeting on the calendar
+   (in person, Zoom, Google Meet as well as Teams - never all-day items),
+   says where it is, and Join opens a Zoom or Meet link too. **New Meeting
+   Note** makes a note for a meeting that is not on the calendar (a site
+   walk, a huddle), starting now.
+10. **Start Transcribing** (in any meeting note, for its owner and Can Edit):
+    a question first, every time - what happens to the audio, what to listen
+    to, and a box to tick that everyone agreed to be transcribed (Start stays
+    off until it is ticked; the server refuses a session without it and keeps
+    who confirmed and when). "Transcription started at 10:02 AM - everyone
+    present agreed to be transcribed." goes into the note as a line of its
+    own.
+    - **What it listens to:** the microphone (a meeting in the room), or on a
+      computer the microphone AND a call in a browser tab (Zoom, Google Meet,
+      Teams on the web - the browser asks which tab; turn on its audio). With
+      both, each line says **You** or **Others** by which was louder; the
+      owner can put a name on a voice ("Others" -> "Visesh").
+    - **How:** Whisper runs in the browser on the device. The first time, the
+      model downloads (about 40 MB on a phone or small laptop, 77 MB on a
+      bigger computer) while it is already listening, so nothing said in the
+      first minute is lost; after that the browser keeps it, and it works
+      offline. A computer that cannot keep up switches to the smaller model
+      by itself. If Whisper cannot run on the device, the browser's own
+      speech service takes over for the microphone (Chrome sends the audio
+      to Google, Safari to Apple, to recognize it - the consent question says
+      so before it starts).
+    - **While it runs:** "Transcribing" with the clock (the live accent), the
+      words in the transcript panel a few seconds after they are said, the
+      screen kept awake (a phone that sleeps stops the microphone), Stop.
+      Lines written meanwhile get their times, like a Teams meeting's.
+    - **What is kept:** only the words, sent a few lines at a time (a closed
+      tab loses at most the last few seconds; a dropped connection resends).
+      The audio is never saved or sent. Whoever can open the note reads the
+      transcript; its owner can **Delete Transcript** (press and hold).
+    - Highlights, Make a Task and the line times work on it exactly as on a
+      Teams transcript. A Teams meeting can be recorded this way too - the
+      panel then offers **From Teams** and **Recorded in Nexus**.
+11. **Transcribe a voice note** (testers): under any voice note in a note,
+    **Transcribe** turns it into text on the device and puts it underneath as
+    a folded Transcript block.
+
+### Where the speech model comes from
+
+`frontend/functions/ml/[[path]].js` (a Cloudflare Pages Function) serves it
+from Nexus's own address, so the CSP stays self-only and no CDN is added:
+
+- the runtime (transformers.js 4.3.2 and the ONNX Runtime web build it
+  embeds) from the npm packages on jsDelivr at exact versions, each file
+  checked against its SHA-256 from the npm tarball before it is served or
+  cached;
+- the models `Xenova/whisper-tiny.en` / `Xenova/whisper-base.en` (English,
+  int8) from Hugging Face, only the listed files;
+- cached for a year at Cloudflare's edge and in the browser. Anything else
+  is a 404.
+
+The runtime is told to import its loader from its own URL
+(`env.useWasmCache = false`) - the default turns it into a `blob:` URL,
+which the CSP rightly refuses.
+
+**Tested in a real browser** (Chromium, the production CSP, a fake
+microphone playing a speech recording): live audio captured at 44.1 kHz, cut
+at pauses, read by Whisper about five times faster than real time on the
+small model, and a voice-note file read word for word - and the whole app
+flow on an iPhone-sized screen (New Meeting Note, consent, live words, Stop,
+the words saved, the consent line in the note).
+
 ## Links, never copies (Neil, 11/12/2026)
 
-The transcript and the recording stay in Teams. Nexus reads the transcript
+For a TEAMS meeting, the transcript and the recording stay in Teams. Nexus reads the transcript
 through Microsoft Graph when someone opens it, keeps it in the API's memory
 for 15 minutes, and never writes it to the database or storage. When Teams
 lets a transcript or recording go, the note no longer shows it.
@@ -119,5 +188,4 @@ for the app - ask Neil before turning anything on.
 
 ## Next phases
 
-- **Phase 3:** meetings outside Teams, transcribed in the browser.
 - **Phase 4:** a written summary, only behind the AI switch (off).

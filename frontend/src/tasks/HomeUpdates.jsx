@@ -56,7 +56,7 @@ function dayLabel(iso) {
 const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const replyBody = (text) => `<p>${esc(text.trim()).replace(/\n/g, '<br>')}</p>`;
 
-const small = { ...btn('ghost'), padding: '5px 8px', fontSize: 12.5, gap: 5 };
+const small = { ...btn('ghost'), padding: '5px 8px', fontSize: 13, gap: 5 };
 
 /** The answers a row offers. Each one writes, then asks the card to re-read
  *  (the server decides what is answered); a refusal says so on the row. */
@@ -104,7 +104,7 @@ function RowActions({ u, done, onChanged }) {
             style={{ ...input, resize: 'vertical', fontFamily: FONT, fontSize: 13 }} />
           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
             <button onClick={() => { setReplying(false); setText(''); }} style={small}>Cancel</button>
-            <button disabled={busy || !text.trim()} onClick={send} style={{ ...btn('primary'), padding: '6px 12px', fontSize: 12.5, opacity: text.trim() ? 1 : 0.5 }}>Send</button>
+            <button disabled={busy || !text.trim()} onClick={send} style={{ ...btn('primary'), padding: '6px 12px', fontSize: 13, opacity: text.trim() ? 1 : 0.5 }}>Send</button>
           </div>
         </div>
       )}
@@ -235,11 +235,11 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
                   <div style={{ flex: 1, minWidth: 0, opacity: done ? 0.72 : 1 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                       <span style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 6, overflow: 'hidden' }}>
-                        <span style={{ minWidth: 0, fontSize: 13.5, fontWeight: 600, color: t?.completed ? NX.faint : NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: t?.completed ? 'line-through' : 'none' }}>{title}</span>
-                        {project && <span data-update-project style={{ flexShrink: 1, minWidth: 0, maxWidth: '45%', fontSize: 11.5, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project}</span>}
+                        <span style={{ minWidth: 0, fontSize: 13, fontWeight: 600, color: t?.completed ? NX.faint : NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: t?.completed ? 'line-through' : 'none' }}>{title}</span>
+                        {project && <span data-update-project style={{ flexShrink: 1, minWidth: 0, maxWidth: '45%', fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project}</span>}
                       </span>
                       {done && <StatusLabel label={u.ask} color="#16a34a" size="sm" style={{ flexShrink: 0, alignSelf: 'center' }} />}
-                      <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ fontSize: 12, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0, fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                         {fresh && <span role="img" aria-label="New" title="New since you last looked" style={{ width: 7, height: 7, borderRadius: '50%', background: NX.blue }} />}
                         {ago(u.at)}
                       </span>
@@ -253,7 +253,7 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
                       {u.relation === 'owner' && <span style={{ color: NX.faint }}> · You Own This</span>}
                     </div>
                     {u.preview && (
-                      <div style={{ marginTop: 5, paddingLeft: 9, borderLeft: `2px solid ${NX.border}`, fontSize: 12.5, color: NX.dim, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
+                      <div style={{ marginTop: 5, paddingLeft: 9, borderLeft: `2px solid ${NX.border}`, fontSize: 13, color: NX.dim, lineHeight: 1.45, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
                         {u.preview}
                       </div>
                     )}
@@ -288,9 +288,9 @@ export default function UpdatesCard({ updates, failed, nameOf, statusMeta, taskB
         {/* The Home cards' one header (homeWidgets.WidgetHeader): a soft chip, then the title. */}
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: `${NX.blue}1f`, color: NX.blue }}><Activity size={15} /></span>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Updates</h2>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Updates</h2>
         </span>
-        <span style={{ fontSize: 12.5, color: NX.faint }}>
+        <span style={{ fontSize: 13, color: NX.faint }}>
           {newCount > 0 && <span style={{ color: NX.blue, fontWeight: 600 }}>{newCount} New · </span>}
           On your tasks, last 14 days
         </span>

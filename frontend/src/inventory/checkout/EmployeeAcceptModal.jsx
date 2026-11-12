@@ -37,7 +37,7 @@ export function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptiona
           {uploading ? <><Spinner size={14} /> Uploading…</> : <><CheckCircle size={14} /> It's With Me</>}
         </button>
       </>}>
-      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
         A photo of <strong style={{ color: 'var(--ink)' }}>{checkout.itemName}</strong> as you take it records its condition at the handover.
       </p>
       <PhotoPick label="Handover Photo" required={!photoOptional} value={photo} onChange={setPhoto} />

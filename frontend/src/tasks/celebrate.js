@@ -54,7 +54,7 @@ export function celebrateCompletion() {
   // The unicorn, flying up and out.
   const uni = document.createElement('div');
   uni.textContent = '🦄';
-  uni.style.cssText = `position:fixed;left:${x}px;top:${y}px;font-size:30px;line-height:1;z-index:9999;pointer-events:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.25));`;
+  uni.style.cssText = `position:fixed;left:${x}px;top:${y}px;font-size:32px;line-height:1;z-index:9999;pointer-events:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.25));`;
   document.body.appendChild(uni);
   uni.animate([
     { transform: 'translate(-10px, 6px) scale(0.4) rotate(-10deg)', opacity: 0 },

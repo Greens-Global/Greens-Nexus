@@ -39,7 +39,7 @@ export default function GoogleAdsHeader({
 
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginTop: 16, gap: 16, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 576 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 600, color: C.gray900 }}>Google Ads</h2>
+          <h2 style={{ fontSize: 15, fontWeight: 600, color: C.gray900 }}>Google Ads</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <ScopeBadge label={property === ALL_PROPERTIES ? 'All Properties' : property} />
             <span
@@ -67,7 +67,7 @@ export default function GoogleAdsHeader({
             Track, optimize, and analyze your Google Ads performance across all storage facilities.
           </p>
           {(isOver || isWarning) && (
-            <p style={{ fontSize: 12.5, fontWeight: 500, color: isOver ? C.red600 : C.amber600 }}>
+            <p style={{ fontSize: 13, fontWeight: 500, color: isOver ? C.red600 : C.amber600 }}>
               {isOver
                 ? `Monthly budget used up - ${formatCurrency(monthSpend)} of ${formatCurrency(monthlyBudget)} spent (${pct.toFixed(0)}%).`
                 : `Nearing monthly budget - ${formatCurrency(monthSpend)} of ${formatCurrency(monthlyBudget)} used (${pct.toFixed(0)}%).`}

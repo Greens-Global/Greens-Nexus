@@ -200,11 +200,11 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
         {!small && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             <MapPin size={16} style={{ color: 'var(--muted)' }} />
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Weather</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Weather</div>
           </div>
         )}
         {!(small && searching) && (
-          <div title={msg} style={{ fontSize: small ? 12 : 12.5, color: 'var(--muted)', lineHeight: 1.45, flexShrink: 0 }}>{msg}</div>
+          <div title={msg} style={{ fontSize: small ? 12 : 13, color: 'var(--muted)', lineHeight: 1.45, flexShrink: 0 }}>{msg}</div>
         )}
         <CityPicker onPick={pickCity} autoFocus={false} fill phone={phone} onSearching={setSearching} />
       </div>,
@@ -222,7 +222,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
   const rain = rainStart(data.hourly);
   // "Rain now · 60%" / "Rain from 2 PM · 60%" - the one line a crew reads.
   const rainLine = rain && (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: '#2563eb', whiteSpace: 'nowrap' }} aria-label="Rain">
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: '#2563eb', whiteSpace: 'nowrap' }} aria-label="Rain">
       <Umbrella size={12} /> {rain === data.hourly[0] ? 'Rain now' : `Rain from ${hourLabel(rain.time)}`}{rain.precipChance != null ? ` · ${rain.precipChance}%` : ''}
     </div>
   );
@@ -230,7 +230,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
       {where.fixed ? <MapPin size={13} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} /> : <Navigation size={12} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} />}
       <span title={where.fixed ? title : `${title} - from your location`}
-        style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
+        style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
       {/* A 36px target on a phone; the negative margin keeps the header line
           its desktop height so the size tiers still hold. */}
       <button type="button" onClick={(e) => { e.stopPropagation(); load(); }} disabled={busy} title="Refresh" aria-label="Refresh weather"
@@ -249,8 +249,8 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
           <HeroIcon size={34} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.6} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {s.text} · H {deg(t.high)} L {deg(t.low)}
             </div>
             {rainLine}
@@ -283,7 +283,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
         <HeroIcon size={48} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.5} />
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontSize: 40, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
+            <span style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{s.text}</span>
           </div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -298,10 +298,10 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
         {chips.map(({ Icon, label, value }) => (
           <div key={label} title={label}
             style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '6px 8px', minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
               <Icon size={11} /> {label}
             </div>
-            <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
           </div>
         ))}
       </div>
@@ -315,10 +315,10 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
             return (
               <div key={h.time} style={{ flex: '0 0 auto', minWidth: 46, textAlign: 'center', padding: '6px 4px', borderRadius: 10,
                 background: i === 0 ? `rgba(${rgb},0.14)` : 'transparent' }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>{i === 0 ? 'Now' : hourLabel(h.time)}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{i === 0 ? 'Now' : hourLabel(h.time)}</div>
                 <hs.Icon size={17} style={{ color: `rgb(${TONE[hs.tone]})`, margin: '4px auto 2px', display: 'block' }} strokeWidth={1.8} />
-                <div style={{ fontSize: 12.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: '#2563eb', minHeight: 12 }}>{h.precipChance >= 20 ? `${h.precipChance}%` : ''}</div>
+                <div style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#2563eb', minHeight: 12 }}>{h.precipChance >= 20 ? `${h.precipChance}%` : ''}</div>
               </div>
             );
           })}
@@ -333,7 +333,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
             const left = ((d.low - lo) / span) * 100, width = Math.max(4, ((d.high - d.low) / span) * 100);
             return (
               <div key={d.date} style={{ display: 'grid', gridTemplateColumns: '46px 22px 34px 1fr 34px', alignItems: 'center', gap: 6, padding: '4px 2px', borderTop: i ? '1px solid var(--line)' : 'none' }}>
-                <span style={{ fontSize: 12.5, fontWeight: i === 0 ? 800 : 600 }}>{dayLabel(d.date, i)}</span>
+                <span style={{ fontSize: 13, fontWeight: i === 0 ? 800 : 600 }}>{dayLabel(d.date, i)}</span>
                 <ds.Icon size={16} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} />
                 <span style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{deg(d.low)}</span>
                 <span title={`${d.precipChance ?? 0}% chance of rain`} style={{ position: 'relative', height: 6, borderRadius: 99, background: 'var(--mist)' }}>
@@ -383,11 +383,11 @@ export function ForecastPopup({ title, data, onClose }) {
             <s.Icon size={52} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.5} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 40, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
+                <span style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
                 <span style={{ fontSize: 15, fontWeight: 700 }}>{s.text}</span>
                 <span style={{ fontSize: 13, color: 'var(--muted)' }}>H {deg(t.high)} · L {deg(t.low)} · Feels like {deg(c.feelsLike)}</span>
               </div>
-              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)', marginTop: 6 }}>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Wind size={12} /> {Math.round(c.wind ?? 0)} {u.wind} {compass(c.windDir)}</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Droplets size={12} /> {Math.round(c.humidity ?? 0)}%</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#2563eb', fontWeight: 700 }}>
@@ -410,9 +410,9 @@ export function ForecastPopup({ title, data, onClose }) {
                   <div key={h.time} style={{ textAlign: 'center', padding: '8px 4px', borderRadius: 10, background: i === 0 ? `rgba(${rgb},0.14)` : wet ? 'rgba(37,99,235,0.07)' : 'var(--card)', border: '1px solid var(--wk-line2)' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{i === 0 ? 'Now' : hourLabel(h.time)}</div>
                     <hs.Icon size={18} style={{ color: `rgb(${TONE[hs.tone]})`, margin: '5px auto 3px', display: 'block' }} strokeWidth={1.8} />
-                    <div style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
-                    <div style={{ fontSize: 10.5, fontWeight: 600, color: '#2563eb', minHeight: 13 }}>{(h.precipChance ?? 0) >= 20 ? `${h.precipChance}%` : ''}</div>
-                    <div style={{ fontSize: 10, color: 'var(--muted)', minHeight: 12 }}>{amount(h.precip)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#2563eb', minHeight: 13 }}>{(h.precipChance ?? 0) >= 20 ? `${h.precipChance}%` : ''}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', minHeight: 12 }}>{amount(h.precip)}</div>
                   </div>
                 );
               })}
@@ -431,7 +431,7 @@ export function ForecastPopup({ title, data, onClose }) {
                   <div key={d.date} style={{ display: 'grid', gridTemplateColumns: 'minmax(96px, 1.2fr) 24px minmax(90px, 1.3fr) 72px 40px minmax(80px, 2fr) 40px 70px', alignItems: 'center', gap: 8, padding: '8px 4px', borderTop: i ? '1px solid var(--line)' : 'none', background: wet ? 'rgba(37,99,235,0.04)' : 'transparent' }}>
                     <span style={{ fontSize: 13, fontWeight: i === 0 ? 800 : 600, whiteSpace: 'nowrap' }}>{dayLabel(d.date, i)} <span style={{ color: 'var(--muted)', fontWeight: 500, fontSize: 12 }}>{formatDate(d.date)}</span></span>
                     <ds.Icon size={18} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} />
-                    <span style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ds.text}</span>
+                    <span style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ds.text}</span>
                     <span style={{ fontSize: 12, fontWeight: 700, color: (d.precipChance ?? 0) >= 20 ? '#2563eb' : 'var(--muted)', whiteSpace: 'nowrap' }}>
                       {(d.precipChance ?? 0) >= 20 || amount(d.precipSum) ? `${d.precipChance ?? 0}%` + (amount(d.precipSum) ? ` · ${amount(d.precipSum)}` : '') : 'Dry'}
                     </span>
@@ -440,7 +440,7 @@ export function ForecastPopup({ title, data, onClose }) {
                       <span style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: 0, bottom: 0, borderRadius: 99, background: 'linear-gradient(90deg, #38bdf8, #fbbf24 70%, #f97316)' }} />
                     </span>
                     <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{deg(d.high)}</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
                       {d.windMax != null && <><Wind size={11} /> {Math.round(d.windMax)} {u.wind}</>}
                     </span>
                   </div>
@@ -457,7 +457,7 @@ export function ForecastPopup({ title, data, onClose }) {
 
 function ErrorState({ text, onRetry, busy }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--muted)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
       <Cloud size={22} />
       <span>{text}</span>
       <button type="button" className="secondary-btn" onClick={onRetry} disabled={busy} style={{ fontSize: 12 }}>Try Again</button>
@@ -494,12 +494,12 @@ export function CityPicker({ onPick, autoFocus = true, fill = false, phone = fal
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
         {/* 16px on a phone so iOS does not zoom the page on focus. */}
         <input className="form-input" value={q} onChange={(e) => setQ(e.target.value)} autoFocus={autoFocus}
-          placeholder="Search for a city" aria-label="Search for a city" style={{ paddingLeft: 32, width: '100%', ...(phone ? { fontSize: 16 } : null) }} />
+          placeholder="Search for a city" aria-label="Search for a city" style={{ paddingLeft: 32, width: '100%', ...(phone ? { fontSize: /* type-ok: iOS zooms a field under 16px */ 16 } : null) }} />
       </div>
       {(shown.length > 0 || (busy && active)) && (
         <div role="listbox" aria-label="Cities" className="dash-scroll"
           style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, maxHeight: 180, background: 'var(--card)', flex: '0 1 auto', minHeight: 0 }}>
-          {busy && shown.length === 0 && <div style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--muted)' }}>Searching…</div>}
+          {busy && shown.length === 0 && <div style={{ padding: '8px 10px', fontSize: 13, color: 'var(--muted)' }}>Searching…</div>}
           {shown.map((r) => (
             <button key={`${r.lat},${r.lon}`} type="button" role="option" aria-selected="false" onClick={() => { onPick(r); setQ(''); setRows([]); }}
               style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', minHeight: phone ? 40 : undefined, boxSizing: 'border-box', border: 'none', borderTop: '1px solid var(--line)', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
@@ -529,8 +529,8 @@ function ProjectPicker({ onPick }) {
       .catch(() => { if (live) setRows([]); });
     return () => { live = false; };
   }, []);
-  if (rows === null) return <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading projects…</div>;
-  if (!rows.length) return <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No active construction project you can see has a map point yet. Add the jobsite address in Construction and it appears here.</div>;
+  if (rows === null) return <div style={{ fontSize: 13, color: 'var(--muted)' }}>Loading projects…</div>;
+  if (!rows.length) return <div style={{ fontSize: 13, color: 'var(--muted)' }}>No active construction project you can see has a map point yet. Add the jobsite address in Construction and it appears here.</div>;
   return (
     <div role="listbox" aria-label="Construction projects" className="dash-scroll" style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, maxHeight: 180, background: 'var(--card)' }}>
       {rows.map((p) => (
@@ -613,7 +613,7 @@ export function WeatherConfigFields({ config, onChange }) {
         <div role="radiogroup" aria-label="Units" style={{ display: 'inline-flex', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden' }}>
           {[['imperial', '°F · mph'], ['metric', '°C · km/h']].map(([k, label]) => (
             <button key={k} type="button" role="radio" aria-checked={cfg.units === k} onClick={() => onChange({ units: k })}
-              style={{ padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit',
+              style={{ padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
                 background: cfg.units === k ? 'hsl(var(--color-blue))' : 'var(--card)', color: cfg.units === k ? '#fff' : 'var(--ink)' }}>{label}</button>
           ))}
         </div>

@@ -147,8 +147,8 @@ export function ModalHeader({ icon, tint, title, subtitle }) {
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
       <div style={{ height: 40, width: 40, borderRadius: 12, background: `var(--cv-${tint}-bg)`, display: "flex", alignItems: "center", justifyContent: "center", color: `var(--cv-${tint})`, flexShrink: 0 }}>{icon}</div>
       <div>
-        <h3 style={{ fontWeight: 600, fontSize: 15.5, margin: 0 }}>{title}</h3>
-        {subtitle && <p style={{ fontSize: 12.5, color: "var(--text-secondary)", margin: "2px 0 0" }}>{subtitle}</p>}
+        <h3 style={{ fontWeight: 600, fontSize: 15, margin: 0 }}>{title}</h3>
+        {subtitle && <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "2px 0 0" }}>{subtitle}</p>}
       </div>
     </div>
   );
@@ -171,7 +171,7 @@ export function TeamsIcon({ size = 20 }) {
 const rowBetween = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 };
 const rowSplit = { display: "flex", justifyContent: "space-between", gap: 8, marginTop: 16 };
 const infoBox = { borderRadius: 12, background: "var(--bg-secondary)", border: "1px solid var(--border-color)", padding: "10px 14px", fontSize: 12, color: "var(--text-secondary)" };
-const codeInput = { textAlign: "center", fontSize: 19, letterSpacing: "0.4em" };
+const codeInput = { textAlign: "center", fontSize: 18, letterSpacing: "0.4em" };
 
 // "Authenticate via SMS" action itself, not implied by clicking it.
 function SmsConsent({ checked, onChange }) {
@@ -179,7 +179,7 @@ function SmsConsent({ checked, onChange }) {
     <label style={{ display: "flex", alignItems: "flex-start", gap: 7, padding: "8px 10px", borderRadius: 10, background: "var(--bg-secondary)", border: "1px solid var(--border-color)", cursor: "pointer" }}>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
         style={{ marginTop: 2, flexShrink: 0, cursor: "pointer" }} />
-      <span style={{ fontSize: 10.5, lineHeight: 1.45, color: "var(--text-secondary)" }}>
+      <span style={{ fontSize: 11, lineHeight: 1.45, color: "var(--text-secondary)" }}>
         I agree to receive SMS text messages from <strong>Greens Global</strong> at the mobile number on file, including account alerts, two-factor authentication codes, and appointment reminders. <strong>Message frequency may vary.</strong> Msg &amp; data rates may apply. Reply <strong>STOP</strong> to opt out or <strong>HELP</strong> for help at any time. Consent is not a condition of employment or any purchase. View our <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-secondary)", textDecoration: "underline" }}><strong>Privacy Policy</strong></a>.
       </span>
     </label>
@@ -242,16 +242,16 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
           <button onClick={() => sendCode("email")} disabled={busy} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
             <Mail size={19} style={{ color: "var(--cv-sky)", flexShrink: 0 }} />
             <span style={{ textAlign: "left" }}>
-              <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>Authenticate via Email</span>
-              <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>Send a code to {targets.email.masked}</span>
+              <span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>Authenticate via Email</span>
+              <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>Send a code to {targets.email.masked}</span>
             </span>
           </button>
           <button onClick={() => targets.sms.available && smsConsent && sendCode("sms")} disabled={busy || !targets.sms.available || !smsConsent} className="cv-btn"
             style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12, opacity: targets.sms.available ? 1 : 0.5, cursor: targets.sms.available ? "pointer" : "not-allowed" }}>
             <MessageCircle size={19} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} />
             <span style={{ textAlign: "left" }}>
-              <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>Authenticate via SMS</span>
-              <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>{targets.sms.available ? `Send a code to ${targets.sms.masked}` : "No phone number on file - ask HR to add one"}</span>
+              <span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>Authenticate via SMS</span>
+              <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>{targets.sms.available ? `Send a code to ${targets.sms.masked}` : "No phone number on file - ask HR to add one"}</span>
             </span>
           </button>
           {targets.sms.available && <SmsConsent checked={smsConsent} onChange={setSmsConsent} />}
@@ -435,16 +435,16 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
         <button onClick={() => sendForgotCode("email")} disabled={busy} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
           <Mail size={19} style={{ color: "var(--cv-sky)", flexShrink: 0 }} />
           <span style={{ textAlign: "left" }}>
-            <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>Authenticate via Email</span>
-            <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>Send a code to {targets?.email?.masked || userEmail}</span>
+            <span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>Authenticate via Email</span>
+            <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>Send a code to {targets?.email?.masked || userEmail}</span>
           </span>
         </button>
         <button onClick={() => (!targets || targets.sms.available) && smsConsent && sendForgotCode("sms")} disabled={busy || (targets && !targets.sms.available) || !smsConsent} className="cv-btn"
           style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12, opacity: targets && !targets.sms.available ? 0.5 : 1 }}>
           <MessageCircle size={19} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} />
           <span style={{ textAlign: "left" }}>
-            <span style={{ display: "block", fontWeight: 600, fontSize: 13.5 }}>Authenticate via SMS</span>
-            <span style={{ display: "block", fontSize: 11.5, color: "var(--text-secondary)" }}>{targets && !targets.sms.available ? "No phone number on file" : `Send a code to ${targets?.sms?.masked || "your phone"}`}</span>
+            <span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>Authenticate via SMS</span>
+            <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>{targets && !targets.sms.available ? "No phone number on file" : `Send a code to ${targets?.sms?.masked || "your phone"}`}</span>
           </span>
         </button>
         {(!targets || targets.sms.available) && <SmsConsent checked={smsConsent} onChange={setSmsConsent} />}

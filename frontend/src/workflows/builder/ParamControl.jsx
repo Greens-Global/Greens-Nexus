@@ -124,7 +124,7 @@ export function TemplateBox({ id, param, value, onChange, ctx, rows }) {
 function FilterChip({ active, onClick, children }) {
   return (
     <button type="button" onClick={onClick} aria-pressed={active} style={{
-      ...chip, cursor: 'pointer', fontSize: 11.5, padding: '2px 7px',
+      ...chip, cursor: 'pointer', fontSize: 12, padding: '2px 7px',
       ...(active ? { background: 'var(--nx-primary)', color: '#fff', borderColor: 'var(--nx-primary)' } : null),
     }}>{children}</button>
   );
@@ -164,7 +164,7 @@ export function RecipientsPicker({ id, value, onChange, ctx }) {
             <button type="button" onClick={() => remove(i)} aria-label={`Remove ${recipientLabel(r, labelCtx)}`} style={{ ...iconBtn, padding: 0 }}><X size={12} /></button>
           </span>
         ))}
-        <select id={id} value="" onChange={(e) => pick(e.target.value)} aria-label="Add a recipient" style={{ ...select, padding: '4px 8px', fontSize: 12.5 }}>
+        <select id={id} value="" onChange={(e) => pick(e.target.value)} aria-label="Add a recipient" style={{ ...select, padding: '4px 8px', fontSize: 13 }}>
           <option value="">+ Add</option>
           {groupBy(kinds, (k) => k.group).map(([group, items]) => (
             <optgroup key={group} label={group}>

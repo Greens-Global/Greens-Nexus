@@ -584,7 +584,7 @@ export function ResetColumnsButton({ variant = 'button', style }) {
       <button onClick={click} style={{
         display: 'flex', alignItems: 'center', gap: 7, width: '100%', padding: '7px 8px',
         border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer',
-        fontSize: 12.5, fontWeight: 600, color: NX.dim, textAlign: 'left', ...style,
+        fontSize: 13, fontWeight: 600, color: NX.dim, textAlign: 'left', ...style,
       }}
         onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>

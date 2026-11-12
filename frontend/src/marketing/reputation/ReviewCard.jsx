@@ -79,25 +79,25 @@ export default function ReviewCard({ review, onApprove, onRegenerate, highlightW
         <PlatformBadge platform={review.platform} size={26} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
-            <span style={{ fontWeight: 500, color: C.gray900, fontSize: 13.5 }}>{review.customer}</span>
+            <span style={{ fontWeight: 500, color: C.gray900, fontSize: 13 }}>{review.customer}</span>
             <span style={{ fontSize: 11, color: C.gray400, fontWeight: 500 }}>via {review.platform}</span>
             <StarRating value={review.rating} size={12} />
-            <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 500, ...sentimentStyles[review.sentiment] }}>
+            <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 500, ...sentimentStyles[review.sentiment] }}>
               {review.sentiment}
             </span>
-            <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 500, ...statusStyles[review.status] }}>
+            <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 500, ...statusStyles[review.status] }}>
               {review.status}
             </span>
           </div>
           <p style={{ fontSize: 13, color: C.gray600, marginBottom: 4 }}>{highlightMatches(review.text, highlightWord)}</p>
-          <p style={{ fontSize: 11.5, color: C.gray400 }}>
+          <p style={{ fontSize: 12, color: C.gray400 }}>
             {review.facility} &middot; {formatDate(review.date)}
           </p>
         </div>
       </div>
 
       <div style={{ borderRadius: 8, background: C.gray50, border: '1px solid ' + C.gray100, padding: 12, marginLeft: 38 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 11.5, fontWeight: 500, color: C.gray500 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 12, fontWeight: 500, color: C.gray500 }}>
           <Sparkles size={12} style={{ color: C.purple500 }} />
           AI Reply Suggestion &amp; Actions
         </div>

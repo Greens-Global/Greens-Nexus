@@ -27,9 +27,9 @@ function WanPortDot({ plugged }) {
 }
 
 function IssueTypeBadge({ period }) {
-  if (period.wan_downtime) return <span style={{ fontSize: "0.65rem", background: "hsla(0,80%,50%,0.12)", color: "hsl(var(--color-red))", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>WAN DOWN</span>;
-  if (period.packet_loss)  return <span style={{ fontSize: "0.65rem", background: "hsla(38,90%,50%,0.12)", color: "hsl(var(--color-orange))", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>PACKET LOSS</span>;
-  if (period.not_reported) return <span style={{ fontSize: "0.65rem", background: "hsla(215,100%,50%,0.1)", color: "hsl(var(--color-blue))", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>UNREPORTED</span>;
+  if (period.wan_downtime) return <span style={{ fontSize: 11, background: "hsla(0,80%,50%,0.12)", color: "hsl(var(--color-red))", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>WAN DOWN</span>;
+  if (period.packet_loss)  return <span style={{ fontSize: 11, background: "hsla(38,90%,50%,0.12)", color: "hsl(var(--color-orange))", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>PACKET LOSS</span>;
+  if (period.not_reported) return <span style={{ fontSize: 11, background: "hsla(215,100%,50%,0.1)", color: "hsl(var(--color-blue))", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>UNREPORTED</span>;
   return null;
 }
 
@@ -146,7 +146,7 @@ function NetworkDashboard() {
           </div>
         </div>}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {lastUpdated && <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Updated {lastUpdated}</span>}
+          {lastUpdated && <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Updated {lastUpdated}</span>}
           {view === "detail" && detail?.hostId && (
             <a
               href={`https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard`}
@@ -180,7 +180,7 @@ function NetworkDashboard() {
           {totalAlerts > 0 && (
             <div style={{ background: "hsla(38,90%,50%,0.08)", border: "1px solid hsla(38,90%,50%,0.25)", borderRadius: 8, marginBottom: 20, overflow: "hidden" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", cursor: "pointer", userSelect: "none" }} onClick={() => setAlertsOpen(o => !o)}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "hsl(var(--color-orange))", fontSize: "0.82rem", fontWeight: 600 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "hsl(var(--color-orange))", fontSize: 13, fontWeight: 600 }}>
                   <AlertTriangle style={{ width: 14, height: 14 }} />
                   {[
                     allOffline.length   && `${allOffline.length} OFFLINE`,
@@ -188,53 +188,53 @@ function NetworkDashboard() {
                     allIssues.length    && `${allIssues.length} INTERNET ISSUES`,
                     allCritical.length  && `${allCritical.reduce((a, s) => a + s.count, 0)} CRITICAL`,
                   ].filter(Boolean).join(" · ")}
-                  <span style={{ background: "hsl(var(--color-orange))", color: "#000", fontSize: "0.7rem", fontWeight: 700, padding: "1px 7px", borderRadius: 10 }}>{totalAlerts}</span>
+                  <span style={{ background: "hsl(var(--color-orange))", color: "#000", fontSize: 11, fontWeight: 700, padding: "1px 7px", borderRadius: 10 }}>{totalAlerts}</span>
                 </div>
                 {alertsOpen ? <ChevronUp style={{ width: 14, height: 14, color: "hsl(var(--color-orange))" }} /> : <ChevronDown style={{ width: 14, height: 14, color: "hsl(var(--color-orange))" }} />}
               </div>
               {alertsOpen && (
                 <div style={{ borderTop: "1px solid hsla(38,90%,50%,0.15)" }}>
                   {allOffline.length > 0 && <>
-                    <div style={{ padding: "6px 16px 2px", fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-red))", opacity: 0.8 }}>Offline Devices</div>
+                    <div style={{ padding: "6px 16px 2px", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-red))", opacity: 0.8 }}>Offline Devices</div>
                     {allOffline.map((d, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px", borderTop: "1px solid hsla(38,90%,50%,0.08)", fontSize: "0.82rem" }}>
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px", borderTop: "1px solid hsla(38,90%,50%,0.08)", fontSize: 13 }}>
                         <div style={{ width: 5, height: 5, borderRadius: "50%", background: "hsl(var(--color-red))", flexShrink: 0 }} />
                         <span style={{ fontWeight: 600 }}>{d.name}</span>
                         <span style={{ color: "var(--text-secondary)" }}>{d.model}</span>
-                        <button className="secondary-btn" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "0.7rem" }} onClick={() => openDetail({ siteId: d.siteId, name: d.siteName })}>{d.siteName}</button>
+                        <button className="secondary-btn" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={() => openDetail({ siteId: d.siteId, name: d.siteName })}>{d.siteName}</button>
                       </div>
                     ))}
                   </>}
                   {allOutdated.length > 0 && <>
-                    <div style={{ padding: "6px 16px 2px", fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-orange))", opacity: 0.8 }}>Firmware Updates</div>
+                    <div style={{ padding: "6px 16px 2px", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-orange))", opacity: 0.8 }}>Firmware Updates</div>
                     {allOutdated.map((d, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px", borderTop: "1px solid hsla(38,90%,50%,0.08)", fontSize: "0.82rem" }}>
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px", borderTop: "1px solid hsla(38,90%,50%,0.08)", fontSize: 13 }}>
                         <div style={{ width: 5, height: 5, borderRadius: "50%", background: "hsl(var(--color-orange))", flexShrink: 0 }} />
                         <span style={{ fontWeight: 600 }}>{d.name}</span>
                         <span style={{ color: "var(--text-secondary)" }}>{d.model} · v{d.version}</span>
-                        <button className="secondary-btn" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "0.7rem" }} onClick={() => openDetail({ siteId: d.siteId, name: d.siteName })}>{d.siteName}</button>
+                        <button className="secondary-btn" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={() => openDetail({ siteId: d.siteId, name: d.siteName })}>{d.siteName}</button>
                       </div>
                     ))}
                   </>}
                   {allIssues.length > 0 && <>
-                    <div style={{ padding: "6px 16px 2px", fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-red))", opacity: 0.8 }}>Internet Issues</div>
+                    <div style={{ padding: "6px 16px 2px", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-red))", opacity: 0.8 }}>Internet Issues</div>
                     {allIssues.map((s, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px", borderTop: "1px solid hsla(38,90%,50%,0.08)", fontSize: "0.82rem" }}>
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px", borderTop: "1px solid hsla(38,90%,50%,0.08)", fontSize: 13 }}>
                         <div style={{ width: 5, height: 5, borderRadius: "50%", background: "hsl(var(--color-red))", flexShrink: 0 }} />
                         <span style={{ fontWeight: 600 }}>{s.siteName}</span>
                         {s.isp && <span style={{ color: "var(--text-secondary)" }}>{s.isp}</span>}
-                        <button className="secondary-btn" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "0.7rem" }} onClick={() => openDetail({ siteId: s.siteId, name: s.siteName })}>View</button>
+                        <button className="secondary-btn" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={() => openDetail({ siteId: s.siteId, name: s.siteName })}>View</button>
                       </div>
                     ))}
                   </>}
                   {allCritical.length > 0 && <>
-                    <div style={{ padding: "6px 16px 2px", fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-orange))", opacity: 0.8 }}>Critical Notifications</div>
+                    <div style={{ padding: "6px 16px 2px", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-orange))", opacity: 0.8 }}>Critical Notifications</div>
                     {allCritical.map((s, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px", borderTop: "1px solid hsla(38,90%,50%,0.08)", fontSize: "0.82rem" }}>
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px", borderTop: "1px solid hsla(38,90%,50%,0.08)", fontSize: 13 }}>
                         <div style={{ width: 5, height: 5, borderRadius: "50%", background: "hsl(var(--color-orange))", flexShrink: 0 }} />
                         <span style={{ fontWeight: 600 }}>{s.siteName}</span>
                         <span style={{ color: "var(--text-secondary)" }}>{s.count} notification{s.count !== 1 ? "s" : ""}</span>
-                        <button className="secondary-btn" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: "0.7rem" }} onClick={() => openDetail({ siteId: s.siteId, name: s.siteName })}>View</button>
+                        <button className="secondary-btn" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 11 }} onClick={() => openDetail({ siteId: s.siteId, name: s.siteName })}>View</button>
                       </div>
                     ))}
                   </>}
@@ -246,8 +246,8 @@ function NetworkDashboard() {
           {sites.length === 0 && loading && (
             <div style={{ textAlign: "center", padding: 60, color: "var(--text-secondary)" }}>
               <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}><Spinner size="section" /></div>
-              <div style={{ fontSize: "0.9rem" }}>Connecting to UniFi backend…</div>
-              <div style={{ fontSize: "0.78rem", marginTop: 6, color: "var(--text-muted)" }}>This may take a few seconds on first load.</div>
+              <div style={{ fontSize: 15 }}>Connecting to UniFi backend…</div>
+              <div style={{ fontSize: 13, marginTop: 6, color: "var(--text-muted)" }}>This may take a few seconds on first load.</div>
             </div>
           )}
           {sites.length === 0 && !loading && !error && (
@@ -275,15 +275,15 @@ function NetworkDashboard() {
                     {/* Header row */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div>
-                        <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{site.name}</div>
-                        {site.isp_name && <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 2 }}>{site.isp_name}</div>}
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{site.name}</div>
+                        {site.isp_name && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{site.isp_name}</div>}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
                         {/* WAN port indicators */}
                         {(site.wan_ports || []).map((wp, i) => (
                           <div key={i} style={{ display: "flex", alignItems: "center", gap: 3 }}>
                             <WanPortDot plugged={wp.plugged} />
-                            <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>{wp.type}</span>
+                            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{wp.type}</span>
                           </div>
                         ))}
                         <div style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, boxShadow: `0 0 6px ${dotColor}`, marginLeft: 4 }} />
@@ -293,20 +293,20 @@ function NetworkDashboard() {
                     {/* Devices + Clients */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                       <div>
-                        <div style={{ fontSize: "0.68rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>Devices</div>
-                        <div style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1, color: hasOffline ? "hsl(var(--color-red))" : "hsl(var(--color-green))" }}>
-                          {site.online_devices}<span style={{ fontSize: "0.9rem", color: "var(--text-muted)", fontWeight: 400 }}>/{site.total_devices}</span>
+                        <div style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>Devices</div>
+                        <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1, color: hasOffline ? "hsl(var(--color-red))" : "hsl(var(--color-green))" }}>
+                          {site.online_devices}<span style={{ fontSize: 15, color: "var(--text-muted)", fontWeight: 400 }}>/{site.total_devices}</span>
                         </div>
-                        <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: 3 }}>
+                        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 3 }}>
                           {site.total_wifi_devices > 0 && `${site.total_wifi_devices} WiFi`}
                           {site.total_wifi_devices > 0 && site.total_wired_devices > 0 && " · "}
                           {site.total_wired_devices > 0 && `${site.total_wired_devices} wired`}
                         </div>
                       </div>
                       <div>
-                        <div style={{ fontSize: "0.68rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>Clients</div>
-                        <div style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1, color: "hsl(var(--color-blue))" }}>{site.wifi_clients + site.wired_clients}</div>
-                        <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: 3 }}>{site.wifi_clients} WiFi · {site.wired_clients} wired</div>
+                        <div style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>Clients</div>
+                        <div style={{ fontSize: 32, fontWeight: 700, lineHeight: 1, color: "hsl(var(--color-blue))" }}>{site.wifi_clients + site.wired_clients}</div>
+                        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 3 }}>{site.wifi_clients} WiFi · {site.wired_clients} wired</div>
                       </div>
                     </div>
 
@@ -333,11 +333,11 @@ function NetworkDashboard() {
                     {/* Badge row */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, borderTop: "1px solid var(--border-color)" }}>
                       <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
-                        {hasOffline    && <span className="status-badge status-rejected" style={{ fontSize: "0.65rem" }}>{site.offline_devices.length} OFFLINE</span>}
-                        {hasOutdated   && <span className="status-badge" style={{ background: "hsla(38,90%,50%,0.12)", color: "hsl(var(--color-orange))", fontSize: "0.65rem" }}>{site.outdated_devices.length} FIRMWARE</span>}
-                        {hasCritical   && <span className="status-badge" style={{ background: "hsla(0,80%,50%,0.1)", color: "hsl(var(--color-red))", fontSize: "0.65rem" }}>{site.critical_notifications} CRITICAL</span>}
-                        {hasIssues     && <span className="status-badge status-rejected" style={{ fontSize: "0.65rem" }}>WAN ISSUE</span>}
-                        {site.pending_updates > 0 && <span className="status-badge" style={{ background: "hsla(215,100%,50%,0.1)", color: "hsl(var(--color-blue))", fontSize: "0.65rem" }}>{site.pending_updates} PENDING</span>}
+                        {hasOffline    && <span className="status-badge status-rejected" style={{ fontSize: 11 }}>{site.offline_devices.length} OFFLINE</span>}
+                        {hasOutdated   && <span className="status-badge" style={{ background: "hsla(38,90%,50%,0.12)", color: "hsl(var(--color-orange))", fontSize: 11 }}>{site.outdated_devices.length} FIRMWARE</span>}
+                        {hasCritical   && <span className="status-badge" style={{ background: "hsla(0,80%,50%,0.1)", color: "hsl(var(--color-red))", fontSize: 11 }}>{site.critical_notifications} CRITICAL</span>}
+                        {hasIssues     && <span className="status-badge status-rejected" style={{ fontSize: 11 }}>WAN ISSUE</span>}
+                        {site.pending_updates > 0 && <span className="status-badge" style={{ background: "hsla(215,100%,50%,0.1)", color: "hsl(var(--color-blue))", fontSize: 11 }}>{site.pending_updates} PENDING</span>}
                       </div>
                       <span style={{ fontSize: "0.75rem", color: "hsl(var(--color-blue))", fontWeight: 600 }}>VIEW →</span>
                     </div>
@@ -371,12 +371,12 @@ function NetworkDashboard() {
                     ? <a key={s.label} href={s.link} target="_blank" rel="noopener noreferrer"
                         style={{ background: "var(--bg-card)", padding: "16px 14px", textDecoration: "none", display: "block", cursor: "pointer" }}
                         title="Open in UniFi">
-                        <div style={{ fontSize: "0.65rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{s.label} ↗</div>
-                        <div style={{ fontSize: "1.7rem", fontWeight: 700, lineHeight: 1, color: s.color }}>{s.value}</div>
+                        <div style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{s.label} ↗</div>
+                        <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1, color: s.color }}>{s.value}</div>
                       </a>
                     : <div key={s.label} style={{ background: "var(--bg-card)", padding: "16px 14px" }}>
-                        <div style={{ fontSize: "0.65rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{s.label}</div>
-                        <div style={{ fontSize: "1.7rem", fontWeight: 700, lineHeight: 1, color: s.color }}>{s.value}</div>
+                        <div style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{s.label}</div>
+                        <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1, color: s.color }}>{s.value}</div>
                       </div>
                 ))}
               </div>
@@ -394,32 +394,32 @@ function NetworkDashboard() {
                       return (
                         <div key={key} style={{ background: "var(--bg-card)", border: `1px solid ${hasWanIssues ? "hsla(0,80%,50%,0.3)" : "var(--border-color)"}`, borderRadius: 10, padding: "16px 18px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                            <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>{key}</span>
+                            <span style={{ fontWeight: 700, fontSize: 14 }}>{key}</span>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               {port && <WanPortDot plugged={port.plugged} />}
-                              {port && <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{port.plugged ? "Link up" : "No link"}</span>}
+                              {port && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{port.plugged ? "Link up" : "No link"}</span>}
                             </div>
                           </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: "0.8rem" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 13 }}>
                             <div>
-                              <div style={{ color: "var(--text-muted)", fontSize: "0.68rem", textTransform: "uppercase", marginBottom: 2 }}>Uptime</div>
+                              <div style={{ color: "var(--text-muted)", fontSize: 11, textTransform: "uppercase", marginBottom: 2 }}>Uptime</div>
                               <div style={{ fontWeight: 700, color: wan.uptime >= 99 ? "hsl(var(--color-green))" : wan.uptime >= 95 ? "hsl(var(--color-orange))" : "hsl(var(--color-red))" }}>{wan.uptime}%</div>
                             </div>
                             {(wan.external_ip || port?.ip) && (
                               <div>
-                                <div style={{ color: "var(--text-muted)", fontSize: "0.68rem", textTransform: "uppercase", marginBottom: 2 }}>External IP</div>
-                                <div style={{ fontFamily: "monospace", fontSize: "0.78rem", color: "var(--text-secondary)" }}>{wan.external_ip || port?.ip}</div>
+                                <div style={{ color: "var(--text-muted)", fontSize: 11, textTransform: "uppercase", marginBottom: 2 }}>External IP</div>
+                                <div style={{ fontFamily: "monospace", fontSize: 13, color: "var(--text-secondary)" }}>{wan.external_ip || port?.ip}</div>
                               </div>
                             )}
                             {port?.speed && (
                               <div>
-                                <div style={{ color: "var(--text-muted)", fontSize: "0.68rem", textTransform: "uppercase", marginBottom: 2 }}>Speed</div>
+                                <div style={{ color: "var(--text-muted)", fontSize: 11, textTransform: "uppercase", marginBottom: 2 }}>Speed</div>
                                 <div style={{ color: "var(--text-primary)" }}>{port.speed}</div>
                               </div>
                             )}
                             {hasWanIssues && (
                               <div>
-                                <div style={{ color: "var(--text-muted)", fontSize: "0.68rem", textTransform: "uppercase", marginBottom: 2 }}>Issues</div>
+                                <div style={{ color: "var(--text-muted)", fontSize: 11, textTransform: "uppercase", marginBottom: 2 }}>Issues</div>
                                 <div style={{ color: "hsl(var(--color-red))", fontWeight: 600 }}>{wan.issues.length} event{wan.issues.length !== 1 ? "s" : ""}</div>
                               </div>
                             )}
@@ -443,7 +443,7 @@ function NetworkDashboard() {
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {detail.internet_issues_5min.filter(p => p.wan_downtime || p.packet_loss || p.not_reported).map((p, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "0.8rem" }}>
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
                         <IssueTypeBadge period={p} />
                         {p.count && <span style={{ color: "var(--text-secondary)" }}>{p.count} occurrence{p.count !== 1 ? "s" : ""}</span>}
                       </div>
@@ -481,15 +481,15 @@ function NetworkDashboard() {
                               {d.isConsole && (
                                 <a href={`https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard`}
                                    target="_blank" rel="noopener noreferrer"
-                                   style={{ fontSize: "0.68rem", color: "hsl(var(--color-blue))", fontWeight: 600, textDecoration: "none" }}>
+                                   style={{ fontSize: 11, color: "hsl(var(--color-blue))", fontWeight: 600, textDecoration: "none" }}>
                                   CONSOLE ↗
                                 </a>
                               )}
                             </td>
-                            <td data-th="Model"><span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)", fontSize: "0.7rem" }}>{d.model || "-"}</span></td>
-                            <td data-th="Product line" style={{ fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "capitalize" }}>{d.productLine || "-"}</td>
-                            <td data-th="IP" style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--text-secondary)" }}>{d.ip || "-"}</td>
-                            <td data-th="MAC" style={{ fontFamily: "monospace", fontSize: "0.8rem", color: "var(--text-muted)" }}>{d.mac || "-"}</td>
+                            <td data-th="Model"><span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)", fontSize: 11 }}>{d.model || "-"}</span></td>
+                            <td data-th="Product line" style={{ fontSize: 13, color: "var(--text-secondary)", textTransform: "capitalize" }}>{d.productLine || "-"}</td>
+                            <td data-th="IP" style={{ fontFamily: "monospace", fontSize: 13, color: "var(--text-secondary)" }}>{d.ip || "-"}</td>
+                            <td data-th="MAC" style={{ fontFamily: "monospace", fontSize: 13, color: "var(--text-muted)" }}>{d.mac || "-"}</td>
                             <td data-th="Firmware">
                               {!d.firmwareStatus || d.firmwareStatus === "upToDate"
                                 ? <span className="status-badge status-approved">Up to date</span>
@@ -517,8 +517,8 @@ function NetworkDashboard() {
                   { label: "Wired Clients",           value: detail.wired_clients,               color: "hsl(var(--color-blue))",   total: null },
                 ].map(c => (
                   <div key={c.label} className="motion-card" style={{ background: "var(--bg-card)", border: "1px solid var(--border-color)", borderRadius: 8, padding: "16px 18px" }}>
-                    <div style={{ fontSize: "0.68rem", letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{c.label}</div>
-                    <div style={{ fontSize: "1.8rem", fontWeight: 700, color: c.value > 0 && c.label.startsWith("Offline") ? c.color : c.label.includes("Client") ? c.color : "var(--text-secondary)" }}>{c.value}</div>
+                    <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{c.label}</div>
+                    <div style={{ fontSize: 32, fontWeight: 700, color: c.value > 0 && c.label.startsWith("Offline") ? c.color : c.label.includes("Client") ? c.color : "var(--text-secondary)" }}>{c.value}</div>
                     {c.total !== null && <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>of {c.total} total</div>}
                   </div>
                 ))}

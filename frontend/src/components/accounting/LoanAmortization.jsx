@@ -38,12 +38,12 @@ import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 // `month` is the YYYY-MM the ledger balance is as of (default this month).
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const warn = { fontSize: '0.78rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
+const warn = { fontSize: 13, color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 };
-const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' };
+const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' };
 const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (m) => `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
@@ -56,7 +56,7 @@ function Chip({ tone = 'muted', children, title }) {
     wait: { fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
-  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
+  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
 }
 
 /** Months from the first payment to the maturity, inclusive (the term a
@@ -144,7 +144,7 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
 
   if (sched === undefined) return <SkeletonBlocks count={3} />;
   if (error && notAvailable(error)) {
-    return <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>Amortization is not available here.</strong> The accounting service is not connected on this environment, so the loan cannot be read.</div>;
+    return <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>Amortization is not available here.</strong> The accounting service is not connected on this environment, so the loan cannot be read.</div>;
   }
 
   return (
@@ -154,13 +154,13 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
         <>
           <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
             {sched ? (
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <Chip tone={sched.source === 'upload' ? 'brand' : 'muted'}>{sched.source === 'upload' ? 'Bank File' : 'Built in Nexus'}</Chip>
                 {rows.length} payments{rows.length ? `, ${formatDate(rows[0].date)} - ${formatDate(rows[rows.length - 1].date)}` : ''}
                 {sched.fileUrl && <a href={sched.fileUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Paperclip size={13} /> {sched.fileName || 'Bank File'}</a>}
                 {sched.at && <span style={{ color: 'var(--text-muted)' }}>· saved {formatDate(sched.at)}{sched.by ? ` by ${sched.by}` : ''}</span>}
               </span>
-            ) : <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No amortization schedule kept for this loan yet.</span>}
+            ) : <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No amortization schedule kept for this loan yet.</span>}
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {canEdit && <button type="button" className="secondary-btn" style={btn} onClick={() => setMode('build')}><Hammer size={14} /> {sched?.source === 'build' ? 'Rebuild' : 'Build Schedule'}</button>}
               {canEdit && <button type="button" className="secondary-btn" style={btn} onClick={() => setMode('upload')}><FileUp size={14} /> Upload Bank File</button>}
@@ -173,7 +173,7 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
             </div>
           </div>
           {sched && expected && (
-            <div style={{ ...card, padding: '10px 12px', display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums', alignItems: 'center' }}>
+            <div style={{ ...card, padding: '10px 12px', display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: 13, fontVariantNumeric: 'tabular-nums', alignItems: 'center' }}>
               <strong>Schedule vs Ledger - {monthLabel(asOf)}</strong>
               <span>Expected per Schedule <strong><Amount value={expected.balance} /></strong>{expected.asOf ? <span style={{ color: 'var(--text-muted)' }}> (after payment {expected.n}, {formatDate(expected.asOf)})</span> : <span style={{ color: 'var(--text-muted)' }}> (before the first payment)</span>}</span>
               <span>Ledger Balance <strong><Amount value={l.balance} /></strong></span>
@@ -234,7 +234,7 @@ function Field({ id, title, children, hint }) {
     <div>
       <label style={label} htmlFor={id}>{title}</label>
       {children}
-      {hint && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 3 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{hint}</div>}
     </div>
   );
 }
@@ -248,7 +248,7 @@ function BuildForm({ loan, initial, busy, onCancel, onSave }) {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }}>
-        <strong style={{ fontSize: '0.9rem' }}>Build Schedule</strong>
+        <strong style={{ fontSize: 15 }}>Build Schedule</strong>
         <div style={grid}>
           <Field id="am-principal" title="Principal"><AmountInput id="am-principal" value={p.principal} onChange={(v) => set({ principal: v })} style={input} /></Field>
           <Field id="am-rate" title="Annual Rate %"><input id="am-rate" type="number" step="0.001" min="0" value={p.ratePct} onChange={(e) => set({ ratePct: e.target.value })} style={input} /></Field>
@@ -266,11 +266,11 @@ function BuildForm({ loan, initial, busy, onCancel, onSave }) {
           <div style={warn}>
             <WarnMark />
             The maturity on file ({formatDate(loan.maturity)}) is {termFromMaturity(p.firstPaymentDate, loan.maturity)} months from the first payment.{' '}
-            <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '1px 8px', marginLeft: 6 }} onClick={() => set({ termMonths: termFromMaturity(p.firstPaymentDate, loan.maturity) })}>Use It</button>
+            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '1px 8px', marginLeft: 6 }} onClick={() => set({ termMonths: termFromMaturity(p.firstPaymentDate, loan.maturity) })}>Use It</button>
           </div>
         )}
         {!ok ? <div style={warn}><WarnMark />{result.errors.join(' ')}</div> : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
             {result.ioPayment > 0 && <span>Interest-Only Payment <strong><Amount value={result.ioPayment} /></strong></span>}
             <span>Monthly Payment <strong><Amount value={result.payment} /></strong></span>
             <span>Total Interest <strong><Amount value={result.totalInterest} /></strong></span>
@@ -367,11 +367,11 @@ function UploadForm({ loan, busy, onCancel, onSave }) {
   return (
     <div style={{ display: 'grid', gap: 10 }} onPaste={onPaste}>
       <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }}>
-        <strong style={{ fontSize: '0.9rem' }}>Upload Bank File</strong>
+        <strong style={{ fontSize: 15 }}>Upload Bank File</strong>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <input ref={inputRef} type="file" accept={FILE_TYPES} style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) read(f); e.target.value = ''; }} />
           <button type="button" className="secondary-btn" style={btn} onClick={() => inputRef.current?.click()}><FileUp size={14} /> Choose File</button>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{file ? file.name : book ? 'Pasted cells' : 'Excel (.xlsx, .xls) or CSV - or press Ctrl+V to paste the rows copied from Excel'}</span>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{file ? file.name : book ? 'Pasted cells' : 'Excel (.xlsx, .xls) or CSV - or press Ctrl+V to paste the rows copied from Excel'}</span>
         </div>
         {err && <div style={bad}>{err}</div>}
         {book && (
@@ -394,7 +394,7 @@ function UploadForm({ loan, busy, onCancel, onSave }) {
               ))}
             </div>
             {missing.length > 0 ? <div style={warn}><WarnMark />Pick the {missing.join(' and ')} column{missing.length > 1 ? 's' : ''}.</div>
-              : <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{parsed.rows.length} payments read{parsed.skipped ? `; ${parsed.skipped} rows without a date or balance left out (titles, totals)` : ''}. A missing principal is the payment less the interest.</div>}
+              : <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{parsed.rows.length} payments read{parsed.skipped ? `; ${parsed.skipped} rows without a date or balance left out (titles, totals)` : ''}. A missing principal is the payment less the interest.</div>}
           </>
         )}
       </div>
@@ -416,7 +416,7 @@ export function LoanAmortizationDialog({ loan, canEdit = false, month, onClose }
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Amortization Schedule</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{l.lender || 'Loan'}{l.loanNo ? ` #${l.loanNo}` : ''}{l.entityName ? ` · ${l.entityName}` : ''} · ledger balance <Amount value={l.balance} /></div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{l.lender || 'Loan'}{l.loanNo ? ` #${l.loanNo}` : ''}{l.entityName ? ` · ${l.entityName}` : ''} · ledger balance <Amount value={l.balance} /></div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>

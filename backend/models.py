@@ -8695,6 +8695,11 @@ class DevNote(Base):
     # Token's watcher sees and claims only the pins its owner sent ('' on rows
     # sent before this = the author). ALTER lines in both migration lists.
     dispatched_by      = Column(String, default="")
+    claude_session_url = Column(String, default="")              # the Claude Code cloud session working it (11/12/2026)
+    # The ticket this pin was made from (Send To Claude Code on a ticket,
+    # 11/12/2026, build_mode_tickets.py); '' for a pin made on the page.
+    ticket_id          = Column(String, default="", index=True)
+    ticket_code        = Column(String, default="")
 
 
 class DevNoteSession(Base):
@@ -8712,6 +8717,7 @@ class DevNoteSession(Base):
     pr_url        = Column(String, default="")
     pr_number     = Column(Integer, default=0)
     note_count    = Column(Integer, default=0)
+    claude_session_url = Column(String, default="")   # the latest Claude Code cloud session for it (11/12/2026)
 
 
 class DevNoteToken(Base):
@@ -10394,3 +10400,29 @@ class NexusMeetingNote(Base):
     series_id           = Column(String, default="", index=True)
     transcript_ready_at = Column(String, default="")
     ready_checked_at    = Column(String, default="")
+    # Phase 3 (Neil, 11/12/2026): teams | other (on the calendar, not Teams) |
+    # adhoc (not on the calendar), and another service's link (Zoom, Meet).
+    kind                = Column(String, default="teams")
+    online_url          = Column(Text, default="")
+
+
+# ── Meeting Notes Phase 3 (Neil, 11/12/2026, routers/meetings.py) ──────────
+class NexusMeetingTranscript(Base):
+    """The words of a meeting transcribed ON THE DEVICE (Whisper in the
+    browser, or the browser's own speech service) - for meetings outside
+    Teams. Neil, 11/12/2026: "Text lives in Nexus" - the text only, never the
+    audio, which never leaves the person's device. One row per meeting note;
+    the note's readers read it, its owner and Can Edit add to it, its owner
+    deletes it. `sessions` keeps each recording with who confirmed that
+    everyone agreed to be transcribed and when. New table - explicit RLS line
+    in main.py's Postgres list, on top of the _enable_rls_everywhere sweep."""
+    __tablename__ = "nexus_meeting_transcripts"
+    id          = Column(String, primary_key=True)          # mtr_ + hex
+    note_id     = Column(String, nullable=False, unique=True, index=True)
+    owner_email = Column(String, default="")
+    segments    = Column(Text, default="[]")                # JSON [{id, at, end, speaker, text, session}]
+    sessions    = Column(Text, default="[]")                # JSON [{id, by, startedAt, consentAt, endedAt, engine, source}]
+    speakers    = Column(Text, default="{}")                # JSON {label: name}
+    rev         = Column(Integer, default=1)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")

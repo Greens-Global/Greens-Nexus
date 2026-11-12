@@ -129,10 +129,10 @@ function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
             {it.unread && <span role="img" aria-label="Unread reply" title="Unread reply" style={{ width: 7, height: 7, borderRadius: 99, background: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
             <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.title}</span>
           </span>
-          {meta && <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta}</span>}
+          {meta && <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta}</span>}
         </span>
         {label && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color, flexShrink: 0 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color, flexShrink: 0 }}>
             <span style={{ width: 6, height: 6, borderRadius: 99, background: color }} /> {label}
           </span>
         )}
@@ -223,7 +223,7 @@ export default function MyWork({ phone }) {
   };
 
   const closeComposer = () => { setComposer(null); load(); };
-  const headBtn = { fontSize: 11.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4, padding: mobile ? '0 10px' : '2px 8px', minHeight: mobile ? 44 : 0 };
+  const headBtn = { fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4, padding: mobile ? '0 10px' : '2px 8px', minHeight: mobile ? 44 : 0 };
   const actions = (
     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
       <button type="button" className="secondary-btn" style={headBtn} onClick={() => setComposer('task')}><Plus size={12} /> New Task</button>

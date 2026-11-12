@@ -7,7 +7,7 @@ import { AlertCircle } from 'lucide-react';
 // retry-able message.
 export function ErrorBanner({ message, onRetry, retryLabel = 'Retry' }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 16px', borderRadius: 10, background: 'hsla(var(--color-red),0.08)', color: 'hsl(var(--color-red))', fontSize: '13.5px' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 16px', borderRadius: 10, background: 'hsla(var(--color-red),0.08)', color: 'hsl(var(--color-red))', fontSize: 13 }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <AlertCircle size={16} /> {message}
       </span>
@@ -73,7 +73,7 @@ export function LoadingState({ size = 'section', label, onRetry, minHeight = 160
           <Spinner size={size} label={label || 'Loading'} />
           {label && <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{label}</div>}
           {slow && (
-            <div className="nxl-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+            <div className="nxl-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
               <span>Still working. This is taking longer than usual.</span>
               {onRetry && <button type="button" className="secondary-btn" onClick={onRetry}>Try Again</button>}
             </div>

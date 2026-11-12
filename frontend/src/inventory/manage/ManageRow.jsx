@@ -55,10 +55,10 @@ export const ManageRow = memo(function ManageRow({ item, isSelected, highlight, 
           </div>
         </div>
       </td>
-      <td style={{ padding:'10px 14px', fontSize:12.5, color:'var(--muted)', whiteSpace:'nowrap', fontVariantNumeric:'tabular-nums' }}>{item.serialNumber || '-'}</td>
+      <td style={{ padding:'10px 14px', fontSize:13, color:'var(--muted)', whiteSpace:'nowrap', fontVariantNumeric:'tabular-nums' }}>{item.serialNumber || '-'}</td>
       <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12.5 }}>{cleanField(item.department) || '-'}</td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12.5 }}>{cleanField(item.location) || '-'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:13 }}>{cleanField(item.department) || '-'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:13 }}>{cleanField(item.location) || '-'}</td>
       {/* One Status cell: lifecycle badge, with the op-status chip beside it only
           when something is actually flagged (lost/dead/…). */}
       <td style={{ padding:'10px 14px' }}>
@@ -105,10 +105,10 @@ export const ManageCard = memo(function ManageCard({ item, isSelected, highlight
         <PhotoThumb url={item.photoUrl} size={44} onPreview={onPreview} />
         <div style={{ flex:1, minWidth:0 }}>
           <div onClick={onDetails ? () => onDetails(item) : undefined}
-            style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor: onDetails ? 'pointer' : 'default' }}>
+            style={{ fontWeight:700, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor: onDetails ? 'pointer' : 'default' }}>
             {item.name}
           </div>
-          <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+          <div style={{ fontSize:12, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
             {[item.serialNumber, cleanField(item.make), cleanField(item.model), cleanField(item.location)].filter(Boolean).join(' · ') || '-'}
           </div>
         </div>

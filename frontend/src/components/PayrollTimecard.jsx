@@ -122,8 +122,8 @@ function OptionSwitch({ checked, label, hint, onChange }) {
     <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', padding: '5px 0' }}>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ marginTop: 2 }} />
       <span>
-        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{label}</span>
-        {hint && <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.4 }}>{hint}</span>}
+        <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{label}</span>
+        {hint && <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>{hint}</span>}
       </span>
     </label>
   );
@@ -344,12 +344,12 @@ function CustomRangePanel({ value, onShow, onCancel }) {
         ))}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-        <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'grid', gap: 3 }}>From
+        <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'grid', gap: 3 }}>From
           <DateField value={from} onChange={(iso) => setFrom(iso || '')} placeholder="MM/DD/YYYY" title="From" style={box} /></label>
-        <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'grid', gap: 3 }}>To
+        <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'grid', gap: 3 }}>To
           <DateField value={to} onChange={(iso) => setTo(iso || '')} placeholder="MM/DD/YYYY" title="To" style={box} /></label>
       </div>
-      <div style={{ fontSize: 11.5, lineHeight: 1.45, color: from && to && problem ? '#b91c1c' : 'var(--muted)', marginBottom: 10 }}>
+      <div style={{ fontSize: 12, lineHeight: 1.45, color: from && to && problem ? '#b91c1c' : 'var(--muted)', marginBottom: 10 }}>
         {from && to && problem ? problem : 'Up to one year. Overtime is still worked out on full Sunday - Saturday weeks.'}
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -378,7 +378,7 @@ function PeriodFinder({ label, minWidth, periods, goTo, fill = false, custom = n
   return (
     <div ref={ref} style={{ position: 'relative', ...(fill ? { flex: 1, minWidth: 0 } : {}) }}>
       <button type="button" aria-label="Pick a pay period" aria-expanded={open} onClick={() => setOpen(o => !o)}
-        style={{ fontSize: fill ? 11.5 : 12.5, fontWeight: 700, minWidth: fill ? 0 : minWidth, width: fill ? '100%' : undefined, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: fill ? 2 : 3, padding: fill ? '4px 2px' : '4px 6px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', color: 'var(--ink)' }}>
+        style={{ fontSize: fill ? 12 : 13, fontWeight: 700, minWidth: fill ? 0 : minWidth, width: fill ? '100%' : undefined, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: fill ? 2 : 3, padding: fill ? '4px 2px' : '4px 6px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', color: 'var(--ink)' }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span><ChevronDown size={fill ? 12 : 14} style={{ flexShrink: 0 }} />
       </button>
       {open && (
@@ -389,12 +389,12 @@ function PeriodFinder({ label, minWidth, periods, goTo, fill = false, custom = n
           <div role="radiogroup" aria-label="Pay periods" style={{ maxHeight: 280, overflowY: 'auto' }}>
             {periods.map(p => (
               <button key={p.key} type="button" role="radio" aria-checked={p.open} onClick={() => { p.pick(); setOpen(false); }}
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 8px', border: 'none', borderRadius: 8, fontSize: 12.5, fontFamily: 'var(--wk-font)', cursor: 'pointer', whiteSpace: 'nowrap', background: p.open ? 'var(--wk-brand-tint)' : 'transparent', color: p.open ? 'var(--wk-brand)' : 'var(--ink)', fontWeight: p.open ? 700 : 500 }}>
+                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 8px', border: 'none', borderRadius: 8, fontSize: 13, fontFamily: 'var(--wk-font)', cursor: 'pointer', whiteSpace: 'nowrap', background: p.open ? 'var(--wk-brand-tint)' : 'transparent', color: p.open ? 'var(--wk-brand)' : 'var(--ink)', fontWeight: p.open ? 700 : 500 }}>
                 {p.label}{p.current ? ' (current)' : ''}
               </button>
             ))}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)', fontSize: 13 }}>
             <span style={{ fontWeight: 700 }}>Go to Date</span>
             <DateField value="" onChange={(iso) => { if (iso) { goTo(iso); setOpen(false); } }} placeholder="MM/DD/YYYY" title="Go to Date"
               style={{ flex: 1, border: '1px solid var(--wk-line2)', borderRadius: 8, padding: '4px 8px' }} />
@@ -514,7 +514,7 @@ function PersonHeader({ name, email, photos, period }) {
     <div data-testid="timesheet-person" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
       <SideAvatar name={name} email={email} photos={photos} size={48} />
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
         <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 3 }}>Pay Period: <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{period}</strong></div>
       </div>
     </div>
@@ -581,7 +581,7 @@ function NoteModal({ dates, dow, self, noteFor, onSave, onClose, toastOk }) {
     setBusy(false);
     if (ok) { toastOk?.(text.trim() ? 'Note saved.' : 'Note removed.'); onClose(); }
   };
-  const pill = { borderRadius: 999, padding: '6px 16px', cursor: 'pointer', font: 'inherit', fontSize: 12.5, fontWeight: 700 };
+  const pill = { borderRadius: 999, padding: '6px 16px', cursor: 'pointer', font: 'inherit', fontSize: 13, fontWeight: 700 };
   return (
     <Modal title={self ? 'Add a Note for Your Manager' : 'Add a Note'} onClose={onClose} isDirty={text !== noteFor(date)} onSave={save}
       footer={<>
@@ -589,12 +589,12 @@ function NoteModal({ dates, dow, self, noteFor, onSave, onClose, toastOk }) {
         <button type="button" onClick={save} disabled={busy} style={{ ...pill, border: 'none', background: 'var(--wk-brand)', color: '#fff' }}>Save Note</button>
       </>}>
       <div className="nx-fill" style={{ gap: 14 }}>
-        <label style={{ display: 'grid', gap: 5, fontSize: 12.5, fontWeight: 600 }}>Day
+        <label style={{ display: 'grid', gap: 5, fontSize: 13, fontWeight: 600 }}>Day
           <select className="form-input" value={date} onChange={e => pick(e.target.value)} style={{ fontWeight: 400 }}>
             {dates.map(d => <option key={d} value={d}>{dow(d)}{noteFor(d) ? ' - has a note' : ''}</option>)}
           </select>
         </label>
-        <label className="nx-fill" style={{ gap: 5, fontSize: 12.5, fontWeight: 600 }}>Note
+        <label className="nx-fill" style={{ gap: 5, fontSize: 13, fontWeight: 600 }}>Note
           <textarea className="form-input" rows={4} autoFocus value={text} onChange={e => setText(e.target.value)}
             placeholder={self ? 'Seen by your manager on your time sheet' : 'Seen by managers and HR, not by the employee'}
             style={{ fontWeight: 400, resize: 'vertical', fontFamily: 'inherit' }} />
@@ -664,6 +664,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const [pStart, setPStart] = useState(() => (selfMode ? selfSeed : anchorForStart(seedStart, seedType)) || periodStartFor(new Date()));
   // A notice about my own Time Sheet opens its period (lib/openTarget.js).
   // Hourly periods start on a Sunday, so any other start is a salaried month.
+  const [focusStart, setFocusStart] = useState('');   // do=submit: the period whose Send to Manager to focus
+  const focused = useCallback(() => setFocusStart(''), []);
   useEffect(() => {
     if (!selfMode) return undefined;
     const go = (d) => {
@@ -672,13 +674,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       const type = d.payType || (new Date(y, m - 1, dd).getDay() === 0 ? 'hourly' : 'fixed');
       fixedSnapped.current = true;   // stay on it - no first-load snap to this month
       setPStart(anchorForStart(d.start, type));
+      // Review and Submit (11/12/2026): take them to Send to Manager.
+      if (d.submit) setFocusStart(d.start);
     };
     // The Daily Briefing's "Sign Your Updated Time Sheet" link carries
-    // ?start=<period>&type=<pay type> (11/05/2026); used once, then dropped.
+    // ?start=<period>&type=<pay type> (11/05/2026); Review and Submit adds
+    // do=submit (11/12/2026). Used once, then dropped.
     const q = new URLSearchParams(window.location.search);
-    const fromLink = q.get('start') ? { start: q.get('start'), payType: q.get('type') || '' } : null;
+    const fromLink = q.get('start') ? { start: q.get('start'), payType: q.get('type') || '', submit: q.get('do') === 'submit' } : null;
     if (fromLink) {
-      q.delete('start'); q.delete('type');
+      q.delete('start'); q.delete('type'); q.delete('do');
       const rest = q.toString();
       window.history.replaceState(window.history.state, '', window.location.pathname + (rest ? `?${rest}` : ''));
     }
@@ -969,7 +974,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   })();
   const periodWhenMark = periodWhen && (
     <span data-testid="period-when" title={periodWhen === 'Current' ? 'This is the current pay period' : `Not the current pay period - this one is ${periodWhen === 'Previous' ? 'in the past' : 'ahead'}`}
-      style={{ fontSize: 11.5, fontWeight: 700, whiteSpace: 'nowrap', padding: '0 6px', color: periodWhen === 'Current' ? 'var(--wk-brand)' : 'var(--ink)' }}>{periodWhen}</span>
+      style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', padding: '0 6px', color: periodWhen === 'Current' ? 'var(--wk-brand)' : 'var(--ink)' }}>{periodWhen}</span>
   );
   const goToDate = (iso) => { setCustom(null); setPStart(anchorForStart(iso, isMonthly ? 'fixed' : 'hourly')); };
   // Computers only: the phone's day cards switch between two weeks.
@@ -1320,7 +1325,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <InlineTime seg={r.seg} k="out" meta={pm[r.seg.outId]} showRaw={showRaw} locked={noEdit} onSaved={onTimeSaved} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} day={r.ds} flash={!!r.seg.outId && flashPunch === r.seg.outId} />
         {(r.seg.flags || []).includes('auto_clock_out') && (
           <span title="Nexus closed this shift automatically - no clock-out was recorded. 0 paid hours until the real end time is set."
-            style={{ fontSize: 10.5, fontWeight: 800, color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '1px 7px', borderRadius: 6 }}>
+            style={{ fontSize: 11, fontWeight: 800, color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '1px 7px', borderRadius: 6 }}>
             Auto
           </span>
         )}
@@ -1410,9 +1415,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         : !noEdit && (
           <span style={{ display: 'inline-flex', gap: 6 }}>
             <button onClick={() => decideReq(r.req.id, 'rejected')} title="Reject - the employee is notified"
-              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
+              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 700, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
             <button onClick={() => decideReq(r.req.id, 'approved')} title="Approve - adds this punch to the time sheet"
-              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
+              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 700, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
           </span>
         )}
     </div>
@@ -1674,10 +1679,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 {inline && <WorkLogButton onClick={() => setWorkLogDay(ds)} title={`View the Work Log for ${dow(ds)}`} />}
                 {worked.length > 0 ? (
                   <span className="pr-dcard-total">
-                    {miss ? <span style={{ color: '#b91c1c', fontSize: 12.5 }}>Missing Out</span> : (
+                    {miss ? <span style={{ color: '#b91c1c', fontSize: 13 }}>Missing Out</span> : (
                       <>
                         {(otMin > 0 || dtMin > 0) && (
-                          <span style={{ color: dtMin ? '#b91c1c' : '#b45309', fontWeight: 700, fontSize: 11.5, background: 'rgba(180,83,9,0.1)', padding: '1px 7px', borderRadius: 999 }}>
+                          <span style={{ color: dtMin ? '#b91c1c' : '#b45309', fontWeight: 700, fontSize: 12, background: 'rgba(180,83,9,0.1)', padding: '1px 7px', borderRadius: 999 }}>
                             OT {otText(otMin, dtMin)}
                           </span>
                         )}
@@ -1876,7 +1881,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         </div>
         )}
       {exceptions.length > 0 && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', fontSize: 11.5, fontWeight: 500, color: 'var(--ink)', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', fontSize: 12, fontWeight: 500, color: 'var(--ink)', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
           <input type="checkbox" checked={onlyMissing} onChange={e => setOnlyMissing(e.target.checked)} /> Only People With Missing Punches
         </label>
       )}
@@ -1902,7 +1907,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         const sel = p.email === email;
         return (
           <button key={p.email} onClick={() => setEmail(p.email)} aria-current={sel ? 'true' : undefined}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', borderTop: '1px solid var(--line)', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12.5, background: sel ? 'var(--wk-brand-tint)' : 'transparent', fontWeight: sel ? 700 : 500, color: sel ? 'var(--wk-brand)' : 'var(--ink)' }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', borderTop: '1px solid var(--line)', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13, background: sel ? 'var(--wk-brand-tint)' : 'transparent', fontWeight: sel ? 700 : 500, color: sel ? 'var(--wk-brand)' : 'var(--ink)' }}>
             <SideAvatar name={p.name} email={p.email} photos={photos} />
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
             <ReviewMark status={p.review} />
@@ -2288,6 +2293,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {self && T && (
         <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={periodLabel}
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr}
+          focusAction={focusStart} onFocused={focused}
           below={data.contractor ? <InvoiceCard invoice={data.invoice} toastOk={toastOk} toastErr={toastErr} onSent={load} /> : null} />
       )}
       {self && data && selfTop?.(perStart, perEnd)}
@@ -2489,7 +2495,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             {!self && isFixed && fin && data.review?.canUnlock && (
               <div className="ts-exp">
                 <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period to correct it - the employee signs it again"
-                  style={{ fontSize: 12.5 }}>Unlock</button>
+                  style={{ fontSize: 13 }}>Unlock</button>
               </div>
             )}
             {!self && showPay && !isFixed && (
@@ -2516,7 +2522,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   stays as HR's correction path for a signed period. */}
               {fin && data.review?.canUnlock && (
                 <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period to correct it - the employee signs it again"
-                  style={{ fontSize: 12.5 }}>Unlock</button>)}
+                  style={{ fontSize: 13 }}>Unlock</button>)}
             </div>
             )}
           </div>
@@ -2870,7 +2876,7 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
             <TimeText iso={rounded} day={day} />
           </span>
         </button>
-        {showRaw && <span style={{ fontSize: 10.5, fontStyle: 'italic', color: 'var(--muted)' }}>{t12s(raw)}</span>}
+        {showRaw && <span style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--muted)' }}>{t12s(raw)}</span>}
         {!isPending && adjustNote && (
           /* This punch time was changed - hover the info dot for the reason on record. */
           <span title={`Time changed: ${adjustNote}`} aria-label={`Time changed: ${adjustNote}`}
@@ -2922,7 +2928,7 @@ function addMinutesInput(v, m) {
 }
 const BREAK_REASONS_SELF = ['Forgot to punch back in', 'A customer came in', 'Took a call', "It didn't record"];
 const BREAK_REASONS_MANAGER = ['Confirmed with the employee', 'Forgot to punch back in', 'A customer came in'];
-const QUICK_CHIP = { fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 999, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' };
+const QUICK_CHIP = { fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 999, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' };
 const QUICK_CHIP_ON = { borderColor: 'var(--wk-brand)', color: 'var(--wk-brand)', background: 'hsla(var(--color-green),0.08)' };
 
 export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onDone, onClose, toastOk, toastErr }) {
@@ -3061,7 +3067,7 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
               <select className="form-input" value={delIdx} onChange={e => setDelIdx(Number(e.target.value))} style={{ width: '100%', fontSize: 13 }}>
                 {deletable.map((b, i) => <option key={b.startId} value={i}>{brLabel(b)}</option>)}
               </select>
-              <span style={{ display: 'block', marginTop: 5, fontSize: 11.5, color: 'var(--muted)' }}>
+              <span style={{ display: 'block', marginTop: 5, fontSize: 12, color: 'var(--muted)' }}>
                 {self ? 'Your approver decides; nothing changes until they approve.' : 'Its start and end punches come off the time sheet. The audit record keeps them, with who deleted them and why.'}
               </span>
             </label>
@@ -3343,7 +3349,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     return (
       <div style={{ fontSize: 11, color: 'var(--muted)', display: 'grid', gap: 4 }}>
         {isBreak ? <span>{text}</span> : (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
             <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} style={{ margin: 0 }} /> {pickText}
           </label>
         )}
@@ -3385,7 +3391,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
                 <option value="">- No location -</option>
                 {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
-              <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Reassigning marks the punch as on-site at the chosen location.</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Reassigning marks the punch as on-site at the chosen location.</span>
             </label>
           )}
           {!self && !isBreak && (seg?.inId || needIn) && (
@@ -3393,15 +3399,15 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
               <input list="pr-cats" className="form-input" value={cat} onChange={e => { setCat(e.target.value); setType(typeOfCategory(e.target.value)); }}
                 placeholder="e.g. Operations-GS" style={{ width: '100%', fontSize: 13 }} />
               <datalist id="pr-cats">{categories.map(c => <option key={c} value={c} />)}</datalist>
-              <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Sick, Vacation or Personal makes this block paid leave - base rate, not counted toward overtime.</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Sick, Vacation or Personal makes this block paid leave - base rate, not counted toward overtime.</span>
             </label>
           )}
           {isBreak && (
-            <span style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: -6 }}>An unpaid break. It has to fall inside a shift that day - add the shift first if there is none.</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)', marginTop: -6 }}>An unpaid break. It has to fall inside a shift that day - add the shift first if there is none.</span>
           )}
         </div>
         {err && (
-          <div role="alert" style={{ marginTop: 12, padding: '8px 12px', borderRadius: 9, background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', color: '#b91c1c', fontSize: 12.5, fontWeight: 600 }}>
+          <div role="alert" style={{ marginTop: 12, padding: '8px 12px', borderRadius: 9, background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', color: '#b91c1c', fontSize: 13, fontWeight: 600 }}>
             {err}
           </div>
         )}
