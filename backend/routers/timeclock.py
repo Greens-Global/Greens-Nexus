@@ -3198,9 +3198,15 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
     lines.append("!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS")
     book = payroll_codes.codebook(db)
     no_job = payroll_codes.blank_job_reader(db)
+    # EMP is the QuickBooks name: the person's name with their Employee Code in
+    # brackets, no space - "Pat Smith(E-0005)" (Charmi, 11/13/2026, every
+    # company file). A name QuickBooks does not have makes a NEW employee on
+    # import. No code in Nexus = the name alone.
+    emp_codes = {(e or "").lower(): (c or "").strip() for e, c in db.query(
+        NexusEmployee.work_email, NexusEmployee.employee_code).all() if e}
     for r in rows:
         card = _compute_timecard(db, r["email"], start, end)
-        name = _clean(r["name"])
+        name = _iif_emp(_clean(r["name"]), _clean(emp_codes.get((r["email"] or "").lower(), "")))
         # Leave Customer:Job Blank (Charmi, 11/06/2026): the company's QuickBooks
         # file has no customers for the work sites - JOB blank, not billable.
         blank_job = no_job(co_of.get((r["email"] or "").lower(), ""))
@@ -3239,6 +3245,11 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
     fname = f"timeclock-{start or 'all'}-to-{end or 'now'}{who}{'' if finalized_only else '-DRAFT'}.iif"
     return PlainTextResponse(body, media_type="application/octet-stream",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+def _iif_emp(name: str, code: str) -> str:
+    """The IIF EMP: "Pat Smith(E-0005)", or the name alone with no code."""
+    return f"{name}({code})" if code else name
 
 
 def _iif_hm(mins) -> str:
