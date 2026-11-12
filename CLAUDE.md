@@ -104,6 +104,25 @@ keep the diff minimal.
   standalone script that calls Anthropic, and never add credits, auto-reload
   or billing anywhere or suggest doing so - ask Neil. `test_ai_switch.py`
   pins it.
+- **Build Mode (Neil, 11/12/2026, `docs/Build-Mode.md` section 8).** It is
+  its OWN access: only an Access Group granting the `build-mode` module
+  opens it - no tier does by itself, Super Administrator included, and
+  never a new role. `build_mode_access_seed.apply_once` put the IT
+  development team (Visesh, Pranshu, Sagar) and Neil in the "Build Mode"
+  Access Group ONCE; change it in Settings, never in code. Send To Claude
+  Code may start a Claude Code CLOUD session for a developer
+  (`build_mode_cloud.py`, setup `docs/Build-Mode-Cloud-Setup.md`): the
+  developer saves their own scheduled task's Fire URL and token once and
+  the session runs on THEIR Claude subscription. This is not the AI switch
+  and not a way around it: no `ANTHROPIC_API_KEY`, no Nexus credits, no
+  Nexus AI feature, and the only address ever called is that developer's
+  own trigger - never add another Anthropic call beside it. The trigger
+  token is encrypted, never returned, never logged; one call per Send and
+  no retry (a second call is a second session on the same pins); a pin
+  goes to the cloud or to a terminal watcher, never both. Still to come,
+  each Neil's call: everyone outside IT comes in through a TICKET, never
+  straight to Claude Code (yes, 11/12/2026), and source marks on
+  production when that opens (yes, 11/12/2026).
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,

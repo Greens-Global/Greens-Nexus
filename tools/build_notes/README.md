@@ -8,6 +8,15 @@ the PR. Standard library only - plain `python3` runs them, no virtualenv.
 What Build Mode is, who can use it and the whole loop: `docs/Build-Mode.md`.
 The procedure Claude Code follows: `.claude/skills/build-notes/SKILL.md`.
 
+## In the cloud, with nothing installed (11/12/2026)
+
+Send To Claude Code can start Claude Code in Claude's cloud instead of this
+terminal: connect once in Nexus (Build Mode > Connect In The Cloud) and no
+watcher has to run anywhere. Setup: `docs/Build-Mode-Cloud-Setup.md`; what
+changes for Claude Code: the skill's section 14. The rest of this file is
+the terminal way, which still works - a pin goes to one or the other, never
+both.
+
 ## Connect your Claude Code (once per machine, Oct 26 2026)
 
 In Nexus, turn Build Mode on > **Done** (or Settings) > **Connect My Claude

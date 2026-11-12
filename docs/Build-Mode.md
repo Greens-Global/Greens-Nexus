@@ -32,6 +32,9 @@ Pieces:
 ---------------------------------------------------------------------------
 ## 1. Access
 
+(Changed 11/12/2026 - Build Mode is its own grant and no tier opens it by
+itself; section 8.1 is the rule now. The paragraphs below are the Oct 24 design.)
+
 `backend/routers/dev_notes.py` gate, used by every endpoint:
 
     allowed = auth.is_global_admin(user, db) or _module_level(email, "build-mode", db) >= viewer
@@ -808,3 +811,93 @@ New bells: `dev_note_owner` ("Pin #n On Your Area", recipient = the owner)
 and `dev_note_rework` ("Pin #n Needs A New PR", recipient = the author),
 `ref_id` = the pin. New audit actions: `dev_note_release`,
 `dev_note_preview`, `dev_note_preview_verdict`, `dev_note_regression`.
+
+---------------------------------------------------------------------------
+## 8. Claude Code in the cloud, and access as its own grant (Neil, 11/12/2026)
+
+Setup for a developer: `docs/Build-Mode-Cloud-Setup.md`. Code:
+`backend/build_mode_cloud.py`, `frontend/src/devnotes/ConnectCloud.jsx`, the
+skill's section 14.
+
+### 8.1 Access (replaces section 1's rule)
+
+    allowed = _module_level(email, "build-mode", db) >= viewer
+
+Only an Access Group that grants the `build-mode` module opens Build Mode.
+No tier does by itself, Super Administrator included (Neil: "granted as a
+separate access through roles but no new role"). `build_mode_access_seed.
+apply_once` (mark `build_mode.access_set_2026_11_12`, run with the every-boot
+seeds) makes ONE Access Group named "Build Mode" - not a job role, no tier,
+shared by every company - with Neil, Visesh, Pranshu and Sagar in it; a
+group that already grants the module is left alone. After that, who has
+Build Mode is changed in Settings > People & Access, never in code. A Super
+Administrator's extra powers INSIDE Build Mode (release any held pin, see
+every token) are unchanged.
+
+### 8.2 The trigger
+
+A developer's Claude Code scheduled task has an API trigger: a Fire URL and
+a token. `PUT /dev-notes/cloud {fireUrl, token}` keeps them in a
+`NexusSetting` row `dev_notes_cloud:<email>`: `{routineId, token (secret_box
+encrypted), savedAt, lastStartedAt, lastError}`. The token is in no
+response, no audit row and no log. The Fire URL must match
+`https://api.anthropic.com/v1/claude_code/routines/trig_<id>/fire` exactly
+(400 otherwise), so a saved token is never posted anywhere else. Saving
+calls nothing (a test call would start a real session) and sets the
+person's `dispatchTarget` to `cloud`.
+
+| method | path | body -> result |
+| --- | --- | --- |
+| GET | /cloud | `{connected, task: "...<last 6 of the id>", savedAt, lastStartedAt, lastError, target}` |
+| PUT | /cloud | `{fireUrl, token}` -> the same, `target: "cloud"`; audit `dev_note_cloud_connect` |
+| DELETE | /cloud | 204; trigger deleted, `dispatchTarget` back to `local`; audit `dev_note_cloud_disconnect` |
+| POST | /cloud/start | `{noteIds?}` -> `{cloud, notes}`: starts Claude Code for the caller's pins that wait for it (sent, or answered), moving terminal pins to the cloud. 400 not connected / nothing waiting; 409 when one of them was started less than `CLOUD_RESTART_SEC` (120 s) ago |
+| GET | /claude-connection | adds `terminal` (a live watcher) and `cloud` (trigger saved AND the target is cloud); `connected` = either |
+| PUT | /settings | `dispatchTarget` may be `local` or `cloud` (`cloud` needs a saved trigger) |
+
+`/dev-notes/cloud` is in `SENSITIVE_PREFIXES` (it takes a credential).
+
+### 8.3 Starting a session
+
+`_dispatch_notes` stamps each pin's `dispatch_target` with the sender's
+target at send time. `_cloud_start(db, notes, by)` runs AFTER the commit
+that made the pins wait for Claude and posts ONE request for them:
+
+    POST <Fire URL>   Authorization: Bearer <token>
+    {"text": "Build Mode pins to work: <id> <id>\nNexus API: <address>\nSent by: <email>"}
+
+No retry: the endpoint has no idempotency key, so a second call is a second
+session on the same pins. On 200 the session link (only when it starts with
+`https://claude.ai/code/`) is kept on each pin and its Build Session
+(`claude_session_url`, serialized `claudeSessionUrl`) and `progress` becomes
+"Claude Code is starting in the cloud"; audit `dev_note_cloud_start`. On
+anything else the pins stay `dispatched`, `progress` becomes "Claude Code
+did not start: <reason>", the reason is kept as the trigger's `lastError`,
+and the caller's answer carries `cloud: {started: false, error}`.
+
+It is called from: `POST /dispatch` (the answer gains `cloud`), `POST /`
+with Send Instantly, a release that sends at once, a post-merge Reopen that
+sends at once, and `POST /{id}/thread` when the pin was `needs_input` (the
+author's answer). A comment on a pin Claude is still working starts nothing.
+No thread entry is added: an answered pin's last entry must stay the
+author's comment (the brief reads it).
+
+`/cli/wait` never returns a pin whose `dispatch_target` is `cloud`, so a
+terminal watcher that is also running cannot pick it up. The cloud session
+works the pin through the same `/cli/*` routes with the sender's Build
+Token; `/cli/claim`'s "sent to <Name>'s Claude Code, not yours" rule is
+unchanged.
+
+### 8.4 Build Tokens renew
+
+A token expires `TOKEN_DAYS` (30) after its LAST use, not after minting:
+`_resolve_token` moves `expires_at` whenever it stamps `last_used_at` (at
+most once a minute). A connected Claude Code never needs a new token; an
+idle one still dies.
+
+### 8.5 Not built yet
+
+Proof on the pin (pictures and a clip from the cloud session), a preview
+anyone can open, one pull request for a day's pins, the Nexus connector,
+Merge To Dev from Nexus, and Point At It for everyone - the plan:
+https://claude.ai/artifact/WqEqnaipxNoFveELkctpPB .
