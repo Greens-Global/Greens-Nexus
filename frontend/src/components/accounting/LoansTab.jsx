@@ -23,6 +23,8 @@ import { POLL_MS } from './LedgerScan';
 import { LoanAmortizationDialog } from './LoanAmortization';
 import { LoanStressDialog, LoanStressPortfolio } from './LoanStress';
 import LoanPlanning from './LoanPlanning';
+import { WarnMark } from './warnMark';
+import { pill } from './dashboard/Bits';
 
 // Accounting -> Loans & Financing (Neil and Charmi, 10/02: "Nothing has been
 // done on Loans & Financing for me to review"). The loans table was empty on
@@ -321,7 +323,7 @@ function Maturities({ month, rows }) {
             const cell = by.get(m);
             return (
               <div key={m} title={cell ? cell.loans.map((l) => `${l.lender}${l.loanNo ? ` #${l.loanNo}` : ''} (${l.entityName}) ${formatAmount(l.balance)}`).join('\n') : ''}
-                style={{ minWidth: 86, flex: '0 0 auto', border: `1px solid ${cell ? '#b45309' : 'var(--border-color)'}`, borderRadius: 8, padding: '4px 8px', background: cell ? 'rgba(180,83,9,0.10)' : 'var(--bg-secondary)', fontSize: '0.7rem' }}>
+                style={{ minWidth: 86, flex: '0 0 auto', border: `1px solid ${cell ? 'var(--warn-fg)' : 'var(--border-color)'}`, borderRadius: 8, padding: '4px 8px', background: cell ? 'var(--warn-bg)' : 'var(--bg-secondary)', fontSize: '0.7rem' }}>
                 <div style={{ fontWeight: 700 }}>{monthLabel(m)}</div>
                 <div style={{ fontVariantNumeric: 'tabular-nums' }}>{cell ? <><Amount value={cell.balance} /><div style={{ color: 'var(--text-muted)' }}>{cell.loans.map((l) => l.lender || l.loanNo).join(', ')}</div></> : dash}</div>
               </div>
@@ -550,11 +552,10 @@ export default function LoansTab({ canEdit = false }) {
         .acct-loans .loan-name { white-space: normal; overflow-wrap: anywhere; }
         .acct-loan-totals td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }${FILTER_CSS}
       `}</style>
-      <div className="scroll-tabs" role="tablist" aria-label="Loans & Financing" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-color)' }}>
+      <div className="scroll-tabs" role="tablist" aria-label="Loans & Financing" style={{ display: 'flex', gap: 6 }}>
         {[['loans', 'Loans'], ['stress', 'Stress Test'], ['planning', 'Loan Planning']].map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
-            style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '6px 12px', fontSize: '0.82rem', fontWeight: view === k ? 700 : 500, whiteSpace: 'nowrap',
-              color: view === k ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', borderBottom: `2px solid ${view === k ? 'var(--wk-brand, #2b45e1)' : 'transparent'}`, marginBottom: -1 }}>{l}</button>
+            style={pill(view === k)}>{l}</button>
         ))}
       </div>
       {/* Item 02, round 3 (UI test 10/24: two lines at 1366 / 1440): words fold
@@ -574,9 +575,12 @@ export default function LoansTab({ canEdit = false }) {
         <BarSearch value={text} onChange={setText} label="Filter loans" placeholder="Filter loans" width={190} />
         <TableViewBar view={tv} />
         <div className="acct-bar-end">
-          <BarSummary level={3}>
-            Loans <strong>{rows.length}</strong> · Balance <strong><Amount value={totals.balance} /></strong>
-          </BarSummary>
+          {/* Nothing read yet: a placeholder, never "Loans 0 · Balance 0.00" (11/11/2026 pass, picture 6). */}
+          {review ? (
+            <BarSummary level={3}>
+              Loans <strong>{rows.length}</strong> · Balance <strong><Amount value={totals.balance} /></strong>
+            </BarSummary>
+          ) : loading ? <span className="nx-skel" role="status" aria-label="Loading" style={{ display: 'inline-block', width: 150, height: 12, borderRadius: 6, verticalAlign: 'middle' }} /> : null}
           <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!review} syncedAt={ts.syncedAt} />
           </BarMore>
@@ -612,7 +616,7 @@ export default function LoansTab({ canEdit = false }) {
           <button type="button" className="secondary-btn" onClick={() => setSent(null)} style={{ fontSize: '0.74rem', padding: '2px 10px' }}>Dismiss</button>
         </div>
       )}
-      {(review?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{review.notes.join(' · ')} - open again to retry.</div>}
+      {(review?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' }}><WarnMark />{review.notes.join(' · ')} - open again to retry.</div>}
 
       {error && (unavailable ? (
         <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
@@ -696,7 +700,7 @@ export default function LoansTab({ canEdit = false }) {
                         {r.originalPrincipal == null ? dash : <><Amount value={r.originalPrincipal} />{r.originalPrincipalEdited && <span style={{ fontSize: '0.64rem', color: 'var(--text-muted)', marginLeft: 4 }}>edited</span>}</>}
                       </td>,
                       balance: <td style={cell('balance', true)} title={r.debitBalance ? DEBIT_NOTE : r.wiring === 'ok' ? `GL ${r.glAccount} as of ${formatDate(to)} - click for the ledger lines` : undefined}>
-                        {r.debitBalance && <span style={{ marginRight: 6, fontSize: '0.64rem', fontWeight: 700, color: '#92400e' }}>Check Sign</span>}
+                        {r.debitBalance && <span style={{ marginRight: 6, fontSize: '0.64rem', fontWeight: 700, color: 'var(--warn-fg)' }}><WarnMark size={11} />Check Sign</span>}
                         {r.wiring === 'missing' ? dash : r.wiring === 'ok' && r.glAccount
                           ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the balance of ${r.lender || r.loanNo}`} onClick={(e) => drill(e, r.glAccount, r.glTitle || r.lender, r.entityCode, false)}><Amount value={r.balance} /></button>
                           : <Amount value={r.balance} />}
@@ -788,7 +792,7 @@ export default function LoansTab({ canEdit = false }) {
       {dialog?.edit && <EditLoanDialog loan={dialog.edit} to={to} onClose={() => setDialog(null)} onSaved={() => { setDialog(null); load(); }} />}
       {dialog?.plan === 'amortization' && <LoanAmortizationDialog loan={dialog.loan} canEdit={canEdit} month={to.slice(0, 7)} onClose={() => setDialog(null)} />}
       {dialog?.plan === 'stress' && <LoanStressDialog loan={dialog.loan} canEdit={canEdit} onClose={() => setDialog(null)} />}
-      {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+      {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
       {sending && (
         <SendReportDialog mode={sending} title="Loans & Financing" baseName={`Loans & Financing - ${entityLabel} - ${formatDate(to).replace(/\//g, '-')}`.replace(/[\\/:*?"<>|]+/g, ' ')} what="loan list"
           makeFile={async (format, name) => linesFile(table(), format, name)}

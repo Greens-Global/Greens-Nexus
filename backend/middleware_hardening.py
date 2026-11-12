@@ -222,7 +222,8 @@ class RequestRateLimit(BaseHTTPMiddleware):
     TOKEN_PATH_PREFIXES = ("/timeclock/ical/", "/task-changelog-feed/", "/unit-map/", "/documents/word-file/",
                            "/construction-outside/")
     SHARED_SOURCE_PER_MIN = int(os.getenv("NEXUS_RL_SHARED", "120"))
-    SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github")
+    SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github",
+                              "/webhooks/teams/")   # Graph change notifications (kudos on Teams, 11/12/2026)
     EXEMPT_PREFIXES = ("/health", "/version")
     # Public uploads refused by Content-Length before the body is read: the
     # careers resume is capped at 10 MB, the multipart form around it is small.

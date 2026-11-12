@@ -58,6 +58,8 @@ class Case(unittest.TestCase):
 
     def setUp(self):
         auth._role_cache.clear()
+        import perf_kudos_teams
+        perf_kudos_teams._tok_cache.clear()
         self.db = database.SessionLocal()
         for m in (models.PerfKudos, models.PerfKudosThanks, models.NexusEmployee, models.HrEntity, models.NexusNotification,
                   models.TicketTeamsMessage, models.NexusSetting):
@@ -169,7 +171,7 @@ class ThanksTests(Case):
     def test_value_from_the_recipient_company_list_as_it_spells_it(self):
         self.refused(lambda: self.give(value="Ownership"), 400)
         self.settings("", kudosValues=["Ownership", "Safety First"])
-        self.assertEqual(api.kudos_options(EMP, U(SENDER), self.db), {"values": ["Ownership", "Safety First"], "teamsChat": False})
+        self.assertEqual(api.kudos_options(EMP, U(SENDER), self.db), {"values": ["Ownership", "Safety First"], "teamsChat": False, "teamsPlace": ""})
         k = self.give(value="ownership")
         self.assertEqual(k["value"], "Ownership")   # the list's spelling, not the typed one
         self.assertEqual(api.unseen_kudos(U(EMP), self.db)[0]["value"], "Ownership")
@@ -197,7 +199,10 @@ class ThanksTests(Case):
         rows = self.db.query(T).all()
         self.assertEqual(len(rows), 1)
         self.assertEqual((rows[0].kind, rows[0].chat_id, rows[0].agent_email, rows[0].sent), ("kudos", "19:org@thread.v2", SENDER, 0))
-        self.assertIn("Kudos: Priya Lee to Sam Lee - Ownership - Saved the Friday close", rows[0].html)
+        # The post (11/12/2026): who to whom, the value, the words, a link back.
+        self.assertIn("<strong>Kudos</strong> for <strong>Sam Lee</strong> from Priya Lee · <em>Ownership</em>", rows[0].html)
+        self.assertIn("<p>Saved the Friday close</p>", rows[0].html)
+        self.assertIn(f"/workday/performance:kudos:{rows[0].ticket_id}", rows[0].html)
         # The RECIPIENT's company's chat.
         far = self.give(to=FAR)
         self.assertEqual(self.db.query(T).filter(T.ticket_id == far["id"]).one().chat_id, "19:far@thread.v2")

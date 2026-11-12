@@ -7,6 +7,7 @@ import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { folderName } from './LoanDialogs';
 import FolderPickModal from '../../egnyte/EgnyteFolderPick';
+import { WarnMark } from './warnMark';
 
 // Accounting -> Loans & Financing, one loan opened under its row (Charmi and
 // Neil, 10/03-10/04):
@@ -232,7 +233,7 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
             {period.error ? <div style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{period.error}</div>
               : !period.data ? <SkeletonBlocks count={1} height={60} borderRadius={8} />
                 : <PaymentsTable rows={periodRows} showDraws={loc} shareNote={shareNote} onOpenEntry={onOpenEntry} empty={`No payments posted ${from ? `${formatDate(from)} - ${formatDate(to)}` : `to ${formatDate(to)}`}.`} />}
-            {(period.data?.notes || []).length > 0 && <div style={{ fontSize: '0.74rem', color: '#92400e' }}>{period.data.notes.join(' · ')}</div>}
+            {(period.data?.notes || []).length > 0 && <div style={{ fontSize: '0.74rem', color: 'var(--warn-fg)' }}><WarnMark />{period.data.notes.join(' · ')}</div>}
           </section>
           <section style={{ display: 'grid', gap: 6 }}>
             <button type="button" onClick={() => setHistoryOpen((v) => !v)} aria-expanded={historyOpen}

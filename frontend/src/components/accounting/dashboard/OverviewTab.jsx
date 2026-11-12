@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, GripVertical, LayoutGrid, MoreHorizontal, Plus, Trash2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, GripVertical, Info, LayoutGrid, MoreHorizontal, Plus, Trash2, X } from 'lucide-react';
 import { SkeletonBlocks } from '../../AsyncState';
 import AnchoredMenu from '../../AnchoredMenu';
 import { Chip, EmptyBox, card, input } from './Bits';
 import { useDash } from './DashContext';
 import { Toolbar } from './Filters';
-import { useAttention, useViews } from './hooks';
+import { useAttention, useEmptyWidgets, useViews } from './hooks';
 import { dashDensityOf, useAccountingPrefs } from '../prefs';
 import { CustomizeButton } from '../reportControls';
 import { dialog } from '../../../ui/dialog';
 import { SIZE_LABEL, SIZES, WIDGET_CATS, WIDGET_LIST, WIDGETS, WidgetPanel, useDashNav } from './registry';
+import { HOLD_MAJOR_MS } from '../../../ui/HoldButton';
 
 // Overview tab: the attention bar and a customizable widget grid with shared
 // role views (Principal, CFO, Controller, Bookkeeper) plus custom views.
@@ -58,11 +59,12 @@ function useColumns() {
 }
 
 export default function OverviewTab({ canEdit }) {
-  const { view, setView, act, loading } = useDash();
+  const { view, setView, act, loading, down } = useDash();
   const { views: savedViews, isLoading } = useViews();
   const views = useMemo(() => withRoleViews(savedViews), [savedViews]);
   const nav = useDashNav();
   const attention = useAttention();
+  const empty = useEmptyWidgets();
   const span = useColumns();
   const [editing, setEditing] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -126,8 +128,8 @@ export default function OverviewTab({ canEdit }) {
     if (!current) return;
     if (DEFAULT_IDS.includes(current.id)) { setNote('Role views cannot be deleted. Use Reset to bring back the default widgets.'); return; }
     setNote('');
-    if (!await dialog.confirm(`Delete the ${current.name} view for everyone?`, { title: 'Delete View', confirmText: 'Delete', danger: true })) return;
-    await act('view-delete', { id: current.id });
+    // Press and hold (11/11/2026 Accounting pass, picture 10): it goes for everyone.
+    if (!await dialog.confirm(`Delete the ${current.name} view for everyone?`, { title: 'Delete View', confirmText: 'Delete View', doneText: 'Deleted', hold: true, holdMs: HOLD_MAJOR_MS, onConfirm: () => act('view-delete', { id: current.id }) })) return;
     setEditing(false);
     setView(DEFAULT_IDS[0]);
   };
@@ -146,6 +148,11 @@ export default function OverviewTab({ canEdit }) {
     setForm(null);
   };
 
+  // Where a folded card is set up: a budget on Trackers > Budgets, the rest on Reference Data.
+  const SETUP_AT = { cashForecast: ['budget', 'Trackers > Budgets'], default: ['data', 'Tools > Reference Data'] };
+  // 11/11/2026 (picture 4): cards with nothing to show fold into one line where the first
+  // of them stood; arranging shows every card, and the view itself is never changed.
+  const folded = editing ? [] : widgets.filter((w) => empty[w.type]);
   const roleViews = views.filter((v) => DEFAULT_IDS.includes(v.id));
   const customViews = views.filter((v) => !DEFAULT_IDS.includes(v.id));
   const shown = attnAll ? attention : attention.slice(0, 4);
@@ -191,7 +198,7 @@ export default function OverviewTab({ canEdit }) {
 
       {note ? (
         <div role="status" style={{ ...card, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          <AlertTriangle size={14} style={{ color: '#b45309', flexShrink: 0 }} />
+          <AlertTriangle size={14} style={{ color: 'var(--warn-fg)', flexShrink: 0 }} />
           <span style={{ flex: 1 }}>{note}</span>
           <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => setNote('')} style={{ padding: 4 }}><X size={13} /></button>
         </div>
@@ -212,13 +219,14 @@ export default function OverviewTab({ canEdit }) {
 
       {!editing ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}>
-          {loading || isLoading ? (
+          {/* Books not reached: the notice above says so - never "Nothing needs attention". */}
+          {down ? null : loading || isLoading ? (
             <div style={{ width: 320, maxWidth: '100%' }}><SkeletonBlocks count={1} height={20} borderRadius={999} /></div>
           ) : attention.length === 0 ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ok-fg, #15803d)' }}><CheckCircle2 size={14} /> Nothing needs attention</span>
           ) : (
             <>
-              <AlertTriangle size={14} style={{ color: '#b45309' }} />
+              <AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />
               {shown.map((a, i) => (
                 <button key={i} type="button" onClick={() => goFor(a.target)} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}>
                   <Chip tone={a.severity === 0 ? 'bad' : a.severity === 1 ? 'wait' : 'ok'}>{a.text}</Chip>
@@ -254,7 +262,15 @@ export default function OverviewTab({ canEdit }) {
         : widgets.length === 0 ? <EmptyBox title="This view is empty" body="Select Customize > Arrange Widgets, then Add Widget to build it out." />
         : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 'var(--dash-gap, 14px)', paddingBottom: 16 }}>
-            {widgets.map((w, i) => (
+            {widgets.map((w, i) => (folded.includes(w) ? (w === folded[0] ? (
+              <div key="folded" role="note" style={{ ...card, gridColumn: 'span 12', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                <Info size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0 }}><b style={{ color: 'var(--text-primary)' }}>Nothing to show yet:</b> {folded.map((x) => `${WIDGETS[x.type].title} (${empty[x.type]})`).join(' · ')}</span>
+                {[...new Map(folded.map((x) => SETUP_AT[x.type] || SETUP_AT.default).map((at) => [at[0], at])).values()].map(([to, where]) => (
+                  <button key={to} type="button" onClick={() => nav(to)} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Set Up in {where}</button>
+                ))}
+              </div>
+            ) : null) : (
               <div key={`${i}:${w.type}`} id={`acct-widget-${w.type}`} draggable={editing}
                 onDragStart={() => setDragFrom(i)} onDragOver={(e) => { if (editing) e.preventDefault(); }}
                 onDrop={(e) => { e.preventDefault(); if (dragFrom != null) move(dragFrom, i); setDragFrom(null); }}
@@ -285,7 +301,7 @@ export default function OverviewTab({ canEdit }) {
                   ) : null
                 } />
               </div>
-            ))}
+            )))}
           </div>
         )}
     </div>

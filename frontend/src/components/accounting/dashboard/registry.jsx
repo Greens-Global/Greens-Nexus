@@ -1,4 +1,5 @@
-import { Component, createContext, useContext } from 'react';
+import { Component } from 'react';
+import { useDashNav } from './nav';
 import { EmptyBox, Panel } from './Bits';
 import { KpiCashNcWidget, KpiCashWidget, KpiInvestWidget, KpiMarginWidget, KpiNiWidget, KpiReconWidget, KpiRunwayWidget, KpiYtdWidget } from './Kpis';
 import { CashForecastWidget, CashTrendWidget, EntityCashWidget, InvestWidget, UncatWidget } from './CashWidgets';
@@ -14,9 +15,8 @@ import { DebtWidget, MaturityWidget, PartnersWidget, ValuationWidget } from './C
 
 export const WIDGET_CATS = ['Headline Numbers', 'Cash & Banking', 'Performance', 'Debt & Capital', 'Close & Controls'];
 
-/** Where a widget's link goes: another dashboard tab, or the Reports tab. Provided by Accounting.jsx. */
-export const DashNav = createContext(() => {});
-export const useDashNav = () => useContext(DashNav);
+// DashNav lives in ./nav (re-exported here for the widgets).
+export { DashNav, useDashNav } from './nav';
 
 const def = (id, title, cat, size, desc, Component, extra = {}) => ({ id, title, cat, size, desc, Component, ...extra });
 

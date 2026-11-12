@@ -90,9 +90,12 @@ _PUNCH_LABEL = {"in": "On Shift", "break": "On Break", "out": "Off Shift"}
 _RECENT_PUNCH_DAYS = 30
 
 
-def _tz_name(emp, punch_offset_min) -> str:
+def _tz_name(emp, punch_offset_min, punch_at: str | None = None) -> str:
     """IANA zone for a person. The punch offset is exact but has no name;
-    the map gives a name whose offset agrees with it when one is known."""
+    the map gives a name whose offset agrees with it when one is known.
+    The offset is compared AT THE PUNCH'S INSTANT: an October punch in
+    California (PDT, 420) read after the November switch to PST must still
+    name Los Angeles, not the zone that is UTC-7 today (Phoenix)."""
     state = (emp.state or "").strip()
     code = state.upper() if len(state) == 2 else _STATE_NAMES.get(state.lower(), "")
     country = (emp.country or "").strip().upper()
@@ -102,7 +105,7 @@ def _tz_name(emp, punch_offset_min) -> str:
     # JS getTimezoneOffset() is minutes BEHIND UTC (PDT = 420). Prefer the
     # guessed zone when it agrees; otherwise find any mapped zone that does.
     want = -int(punch_offset_min)
-    now = datetime.now(timezone.utc)
+    now = _punch_instant(punch_at)
     for name in [guess, *_US_STATE_TZ.values(), *_COUNTRY_TZ.values()]:
         try:
             off = now.astimezone(ZoneInfo(name)).utcoffset()
@@ -111,6 +114,15 @@ def _tz_name(emp, punch_offset_min) -> str:
         if off is not None and int(off.total_seconds() // 60) == want:
             return name
     return guess
+
+
+def _punch_instant(at: str | None) -> datetime:
+    """The punch's moment as an aware UTC datetime; now when unreadable."""
+    try:
+        dt = datetime.fromisoformat((at or "").replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return datetime.now(timezone.utc)
 
 
 def _local_now(tz: str) -> datetime:
@@ -241,7 +253,8 @@ def _availability(db: Session, people: list) -> None:
 
     for p in people:
         pu = last_punch.get(p["email"])
-        p["timeZone"] = _tz_name(_Emp(p), pu.tz_offset_min if pu else None)
+        p["timeZone"] = _tz_name(_Emp(p), pu.tz_offset_min if pu else None,
+                                 pu.at if pu else None)
         p["today"] = _local_now(p["timeZone"]).date().isoformat()
         p["availability"] = None
 
@@ -302,12 +315,19 @@ def _availability(db: Session, people: list) -> None:
 
     # Company holiday today - unless the person is working anyway (a punch or
     # a published shift on the day says so).
+    # The ONE holiday rule (holiday_policies, Oct 30 2026): a country-tagged
+    # holiday is only for people in that country (their own, else their
+    # company's), and several on one day merge strongest first.
+    import holiday_policies as hp
     hols = db.query(HrCompanyHoliday).filter(HrCompanyHoliday.date.in_(window)).all()
-    hol_by = {}
+    hol_rows: dict = {}
     for h in hols:
-        hol_by.setdefault((h.company_id, h.date), h.name)
+        hol_rows.setdefault((h.company_id, h.date), []).append(h)
+    co_country = hp.company_countries(db, {p["company"] for p in people})
     for p in people:
-        name = hol_by.get((p["company"], p["today"]))
+        rows = hol_rows.get((p["company"], p["today"]))
+        hit = hp.merge_day(rows, hp.person_country(_Emp(p), co_country.get(p["company"], ""))) if rows else None
+        name = hit["name"] if hit else ""
         if name and (p["availability"] is None or p["availability"]["state"] == "out"):
             p["availability"] = {"state": "holiday", "label": "Company Holiday", "detail": name}
 

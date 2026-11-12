@@ -264,6 +264,13 @@ keep the diff minimal.
   `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
   Shrink / Expand button; short answers keep the small card
   (`support/HelpWidget.jsx`).
+- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter and every
+  text size is on the scale - `FS` in `lib/typeScale.js` (meta 11, label 12,
+  body 13, read 14, title 15, section 18, page 24, figure 32) or the `--fs-*`
+  tokens. `scripts/check-type.mjs` (in `npm run lint`) fails a new off-scale
+  size; old screens move over one module at a time (`SNAP`: 12.5 rounds up
+  to 13), then `--update` lowers its baseline. Off-scale on purpose (the 16px
+  phone fields that stop iOS zooming) = `type-ok: <why>` on the line.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 - **Every amount on every Accounting report drills down to its ledger lines
@@ -573,6 +580,18 @@ keep the diff minimal.
   answers. Never add a second form engine, a second entry store or an
   offline path outside the punch-queue pattern (the outbox above is that
   pattern; Fill a Form already uses it - `forms/formsOffline.js`).
+- **Kudos on Teams (Neil, 11/12/2026, `perf_kudos_teams.py`,
+  `docs/Kudos-Teams-Setup.md`):** a kudos posts as its sender to the
+  company's CHANNEL (Settings > Performance > Kudos on Teams,
+  `performance.kudos_teams_target`; the old chat id still resolves),
+  @mentioning the recipient, and keeps its message id. Reactions and
+  channel replies come back as the ONE thanks row (`perf_kudos_thanks`,
+  `via='teams'`) - never a second reaction store; a Nexus thanks claps on
+  the post as that person through the ticket Teams queue (`kudos_react` /
+  `kudos_unreact`). Graph change notifications (`/webhooks/teams/kudos`,
+  `teams_subscriptions`) and polling (`kudos_teams_loop`) call the same
+  `sync_one`. Reading needs the delegated read scopes
+  (`bff_session.GRAPH_KUDOS_*_READ_SCOPES`); without them it waits.
 - **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
   `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
   Direct Deposit Authorization are filled and signed in Nexus Sign - from
@@ -686,6 +705,24 @@ keep the diff minimal.
   `locations` only when there are several. Anything that only exists
   consolidated (the dashboard tabs, the accounting app) takes
   `require_unlimited`.
+- **Investor Relations reads Intacct live** (Neil, 11/11/2026,
+  `investor_books.py`, `routers/investor_books.py`, `investor/Books.jsx`): a
+  deal IS an Intacct entity (`ir_funds.intacct_entity`, e.g. 67000 Greens
+  Austin, LLC) and an investor IS their own partner equity accounts
+  (`ir_investors.intacct_accounts`: 300xx "(E&C)", 310xx "(Contribution)",
+  320xx "(Distribution)", one family per NAME - the numbers do not line up).
+  Capital, cash, book equity and revenue are read through the accounting
+  proxy, never keyed or stored; a figure needs the IR read gate AND the
+  Accounting grant AND the entity in the caller's entity access. Import
+  makes the deal and a linked profile per member and never invents a
+  commitment amount. A member's Capital Account is their accounts' balance;
+  their MEMBERSHIP % is the operating agreement's, typed on the deal's
+  members (kept on `ir_commitments.membership_pct`, a commitment with no
+  amount made if needed) - never worked out from the capital. The investor
+  portal (`GET /portal/books`) shows an investor their OWN capital account
+  and membership, live, on the deals the portal already shows them - no
+  Accounting grant, never another member's accounts. Remove Sample Data
+  (Dashboard) deletes only what the demo seed made.
 - Personal financial statements (`routers/pfs.py`, Sep 2026) are the most
   sensitive records in Nexus: owners and the explicit `pfs` grant only
   (`bypass_level="owner"` - an administrator's role does NOT open them). Never
@@ -869,6 +906,29 @@ keep the diff minimal.
   recognition (no AI, no key); a browser without it shows no microphone.
   Make a Task works on the page and in Quick Note. A new editor feature goes
   in BOTH the web toolbar and the phone bar (`NoteEditor.jsx`).
+
+- **Meeting Notes (Neil, 11/12/2026, `routers/meetings.py`,
+  `frontend/src/notes/meetings/`, `docs/Meeting-Notes.md`).** A Teams
+  meeting's notes are a Notes note (source kind `meeting`, one
+  `nexus_meeting_notes` row per person per occurrence, RLS on dev and prod)
+  made from the person's own calendar. Teams transcribes; Nexus LINKS, never
+  copies: the transcript is read through Graph when opened (15 minutes in
+  memory), the recording is reached through the meeting chat - never write
+  either to the database or storage. The join link and transcript are only
+  for the invite's people, whoever the note is shared with; externals and
+  Act As are refused. A line written during the meeting carries `data-at`
+  (Unix seconds, `meetings/meetingClock.js`, in every Notes schema) - keep
+  it in the sanitizer. Graph lookups reuse `routers/meeting_files.py`. A
+  summary is AI, behind the switch.
+  Phase 2: highlights (action items / decisions / questions) are RULES in
+  `meeting_highlights.py`, computed per read, never stored; Last Time reads
+  the series' previous note (`series_id`) and its open tasks through
+  record_links' task walls; the Transcript Ready bell is OPT-IN per person
+  (`meeting_notes.alerts:<email>`) and its pass (`meeting_ready_loop`) asks
+  Teams for the transcript LIST only, never the words, and bells once.
+  TESTERS FIRST: only the emails in the `meeting_notes.access`
+  nexus_settings row (per database; `"everyone": true` opens it) may use
+  it - `meetings.may_use`, never a code default.
 
 - **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
   `routers/documents.py`, `components/DocumentsBrowser.jsx`,

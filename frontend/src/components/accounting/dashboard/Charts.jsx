@@ -81,15 +81,16 @@ export function ColoredBars({ data, height = 160, valueLabel }) {
   );
 }
 
-export function Lines({ data, series, height = 170, zero = true, hline, xKey = 'label' }) {
+// `count` draws plain numbers (the Close Pace chart counts tasks, not dollars).
+export function Lines({ data, series, height = 170, zero = true, hline, xKey = 'label', count = false }) {
   return (
     <div style={{ height, width: '100%' }}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} strokeOpacity={0.15} />
           <XAxis dataKey={xKey} tick={tick} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-          <YAxis tick={tick} tickLine={false} axisLine={false} tickFormatter={(v) => compact(Number(v))} width={58} domain={zero ? [0, 'auto'] : ['auto', 'auto']} />
-          <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [money(Number(v)), series.find((s) => s.key === name)?.label ?? name]} />
+          <YAxis tick={tick} tickLine={false} axisLine={false} tickFormatter={(v) => (count ? String(v) : compact(Number(v)))} width={count ? 32 : 58} domain={zero ? [0, 'auto'] : ['auto', 'auto']} />
+          <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [count ? v : money(Number(v)), series.find((s) => s.key === name)?.label ?? name]} />
           {hline ? <ReferenceLine y={hline.v} stroke="#dc2626" strokeDasharray="4 4" label={hline.label ? { value: hline.label, fontSize: 10, fill: '#dc2626', position: 'insideTopRight' } : undefined} /> : null}
           {series.map((s, i) => (
             <Line key={s.key} type="monotone" dataKey={s.key} stroke={s.color ?? seriesColor(i)} strokeWidth={s.dashed ? 1.5 : 2} strokeDasharray={s.dashed ? '5 4' : undefined} dot={false} isAnimationActive={false} connectNulls={false} />

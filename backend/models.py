@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Index
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Index, text
 from database import Base
 
 
@@ -1633,6 +1633,8 @@ class HrEntity(Base):
     # Signature template (Sep 16, Pranshu): an admin-picked, company-wide
     # default in Settings - not a per-employee choice (myhr.SIGNATURE_TEMPLATES).
     signature_template = Column(String, default="classic")
+    # The signature's accent color, hex; '' = Greens green (Neil, 11/11/2026).
+    signature_color    = Column(String, default="")
     # signature_closing here is ALSO VESTIGIAL (Sep 19) - sign-off moved to
     # the employee too (NexusEmployee.signature_closing): "Admin should not
     # have the control of Sign off... it should be employee specific."
@@ -4581,6 +4583,9 @@ class ActAsSession(Base):
 
 class IrFund(Base):
     __tablename__ = "ir_funds"
+    # One Intacct entity is one deal (unlinked deals carry '').
+    __table_args__ = (Index("ux_ir_funds_intacct_entity", "intacct_entity", unique=True,
+                            sqlite_where=text("intacct_entity <> ''"), postgresql_where=text("intacct_entity <> ''")),)
     id                    = Column(String, primary_key=True)
     name                  = Column(String, nullable=False)
     entity_name           = Column(String, default="")   # the single-purpose LLC's legal name
@@ -4592,6 +4597,10 @@ class IrFund(Base):
     # string, not a FK: the two modules stay independent, and a stale/deleted
     # property id just makes the link disappear rather than erroring anything.
     property_asset_id     = Column(String, default="")
+    # The Intacct entity (location code) this deal IS - e.g. 67000 Greens
+    # Austin, LLC. Its live figures and members' capital are read from that
+    # entity's books (investor_books.py, Neil 11/11/2026). '' = not linked.
+    intacct_entity        = Column(String, default="")
     status                = Column(String, default="raising")  # raising|active|exited
     target_raise          = Column(Float, default=0)
     minimum_investment    = Column(Float, default=0)
@@ -4624,6 +4633,10 @@ class IrInvestor(Base):
     tax_id_on_file             = Column(Boolean, default=False)
     relationship_owner_email   = Column(String, default="")
     notes                      = Column(String, default="")
+    # The investor's own partner equity accounts in Intacct, comma-separated
+    # (300xx E&C, 310xx Contribution, 320xx Distribution - investor_books.py,
+    # Neil 11/11/2026). '' = not linked.
+    intacct_accounts           = Column(String, default="")
     status                     = Column(String, default="active")      # active|inactive|prospect
     created_by                 = Column(String, default="")
     created_at                 = Column(String, default="")
@@ -4637,6 +4650,8 @@ class IrCommitment(Base):
     investor_id        = Column(String, nullable=False, index=True)
     commitment_amount  = Column(Float, default=0)
     units              = Column(Float, default=0)
+    # The member's percentage in the operating agreement (0-100); None = not set.
+    membership_pct     = Column(Float, nullable=True)
     subscription_date  = Column(String, default="")
     status             = Column(String, default="pending")   # pending|active|closed|withdrawn
     signed_doc_url     = Column(String, default="")
@@ -9730,6 +9745,14 @@ class PerfKudos(Base):
     # the recipient first saw it (the moment card shows an unseen one once).
     value       = Column(String, default="")
     seen_at     = Column(String, default="")
+    # Kudos on Teams (Neil, 11/12/2026, perf_kudos_teams.py): where the post
+    # went ({type, teamId, convId, url, poster, others, ignore}), its message
+    # id (what a Graph change notification names) and when it is next read
+    # back - reactions and replies there come home as thanks.
+    teams_post        = Column(JSON, default=dict)
+    teams_message_id  = Column(String, default="", index=True)
+    teams_sync_due_at = Column(String, default="", index=True)
+    teams_synced_at   = Column(String, default="")
 
 
 class PerfKudosThanks(Base):
@@ -9743,6 +9766,12 @@ class PerfKudosThanks(Base):
     from_email  = Column(String, nullable=False, index=True)
     note        = Column(String, default="")                            # <= 200 chars
     created_at  = Column(String, default="")
+    # Kudos on Teams (Neil, 11/12/2026): 'teams' when it came from a reaction
+    # or reply there ('' = Nexus); the reaction it is mirrored by, either way
+    # ('' = none yet); the thread reply that carries its note.
+    via            = Column(String, default="")
+    teams_reaction = Column(String, default="")
+    teams_reply_id = Column(String, default="")
 
 
 class PerfPlan(Base):
@@ -10302,3 +10331,66 @@ class TaskProjectBaseline(Base):
     taken_at   = Column(String, default="")
     taken_by   = Column(String, default="")
     snapshot   = Column(JSON, default=list)   # [{id, title, start, due, assignee}]
+
+
+# ── Kudos on Teams (Neil, 11/12/2026, perf_kudos_teams.py) ──────────────────
+# Two plumbing tables for reading Teams back. New tables - explicit RLS lines
+# in main.py's Postgres list, on top of the _enable_rls_everywhere sweep.
+
+class TeamsUserMap(Base):
+    """A Microsoft Entra user id and the work email it belongs to, looked up
+    once through Graph and kept: a Teams reaction names its person only by
+    that id, and a mention needs it the other way round."""
+    __tablename__ = "teams_user_map"
+    aad_id       = Column(String, primary_key=True)
+    email        = Column(String, default="", index=True)
+    display_name = Column(String, default="")
+    updated_at   = Column(String, default="")
+
+
+class TeamsSubscription(Base):
+    """One live Graph change-notification subscription on a Teams channel's
+    (or chat's) messages, made with a member's delegated token and renewed
+    before it lapses. Only the SHA-256 of its clientState is kept."""
+    __tablename__ = "teams_subscriptions"
+    id                = Column(String, primary_key=True)                # Graph's subscription id
+    purpose           = Column(String, default="kudos", index=True)
+    target_key        = Column(String, default="", index=True)          # channel:<team>:<channel> | chat:<chat>
+    resource          = Column(String, default="")
+    owner_email       = Column(String, default="")                      # whose token made it (renews it)
+    client_state_hash = Column(String, default="")
+    expires_at        = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+
+
+# ── Meeting Notes (Neil, 11/12/2026, routers/meetings.py) ───────────────────
+class NexusMeetingNote(Base):
+    """Which Notes note is a person's notes for which Teams meeting. LINKS
+    only (Neil, 11/12/2026): the transcript and the recording stay in Teams
+    and are read through Graph each time; nothing of them is kept here. One
+    row per person per meeting occurrence (iCalUId is the same on every
+    invitee's calendar and differs per occurrence of a series). The invite's
+    organizer and attendees are copied at creation - they are who may read
+    the transcript through the note. New table - explicit RLS line in
+    main.py's Postgres list, on top of the _enable_rls_everywhere sweep."""
+    __tablename__ = "nexus_meeting_notes"
+    __table_args__ = (UniqueConstraint("owner_email", "ical_uid", name="ux_nexus_meeting_notes_owner_uid"),)
+    id          = Column(String, primary_key=True)          # mtg_ + hex
+    note_id     = Column(String, default="", index=True)
+    owner_email = Column(String, nullable=False, index=True)
+    ical_uid    = Column(String, nullable=False, index=True)
+    event_id    = Column(String, default="")                # the owner's own calendar event
+    join_url    = Column(Text, default="")
+    organizer   = Column(String, default="")
+    subject     = Column(String, default="")
+    start_at    = Column(String, default="")                # ISO UTC
+    end_at      = Column(String, default="")
+    attendees   = Column(Text, default="[]")                # JSON [{email, name}]
+    created_at  = Column(String, default="")
+    # Phase 2 (Neil, 11/12/2026): the series it belongs to (Graph's
+    # seriesMasterId, '' = a one-off) and the ready bell's marks - when Teams
+    # was found to have a transcript, and when the pass last asked.
+    series_id           = Column(String, default="", index=True)
+    transcript_ready_at = Column(String, default="")
+    ready_checked_at    = Column(String, default="")

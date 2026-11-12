@@ -71,7 +71,8 @@ beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('AskAccountantTab', () => {
   it('renders the Open lines with the counts per status', async () => {
     render(<AskAccountantTab />);
-    expect(screen.getByText('Ask My Accountant')).toBeTruthy();
+    // No heading of its own (picture 1): the Accounting page line names the page.
+    expect(screen.queryByRole('heading', { name: 'Ask My Accountant' })).toBeNull();
     const q = await screen.findByText('Which property is this for?');
     const tr = q.closest('tr');
     expect(within(tr).getByText('09/15/2026')).toBeTruthy();

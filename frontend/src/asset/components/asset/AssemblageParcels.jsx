@@ -57,21 +57,21 @@ export function AssemblageParcels({ lead, all, onOpen }) {
       <div style={{ padding: '13px 16px', display: 'flex', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' }}>
         <div
           style={{
-            fontSize: '1rem',
+            fontSize: 15,
             fontWeight: 800,
             color: 'var(--text-primary)',
           }}
         >
           Parcels in This Assemblage
         </div>
-        <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
           {members.length} parcels · ~{totalAcres.toFixed(1)} ac
           {totalCost > 0 ? ` · $${formatNumber(totalCost)} cost basis` : ''}
         </span>
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+        <table style={{ width: '100%', minWidth: 520, borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
               {COLUMNS.map((c, i) => (
@@ -79,7 +79,7 @@ export function AssemblageParcels({ lead, all, onOpen }) {
                   key={i}
                   style={{
                     textAlign: 'left',
-                    fontSize: '0.68rem',
+                    fontSize: 11,
                     fontWeight: 700,
                     textTransform: 'uppercase',
                     letterSpacing: '0.04em',
@@ -118,7 +118,7 @@ export function AssemblageParcels({ lead, all, onOpen }) {
                       <span
                         style={{
                           marginLeft: 6,
-                          fontSize: '0.68rem',
+                          fontSize: 11,
                           fontWeight: 700,
                           letterSpacing: '0.03em',
                           color: 'hsl(var(--color-purple))',

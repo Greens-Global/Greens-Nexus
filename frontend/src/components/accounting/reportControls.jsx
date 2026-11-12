@@ -6,6 +6,7 @@ import { SkeletonBlocks } from '../AsyncState';
 import AnchoredMenu from '../AnchoredMenu';
 import { formatDate, formatTime } from '../../lib/datetime';
 import { EMPTY_DIMS, JOURNAL_KINDS, NUM_OPS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
+import { DateField } from '../../tasks/components';
 
 // The Reports toolbar's controls (Neil and Charmi, Sep 25): everything is a
 // dropdown on ONE slim row, so the statement starts high on the page - no
@@ -544,7 +545,7 @@ export function PeriodStepper({ config, period, onChange }) {
       <div role="group" aria-label="Report period" style={group}>
         <button type="button" style={arrow} onClick={() => to(stepAsOf(config.asof, -1))} aria-label="Previous month-end" title="Previous month-end"><ChevronLeft size={14} /></button>
         <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
-        <input type="date" value={config.asof} aria-label="As of" style={control} onChange={(e) => e.target.value && to(e.target.value)} />
+        <span style={{ ...control, display: 'flex', alignItems: 'center' }}><DateField value={config.asof} onChange={(picked) => { const v = picked || ''; return v && to(v); }} placeholder="MM/DD/YYYY" title="As of" style={{ width: '100%' }} /></span>
         <button type="button" style={arrow} onClick={() => to(stepAsOf(config.asof, 1))} aria-label="Next month-end" title="Next month-end"><ChevronRight size={14} /></button>
       </div>
     );
@@ -570,11 +571,9 @@ export function PeriodStepper({ config, period, onChange }) {
           {/* No min / max on these: a calendar capped at the other date could not
               move to a later month at all (Charmi, Sep 25). Picking a start after
               the end moves the end with it. */}
-          <input type="date" value={config.from} aria-label="From" style={control}
-            onChange={(e) => e.target.value && onChange({ from: e.target.value, to: e.target.value > config.to ? e.target.value : config.to })} />
+          <span style={{ ...control, display: 'flex', alignItems: 'center' }}><DateField value={config.from} onChange={(picked) => { const v = picked || ''; return v && onChange({ from: v, to: v > config.to ? v : config.to }); }} placeholder="MM/DD/YYYY" title="From" style={{ width: '100%' }} /></span>
           <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>to</span>
-          <input type="date" value={config.to} aria-label="To" style={control}
-            onChange={(e) => e.target.value && onChange({ to: e.target.value, from: e.target.value < config.from ? e.target.value : config.from })} />
+          <span style={{ ...control, display: 'flex', alignItems: 'center' }}><DateField value={config.to} onChange={(picked) => { const v = picked || ''; return v && onChange({ to: v, from: v < config.from ? v : config.from }); }} placeholder="MM/DD/YYYY" title="To" style={{ width: '100%' }} /></span>
         </>
       )}
       <button type="button" style={{ ...arrow, flexShrink: 0 }} onClick={() => step(1)} aria-label="Next period" title="Next period"><ChevronRight size={14} /></button>

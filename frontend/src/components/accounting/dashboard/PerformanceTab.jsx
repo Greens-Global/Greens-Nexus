@@ -7,6 +7,7 @@ import { Lines } from './Charts';
 import { useDash } from './DashContext';
 import { Toolbar } from './Filters';
 import { useNotes, usePerf, useTrend } from './hooks';
+import { DrillFigure, useLineDrill } from './LineDrill';
 import { WidgetPanel, useDashNav } from './registry';
 
 // Performance tab: actuals against budget and prior year, ranked by what
@@ -63,10 +64,10 @@ export default function PerformanceTab({ canEdit }) {
                 <Lines data={last12} height={200} zero={false} series={[
                   { key: 'revenueBudget', label: 'Revenue budget', color: '#0998c3', dashed: true },
                   { key: 'revenue', label: 'Revenue', color: 'var(--wk-brand, #2b45e1)' },
-                  { key: 'netBudget', label: 'Net income budget', color: '#d97706', dashed: true },
-                  { key: 'net', label: 'Net income', color: '#d97706' },
+                  { key: 'netBudget', label: 'Net Income Budget', color: '#d97706', dashed: true },
+                  { key: 'net', label: 'Net Income', color: '#d97706' },
                 ]} />
-                <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: '0.7rem', color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Revenue</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Net income</span><span>Dashed = budget</span></div>
+                <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: '0.7rem', color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Revenue</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Net Income</span><span>Dashed = budget</span></div>
               </>
             )}
           </Panel>
@@ -110,12 +111,14 @@ export default function PerformanceTab({ canEdit }) {
 
 function BvaTable({ rows }) {
   const { m } = useDash();
+  const [drill, lines] = useLineDrill();
   if (!rows.length) return <EmptyBox title="No activity this month" style={{ margin: 16 }} />;
-  const sections = [['Revenue', 'Revenue'], ['Cost of Revenue', 'Cost of revenue'], ['Operating Expenses', 'Operating expenses'], ['Other', 'Interest and depreciation']];
+  const sections = [['Revenue', 'Revenue'], ['Cost of Revenue', 'Cost of Revenue'], ['Operating Expenses', 'Operating Expenses'], ['Other', 'Interest and Depreciation']];
   const sum = (ls, k) => ls.reduce((t, l) => t + l[k], 0);
   const py = (ls) => ls.reduce((t, l) => t + (l.py ?? 0), 0);
   const hasPy = rows.some((r) => r.py != null);
-  const cell = (v, color) => <td style={{ ...num, color }}>{v == null ? '-' : m(v, { paren: true })}</td>;
+  // `open`: the figure is posted, so it opens its lines (11/11/2026); budget and variance are worked out.
+  const cell = (v, color, open) => <td style={{ ...num, color }}>{v == null ? '-' : open ? <DrillFigure onOpen={open}>{m(v, { report: true })}</DrillFigure> : m(v, { report: true })}</td>;
   const totals = (label, ls, strong) => {
     const a = sum(ls, 'actual'), b = sum(ls, 'budget'), p = py(ls), v = a - b;
     return (
@@ -127,8 +130,8 @@ function BvaTable({ rows }) {
     );
   };
   return (
-    <div className="req-table-wrapper"><table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-      <thead><tr><th>Line</th><th style={num}>Actual</th><th style={num}>Budget</th><th style={num}>Var $</th><th style={num}>Var %</th><th style={num}>Last year</th><th style={num}>YoY</th></tr></thead>
+    <div className="req-table-wrapper">{lines}<table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
+      <thead><tr><th>Line</th><th style={num}>Actual</th><th style={num}>Budget</th><th style={num}>Var $</th><th style={num}>Var %</th><th style={num}>Last Year</th><th style={num}>YoY</th></tr></thead>
       <tbody>
         {sections.map(([g, label]) => {
           const ls = rows.filter((r) => r.group === g).sort((a, b) => a.gl.localeCompare(b.gl, 'en-US', { numeric: true }));
@@ -138,16 +141,16 @@ function BvaTable({ rows }) {
               {ls.map((r) => (
                 <tr key={r.id} style={!r.material ? { color: 'var(--text-muted)' } : undefined}>
                   <td><span style={mono}>{r.gl}</span>{r.name}{r.material && r.budget ? <Chip tone={r.good ? 'ok' : 'bad'} style={{ marginLeft: 8 }}>material</Chip> : null}</td>
-                  {cell(r.actual)}{cell(r.budget || null)}{cell(r.budget ? r.v : null, r.budget ? toneColor(r.good) : undefined)}
+                  {cell(r.actual, undefined, () => drill(r))}{cell(r.budget || null)}{cell(r.budget ? r.v : null, r.budget ? toneColor(r.good) : undefined)}
                   <td style={{ ...num, fontSize: '0.76rem', color: r.budget ? toneColor(r.good) : undefined }}>{r.budget ? pctTxt(r.p) : '-'}</td>
-                  {cell(hasPy ? r.py : null)}<td style={{ ...num, fontSize: '0.76rem', color: r.py != null ? toneColor(r.actual - r.py >= 0) : undefined }}>{r.py ? pct((r.actual - r.py) / Math.abs(r.py)) : '-'}</td>
+                  {cell(hasPy ? r.py : null, undefined, r.py ? () => drill(r, { yearsAgo: 1 }) : undefined)}<td style={{ ...num, fontSize: '0.76rem', color: r.py != null ? toneColor(r.actual - r.py >= 0) : undefined }}>{r.py ? pct((r.actual - r.py) / Math.abs(r.py)) : '-'}</td>
                 </tr>
               ))}
-              {totals(`Total ${label.toLowerCase()}`, ls, false)}
+              {totals(`Total ${label}`, ls, false)}
             </GroupBlock>
           );
         })}
-        {totals('Net income', rows, true)}
+        {totals('Net Income', rows, true)}
       </tbody>
       <tfoot><tr><td colSpan={7}><Footnote style={{ padding: '0 10px 10px' }}>Rows in gray are within threshold. Groups follow the chart of accounts sections.</Footnote></td></tr></tfoot>
     </table></div>

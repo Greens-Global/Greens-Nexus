@@ -91,7 +91,34 @@ class IifExportTests(unittest.TestCase):
             db.commit()
         finally:
             db.close()
+        # The header tests below read the old Timer header (QuickBooks 2021 and
+        # earlier); the default file has none - test_default_file_has_no_timer_header.
+        import payroll_codes
+        db = database.SessionLocal()
+        try:
+            for co in (CO_A, CO_B):
+                payroll_codes.save_timer_header(db, co, True, ADMIN)
+        finally:
+            db.close()
         cache.module_grants.invalidate()
+
+    def test_default_file_has_no_timer_header(self):
+        # Charmi, 11/12/2026: QuickBooks Desktop 2024 has only Import > IIF
+        # Files, which reads plain !TIMEACT rows - no TIMERHDR by default.
+        r = self.client.put("/timeclock/payroll/export-codes", json={"company": CO_A, "quickbooksTimerHeader": False})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIs(r.json()["quickbooksTimerHeader"], False)
+        lines = self._lines(f"&company={CO_A}&finalized_only=false")
+        self.assertTrue(lines[0].startswith("!TIMEACT	DATE"), lines[0])
+        self.assertFalse([ln for ln in lines if "TIMERHDR" in ln])
+        self.assertIn("TIMEACT	9/16/2026	Rental A	Pat Test		Regular Pay	8.00			Y	0", lines)
+        # A file spanning companies keeps the header only if every company has it on.
+        self.assertTrue(self._lines("&finalized_only=false")[0].startswith("!TIMEACT"))
+        # Company B still has it on; switching A back brings it back for A.
+        self.assertEqual(self._lines(f"&company={CO_B}&finalized_only=false")[1], "TIMERHDR	8	0	IIF Bravo Homes	N	Y	0")
+        r = self.client.put("/timeclock/payroll/export-codes", json={"company": CO_A, "quickbooksTimerHeader": True})
+        self.assertIs(r.json()["quickbooksTimerHeader"], True)
+        self.assertEqual(self._lines(f"&company={CO_A}&finalized_only=false")[1], HEADER_A)
 
     def tearDown(self):
         self._cleanup()
@@ -118,7 +145,8 @@ class IifExportTests(unittest.TestCase):
             db.query(models.HrEntity).filter(models.HrEntity.id.in_((CO_A, CO_B))).delete(synchronize_session=False)
             db.query(models.NexusSetting).filter(models.NexusSetting.key.in_(
                 ("payroll_earnings_codes", "quickbooks_company_names",
-                 "quickbooks_company_create_times", "quickbooks_iif_blank_job"))).delete(synchronize_session=False)
+                 "quickbooks_company_create_times", "quickbooks_iif_blank_job",
+                 "quickbooks_iif_timer_header"))).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -156,8 +184,8 @@ class IifExportTests(unittest.TestCase):
         lines = self._lines(f"&company={CO_A}&finalized_only=false")
         pat = [ln for ln in lines if "Pat Test" in ln]
         self.assertEqual(pat, [
-            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t1",
-            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t4.00\t\t\tY\t1",
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t0",
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t4.00\t\t\tY\t0",
         ])
         # A renamed holiday code still saves, and still writes no line for hourly.
         r = self.client.put("/timeclock/payroll/export-codes", json={"company": CO_A, "codes": {"holiday": "HOL"}})
@@ -217,8 +245,8 @@ class IifExportTests(unittest.TestCase):
         pat = [ln for ln in lines if "Pat Test" in ln]
         self.assertEqual(pat, [
             "TIMEACT\t9/14/2026\t\tPat Test\t\tHoliday Pay\t8.00\t\t\tY\t0",
-            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t1",
-            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t4.00\t\t\tY\t1",
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t0",
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRegular Pay\t4.00\t\t\tY\t0",
             "TIMEACT\t9/17/2026\t\tPat Test\t\tHoliday Pay\t4.00\t\t\tY\t0",
         ])
         hours = self.client.get(f"/timeclock/export-hours?start={START}&end={END}&company={CO_A}").json()["rows"]
@@ -233,7 +261,7 @@ class IifExportTests(unittest.TestCase):
         self._finalize(PAT, kind="manager")
         self.assertNotIn("Pat Test", self._get(f"&company={CO_A}").text)
         self._finalize(PAT)
-        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t1",
+        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t0",
                       self._lines(f"&company={CO_A}"))
         # Without a company: only the finalized person, Quinn stays out.
         lines = self._lines("")
@@ -304,7 +332,7 @@ class IifExportTests(unittest.TestCase):
             return [ln.split("	") for ln in self._lines("&finalized_only=false") if ln.startswith("TIMEACT	") and "Holiday" not in ln]
         before = rows()
         self.assertTrue(before)
-        self.assertTrue(all(r[2] == "Rental A" and r[10] == "1" for r in before), before)
+        self.assertTrue(all(r[2] == "Rental A" and r[10] == "0" for r in before), before)   # never billable (11/12/2026)
         r = self.client.put("/timeclock/payroll/export-codes",
                             json={"company": CO_A, "codes": {}, "quickbooksBlankJob": True})
         self.assertEqual(r.status_code, 200, r.text)
@@ -314,7 +342,7 @@ class IifExportTests(unittest.TestCase):
         quinn = [x for x in after if x[3] == "Quinn Test"]
         self.assertTrue(pat and quinn)
         self.assertTrue(all(x[2] == "" and x[10] == "0" and x[9] == "Y" for x in pat), pat)
-        self.assertTrue(all(x[2] == "Rental A" and x[10] == "1" for x in quinn), quinn)
+        self.assertTrue(all(x[2] == "Rental A" and x[10] == "0" for x in quinn), quinn)
         # Same hours and payroll items as before - only JOB / billable moved.
         self.assertEqual(sorted((x[1], x[3], x[5], x[6]) for x in before), sorted((x[1], x[3], x[5], x[6]) for x in after))
         # Saving codes without the field leaves it; False turns it off.

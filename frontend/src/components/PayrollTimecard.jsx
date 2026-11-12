@@ -1060,9 +1060,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         res = await fetcher();
       }
       downloadBlob(res.filename || `${label}.txt`, res.blob);
-      // The IIF goes through QuickBooks' Timer import, not the IIF Files one -
-      // the wrong menu fails every row (Charmi, 11/03/2026).
-      const hint = label === 'QuickBooks IIF' ? ' Import it in QuickBooks with File > Utilities > Import > Timer Activities.' : '';
+      // QuickBooks Desktop 2022 and later import time only through Import >
+      // IIF Files; Timer Activities is gone (Charmi, 11/12/2026, QB 2024).
+      const hint = label === 'QuickBooks IIF' ? ' Import it in QuickBooks with File > Utilities > Import > IIF Files.' : '';
       toastOk?.(`${label} downloaded${res.filename ? ` - ${res.filename}` : ''}.${hint}`);
     } catch (e) { toastErr?.(e?.message || `Could not export the ${label}.`); }
     finally { setExporting(false); }
@@ -1837,9 +1837,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const iifButton = !custom && showPay && companies.length > 0 && (
     <button type="button" className="secondary-btn" disabled={(!iifCompanyId && !iifEmail) || exporting}
       title={iifCompanyId
-        ? `QuickBooks Desktop time import (IIF) of ${iifCompany}'s finalized time sheets for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > Timer Activities. Employee names and the payroll items must match QuickBooks.`
+        ? `QuickBooks Desktop time import (IIF) of ${iifCompany}'s finalized time sheets for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > IIF Files. Employee names and the payroll items must match QuickBooks.`
         : iifEmail
-          ? `QuickBooks Desktop time import (IIF) of ${nameFor(iifEmail)}'s finalized time sheet for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > Timer Activities.`
+          ? `QuickBooks Desktop time import (IIF) of ${nameFor(iifEmail)}'s finalized time sheet for ${formatDate(perStart)} - ${formatDate(perEnd)}. Import with File > Utilities > Import > IIF Files.`
           : 'Pick a company, or one person - QuickBooks imports one company (or one person) per file'}
       onClick={() => exportFile(() => api.timeExportIifFinalized(perStart, perEnd, iifCompanyId, iifEmail), 'QuickBooks IIF',
         [perStart, perEnd], iifCompanyId ? { company: iifCompanyId } : { email: iifEmail })}

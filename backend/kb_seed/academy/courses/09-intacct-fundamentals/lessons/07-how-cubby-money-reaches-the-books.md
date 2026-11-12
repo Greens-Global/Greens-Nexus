@@ -46,7 +46,7 @@ Open **Operations > Reports**. Pick the facility and the period.
 How each deposit is recorded in Intacct (which accounts, how cash and card are split, how a property's month is tied back to Cubby) is your Accounting team's process. Two things in Nexus help them:
 
 - **Accounting > Tools > Import Hub > Bank Statement to Intacct** turns an uploaded bank or brokerage statement (CSV or Excel) into an Intacct import file: pick the columns, the cash account, the offset account and the entity, check the preview, and **Download Intacct Import**. The file is imported in Intacct by the accounting team; nothing posts from Nexus.
-- **Reports > Banking & Credit Cards > Bank Activity** shows every transaction on one bank account for the period, with a running balance.
+- **Reports > Ledger & Banking > Bank Activity** shows every transaction on one bank account for the period, with a running balance.
 
 ## At Greens
 

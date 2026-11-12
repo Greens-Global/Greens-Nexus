@@ -21,6 +21,7 @@ import AskAccountantDialog, { LineFacts, PersonSelect, amountText, usePeople } f
 import { AWAITING, NoteCell, OtherSideCell, PushBatchDialog, ReclassCell, ReclassDialog, missingEntries, otherSideText, reclassLabel, sideFor, useOffsets } from './AmaReclass';
 import { AMA_PUSH_BATCH_LIMIT_DEFAULT, AMA_RECLASS_MODE_DEFAULT, AMA_SHOW_ACCOUNT_COLUMN } from './assumptions';
 import { DateField } from '../../tasks/components';
+import { pill } from './dashboard/Bits';
 
 // Accounting -> Reporting -> AMA, Ask My Accountant (Neil, 10/15: "AMA means
 // Ask My Accountant"; the agreements screen first built under the name is
@@ -363,7 +364,7 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
         )}
       </aside>
       {/* Its own clicks stay inside it: the panel behind must not close. */}
-      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} /></div>}
+      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel /></div>}
     </div>
   );
 }
@@ -645,18 +646,15 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
     <div style={{ display: 'grid', gap: 10 }}>
       <style>{GRID_CSS}</style>
       {fullWidth && <style data-testid="ama-full-width">{FULL_WIDTH_CSS}</style>}
-      <div>
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>Ask My Accountant</h3>
-        <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          Lines parked on the Ask My Accountant account, and questions asked on any ledger line, until the accountant says where they belong.
-        </p>
-      </div>
+      {/* No heading of its own (11/11/2026, picture 1): the page line names the page. */}
+      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+        Lines parked on the Ask My Accountant account, and questions asked on any ledger line, until the accountant says where they belong.
+      </p>
 
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
-        <div role="tablist" aria-label="Status" className="scroll-tabs" style={{ display: 'inline-flex', gap: 4 }}>
+        <div role="tablist" aria-label="Status" className="scroll-tabs" style={{ display: 'inline-flex', gap: 6 }}>
           {STATUS_FILTERS.map((s) => (
-            <button key={s} type="button" role="tab" aria-selected={status === s} onClick={() => setStatus(s)} className={status === s ? 'primary-btn' : 'secondary-btn'}
-              style={{ fontSize: '0.76rem', height: 28, padding: '0 10px', whiteSpace: 'nowrap' }}>
+            <button key={s} type="button" role="tab" aria-selected={status === s} onClick={() => setStatus(s)} style={pill(status === s)}>
               {s} <span style={{ opacity: 0.8 }}>{counts[s] ?? (loading ? '' : 0)}</span>
             </button>
           ))}

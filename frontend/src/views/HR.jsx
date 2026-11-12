@@ -28,12 +28,12 @@ import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
 import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
 import { dialog } from '../ui/dialog';
-import { HOLD_MAJOR_MS } from '../ui/HoldButton';
+import HoldButton, { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../ui/HoldButton';
 import { usePeopleDirectory, usePeopleDirectoryWithExternal } from '../lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/queryClient';
 import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState, ModalLoading, CountSkeleton } from '../components/AsyncState';
-import { useRole, MODULES, MODULE_LEVELS } from '../contexts/RoleContext';
+import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import { Switch } from '../components/settings/SettingsUI';
 import { setPendingOpen } from '../lib/pendingOpen';
 import TimeAdmin from '../components/TimeAdmin';
@@ -213,7 +213,13 @@ const DOC_KINDS = [['resume', 'Resume'], ['id', 'ID'], ['contract', 'Contract'],
 // stored here - Items stays the single source of truth; this deep-links into it.
 function AssetsSection({ employee }) {
   const [data, setData] = useState(null);
-  useEffect(() => { api.getEmployeeAssets(employee.id).then(setData).catch(() => setData({ assignments: [], checkouts: [] })); }, [employee.id]);
+  // A failed read says so with Retry - never "No assigned equipment" (11/11/2026).
+  const [loadError, setLoadError] = useState('');
+  const load = useCallback(() => {
+    setLoadError(''); setData(null);
+    api.getEmployeeAssets(employee.id).then(setData).catch(e => setLoadError(e?.message || 'Could not load assets.'));
+  }, [employee.id]);
+  useEffect(() => { load(); }, [load]);
   const goToItems = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'active-checkouts' } }));
   const assignments = data?.assignments || [];
   const checkouts = data?.checkouts || [];
@@ -239,7 +245,9 @@ function AssetsSection({ employee }) {
           Open in Item Management <ChevronRight size={12} />
         </button>
       </div>
-      {!data ? (
+      {loadError ? (
+        <ErrorBanner message={loadError} onRetry={load} />
+      ) : !data ? (
         <SkeletonBlocks count={4} height={40} />
       ) : total === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
@@ -315,7 +323,7 @@ export function WorkLogsSection({ employee }) {
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
           <Clock size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work logs (BOD/EOD)
         </span>
-        <button className="secondary-btn" onClick={() => setRange(lastWeekRange())} style={{ fontSize: 11.5, padding: '4px 10px' }}>This week</button>
+        <button className="secondary-btn" onClick={() => setRange(lastWeekRange())} style={{ fontSize: 11.5, padding: '4px 10px' }}>This Week</button>
         <DateField value={start} onChange={v => v && setRange([v, end])} title="From" style={{ fontSize: 12, width: 140, height: 32, padding: '0 10px', border: '1px solid var(--line)', borderRadius: 8 }} />
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
         <DateField value={end} onChange={v => v && setRange([start, v])} title="To" style={{ fontSize: 12, width: 140, height: 32, padding: '0 10px', border: '1px solid var(--line)', borderRadius: 8 }} />
@@ -377,7 +385,13 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
   // HR before it and the Records Audit flags it after - but the upload never asked.
   const [expiresOn, setExpiresOn] = useState('');
   const [uploading, setUploading] = useState(false);
-  useEffect(() => { api.getEmployeeDocs(employeeId).then(setDocs).catch(() => setDocs([])); }, [employeeId]);
+  // A failed read says so with Retry - never "No documents yet." (11/11/2026).
+  const [loadError, setLoadError] = useState('');
+  const load = useCallback(() => {
+    setLoadError(''); setDocs(null);
+    api.getEmployeeDocs(employeeId).then(setDocs).catch(e => setLoadError(e?.message || 'Could not load documents.'));
+  }, [employeeId]);
+  useEffect(() => { load(); }, [load]);
 
   async function upload(file) {
     if (!file || uploading) return;
@@ -398,9 +412,12 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
     try { const { url } = await api.getDocUrl(doc.id); window.open(url, '_blank', 'noopener'); }
     catch (err) { toastErr(err?.message || 'Could not open document.'); }
   }
+  // Deleting removes the file for good, so it is held on its row (Hold to
+  // confirm, HOLD_RECORD_MS); a refusal shows under the button.
   async function remove(doc) {
-    try { await api.deleteEmployeeDoc(doc.id); setDocs(prev => prev.filter(d => d.id !== doc.id)); toastOk('Document removed.'); }
-    catch (err) { toastErr(err?.message || 'Could not delete.'); }
+    await api.deleteEmployeeDoc(doc.id);
+    setDocs(prev => (prev || []).filter(d => d.id !== doc.id));
+    toastOk('Document removed.');
   }
   const now = new Date();
   const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -424,7 +441,8 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
           <input type="file" hidden onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
         </label>
       </div>
-      {docs === null ? <Spinner size={15} />
+      {loadError ? <ErrorBanner message={loadError} onRetry={load} />
+        : docs === null ? <Spinner size={15} />
         : docs.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No documents yet.</div>
         : docs.map(d => (
           <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
@@ -436,7 +454,8 @@ function DocumentsSection({ employeeId, employee, onSent, toastOk, toastErr }) {
             </button>
             {d.expiresOn && <span style={{ color: d.expiresOn.slice(0, 10) < todayLocal ? 'hsl(var(--color-red))' : 'var(--muted)', fontSize: 11, flexShrink: 0 }}>Expires {formatDate(d.expiresOn)}</span>}
             <span style={{ color: 'var(--muted)', fontSize: 11, flexShrink: 0 }}>{fmtSize(d.sizeBytes)}</span>
-            <button onClick={() => remove(d)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 }}><X size={13} /></button>
+            <HoldButton label="Delete" doneLabel="Deleted" size="sm" holdMs={HOLD_RECORD_MS}
+              ariaLabel={`Delete ${d.fileName}`} onConfirm={() => remove(d)} />
           </div>
         ))}
     </div>
@@ -486,7 +505,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
       onClick={ev => ev.target === ev.currentTarget && !busy && onClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Provision accounts - {fullName(e)}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Provision Accounts - {fullName(e)}</h3>
           <button onClick={onClose} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'flex', flexDirection: 'column' }}>
@@ -559,7 +578,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
             <button className="primary-btn" onClick={run} disabled={busy || !email.trim()}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'hsl(var(--color-green))' }}>
               {busy ? <Spinner size={14} /> : <CheckCircle size={14} />}
-              {busy ? 'Provisioning…' : 'Provision now'}
+              {busy ? 'Provisioning…' : 'Provision Now'}
             </button>
           </>) : <button className="primary-btn" onClick={onClose}>Done</button>}
         </div>
@@ -801,7 +820,7 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', show
 
 // The Access tab for a manager looking at their team in People (Oct 6): what
 // this person can open in Nexus, read only - access is changed by
-// administrators in Admin > Roles & Access. Remounts per person (the profile
+// administrators in Settings > People & Access. Remounts per person (the profile
 // is keyed on the employee), so it loads once and never resets in an effect.
 const titleCase = v => String(v || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 function TeamAccessView({ employee }) {
@@ -823,7 +842,7 @@ function TeamAccessView({ employee }) {
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        <StatCard label="Role Tier" value={titleCase(data.tier || 'employee')} sub="what their role allows" />
+        <StatCard label="Role Tier" value={ROLES[data.tier || 'employee']?.label || titleCase(data.tier)} sub="what their role allows" />
         <StatCard label="Job Role" value={data.job_role?.name || '-'} sub={data.extra_groups?.length ? `+ ${data.extra_groups.map(g => g.name).join(', ')}` : 'no extra groups'} />
       </div>
       {(data.modules || []).length === 0 ? (
@@ -843,7 +862,7 @@ function TeamAccessView({ employee }) {
         </table>
       )}
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Lock size={12} /> Read only - administrators change access in Admin &gt; Roles &amp; Access.
+        <Lock size={12} /> Read only - administrators change access in Settings &gt; People &amp; Access.
       </div>
     </div>
   );
@@ -1111,6 +1130,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           {shownTab === 'job' && (
             <>
               <JobTab e={e} employees={employees} companyName={companyName} viewerEmail={viewerEmail} canEdit={canEdit} isRemoved={isRemoved}
+                canSeePay={canSeeComp && !teamView}
                 empTypes={EMP_TYPES} statusLabel={isRemoved ? 'Removed' : sm.label}
                 onChangeStatus={!teamView && !isRemoved ? () => setStatusOpen(true) : null}
                 focusProbation={focusProbation} onReload={onReload}
@@ -1192,7 +1212,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           onDone={updated => { onEmployeeUpdated(updated); toastOk(`${fullName(e)} provisioned.`); }} />
       )}
       {statusOpen && (
-        <StatusChangeModal employee={e} employees={employees} toastOk={toastOk} toastErr={toastErr} onClose={() => setStatusOpen(false)} onSaved={onEmployeeUpdated} />
+        <StatusChangeModal employee={e} employees={employees} toastOk={toastOk} toastErr={toastErr} onClose={() => setStatusOpen(false)} onSaved={onEmployeeUpdated}
+          onOffboard={canAct ? () => setOffboardOpen(true) : undefined} />
       )}
     </div>
   );
@@ -2574,7 +2595,11 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   const blank = { name: '', legal_name: '', country: '', region: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', it_contact_email: '', invoice_recipients: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
-  const { can, hrScope } = useRole();
+  const { can, hrScope, canAccessModule } = useRole();
+  // The HR Contact and the Authorized Signatory make a person HR for the
+  // company / its signer: only an Administrator or a Full People grant sets
+  // them (the server refuses anyone else - People review, 11/11/2026).
+  const setsHrRoles = canAccessModule('hr', 'administrator', 'full');
   // Company-wide People access (hr_scope null). A caller limited to some
   // companies (or to a manager's own team) edits their companies' profiles
   // but never adds or deletes a company, sets the group manager or changes
@@ -2773,7 +2798,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>AUTHORIZED SIGNATORY (PERSON)</label>
                   <PersonSelect value={(f.signatory_email || '').toLowerCase() || null} onChange={v => set('signatory_email', v || '')}
-                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
+                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set" disabled={!setsHrRoles}
                     ariaLabel="Authorized Signatory (Person)" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs HR packets for the company when a packet's signing order says Authorized Signatory.</div>
                   {f.signatory_email && f.signatory.trim() && personName(f.signatory_email)
@@ -2812,9 +2837,14 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>HR CONTACT</label>
                   <PersonSelect value={(f.hr_contact_email || '').toLowerCase() || null} onChange={v => set('hr_contact_email', v || '')}
-                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"
+                    people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set" disabled={!setsHrRoles}
                     ariaLabel="HR Contact" style={PICK_BOX} />
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
+                  {!setsHrRoles && (
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+                      Only an Administrator or a Full People grant changes the HR Contact and the Authorized Signatory.
+                    </div>
+                  )}
                 </div>
                 {/* Named in the welcome email once a new hire's paperwork is signed (Pranshu, 11/04/2026). */}
                 <div style={{ gridColumn: '1 / -1' }}>
@@ -2869,7 +2899,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>SOCIAL LINKS</label>
                   <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 8px' }}>
-                    Shown as icons on every employee's email signature (Sincerely / Kind Regards templates).
+                    Shown as icons on every employee's email signature.
                   </p>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     {field('FACEBOOK', 'facebook_url', { placeholder: 'https://facebook.com/...' })}
@@ -4112,7 +4142,7 @@ export default function HR({ activeSub, onSubChange }) {
           <>
           <button onClick={() => setSelectedId(null)} className="secondary-btn"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-            <ChevronLeft size={14} /> Back to directory
+            <ChevronLeft size={14} /> Back to Directory
           </button>
           <EmployeeDetail key={selected.id} e={selected} employees={[...employees, ...extEmployees]} isMobile={isMobile} teamView={hrTeam}
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
@@ -4341,7 +4371,7 @@ export default function HR({ activeSub, onSubChange }) {
                   ) : (
                     <div style={{ padding: '64px 16px', textAlign: 'center', color: 'var(--muted)' }}>
                       <Users size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Pick a person</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Pick a Person</div>
                       <div style={{ fontSize: 12.5, marginTop: 4 }}>Their full profile opens right here - no page hopping.</div>
                     </div>
                   )}

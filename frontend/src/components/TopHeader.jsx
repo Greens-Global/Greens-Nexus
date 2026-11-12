@@ -425,14 +425,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                     : initials}
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {name}<TierMark tier={myTier} />
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
                     {email}
                   </div>
                   {subtitle && (
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
                       {subtitle}
                     </div>
                   )}
@@ -486,14 +486,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         position: 'sticky', top: 56, zIndex: 105, display: 'flex', alignItems: 'center',
         justifyContent: 'center', gap: 10, padding: '7px 16px',
         background: 'linear-gradient(var(--wk-live-tint), var(--wk-live-tint)) var(--wk-card)', borderBottom: '1px solid var(--wk-live-line)',
-        fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--ink)', flexWrap: 'wrap', textAlign: 'center',
+        fontFamily: 'Inter, sans-serif', fontSize: 13, color: 'var(--ink)', flexWrap: 'wrap', textAlign: 'center',
       }}>
         <UserCog size={13} style={{ color: 'var(--wk-live)', flexShrink: 0 }} />
         <span>You're acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}) - actions you take are attributed to them.</span>
         <button onClick={handleExitActAs} disabled={actAsStopping}
           style={{
             background: 'var(--wk-live-ink)', color: 'var(--wk-live-on)', border: 'none', borderRadius: 6,
-            padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: actAsStopping ? 'default' : 'pointer',
+            padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: actAsStopping ? 'default' : 'pointer',
             fontFamily: 'inherit', flexShrink: 0,
           }}>
           {actAsStopping ? 'Exiting…' : 'Exit Act As'}

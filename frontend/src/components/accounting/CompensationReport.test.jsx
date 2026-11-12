@@ -264,12 +264,29 @@ describe('CompensationReport', () => {
     expect(await screen.findByText(/No payroll on the ledger carries an employee in these months/)).toBeTruthy();
   });
 
+  // 11/11/2026: the month boxes are the house DateField (monthOnly), never a
+  // native month input - open it, pick the year, then the month.
+  function pickMonth(title, year, month) {
+    fireEvent.click(screen.getByTitle(title));
+    fireEvent.click(screen.getByTitle('Pick a year'));
+    fireEvent.click(screen.getByRole('button', { name: year }));
+    fireEvent.click(screen.getByRole('button', { name: month }));
+  }
+
+  it('shows the range as month names in the house box', async () => {
+    render(<CompensationReport />);
+    await screen.findByText('Valinda Cranfill');
+    pickMonth('To Month', '2026', 'Mar');
+    expect(screen.getByTitle('To Month').textContent).toBe('March 2026');
+    expect(document.querySelector('input[type="month"]')).toBeNull();
+  });
+
   // 10/30 (Neil): no Run Report button - a valid range runs itself; a bad
   // one shows why and never reads the ledger.
   it('refuses a range longer than a year', async () => {
     render(<CompensationReport />);
     await screen.findByText('Valinda Cranfill');
-    fireEvent.change(screen.getByLabelText('From Month'), { target: { value: '2024-01' } });
+    pickMonth('From Month', '2024', 'Jan');
     expect(screen.getByText('Pick at most 12 months.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Run Report' })).toBeNull();
     expect(api.getCompensationReport).toHaveBeenCalledTimes(1);
@@ -278,7 +295,7 @@ describe('CompensationReport', () => {
   it('a changed range runs by itself after a beat', async () => {
     render(<CompensationReport />);
     await screen.findByText('Valinda Cranfill');
-    fireEvent.change(screen.getByLabelText('From Month'), { target: { value: '2026-03' } });
+    pickMonth('From Month', '2026', 'Mar');
     await waitFor(() => expect(api.getCompensationReport).toHaveBeenCalledTimes(2), { timeout: 2500 });
     expect(api.getCompensationReport).toHaveBeenLastCalledWith('2026-03', expect.any(String));
   });

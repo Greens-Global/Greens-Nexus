@@ -831,6 +831,12 @@ def unassign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_cur
 
     removed = db.query(NexusGroupMember).filter(
         NexusGroupMember.group_id == jr_id, NexusGroupMember.email == email).delete(synchronize_session=False)
+    if not removed:
+        # Not their role (a stale screen, or two people at once): nothing to
+        # take away - never drop the tier of a role they still hold
+        # (People review, 11/11/2026).
+        db.rollback()
+        raise HTTPException(status_code=409, detail="They no longer hold this job role - refresh to see their current role.")
     row = db.query(NexusRole).filter(NexusRole.email == email).first()
     if row:
         row.role = "employee"

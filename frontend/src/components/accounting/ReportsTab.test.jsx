@@ -29,6 +29,9 @@ const pnl = {
 };
 const cash = { ...pnl, sections: [{ ...pnl.sections[0], total: 1200, accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1200 }] }, pnl.sections[1]] };
 
+// DateField as a plain box (the house date picker, 11/11/2026 picture 11), so a test can type a date.
+vi.mock('../../tasks/components', async (importOriginal) => ({ ...(await importOriginal()),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} data-datefield="1" value={value || ''} onChange={(e) => onChange(e.target.value)} /> }));
 vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../api', () => ({
   api: {
@@ -118,7 +121,7 @@ vi.mock('../../egnyte/EgnyteFolderPick', () => ({
 
 import ReportsTab from './ReportsTab';
 import { api, withFreshReads } from '../../api';
-import { requestReportDrill, requestLedgerSearch } from './drill';
+import { requestReportDrill, requestLedgerSearch, requestStatement } from './drill';
 import { resetAccountingPrefs } from './prefs';
 import { resetRefreshForTests } from '../../lib/refreshState';
 
@@ -195,6 +198,17 @@ describe('Cross-tab drill with filters (Oct 7)', () => {
     render(<ReportsTab />);
     await waitFor(() => expect(screen.getByTestId('ledger-search').dataset.party).toBe('C1'));
     expect(JSON.parse(screen.getByTestId('ledger-search').dataset.drillDims)).toEqual({ departments: ['9500'], journals: ['ARJ'] });
+  });
+});
+
+// 11/11/2026 (item 4): the dashboard's YTD totals open the Income Statement
+// itself on their window and entities - not a pile of lines.
+describe('A statement sent from the dashboard (11/11/2026)', () => {
+  it('runs the Income Statement on the window and entities, with no lines open', async () => {
+    requestStatement({ entities: ['15000'], from: '2026-01-01', to: '2026-08-31', book: 'cash' });
+    render(<ReportsTab />);
+    await waitFor(() => expect(api.getAccountingPnl).toHaveBeenLastCalledWith('2026-01-01', '2026-08-31', '15000', null, 'cash'));
+    expect(screen.queryByTestId('ledger-search')?.textContent || '').not.toMatch(/^drill:/);
   });
 });
 

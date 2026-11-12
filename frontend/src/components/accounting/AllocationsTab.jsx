@@ -11,6 +11,7 @@ import { formatHM } from '../../lib/hoursText';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../../stepup/StepUp';
+import { StatusLabel } from '../StatusLabel';
 
 // Accounting > Allocations (Neil, 10/01: "allocations journal entry from
 // people and done monthly"). Pick a month; the basis is each person's hours
@@ -32,7 +33,8 @@ const th = { textAlign: 'left', padding: '6px 8px', fontSize: '0.72rem', fontWei
 const thNum = { ...th, textAlign: 'right' };
 const td = { padding: '4px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
 const tdNum = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
-const warn = { display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: '#92400e', background: 'rgba(180,83,9,0.13)' };
+// The house status label, amber (11/11/2026 Accounting pass, picture 12).
+const Warn = ({ children }) => <StatusLabel size="sm" color="#d97706" label={children} />;
 // Hours read as H:MM (Neil, 11/04/2026) - the exports keep their numbers.
 const hours = (min) => formatHM(min);
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -138,8 +140,8 @@ export default function AllocationsTab({ canEdit = false }) {
             {preview.totals.people} people · wages <strong><Amount value={preview.totals.wages} /></strong> · debits <strong><Amount value={preview.totals.debits} /></strong> · credits <strong><Amount value={preview.totals.credits} /></strong>
           </BarSummary>
         )}
-        {preview?.currencies?.length > 1 && <span style={warn}>Mixed currencies: {preview.currencies.join(', ')}</span>}
-        {preview && unmapped > 0 && <span style={warn}>{unmapped} unmapped</span>}
+        {preview?.currencies?.length > 1 && <Warn>{`Mixed Currencies: ${preview.currencies.join(', ')}`}</Warn>}
+        {preview && unmapped > 0 && <Warn>{`${unmapped} Unmapped`}</Warn>}
         <div className="acct-bar-end">
           <BarMore level={4}>
           <SyncButton onSync={previewSync.sync} busy={state.loading && !!preview} syncedAt={previewSync.syncedAt} what="Preview" />
@@ -223,14 +225,14 @@ export default function AllocationsTab({ canEdit = false }) {
                     {preview.people.map((p) => p.sites.map((s, i) => (
                       <tr key={`${p.email}-${i}`}>
                         {i === 0 && <td style={td} rowSpan={p.sites.length}><strong>{p.name}</strong><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{p.payType === 'fixed' ? 'Salaried' : 'Hourly'}{p.department ? ` · ${p.department}` : ''}</div></td>}
-                        {i === 0 && <td style={td} rowSpan={p.sites.length}>{p.companyName || <span style={warn}>No company</span>}</td>}
+                        {i === 0 && <td style={td} rowSpan={p.sites.length}>{p.companyName || <Warn>No Company</Warn>}</td>}
                         {i === 0 && <td style={tdNum} rowSpan={p.sites.length}><Amount value={p.wages} />{p.currency !== 'USD' ? ` ${p.currency}` : ''}</td>}
                         <td style={td}>{s.workSite}</td>
                         <td style={tdNum}>{hours(s.workedMin)}</td>
                         <td style={tdNum}>{s.share.toFixed(1)}%</td>
                         <td style={tdNum}><Amount value={s.amount} /></td>
-                        <td style={td}>{s.entity || <span style={warn}>Unmapped</span>}</td>
-                        <td style={td}>{s.account || <span style={warn}>Unmapped</span>}</td>
+                        <td style={td}>{s.entity || <Warn>Unmapped</Warn>}</td>
+                        <td style={td}>{s.account || <Warn>Unmapped</Warn>}</td>
                       </tr>
                     )))}
                   </tbody>
@@ -242,10 +244,10 @@ export default function AllocationsTab({ canEdit = false }) {
                   <thead><tr><th style={th}>Entry</th><th style={th}>Account</th><th style={th}>Entity</th><th style={th}>Dept</th><th style={th}>Memo</th><th style={thNum}>Debit</th><th style={thNum}>Credit</th></tr></thead>
                   <tbody>
                     {lines.map((l, i) => (
-                      <tr key={i} style={l.mapped ? undefined : { background: 'rgba(180,83,9,0.06)' }}>
+                      <tr key={i} style={l.mapped ? undefined : { background: 'var(--warn-bg)' }}>
                         <td style={{ ...td, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{l.entry}</td>
-                        <td style={td}>{l.acct_no || <span style={warn}>Unmapped</span>}</td>
-                        <td style={td}>{l.location_id || <span style={warn}>Unmapped</span>}</td>
+                        <td style={td}>{l.acct_no || <Warn>Unmapped</Warn>}</td>
+                        <td style={td}>{l.location_id || <Warn>Unmapped</Warn>}</td>
                         <td style={td}>{l.dept_id}</td>
                         <td style={td}>{l.memo}</td>
                         <td style={tdNum}><Amount value={l.debit} zero="blank" /></td>

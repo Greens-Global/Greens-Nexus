@@ -49,7 +49,7 @@ function Cell({ value, dataLabel }) {
     <span
       title={(value ?? '') === '' ? '' : String(value)}
       data-label={dataLabel}
-      style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', fontSize: '0.82rem', color: 'var(--text-primary)' }}
+      style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', fontSize: 13, color: 'var(--text-primary)' }}
     >
       {display}
     </span>
@@ -184,11 +184,11 @@ export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir
             </span>
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                <strong style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <strong style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {asset.name}
                 </strong>
                 {hasKids && (
-                  <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '0.68rem', fontWeight: 700, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)', padding: '1px 6px', borderRadius: 999 }}>
+                  <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)', padding: '1px 6px', borderRadius: 999 }}>
                     <Link2 size={9} />
                     {kids.length}
                   </span>
@@ -205,7 +205,7 @@ export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir
         <td style={tdStyle}><StageChip devStage={asset.devStage} /></td>
         <td style={tdStyle}><Cell value={asset.entity} dataLabel="Owner" /></td>
         <td style={tdStyle}><Cell value={asset.manager} dataLabel="Asset Manager" /></td>
-        <td style={{ ...tdStyle, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--text-primary)', fontSize: '0.8rem' }} data-label="Size">
+        <td style={{ ...tdStyle, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--text-primary)', fontSize: 13 }} data-label="Size">
           {metric(asset)}
         </td>
       </tr>

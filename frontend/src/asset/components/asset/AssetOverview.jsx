@@ -14,9 +14,9 @@ import { StatusLabel } from '../../../components/StatusLabel.jsx';
 // Manage used; Recent Activity is the log.
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', padding: '14px 16px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 };
-const head = { display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)' };
-const rowBtn = { display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '7px 8px', border: 'none', borderRadius: 8, background: 'none', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text-primary)', fontSize: '0.84rem' };
-const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)', padding: '4px 8px' };
+const head = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' };
+const rowBtn = { display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '7px 8px', border: 'none', borderRadius: 8, background: 'none', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text-primary)', fontSize: 13 };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)', padding: '4px 8px' };
 
 const toneOf = (days) => (days < 0 ? 'hsl(var(--color-red))' : days <= 30 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-gold))');
 const dueText = (days) => (days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due Today' : `Due in ${days}d`);
@@ -54,7 +54,7 @@ export function AssetOverview({ asset, store, onTab, onEdit, onGoTo }) {
               <button key={i} type="button" style={rowBtn} onMouseEnter={hover(true)} onMouseLeave={hover(false)} onClick={() => onTab?.(CRITICAL_ITEM_TAB[x.cat] || 'property')}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: toneOf(x.days), flexShrink: 0 }} />
                 <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.label}{x.detail ? ` - ${x.detail}` : ''}</span>
-                <span style={{ fontSize: '0.76rem', fontWeight: 600, color: toneOf(x.days), whiteSpace: 'nowrap' }}>{dueText(x.days)} · {formatDate(x.date)}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: toneOf(x.days), whiteSpace: 'nowrap' }}>{dueText(x.days)} · {formatDate(x.date)}</span>
               </button>
             ))}
             {warnings.map((w) => (
@@ -81,7 +81,7 @@ export function AssetOverview({ asset, store, onTab, onEdit, onGoTo }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {gaps.missing.slice(0, 12).map((field) => (
               <button key={field} type="button" onClick={() => onEdit?.(field)} title={`Fill in ${field}`}
-                style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)', borderRadius: 999, padding: '3px 10px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', fontFamily: 'inherit' }}>
+                style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)', borderRadius: 999, padding: '3px 10px', fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', fontFamily: 'inherit' }}>
                 {field}
               </button>
             ))}
@@ -106,7 +106,7 @@ export function AssetOverview({ asset, store, onTab, onEdit, onGoTo }) {
                     <StatusLabel label={l.action === 'added' ? 'Added' : l.action === 'removed' ? 'Removed' : 'Edited'} color={l.action === 'removed' ? 'hsl(var(--color-red))' : l.action === 'added' ? 'hsl(var(--color-green))' : 'hsl(var(--color-blue))'} size="sm" />
                     {' '}{l.item || l.section}
                   </span>
-                  <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{l.user ? `${l.user} · ` : ''}{formatDateTime(l.ts)}</span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)' }}>{l.user ? `${l.user} · ` : ''}{formatDateTime(l.ts)}</span>
                 </span>
                 <ArrowRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
               </button>

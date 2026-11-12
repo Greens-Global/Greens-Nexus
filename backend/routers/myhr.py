@@ -269,25 +269,21 @@ def _signature_fields(e: NexusEmployee, db: Session) -> dict:
         "linkedinUrl": (e.linkedin_url or "").strip(),
         "twitterUrl": (company.twitter_url if company else "") or "",
         "instagramUrl": (company.instagram_url if company else "") or "",
+        "accent": (company.signature_color if company else "") or "",
     }
 
 
 _SCRIPT_FONT = "'Brush Script MT','Segoe Script',cursive"
-# The typewriter @keyframes travel WITH the copied HTML (Pranshu, Sep 16:
-# "still it is not live" after pasting) - a signature copied via the
-# Clipboard API carries its own <style> block into whatever it's pasted
-# into, and modern compose surfaces (Outlook Web, New Outlook/WebView2,
-# Gmail) are just Chromium pages, so the reveal genuinely plays there, not
-# only in our own preview. Classic Win32 Outlook's Word rendering engine
-# doesn't run CSS animations - there the line still renders, just as
-# static text with no animation, because the base/fallback state below is
-# NOT clipped (width kept at 100% for that reason; only the parent
-# scoping class is inert if unsupported).
-_TYPEWRITER_CSS = (
-    '<style>@keyframes sigTypewriter{from{width:0}to{width:100%}}'
-    '.sig-closing{display:inline-block;overflow:hidden;white-space:nowrap;'
-    'width:100%;animation:sigTypewriter 1.1s steps(24,end) 1}</style>'
-)
+# The Sep 16 typewriter reveal on the sign-off is gone (Neil, 11/11/2026):
+# mail clients strip a pasted <style> block, so it only ever played in our
+# own preview, and replayed there on every change.
+
+
+def _accent(f: dict) -> str:
+    """The signature's color: the company's own (Settings > Branding > Email
+    Signature) or a sender override's, else Greens green (Neil, 11/11/2026)."""
+    import email_theme
+    return email_theme.normalize_hex(f.get("accent") or "") or _BRAND_GREEN
 
 
 def _normalize_url(url: str) -> str:
@@ -323,10 +319,19 @@ _ICON_EMAIL = "✉"   # ENVELOPE
 # color to keep in sync.
 
 
+# A spelled-out color, never `inherit`: Outlook on the web drops `inherit` on
+# paste and the link turns blue and underlined (checked 11/11/2026).
+_LINK_STYLE = "color:#333333;text-decoration:none;"
+# Outlook on the web keeps a font and size only on a <div> (not a table cell
+# or a span), and only with Keep Source Formatting - each template sits in
+# one so its text is Arial 13px there too (checked 11/11/2026).
+_WRAP = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333333;">'
+
+
 def _phone_text(f: dict) -> str:
     if not f["phone"]:
         return ""
-    return f'<span style="color:inherit;">{_ICON_PHONE}</span>&nbsp;{f["phone"]}'
+    return f'<span style="color:inherit;font-size:12px;">{_ICON_PHONE}</span>&nbsp;{f["phone"]}'
 
 
 def _email_text(f: dict) -> str:
@@ -336,8 +341,8 @@ def _email_text(f: dict) -> str:
     while still being clickable."""
     if not f["email"]:
         return ""
-    return (f'<a href="mailto:{f["email"]}" style="color:inherit;text-decoration:none;">'
-            f'<span style="color:inherit;">{_ICON_EMAIL}</span>&nbsp;{f["email"]}</a>')
+    return (f'<a href="mailto:{f["email"]}" style="{_LINK_STYLE}">'
+            f'<span style="color:inherit;font-size:16px;line-height:12px;">{_ICON_EMAIL}</span>&nbsp;{f["email"]}</a>')
 
 
 def _website_text(f: dict) -> str:
@@ -351,7 +356,7 @@ def _website_text(f: dict) -> str:
     href = _normalize_url(f["website"])
     if not href:
         return f["website"]
-    return f'<a href="{href}" style="color:inherit;text-decoration:none;">{f["website"]}</a>'
+    return f'<a href="{href}" style="{_LINK_STYLE}">{f["website"]}</a>'
 
 
 def _logo_img(f: dict, img_style: str) -> str:
@@ -385,7 +390,7 @@ def _social_icons(f: dict) -> str:
     if not active:
         return ""
     cells = "".join(
-        f'<td style="background:{_BRAND_GREEN};border-radius:50%;text-align:center;" width="22" height="22">'
+        f'<td style="background:{_accent(f)};border-radius:50%;text-align:center;" width="22" height="22">'
         f'<a href="{url}" style="color:#ffffff;font-size:10px;font-weight:bold;text-decoration:none;'
         f'display:block;line-height:22px;">{label}</a></td>'
         f'<td style="width:6px;font-size:1px;line-height:1px;">&nbsp;</td>'
@@ -465,7 +470,7 @@ def _render_classic(f: dict, field_order=None) -> str:
     social = _social_icons(f)
     social_row = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if social else ""
     closing = _closing_line(f, "color:#333333;padding-bottom:4px;")
-    return (
+    return _WRAP + (
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
         f'<tr>{logo_cell}<td style="vertical-align:top;">'
         f'{closing}'
@@ -473,7 +478,7 @@ def _render_classic(f: dict, field_order=None) -> str:
         f'{rows}</table></td></tr>'
         f'{social_row}'
         '</table>'
-    )
+    ) + '</div>'
 
 
 def _render_modern(f: dict, field_order=None) -> str:
@@ -483,15 +488,15 @@ def _render_modern(f: dict, field_order=None) -> str:
     social = _social_icons(f)
     social_row = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if social else ""
     closing = _closing_line(f, "color:#555555;margin-bottom:4px;")
-    return (
+    return _WRAP + (
         f'<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
-        f'<tr><td style="border-left:3px solid {_BRAND_GREEN};padding-left:12px;">'
+        f'<tr><td style="border-left:3px solid {_accent(f)};padding-left:12px;">'
         f'{closing}'
         f'<div style="font-size:15px;font-weight:bold;color:#111111;">{f["name"]}</div>'
-        f'<div style="color:{_BRAND_GREEN};font-weight:600;margin:2px 0 6px;">{f["role"]}</div>'
+        f'<div style="color:{_accent(f)};font-weight:600;margin:2px 0 6px;">{f["role"]}</div>'
         f'<div style="color:#555555;">{contact}</div>'
         f'</td></tr>{logo_row}{social_row}</table>'
-    )
+    ) + '</div>'
 
 
 def _render_minimal(f: dict, field_order=None) -> str:
@@ -500,14 +505,14 @@ def _render_minimal(f: dict, field_order=None) -> str:
     social = _social_icons(f)
     social_block = f'<div style="margin-top:4px;">{social}</div>' if social else ""
     closing = _closing_line(f, "font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#666666;margin-bottom:3px;")
-    return (
+    return _WRAP + (
         f'{closing}'
         '<div style="font-family:Arial,Helvetica,sans-serif;font-size:12.5px;color:#333333;">'
         f'<span style="font-weight:bold;color:#111111;">{f["name"]}</span>'
         f'{tail}'
         '</div>'
         f'{social_block}'
-    )
+    ) + '</div>'
 
 
 def _render_bold(f: dict, field_order=None) -> str:
@@ -522,9 +527,9 @@ def _render_bold(f: dict, field_order=None) -> str:
     social = _social_icons(f)
     social_block = f'<div style="padding-top:8px;">{social}</div>' if social else ""
     closing = _closing_line(f, "color:#666666;font-size:12.5px;padding-bottom:6px;")
-    return (
+    return _WRAP + (
         '<table style="font-family:Arial,Helvetica,sans-serif;border-collapse:collapse;">'
-        f'<tr><td style="background:{_BRAND_GREEN};padding:10px 14px;border-radius:4px 4px 0 0;" colspan="2">'
+        f'<tr><td style="background:{_accent(f)};padding:10px 14px;border-radius:4px 4px 0 0;" colspan="2">'
         f'<span style="color:#ffffff;font-size:15px;font-weight:bold;">{f["name"]}</span>'
         f'{role_span}'
         '</td></tr>'
@@ -534,7 +539,7 @@ def _render_bold(f: dict, field_order=None) -> str:
         f'<table style="border-collapse:collapse;">{rows}</table></td></tr></table>'
         f'{social_block}'
         '</td></tr></table>'
-    )
+    ) + '</div>'
 
 
 def _render_sincerely(f: dict, field_order=None) -> str:
@@ -549,46 +554,17 @@ def _render_sincerely(f: dict, field_order=None) -> str:
     social = _social_icons(f)
     social_row = f'<tr><td colspan="2" style="padding-top:10px;">{social}</td></tr>' if social else ""
     role_line = _role_company_line(f)
-    return (
-        _TYPEWRITER_CSS +
+    return _WRAP + (
         '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
-        f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;"><span class="sig-closing">{closing},</span></td></tr>'
+        f'<tr><td colspan="2" style="padding-bottom:8px;"><div style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;">{closing},</div></td></tr>'
         f'<tr>{logo_cell}<td style="vertical-align:top;">'
         f'<div style="font-weight:bold;color:#111111;font-size:14px;">{f["name"]}</div>'
-        f'<div style="color:{_BRAND_GREEN};font-weight:600;margin-bottom:4px;">{role_line}</div>'
+        f'<div style="color:{_accent(f)};font-weight:600;margin-bottom:4px;">{role_line}</div>'
         f'<table style="border-collapse:collapse;">{rows}</table>'
         '</td></tr>'
         f'{social_row}'
         '</table>'
-    )
-
-
-def _render_kind_regards(f: dict, field_order=None) -> str:
-    closing = f["closing"] or "Kind regards"
-    logo_cell = (f'<td style="padding-right:12px;vertical-align:top;">'
-                 f'{_logo_img(f, "max-height:52px;max-width:110px;")}'
-                 + (f'<div style="padding-top:8px;">{_social_icons(f)}</div>' if _social_icons(f) else "")
-                 + '</td>' if f["logoUrl"] else "")
-    rows = "".join(
-        f'<tr><td style="padding:2px 0;color:#333333;font-size:13px;line-height:18px;">{v}</td></tr>'
-        for v in _ordered_row_values(f, ("phone", "email", "website"), field_order)
-    )
-    # No logo -> the social row still needs somewhere to live.
-    social = _social_icons(f)
-    fallback_social = f'<tr><td colspan="2" style="padding-top:8px;">{social}</td></tr>' if not f["logoUrl"] and social else ""
-    role_line = _role_company_line(f)
-    return (
-        _TYPEWRITER_CSS +
-        '<table style="font-family:Arial,Helvetica,sans-serif;font-size:13px;border-collapse:collapse;">'
-        f'<tr><td colspan="2" style="font-family:{_SCRIPT_FONT};font-size:22px;color:#333333;padding-bottom:8px;"><span class="sig-closing">{closing},</span></td></tr>'
-        f'<tr>{logo_cell}<td style="border-left:2px solid {_BRAND_GREEN};padding-left:12px;vertical-align:top;">'
-        f'<div style="font-weight:bold;color:{_BRAND_GREEN};font-size:14px;">{f["name"]}</div>'
-        f'<div style="color:#333333;margin-bottom:4px;">{role_line}</div>'
-        f'<table style="border-collapse:collapse;">{rows}</table>'
-        '</td></tr>'
-        f'{fallback_social}'
-        '</table>'
-    )
+    ) + '</div>'
 
 
 # id -> (label, render fn). Order here is the gallery order shown to employees.
@@ -598,12 +574,19 @@ SIGNATURE_TEMPLATES = {
     "minimal":   ("Minimal", _render_minimal),
     "bold":      ("Bold", _render_bold),
     "sincerely": ("Sincerely", _render_sincerely),
-    "regards":   ("Kind Regards", _render_kind_regards),
 }
 _DEFAULT_TEMPLATE = "classic"
+# Kind Regards was folded into Sincerely (Neil, 11/11/2026: near twins); a
+# company or override that still says "regards" renders as Sincerely.
+_TEMPLATE_ALIASES = {"regards": "sincerely"}
 
 
-def admin_preview_fields(company) -> dict:
+def template_id(tid: str) -> str:
+    tid = _TEMPLATE_ALIASES.get(tid or "", tid or "")
+    return tid if tid in SIGNATURE_TEMPLATES else _DEFAULT_TEMPLATE
+
+
+def admin_preview_fields(company, color: str = None) -> dict:
     """Sample fields for the company-wide template picker in Settings - real
     branding, placeholder person data (there's no 'current employee' in an
     admin's company-wide preview, since the choice applies to everyone).
@@ -624,13 +607,15 @@ def admin_preview_fields(company) -> dict:
         "linkedinUrl": "",
         "twitterUrl": (company.twitter_url if company else "") or "",
         "instagramUrl": (company.instagram_url if company else "") or "",
+        # An unsaved pick from the Settings color box previews before Save.
+        "accent": color if color is not None else ((company.signature_color if company else "") or ""),
     }
 
 
-def admin_preview_templates(company) -> list:
+def admin_preview_templates(company, color: str = None) -> list:
     """Every template pre-rendered with the company's real branding, for the
     Settings picker (backend/routers/hr.py's /entities/{id}/signature-templates)."""
-    fields = admin_preview_fields(company)
+    fields = admin_preview_fields(company, color)
     esc = {k: html_lib.escape(v) if isinstance(v, str) else v for k, v in fields.items()}
     return [{"id": tid, "label": label, "html": render_fn(esc)}
             for tid, (label, render_fn) in SIGNATURE_TEMPLATES.items()]
@@ -654,7 +639,7 @@ def admin_preview_templates(company) -> list:
 _OVERRIDE_FIELD_KEYS = (
     "name", "role", "phone", "email", "website", "address",
     "companyName", "companyPhone", "logoUrl",
-    "facebookUrl", "linkedinUrl", "twitterUrl", "instagramUrl", "closing",
+    "facebookUrl", "linkedinUrl", "twitterUrl", "instagramUrl", "closing", "accent",
 )
 SENDER_OVERRIDES_SETTING_KEY = "signature.sender_overrides"
 
@@ -697,9 +682,7 @@ def _render_override_signature(grp: dict) -> dict:
            [{"label": html_lib.escape(i.get("label", "")), "value": html_lib.escape(i.get("value", ""))} for i in v]
         for k, v in fields.items()
     }
-    tid = grp.get("template") or _DEFAULT_TEMPLATE
-    if tid not in SIGNATURE_TEMPLATES:
-        tid = _DEFAULT_TEMPLATE
+    tid = template_id(grp.get("template"))
     field_order = grp.get("fieldOrder") or None
     html = SIGNATURE_TEMPLATES[tid][1](esc, field_order)
     return {"fields": fields, "html": html, "template": tid}
@@ -716,9 +699,7 @@ def _render_signature(e: NexusEmployee, db: Session, template: str = None) -> di
     # Template is a company-wide admin choice (Settings), not personal - an
     # employee's own signature always uses their employer's default, never a
     # per-person pick (Pranshu, Sep 16).
-    tid = template or (company.signature_template if company else "") or _DEFAULT_TEMPLATE
-    if tid not in SIGNATURE_TEMPLATES:
-        tid = _DEFAULT_TEMPLATE
+    tid = template_id(template or (company.signature_template if company else ""))
     return {"fields": fields, "html": SIGNATURE_TEMPLATES[tid][1](esc), "template": tid}
 
 
@@ -751,9 +732,7 @@ class SignatureIn(BaseModel):
     linkedin_url: Optional[str] = None   # personal LinkedIn for the signature's icon row (Sep 19)
 
 
-@router.put("/signature")
-def save_my_signature(body: SignatureIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    e = _me(db, user["email"])
+def _apply_signature(e: NexusEmployee, body: SignatureIn) -> None:
     if body.display_name is not None:
         e.signature_display_name = body.display_name.strip()[:120]
     if body.closing is not None:
@@ -762,9 +741,27 @@ def save_my_signature(body: SignatureIn, user: dict = Depends(get_current_user),
         e.linkedin_url = body.linkedin_url.strip()[:300]
     if body.phone is not None:
         e.signature_phone = body.phone.strip()[:50]
+
+
+@router.put("/signature")
+def save_my_signature(body: SignatureIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = _me(db, user["email"])
+    _apply_signature(e, body)
     e.updated_at = _now()
     db.commit()
     return _signature_dict(e, db)
+
+
+@router.post("/signature/preview")
+def preview_my_signature(body: SignatureIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """My Profile's live preview while typing (Neil, 11/11/2026): the same
+    render as a save, then rolled back - nothing is stored."""
+    e = _me(db, user["email"])
+    try:
+        _apply_signature(e, body)
+        return {"html": _render_signature(e, db)["html"]}
+    finally:
+        db.rollback()
 
 
 # Personal signature logo (Sep 19, Pranshu: "i want to have employee the
@@ -957,7 +954,19 @@ def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session
     if len(q) < 2:
         raise HTTPException(400, "q too short")
     match = None
-    for e in db.query(NexusEmployee).filter(NexusEmployee.status != "offboarded").all():
+    # The company wall, exactly as /myhr/directory applies it (People review,
+    # 11/11/2026): a hover card never names someone the caller's pickers hide.
+    import auth
+    from sqlalchemy import false, or_
+    pq = db.query(NexusEmployee).filter(NexusEmployee.status != "offboarded")
+    scope = auth.company_scope(user, db)
+    if scope is not None:
+        blank = or_(NexusEmployee.company.is_(None), NexusEmployee.company == "")
+        if auth.admits_blank(scope):
+            pq = pq.filter(or_(NexusEmployee.company.in_(list(scope)), blank) if scope else blank)
+        else:
+            pq = pq.filter(NexusEmployee.company.in_(list(scope))) if scope else pq.filter(false())
+    for e in pq.all():
         # Both spellings are searchable: people type the Teams name they see,
         # but older links and emails still carry the first+last form.
         names = {f"{e.first_name} {e.last_name}".strip().lower(), _person_name(e).lower()} - {""}
@@ -968,7 +977,6 @@ def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session
             match = e
     if not match:
         raise HTTPException(404, "No matching person")
-    import auth
     return {"name": _person_name(match),
             "jobTitle": match.job_title, "department": match.department,
             "photoUrl": match.photo_url, "workEmail": match.work_email,

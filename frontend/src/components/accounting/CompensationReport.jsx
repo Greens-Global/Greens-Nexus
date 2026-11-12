@@ -22,8 +22,9 @@ import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
 import SidePanel from './SidePanel';
 import EntryDetail from './EntryDetail';
 import { parkDrillReturn, requestReportDrill, takeDrillReturn } from './drill';
-import { Avatar } from '../../tasks/components';
+import { Avatar, DateField } from '../../tasks/components';
 import { formatHM, formatHoursHM } from '../../lib/hoursText';
+import { WarnMark } from './warnMark';
 
 // Accounting > Reporting > Employee Compensation (Neil, 10/15: "We still need
 // to make employee compensation report"). Rebuilt after the 10/27 call with
@@ -251,9 +252,9 @@ export default function CompensationReport() {
     <div ref={setBox} className="acct-fit-stack" data-testid="compensation-stack" style={fit}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <span style={inline}>
-          <input type="month" value={from} onChange={(e) => setRange([e.target.value, to])} style={control} aria-label="From Month" title="From Month" />
+          <span style={{ width: 130 }}><DateField monthOnly value={from} onChange={(v) => v && setRange([v, to])} title="From Month" style={{ ...control, width: '100%' }} /></span>
           to
-          <input type="month" value={to} onChange={(e) => setRange([from, e.target.value])} style={control} aria-label="To Month" title="To Month" />
+          <span style={{ width: 130 }}><DateField monthOnly value={to} onChange={(v) => v && setRange([from, v])} title="To Month" style={{ ...control, width: '100%' }} /></span>
         </span>
         <BarMore level={1} active={view !== 'people' ? 1 : 0}>
         <div style={{ display: 'flex', gap: 4 }} role="group" aria-label="View">
@@ -296,7 +297,8 @@ export default function CompensationReport() {
             {hoursPending && <span role="status" style={muted}>Loading Time Clock hours... {buildingHint(monthsBetween(asked[0], asked[1]))}</span>}
           </div>
           {hoursState.error && (
-            <div role="alert" style={{ margin: '0 12px 6px', fontSize: '0.76rem', color: '#b45309' }}>
+            <div role="alert" style={{ margin: '0 12px 6px', fontSize: '0.76rem', color: 'var(--warn-fg)' }}>
+              <WarnMark />
               Time Clock hours could not be built: {hoursState.error}{' '}
               <button type="button" style={linkBtn} onClick={() => loadHours(asked)}>Try Again</button>
             </div>
@@ -330,7 +332,7 @@ export default function CompensationReport() {
                         <button type="button" style={{ ...plainBtn, display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={() => openStatement(r)} title={`Open ${r.name}'s compensation report`}>
                           <Avatar email={r.email} name={r.name} size={26} card={false} />
                           <span><strong>{r.name}</strong><div style={muted}>{r.code}</div>
-                            {r.nameMismatch && <div style={{ ...muted, color: '#b45309' }} title={`In People, ${r.code} is on ${r.nameMismatch}'s record. Fix the employee code on People > Job.`}>People has {r.code} on {r.nameMismatch}</div>}
+                            {r.nameMismatch && <div style={{ ...muted, color: 'var(--warn-fg)' }} title={`In People, ${r.code} is on ${r.nameMismatch}'s record. Fix the employee code on People > Job.`}><WarnMark />People has {r.code} on {r.nameMismatch}</div>}
                           </span>
                         </button>
                       </td>
@@ -703,7 +705,7 @@ function LedgerLinesPanel({ panel, periods, onClose, onBack, onReports }) {
         </div>
       )}
       {data?.truncated && <p style={{ ...muted, margin: 0 }}>More lines than shown here - open the account in Reports for every line.</p>}
-      {off && <p role="note" style={{ ...muted, margin: 0, color: '#b45309' }}>These lines add up to {formatAmount(data.total)}; the report shows {formatAmount(figure)}. The ledger may have changed since the report was read - Sync reads it again.</p>}
+      {off && <p role="note" style={{ ...muted, margin: 0, color: 'var(--warn-fg)' }}><WarnMark />These lines add up to {formatAmount(data.total)}; the report shows {formatAmount(figure)}. The ledger may have changed since the report was read - Sync reads it again.</p>}
       {!!accountsShown.length && (
         <div style={{ ...muted, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'baseline' }}>
           <span>Open in Reports:</span>
@@ -712,7 +714,7 @@ function LedgerLinesPanel({ panel, periods, onClose, onBack, onReports }) {
           ))}
         </div>
       )}
-      {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+      {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
     </SidePanel>
   );
 }

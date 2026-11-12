@@ -48,7 +48,7 @@ export function dueDateStatus(days) {
 export function renewalCell(days, dateLabel) {
   return (
     <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
-      <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: '0.8rem' }}>{dateLabel}</span>
+      <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{dateLabel}</span>
       {days == null ? null
         : days < 0 ? <StatusBadge tone="red">Lapsed {Math.abs(days)}d</StatusBadge>
         : days <= 60 ? <StatusBadge tone="orange">Renews in {days}d</StatusBadge>

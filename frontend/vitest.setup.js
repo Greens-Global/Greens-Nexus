@@ -2,7 +2,16 @@
 // lacks but components touch on mount (so a render-smoke test doesn't throw on
 // an unrelated missing API and mask a real crash).
 import '@testing-library/jest-dom/vitest';
+import { configure } from '@testing-library/react';
 import { vi } from 'vitest';
+
+// findBy* / waitFor give up after 1 s by default. The full suite runs ~900
+// files in parallel, and on a loaded CI runner a screen whose data lands in
+// 1.2 s failed a different, unrelated test on each run (11/11/2026: Workday,
+// Credential Vault and a Preventive Maintenance test on three runs of one PR;
+// #1118 needed three attempts). 5 s is patience, not leniency - a wait that
+// never resolves still fails, and a passing test is no slower.
+configure({ asyncUtilTimeout: 5000 });
 
 // IntersectionObserver - used by the task list's incremental-render sentinel.
 if (!globalThis.IntersectionObserver) {

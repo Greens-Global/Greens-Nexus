@@ -23,6 +23,9 @@ const summary = {
   ],
 };
 
+// DateField as a plain box (the house date picker, 11/11/2026 picture 11), so a test can type a date.
+vi.mock('../../tasks/components', async (importOriginal) => ({ ...(await importOriginal()),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} data-datefield="1" value={value || ''} onChange={(e) => onChange(e.target.value)} /> }));
 vi.mock('../../api', () => ({
   api: {
     getAmaSummary: vi.fn(async () => summary),
@@ -57,7 +60,8 @@ beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('ManagementFeesTab', () => {
   it('renders the agreements with fees, figures and the next billing date', async () => {
     render(<ManagementFeesTab canEdit />);
-    expect(screen.getByText('Management Fees')).toBeTruthy();
+    // No heading of its own (as AMA, picture 1): the Accounting page line names the page.
+    expect(screen.queryByRole('heading', { name: 'Management Fees' })).toBeNull();
     const name = await screen.findByText('15000 Greens Escondido, LLC.');
     const tr = name.closest('tr');
     expect(within(tr).getByText('90000 Greens Asset Management')).toBeTruthy();

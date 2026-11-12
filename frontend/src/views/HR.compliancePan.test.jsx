@@ -41,14 +41,13 @@ describe('Compliance - PAN (India)', () => {
     expect(updateEmployee).not.toHaveBeenCalled();
   }, 20000);
 
-  it('saves a valid PAN uppercased with the rest of the record', async () => {
+  it('saves a valid PAN uppercased - only the changed key; the server merges the rest (11/11/2026)', async () => {
     const { input, onSaved } = await open();
     fireEvent.change(input, { target: { value: 'abcde 1234f' } });
     expect(save().disabled).toBe(false);
     fireEvent.click(save());
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const body = updateEmployee.mock.calls[0][1];
-    expect(body.compliance.pan).toBe('ABCDE1234F');
-    expect(body.compliance.workAuth).toBe('citizen');
+    expect(body.compliance).toEqual({ pan: 'ABCDE1234F' });
   }, 20000);
 });

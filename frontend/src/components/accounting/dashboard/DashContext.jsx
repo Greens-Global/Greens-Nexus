@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { api } from '../../../api';
 import { buildLedger, incomeStatementWindow } from '../../../accounting/dashboard/model/ledger';
 import { lastClosedKey, mEnd, monthLong, mShort, mStart, monthsBetween, shiftKey } from '../../../accounting/dashboard/model/months';
@@ -17,6 +18,12 @@ import { SCENARIOS } from '../../../accounting/dashboard/model/cash-plan';
 // same ones the accounting app runs, compiled to plain JavaScript.
 
 const Ctx = createContext(null);
+
+/** True when the books could not be read (11/11/2026): LoadingBox then says
+ * "Could not load" instead of waiting forever. False outside the provider. */
+export function useBooksDown() {
+  return !!useContext(Ctx)?.down;
+}
 
 export function useDash() {
   const c = useContext(Ctx);
@@ -47,6 +54,7 @@ const writeLS = (patch) => { try { localStorage.setItem(LS, JSON.stringify({ ...
 const validMonth = (s) => (typeof s === 'string' && /^\d{4}-\d{2}$/.test(s) ? s : null);
 
 const NO_LIABILITY = {};
+const NO_ROWS = [];
 const rowsOf = (d) => (d && Array.isArray(d.rows) ? d.rows : []);
 const n = (v) => Number(v ?? 0);
 
@@ -94,7 +102,7 @@ export function DashProvider({ children }) {
   const freshRef = useRef(false);
   const fr = () => freshRef.current;
   const entitiesQ = useQuery({ queryKey: [KEY, 'entities'], queryFn: () => api.getAccountingDashEntities(fr()).then(rowsOf), staleTime: 5 * 60_000 });
-  const entities = entitiesQ.data ?? [];
+  const entities = entitiesQ.data ?? NO_ROWS;
   const ix = useMemo(() => indexEntities(entities), [entities]);
   const hasPartners = entities.some((e) => e.is_partner);
   // Oct 7 (Neil, comment 7): no entity is flagged as a partner one (none of
@@ -172,7 +180,11 @@ export function DashProvider({ children }) {
   }, [noiT12Q.data, inScopeRow]);
 
   const currency = scopeCurrency(ix, scope);
-  const m = useCallback((v, opts = {}) => money(v, { currency, fx: FX_INR_DEFAULT, ...opts }), [currency]);
+  // `report: true` (11/11/2026, picture 4): a table cell in the Reports statements' format -
+  // "10,119,967.00", negatives in parentheses, no dollar sign (rupees keep their sign).
+  const m = useCallback((v, { report, ...opts } = {}) => (report
+    ? money(v, { currency, fx: FX_INR_DEFAULT, cents: true, paren: true }).replace('$', '')
+    : money(v, { currency, fx: FX_INR_DEFAULT, ...opts })), [currency]);
 
   const tables = tablesQ.data ?? null;
   const invalidate = useCallback((subject) => qc.invalidateQueries({ queryKey: subject ? [KEY, subject] : [KEY] }), [qc]);
@@ -197,17 +209,54 @@ export function DashProvider({ children }) {
     return r;
   }, [qc]);
 
-  const value = {
+  // Memoized (11/11/2026, speed pass): the Accounting view re-renders on every
+  // keystroke in the header search; a fresh value each time redrew every widget.
+  const budgetAhead = budgetAheadQ.data ?? NO_ROWS;
+  const reconAccounts = reconAccountsQ.data ?? NO_ROWS;
+  const liabilityRecons = liabilityQ.data ?? NO_LIABILITY;
+  const { refetch: refetchMonthly } = monthlyQ;
+  const { refetch: refetchTables } = tablesQ;
+  const refetch = useCallback(() => { refetchMonthly(); refetchTables(); }, [refetchMonthly, refetchTables]);
+  const tablesLoading = tablesQ.isLoading;
+  const reconAccountsLoading = reconAccountsQ.isLoading;
+  // The ledger or the entity list failed and nothing was ever read (11/11/2026,
+  // Neil approved picture 13): every figure would be a zero, so each one stays
+  // in its loading state, which then reads "Could not load", never "$0".
+  const down = !!((monthlyQ.error && !monthlyQ.data) || (entitiesQ.error && !entitiesQ.data));
+  const loading = monthlyQ.isLoading || entitiesQ.isLoading || down;
+  const error = monthlyQ.error || entitiesQ.error || tablesQ.error || null;
+  const monthly = monthlyQ.data;
+  const value = useMemo(() => ({
     scope, hasPartners, period, fromKey, isRange, periodLabel, book, scenarioId, view, setScope, setPeriod, setRange, setBook, setScenario, setView, lastClosed, periodOptions,
     ix, entities, currency, m,
-    monthly: monthlyQ.data, ledger, ledgerNc, lines, budgetAhead: budgetAheadQ.data ?? [], cashEntities, cashSplit, noiRows, noiT12ByType,
-    reconAccounts: reconAccountsQ.data ?? [], reconAccountsLoading: reconAccountsQ.isLoading,
-    liabilityRecons: liabilityQ.data ?? NO_LIABILITY,
-    tables, tablesLoading: tablesQ.isLoading,
-    loading: monthlyQ.isLoading || entitiesQ.isLoading,
-    error: monthlyQ.error || entitiesQ.error || tablesQ.error || null,
-    refetch: () => { monthlyQ.refetch(); tablesQ.refetch(); },
+    monthly, ledger, ledgerNc, lines, budgetAhead, cashEntities, cashSplit, noiRows, noiT12ByType,
+    reconAccounts, reconAccountsLoading,
+    liabilityRecons,
+    tables, tablesLoading,
+    down,
+    loading,
+    error,
+    refetch,
     refetchAll, fetching, updatedAt, ledgerSyncedAt, invalidate, act,
-  };
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  }), [scope, hasPartners, period, fromKey, isRange, periodLabel, book, scenarioId, view, setScope, setPeriod, setRange, setBook, setScenario, setView, lastClosed, periodOptions,
+    ix, entities, currency, m, monthly, ledger, ledgerNc, lines, budgetAhead, cashEntities, cashSplit, noiRows, noiT12ByType,
+    reconAccounts, reconAccountsLoading, liabilityRecons, tables, tablesLoading, down, loading, error, refetch,
+    refetchAll, fetching, updatedAt, ledgerSyncedAt, invalidate, act]);
+  return (
+    <Ctx.Provider value={value}>
+      {error ? (
+        <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--warn-fg)', background: 'var(--warn-bg)', color: 'var(--warn-fg)', fontSize: '0.82rem' }}>
+          <AlertTriangle size={15} aria-hidden="true" style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, color: 'var(--text-primary)' }}>
+            {down ? 'The books could not be reached, so no figures are shown. Nothing here is a real zero.'
+              : 'Some figures could not be loaded. Retry to read them again.'}
+          </span>
+          <button type="button" className="secondary-btn" onClick={refetchAll} disabled={fetching} style={{ padding: '4px 10px', fontSize: '0.78rem' }}>
+            <RefreshCw size={12} aria-hidden="true" style={{ verticalAlign: -2, marginRight: 4 }} />{fetching ? 'Trying...' : 'Retry'}
+          </button>
+        </div>
+      ) : null}
+      {children}
+    </Ctx.Provider>
+  );
 }

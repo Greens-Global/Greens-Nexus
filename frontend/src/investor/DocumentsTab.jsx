@@ -89,8 +89,8 @@ export default function DocumentsTab() {
       await api.createIrDocument({
         title: modal.title.trim(),
         category: modal.category,
-        fundId: modal.fundId ? Number(modal.fundId) : null,
-        investorId: modal.investorId ? Number(modal.investorId) : null,
+        fundId: modal.fundId ? String(modal.fundId) : null,
+        investorId: modal.investorId ? String(modal.investorId) : null,
         fileUrl, fileName,
       });
       setModal(null);

@@ -29,6 +29,7 @@ from routers import directory as directory_router  # Contact Directory (Support,
 from routers import kb as kb_router, kb_training as kb_training_router  # Knowledge Base rebuild (Oct 2026) - replaces knowledge_base + sop
 from routers import site_models as site_models_router  # 3D property site models + markup pins (Neil, Oct 11 2026)
 from routers import github_webhook  # PR/push merged to dev/main -> admin notification + What's New drafts (Sep 2026)
+from routers import teams_webhook  # Graph change notifications for kudos posts in Teams (Neil, 11/12/2026)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
 from routers import facility_ops  # Operations: storage facility figures read from Cubby (Oct 2026)
@@ -769,6 +770,7 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN signature_closing VARCHAR DEFAULT ''",
             "ALTER TABLE hr_entities ADD COLUMN signature_template VARCHAR DEFAULT 'classic'",
             "ALTER TABLE hr_entities ADD COLUMN signature_closing VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN signature_color VARCHAR DEFAULT ''",
             # Task trash (Aug 27): soft delete, same shape as nexus_employees /
             # items - see models.Task and the do_orm_execute hook in database.py.
             "ALTER TABLE tasks ADD COLUMN deleted_at VARCHAR DEFAULT ''",
@@ -1607,6 +1609,14 @@ def _run_migrations():
             # Kudos thanks (Neil, 11/08/2026): the value tag and the recipient's first look. models.PerfKudos.
             "ALTER TABLE hr_perf_kudos ADD COLUMN value VARCHAR DEFAULT ''",
             "ALTER TABLE hr_perf_kudos ADD COLUMN seen_at VARCHAR DEFAULT ''",
+            # Kudos on Teams (Neil, 11/12/2026) - see the Postgres list.
+            "ALTER TABLE hr_perf_kudos ADD COLUMN teams_post JSON DEFAULT '{}'",
+            "ALTER TABLE hr_perf_kudos ADD COLUMN teams_message_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_kudos ADD COLUMN teams_sync_due_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_perf_kudos ADD COLUMN teams_synced_at VARCHAR DEFAULT ''",
+            "ALTER TABLE perf_kudos_thanks ADD COLUMN via VARCHAR DEFAULT ''",
+            "ALTER TABLE perf_kudos_thanks ADD COLUMN teams_reaction VARCHAR DEFAULT ''",
+            "ALTER TABLE perf_kudos_thanks ADD COLUMN teams_reply_id VARCHAR DEFAULT ''",
             # Automatic scheduling + project health (Neil 11/08/2026) - see the Postgres list.
             "ALTER TABLE tasks ADD COLUMN schedule_mode VARCHAR DEFAULT 'manual'",
             "ALTER TABLE tasks ADD COLUMN dependency_lags JSON DEFAULT '{}'",
@@ -1625,6 +1635,14 @@ def _run_migrations():
             "ALTER TABLE time_punches ADD COLUMN cost_code VARCHAR DEFAULT ''",
             "ALTER TABLE construction_punch_meta ADD COLUMN sub_vendor_id VARCHAR DEFAULT ''",
             "ALTER TABLE construction_rfis ADD COLUMN answered_by VARCHAR DEFAULT ''",
+            "ALTER TABLE ir_funds ADD COLUMN intacct_entity VARCHAR DEFAULT ''",
+            "ALTER TABLE ir_investors ADD COLUMN intacct_accounts VARCHAR DEFAULT ''",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_ir_funds_intacct_entity ON ir_funds (intacct_entity) WHERE intacct_entity <> ''",
+            "ALTER TABLE ir_commitments ADD COLUMN membership_pct FLOAT",
+            "ALTER TABLE nexus_meeting_notes ADD COLUMN series_id VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_meeting_notes ADD COLUMN transcript_ready_at VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_meeting_notes ADD COLUMN ready_checked_at VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2472,6 +2490,7 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS signature_closing VARCHAR DEFAULT ''",
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_template VARCHAR DEFAULT 'classic'",
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_closing VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signature_color VARCHAR DEFAULT ''",
         # Task trash (Aug 27): soft delete, same shape as nexus_employees /
         # items - see models.Task and the do_orm_execute hook in database.py.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS deleted_at TEXT DEFAULT ''",
@@ -3851,6 +3870,20 @@ def _run_migrations():
         "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS value VARCHAR DEFAULT ''",
         "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS seen_at VARCHAR DEFAULT ''",
         "ALTER TABLE perf_kudos_thanks ENABLE ROW LEVEL SECURITY",
+        # Kudos on Teams (Neil, 11/12/2026): the post's place and message id,
+        # where a thanks came from, and two new tables - explicit RLS.
+        # models.PerfKudos / PerfKudosThanks / TeamsUserMap / TeamsSubscription.
+        "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS teams_post JSON DEFAULT '{}'",
+        "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS teams_message_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS teams_sync_due_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_perf_kudos ADD COLUMN IF NOT EXISTS teams_synced_at VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_hr_perf_kudos_teams_message_id ON hr_perf_kudos (teams_message_id)",
+        "CREATE INDEX IF NOT EXISTS ix_hr_perf_kudos_teams_sync_due_at ON hr_perf_kudos (teams_sync_due_at)",
+        "ALTER TABLE perf_kudos_thanks ADD COLUMN IF NOT EXISTS via VARCHAR DEFAULT ''",
+        "ALTER TABLE perf_kudos_thanks ADD COLUMN IF NOT EXISTS teams_reaction VARCHAR DEFAULT ''",
+        "ALTER TABLE perf_kudos_thanks ADD COLUMN IF NOT EXISTS teams_reply_id VARCHAR DEFAULT ''",
+        "ALTER TABLE teams_user_map ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE teams_subscriptions ENABLE ROW LEVEL SECURITY",
         # Automatic scheduling (Neil, 11/08/2026): a task's mode and its lags
         # per predecessor - every existing task stays manual. models.Task,
         # task_schedule.py.
@@ -3889,6 +3922,23 @@ def _run_migrations():
         "ALTER TABLE construction_punch_meta ADD COLUMN IF NOT EXISTS sub_vendor_id VARCHAR DEFAULT ''",
         "ALTER TABLE construction_rfis ADD COLUMN IF NOT EXISTS answered_by VARCHAR DEFAULT ''",
         "ALTER TABLE construction_outside_links ENABLE ROW LEVEL SECURITY",
+        # Investor Relations live from the books (Neil, 11/11/2026): a deal's
+        # Intacct entity, an investor's partner equity accounts.
+        # models.IrFund / IrInvestor.
+        "ALTER TABLE ir_funds ADD COLUMN IF NOT EXISTS intacct_entity VARCHAR DEFAULT ''",
+        "ALTER TABLE ir_investors ADD COLUMN IF NOT EXISTS intacct_accounts VARCHAR DEFAULT ''",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_ir_funds_intacct_entity ON ir_funds (intacct_entity) WHERE intacct_entity <> ''",
+        # A member's percentage in the operating agreement (Neil, 11/11/2026).
+        "ALTER TABLE ir_commitments ADD COLUMN IF NOT EXISTS membership_pct DOUBLE PRECISION",
+        # Meeting Notes (Neil, 11/12/2026): which note is whose notes for which
+        # Teams meeting - a new table, explicit RLS. models.NexusMeetingNote.
+        "ALTER TABLE nexus_meeting_notes ENABLE ROW LEVEL SECURITY",
+        # Meeting Notes Phase 2 (Neil, 11/12/2026): the series a meeting belongs
+        # to and the ready bell's marks. Existing table, no new RLS.
+        "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS series_id VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS transcript_ready_at VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS ready_checked_at VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4883,6 +4933,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] ticket teams DM queue skipped: {e}")
         try:
+            # Kudos on Teams (Neil, 11/12/2026): reactions and replies back as
+            # thanks, and the Graph subscriptions kept renewed.
+            from perf_kudos_teams import kudos_teams_loop
+            _tasks.append(_a.create_task(kudos_teams_loop()))
+        except Exception as e:
+            print(f"[startup] kudos Teams sync skipped: {e}")
+        try:
             from daily_briefing import daily_briefing_loop
             _tasks.append(_a.create_task(daily_briefing_loop()))
         except Exception as e:
@@ -5351,6 +5408,14 @@ async def lifespan(app: FastAPI):
                 print("[startup] Customer Map geocode loop skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Customer Map geocode loop skipped: {e}")
+        # Meeting Notes ready bell (Neil, 11/12/2026, routers/meetings.py):
+        # opted-in owners are belled once Teams publishes a meeting's
+        # transcript. Graph and the database in a thread.
+        try:
+            from routers.meetings import meeting_ready_loop
+            _tasks.append(_a.create_task(meeting_ready_loop()))
+        except Exception as e:
+            print(f"[startup] meeting notes ready bell skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
@@ -5716,6 +5781,7 @@ app.include_router(task_config.view_router)   # What's New, read side: every sig
 app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 app.include_router(github_webhook.router) # PR/push merged to dev/main: public webhook receiver (verified by HMAC)
+app.include_router(teams_webhook.router) # Graph change notifications for kudos posts in Teams (Neil, 11/12/2026)
 app.include_router(construction.router)  # Construction: projects, daily logs, jobsite media
 app.include_router(egnyte_oauth_router.router)        # Per-user Egnyte connection (browse with YOUR OWN Egnyte permissions)
 app.include_router(egnyte_oauth_router.public_router) # OAuth callback - Egnyte redirects a browser here, no bearer token
@@ -5972,3 +6038,7 @@ app.include_router(construction_outside_router.router)  # Construction: outside 
 app.include_router(construction_outside_router.public_router)  # Construction: an outside link's page - one RFI or one sub's punch list, no login (11/11/2026)
 from routers import notes_diagram as notes_diagram_router  # noqa: E402 - one nexus_settings row, no new table
 app.include_router(notes_diagram_router.router)  # Notes boards: Diagram From a Sentence - OFF unless AI is on for Nexus AND a Super Administrator turns it on (Neil, 11/08/2026)
+from routers import investor_books as investor_books_router  # noqa: E402 - no new table (columns on ir_funds / ir_investors)
+app.include_router(investor_books_router.router)  # Investor Relations live from Intacct: deal = entity, investor = partner equity accounts (Neil, 11/11/2026)
+from routers import meetings as meetings_router  # noqa: E402
+app.include_router(meetings_router.router)  # Meeting Notes: a Notes note for a Teams meeting - transcript and recording stay in Teams, linked (Neil, 11/12/2026)

@@ -930,7 +930,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         <ModuleActions>
           <div style={{ position: 'relative', width: 220 }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-            <input className="form-input" placeholder="Search…" aria-label="Search this asset" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} style={{ width: '100%', fontSize: '0.82rem', padding: '7px 10px 7px 32px' }} />
+            <input className="form-input" placeholder="Search…" aria-label="Search this asset" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '7px 10px 7px 32px' }} />
           </div>
         </ModuleActions>
       )}
@@ -952,7 +952,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
                   background: on ? 'var(--bg-card)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-secondary)', boxShadow: on ? 'var(--shadow-sm)' : 'none' }}>
                 {recordLabel(key)}
                 {recordHint(key) && <span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>{` - ${recordHint(key)}`}</span>}
-                <span style={{ fontSize: 11.5, fontWeight: 600, color: on ? 'var(--text-secondary)' : 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: on ? 'var(--text-secondary)' : 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>
               </button>
             );
           })}
@@ -960,7 +960,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         </div>
       )}
       {active && onRecords && recordHint(view) && (
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '-8px 0 12px 2px' }}>{recordLabel(view)} - {recordHint(view)}</div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '-8px 0 12px 2px' }}>{recordLabel(view)} - {recordHint(view)}</div>
       )}
 
       {view === 'portfolio' && !active && loading && !visibleProperties.length && (
@@ -1157,7 +1157,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
 
 function CountBadge({ n }) {
   return (
-    <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+    <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
       {n}
     </span>
   );

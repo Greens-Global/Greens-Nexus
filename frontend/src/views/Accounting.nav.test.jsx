@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { useState } from 'react';
 
-// Oct 22 (Neil's spec, the 10/22 call with Charmi): the Accounting bar is
-// Dashboard (Overview / Cash / Performance / Close), Reports (grouped
-// flyouts: Report Center, Financial, Banking & Credit Cards, Budget, Payroll
-// & People, Audit & Insights), Financing, Records and Tools (Data / Access / Allocations /
-// Import Hub). The picked page never widens the bar. The sub keys did not
-// change, so old links land; the ledger search sits in the header on every tab.
+// The Accounting bar (Oct 22, Neil's spec with Charmi; Reports and Trackers
+// redrawn 11/11/2026, picture 2): Dashboard (Overview / Cash / Performance /
+// Close), Reports (All Reports, Report Builder, Packages, then one flyout per
+// group - Financial Statements, Ledger & Banking, Budget vs. Actual, Review,
+// Payroll, Tax - never a flyout inside a flyout), Trackers (the working
+// tools), Financing, Records and Tools. The picked page never widens the bar.
+// The sub keys did not change, so old links land; the ledger search sits in
+// the header on every tab.
 
 const role = vi.hoisted(() => ({ canPfs: true, limited: false }));
 vi.mock('../api', () => ({
@@ -86,12 +88,12 @@ const menuLabels = (name) => [...screen.getByRole('menu', { name }).children].ma
 beforeEach(() => { role.canPfs = true; role.limited = false; resetAccountingPrefs(); });
 
 describe('Accounting navigation', () => {
-  it('draws exactly Dashboard, Reports, Financing, Records and Tools (Oct 22, Neil)', async () => {
+  it('draws exactly Dashboard, Reports, Trackers, Financing, Records and Tools', async () => {
     render(<Harness start="overview" />);
     await screen.findByTestId('tab-overview');
     const bar = [...document.querySelectorAll('.module-tabs-inline > button')].map((b) => b.textContent.trim());
-    expect(bar).toEqual(['Dashboard', 'Reports', 'Financing', 'Records', 'Tools']);
-    for (const name of [/^Dashboard/, /^Reports/, /^Financing/, /^Records/, /^Tools/]) expect(screen.getByRole('button', { name }).getAttribute('aria-haspopup')).toBe('menu');
+    expect(bar).toEqual(['Dashboard', 'Reports', 'Trackers', 'Financing', 'Records', 'Tools']);
+    for (const name of [/^Dashboard/, /^Reports/, /^Trackers/, /^Financing/, /^Records/, /^Tools/]) expect(screen.getByRole('button', { name }).getAttribute('aria-haspopup')).toBe('menu');
     expect(screen.queryByRole('button', { name: /^Budget/ })).toBeNull();
   });
 
@@ -124,10 +126,10 @@ describe('Accounting navigation', () => {
     expect(menuLabels('Records')).toEqual(['Vendors', 'Customers', 'General Ledger Accounts', 'Entities', 'Journals']);
   });
 
-  it('opens Manual Journal Entries from Audit & Insights, for a limited person too (CR-10)', async () => {
+  it('opens Manual Journal Entries from Ledger & Banking, for a limited person too (CR-10)', async () => {
     role.limited = true;
     render(<Harness start="overview" />);
-    await choose(/^Reports/, 'Audit & Insights', 'Manual Journal Entries');
+    await choose(/^Reports/, 'Ledger & Banking', 'Manual Journal Entries');
     expect(screen.getByTestId('sub').textContent).toBe('manual-je');
     expect(await screen.findByTestId('tab-manual-je')).toBeTruthy();
   });
@@ -140,17 +142,21 @@ describe('Accounting navigation', () => {
     expect(await screen.findByTestId('tab-entities')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Records/ }));
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Journals' }));
-    expect(menuLabels('Journals')).toEqual(['APJ', 'GJCA', 'GJC', 'PYRJ', 'PEJ', 'PIJ', 'SJI', 'GJ', 'HJCA']);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'PYRJ' }));
+    // Picture 3 (11/11/2026): Intacct's name, then the code in grey.
+    expect(menuLabels('Journals')).toEqual([
+      'Accounts PayableAPJ', 'General Journal, Cash and AccrualGJCA', 'General Journal, CashGJC', 'PayrollPYRJ',
+      'Prepaid ExpensesPEJ', 'Prepaid IncomePIJ', 'Storage Journal ImportSJI', 'General Journal, AccrualGJ', 'Historical, Cash and AccrualHJCA',
+    ]);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Payroll' }));
     expect(screen.getByTestId('sub').textContent).toBe('journal-PYRJ');
     expect((await screen.findByTestId('tab-journal')).getAttribute('data-symbol')).toBe('PYRJ');
-    expect(document.querySelectorAll('.module-tabs-inline > button')).toHaveLength(5);
+    expect(document.querySelectorAll('.module-tabs-inline > button')).toHaveLength(6);
   });
 
   it('never names the picked page in the bar', async () => {
     render(<Harness start="overview" />);
     await screen.findByTestId('tab-overview');
-    await choose(/^Reports/, 'Financial', 'Balance Sheet');
+    await choose(/^Reports/, 'Financial Statements', 'Balance Sheet');
     expect(screen.getByTestId('sub').textContent).toBe('rpt-balance-sheet');
     expect(document.querySelector('.tab-group-current')).toBeNull();
     expect(screen.getByRole('button', { name: /^Reports/ }).textContent).toBe('Reports');
@@ -167,35 +173,36 @@ describe('Accounting navigation', () => {
     expect(await screen.findByTestId('tab-cash')).toBeTruthy();
   });
 
-  it('groups Reports into flyouts, Report Center first', async () => {
+  it('draws Reports two levels deep, the lead pages first, and the working tools under Trackers (11/11/2026)', async () => {
     render(<Harness start="overview" />);
     fireEvent.click(await screen.findByRole('button', { name: /^Reports/ }));
-    expect(menuLabels('Reports')).toEqual(['Report Center', 'Financial', 'Banking & Credit Cards', 'Budget', 'Payroll & People', 'Audit & Insights', 'Tax']);
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Report Center' }));
-    expect(menuLabels('Report Center')).toEqual(['Report Center', 'Report Builder', 'Packages']);
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial' }));
-    expect(screen.queryByRole('menu', { name: 'Report Center' })).toBeNull();
-    expect(menuLabels('Financial')).toEqual(['Balance Sheet', 'Trial Balance', 'Income Statement', 'General Ledger', 'Spend by Vendor', 'Statement of Cash Flows', 'Cash Position', 'PFS']);
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Income Statement' }));
-    expect(menuLabels('Income Statement')).toEqual(['T12', 'YTD vs. Prior Year', 'This Month vs. Last Month', 'Income Statement by Customer', 'Income Statement by Job', 'Income Statement by Department']);
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Banking & Credit Cards' }));
-    expect(menuLabels('Banking & Credit Cards')).toEqual(['Credit Card Activity', 'Bank Activity']);
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Budget' }));
-    expect(menuLabels('Budget')).toEqual(['Budget', 'Budget vs. Actual, YTD', 'Budget vs. Actual, MTD']);
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Payroll & People' }));
-    expect(menuLabels('Payroll & People')).toEqual(['Compensation', 'Payroll Summary']);
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
-    // CR-10 / CR-04: Neil's six in his order, then Management Fees.
-    expect(menuLabels('Audit & Insights')).toEqual(['Flux Analysis', 'MRE', 'MRI', 'AMA', 'Manual Journal Entries', 'Profitability', 'Management Fees']);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'MRE' }));
+    expect(menuLabels('Reports')).toEqual(['All Reports', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Payroll', 'Tax']);
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial Statements' }));
+    expect(menuLabels('Financial Statements')).toEqual([
+      'Balance Sheet', 'Trial Balance', 'Income Statement - Last 12 Months', 'Income Statement - Year to Date vs. Prior Year',
+      'Income Statement - This Month vs. Last Month', 'Income Statement by Customer', 'Income Statement by Job',
+      'Income Statement by Department', 'Statement of Cash Flows', 'Cash Position', 'Personal Financial Statements',
+    ]);
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Ledger & Banking' }));
+    expect(screen.queryByRole('menu', { name: 'Financial Statements' })).toBeNull();
+    expect(menuLabels('Ledger & Banking')).toEqual(['General Ledger', 'Spend by Vendor', 'Bank Activity', 'Credit Card Activity', 'Manual Journal Entries']);
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Budget vs. Actual' }));
+    expect(menuLabels('Budget vs. Actual')).toEqual(['Year to Date', 'Month to Date']);
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Review' }));
+    expect(menuLabels('Review')).toEqual(['Flux Analysis', 'Profitability']);
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Payroll' }));
+    expect(menuLabels('Payroll')).toEqual(['Compensation', 'Payroll Summary']);
+    fireEvent.click(screen.getByRole('button', { name: /^Trackers/ }));
+    expect(menuLabels('Trackers')).toEqual(['Monthly Recurring Income', 'Monthly Recurring Expenses', 'Management Fees', 'Ask My Accountant', 'Budgets']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Monthly Recurring Expenses' }));
     expect(await screen.findByTestId('tab-mre')).toBeTruthy();
   });
 
   it('opens the Trial Balance and the Income Statement quick views (Oct 22)', async () => {
     render(<Harness start="overview" />);
-    await choose(/^Reports/, 'Financial', 'Trial Balance');
+    await choose(/^Reports/, 'Financial Statements', 'Trial Balance');
     expect((await screen.findByTestId('tab-reports')).getAttribute('data-report')).toBe('trial-balance');
-    await choose(/^Reports/, 'Financial', 'Income Statement', 'YTD vs. Prior Year');
+    await choose(/^Reports/, 'Financial Statements', 'Income Statement - Year to Date vs. Prior Year');
     expect(screen.getByTestId('sub').textContent).toBe('rpt-pnl-ytd-py');
     const tab = screen.getByTestId('tab-reports');
     expect(tab.getAttribute('data-report')).toBe('pnl');
@@ -204,10 +211,10 @@ describe('Accounting navigation', () => {
 
   it('opens Credit Card Activity and Bank Activity, and lands a link carrying an account (Oct 22, item 07)', async () => {
     const { unmount } = render(<Harness start="overview" />);
-    await choose(/^Reports/, 'Banking & Credit Cards', 'Credit Card Activity');
+    await choose(/^Reports/, 'Ledger & Banking', 'Credit Card Activity');
     expect(screen.getByTestId('sub').textContent).toBe('rpt-card-activity');
     expect((await screen.findByTestId('tab-reports')).getAttribute('data-report')).toBe('card-activity');
-    await choose(/^Reports/, 'Banking & Credit Cards', 'Bank Activity');
+    await choose(/^Reports/, 'Ledger & Banking', 'Bank Activity');
     await waitFor(() => expect(screen.getByTestId('tab-reports').getAttribute('data-report')).toBe('bank-activity'));
     unmount();
     // The dashboard's link: the account rides after the report key, and the sub stays as linked.
@@ -218,22 +225,22 @@ describe('Accounting navigation', () => {
     expect(screen.getByTestId('sub').textContent).toBe('rpt-bank-activity:11310:32000:2026-09-01:2026-09-30');
   });
 
-  it('gives a limited person the Banking & Credit Cards reports too', async () => {
+  it('gives a limited person the Ledger & Banking reports too', async () => {
     role.limited = true;
     render(<Harness start="rpt-card-activity:21500" />);
     expect((await screen.findByTestId('tab-reports')).getAttribute('data-report')).toBe('card-activity');
     expect(screen.getByTestId('sub').textContent).toBe('rpt-card-activity:21500');
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Banking & Credit Cards' }));
-    expect(menuLabels('Banking & Credit Cards')).toEqual(['Credit Card Activity', 'Bank Activity']);
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Ledger & Banking' }));
+    expect(menuLabels('Ledger & Banking')).toEqual(['General Ledger', 'Spend by Vendor', 'Bank Activity', 'Credit Card Activity', 'Manual Journal Entries']);
   });
 
-  it('keeps the Budget page under Reports > Budget, with Budget vs. Actual YTD and MTD (Oct 22)', async () => {
+  it('opens Budgets from Trackers and Budget vs. Actual from Reports (11/11/2026)', async () => {
     render(<Harness start="overview" />);
-    await choose(/^Reports/, 'Budget', 'Budget');
+    await choose(/^Trackers/, 'Budgets');
     expect(screen.getByTestId('sub').textContent).toBe('budget');
     expect(await screen.findByTestId('tab-budget')).toBeTruthy();
-    await choose(/^Reports/, 'Budget', 'Budget vs. Actual, MTD');
+    await choose(/^Reports/, 'Budget vs. Actual', 'Month to Date');
     const tab = await screen.findByTestId('tab-reports');
     expect(tab.getAttribute('data-report')).toBe('budget');
     expect(tab.getAttribute('data-view')).toBe('budget-mtd');
@@ -263,15 +270,13 @@ describe('Accounting navigation', () => {
     await waitFor(() => expect(screen.getByTestId('sub').textContent).toBe('reports'));
     expect(screen.queryByRole('button', { name: /^Dashboard/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
-    expect(screen.queryByRole('menuitem', { name: 'Payroll & People' })).toBeNull();
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial' }));
-    expect(screen.queryByRole('menuitem', { name: 'PFS' })).toBeNull();
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
-    expect(screen.getByRole('menuitem', { name: 'MRE' })).toBeTruthy();
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial' }));
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Income Statement' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'T12' }));
+    expect(screen.queryByRole('menuitem', { name: 'Payroll' })).toBeNull();
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial Statements' }));
+    expect(screen.queryByRole('menuitem', { name: 'Personal Financial Statements' })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Income Statement - Last 12 Months' }));
     expect(screen.getByTestId('sub').textContent).toBe('rpt-pnl-t12');
+    fireEvent.click(screen.getByRole('button', { name: /^Trackers/ }));
+    expect(screen.getByRole('menuitem', { name: 'Monthly Recurring Expenses' })).toBeTruthy();
   });
 
   it('draws the Dashboard in the density saved to the profile', async () => {
@@ -306,7 +311,7 @@ describe('Accounting navigation', () => {
 
   it('opens a statement straight from the Reports menu (Oct 14, Urmi)', async () => {
     render(<Harness start="overview" />);
-    await choose(/^Reports/, 'Financial', 'Balance Sheet');
+    await choose(/^Reports/, 'Financial Statements', 'Balance Sheet');
     expect(screen.getByTestId('sub').textContent).toBe('rpt-balance-sheet');
     expect((await screen.findByTestId('tab-reports')).getAttribute('data-report')).toBe('balance-sheet');
   });
@@ -318,29 +323,28 @@ describe('Accounting navigation', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Intercompany' }));
     expect((await screen.findByTestId('tab-data')).getAttribute('data-only')).toBe('intercompany');
     fireEvent.click(screen.getByRole('button', { name: /^Tools/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Data' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reference Data' }));
     await waitFor(() => expect(screen.getByTestId('tab-data').getAttribute('data-exclude')).toBe('loans,intercompany,holdings'));
   });
 
-  it('has AMA and Management Fees under Audit & Insights, PFS under Financial (CR-04)', async () => {
+  it('has Ask My Accountant and Management Fees under Trackers, Personal Financial Statements under Financial Statements', async () => {
     render(<Harness start="overview" />);
-    await choose(/^Reports/, 'Audit & Insights', 'AMA');
+    await choose(/^Trackers/, 'Ask My Accountant');
     expect(screen.getByTestId('sub').textContent).toBe('ama');
     expect((await screen.findByTestId('tab-ama')).getAttribute('data-limited')).toBe('no');
-    await choose(/^Reports/, 'Audit & Insights', 'Management Fees');
+    await choose(/^Trackers/, 'Management Fees');
     expect(await screen.findByTestId('tab-mgmt-fees')).toBeTruthy();
     expect(screen.queryByTestId('tab-ama')).toBeNull();
-    await choose(/^Reports/, 'Financial', 'PFS');
+    await choose(/^Reports/, 'Financial Statements', 'Personal Financial Statements');
     expect(await screen.findByTestId('tab-pfs')).toBeTruthy();
   });
 
-  it('gives a limited person AMA and Management Fees too', async () => {
+  it('gives a limited person Ask My Accountant and Management Fees too', async () => {
     role.limited = true;
     render(<Harness start="ama" />);
     expect((await screen.findByTestId('tab-ama')).getAttribute('data-limited')).toBe('yes');
-    fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
-    expect(screen.getByRole('menuitem', { name: 'Management Fees' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Trackers/ }));
+    expect(menuLabels('Trackers')).toEqual(['Monthly Recurring Income', 'Monthly Recurring Expenses', 'Management Fees', 'Ask My Accountant', 'Budgets']);
   });
 
   it('sends header search words to Reports, and the same box drives Reports there', async () => {
@@ -377,28 +381,50 @@ describe('Accounting navigation', () => {
     }
   });
 
-  it('opens the Report Center catalogue and the Report Builder from the Report Center flyout (Oct 23, item 05)', async () => {
+  it('opens All Reports and the Report Builder from the top of Reports (Oct 23, item 05)', async () => {
     render(<Harness start="overview" />);
-    await choose(/^Reports/, 'Report Center', 'Report Center');
+    await choose(/^Reports/, 'All Reports');
     expect(screen.getByTestId('sub').textContent).toBe('reports');
     const center = await screen.findByTestId('tab-report-center');
     expect(screen.queryByTestId('tab-reports')).toBeNull();
-    expect(center.getAttribute('data-groups')).toBe('Report Center|Financial|Banking & Credit Cards|Budget|Payroll & People|Audit & Insights|Tax');
+    expect(center.getAttribute('data-groups')).toBe('Report Center|Financial Statements|Ledger & Banking|Budget vs. Actual|Review|Payroll|Tax|Trackers');
     // A memorized report opened from the catalogue lands on its statement.
     fireEvent.click(screen.getByRole('button', { name: 'Open Memorized' }));
     expect(screen.getByTestId('sub').textContent).toBe('rpt-balance-sheet');
     expect((await screen.findByTestId('tab-reports')).getAttribute('data-report')).toBe('balance-sheet');
-    await choose(/^Reports/, 'Report Center', 'Report Builder');
+    await choose(/^Reports/, 'Report Builder');
     expect(screen.getByTestId('sub').textContent).toBe('report-builder');
     expect((await screen.findByTestId('tab-report-builder')).getAttribute('data-edit')).toBe('yes');
   });
 
-  it('gives a limited person the Report Center and the Report Builder', async () => {
+  it('gives a limited person All Reports and the Report Builder', async () => {
     role.limited = true;
     render(<Harness start="report-builder" />);
     expect(await screen.findByTestId('tab-report-builder')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Report Center' }));
-    expect(menuLabels('Report Center')).toEqual(['Report Center', 'Report Builder', 'Packages']);
+    expect(menuLabels('Reports')).toEqual(['All Reports', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Tax']);
+  });
+
+  // Picture 1 (11/11/2026, Neil: "Page Line is OK"): one grey line names the
+  // page in the menu's words; a menu name opens that menu; the bar never changes.
+  it('names the page in one line, and its menu name opens that menu', async () => {
+    const { unmount } = render(<Harness start="mre" />);
+    await screen.findByTestId('tab-mre');
+    const line = screen.getByRole('navigation', { name: 'This page' });
+    expect(line.textContent).toBe('TrackersMonthly Recurring Expenses');
+    expect(within(line).getByText('Monthly Recurring Expenses').getAttribute('aria-current')).toBe('page');
+    fireEvent.click(within(line).getByRole('button', { name: 'Open the Trackers menu' }));
+    expect(menuLabels('Trackers')).toContain('Monthly Recurring Expenses');
+    unmount();
+    render(<Harness start="rpt-bank-activity:11310:32000:2026-09-01:2026-09-30" />);
+    await screen.findByTestId('tab-reports');
+    expect(screen.getByRole('navigation', { name: 'This page' }).textContent).toBe('ReportsLedger & BankingBank Activity');
+    expect(screen.getByRole('button', { name: /^Reports/ }).textContent).toBe('Reports');
+  });
+
+  it('draws no page line for a link that no menu holds', async () => {
+    render(<Harness start="rpt-pnl" />);
+    await screen.findByTestId('tab-reports');
+    expect(screen.queryByRole('navigation', { name: 'This page' })).toBeNull();
   });
 });

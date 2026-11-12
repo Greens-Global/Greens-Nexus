@@ -13,6 +13,7 @@ import {
   hoursFromPayroll, hoursRows, loadPayrollPrefs, nameList, netPayMismatches, parseHoursFile, parsePayrollSheets, payPeriods, payrollFileProblem, payrollReportProblems, payrollRows,
   readPayrollSheets, savePayrollPrefs, totalsFromHoursFile, unmappedItems,
 } from './payrollConvert';
+import { WarnMark } from './warnMark';
 
 // Import Hub payroll cards (Neil, 10/15: "Payroll export to QB is not there";
 // "HR export and import into QB, as well as the export from QB to Intacct").
@@ -180,7 +181,7 @@ function HoursPreview({ people, showStatus, isIn = () => true }) {
               <td>{p.name}</td><td>{p.code}</td>
               <td style={num}>{fmtH(p.hours.regular)}</td><td style={num}>{fmtH(p.hours.overtime)}</td><td style={num}>{fmtH(p.hours.doubleTime)}</td>
               <td style={num}>{fmtH(p.hours.sick)}</td><td style={num}>{fmtH(p.hours.vacation)}</td><td style={num}>{fmtH(p.hours.personal)}</td>
-              {showStatus && <td style={{ whiteSpace: 'nowrap', color: p.finalized ? 'var(--success, #15803d)' : 'var(--warning, #b45309)' }}>{sheetStatus(p)}{isIn(p) ? '' : ' - Left Out'}</td>}
+              {showStatus && <td style={{ whiteSpace: 'nowrap', color: p.finalized ? 'var(--success, #15803d)' : 'var(--warn-fg)' }}>{sheetStatus(p)}{isIn(p) ? '' : ' - Left Out'}</td>}
             </tr>
           ))}
           {people.length === 0 && <tr><td colSpan={showStatus ? 9 : 8} style={{ color: 'var(--text-muted)' }}>No hours for this period.</td></tr>}
@@ -374,7 +375,7 @@ export function PayrollHoursToQb() {
                 <button type="button" className="secondary-btn" disabled={!have} onClick={downloadStat} title={blocked || undefined} style={btn}><Download size={14} /> Download Intacct Hours Import</button>
               </span>
             </div>
-            {blocked && <div role="status" data-testid="iif-blocked" style={{ fontSize: '0.78rem', color: 'var(--warning, #b45309)', fontWeight: 600 }}>{blocked}</div>}
+            {blocked && <div role="status" data-testid="iif-blocked" style={{ fontSize: '0.78rem', color: 'var(--warn-fg)', fontWeight: 600 }}><WarnMark />{blocked}</div>}
             <HoursPreview people={everyone} showStatus={source === 'nexus'} isIn={isIn} />
             {everyone.length > PREVIEW && <div style={small}>Showing the first {PREVIEW} of {everyone.length}; the downloads have every one in the file.</div>}
             <p style={{ ...small, margin: 0 }}>
@@ -394,7 +395,7 @@ export function PayrollHoursToQb() {
               </label>
             </div>
             <p style={{ ...small, margin: '8px 0 0' }}>
-              In QuickBooks Desktop the file is imported with File &gt; Utilities &gt; Import &gt; Timer Activities. If QuickBooks says the file was not made for this company, export Timer Lists from the same company file (File &gt; Utilities &gt; Export &gt; Timer Lists), open that file in Notepad, copy the number at the end of its TIMERHDR line and paste it here. Remembered in this browser. Saved once under Settings &gt; Time &amp; Pay &gt; Payroll Export Codes, every IIF download fills it in by itself and this field is only an override.
+              In QuickBooks Desktop the file is imported with File &gt; Utilities &gt; Import &gt; IIF Files. Only for QuickBooks 2021 and earlier (the old Timer Activities import, with Old Timer Header on under Payroll Export Codes): if QuickBooks says the file was not made for this company, export Timer Lists from the same company file (File &gt; Utilities &gt; Export &gt; Timer Lists), open that file in Notepad, copy the number at the end of its TIMERHDR line and paste it here. Remembered in this browser. Saved once under Settings &gt; Time &amp; Pay &gt; Payroll Export Codes, every IIF download fills it in by itself and this field is only an override.
             </p>
           </details>
         )}
@@ -552,7 +553,7 @@ export function QbPayrollToIntacct() {
             </div>
             {unmapped.length > 0 && (
               <div role="status" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8, fontSize: '0.78rem' }}>
-                <AlertTriangle size={14} style={{ color: 'var(--warning, #b45309)' }} />
+                <AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />
                 <span>Not mapped yet:</span>
                 {unmapped.map((u) => (
                   <button key={u.item} type="button" className="secondary-btn" onClick={() => addRule(u.item, u.amount)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.74rem', padding: '3px 8px' }}>
@@ -588,7 +589,7 @@ export function QbPayrollToIntacct() {
             </div>
           )}
           {mismatches.length > 0 && (
-            <div role="status" style={{ fontSize: '0.78rem', color: 'var(--warning, #b45309)' }}>
+            <div role="status" style={{ fontSize: '0.78rem', color: 'var(--warn-fg)' }}>
               Net pay does not match the report for {mismatches.map((m) => `${m.employee} (report ${fmt(m.report)}, entry ${fmt(m.built)})`).join('; ')} - check the mapping of their payroll items.
             </div>
           )}

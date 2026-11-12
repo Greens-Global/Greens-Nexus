@@ -61,7 +61,7 @@ export function PartnersWidget() {
             {byEntity.map((code) => (
               <GroupBlock key={code} title={`${ix.byCode.get(code)?.name || code}${ix.isPartner(code) ? ' · non-controllable' : ''}`}>
                 {s.rows.filter((r) => r.entity_code === code).map((r) => (
-                  <tr key={r.id}><td>{r.class_name}</td><td style={num}>{pctTxt(r.ownership, 0)}</td><td style={num}>{m(r.capital)}</td><td style={num}>{m(r.ytd)}</td><td style={{ ...num, color: 'var(--text-muted)' }}>{pctTxt(r.yield)}</td></tr>
+                  <tr key={r.id}><td>{r.class_name}</td><td style={num}>{pctTxt(r.ownership, 0)}</td><td style={num}>{m(r.capital, { report: true })}</td><td style={num}>{m(r.ytd, { report: true })}</td><td style={{ ...num, color: 'var(--text-muted)' }}>{pctTxt(r.yield)}</td></tr>
                 ))}
               </GroupBlock>
             ))}
@@ -94,7 +94,7 @@ export function ValuationWidget() {
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <thead><tr><th>Asset class</th><th style={num}>T12 NOI</th><th style={num}>Cap rate</th><th style={num}>Value</th></tr></thead>
-          <tbody>{v.rows.map((r) => <tr key={r.assetType}><td>{r.assetType}</td><td style={num}>{m(r.noi)}</td><td style={num}>{r.capRate != null ? pctTxt(r.capRate, 2) : <span style={{ color: 'var(--text-muted)' }}>not set</span>}</td><td style={num}>{r.value ? m(r.value, { compact: true }) : '-'}</td></tr>)}</tbody>
+          <tbody>{v.rows.map((r) => <tr key={r.assetType}><td>{r.assetType}</td><td style={num}>{m(r.noi, { report: true })}</td><td style={num}>{r.capRate != null ? pctTxt(r.capRate, 2) : <span style={{ color: 'var(--text-muted)' }}>not set</span>}</td><td style={num}>{r.value ? m(r.value, { compact: true }) : '-'}</td></tr>)}</tbody>
         </table>
       </div>
       <Footnote>Cap rates are placeholder market assumptions by asset class; replace with broker opinions of value or appraisals.</Footnote>

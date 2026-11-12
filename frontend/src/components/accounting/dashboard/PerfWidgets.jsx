@@ -6,6 +6,7 @@ import { Dot, EmptyBox, Eyebrow, Footnote, LoadingBox, Meter, mono, num, seriesC
 import { Bars, Donut } from './Charts';
 import { useDash } from './DashContext';
 import { usePerf, useTrend } from './hooks';
+import { DrillFigure, useLineDrill, useStatementOpen } from './LineDrill';
 
 // Performance widgets: revenue vs expense bars, NOI by entity, budget
 // variances (month and year to date), and the income / expense breakdowns.
@@ -53,20 +54,22 @@ export function NoiPropWidget() {
 export function VarianceWidget() {
   const { m, loading } = useDash();
   const perf = usePerf();
+  const [drill, lines] = useLineDrill();
   if (loading || !perf) return <LoadingBox />;
   const rows = perf.variances.filter((v) => v.budget).slice(0, 6);
   if (!rows.length) return <EmptyBox title="No budget for this month" body="Post a budget journal in Nexus Accounting covering this month to see variances." />;
   return (
     <div className="req-table-wrapper">
+      {lines}
       <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
         <thead><tr><th>Account</th><th style={num}>Actual</th><th style={num}>Budget</th><th style={num}>Variance</th></tr></thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
               <td><span style={mono}>{r.gl}</span>{r.name}</td>
-              <td style={num}>{m(r.actual, { paren: true })}</td>
-              <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.budget, { paren: true })}</td>
-              <td style={{ ...num, fontWeight: 600, color: toneColor(r.good) }}>{m(r.v, { paren: true })}</td>
+              <td style={num}><DrillFigure onOpen={() => drill(r)}>{m(r.actual, { report: true })}</DrillFigure></td>
+              <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.budget, { report: true })}</td>
+              <td style={{ ...num, fontWeight: 600, color: toneColor(r.good) }}>{m(r.v, { report: true })}</td>
             </tr>
           ))}
         </tbody>
@@ -78,6 +81,7 @@ export function VarianceWidget() {
 export function YtdVarianceWidget() {
   const { m, loading } = useDash();
   const perf = usePerf();
+  const openStatement = useStatementOpen();
   if (loading || !perf) return <LoadingBox />;
   const y = perf.ytd;
   if (!y.lines.length) return <EmptyBox title="No activity this year" />;
@@ -86,11 +90,12 @@ export function YtdVarianceWidget() {
     const v = a - b;
     const good = up ? v >= 0 : v <= 0;
     return (
-      <tr key={label} style={label === 'Net income' ? { fontWeight: 700, borderTop: '2px solid var(--border-color)' } : undefined}>
+      <tr key={label} style={label === 'Net Income' ? { fontWeight: 700, borderTop: '2px solid var(--border-color)' } : undefined}>
         <td>{label}</td>
-        <td style={num}>{m(a, { paren: true })}</td>
-        <td style={{ ...num, color: 'var(--text-muted)' }}>{hasBudget ? m(b, { paren: true }) : '-'}</td>
-        <td style={{ ...num, color: hasBudget ? toneColor(good) : undefined }}>{hasBudget ? m(v, { paren: true }) : '-'}</td>
+        {/* A total of many accounts opens the Income Statement for the same months; each line there opens its ledger lines (11/11/2026). */}
+        <td style={num}><DrillFigure onOpen={openStatement} title="Open the Income Statement for these months">{m(a, { report: true })}</DrillFigure></td>
+        <td style={{ ...num, color: 'var(--text-muted)' }}>{hasBudget ? m(b, { report: true }) : '-'}</td>
+        <td style={{ ...num, color: hasBudget ? toneColor(good) : undefined }}>{hasBudget ? m(v, { report: true }) : '-'}</td>
         <td style={{ ...num, fontSize: '0.76rem', color: hasBudget ? toneColor(good) : undefined }}>{hasBudget && b ? pctTxt(v / Math.abs(b)) : '-'}</td>
       </tr>
     );
@@ -100,7 +105,7 @@ export function YtdVarianceWidget() {
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <thead><tr><th /><th style={num}>Actual</th><th style={num}>Budget</th><th style={num}>Variance</th><th style={num}>%</th></tr></thead>
-          <tbody>{row('Revenue', y.revenue.a, y.revenue.b)}{row('Expenses', -y.expense.a, -y.expense.b, false)}{row('Net income', y.net.a, y.net.b)}</tbody>
+          <tbody>{row('Revenue', y.revenue.a, y.revenue.b)}{row('Expenses', -y.expense.a, -y.expense.b, false)}{row('Net Income', y.net.a, y.net.b)}</tbody>
         </table>
       </div>
       {hasBudget ? (
@@ -156,7 +161,7 @@ function Breakdown({ kind }) {
   const diffCell = (cur, prev) => {
     if (!prev) return <td style={{ ...num, color: 'var(--text-muted)' }}>-</td>;
     const diff = cur - prev;
-    return <td style={{ ...num, color: toneColor(inc ? diff >= 0 : diff <= 0) }}>{`${diff >= 0 ? '+' : '-'}${m(Math.abs(diff))}`}</td>;
+    return <td style={{ ...num, color: toneColor(inc ? diff >= 0 : diff <= 0) }}>{`${diff >= 0 ? '+' : '-'}${m(Math.abs(diff), { report: true })}`}</td>;
   };
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -184,13 +189,13 @@ function Breakdown({ kind }) {
               <tr key={r.id}>
                 <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginRight: 6 }}><Dot color={seriesColor(i)} /><span style={{ ...mono, marginRight: 0 }}>{r.gl}</span></span>{r.name}</td>
                 <td><Meter height={6} segments={[{ share: r.amt / mx, color: seriesColor(i) }]} /></td>
-                <td style={num}>{m(r.amt)}</td>
+                <td style={num}>{m(r.amt, { report: true })}</td>
                 <td style={{ ...num, fontSize: '0.76rem', color: 'var(--text-muted)' }}>{pctTxt(r.amt / d.tot, 0)}</td>
-                <td style={{ ...num, color: 'var(--text-muted)' }}>{r.prev ? m(r.prev) : '-'}</td>
+                <td style={{ ...num, color: 'var(--text-muted)' }}>{r.prev ? m(r.prev, { report: true }) : '-'}</td>
                 {diffCell(r.amt, r.prev)}
               </tr>
             ))}
-            <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border-color)' }}><td>{inc ? 'Total income' : 'Total expenses'}</td><td /><td style={num}>{m(d.tot)}</td><td /><td style={num}>{d.ptot ? m(d.ptot) : '-'}</td>{diffCell(d.tot, d.ptot)}</tr>
+            <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border-color)' }}><td>{inc ? 'Total Income' : 'Total Expenses'}</td><td /><td style={num}>{m(d.tot, { report: true })}</td><td /><td style={num}>{d.ptot ? m(d.ptot, { report: true }) : '-'}</td>{diffCell(d.tot, d.ptot)}</tr>
           </tbody>
         </table>
       </div>

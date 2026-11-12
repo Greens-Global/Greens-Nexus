@@ -62,6 +62,15 @@ export function takeDrillReturn(screen) {
   } catch { return null; }
 }
 
+// 11/11/2026 (Neil: "do 4"): a dashboard total made of many accounts (YTD
+// Revenue, Expenses, Net Income) opens the Income Statement itself for the same
+// window, entities and book - every line of it drills to its ledger lines there.
+//
+//   requestStatement({ entities: ['32000'], from: '2026-01-01', to: '2026-10-31', book: 'accrual' })
+export function requestStatement({ entities = [], from, to, book = '' }) {
+  requestReportDrill({ statement: { entities, from, to, ...(book ? { book } : {}) } });
+}
+
 export function takePendingDrill() {
   const p = pending;
   pending = null;

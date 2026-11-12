@@ -53,11 +53,35 @@ means "in progress / now" and nothing else.**
 
 ## Type
 
-- Desk surfaces: **Figtree** (400–800) — friendly geometric, professional.
-- Legacy modules keep Inter until migrated.
-- Greeting/H1 24–30px/700; card titles 15px/600; body 13–14px; labels 12px/500 `--wk-dim`
-  (normal case — no uppercase tracking anywhere).
-- Numerals: 28–34px/700, `tabular-nums`.
+**Font: Inter, everywhere (Neil, 11/12/2026)** - it holds up better than
+Figtree at 11-13px in dense tables, and Nexus is mostly tables and lists. This
+replaces "Figtree for desk surfaces". Moving `--wk-font` from Figtree to Inter is
+its own release, checked against before / after screenshots (Inter sets wider
+than Figtree at the same size, so tight spots - the rail, tabs, chips - can
+wrap or cut off).
+
+**The scale (Neil, 11/12/2026)** - the only text sizes. `FS` in
+`frontend/src/lib/typeScale.js`, the same numbers as the `--fs-*` tokens in
+style.css:
+
+| Token | px | For |
+|---|---|---|
+| `meta` | 11 | timestamps, counts, fine print |
+| `label` | 12 | labels, table cells, chips, status pills (500, `--wk-dim`) |
+| `body` | 13 | body text, list rows, form fields, drawers |
+| `read` | 14 | long reading only: KB pages, Notes, announcements |
+| `title` | 15 | card titles (600) |
+| `section` | 18 | section headings |
+| `page` | 24 | page titles, greetings (700) |
+| `figure` | 32 | big numbers (700, `tabular-nums`) |
+
+Normal case - no uppercase tracking anywhere. The code had 43 sizes, half a
+pixel apart in places; `scripts/check-type.mjs` (in `npm run lint`) fails a new
+one off the scale, and older code is in its baseline and may only go down.
+Screens move over ONE MODULE AT A TIME, each looked at by a person; `SNAP`
+says where an old size lands (12.5 rounds UP to 13). A size that must stay off
+the scale carries `type-ok: <why>` on its line - the 16px phone form fields
+are the main one (iOS zooms the page on a field under 16px).
 
 ## Grammar
 

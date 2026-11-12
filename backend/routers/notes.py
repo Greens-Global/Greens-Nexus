@@ -158,7 +158,11 @@ _NOTE_ATTRS = {
     # <div>s a note keeps - <div data-type="callout" data-tone="info|tip|warning">
     # and <div data-type="toggle" data-summary="..." data-open="true|false">.
     "div": ("data-type", "data-tone", "data-summary", "data-open", "data-source", "data-show"),
-    "p": ("style",), "h1": ("style",), "h2": ("style",), "h3": ("style",), "h4": ("style",),
+    # data-at (Meeting Notes, Neil 11/12/2026, notes/meetings/meetingClock.js):
+    # when a line of a meeting note was written, Unix seconds - it finds the
+    # same moment in the Teams transcript.
+    "p": ("style", "data-at"), "h1": ("style", "data-at"), "h2": ("style", "data-at"),
+    "h3": ("style", "data-at"), "h4": ("style",),
     "td": ("colspan", "rowspan"), "th": ("colspan", "rowspan"),
 }
 _ALIGN = re.compile(r"^text-align:\s*(left|center|right|justify);?$", re.I)
@@ -174,6 +178,7 @@ _NOTE_REF = re.compile(r"^note_[A-Za-z0-9]{1,64}$")
 # The kinds are the ones the [[ picker offers (notes/recordLink.jsx); the
 # same pattern as record_links.RECORD_REF - change them together.
 _RECORD_REF = re.compile(r"^(note|task|job|kb|ticket):[A-Za-z0-9_\-.]{1,100}$")
+_AT = re.compile(r"^\d{10}$")          # a meeting note line's stamp (Unix seconds)
 
 
 _MEDIA = {"audio": ' controls preload="metadata"', "video": ' controls playsinline preload="metadata"'}
@@ -242,6 +247,8 @@ class _NoteSanitizer(_RichSanitizer):
             elif k == "data-source" and not _LIST_SOURCE.match(v):
                 continue
             elif k == "data-show" and v not in ("open", "all"):
+                continue
+            elif k == "data-at" and not _AT.match(v):
                 continue
             kept.append(f' {k}="{escape(v[:200], quote=True)}"')
         return "".join(kept)
