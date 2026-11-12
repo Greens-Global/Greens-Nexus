@@ -4885,7 +4885,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
    so the panel hangs straight under it (Neil, 11/07/2026). It grows OVER the
    header's center (the negative margin keeps its flex size), so the module
    tabs never refit into More while someone types. */
-@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; margin-left: -188px; z-index: 2; } }
+@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; margin-left: -188px; z-index: 2; background: var(--card); border-radius: 9px; } }
+/* ...and it is solid while it does: the bar's own fills are see-through
+   (--search-bg-focus, the blue "has text" tint), so without this the module
+   tabs it covers read through the typed words. The card color under the same
+   fills keeps the bar looking as it always did. */
 @media (prefers-reduced-motion: reduce) { .hdr-search { transition: none; } }
 .hdr-search .search-bar { height: 38px; padding: 0 10px 0 12px; box-sizing: border-box; }
 .hdr-search-kbd {
