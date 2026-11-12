@@ -33,15 +33,15 @@ The **Month-End Close** card is the shared checklist, progress by phase, and the
 
 A **bank reconciliation** proves the ledger's cash agrees with the bank's statement: every deposit and payment on one side is on the other, and the differences are timing items someone can name. Accounting does the reconciling in Intacct. Nexus shows where each account stands and lets you look.
 
-Click an account on Account Reconciliations and its **Bank Activity** (or **Credit Card Activity**) opens already filtered: every transaction in the period with date, description, vendor, amount and a running balance that starts from the balance before the period. Both reports are also under **Reports > Banking & Credit Cards**.
+Click an account on Account Reconciliations and its **Bank Activity** (or **Credit Card Activity**) opens already filtered: every transaction in the period with date, description, vendor, amount and a running balance that starts from the balance before the period. Both reports are also under **Reports > Ledger & Banking**.
 
 ## What a Site Owes the Close
 
-In order of how often each one slows the close: tickets resolved so costs fall in the right month; invoices carrying their ticket numbers so bills match; waivers and refunds in Cubby with reasons; and **same-day answers** when Accounting asks about a variance. **Flux Analysis** (Reports > Audit & Insights) marks each flagged line Open, Answered or Reviewed, so an unanswered question is visible to everyone.
+In order of how often each one slows the close: tickets resolved so costs fall in the right month; invoices carrying their ticket numbers so bills match; waivers and refunds in Cubby with reasons; and **same-day answers** when Accounting asks about a variance. **Flux Analysis** (Reports > Review) marks each flagged line Open, Answered or Reviewed, so an unanswered question is visible to everyone.
 
 ## Budget
 
-- **Reports > Budget > Budget**: one entity and year, every income statement account by month, edited in place. It can start from Copy From Last Year's Actuals or Copy From Intacct Budget.
+- **Trackers > Budgets**: one entity and year, every income statement account by month, edited in place. It can start from Copy From Last Year's Actuals or Copy From Intacct Budget.
 - **Budget vs. Actual, YTD** and **MTD**: the income statement against the budget, with Variance $ and Variance %.
 
 A budget is worked out, not posted, so the budget figures do not drill down; the actuals beside them do.
