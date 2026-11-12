@@ -5,7 +5,7 @@ import HelpMenu from "../support/HelpMenu";
 import QuickNoteButton from "../notes/QuickNoteButton";
 import { useHeaderTabs, ModuleBar } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
-import QuickCreate from "./QuickCreate";   // the "+" Create menu (Oct 29 2026)
+import QuickCreate from "./QuickCreate";   // the Quick Actions bolt (11/12/2026; the "+" Create menu before it)
 import { readStopEmail, setPendingEmailStop } from "../lib/emailStop";
 
 // ?emailSettings=1 - the "Email Settings" link in task emails; it opens
@@ -378,10 +378,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
       <div className="header-right">
         {searchBar}
-        {/* Create (Neil, Oct 29 2026): the "+" beside the search bar starts a
-            task, a ticket, a request... from any screen - components/QuickCreate.jsx. */}
+        {/* Quick Actions (Neil, 11/12/2026): the green bolt beside the search bar
+            starts a task, a ticket, a note, a request... from any screen, in one
+            tap or two - components/QuickCreate.jsx. */}
         <QuickCreate />
-        <QuickNoteButton />{/* Quick Note: today's scratchpad, opened by the + menu's New Note or Ctrl+Alt+N - no button of its own (notes/, Oct 30 2026) */}
+        <QuickNoteButton />{/* Quick Note: today's scratchpad, opened by Quick Actions' New Note or Ctrl+Alt+N - no button of its own (notes/, Oct 30 2026) */}
         {buildMode.enabled && buildMode.on && <BuildModeChip onClick={buildMode.toggle} />}
         <NotificationBell onNavigate={onNavigate} />
         {/* "?" Help menu: search the guide, help with this page, then Contact

@@ -1,7 +1,8 @@
 # Forms & Checklists
 
 Neil, 11/02/2026: field forms live in the Documents module; crews reach them
-from Workday, the shift card, the + menu and the Quick Actions dock.
+from Workday, the shift card, the header's Quick Actions (the bolt) and the
+Quick Actions dock.
 
 ## Build a form (Documents > Forms > Templates)
 
@@ -28,7 +29,7 @@ department (the same rule as document templates).
   Requests): the forms you may fill, grouped by category.
 - My Shifts: "Fill <form>" under a shift when a form is on shift cards for
   that shift's site.
-- The + menu and the Quick Actions dock: Fill a Form.
+- The header's Quick Actions (the bolt > Request) and the Quick Actions dock: Fill a Form.
 - Photos upload as you take them; a draft is kept on the phone and offered
   back if you leave ("You have an unsent Vehicle Check from 11/02/2026 2:14
   PM"); Send goes once even on a retry; after Send you can open the entry or
