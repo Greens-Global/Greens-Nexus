@@ -35,12 +35,12 @@ export function WidgetHeader({ Icon, tone = NX.blue, title, count, sub, action, 
           <Icon size={15} />
         </span>
       )}
-      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: NX.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
+      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: NX.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
         {onTitle ? (
           <button type="button" onClick={onTitle} style={{ margin: 0, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, font: 'inherit', color: 'inherit' }}>{title}</button>
         ) : title}
       </h2>
-      {count != null && <span style={{ fontSize: 12.5, color: NX.faint, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{count}</span>}
+      {count != null && <span style={{ fontSize: 13, color: NX.faint, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{count}</span>}
       {sub && <span style={{ fontSize: 12, color: NX.faint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{sub}</span>}
       <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         {action && (typeof action === 'object' && action.label
@@ -53,7 +53,7 @@ export function WidgetHeader({ Icon, tone = NX.blue, title, count, sub, action, 
 
 export function ViewAll({ label = 'View All', onClick }) {
   return (
-    <button type="button" onClick={onClick} style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 12.5, fontWeight: 600, color: NX.blue, gap: 4 }}>
+    <button type="button" onClick={onClick} style={{ ...btn('ghost'), padding: '2px 4px', fontSize: 13, fontWeight: 600, color: NX.blue, gap: 4 }}>
       {label} <ArrowRight size={13} />
     </button>
   );
@@ -79,7 +79,7 @@ export function FocusTiles({ counts, focus, onPick, active, actions = null }) {
   // The dashboard's number and its two footnotes - the same rule
   // (homeRules.focusBucket = backend my_work.task_focus_bucket).
   const needLine = (style) => (
-    <div style={{ fontSize: 12.5, color: NX.faint, ...style }} title={`${MY_TASKS_RULE}, or repeating and due`}>
+    <div style={{ fontSize: 13, color: NX.faint, ...style }} title={`${MY_TASKS_RULE}, or repeating and due`}>
       <strong style={{ color: NX.dim, fontWeight: 600 }}>{needsYouNow(focus.focus)}</strong>
       {note ? ` · ${note}` : ''}
     </div>
@@ -88,7 +88,7 @@ export function FocusTiles({ counts, focus, onPick, active, actions = null }) {
     <div style={{ ...card, borderRadius: 16, padding: 16, marginBottom: 16 }}>
       {actions && (
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-          {needLine({ flex: 1, minWidth: 0, fontSize: 13.5 })}
+          {needLine({ flex: 1, minWidth: 0, fontSize: 13 })}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>{actions}</div>
         </div>
       )}
@@ -133,7 +133,7 @@ export function TaskLine({ t, due, dueTone, projectName, project, parentTitle, r
       )}
       <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
-        {parentTitle && <span style={{ fontSize: 11.5, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>in {parentTitle}</span>}
+        {parentTitle && <span style={{ fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>in {parentTitle}</span>}
       </span>
       {recurring && <Repeat size={13} aria-label="Repeats" style={{ color: NX.faint, flexShrink: 0 }} />}
       {prio && <span role="img" aria-label={`${prio.label} priority`} title={`${prio.label} priority`} style={{ display: 'inline-flex', flexShrink: 0 }}><PriorityMark priority={t.priority} size={13} color={prio.color} /></span>}
@@ -170,7 +170,7 @@ export function ProjectsAtRiskWidget({ rows, onOpenProject, onViewAll, isMobile 
                   <ProgressTrack size="sm" value={total ? done / total : 0}
                     state={countTrackState({ done, total, dueISO: p.dueOn, todayISO: todayISO(), complete: p.status === 'completed' })}
                     label={`${p.name} tasks done`} valueText={`${done} of ${total} done (${pct}%)`} style={{ flex: 1 }} />
-                  <span style={{ fontSize: 11.5, color: NX.faint, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{done}/{total} done</span>
+                  <span style={{ fontSize: 12, color: NX.faint, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{done}/{total} done</span>
                 </span>
               </button>
             );
@@ -193,7 +193,7 @@ export function CompletedWeekWidget({ weeks, onOpen, isMobile }) {
         {weeks.days.map((d) => (
           <div key={d.iso} title={`${dayTitle(d.iso)}: ${d.n} completed`}
             style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 5, height: '100%' }}>
-            {d.n > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: NX.green, fontVariantNumeric: 'tabular-nums' }}>{d.n}</span>}
+            {d.n > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: NX.green, fontVariantNumeric: 'tabular-nums' }}>{d.n}</span>}
             <div style={{ width: '100%', maxWidth: 26, height: d.n === 0 ? 3 : Math.max(10, Math.round((d.n / max) * 66)), borderRadius: 99, background: d.n === 0 ? NX.border2 : tint(NX.green, 'b3') }} />
           </div>
         ))}
@@ -311,7 +311,7 @@ export function TeamWorkloadWidget({ rows, nameOf, me, onOpenPerson, isMobile })
             </button>
           ))}
           {rows.length > WORKLOAD_SHOWN && (
-            <button type="button" onClick={() => setAll((v) => !v)} style={{ ...btn('ghost'), alignSelf: 'flex-start', fontSize: 12.5, color: NX.blue, padding: '4px 0' }}>
+            <button type="button" onClick={() => setAll((v) => !v)} style={{ ...btn('ghost'), alignSelf: 'flex-start', fontSize: 13, color: NX.blue, padding: '4px 0' }}>
               {all ? 'Show Fewer' : `Show All (${rows.length})`}
             </button>
           )}
@@ -366,7 +366,7 @@ export function NotificationsWidget({ notifications, onOpen, isMobile }) {
                 {/* pre-line: a grouped notice (a followed project's day) is one line per event. */}
                 {n.body && <span style={{ fontSize: 12, color: NX.dim, whiteSpace: 'pre-line' }}>{n.body}</span>}
               </span>
-              {n.createdAt && <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>{ago(n.createdAt)}</span>}
+              {n.createdAt && <span style={{ fontSize: 12, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>{ago(n.createdAt)}</span>}
             </button>
           ))}
         </div>

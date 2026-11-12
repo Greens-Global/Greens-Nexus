@@ -323,7 +323,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         {onBack && (
           <button onClick={onBack} title="Back" aria-label="Back" style={{ ...btn('ghost'), padding: 6, marginLeft: -6, color: NX.dim }}><ArrowLeft size={18} /></button>
         )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 20, fontWeight: 700, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 18, fontWeight: 700, minWidth: 0 }}>
           {lockedProject ? (
             <>
               <ProjectIcon project={lockedProject} size={19} fallbackColor={NX.purple} />
@@ -404,9 +404,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         </div>
         {lockedProjectId && (view === 'list' || view === 'board') && (canSetDefault || isProjectDefault) && (
           isProjectDefault
-            ? <span title="Everyone opens this project this way unless they pick another view" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap' }}><Pin size={12} /> Project Default</span>
+            ? <span title="Everyone opens this project this way unless they pick another view" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: NX.faint, whiteSpace: 'nowrap' }}><Pin size={12} /> Project Default</span>
             : <button type="button" onClick={makeDefault} disabled={defaultSaving} title="Everyone will open this project in this view and grouping unless they pick another"
-                style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 11.5, color: NX.dim, whiteSpace: 'nowrap' }}><Pin size={12} /> Make Default View</button>
+                style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, color: NX.dim, whiteSpace: 'nowrap' }}><Pin size={12} /> Make Default View</button>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <div style={{ position: 'relative', width: 143 }}>
@@ -473,7 +473,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {importedIds && (
         <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 20px', background: NX.surface2, borderBottom: `1px solid ${NX.border}`, fontSize: 13, color: NX.dim, flexWrap: 'wrap' }}>
           <span>Showing the {importedIds.size} task{importedIds.size === 1 ? '' : 's'} you just imported.</span>
-          <button type="button" onClick={() => setImported(null)} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12.5 }}>Show All Tasks</button>
+          <button type="button" onClick={() => setImported(null)} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 13 }}>Show All Tasks</button>
         </div>
       )}
 

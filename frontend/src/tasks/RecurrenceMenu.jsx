@@ -69,7 +69,7 @@ function RecurDayPicker({ value, onToggle }) {
             style={{
               width: 24, height: 24, borderRadius: '50%', border: `1px solid ${on ? NX.primary : NX.border}`,
               background: on ? NX.primary : 'transparent', color: on ? '#fff' : NX.dim,
-              fontSize: 10.5, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: FONT,
+              fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: FONT,
             }}>{d[0]}</button>
         );
       })}
@@ -234,7 +234,7 @@ export function RecurrenceMenu({ value, seedDate, onChange, close, subtask = fal
     {canFollow && (
       <Item on={followsMain(value, subtask, mainRule)} onClick={() => { onChange({}); done(); }}>
         With the Main Task
-        <span style={{ display: 'block', fontSize: 11.5, color: NX.faint }}>{recurrenceLabel(mainRule)}</span>
+        <span style={{ display: 'block', fontSize: 12, color: NX.faint }}>{recurrenceLabel(mainRule)}</span>
       </Item>
     )}
     <Item on={off} onClick={() => { onChange(canFollow ? { skip: true } : (subtask ? {} : null)); done(); }}>Does not repeat</Item>
@@ -245,7 +245,7 @@ export function RecurrenceMenu({ value, seedDate, onChange, close, subtask = fal
     <Item on={freq === 'periodic'} more onClick={() => setStep('periodic')}>Periodically</Item>
     <Item on={freq === 'custom'} more onClick={() => setStep('custom')}>Custom</Item>
     {subtask && freq && (
-      <div style={{ padding: '4px 10px', fontSize: 11.5, color: NX.faint }}>Its own schedule - each copy goes under the main task.</div>
+      <div style={{ padding: '4px 10px', fontSize: 12, color: NX.faint }}>Its own schedule - each copy goes under the main task.</div>
     )}
     {ends && freq && (
       <div style={{ borderTop: `1px solid ${NX.border2}`, marginTop: 6, padding: '8px 6px 2px' }}>

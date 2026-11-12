@@ -441,7 +441,7 @@ export default function BoardView({
         <ChangeFlash value={`${t.status}:${!!t.completed}`} color={statusMeta(t.status)?.color} isFresh={() => changedRecently(t.id)} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {proj && (
-            <span style={{ padding: '2px 8px', borderRadius: 5, fontSize: 10.5, fontWeight: 600, background: `${projColor}1a`, color: projColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>{proj.name}</span>
+            <span style={{ padding: '2px 8px', borderRadius: 5, fontSize: 11, fontWeight: 600, background: `${projColor}1a`, color: projColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>{proj.name}</span>
           )}
           {t.isMilestone && <Diamond size={11} style={{ color: NX.purple }} />}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -455,13 +455,13 @@ export default function BoardView({
         </div>
         <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none', ...boldTitleStyle(rc, t.completed) }}>{t.title}</div>
         {t.parentTaskId && (
-          <div data-testid="subtask-of" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 11.5, color: NX.faint, minWidth: 0 }}>
+          <div data-testid="subtask-of" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 12, color: NX.faint, minWidth: 0 }}>
             <CornerDownRight size={11} style={{ flexShrink: 0 }} />
             <span style={{ flexShrink: 0 }}>Subtask of</span>
             {parent ? (
               <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(parent.id); }} onMouseDown={(e) => e.stopPropagation()}
                 title={`Open ${parent.title}`}
-                style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 11.5, fontWeight: 600, color: NX.blue, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
+                style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 12, fontWeight: 600, color: NX.blue, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left' }}>
                 {parent.title}
               </button>
             ) : <span style={{ fontWeight: 600 }}>Private Task</span>}
@@ -491,7 +491,7 @@ export default function BoardView({
               </span>
             ))}
             {taskAssignees(t).length > 3 && (
-              <span title={taskAssignees(t).slice(3).join(', ')} style={{ fontSize: 10.5, color: NX.faint, marginLeft: 3 }}>+{taskAssignees(t).length - 3}</span>
+              <span title={taskAssignees(t).slice(3).join(', ')} style={{ fontSize: 11, color: NX.faint, marginLeft: 3 }}>+{taskAssignees(t).length - 3}</span>
             )}
           </div>
         </div>
@@ -500,7 +500,7 @@ export default function BoardView({
             <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); postComment(t.id); } }}
               placeholder="Add a comment…" rows={2} style={{ ...inputStyle, resize: 'none', fontSize: 12, fontFamily: FONT }} />
-            {commentError && <div role="alert" style={{ fontSize: 11.5, color: NX.red, marginTop: 4 }}>{commentError}</div>}
+            {commentError && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>{commentError}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
               <button onClick={() => setCommentOpenId(null)} style={{ ...btn('ghost'), fontSize: 11, padding: '4px 8px' }}>Cancel</button>
               <button onClick={() => postComment(t.id)} disabled={!draft.trim() || commentBusy} style={{ ...btn('primary'), fontSize: 11, padding: '5px 10px', opacity: draft.trim() && !commentBusy ? 1 : 0.4 }}>{commentBusy ? 'Posting…' : 'Post'}</button>
@@ -567,14 +567,14 @@ export default function BoardView({
         {onToggleSubtasks && (
           <button type="button" onClick={onToggleSubtasks} aria-pressed={!!showSubtasks}
             title={showSubtasks ? 'Hide the subtask cards' : 'Show each subtask as a card of its own'}
-            style={{ ...btn('outline'), fontSize: 12.5, color: showSubtasks ? NX.blue : NX.dim }}>
+            style={{ ...btn('outline'), fontSize: 13, color: showSubtasks ? NX.blue : NX.dim }}>
             <ListTree size={14} /> Show Subtasks {showSubtasks && <Check size={13} />}
           </button>
         )}
         {togglePreviews && (
           <button type="button" onClick={togglePreviews} aria-pressed={showPreviews}
             title={showPreviews ? 'Hide the image, checklist or description under each card title' : 'Show an image, checklist or description under each card title'}
-            style={{ ...btn('outline'), fontSize: 12.5, color: showPreviews ? NX.blue : NX.dim }}>
+            style={{ ...btn('outline'), fontSize: 13, color: showPreviews ? NX.blue : NX.dim }}>
             <ImageIcon size={14} /> Card Previews {showPreviews && <Check size={13} />}
           </button>
         )}
@@ -666,7 +666,7 @@ function BoardMenu({ icon: Icon, label, ariaLabel, options, current, onPick }) {
   const ref = useRef(null);
   return (
     <div>
-      <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} aria-label={ariaLabel} aria-haspopup="menu" aria-expanded={open} style={{ ...btn('outline'), fontSize: 12.5 }}>
+      <button ref={ref} type="button" onClick={() => setOpen((o) => !o)} aria-label={ariaLabel} aria-haspopup="menu" aria-expanded={open} style={{ ...btn('outline'), fontSize: 13 }}>
         <Icon size={14} /> {label} <ChevronDown size={13} style={{ color: NX.faint }} />
       </button>
       <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} aria-label={ariaLabel}
@@ -750,14 +750,14 @@ function MoveToMenu({ groups, title, what = 'status' }) {
           <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, padding: '4px 8px' }}>Move To</div>
           {groups.map((g) => (
             <div key={g.title} role="group" aria-label={g.title}>
-              {several && <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '6px 8px 2px' }}>{g.title}</div>}
+              {several && <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '6px 8px 2px' }}>{g.title}</div>}
               {g.options.map((o) => {
                 const here = o.key === g.current;
                 const off = here || !!o.disabled;
                 return (
                   <button key={o.key} type="button" role="menuitem" disabled={off} autoFocus={`${g.title}:${o.key}` === first}
                     onClick={() => { setOpen(false); g.onPick(o.key); ref.current?.focus(); }}
-                    style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 12.5, color: NX.ink, opacity: off ? 0.55 : 1, cursor: off ? 'default' : 'pointer' }}>
+                    style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, fontSize: 13, color: NX.ink, opacity: off ? 0.55 : 1, cursor: off ? 'default' : 'pointer' }}>
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: o.color, flexShrink: 0 }} />
                     <span style={{ flex: 1, textAlign: 'left' }}>{o.label}</span>
                     {here && <Check size={13} style={{ color: NX.faint }} />}
@@ -789,7 +789,7 @@ function WipMenu({ limit, onSet }) {
           placeholder="No limit" style={{ ...inputStyle, padding: '6px 8px', fontSize: 13 }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <button onClick={() => { onSet(null); setOpen(false); }} style={{ ...btn('ghost'), fontSize: 11, padding: '4px 6px', color: NX.dim }}>Clear</button>
-          <span style={{ fontSize: 10, color: NX.faint }}>Enter to save</span>
+          <span style={{ fontSize: 11, color: NX.faint }}>Enter to save</span>
         </div>
       </AnchoredMenu>
     </div>

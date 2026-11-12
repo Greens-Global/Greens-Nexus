@@ -102,7 +102,7 @@ export function ProjectStatusChip({ project: p, nameOf, onSave = null, fallback 
         </div>
         <input value={why} onChange={(e) => setWhy(e.target.value)} maxLength={300} placeholder="Why - one line"
           aria-label="Why" onKeyDown={(e) => { if (e.key === 'Enter') save(e); }}
-          style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', marginTop: 8, fontSize: 12.5 }} />
+          style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', marginTop: 8, fontSize: 13 }} />
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 8 }}>
           <button type="button" onClick={(e) => { e.stopPropagation(); setOpen(false); }} style={{ ...btn('ghost'), padding: '5px 10px', fontSize: 12 }}>Cancel</button>
           <button type="button" onClick={save} disabled={!pick || busy} style={{ ...btn('primary'), padding: '5px 12px', fontSize: 12 }}>Save</button>
