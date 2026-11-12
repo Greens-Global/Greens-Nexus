@@ -394,7 +394,7 @@ export function PayrollHoursToQb() {
               </label>
             </div>
             <p style={{ ...small, margin: '8px 0 0' }}>
-              In QuickBooks Desktop the file is imported with File &gt; Utilities &gt; Import &gt; Timer Activities. If QuickBooks says the file was not made for this company, export Timer Lists from the same company file (File &gt; Utilities &gt; Export &gt; Timer Lists), open that file in Notepad, copy the number at the end of its TIMERHDR line and paste it here. Remembered in this browser. Saved once under Settings &gt; Time &amp; Pay &gt; Payroll Export Codes, every IIF download fills it in by itself and this field is only an override.
+              In QuickBooks Desktop the file is imported with File &gt; Utilities &gt; Import &gt; IIF Files. Only for QuickBooks 2021 and earlier (the old Timer Activities import, with Old Timer Header on under Payroll Export Codes): if QuickBooks says the file was not made for this company, export Timer Lists from the same company file (File &gt; Utilities &gt; Export &gt; Timer Lists), open that file in Notepad, copy the number at the end of its TIMERHDR line and paste it here. Remembered in this browser. Saved once under Settings &gt; Time &amp; Pay &gt; Payroll Export Codes, every IIF download fills it in by itself and this field is only an override.
             </p>
           </details>
         )}

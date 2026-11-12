@@ -3185,11 +3185,17 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
     # No number passed: the export's company's saved one (Payroll Export
     # Codes), so Charmi sets it once instead of typing it per download.
     created = created or payroll_codes.qb_create_time(db, co_ids) or "0"
-    lines = [
-        "!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME",
-        f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t{created}",
-        "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS",
-    ]
+    # QuickBooks Desktop 2022 and later have no Timer Activities import, only
+    # File > Utilities > Import > IIF Files, which reads plain !TIMEACT rows
+    # (Charmi, 11/12/2026, Accountant Desktop Plus 2024). The TIMERHDR lines
+    # are only for a company that turned on the old Timer header (2021 and
+    # earlier); a file spanning companies keeps them only if every one did.
+    timer_on = payroll_codes.timer_header_reader(db)
+    lines = []
+    if co_ids and all(timer_on(c) for c in co_ids):
+        lines += ["!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME",
+                  f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t{created}"]
+    lines.append("!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS")
     book = payroll_codes.codebook(db)
     no_job = payroll_codes.blank_job_reader(db)
     for r in rows:
@@ -3210,7 +3216,11 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
             # across jobs without splitting the OT/DT computation.
             day_sites = {_seg_site(s)[1] for s in d.get("segments", []) if _seg_site(s)[0]}
             job = _clean(next(iter(day_sites))) if len(day_sites) == 1 and not blank_job else ""
-            billing = "1" if job else "0"
+            # Never billable (Charmi, 11/12/2026): QuickBooks refuses a billable
+            # row without a service item ("Billable activities must have a
+            # customer:job and service item" [3180]) and the file carries none.
+            # The work site stays in JOB for job costing.
+            billing = "0"
             for mins_key, pay_class in _IIF_PAY_CLASSES:
                 mins = d.get(mins_key, 0)
                 if mins <= 0:
@@ -10888,7 +10898,10 @@ def _export_codes_out(db: Session, company: str) -> dict:
             # the IIF then carries 0 and QuickBooks may refuse the import.
             "quickbooksCreateTime": payroll_codes.qb_create_time_override(db, company),
             # Leave Customer:Job Blank in the IIF (Charmi, 11/06/2026).
-            "quickbooksBlankJob": payroll_codes.blank_job(db, company)}
+            "quickbooksBlankJob": payroll_codes.blank_job(db, company),
+            # Keep the old TIMERHDR lines - QuickBooks 2021 and earlier only
+            # (Charmi, 11/12/2026: 2022+ imports through Import > IIF Files).
+            "quickbooksTimerHeader": payroll_codes.timer_header(db, company)}
 
 
 @router.get("/payroll/export-codes")
@@ -10906,6 +10919,8 @@ class ExportCodesIn(BaseModel):
     quickbooksCreateTime: Optional[str] = None
     # None = leave the Customer:Job switch alone (Charmi, 11/06/2026).
     quickbooksBlankJob: Optional[bool] = None
+    # None = leave the old Timer header switch alone (Charmi, 11/12/2026).
+    quickbooksTimerHeader: Optional[bool] = None
 
 
 @router.put("/payroll/export-codes")
@@ -10924,6 +10939,8 @@ def set_export_codes(body: ExportCodesIn, user: dict = Depends(require_administr
         payroll_codes.save_qb_company_name(db, company, body.quickbooksCompanyName, user["email"])
     if body.quickbooksBlankJob is not None:
         payroll_codes.save_blank_job(db, company, bool(body.quickbooksBlankJob), user["email"])
+    if body.quickbooksTimerHeader is not None:
+        payroll_codes.save_timer_header(db, company, bool(body.quickbooksTimerHeader), user["email"])
     return _export_codes_out(db, company)
 
 
