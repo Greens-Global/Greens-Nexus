@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Briefcase, ExternalLink, Info, Plus, X } from 'lucide-react';
+import { Briefcase, Download, ExternalLink, Info, Plus, X } from 'lucide-react';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
 import { usePeopleDirectory } from '../lib/queries';
@@ -7,6 +7,7 @@ import { formatCurrency, formatMultiple, formatPercent, numOrNull } from './lib/
 import { EmptyState, ErrorState, FG, LoadingState, Modal, PeopleSelect, StatusText, ThinBar, useIrLoad } from './lib/ui';
 import { Spinner } from '../components/AsyncState';
 import HoldButton from '../ui/HoldButton';
+import { DealBooks, ImportFromBooks } from './Books';
 
 const BLANK = {
   name: '', entityName: '', strategy: '', propertyName: '', status: 'raising',
@@ -152,6 +153,11 @@ function DealPortalAccess({ fundId }) {
 export default function FundsTab() {
   const nameOf = useNameResolver();
   const { data: funds, loading, error, reload } = useIrLoad(() => api.getIrFunds(), []);
+  // Live partner capital per linked deal, from Intacct. Anyone without
+  // Accounting access gets {allowed: false} and the cards show no live line.
+  const { data: live, reload: reloadLive } = useIrLoad(() => api.getIrFundsBooks().catch(() => null), []);
+  const [importing, setImporting] = useState(false);
+  const refresh = () => Promise.all([reload(), reloadLive()]);
   const { data: people = [] } = usePeopleDirectory();
 
   // Optional Deal ↔ Property link (read-only reference into Asset Management,
@@ -236,10 +242,16 @@ export default function FundsTab() {
           <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Deals</h3>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Every deal - raise progress, terms, and lifecycle status</p>
         </div>
-        <button className="primary-btn" onClick={openAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} /> Add Deal
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="secondary-btn" onClick={() => setImporting(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Download size={14} /> Import From Intacct
+          </button>
+          <button className="primary-btn" onClick={openAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Plus size={14} /> Add Deal
+          </button>
+        </div>
       </div>
+      {importing && <ImportFromBooks onClose={() => setImporting(false)} onDone={refresh} />}
 
       {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={reload} /> : (funds || []).length === 0 ? (
         <EmptyState icon={Briefcase} title="No Deals Yet" sub="Add your first deal to start tracking commitments, capital calls, and distributions." />
@@ -273,6 +285,7 @@ export default function FundsTab() {
                 {stat('Pref Return', formatPercent(f.preferredReturnPct))}
                 {stat('Called', formatCurrency(f.totalCalled))}
                 {stat('Distributed', formatCurrency(f.totalDistributed))}
+                {live?.deals?.[f.id] && !live.deals[f.id].error && stat('Partner Capital (Intacct)', formatCurrency(live.deals[f.id].partnerCapital))}
               </div>
 
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, color: 'var(--muted)' }}>
@@ -394,6 +407,7 @@ export default function FundsTab() {
                 <textarea className="form-input" value={modal.form.thesis} placeholder="Why this deal - market, business plan, exit…"
                   onChange={e => setF({ thesis: e.target.value })} style={{ minHeight: 64, resize: 'vertical' }} />
               </FG>
+              {modal.id && <DealBooks fundId={modal.id} onChanged={refresh} />}
               {modal.id && <DealPortalAccess fundId={modal.id} />}
               {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
             </div>

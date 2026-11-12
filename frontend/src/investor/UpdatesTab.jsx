@@ -39,7 +39,7 @@ export default function UpdatesTab() {
       const payload = {
         title: modal.title.trim(),
         body: modal.body.trim(),
-        fundId: modal.fundId ? Number(modal.fundId) : null,
+        fundId: modal.fundId ? String(modal.fundId) : null,
         pinned: !!modal.pinned,
       };
       if (modal.id) await api.updateIrUpdate(modal.id, payload);
