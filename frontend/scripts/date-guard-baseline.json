@@ -20,32 +20,8 @@
   "components/accounting/AskAccountantTab.jsx": {
     "type=\"date\"": 2
   },
-  "components/accounting/dashboard/DataTab.jsx": {
-    "type=\"date\"": 1
-  },
   "components/accounting/LeasingTab.jsx": {
     "type=\"date\"": 4
-  },
-  "components/accounting/LoanAmortization.jsx": {
-    "type=\"date\"": 2
-  },
-  "components/accounting/LoanDialogs.jsx": {
-    "type=\"date\"": 2
-  },
-  "components/accounting/LoanPlanning.jsx": {
-    "type=\"date\"": 2
-  },
-  "components/accounting/ManagementFeesTab.jsx": {
-    "type=\"date\"": 2
-  },
-  "components/accounting/MreTab.jsx": {
-    "type=\"date\"": 2
-  },
-  "components/accounting/PfsTab.jsx": {
-    "type=\"date\"": 2
-  },
-  "components/accounting/reportControls.jsx": {
-    "type=\"date\"": 3
   },
   "components/AddTimeModal.jsx": {
     "type=\"date\"": 2

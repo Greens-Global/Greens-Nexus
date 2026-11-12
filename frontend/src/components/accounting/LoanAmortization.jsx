@@ -10,6 +10,10 @@ import { uploadToSupabase, safeFileName } from '../../investor/lib/upload';
 import {
   DAY_COUNTS, SCHEDULE_FIELDS, addMonths, buildSchedule, expectedBalanceAt, findHeaderRow, guessColumns, normalizeLoan, round2, rowsFromMatrix, scheduleTotals,
 } from './loanMath';
+import { WarnMark } from './warnMark';
+import { DateField } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
+import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // Accounting -> Loans & Financing -> Amortization (Charmi and Neil, 10/06:
 // "Add in Amortization schedule for Commercial loans, allow us to build it or
@@ -35,7 +39,7 @@ import {
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const warn = { fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' };
+const warn = { fontSize: '0.78rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' };
 const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 };
@@ -49,7 +53,7 @@ const FILE_TYPES = '.xlsx,.xls,.csv';
 function Chip({ tone = 'muted', children, title }) {
   const tones = {
     ok: { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' }, bad: { fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
-    wait: { fg: '#92400e', bg: 'rgba(180,83,9,0.13)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
+    wait: { fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
   return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
@@ -118,8 +122,9 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
       .catch((e) => setError(e))
       .finally(() => setBusy(''));
   };
-  const remove = () => {
-    if (!window.confirm('Remove this amortization schedule? The bank file stays in storage; the rows are removed.')) return;
+  // The house dialog, press and hold (11/11/2026 Accounting pass, picture 10).
+  const remove = async () => {
+    if (!await dialog.confirm('Remove this amortization schedule? The bank file stays in storage; the rows are removed.', { title: 'Remove Schedule', confirmText: 'Remove Schedule', doneText: 'Removed', hold: true, holdMs: HOLD_RECORD_MS })) return;
     setBusy('delete');
     api.deleteLoanSchedule(l.id).then(() => setSched(null)).catch((e) => setError(e)).finally(() => setBusy(''));
   };
@@ -252,24 +257,25 @@ function BuildForm({ loan, initial, busy, onCancel, onSave }) {
           </Field>
           <Field id="am-amort" title="Amortization (Months)" hint="Longer than the term leaves a balloon"><input id="am-amort" type="number" min="1" max="1200" value={p.amortMonths} onChange={(e) => set({ amortMonths: e.target.value })} style={input} /></Field>
           <Field id="am-io" title="Interest-Only Months"><input id="am-io" type="number" min="0" max="1200" value={p.ioMonths} onChange={(e) => set({ ioMonths: e.target.value })} style={input} /></Field>
-          <Field id="am-first" title="First Payment Date"><input id="am-first" type="date" value={p.firstPaymentDate} onChange={(e) => set({ firstPaymentDate: e.target.value })} style={input} /></Field>
-          <Field id="am-start" title="Funding Date" hint="Optional - interest runs from it to the first payment"><input id="am-start" type="date" value={p.startDate} onChange={(e) => set({ startDate: e.target.value })} style={input} /></Field>
+          <Field id="am-first" title="First Payment Date"><span id="am-first" style={{ ...input, display: 'flex', alignItems: 'center' }}><DateField value={p.firstPaymentDate} onChange={(picked) => { const v = picked || ''; return set({ firstPaymentDate: v }); }} placeholder="MM/DD/YYYY" title="First Payment Date" style={{ width: '100%' }} /></span></Field>
+          <Field id="am-start" title="Funding Date" hint="Optional - interest runs from it to the first payment"><span id="am-start" style={{ ...input, display: 'flex', alignItems: 'center' }}><DateField value={p.startDate} onChange={(picked) => { const v = picked || ''; return set({ startDate: v }); }} placeholder="MM/DD/YYYY" title="Funding Date" style={{ width: '100%' }} /></span></Field>
           <Field id="am-freq" title="Payment Frequency"><select id="am-freq" value="monthly" disabled style={input}><option value="monthly">Monthly</option></select></Field>
           <Field id="am-day" title="Day Count"><select id="am-day" value={p.dayCount} onChange={(e) => set({ dayCount: e.target.value })} style={input}>{DAY_COUNTS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></Field>
         </div>
         {loan.maturity && p.firstPaymentDate && termFromMaturity(p.firstPaymentDate, loan.maturity) && Number(p.termMonths) !== termFromMaturity(p.firstPaymentDate, loan.maturity) && (
           <div style={warn}>
+            <WarnMark />
             The maturity on file ({formatDate(loan.maturity)}) is {termFromMaturity(p.firstPaymentDate, loan.maturity)} months from the first payment.{' '}
             <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '1px 8px', marginLeft: 6 }} onClick={() => set({ termMonths: termFromMaturity(p.firstPaymentDate, loan.maturity) })}>Use It</button>
           </div>
         )}
-        {!ok ? <div style={warn}>{result.errors.join(' ')}</div> : (
+        {!ok ? <div style={warn}><WarnMark />{result.errors.join(' ')}</div> : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
             {result.ioPayment > 0 && <span>Interest-Only Payment <strong><Amount value={result.ioPayment} /></strong></span>}
             <span>Monthly Payment <strong><Amount value={result.payment} /></strong></span>
             <span>Total Interest <strong><Amount value={result.totalInterest} /></strong></span>
             <span>Balloon at Maturity <strong>{result.balloon ? <Amount value={result.balloon} /> : 'None'}</strong></span>
-            {loan.monthlyPi != null && Math.abs(loan.monthlyPi - result.payment) >= 1 && <span style={{ color: '#92400e' }}>Monthly payment on file: <Amount value={loan.monthlyPi} /></span>}
+            {loan.monthlyPi != null && Math.abs(loan.monthlyPi - result.payment) >= 1 && <span style={{ color: 'var(--warn-fg)' }}><WarnMark />Monthly payment on file: <Amount value={loan.monthlyPi} /></span>}
           </div>
         )}
       </div>
@@ -353,7 +359,7 @@ function UploadForm({ loan, busy, onCancel, onSave }) {
       if (up.error) note = up.error;
       fileUrl = up.url || '';
     }
-    if (note && !window.confirm(`The bank's file could not be stored (${note}). Save the rows without it?`)) return;
+    if (note && !await dialog.confirm(`The bank's file could not be stored (${note}). Save the rows without it?`, { title: 'Save Without The File?', confirmText: 'Save Without It' })) return;
     const columnMap = Object.fromEntries(Object.entries(map).map(([k, i]) => [k, i >= 0 ? String(headers[i] ?? `Column ${i + 1}`) : '']));
     onSave({ source: 'upload', rows: parsed.rows, columnMap, fileUrl, fileName: file ? file.name : 'Pasted from Excel' });
   };
@@ -387,7 +393,7 @@ function UploadForm({ loan, busy, onCancel, onSave }) {
                 </Field>
               ))}
             </div>
-            {missing.length > 0 ? <div style={warn}>Pick the {missing.join(' and ')} column{missing.length > 1 ? 's' : ''}.</div>
+            {missing.length > 0 ? <div style={warn}><WarnMark />Pick the {missing.join(' and ')} column{missing.length > 1 ? 's' : ''}.</div>
               : <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{parsed.rows.length} payments read{parsed.skipped ? `; ${parsed.skipped} rows without a date or balance left out (titles, totals)` : ''}. A missing principal is the payment less the interest.</div>}
           </>
         )}

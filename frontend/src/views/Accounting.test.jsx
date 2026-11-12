@@ -13,7 +13,8 @@ vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@greensglobal.com', canAccessModule: (m) => m === 'accounting' }) }));
 vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => () => 'Neil Kadakia' }));
 vi.mock('../components/accounting/ReportsTab', () => ({ default: ({ search }) => <div data-testid="reports">{`reports:${search?.text || ''}`}</div> }));
-vi.mock('../components/accounting/ReportCenter', () => ({ default: () => <div data-testid="report-center">report-center</div> }));
+const center = vi.hoisted(() => ({ groups: null }));
+vi.mock('../components/accounting/ReportCenter', () => ({ default: ({ groups }) => { center.groups = groups; return <div data-testid="report-center">report-center</div>; } }));
 vi.mock('../components/accounting/PackagesTab', () => ({ default: () => <div>packages-tab</div> }));
 vi.mock('../components/accounting/AccessTab', () => ({ default: () => <div>access-tab</div> }));
 vi.mock('../components/accounting/PfsTab', () => ({ default: () => <div>pfs-tab</div> }));
@@ -33,6 +34,30 @@ const tabNames = () => screen.getAllByRole('button').map((b) => b.textContent.tr
 beforeEach(() => { vi.clearAllMocks(); });
 
 describe('Accounting view', () => {
+
+  // 11/11/2026 (Neil approved picture 2): two levels with every name spelled
+  // out, a Trackers menu for the working tools, and the catalogue keeps
+  // listing what moved out of Reports. Keys never change.
+  it('draws Reports two levels deep, adds Trackers, and keeps the moved tools in All Reports', async () => {
+    apiMock.getMyAccountingAccess.mockResolvedValue({ limited: false });
+    render(<Accounting activeSub="reports" onSubChange={() => {}} />);
+    expect(await screen.findByTestId('report-center')).toBeTruthy();
+    expect(tabNames()).toEqual(expect.arrayContaining(['Reports', 'Trackers']));
+    const keys = (g) => g.items.map((i) => i.key);
+    const byKey = Object.fromEntries(center.groups.map((g) => [g.key, g]));
+    expect(center.groups.map((g) => g.key)).toEqual(['grp-center', 'grp-financial', 'grp-banking', 'grp-budget', 'grp-audit', 'grp-payroll', 'grp-tax', 'trackers']);
+    expect(keys(byKey['grp-center'])).toEqual(['reports', 'report-builder', 'packages']);
+    // No flyout inside a flyout.
+    center.groups.forEach((g) => g.items.forEach((i) => expect(i.items).toBeUndefined()));
+    expect(byKey['grp-financial'].label).toBe('Financial Statements');
+    expect(byKey['grp-financial'].items.find((i) => i.key === 'rpt-pnl-t12').label).toBe('Income Statement - Last 12 Months');
+    expect(keys(byKey['grp-banking'])).toEqual(['rpt-general-ledger', 'rpt-vendor-spend', 'rpt-bank-activity', 'rpt-card-activity', 'manual-je']);
+    expect(keys(byKey['grp-audit'])).toEqual(['rpt-flux', 'profitability']);
+    expect(byKey.trackers.items.map((i) => [i.key, i.label])).toEqual([
+      ['mri', 'Monthly Recurring Income'], ['mre', 'Monthly Recurring Expenses'], ['mgmt-fees', 'Management Fees'],
+      ['ama', 'Ask My Accountant'], ['budget', 'Budgets'],
+    ]);
+  });
   it('lands on Overview with every tab when the reader is not limited', async () => {
     apiMock.getMyAccountingAccess.mockResolvedValue({ limited: false });
     const onSubChange = vi.fn();

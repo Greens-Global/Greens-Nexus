@@ -103,7 +103,8 @@ const SCREEN_LOADING = <div style={{ marginTop: 8 }}><SkeletonBlocks count={3} /
 // Trial Balance and three Income Statement quick views), Budget (moved off
 // the bar, with Budget vs. Actual YTD / MTD), Payroll & People, Audit &
 // Insights, and Banking & Credit Cards (item 07) between Financial and
-// Budget. A `rpt-<report>` key opens that statement; `rpt-<view>` opens a
+// Budget. (Redrawn 11/11/2026, picture 2: see the Reports comment below.)
+// A `rpt-<report>` key opens that statement; `rpt-<view>` opens a
 // quick view (REPORT_VIEWS in reportModel); an activity report's key may
 // carry its account after a colon (activitySub). Older keys (rpt-pnl,
 // rpt-budget) still land.
@@ -118,66 +119,70 @@ const BASE_TABS = [
     { key: 'performance', label: 'Performance', Icon: TrendingUp },
     { key: 'close', label: 'Close', Icon: CheckSquare },
   ] },
+  // 11/11/2026 (Neil approved picture 2 of the Accounting pass): two levels,
+  // every name spelled out. All Reports, Report Builder and Packages lead;
+  // each group is one flyout with no flyout inside it. Keys never change, so
+  // every saved link, bell and bookmark still lands.
   { key: 'reporting', label: 'Reports', Icon: FileText, items: [
-    { key: 'grp-center', label: 'Report Center', Icon: FileText, items: [
-      { key: 'reports', label: 'Report Center', Icon: FileText },
-      { key: 'report-builder', label: 'Report Builder', Icon: Hammer },
-      { key: 'packages', label: 'Packages', Icon: FileStack },
-    ] },
-    { key: 'grp-financial', label: 'Financial', Icon: Scale, items: [
+    { key: 'reports', label: 'All Reports', Icon: FileText },
+    { key: 'report-builder', label: 'Report Builder', Icon: Hammer },
+    { key: 'packages', label: 'Packages', Icon: FileStack },
+    { key: 'grp-financial', label: 'Financial Statements', Icon: Scale, items: [
       rpt('balance-sheet', 'Balance Sheet', Scale),
       rpt('trial-balance', 'Trial Balance', ListChecks),
-      { key: 'grp-pnl', label: 'Income Statement', Icon: TrendingUp, items: [
-        rpt('pnl-t12', 'T12', TrendingUp),
-        rpt('pnl-ytd-py', 'YTD vs. Prior Year', TrendingUp),
-        rpt('pnl-mom', 'This Month vs. Last Month', TrendingUp),
-        // 10/27 item 16 (Charmi; Neil: "Income Statement - not Profit & Loss").
-        rpt('pnl-customer', 'Income Statement by Customer', Users),
-        rpt('pnl-job', 'Income Statement by Job', Hammer),
-        rpt('pnl-department', 'Income Statement by Department', Building2),
-      ] },
-      rpt('general-ledger', 'General Ledger', BookOpen),
-      // 10/27 item 17 (Charmi: "pull a report by vendor name").
-      rpt('vendor-spend', 'Spend by Vendor', Receipt),
+      rpt('pnl-t12', 'Income Statement - Last 12 Months', TrendingUp),
+      rpt('pnl-ytd-py', 'Income Statement - Year to Date vs. Prior Year', TrendingUp),
+      rpt('pnl-mom', 'Income Statement - This Month vs. Last Month', TrendingUp),
+      // 10/27 item 16 (Charmi; Neil: "Income Statement - not Profit & Loss").
+      rpt('pnl-customer', 'Income Statement by Customer', Users),
+      rpt('pnl-job', 'Income Statement by Job', Hammer),
+      rpt('pnl-department', 'Income Statement by Department', Building2),
       rpt('cash-flow', 'Statement of Cash Flows', ArrowLeftRight),
       rpt('cash-position', 'Cash Position', Wallet),
     ] },
     // Oct 22 (Neil, item 07): one card's or one bank account's transactions
     // without filtering the General Ledger. Every account on Overview >
     // Account Reconciliations opens these on itself (`rpt-<report>:<account>...`).
-    { key: 'grp-banking', label: 'Banking & Credit Cards', Icon: Landmark, items: [
-      rpt('card-activity', 'Credit Card Activity', CreditCard),
+    { key: 'grp-banking', label: 'Ledger & Banking', Icon: Landmark, items: [
+      rpt('general-ledger', 'General Ledger', BookOpen),
+      // 10/27 item 17 (Charmi: "pull a report by vendor name").
+      rpt('vendor-spend', 'Spend by Vendor', Receipt),
       rpt('bank-activity', 'Bank Activity', Landmark),
+      rpt('card-activity', 'Credit Card Activity', CreditCard),
+      // Oct 23 (Neil, CR-10): the entries a person keyed in Intacct - who and when.
+      { key: 'manual-je', label: 'Manual Journal Entries', Icon: UserPen },
     ] },
-    // Oct 2 (Charmi and Neil, 10/01 call): a budget per entity and year.
-    { key: 'grp-budget', label: 'Budget', Icon: Calculator, items: [
-      { key: 'budget', label: 'Budget', Icon: Calculator },
-      rpt('budget-ytd', 'Budget vs. Actual, YTD', Target),
-      rpt('budget-mtd', 'Budget vs. Actual, MTD', Target),
+    { key: 'grp-budget', label: 'Budget vs. Actual', Icon: Target, items: [
+      rpt('budget-ytd', 'Year to Date', Target),
+      rpt('budget-mtd', 'Month to Date', Target),
+    ] },
+    { key: 'grp-audit', label: 'Review', Icon: Activity, items: [
+      rpt('flux', 'Flux Analysis', Activity),
+      // Oct 15: per-entity NOI / net income / debt service vs prior year.
+      { key: 'profitability', label: 'Profitability', Icon: ChartColumn },
     ] },
     // Oct 15: wages and hours per employee (Full level on Accounting only).
-    { key: 'grp-payroll', label: 'Payroll & People', Icon: HandCoins, items: [
+    { key: 'grp-payroll', label: 'Payroll', Icon: HandCoins, items: [
       { key: 'compensation', label: 'Compensation', Icon: HandCoins },
       // Oct 23 (Neil, CR-09): QuickBooks' Payroll Summary, from the PYRJ import.
       { key: 'payroll-summary', label: 'Payroll Summary', Icon: ReceiptText },
-    ] },
-    { key: 'grp-audit', label: 'Audit & Insights', Icon: Activity, items: [
-      rpt('flux', 'Flux Analysis', Activity),
-      // Oct 6: Monthly Recurring Expenses, beside MRI.
-      { key: 'mre', label: 'MRE', Icon: Receipt },
-      { key: 'mri', label: 'MRI', Icon: KeyRound },
-      // Oct 15 (Neil: "AMA means Ask My Accountant"): questions on ledger lines
-      // and the lines parked on the Ask My Accountant account.
-      { key: 'ama', label: 'AMA', Icon: MessageCircleQuestion },
-      // Oct 23 (Neil, CR-10): the entries a person keyed in Intacct - who and when.
-      { key: 'manual-je', label: 'Manual Journal Entries', Icon: UserPen },
-      // Oct 15: per-entity NOI / net income / debt service vs prior year.
-      { key: 'profitability', label: 'Profitability', Icon: ChartColumn },
     ] },
     // 10/27 item 18 (Neil, Viral): tax forms from the ledger - Schedule C first.
     { key: 'grp-tax', label: 'Tax', Icon: Landmark, items: [
       rpt('schedule-c', 'Schedule C (Draft)', FileText),
     ] },
+  ] },
+  // 11/11/2026 (picture 2): the day-to-day working tools, not reports - full
+  // names. Management Fees is placed here by REPORT_MENU_PLACEMENT.
+  { key: 'trackers', label: 'Trackers', Icon: ListChecks, items: [
+    // Oct 6: Monthly Recurring Expenses, beside MRI.
+    { key: 'mri', label: 'Monthly Recurring Income', Icon: KeyRound },
+    { key: 'mre', label: 'Monthly Recurring Expenses', Icon: Receipt },
+    // Oct 15 (Neil: "AMA means Ask My Accountant"): questions on ledger lines
+    // and the lines parked on the Ask My Accountant account.
+    { key: 'ama', label: 'Ask My Accountant', Icon: MessageCircleQuestion },
+    // Oct 2 (Charmi and Neil, 10/01 call): a budget per entity and year.
+    { key: 'budget', label: 'Budgets', Icon: Calculator },
   ] },
   // Oct 2 (Neil and Charmi): loans set up from the ledger and reviewed per
   // month - balances, principal and interest paid, NOI, DSCR against the
@@ -207,17 +212,17 @@ const BASE_TABS = [
   ] },
   // Oct 6 (Neil: "create a Tools section in accounting"): the utility screens.
   { key: 'tools', label: 'Tools', Icon: Wrench, items: [
-    { key: 'data', label: 'Data', Icon: Database },
+    { key: 'data', label: 'Reference Data', Icon: Database },
     { key: 'access', label: 'Access', Icon: ShieldCheck },
     { key: 'allocations', label: 'Allocations', Icon: Split },
     { key: 'imports', label: 'Import Hub', Icon: Upload },
   ] },
 ];
-// Oct 23 (Neil, CR-04): PFS and Management Fees each go in the Reports group
-// REPORT_MENU_PLACEMENT (assumptions.js) names - PFS in Financial, Management
-// Fees in Audit & Insights - out of the Report Center.
+// Oct 23 (Neil, CR-04): PFS and Management Fees each go in the group
+// REPORT_MENU_PLACEMENT (assumptions.js) names - PFS in Financial Statements,
+// Management Fees in Trackers (11/11/2026).
 const PLACED = {
-  pfs: { key: 'pfs', label: 'PFS', Icon: Landmark },
+  pfs: { key: 'pfs', label: 'Personal Financial Statements', Icon: Landmark },
   // Oct 7 (Priyanka): Asset Management Agreements, billed read from the
   // ledger - first built as "AMA", renamed Management Fees on Oct 15.
   'mgmt-fees': { key: 'mgmt-fees', label: 'Management Fees', Icon: Handshake },
@@ -392,7 +397,17 @@ export default function Accounting({ activeSub, onSubChange }) {
     if (next !== sub) onSubChange?.(next);
   };
   // The Report Center lists what the Reports menu holds for this person.
-  const reportGroups = tabs.find((t) => t.key === 'reporting')?.items || [];
+  // 11/11/2026: the leading items (Report Builder, Packages) are its "Report
+  // Center" group, and Trackers is listed too, so nothing that moved out of
+  // Reports leaves the catalogue.
+  const reportItems = tabs.find((t) => t.key === 'reporting')?.items || [];
+  const reportLead = reportItems.filter((t) => !t.items);
+  const trackerItems = tabs.find((t) => t.key === 'trackers')?.items;
+  const reportGroups = [
+    ...(reportLead.length ? [{ key: 'grp-center', label: 'Report Center', items: reportLead }] : []),
+    ...reportItems.filter((t) => t.items),
+    ...(trackerItems ? [{ key: 'trackers', label: 'Trackers', items: trackerItems }] : []),
+  ];
   const reportCenter = sub === 'reports' && <ReportCenter groups={reportGroups} limited={limited} onOpen={(to) => onSubChange?.(to)} />;
   const reportsTab = isReports(sub) && (
     <ReportsTab report={reportOf(sub)} view={viewOf(sub)} link={parseActivitySub(sub)} onReportChange={onReportPicked} canEdit={canEdit}

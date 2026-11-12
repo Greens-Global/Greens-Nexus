@@ -8,6 +8,7 @@ import { formatDate } from '../../lib/datetime';
 import { EntityPicker, control } from './reportControls';
 import { POLL_MS, ScanProgress, entitiesScannedText, useLedgerScan } from './LedgerScan';
 import { EgnyteField, folderName, useBackdropClose } from './LoanDialogs';
+import { WarnMark } from './warnMark';
 
 // + Add > From the Ledger (was "Set Up From the Ledger"): the proposals,
 // ticked and created. The scan is a background job on the API (Oct 2: 145 s
@@ -48,7 +49,7 @@ const selectable = (p) => p.status === 'new' || p.status === 'dismissed';
 export function Chip({ tone = 'muted', children, title }) {
   const tones = {
     ok: { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' }, bad: { fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
-    wait: { fg: '#92400e', bg: 'rgba(180,83,9,0.13)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
+    wait: { fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
   return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
@@ -196,7 +197,7 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
               <button type="button" className="secondary-btn" onClick={retry} style={{ fontSize: '0.76rem' }}>Try Again</button>
             </div>
           )}
-          {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' }}>{data.notes.join(' · ')} - open again to retry.</div>}
+          {(data?.notes || []).length > 0 && <div style={{ fontSize: '0.78rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' }}><WarnMark />{data.notes.join(' · ')} - open again to retry.</div>}
           {data && !done && (
             <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
               {entitiesScannedText(data)} · {data.liabilityAccounts ?? 0} liability {data.liabilityAccounts === 1 ? 'account' : 'accounts'}
@@ -257,7 +258,7 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
                           <td>{selectable(p) ? <input type="checkbox" data-nx-filter="1" checked={picked.has(k)} onChange={() => toggle(k)} aria-label={`Create ${p.title} on ${p.entityName}`} /> : null}</td>
                           <td style={{ minWidth: 220 }}><span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontVariantNumeric: 'tabular-nums' }}>{p.entityCode}</span> {p.entityName}</td>
                           <td>{p.glAccount}</td><td style={{ minWidth: 220 }}>{p.title}</td>
-                          <td style={{ ...num, minWidth: 120 }} title={p.debitBalance ? DEBIT_NOTE : undefined}>{p.debitBalance ? <span style={{ marginRight: 6, fontSize: '0.64rem', fontWeight: 700, color: '#92400e' }}>Check Sign</span> : null}<Amount value={Math.abs(p.balance)} /></td>
+                          <td style={{ ...num, minWidth: 120 }} title={p.debitBalance ? DEBIT_NOTE : undefined}>{p.debitBalance ? <span style={{ marginRight: 6, fontSize: '0.64rem', fontWeight: 700, color: 'var(--warn-fg)' }}><WarnMark size={11} />Check Sign</span> : null}<Amount value={Math.abs(p.balance)} /></td>
                           <td>{p.lender || <span style={{ color: 'var(--text-muted)' }}>unknown - type it after</span>}</td>
                           <td><Chip tone={p.kind === 'intercompany' ? 'muted' : 'brand'}>{KIND[p.kind] || p.kind}</Chip></td>
                           <td style={{ whiteSpace: 'nowrap', fontSize: '0.76rem' }}>{p.loanType === 'line_of_credit' ? 'Line of Credit' : 'Term Loan'}</td>

@@ -23,6 +23,9 @@ const summary = {
   ],
 };
 
+// DateField as a plain box (the house date picker, 11/11/2026 picture 11), so a test can type a date.
+vi.mock('../../tasks/components', async (importOriginal) => ({ ...(await importOriginal()),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} data-datefield="1" value={value || ''} onChange={(e) => onChange(e.target.value)} /> }));
 vi.mock('../../api', () => ({
   api: {
     getAmaSummary: vi.fn(async () => summary),

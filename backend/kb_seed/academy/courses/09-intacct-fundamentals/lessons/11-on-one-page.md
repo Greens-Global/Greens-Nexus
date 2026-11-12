@@ -18,7 +18,7 @@ Keep this page open the next time a number on a report surprises you. Each line 
 | You want to know | Open |
 |---|---|
 | Why a cost is high | The figure on the Income Statement, then its lines |
-| What one vendor was paid | Reports > Financial > Spend by Vendor, or the vendor's Ledger Lines tab |
+| What one vendor was paid | Reports > Ledger & Banking > Spend by Vendor, or the vendor's Ledger Lines tab |
 | What a Construction job cost | Income Statement by Job, filtered to its Project-Job |
 | A line you know was posted is missing | Sync, then ask Accounting |
 | Why two reports disagree | The Book picker and the entity picker on each |
@@ -35,7 +35,7 @@ Keep this page open the next time a number on a report surprises you. Each line 
 | Ask about a line | The question mark at the end of the line, then Send Question |
 | Move a line to the right account | On AMA: Pick GL, then Send To Bookkeeper |
 | Keep a report view | Memorize |
-| Build your own report | Report Center > Report Builder; Share With Everyone to share it |
+| Build your own report | Reports > Report Builder; Share With Everyone to share it |
 | Change a vendor's details | Edit the record; it waits as Pending Approval, then Approved - Awaiting Intacct |
 
 ## Who Does What

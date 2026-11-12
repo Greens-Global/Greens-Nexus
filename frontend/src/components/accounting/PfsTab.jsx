@@ -14,8 +14,9 @@ import { conditionOf, refSuffix } from './pfsCondition';
 import PfsAffiliated, { PfsExecutiveProfiles } from './PfsAffiliated';
 import { US_STATES, normalizePfsDetails, zipError } from './pfsAddress';
 import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, usePfsLocks } from './PfsLock';
-import { PersonSelect } from '../../tasks/components';
+import { PersonSelect, DateField } from '../../tasks/components';
 import { CompletenessButton, CompletenessPanel, PFS_STALE_DAYS, flashRow, gapCount, pfsGaps, rowSelector } from './completeness';
+import HoldButton from '../../ui/HoldButton';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
 //
@@ -377,7 +378,7 @@ export default function PfsTab({ canEdit = false }) {
                 {locks.untilOf(profile.id) && <PfsLockNow fileId={profile.id} until={locks.untilOf(profile.id)} onLocked={locks.markLocked} />}
                 <CompletenessButton count={gapCount(gaps)} open={completeOpen} onClick={() => setCompleteOpen((o) => !o)} />
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
-                <input type="date" value={asOf} aria-label="Statement date" style={control} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
+                <span style={{ ...control, display: 'flex', alignItems: 'center' }}><DateField value={asOf} onChange={(picked) => { const v = picked || ''; return v && setAsOf(v); }} placeholder="MM/DD/YYYY" title="Statement date" style={{ width: '100%' }} /></span>
                 <SyncButton onSync={onSync} busy={syncing} syncedAt={ts.syncedAt} what="Statement" />
                 {/* Oct 6 (Charmi): "an option to Export to Excel and PDF and not
                     separate tabs/buttons - the exact one you had for reports".
@@ -416,9 +417,9 @@ export default function PfsTab({ canEdit = false }) {
             {note && <div role="status" style={{ fontSize: '0.8rem', color: 'var(--ok-fg, #15803d)' }}>{note}</div>}
             {shownMismatch && <ShareMismatch data={shownMismatch} onUpdate={() => resolveMismatch('update')} onKeep={() => resolveMismatch('keep')} />}
             {(statement?.warnings || []).length > 0 && (
-              <div style={{ ...card, padding: '8px 12px', borderColor: '#b45309', display: 'grid', gap: 4 }}>
+              <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'grid', gap: 4 }}>
                 {statement.warnings.map((w) => (
-                  <div key={w} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.8rem', color: '#92400e' }}><AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{w}</div>
+                  <div key={w} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.8rem', color: 'var(--warn-fg)' }}><AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{w}</div>
                 ))}
               </div>
             )}
@@ -440,7 +441,7 @@ export default function PfsTab({ canEdit = false }) {
                   onBulk={() => setBulk({ section })} onMove={move} onReorder={reorder}
                   onAdd={(category) => setEditing({ section, category, label: '', institution: '', accountRef: '', ownershipPct: 100, source: 'manual', ledgerEntity: '', ledgerAccounts: [], manualValue: 0, manualAsOf: asOf, details: {}, notes: '' })}
                   onEdit={(l, focus = '') => setEditing({ ...l, focus, institution: l.source === 'ledger' && !l.details?.institutionManual ? (figures.get(l.id)?.institution ?? l.institution) : l.institution })}
-                  onDelete={(l) => api.deletePfsLine(profile.id, l.id).then(() => refresh(profile.id, asOf)).catch((e) => setError(e?.message || 'Could not remove the line.'))} />
+                  onDelete={(l) => api.deletePfsLine(profile.id, l.id).then(() => refresh(profile.id, asOf))} />
               )}
               {section === 'history' && (
                 <div style={{ display: 'grid', gap: 10 }}>
@@ -595,8 +596,8 @@ function ShareMismatch({ data, onUpdate, onKeep }) {
   const act = (fn) => { setBusy(true); Promise.resolve(fn()).finally(() => setBusy(false)); };
   const n = data.count;
   return (
-    <div role="region" aria-label="Share differs from Affiliated Entities" style={{ ...card, padding: '8px 12px', borderColor: '#b45309', display: 'grid', gap: 6 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: '0.8rem', color: '#92400e' }}>
+    <div role="region" aria-label="Share differs from Affiliated Entities" style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'grid', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: '0.8rem', color: 'var(--warn-fg)' }}>
         <AlertTriangle size={14} style={{ flexShrink: 0 }} />
         <span style={{ flex: '1 1 260px' }}>{n} {n === 1 ? 'line uses' : 'lines use'} a different % than Affiliated Entities.</span>
         <button type="button" style={linkBtn} onClick={() => setOpen((v) => !v)}>{open ? 'Hide' : 'Show'}</button>
@@ -1082,7 +1083,7 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {editable && (confirm === l.id ? (
                       <>
-                        <button type="button" className="acct-drill" style={{ color: 'var(--bad-fg, #dc2626)', marginRight: 10 }} onClick={() => { setConfirm(''); onDelete(l); }}>Remove</button>
+                        <HoldButton size="sm" label="Remove" doneLabel="Removed" style={{ marginRight: 10 }} onConfirm={() => onDelete(l)} onDone={() => setConfirm('')} />
                         <button type="button" className="acct-drill" onClick={() => setConfirm('')}>Keep</button>
                       </>
                     ) : moving === l.id ? (
@@ -1247,7 +1248,7 @@ function FigureSource({ value, onChange, asOf, idPrefix, manualLabel, asOfLabel 
           {value.asOf !== undefined && (
             <div>
               <label style={label} htmlFor={`${idPrefix}-asof`}>{asOfLabel}</label>
-              <input id={`${idPrefix}-asof`} type="date" value={value.asOf || ''} onChange={(e) => onChange({ ...value, asOf: e.target.value })} style={{ ...control, width: '100%' }} />
+              <span id={`${idPrefix}-asof`} style={{ ...control, width: '100%', display: 'flex', alignItems: 'center' }}><DateField value={value.asOf || ''} onChange={(picked) => { const v = picked || ''; return onChange({ ...value, asOf: v }); }} placeholder="MM/DD/YYYY" title="Date" style={{ width: '100%' }} /></span>
             </div>
           )}
         </div>
