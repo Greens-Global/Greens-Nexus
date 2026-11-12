@@ -64,6 +64,11 @@ KNOWN_PUBLIC = {
     # field hard-capped, writes one audit row and nothing else.
     "/client-errors/boot",
     "/webhooks/github",                    # X-Hub-Signature-256 HMAC verified
+    # Graph change notifications for kudos posts in Teams (11/12/2026): a
+    # notification only marks a post to be read again, and only when its
+    # subscription and clientState (SHA-256 kept) are ours; the validation
+    # call echoes Graph's token. routers/teams_webhook.py.
+    "/webhooks/teams/kudos",
     "/egnyte-oauth/callback",              # same posture: Egnyte redirects a bare browser here, identity comes from the single-use state row (consume_state), never a bearer token
     "/qa/ci-results", "/qa/e2e-specs",     # X-QA-CI-Token header checked inline
     "/esign/local-file/{bucket}/{path:path}",  # local-dev only; 404s when storage configured
