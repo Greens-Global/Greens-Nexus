@@ -27,7 +27,7 @@ export const STAT_TOOLTIPS = {
 export function StatCell({ v, l, big }) {
   return (
     <div title={STAT_TOOLTIPS[l] || l}>
-      <div style={{ fontVariantNumeric: 'tabular-nums', fontWeight: big ? 700 : 600, fontSize: big ? '1rem' : '0.82rem', color: 'var(--text-primary)' }}>
+      <div style={{ fontVariantNumeric: 'tabular-nums', fontWeight: big ? 700 : 600, fontSize: big ? 15 : 13, color: 'var(--text-primary)' }}>
         {v}
       </div>
       <div style={{ ...LABEL_STYLE, marginTop: 2, cursor: 'help' }}>

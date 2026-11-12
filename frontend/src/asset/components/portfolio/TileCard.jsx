@@ -18,7 +18,7 @@ const photoPill = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 5,
-  fontSize: '0.7rem',
+  fontSize: 11,
   fontWeight: 700,
   color: '#fff',
   padding: '4px 10px',
@@ -171,7 +171,7 @@ function PropertyTile({ pr: property, openProperty, secondaries = [], metric = n
                 {members.length + ' parcels'}
               </span>
             ) : lead.private ? (
-              <span style={{ ...photoPill, fontSize: '0.68rem', padding: '3px 8px', backgroundColor: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}>
+              <span style={{ ...photoPill, fontSize: 11, padding: '3px 8px', backgroundColor: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)' }}>
                 Private
               </span>
             ) : null}
@@ -192,7 +192,7 @@ function PropertyTile({ pr: property, openProperty, secondaries = [], metric = n
               >
                 {title}
               </h3>
-              <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.85)', marginTop: 2, textShadow: '0 1px 2px rgba(0,0,0,.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)', marginTop: 2, textShadow: '0 1px 2px rgba(0,0,0,.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {subtitle}
               </div>
             </div>
@@ -206,7 +206,7 @@ function PropertyTile({ pr: property, openProperty, secondaries = [], metric = n
         <div style={{ padding: '14px 18px 14px', display: 'flex', flexDirection: 'column', gap: 13, flex: 1 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {type && (
-              <div style={{ minWidth: 0, fontSize: '0.8rem', fontWeight: 600, letterSpacing: '-0.005em', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ minWidth: 0, fontSize: 13, fontWeight: 600, letterSpacing: '-0.005em', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {type}
               </div>
             )}
@@ -215,7 +215,7 @@ function PropertyTile({ pr: property, openProperty, secondaries = [], metric = n
                 {lead.entity && (
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)', marginBottom: 2 }}>Owner</div>
-                    <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word', lineHeight: 1.3 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {lead.entity}
                     </div>
                   </div>
@@ -223,7 +223,7 @@ function PropertyTile({ pr: property, openProperty, secondaries = [], metric = n
                 {lead.manager && (
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-secondary)', marginBottom: 2 }}>Asset Manager</div>
-                    <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word', lineHeight: 1.3 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word', lineHeight: 1.3 }}>
                       {lead.manager}
                     </div>
                   </div>

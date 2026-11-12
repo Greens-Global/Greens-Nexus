@@ -55,7 +55,7 @@ function ReorderArrow({ children, disabled, onClick }) {
         display: 'block',
         lineHeight: 0.85,
         padding: '1px 7px',
-        fontSize: '0.72rem',
+        fontSize: 12,
         border: 'none',
         background: 'none',
         cursor: disabled ? 'default' : 'pointer',
@@ -140,7 +140,7 @@ export function ParcelManager({
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{
-              fontSize: '0.68rem',
+              fontSize: 11,
               fontWeight: 700,
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
@@ -153,7 +153,7 @@ export function ParcelManager({
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
               <span
                 style={{
-                  fontSize: '0.98rem',
+                  fontSize: 15,
                   fontWeight: 700,
                   color: 'var(--text-primary)',
                   overflow: 'hidden',
@@ -164,12 +164,12 @@ export function ParcelManager({
               >
                 {groupName}
               </span>
-              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                 {members.length} parcels{totalAcres > 0 ? ` · ~${totalAcres.toFixed(1)} ac` : ''}
               </span>
             </div>
           ) : (
-            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>
               Not linked to other parcels
             </div>
           )}
@@ -180,7 +180,7 @@ export function ParcelManager({
             flexShrink: 0,
             padding: '7px 15px',
             borderRadius: 999,
-            fontSize: '0.8rem',
+            fontSize: 13,
             fontWeight: 700,
             cursor: 'pointer',
             border: 'none',
@@ -194,7 +194,7 @@ export function ParcelManager({
 
       {grouped && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
-          <span style={{ flexShrink: 0, fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+          <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
             Go to
           </span>
           {/* Dropdown switcher between group members - not a parent/child drill-down, every
@@ -206,7 +206,7 @@ export function ParcelManager({
             }}
             className="form-input"
             aria-label="Switch to parcel"
-            style={{ flex: 1, minWidth: 0, fontSize: '0.85rem', padding: '9px 11px', cursor: 'pointer' }}
+            style={{ flex: 1, minWidth: 0, fontSize: 13, padding: '9px 11px', cursor: 'pointer' }}
           >
             {members.map((m, i) => (
               <option key={m.id} value={m.id}>
@@ -234,7 +234,7 @@ export function ParcelManager({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               <label
                 style={{
-                  fontSize: '0.7rem',
+                  fontSize: 11,
                   fontWeight: 700,
                   textTransform: 'uppercase',
                   letterSpacing: '0.04em',
@@ -255,9 +255,9 @@ export function ParcelManager({
                   if (e.key === 'Enter') e.currentTarget.blur();
                 }}
                 placeholder="Name this asset group"
-                style={{ width: '100%', boxSizing: 'border-box', fontSize: '0.9rem', padding: '9px 11px' }}
+                style={{ width: '100%', boxSizing: 'border-box', fontSize: 13, padding: '9px 11px' }}
               />
-              <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                 Renames the whole group (separate from each parcel's own name). Saves when you tap away.
               </span>
             </div>
@@ -283,10 +283,10 @@ export function ParcelManager({
                 style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0, cursor: 'pointer', accentColor: 'hsl(var(--color-purple))' }}
               />
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
                   Treat parcels as one assembled asset
                 </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>
                   Fill the project detail once on the lead parcel. Other parcels keep only their own APN,
                   address, lot size, acquisition & zoning - no full detail needed on each.
                 </div>
@@ -297,7 +297,7 @@ export function ParcelManager({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span
               style={{
-                fontSize: '0.7rem',
+                fontSize: 11,
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
@@ -312,7 +312,7 @@ export function ParcelManager({
                   className="form-input"
                   value={selected}
                   onChange={(e) => setSelected(e.target.value)}
-                  style={{ flex: '1 1 180px', minWidth: 0, padding: '8px 10px', fontSize: '0.85rem' }}
+                  style={{ flex: '1 1 180px', minWidth: 0, padding: '8px 10px', fontSize: 13 }}
                 >
                   <option value="">- Select a standalone property -</option>
                   {linkable.map((p) => (
@@ -328,13 +328,13 @@ export function ParcelManager({
                     if (selected) onLink(selected);
                     setSelected('');
                   }}
-                  style={{ flexShrink: 0, padding: '8px 15px', fontSize: '0.82rem', opacity: selected ? 1 : 0.5 }}
+                  style={{ flexShrink: 0, padding: '8px 15px', fontSize: 13, opacity: selected ? 1 : 0.5 }}
                 >
                   {grouped ? 'Add' : 'Link'}
                 </button>
               </div>
             ) : (
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
                 No standalone properties available to link.
               </span>
             )}
@@ -343,7 +343,7 @@ export function ParcelManager({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             <span
               style={{
-                fontSize: '0.7rem',
+                fontSize: 11,
                 fontWeight: 700,
                 textTransform: 'uppercase',
                 letterSpacing: '0.04em',
@@ -361,7 +361,7 @@ export function ParcelManager({
                 gap: 6,
                 padding: '9px 14px',
                 borderRadius: 999,
-                fontSize: '0.82rem',
+                fontSize: 13,
                 fontWeight: 600,
                 cursor: 'pointer',
                 border: '1px dashed hsl(var(--color-purple) / 0.65)',
@@ -371,7 +371,7 @@ export function ParcelManager({
             >
               <Copy size={13} /> Duplicate This Parcel
             </button>
-            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
               Copies this parcel's details into a new linked parcel - records start empty, ready to edit.
             </span>
           </div>
@@ -380,7 +380,7 @@ export function ParcelManager({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <span
                 style={{
-                  fontSize: '0.7rem',
+                  fontSize: 11,
                   fontWeight: 700,
                   textTransform: 'uppercase',
                   letterSpacing: '0.04em',
@@ -422,7 +422,7 @@ export function ParcelManager({
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          fontSize: '0.74rem',
+                          fontSize: 12,
                           fontWeight: 700,
                           color: 'var(--text-secondary)',
                           backgroundColor: 'var(--bg-secondary)',
@@ -452,7 +452,7 @@ export function ParcelManager({
                         <span
                           style={{
                             fontWeight: 600,
-                            fontSize: '0.9rem',
+                            fontSize: 13,
                             color: isCurrent ? 'hsl(var(--color-purple))' : 'var(--text-primary)',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
@@ -462,14 +462,14 @@ export function ParcelManager({
                           {m.name}
                         </span>
                         {isCurrent ? (
-                          <span style={{ flexShrink: 0, fontSize: '0.68rem', fontWeight: 700, color: 'hsl(var(--color-purple))' }}>
+                          <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-purple))' }}>
                             VIEWING
                           </span>
                         ) : null}
                       </button>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 34, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                         Lot: {parcelLot(m) || '-'}
                       </span>
                       <span style={{ flex: 1, minWidth: 8 }} />
@@ -486,7 +486,7 @@ export function ParcelManager({
                           gap: 4,
                           padding: '5px 11px',
                           borderRadius: 999,
-                          fontSize: '0.72rem',
+                          fontSize: 12,
                           fontWeight: 700,
                           cursor: 'pointer',
                           border: m.primary ? '1px solid hsl(var(--color-purple))' : '1px solid var(--border-color)',
@@ -503,7 +503,7 @@ export function ParcelManager({
                           flexShrink: 0,
                           padding: '5px 11px',
                           borderRadius: 999,
-                          fontSize: '0.72rem',
+                          fontSize: 12,
                           fontWeight: 600,
                           cursor: 'pointer',
                           border: '1px solid hsl(var(--color-red) / 0.45)',

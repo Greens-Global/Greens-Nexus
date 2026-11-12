@@ -18,9 +18,9 @@ import { EgnyteFolderInput } from './EgnyteFolderField.jsx';
 
 const FLAG_REASONS = ['Appears Incorrect', 'Needs Verification', 'Outdated', 'Missing Info', 'Other'];
 
-const labelStyle = { fontSize: '0.78rem', fontWeight: 500, color: 'var(--text-secondary)', lineHeight: 1.4 };
+const labelStyle = { fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', lineHeight: 1.4 };
 const sectionCardStyle = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', scrollMarginTop: 108 };
-const inputStyle = { width: '100%', padding: '5px 9px', fontSize: '0.82rem' };
+const inputStyle = { width: '100%', padding: '5px 9px', fontSize: 13 };
 
 /**
  * The universal spec-sheet: renders AND inline-edits the full field set for any asset kind.
@@ -159,9 +159,9 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
   })() : f.t === 'egnyte' ? (
     // Connecting is one time (Neil, 11/05/2026): a connected folder is read only below an Owner.
     egnyteLocked ? (
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45, wordBreak: 'break-word' }}>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.45, wordBreak: 'break-word' }}>
         {egnyteFolderOf(asset)}
-        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Connected - only an Asset Management Owner can change it.</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Connected - only an Asset Management Owner can change it.</div>
       </div>
     ) : <EgnyteFolderInput assetId={asset.id} value={draft[f.l] ?? ''} onChange={(v) => setField(f.l, v)} />
   ) : f.unitLabel ? (
@@ -229,7 +229,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
         {editing && dirty && headerOff && (
           <div className="save-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 300, display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', boxShadow: '0 -6px 20px rgba(0,0,0,0.18)' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)' }}>You've made changes</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>You've made changes</div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Save before you leave this page</div>
             </div>
             <button className="secondary-btn" onClick={cancel} style={{ padding: '9px 14px', flexShrink: 0 }}>Cancel</button>
@@ -240,20 +240,20 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
         {asset.assembled && asset.parentId && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderRadius: 11, border: '1px solid hsl(var(--color-purple) / 0.35)', backgroundColor: 'hsl(var(--color-purple) / 0.07)', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'hsl(var(--color-purple))' }}>Parcel of {asset.siteName || 'an assembled asset'}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-purple))' }}>Parcel of {asset.siteName || 'an assembled asset'}</div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.45 }}>
                 Project detail (ownership, financials, zoning, team) is managed on the assemblage. This page holds only the info specific to this parcel.
               </div>
             </div>
             {onOpenLead && (
-              <button className="primary-btn" onClick={() => onOpenLead(asset.parentId)} style={{ flexShrink: 0, padding: '8px 14px', fontSize: '0.8rem' }}>
+              <button className="primary-btn" onClick={() => onOpenLead(asset.parentId)} style={{ flexShrink: 0, padding: '8px 14px', fontSize: 13 }}>
                 Open Assemblage
               </button>
             )}
           </div>
         )}
 
-        {!editing && <div style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 -6px' }}>Details</div>}
+        {!editing && <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 -6px' }}>Details</div>}
         {sections.map((sec, si) => {
           const all = sec.fields.map((f) => ({ ...f, value: f.t === 'company' ? companyName(companies, f.raw) : formatFieldValue(f.raw, f.t), flagKey: (sec.title || '') + '~#~' + f.l }));
           const hasValue = (f) => String(f.value ?? '').trim() !== '';
@@ -268,8 +268,8 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
           <section key={'sec' + si} id={'gt-sec' + si} style={sectionCardStyle}>
             {/* The card's own header, flat (no tinted band) - a hairline under it. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px 12px', borderBottom: '1px solid var(--border-color)' }}>
-              <strong style={{ fontSize: '0.98rem', color: 'var(--text-primary)' }}>{sec.title}</strong>
-              <span title="Fields with a value" style={{ marginLeft: 'auto', fontSize: '0.78rem', fontWeight: 600, color: filled === all.length ? 'hsl(var(--color-green))' : 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+              <strong style={{ fontSize: 15, color: 'var(--text-primary)' }}>{sec.title}</strong>
+              <span title="Fields with a value" style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600, color: filled === all.length ? 'hsl(var(--color-green))' : 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
                 {filled} of {all.length}
               </span>
             </div>
@@ -301,12 +301,12 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
 
                     {editing ? renderEditInput(f)
                       : f.t === 'egnyte'
-                        ? <span style={{ fontSize: '0.85rem', fontWeight: (value ?? '') === '' ? 500 : 600, color: (value ?? '') === '' ? 'var(--text-muted)' : 'var(--text-primary)', wordBreak: 'break-word' }}>
+                        ? <span style={{ fontSize: 13, fontWeight: (value ?? '') === '' ? 500 : 600, color: (value ?? '') === '' ? 'var(--text-muted)' : 'var(--text-primary)', wordBreak: 'break-word' }}>
                           {(value ?? '') === '' ? 'Not pinned - matched by name' : value}
                         </span>
                       : f.contact && String(value ?? '').trim()
                         ? <ContactCell name={value} label={f.l} contacts={asset.contacts} onSave={onSaveContact} />
-                        : <span style={{ fontSize: '0.85rem', fontWeight: 600, color: (value ?? '') === '' ? 'var(--text-muted)' : 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>
+                        : <span style={{ fontSize: 13, fontWeight: 600, color: (value ?? '') === '' ? 'var(--text-muted)' : 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>
                           {(value ?? '') === '' ? '-' : f.unitLabel ? `${value} ${f.unitRaw}` : value}
                         </span>}
 
@@ -341,7 +341,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
                 <button
                   type="button"
                   onClick={() => setShowEmpty((m) => ({ ...m, [sec.title]: !m[sec.title] }))}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '9px 18px', border: 'none', borderTop: rows.length ? '1px solid var(--border-color)' : 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', fontFamily: 'inherit', textAlign: 'left' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '9px 18px', border: 'none', borderTop: rows.length ? '1px solid var(--border-color)' : 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', fontFamily: 'inherit', textAlign: 'left' }}
                 >
                   {showEmpty[sec.title] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   {showEmpty[sec.title] ? 'Hide empty fields' : `Show ${hidden} empty ${hidden === 1 ? 'field' : 'fields'}`}
