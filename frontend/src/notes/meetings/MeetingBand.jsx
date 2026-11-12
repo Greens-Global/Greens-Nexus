@@ -5,19 +5,25 @@
 //                      null for every other note, without asking the server
 //                      (a meeting note's `source.kind` is 'meeting').
 //   MeetingBand      - one line under the note's title: when, In Progress
-//                      while it runs, Join / Open in Teams, Transcript, and
-//                      the people invited with Share With Attendees for the
-//                      owner.
-//   TranscriptView   - the Teams transcript read now (never stored): who said
-//                      what at what time, the cue a note line points at
-//                      highlighted, how much each person spoke. Beside the
-//                      note on a computer, under the band on a phone.
+//                      while it runs, Join, Transcript (Ready once Teams has
+//                      one), and the people invited with Share With Attendees
+//                      for the owner. Phase 2: in a recurring series, Last
+//                      Time - the reader's note from the previous meeting and
+//                      the tasks made from it that are still open.
+//   TranscriptView   - the Teams transcript read now (never stored). Phase 2:
+//                      a Highlights tab (possible action items with Make a
+//                      Task, decisions, open questions - read by rules on the
+//                      server, meeting_highlights.py, no AI) beside the full
+//                      Transcript (who said what at what time, how much each
+//                      person spoke, the cue a note line points at lit).
+//                      Beside the note on a computer, under the band on a phone.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Video, ScrollText, UserPlus, X, RefreshCw, ExternalLink } from 'lucide-react';
+import { Video, ScrollText, UserPlus, X, RefreshCw, ExternalLink, History, ListChecks, Check } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../../components/AsyncState';
 import { formatDate, formatTime } from '../../lib/datetime';
 import { teamsMeetingChatUrl } from '../../lib/teamsLinks';
+import { createTaskFrom, openTask } from '../notesTasks';
 import { attendeeList, cueIndexAt, joinable, meetingPhase, speakerShares } from './meetingModel';
 
 export const isMeetingNote = (note) => !!note && note.kind !== 'board' && note.source?.kind === 'meeting';
@@ -36,7 +42,35 @@ export function useMeetingOfNote(noteId, enabled) {
 
 const SHOWN = 8;
 
-export function MeetingBand({ note, meeting, people, myEmail, transcriptOpen, onTranscript, onShared, toast }) {
+function LastTime({ previous, onOpenNote }) {
+  if (!previous) return null;
+  const tasks = previous.openTasks || [];
+  return (
+    <div className="nt-mtg-last">
+      <div className="nt-mtg-last-line">
+        <History size={14} aria-hidden="true" />
+        <span>Last Time:</span>
+        <button type="button" className="nt-link-btn" onClick={() => onOpenNote?.(previous.noteId)} title="Open the notes from the last meeting">
+          {previous.title || 'Notes'} · {formatDate(previous.start)}
+        </button>
+        <span className="nt-mtg-last-count">{tasks.length ? `${tasks.length} open ${tasks.length === 1 ? 'task' : 'tasks'}` : 'no open tasks'}</span>
+      </div>
+      {tasks.length > 0 && (
+        <ul className="nt-mtg-last-tasks">
+          {tasks.map((t) => (
+            <li key={t.id}>
+              <button type="button" className="nt-link-btn" onClick={() => openTask(t.id)} title="Open the task">
+                {t.code ? <span className="nt-mtg-code">{t.code}</span> : null}{t.title}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+export function MeetingBand({ note, meeting, people, myEmail, transcriptOpen, onTranscript, onShared, onOpenNote, toast }) {
   const [sharing, setSharing] = useState(false);
   const [all, setAll] = useState(false);
   if (!meeting) return null;
@@ -74,8 +108,9 @@ export function MeetingBand({ note, meeting, people, myEmail, transcriptOpen, on
           )}
           {meeting.invited && (
             <button type="button" className={`nt-text-btn${transcriptOpen ? ' is-on' : ''}`} aria-pressed={transcriptOpen}
-              onClick={onTranscript} title="The Teams transcript of this meeting, beside your notes">
+              onClick={onTranscript} title={meeting.transcriptReady ? 'Teams has the transcript - open it beside your notes' : 'The Teams transcript of this meeting, beside your notes'}>
               <ScrollText size={14} aria-hidden="true" /> Transcript
+              {meeting.transcriptReady && <span className="nt-mtg-ready"><Check size={12} aria-hidden="true" /> Ready</span>}
             </button>
           )}
           {note.mine && !note.trashedAt && toShare.length > 0 && (
@@ -96,6 +131,7 @@ export function MeetingBand({ note, meeting, people, myEmail, transcriptOpen, on
           )}
         </div>
       )}
+      <LastTime previous={meeting.previous} onOpenNote={onOpenNote} />
       {!meeting.invited && (
         <div className="nt-mtg-hint">You were not on this meeting's invite, so its transcript and join link are not shown - only the notes.</div>
       )}
@@ -103,10 +139,85 @@ export function MeetingBand({ note, meeting, people, myEmail, transcriptOpen, on
   );
 }
 
-export function TranscriptView({ noteId, focus, onClose, inline = false }) {
+const KINDS = [
+  { key: 'actions', label: 'Possible Action Items' },
+  { key: 'decisions', label: 'Decisions' },
+  { key: 'questions', label: 'Open Questions' },
+];
+
+function Highlights({ highlights, note, myEmail, toast, onJump }) {
+  const [made, setMade] = useState({});      // `${kind}:${k}` -> task id ('' while creating)
+  const total = KINDS.reduce((n, k) => n + (highlights?.[k.key]?.length || 0), 0);
+  if (!total) {
+    return (
+      <div className="nt-empty">
+        <strong>Nothing stood out</strong>
+        Highlights pick up lines like "I'll send the quote by Friday", "Let's go with the Austin vendor" and real questions. The full transcript is one tab over.
+      </div>
+    );
+  }
+  const makeTask = async (id, item) => {
+    setMade((m) => ({ ...m, [id]: '' }));
+    try {
+      const t = await createTaskFrom(item.text, note, myEmail);
+      setMade((m) => ({ ...m, [id]: t?.id || 'done' }));
+      toast?.(`Task created: ${item.text.slice(0, 60)}`, t?.id ? { label: 'Open Task', run: () => openTask(t.id) } : null);
+    } catch (e) {
+      setMade((m) => { const n = { ...m }; delete n[id]; return n; });
+      toast?.(e?.message || 'Could not create the task');
+    }
+  };
+  return (
+    <div className="nt-tx-hl">
+      {KINDS.map(({ key, label }) => {
+        const items = highlights?.[key] || [];
+        if (!items.length) return null;
+        return (
+          <section key={key} aria-label={label}>
+            <div className="nt-tx-hl-title">{label} <span>{items.length}</span></div>
+            <ul>
+              {items.map((it, k) => {
+                const id = `${key}:${k}`;
+                const state = made[id];
+                return (
+                  <li key={id}>
+                    <div className="nt-tx-meta">
+                      <span className="nt-tx-who">{it.speaker || 'Unknown Speaker'}</span>
+                      <button type="button" className="nt-link-btn" onClick={() => onJump(it.i)} title="See it in the transcript">
+                        {formatTime(new Date(it.at * 1000))}
+                      </button>
+                      {it.due && <span className="nt-tx-due">{it.due}</span>}
+                    </div>
+                    <div className="nt-tx-text">{it.text}</div>
+                    {key === 'actions' && note && (
+                      <div className="nt-tx-hl-act">
+                        {state && state !== 'done'
+                          ? <button type="button" className="nt-text-btn" onClick={() => openTask(state)}><Check size={13} aria-hidden="true" /> Open Task</button>
+                          : state === 'done'
+                            ? <span className="nt-tx-made"><Check size={13} aria-hidden="true" /> Task Created</span>
+                            : <button type="button" className="nt-text-btn" disabled={state === ''} onClick={() => makeTask(id, it)}>
+                                <ListChecks size={13} aria-hidden="true" /> {state === '' ? 'Creating…' : 'Make a Task'}
+                              </button>}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
+      <p className="nt-tx-hl-foot">Picked by wording, not AI - check each one before you act on it.</p>
+    </div>
+  );
+}
+
+export function TranscriptView({ noteId, note = null, myEmail = '', toast, focus, onClose, inline = false }) {
   const [state, setState] = useState({ phase: 'loading' });   // loading | ready | none | error
   const listRef = useRef(null);
   const [hit, setHit] = useState(-1);
+  const [tab, setTab] = useState('');          // '' = not picked yet: Highlights when there are any
+  const [jump, setJump] = useState(null);      // { k, seq } - a highlight's cue to show
 
   const load = useCallback(async () => {
     setState({ phase: 'loading' });
@@ -119,20 +230,40 @@ export function TranscriptView({ noteId, focus, onClose, inline = false }) {
   useEffect(() => { load(); }, [load]);
 
   const cues = state.data?.cues || [];
-  // A note line's time: the cue said just before it, scrolled to and lit.
+  const hl = state.data?.highlights;
+  const hlCount = KINDS.reduce((n, k) => n + (hl?.[k.key]?.length || 0), 0);
+  const shown = tab || (focus?.at || !hlCount ? 'transcript' : 'highlights');
+
+  // Show cue k in the transcript: switch there, light it, scroll to it.
+  const showCue = useCallback((k) => {
+    if (k < 0) return;
+    setTab('transcript');
+    setHit(k);
+    setJump((j) => ({ k, seq: (j?.seq || 0) + 1 }));
+  }, []);
+  // A note line's time: the cue said just before it.
   useEffect(() => {
     if (state.phase !== 'ready' || !focus?.at) return;
-    const k = cueIndexAt(cues, focus.at);
-    setHit(k);
-    listRef.current?.querySelector(`[data-cue="${k}"]`)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    showCue(cueIndexAt(cues, focus.at));
   }, [focus, state.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!jump || shown !== 'transcript') return;
+    listRef.current?.querySelector(`[data-cue="${jump.k}"]`)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  }, [jump, shown]);
 
   const shares = state.phase === 'ready' ? speakerShares(cues) : [];
   const chat = state.data?.chatThreadId;
   return (
     <aside className={`nt-tx${inline ? ' is-inline' : ''}`} aria-label="Transcript">
       <div className="nt-tx-head">
-        <strong>Transcript</strong>
+        {state.phase === 'ready' ? (
+          <div className="nt-tx-tabs scroll-tabs" role="tablist" aria-label="Transcript views">
+            <button type="button" role="tab" aria-selected={shown === 'highlights'} className={`nt-view${shown === 'highlights' ? ' is-on' : ''}`}
+              onClick={() => setTab('highlights')}>Highlights{hlCount > 0 && <span className="nt-count">{hlCount}</span>}</button>
+            <button type="button" role="tab" aria-selected={shown === 'transcript'} className={`nt-view${shown === 'transcript' ? ' is-on' : ''}`}
+              onClick={() => setTab('transcript')}>Transcript</button>
+          </div>
+        ) : <strong>Transcript</strong>}
         <span className="nt-tx-head-end">
           {state.phase !== 'loading' && (
             <button type="button" className="nt-icon-btn" aria-label="Read it again from Teams" title="Read It Again" onClick={load}><RefreshCw size={15} /></button>
@@ -147,7 +278,12 @@ export function TranscriptView({ noteId, focus, onClose, inline = false }) {
           <div style={{ marginTop: 10 }}><button type="button" className="nt-text-btn" onClick={load}>Try Again</button></div>
         </div>
       )}
-      {state.phase === 'ready' && (<>
+      {state.phase === 'ready' && shown === 'highlights' && (
+        <div className="nt-tx-list">
+          <Highlights highlights={hl} note={note} myEmail={myEmail} toast={toast} onJump={showCue} />
+        </div>
+      )}
+      {state.phase === 'ready' && shown === 'transcript' && (<>
         {shares.length > 0 && (
           <div className="nt-tx-shares" aria-label="Who spoke how much">
             {shares.slice(0, 6).map((s) => <span key={s.name}>{s.name} {s.pct}%</span>)}
@@ -161,6 +297,8 @@ export function TranscriptView({ noteId, focus, onClose, inline = false }) {
             </li>
           ))}
         </ol>
+      </>)}
+      {state.phase === 'ready' && (
         <div className="nt-tx-foot">
           <span>Read from Teams{state.data.truncated ? ' (the first part of a long call)' : ''} - Nexus keeps no copy.</span>
           {chat && (
@@ -170,7 +308,7 @@ export function TranscriptView({ noteId, focus, onClose, inline = false }) {
             </a>
           )}
         </div>
-      </>)}
+      )}
     </aside>
   );
 }

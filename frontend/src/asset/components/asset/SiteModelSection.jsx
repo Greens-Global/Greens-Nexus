@@ -82,9 +82,9 @@ export function SiteModelSection({ p }) {
   return (
     <section style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-primary)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: '0.98rem', color: 'var(--text-primary)' }}>Site Model</strong>
-        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>To scale · every unit placed · pins mark what needs attention</span>
-        <a href={`/map/${encodeURIComponent(match.id)}`} target="_blank" rel="noreferrer" style={{ marginLeft: 'auto', fontSize: '0.78rem', fontWeight: 600, color: 'hsl(var(--color-green, 150 56% 28%))' }}>Customer Unit Finder ↗</a>
+        <strong style={{ fontSize: 15, color: 'var(--text-primary)' }}>Site Model</strong>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>To scale · every unit placed · pins mark what needs attention</span>
+        <a href={`/map/${encodeURIComponent(match.id)}`} target="_blank" rel="noreferrer" style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-green, 150 56% 28%))' }}>Customer Unit Finder ↗</a>
       </div>
       <div style={{ padding: 14 }}>
         {error ? <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{error}</div>

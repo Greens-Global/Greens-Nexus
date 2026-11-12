@@ -52,7 +52,7 @@ export function ToastHost() {
             border: '1px solid var(--border-color)',
             borderLeft: '3px solid ' + (it.tone === 'mut' ? 'var(--text-muted)' : `hsl(var(--color-${TONE_DOT_COLOR[it.tone] || 'green'}))`),
             boxShadow: 'var(--shadow-md)',
-            fontSize: '0.85rem',
+            fontSize: 13,
             fontWeight: 600,
             color: 'var(--text-primary)',
             pointerEvents: 'auto',

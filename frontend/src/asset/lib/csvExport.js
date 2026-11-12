@@ -1,3 +1,5 @@
+// type-ok-file: the printed A4 asset report - paper has its own text sizes;
+// the type scale (lib/typeScale.js) is for screens.
 // Asset export - CSV (flat "Section / Group / Field / Value" dump of everything related to an
 // asset) and a print-ready PDF/HTML report (property-oriented one-pager: status & alerts, key
 // spec sheets, and tables for warranties/inspections/documents/AHJ/utilities/vendors).

@@ -64,7 +64,7 @@ export function PortfolioMap({ assets, openProperty }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontSize: '0.78rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontSize: 13, color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
         {failed ? (
           <span style={{ color: 'hsl(var(--color-red))', fontWeight: 600 }}>Map couldn't load - check your internet connection.</span>
         ) : (
@@ -73,7 +73,7 @@ export function PortfolioMap({ assets, openProperty }) {
       </div>
       <div ref={mapElRef} style={{ width: '100%', height: 'min(70vh, 640px)', borderRadius: 12, border: '1px solid var(--border-color)', overflow: 'hidden', backgroundColor: 'var(--bg-secondary)' }} />
       {unplaced.length > 0 && (
-        <div style={{ marginTop: 12, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+        <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
           <div style={{ fontWeight: 600, marginBottom: 6 }}>
             Not on the map yet ({unplaced.length}) - {unplaced.some(hasAddress) ? 'a new address is placed within about ten minutes' : 'add a street address or a Google Maps link'}:
           </div>
@@ -81,7 +81,7 @@ export function PortfolioMap({ assets, openProperty }) {
             {unplaced.map((a) => (
               <button key={a.id} type="button" className="secondary-btn" onClick={() => openProperty && openProperty(a.id)}
                 title={hasAddress(a) ? (a.geo && a.geo.lat === null ? 'The address could not be placed - check it on the asset' : 'Waiting for the address to be placed') : 'No address on this asset'}
-                style={{ fontSize: '0.78rem', padding: '5px 10px' }}>
+                style={{ fontSize: 13, padding: '5px 10px' }}>
                 {a.name}{!hasAddress(a) ? ' · no address' : a.geo && a.geo.lat === null ? ' · address not found' : ''}
               </button>
             ))}

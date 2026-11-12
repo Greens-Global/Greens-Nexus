@@ -254,6 +254,13 @@ keep the diff minimal.
   `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
   Shrink / Expand button; short answers keep the small card
   (`support/HelpWidget.jsx`).
+- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter and every
+  text size is on the scale - `FS` in `lib/typeScale.js` (meta 11, label 12,
+  body 13, read 14, title 15, section 18, page 24, figure 32) or the `--fs-*`
+  tokens. `scripts/check-type.mjs` (in `npm run lint`) fails a new off-scale
+  size; old screens move over one module at a time (`SNAP`: 12.5 rounds up
+  to 13), then `--update` lowers its baseline. Off-scale on purpose (the 16px
+  phone fields that stop iOS zooming) = `type-ok: <why>` on the line.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 - **Every amount on every Accounting report drills down to its ledger lines
@@ -901,8 +908,14 @@ keep the diff minimal.
   for the invite's people, whoever the note is shared with; externals and
   Act As are refused. A line written during the meeting carries `data-at`
   (Unix seconds, `meetings/meetingClock.js`, in every Notes schema) - keep
-  it in the sanitizer. Graph lookups reuse `routers/meeting_files.py`. The
-  background pass is opt-in (Phase 2); a summary is AI, behind the switch.
+  it in the sanitizer. Graph lookups reuse `routers/meeting_files.py`. A
+  summary is AI, behind the switch.
+  Phase 2: highlights (action items / decisions / questions) are RULES in
+  `meeting_highlights.py`, computed per read, never stored; Last Time reads
+  the series' previous note (`series_id`) and its open tasks through
+  record_links' task walls; the Transcript Ready bell is OPT-IN per person
+  (`meeting_notes.alerts:<email>`) and its pass (`meeting_ready_loop`) asks
+  Teams for the transcript LIST only, never the words, and bells once.
   TESTERS FIRST: only the emails in the `meeting_notes.access`
   nexus_settings row (per database; `"everyone": true` opens it) may use
   it - `meetings.may_use`, never a code default.

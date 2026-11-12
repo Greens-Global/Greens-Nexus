@@ -11,7 +11,7 @@ import { Card } from './Card.jsx';
 import { EmptyState } from './EmptyState.jsx';
 import { StatusBadge } from './StatusBadge.jsx';
 
-const LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
+const LABEL_STYLE = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
 
 /** Loose status-text -> badge tone classifier, specific to this table's free-text Status column
  *  (Permits/Timeline status values aren't a fixed enum handled elsewhere like RECORD_TYPES chips are). */
@@ -73,7 +73,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: '1rem' }}>{title}</strong>
+        <strong style={{ fontSize: 15 }}>{title}</strong>
         {subtitle && <span style={LABEL_STYLE}>{subtitle}</span>}
         <span style={{ ...LABEL_STYLE, marginLeft: 'auto' }}>
           {visible.length} row{visible.length === 1 ? '' : 's'}
@@ -81,7 +81,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
         <button
           className="primary-btn"
           onClick={onAdd}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: '0.8rem' }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 13 }}
         >
           <Plus size={14} /> Add
         </button>
@@ -89,7 +89,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
 
       {visible.length ? (
         <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
                 {columns.map(([key, label]) => (
@@ -131,7 +131,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
                             {value ? (
                               <StatusBadge tone={statusTone(value)}>{value}</StatusBadge>
                             ) : (
-                              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Set Status</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Set Status</span>
                             )}
                           </button>
                         );
@@ -141,7 +141,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
                         content = value || '-';
                       }
                       return (
-                        <td key={key} style={{ padding: '9px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', color: 'var(--text-primary)', fontSize: '0.78rem' }}>
+                        <td key={key} style={{ padding: '9px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', color: 'var(--text-primary)', fontSize: 13 }}>
                           {content}
                         </td>
                       );
@@ -150,22 +150,22 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
                       <button
                         className="secondary-btn"
                         onClick={() => onEdit(idx)}
-                        style={{ padding: '5px 11px', fontSize: '0.74rem', marginRight: onDelete ? 6 : 0 }}
+                        style={{ padding: '5px 11px', fontSize: 12, marginRight: onDelete ? 6 : 0 }}
                       >
                         Edit
                       </button>
                       {onDelete && confirmIdx === idx && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>Delete this row?</span>
-                          <button className="secondary-btn" onClick={() => setConfirmIdx(null)} style={{ padding: '5px 11px', fontSize: '0.74rem' }}>Keep</button>
-                          <button className="primary-btn" onClick={() => { setConfirmIdx(null); onDelete(idx); }} style={{ padding: '5px 11px', fontSize: '0.74rem', backgroundColor: 'hsl(var(--color-red))' }}>Delete</button>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>Delete this row?</span>
+                          <button className="secondary-btn" onClick={() => setConfirmIdx(null)} style={{ padding: '5px 11px', fontSize: 12 }}>Keep</button>
+                          <button className="primary-btn" onClick={() => { setConfirmIdx(null); onDelete(idx); }} style={{ padding: '5px 11px', fontSize: 12, backgroundColor: 'hsl(var(--color-red))' }}>Delete</button>
                         </span>
                       )}
                       {onDelete && confirmIdx !== idx && (
                         <button
                           className="secondary-btn"
                           onClick={() => setConfirmIdx(idx)}
-                          style={{ padding: '5px 11px', fontSize: '0.74rem', color: 'hsl(var(--color-red))' }}
+                          style={{ padding: '5px 11px', fontSize: 12, color: 'hsl(var(--color-red))' }}
                         >
                           Delete
                         </button>

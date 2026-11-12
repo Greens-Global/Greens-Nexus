@@ -702,3 +702,37 @@
   .nt-mtg-row { flex-wrap: wrap; }
   .nt-mtg-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* ── Meeting Notes Phase 2 (Neil, 11/12/2026) ─────────────────────────────── */
+.nt-link-btn { border: none; background: none; padding: 0; font: inherit; color: var(--wk-green); cursor: pointer; text-align: left; }
+.nt-link-btn:hover { text-decoration: underline; }
+.nt-link-btn:focus-visible { outline: 2px solid var(--wk-green); outline-offset: 1px; border-radius: 3px; }
+.nt-mtg-ready { display: inline-flex; align-items: center; gap: 3px; margin-left: 2px; color: var(--wk-green); font-weight: 600; }
+
+/* Last Time: the series' previous note and its open tasks. */
+.nt-mtg-last { margin-top: 8px; }
+.nt-mtg-last-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.nt-mtg-last-line > svg { color: var(--wk-faint, #9699a6); flex-shrink: 0; }
+.nt-mtg-last-count { color: var(--wk-faint, #9699a6); font-size: 12.5px; }
+.nt-mtg-last-tasks { list-style: none; margin: 4px 0 0 22px; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.nt-mtg-code { color: var(--wk-faint, #9699a6); margin-right: 6px; font-variant-numeric: tabular-nums; }
+
+/* The transcript's Highlights / Transcript tabs. */
+.nt-tx-tabs { display: flex; gap: 2px; min-width: 0; }
+.nt-tx-hl section { padding: 6px 14px 4px; }
+.nt-tx-hl section + section { border-top: 1px solid var(--wk-line2); }
+.nt-tx-hl-title { padding: 6px 0 2px; font-size: 13px; font-weight: 700; color: var(--ink); }
+.nt-tx-hl-title span { margin-left: 4px; font-weight: 600; color: var(--wk-faint, #9699a6); font-variant-numeric: tabular-nums; }
+.nt-tx-hl ul { list-style: none; margin: 0; padding: 0; }
+.nt-tx-hl li { padding: 8px 0; }
+.nt-tx-hl li + li { border-top: 1px dashed var(--wk-line2); }
+.nt-tx-hl .nt-link-btn { font-size: 12px; font-variant-numeric: tabular-nums; }
+.nt-tx-due { font-size: 12px; color: var(--ink); background: var(--wk-hover); border-radius: 4px; padding: 0 6px; }
+.nt-tx-hl-act { margin-top: 6px; }
+.nt-tx-hl-act .nt-text-btn { height: 28px; font-size: 12.5px; }
+.nt-tx-made { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--wk-green); font-weight: 600; }
+.nt-tx-hl-foot { margin: 0; padding: 10px 14px 14px; font-size: 12px; color: var(--muted); }
+
+/* The opt-in switch at the Meetings sheet's foot. */
+.nt-mtg-alerts { margin-top: 14px; border-top: 1px solid var(--wk-line2); }
+.nt-mtg-alerts-msg { padding: 0 2px 6px; font-size: 12.5px; color: var(--muted); }

@@ -118,7 +118,7 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
         </button>
       )}
       {missing > 0 && (
-        <span role="status" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginRight: row && canDelete ? undefined : 'auto' }}>
+        <span role="status" style={{ fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-red))', marginRight: row && canDelete ? undefined : 'auto' }}>
           {missing} required {missing === 1 ? 'field' : 'fields'} missing
         </span>
       )}
@@ -144,12 +144,12 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
             backgroundColor: 'hsla(var(--color-red), 0.08)',
           }}
         >
-          <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: requireReason ? 8 : 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: requireReason ? 8 : 0 }}>
             Remove this {recordType.title.toLowerCase()}?{requireReason ? '' : ' It leaves the record for good.'}
           </div>
           {requireReason && (
             <>
-              <label htmlFor="record-remove-reason" style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+              <label htmlFor="record-remove-reason" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
                 Reason for removing this {recordType.title.toLowerCase()} <span style={{ color: 'hsl(var(--color-red))' }}>*</span>
               </label>
               <textarea
@@ -161,9 +161,9 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
                 onChange={(e) => { setRemoveReason(e.target.value); if (removeError) setRemoveError(''); }}
                 placeholder={`Why is this ${recordType.title.toLowerCase()} being removed?`}
                 aria-invalid={removeError ? true : undefined}
-                style={{ fontSize: '0.85rem', ...(removeError ? { borderColor: 'hsl(var(--color-red))' } : {}) }}
+                style={{ fontSize: 13, ...(removeError ? { borderColor: 'hsl(var(--color-red))' } : {}) }}
               />
-              {removeError && <div role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{removeError}</div>}
+              {removeError && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{removeError}</div>}
             </>
           )}
         </div>

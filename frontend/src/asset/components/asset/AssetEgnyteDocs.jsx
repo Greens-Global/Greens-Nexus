@@ -10,8 +10,8 @@ import { EmptyState } from '../shared/EmptyState.jsx';
 import FolderPickModal from '../../../egnyte/EgnyteFolderPick';
 import { egnyteFolderOf, normalizeEgnyteFolder } from '../../lib/egnyteFolder.js';
 
-const note = { fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 };
-const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', fontSize: '0.8rem' };
+const note = { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 };
+const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', fontSize: 13 };
 // The row save reaches the server a moment after Connect; ask again this many times.
 const SAVE_WAIT_TRIES = 4;
 const SAVE_WAIT_MS = 1500;
@@ -125,13 +125,13 @@ export function AssetEgnyteDocs({ asset, canConnect, onConnect, hideUnconnected 
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
         <FolderOpen size={18} aria-hidden="true" style={{ color: '#ec9d29', flexShrink: 0 }} />
-        <strong style={{ fontSize: '1rem' }}>Documents in Egnyte</strong>
+        <strong style={{ fontSize: 15 }}>Documents in Egnyte</strong>
         {state.connected && (
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <label style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
               <Search size={13} aria-hidden="true" style={{ position: 'absolute', left: 9, color: 'var(--text-muted)' }} />
               <input className="form-input" type="search" aria-label="Search this folder" placeholder="Search this folder..."
-                value={query} onChange={(e) => setQuery(e.target.value)} style={{ padding: '6px 10px 6px 28px', fontSize: '0.8rem', width: 200 }} />
+                value={query} onChange={(e) => setQuery(e.target.value)} style={{ padding: '6px 10px 6px 28px', fontSize: 13, width: 200 }} />
             </label>
             <button type="button" className="secondary-btn" style={btn} onClick={() => load(path)} title="Refresh" aria-label="Refresh">
               <RefreshCw size={14} className={state.loading ? 'spin' : undefined} />
@@ -147,7 +147,7 @@ export function AssetEgnyteDocs({ asset, canConnect, onConnect, hideUnconnected 
       </div>
 
       {state.connected && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 10, fontSize: '0.8rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 10, fontSize: 13 }}>
           <button type="button" onClick={() => open('')} title={folder}
             style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 600, color: rel.length ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
             {folder.split('/').pop() || 'Egnyte Folder'}
@@ -161,7 +161,7 @@ export function AssetEgnyteDocs({ asset, canConnect, onConnect, hideUnconnected 
             </span>
           ))}
           {!mayChange && (
-            <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, ...note, fontSize: '0.74rem' }}>
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, ...note, fontSize: 12 }}>
               <Lock size={12} aria-hidden="true" /> Connected - only an Asset Management Owner can change it
             </span>
           )}
