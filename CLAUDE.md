@@ -254,6 +254,13 @@ keep the diff minimal.
   `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
   Shrink / Expand button; short answers keep the small card
   (`support/HelpWidget.jsx`).
+- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter and every
+  text size is on the scale - `FS` in `lib/typeScale.js` (meta 11, label 12,
+  body 13, read 14, title 15, section 18, page 24, figure 32) or the `--fs-*`
+  tokens. `scripts/check-type.mjs` (in `npm run lint`) fails a new off-scale
+  size; old screens move over one module at a time (`SNAP`: 12.5 rounds up
+  to 13), then `--update` lowers its baseline. Off-scale on purpose (the 16px
+  phone fields that stop iOS zooming) = `type-ok: <why>` on the line.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 - **Every amount on every Accounting report drills down to its ledger lines

@@ -2689,12 +2689,12 @@ html { overflow-x: hidden; }
      phone / password boxes zoom the same way (phone pass, Oct 29 2026). */
   .form-input, .search-bar input, input[type="text"], input[type="number"], input:not([type]),
   input[type="search"], input[type="email"], input[type="tel"], input[type="url"], input[type="password"], textarea, select {
-    font-size: 16px !important;
+    font-size: 16px !important; /* type-ok: iOS zooms a field under 16px */
   }
   /* ...and a rich-text editor zooms the same way: Quick Note's 14.5px
      editor zoomed the page in on an iPhone, cutting the text off at the
      right and throwing the keyboard bar off (Neil, Oct 30 2026). */
-  .ProseMirror[contenteditable="true"] { font-size: 16px; }
+  .ProseMirror[contenteditable="true"] { font-size: 16px; } /* type-ok: iOS zooms a field under 16px */
 
   /* ...but the OPEN list inherits that 16px, so a dropdown read a size larger
      than everything around it (Sagar, Sept 1 2026). The options carry the
@@ -3506,7 +3506,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 @media (max-width: 640px) {
   .gs-overlay { padding: 0; align-items: stretch; }
   .gs-panel { width: 100%; max-height: none; border-radius: 0; border: none; }
-  .gs-input { font-size: 16px; } /* no iOS zoom */
+  .gs-input { font-size: 16px; } /* type-ok: no iOS zoom */
   .gs-kbd { display: none; }
 }
 
@@ -4170,7 +4170,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   .nx-tasks textarea,
   .nx-tasks-portal input,
   .nx-tasks-portal textarea {
-    font-size: 16px !important;
+    font-size: 16px !important; /* type-ok: iOS zooms a field under 16px */
   }
 
   /* An OPEN <select> is drawn by the browser, not by the page: the module's
@@ -4224,7 +4224,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 /* Phones: 16px, or iOS zooms the page when the reply / description editor
    takes focus. */
 @media (max-width: 640px) {
-  .nx-rich .ProseMirror { font-size: 16px; }
+  .nx-rich .ProseMirror { font-size: 16px; } /* type-ok: iOS zooms a field under 16px */
 }
 .nx-rich .ProseMirror > *:first-child { margin-top: 0; }
 .nx-rich .ProseMirror > *:last-child { margin-bottom: 0; }
@@ -7546,7 +7546,7 @@ body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; u
   .bi-filters { width: 100%; }
   /* Finger-size targets, and 16px so iOS doesn't zoom on focus (Oct 14). */
   .bi-icon-btn, .bi-search .bi-icon-btn { width: 36px; height: 36px; }
-  .bi-search input { font-size: 16px; }
+  .bi-search input { font-size: 16px; } /* type-ok: iOS zooms a field under 16px */
 }
 
 /* Status labels and the priority signal (components/StatusLabel.jsx, Oct 14):
@@ -8945,7 +8945,7 @@ body:has(.apv-phone) { overflow-x: clip; }
 .apv-ph-note-wrap { display: flex; flex-direction: column; gap: 6px; }
 .apv-ph-note-why { font-size: 15px; font-weight: 700; }
 .apv-ph-note-hint { margin: 0 0 6px; font-size: 13px; color: var(--muted); line-height: 1.45; }
-.apv-ph-note { flex: 1; width: 100%; min-height: 140px; resize: none; font-size: 16px; line-height: 1.5; }
+.apv-ph-note { flex: 1; width: 100%; min-height: 140px; resize: none; font-size: 16px; line-height: 1.5; } /* type-ok: iOS zooms a field under 16px */
 .apv-ph-note-req { font-size: 12px; color: var(--muted); }
 .apv-ph-fs { display: grid; gap: 20px; }
 .apv-ph-fs-g { display: grid; gap: 8px; }
@@ -9475,7 +9475,7 @@ body:has(.apv-phone) { overflow-x: clip; }
   .it-title { font-size: 19px; }
   .it-sub { display: none; }
   .it-search { flex-basis: 100%; }
-  .it-select { flex: 1 1 140px; min-width: 0; font-size: 16px; }
+  .it-select { flex: 1 1 140px; min-width: 0; font-size: 16px; } /* type-ok: iOS zooms a field under 16px */
   .it-toolbar-meta { margin-left: 0; }
   .it-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .it-tile-body { padding: 8px 10px 10px; }
@@ -10510,3 +10510,18 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
    a name box (Neil, 11/11/2026 - named on Close, not before). */
 .nx-newdoc-name { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2, rgba(0,0,0,.03)); font-size: 12px; color: var(--muted); }
 .nx-newdoc-name strong { color: var(--ink); font-weight: 600; word-break: break-word; }
+
+/* ── Type scale (Neil, 11/12/2026) ─────────────────────────────────────────
+   The only text sizes in Nexus - the same numbers as FS in lib/typeScale.js.
+   scripts/check-type.mjs (npm run lint) fails a new size off this scale;
+   old screens move over one module at a time. */
+:root {
+  --fs-meta:    11px;   /* timestamps, counts, fine print */
+  --fs-label:   12px;   /* labels, table cells, chips, status pills */
+  --fs-body:    13px;   /* body text, list rows, form fields */
+  --fs-read:    14px;   /* long reading: KB pages, Notes, announcements */
+  --fs-title:   15px;   /* card titles */
+  --fs-section: 18px;   /* section headings */
+  --fs-page:    24px;   /* page titles, greetings */
+  --fs-figure:  32px;   /* big numbers */
+}

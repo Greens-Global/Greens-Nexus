@@ -8,7 +8,7 @@
     "dev": "vite",
     "prebuild": "node scripts/copy-excalidraw-assets.mjs",
     "build": "vite build",
-    "lint": "eslint src public/pdf-editor-app && node scripts/check-dates.mjs && node scripts/check-engine-imports.mjs && node scripts/check-role-copy.mjs && node scripts/check-module-headers.mjs && node scripts/check-pdfjs-legacy.mjs",
+    "lint": "eslint src public/pdf-editor-app && node scripts/check-dates.mjs && node scripts/check-type.mjs && node scripts/check-engine-imports.mjs && node scripts/check-role-copy.mjs && node scripts/check-module-headers.mjs && node scripts/check-pdfjs-legacy.mjs",
     "preview": "vite preview",
     "postbuild": "node scripts/check-bundle-size.mjs && node scripts/check-bundle-rewrites.mjs",
     "test": "vitest run",
