@@ -876,6 +876,18 @@ keep the diff minimal.
   TESTERS FIRST: only the emails in the `meeting_notes.access`
   nexus_settings row (per database; `"everyone": true` opens it) may use
   it - `meetings.may_use`, never a code default.
+  Phase 3 (Neil, 11/12/2026): meetings outside Teams are transcribed ON THE
+  DEVICE - Whisper in a Web Worker (`notes/meetings/capture/`), the
+  browser's own speech service only as the fallback. This is NOT the
+  Anthropic key and spends nothing (Neil chose it); never move it to a
+  server or a paid API. The text lives in `nexus_meeting_transcripts` (RLS
+  on dev and prod) - words only, NEVER the audio; every session needs the
+  consent box (refused without it, who and when kept). The runtime and model
+  come only through `functions/ml/[[path]].js` (pinned versions, runtime
+  SHA-256 checked, listed files only) - never a CDN in the page, never a
+  `blob:` script (`env.useWasmCache = false`). The consent question sets
+  `backToClose={false}`: over the phone's note sheet, taking its Back entry
+  off closed the note.
 
 - **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
   `routers/documents.py`, `components/DocumentsBrowser.jsx`,

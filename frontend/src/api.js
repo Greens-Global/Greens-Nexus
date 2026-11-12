@@ -3821,3 +3821,13 @@ api.meetingOfNote = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId
 api.meetingTranscript = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/transcript`);
 // Phase 2 (11/12/2026): the person's own opt-in to the Transcript Ready bell.
 api.meetingAlerts = (on) => req('/meetings/alerts', { method: 'PUT', body: JSON.stringify({ on: !!on }) });
+// Phase 3 (11/12/2026): meetings outside Teams. A note for a meeting not on
+// the calendar, and the transcript recorded on the device - words only,
+// every session started with the consent confirmed.
+api.meetingAdhoc = (title, day) => req('/meetings/adhoc', { method: 'POST', body: JSON.stringify({ title, day }) });
+api.meetingRecorded = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded`);
+api.meetingRecordedStart = (noteId, session) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded/sessions`, { method: 'POST', body: JSON.stringify(session) });
+api.meetingRecordedSegments = (noteId, sessionId, segments) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded/segments`, { method: 'POST', body: JSON.stringify({ sessionId, segments }) });
+api.meetingRecordedEnd = (noteId, sessionId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded/sessions/${encodeURIComponent(sessionId)}/end`, { method: 'POST' });
+api.meetingRecordedSpeakers = (noteId, speakers) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded/speakers`, { method: 'PUT', body: JSON.stringify({ speakers }) });
+api.meetingRecordedDelete = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded`, { method: 'DELETE' });
