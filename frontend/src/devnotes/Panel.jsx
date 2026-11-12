@@ -351,8 +351,8 @@ function QueueTab({ notes, dismissed, sessions, loading, onOpenPin, onChanged, o
           {reporting ? <Loader2 size={13} className="bm-spin" /> : <Download size={13} />} Save Report
         </button>
         {CLAUDE_SEND_ON && notConnected && (
-          <button type="button" className="bm-btn bm-btn-primary" onClick={() => document.querySelector('[data-testid="bm-connect"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })}
-            title="Your Claude Code is not listening on this computer - connect it once (below)">
+          <button type="button" className="bm-btn bm-btn-primary" onClick={() => document.querySelector('[data-testid="bm-cloud-connect"], [data-testid="bm-connect"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })}
+            title="Your Claude Code is not connected - connect it once, in the cloud or in your terminal (below)">
             <Plug size={14} /> Connect Claude Code First
           </button>
         )}
