@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { WarnMark } from './warnMark';
 
 // The two ledger scans (Loans > Set Up From the Ledger, MRI > Leasing > Set
 // Up From the Ledger) run as background jobs on the API (Oct 2: 145 s and
@@ -132,9 +133,9 @@ export function useScanRetry(fetchFor, pollMs = POLL_MS) {
 export function ScanOutcome({ total, failed = [], onRetry, running = null, error = null }) {
   if (!failed.length) return <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{scanStatusText(total, 0)}</div>;
   return (
-    <div role="status" style={{ fontSize: '0.8rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '8px 10px', display: 'grid', gap: 6 }}>
+    <div role="status" style={{ fontSize: '0.8rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '8px 10px', display: 'grid', gap: 6 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <strong style={{ flex: 1, minWidth: 220 }}>{scanStatusText(total, failed.length)}</strong>
+        <strong style={{ flex: 1, minWidth: 220 }}><WarnMark />{scanStatusText(total, failed.length)}</strong>
         {onRetry && (
           <button type="button" className="secondary-btn" disabled={!!running} onClick={() => onRetry(failed.map((f) => f.code))} style={{ fontSize: '0.76rem' }}>
             {running ? `Retrying... ${running.done} of ${running.total}` : `Retry ${failed.length} ${failed.length === 1 ? 'Entity' : 'Entities'}`}

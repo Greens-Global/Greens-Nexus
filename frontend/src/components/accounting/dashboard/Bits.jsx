@@ -8,7 +8,7 @@ import { pct } from '../../../accounting/dashboard/model/money';
 
 export const OK = 'var(--ok-fg, #15803d)';
 export const BAD = 'var(--bad-fg, #dc2626)';
-export const WARN = '#b45309';
+export const WARN = 'var(--warn-fg)';
 export const BRAND = 'var(--wk-brand, #2b45e1)';
 export const toneColor = (good) => (good ? OK : BAD);
 
@@ -24,7 +24,7 @@ export const pill = (active) => ({
 const CHIP = {
   ok: { background: 'rgba(21,128,61,0.12)', color: OK, border: '1px solid transparent' },
   bad: { background: 'rgba(220,38,38,0.1)', color: BAD, border: '1px solid transparent' },
-  wait: { background: 'rgba(180,83,9,0.12)', color: WARN, border: '1px solid transparent' },
+  wait: { background: 'var(--warn-bg)', color: WARN, border: '1px solid transparent' },
   fyi: { background: 'transparent', color: 'var(--text-muted)', border: '1px dashed var(--border-color)' },
   neutral: { background: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid transparent' },
 };

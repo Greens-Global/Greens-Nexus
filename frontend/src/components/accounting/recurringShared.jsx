@@ -5,6 +5,7 @@ import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { control, fitSelect, widest } from './reportControls';
 import { EgnyteField } from './LoanDialogs';
+import { WarnMark } from './warnMark';
 
 // What MRI (LeasingTab) and MRE (MreTab) share (Oct 22): the period control,
 // the frequencies, the Possibly Ended chip and the settings dialog - one copy,
@@ -91,7 +92,7 @@ export function PossiblyEndedChip({ flag, kind = 'mre' }) {
     + `If it has ended, ${kind === 'mri' ? 'set its Status to Ended' : 'edit it and press End Today'}. Flagged ${formatDate(flag.since)}${flag.taskId ? '; an accounting task was opened' : ''}.`;
   return (
     <span title={tip} aria-label={`Possibly Ended. ${tip}`} data-testid="possibly-ended"
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6, padding: '0 7px', borderRadius: 999, fontSize: '0.66rem', fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'middle', color: '#92400e', background: 'rgba(180,83,9,0.13)', border: '1px solid rgba(180,83,9,0.35)', flexShrink: 0 }}>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6, padding: '0 7px', borderRadius: 999, fontSize: '0.66rem', fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'middle', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', flexShrink: 0 }}>
       <AlertTriangle size={10} /> Possibly Ended
     </span>
   );
@@ -155,7 +156,7 @@ export function useStaleRecheck(onDone) {
 /** The screen's one line while a re-check runs (and if it takes too long). */
 export function RecheckStatus({ recheck }) {
   if (recheck?.status === 'running') return <span role="status" style={{ color: 'var(--text-muted)' }}>Re-checking Possibly Ended...</span>;
-  if (recheck?.status === 'slow') return <span role="status" style={{ color: '#92400e' }}>The Possibly Ended check is taking longer than usual; Sync later to see its flags.</span>;
+  if (recheck?.status === 'slow') return <span role="status" style={{ color: 'var(--warn-fg)' }}><WarnMark />The Possibly Ended check is taking longer than usual; Sync later to see its flags.</span>;
   return null;
 }
 

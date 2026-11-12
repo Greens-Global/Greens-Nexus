@@ -132,7 +132,7 @@ export const typeOf = (r) => (r.kind === 'account' ? r.type : (r.lease?.incomeTy
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const STATUS = {
   paid: { label: 'Paid', fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' },
-  short: { label: 'Short', fg: '#92400e', bg: 'rgba(180,83,9,0.13)' },
+  short: { label: 'Short', fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' },
   unpaid: { label: 'Unpaid', fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
   late: { label: 'Late', fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
   due: { label: 'Due', fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
@@ -652,7 +652,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
 
         {error && <div style={bad}>{error}</div>}
         {roll?.warning && (
-          <div style={{ ...card, padding: '8px 12px', borderColor: '#b45309', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: '#92400e' }}>
+          <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: 'var(--warn-fg)' }}>
             <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{roll.warning}
           </div>
         )}
@@ -1355,7 +1355,7 @@ function LeaveConfirm({ onKeep, onDiscard }) {
   useEffect(() => { keep.current?.focus(); }, []);
   return (
     <div className="modal-footer" role="alertdialog" aria-label="Unsaved changes" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} style={{ color: '#b45309' }} />You have unsaved changes.</span>
+      <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />You have unsaved changes.</span>
       <span style={{ display: 'inline-flex', gap: 8 }}>
         <button type="button" className="secondary-btn" onClick={onDiscard} style={{ color: 'var(--bad-fg, #dc2626)' }}>Discard Edits</button>
         <button type="button" ref={keep} className="primary-btn" onClick={onKeep}>Keep Editing</button>

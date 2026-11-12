@@ -10,6 +10,7 @@ import { uploadToSupabase, safeFileName } from '../../investor/lib/upload';
 import {
   DAY_COUNTS, SCHEDULE_FIELDS, addMonths, buildSchedule, expectedBalanceAt, findHeaderRow, guessColumns, normalizeLoan, round2, rowsFromMatrix, scheduleTotals,
 } from './loanMath';
+import { WarnMark } from './warnMark';
 
 // Accounting -> Loans & Financing -> Amortization (Charmi and Neil, 10/06:
 // "Add in Amortization schedule for Commercial loans, allow us to build it or
@@ -35,7 +36,7 @@ import {
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const warn = { fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' };
+const warn = { fontSize: '0.78rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' };
 const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 };
@@ -49,7 +50,7 @@ const FILE_TYPES = '.xlsx,.xls,.csv';
 function Chip({ tone = 'muted', children, title }) {
   const tones = {
     ok: { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' }, bad: { fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
-    wait: { fg: '#92400e', bg: 'rgba(180,83,9,0.13)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
+    wait: { fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
   return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
@@ -259,17 +260,18 @@ function BuildForm({ loan, initial, busy, onCancel, onSave }) {
         </div>
         {loan.maturity && p.firstPaymentDate && termFromMaturity(p.firstPaymentDate, loan.maturity) && Number(p.termMonths) !== termFromMaturity(p.firstPaymentDate, loan.maturity) && (
           <div style={warn}>
+            <WarnMark />
             The maturity on file ({formatDate(loan.maturity)}) is {termFromMaturity(p.firstPaymentDate, loan.maturity)} months from the first payment.{' '}
             <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '1px 8px', marginLeft: 6 }} onClick={() => set({ termMonths: termFromMaturity(p.firstPaymentDate, loan.maturity) })}>Use It</button>
           </div>
         )}
-        {!ok ? <div style={warn}>{result.errors.join(' ')}</div> : (
+        {!ok ? <div style={warn}><WarnMark />{result.errors.join(' ')}</div> : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
             {result.ioPayment > 0 && <span>Interest-Only Payment <strong><Amount value={result.ioPayment} /></strong></span>}
             <span>Monthly Payment <strong><Amount value={result.payment} /></strong></span>
             <span>Total Interest <strong><Amount value={result.totalInterest} /></strong></span>
             <span>Balloon at Maturity <strong>{result.balloon ? <Amount value={result.balloon} /> : 'None'}</strong></span>
-            {loan.monthlyPi != null && Math.abs(loan.monthlyPi - result.payment) >= 1 && <span style={{ color: '#92400e' }}>Monthly payment on file: <Amount value={loan.monthlyPi} /></span>}
+            {loan.monthlyPi != null && Math.abs(loan.monthlyPi - result.payment) >= 1 && <span style={{ color: 'var(--warn-fg)' }}><WarnMark />Monthly payment on file: <Amount value={loan.monthlyPi} /></span>}
           </div>
         )}
       </div>
@@ -387,7 +389,7 @@ function UploadForm({ loan, busy, onCancel, onSave }) {
                 </Field>
               ))}
             </div>
-            {missing.length > 0 ? <div style={warn}>Pick the {missing.join(' and ')} column{missing.length > 1 ? 's' : ''}.</div>
+            {missing.length > 0 ? <div style={warn}><WarnMark />Pick the {missing.join(' and ')} column{missing.length > 1 ? 's' : ''}.</div>
               : <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{parsed.rows.length} payments read{parsed.skipped ? `; ${parsed.skipped} rows without a date or balance left out (titles, totals)` : ''}. A missing principal is the payment less the interest.</div>}
           </>
         )}
