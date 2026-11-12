@@ -14,7 +14,7 @@ import { conditionOf, refSuffix } from './pfsCondition';
 import PfsAffiliated, { PfsExecutiveProfiles } from './PfsAffiliated';
 import { US_STATES, normalizePfsDetails, zipError } from './pfsAddress';
 import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, usePfsLocks } from './PfsLock';
-import { PersonSelect } from '../../tasks/components';
+import { PersonSelect, DateField } from '../../tasks/components';
 import { CompletenessButton, CompletenessPanel, PFS_STALE_DAYS, flashRow, gapCount, pfsGaps, rowSelector } from './completeness';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
@@ -377,7 +377,7 @@ export default function PfsTab({ canEdit = false }) {
                 {locks.untilOf(profile.id) && <PfsLockNow fileId={profile.id} until={locks.untilOf(profile.id)} onLocked={locks.markLocked} />}
                 <CompletenessButton count={gapCount(gaps)} open={completeOpen} onClick={() => setCompleteOpen((o) => !o)} />
                 <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>As of</span>
-                <input type="date" value={asOf} aria-label="Statement date" style={control} onChange={(e) => e.target.value && setAsOf(e.target.value)} />
+                <span style={{ ...control, display: 'flex', alignItems: 'center' }}><DateField value={asOf} onChange={(picked) => { const v = picked || ''; return v && setAsOf(v); }} placeholder="MM/DD/YYYY" title="Statement date" style={{ width: '100%' }} /></span>
                 <SyncButton onSync={onSync} busy={syncing} syncedAt={ts.syncedAt} what="Statement" />
                 {/* Oct 6 (Charmi): "an option to Export to Excel and PDF and not
                     separate tabs/buttons - the exact one you had for reports".
@@ -1247,7 +1247,7 @@ function FigureSource({ value, onChange, asOf, idPrefix, manualLabel, asOfLabel 
           {value.asOf !== undefined && (
             <div>
               <label style={label} htmlFor={`${idPrefix}-asof`}>{asOfLabel}</label>
-              <input id={`${idPrefix}-asof`} type="date" value={value.asOf || ''} onChange={(e) => onChange({ ...value, asOf: e.target.value })} style={{ ...control, width: '100%' }} />
+              <span id={`${idPrefix}-asof`} style={{ ...control, width: '100%', display: 'flex', alignItems: 'center' }}><DateField value={value.asOf || ''} onChange={(picked) => { const v = picked || ''; return onChange({ ...value, asOf: v }); }} placeholder="MM/DD/YYYY" title="Date" style={{ width: '100%' }} /></span>
             </div>
           )}
         </div>

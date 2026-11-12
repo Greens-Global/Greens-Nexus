@@ -21,6 +21,7 @@ import AnchoredMenu from '../AnchoredMenu';
 import { EgnyteField } from './LoanDialogs';
 import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
 import { CompletenessButton, CompletenessPanel, gapCount, mreGaps, useJumpToRow } from './completeness';
+import { DateField } from '../../tasks/components';
 
 export { CUSTOM_MAX_MONTHS, frequencyLabel, stepMonths };
 
@@ -1117,12 +1118,12 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
           <div style={grid}>
             <div>
               <label style={label} htmlFor="mre-start">Start</label>
-              <input id="mre-start" type="date" value={l.startDate} onChange={(e) => set({ startDate: e.target.value })} style={{ ...control, width: '100%' }} />
+              <span id="mre-start" style={{ ...control, width: '100%', display: 'flex', alignItems: 'center' }}><DateField value={l.startDate} onChange={(picked) => { const v = picked || ''; return set({ startDate: v }); }} placeholder="MM/DD/YYYY" title="Start" style={{ width: '100%' }} /></span>
               <span style={hint}>A bill that is not monthly falls due from this month.</span>
             </div>
             <div>
               <label style={label} htmlFor="mre-end">End</label>
-              <input id="mre-end" type="date" value={l.endDate} onChange={(e) => set({ endDate: e.target.value })} style={{ ...control, width: '100%' }} />
+              <span id="mre-end" style={{ ...control, width: '100%', display: 'flex', alignItems: 'center' }}><DateField value={l.endDate} onChange={(picked) => { const v = picked || ''; return set({ endDate: v }); }} placeholder="MM/DD/YYYY" title="End" style={{ width: '100%' }} /></span>
               <span style={hint}>Leave empty while it continues.</span>
             </div>
           </div>

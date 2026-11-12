@@ -13,6 +13,9 @@ import userEvent from '@testing-library/user-event';
 // rows while loading, and the "not available" state.
 
 // The Files picker: one button that picks a fixed folder.
+// DateField as a plain box (the house date picker, 11/11/2026 picture 11), so a test can type a date.
+vi.mock('../../tasks/components', async (importOriginal) => ({ ...(await importOriginal()),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} data-datefield="1" value={value || ''} onChange={(e) => onChange(e.target.value)} /> }));
 vi.mock('../../egnyte/EgnyteFolderPick', () => ({
   default: ({ title, onPick }) => <button type="button" onClick={() => onPick('/Shared/Loans/F&M/Statements')}>{`Pick in ${title}`}</button>,
 }));
