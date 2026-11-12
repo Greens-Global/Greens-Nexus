@@ -11,6 +11,7 @@ import {
   DAY_COUNTS, SCHEDULE_FIELDS, addMonths, buildSchedule, expectedBalanceAt, findHeaderRow, guessColumns, normalizeLoan, round2, rowsFromMatrix, scheduleTotals,
 } from './loanMath';
 import { WarnMark } from './warnMark';
+import { DateField } from '../../tasks/components';
 
 // Accounting -> Loans & Financing -> Amortization (Charmi and Neil, 10/06:
 // "Add in Amortization schedule for Commercial loans, allow us to build it or
@@ -253,8 +254,8 @@ function BuildForm({ loan, initial, busy, onCancel, onSave }) {
           </Field>
           <Field id="am-amort" title="Amortization (Months)" hint="Longer than the term leaves a balloon"><input id="am-amort" type="number" min="1" max="1200" value={p.amortMonths} onChange={(e) => set({ amortMonths: e.target.value })} style={input} /></Field>
           <Field id="am-io" title="Interest-Only Months"><input id="am-io" type="number" min="0" max="1200" value={p.ioMonths} onChange={(e) => set({ ioMonths: e.target.value })} style={input} /></Field>
-          <Field id="am-first" title="First Payment Date"><input id="am-first" type="date" value={p.firstPaymentDate} onChange={(e) => set({ firstPaymentDate: e.target.value })} style={input} /></Field>
-          <Field id="am-start" title="Funding Date" hint="Optional - interest runs from it to the first payment"><input id="am-start" type="date" value={p.startDate} onChange={(e) => set({ startDate: e.target.value })} style={input} /></Field>
+          <Field id="am-first" title="First Payment Date"><span id="am-first" style={{ ...input, display: 'flex', alignItems: 'center' }}><DateField value={p.firstPaymentDate} onChange={(picked) => { const v = picked || ''; return set({ firstPaymentDate: v }); }} placeholder="MM/DD/YYYY" title="First Payment Date" style={{ width: '100%' }} /></span></Field>
+          <Field id="am-start" title="Funding Date" hint="Optional - interest runs from it to the first payment"><span id="am-start" style={{ ...input, display: 'flex', alignItems: 'center' }}><DateField value={p.startDate} onChange={(picked) => { const v = picked || ''; return set({ startDate: v }); }} placeholder="MM/DD/YYYY" title="Funding Date" style={{ width: '100%' }} /></span></Field>
           <Field id="am-freq" title="Payment Frequency"><select id="am-freq" value="monthly" disabled style={input}><option value="monthly">Monthly</option></select></Field>
           <Field id="am-day" title="Day Count"><select id="am-day" value={p.dayCount} onChange={(e) => set({ dayCount: e.target.value })} style={input}>{DAY_COUNTS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></Field>
         </div>

@@ -7,6 +7,7 @@ import { EntityPicker, control } from './reportControls';
 import { formatDate } from '../../lib/datetime';
 import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 import { WarnMark } from './warnMark';
+import { DateField } from '../../tasks/components';
 
 // Accounting -> Loans & Financing: Change Loan and + Add > Manual (Charmi and
 // Neil, 10/03-10/04).
@@ -345,7 +346,7 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
       <div style={grid}>
         <div><label style={label} htmlFor="loan-rate">Rate %</label><input id="loan-rate" type="number" step="0.001" min="0" value={d.ratePct} onChange={(e) => set({ ratePct: e.target.value })} style={full} /></div>
         <div><label style={label} htmlFor="loan-rate-type">Fixed or Variable</label><select id="loan-rate-type" value={d.rateType} onChange={(e) => set({ rateType: e.target.value })} style={full}><option value="fixed">Fixed</option><option value="variable">Variable</option></select></div>
-        <div><label style={label} htmlFor="loan-maturity">Maturity</label><input id="loan-maturity" type="date" value={d.maturity} onChange={(e) => set({ maturity: e.target.value })} style={full} /></div>
+        <div><label style={label} htmlFor="loan-maturity">Maturity</label><span id="loan-maturity" style={{ ...full, display: 'flex', alignItems: 'center' }}><DateField value={d.maturity} onChange={(picked) => { const v = picked || ''; return set({ maturity: v }); }} placeholder="MM/DD/YYYY" title="Maturity" style={{ width: '100%' }} /></span></div>
         <div><label style={label} htmlFor="loan-payment">Monthly Payment</label><AmountInput id="loan-payment" value={d.monthlyPayment} onChange={(v) => set({ monthlyPayment: v })} style={full} /></div>
         <div><label style={label} htmlFor="loan-cov">Covenant Minimum (DSCR)</label><input id="loan-cov" type="number" step="0.01" min="0" value={d.covenantMin} onChange={(e) => set({ covenantMin: e.target.value })} placeholder="1.35" style={full} /></div>
       </div>
@@ -395,7 +396,7 @@ export function ManualLoanDialog({ entities, showHistorical = false, onClose, on
         <div><label style={label} htmlFor="manual-balance">Balance</label><AmountInput id="manual-balance" value={d.balance} onChange={(v) => set({ balance: v })} style={full} /></div>
         <div><label style={label} htmlFor="manual-rate">Rate %</label><input id="manual-rate" type="number" step="0.001" min="0" value={d.ratePct} onChange={(e) => set({ ratePct: e.target.value })} style={full} /></div>
         <div><label style={label} htmlFor="manual-rate-type">Fixed or Variable</label><select id="manual-rate-type" value={d.rateType} onChange={(e) => set({ rateType: e.target.value })} style={full}><option value="fixed">Fixed</option><option value="variable">Variable</option></select></div>
-        <div><label style={label} htmlFor="manual-maturity">Maturity</label><input id="manual-maturity" type="date" value={d.maturity} onChange={(e) => set({ maturity: e.target.value })} style={full} /></div>
+        <div><label style={label} htmlFor="manual-maturity">Maturity</label><span id="manual-maturity" style={{ ...full, display: 'flex', alignItems: 'center' }}><DateField value={d.maturity} onChange={(picked) => { const v = picked || ''; return set({ maturity: v }); }} placeholder="MM/DD/YYYY" title="Maturity" style={{ width: '100%' }} /></span></div>
         <div><label style={label} htmlFor="manual-payment">Monthly Payment</label><AmountInput id="manual-payment" value={d.monthlyPayment} onChange={(v) => set({ monthlyPayment: v })} style={full} /></div>
         <div><label style={label} htmlFor="manual-type">Internal or External</label><select id="manual-type" value={d.type} onChange={(e) => set({ type: e.target.value })} style={full}>{typeOptions}</select></div>
         <div><label style={label} htmlFor="manual-kind">Loan Type</label><select id="manual-kind" value={d.loanType} onChange={(e) => set({ loanType: e.target.value })} style={full}>{LOAN_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
