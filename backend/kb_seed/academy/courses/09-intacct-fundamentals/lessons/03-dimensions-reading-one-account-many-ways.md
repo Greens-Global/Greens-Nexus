@@ -41,8 +41,8 @@ Every report page has **Filters** for department, vendor, customer, employee, Pr
 
 Some reports are a dimension already laid out for you:
 
-- **Reports > Financial > Income Statement** has views by Customer, by Job and by Department, a column each.
-- **Reports > Financial > Spend by Vendor** groups what was spent by vendor.
+- **Reports > Financial Statements** has the Income Statement by Customer, by Job and by Department, a column each.
+- **Reports > Ledger & Banking > Spend by Vendor** groups what was spent by vendor.
 
 ```figure
 {

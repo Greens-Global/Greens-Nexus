@@ -12,7 +12,7 @@ An auditor pulls one repairs invoice from Temecula's ledger, $640 plus parts, an
 
 A **budget** is next year's income statement written in advance, line by line, for each site. Revenue is built from the rent roll (units, rates, expected occupancy, planned rate changes and concessions); expenses from the schedules and contracts (preventive maintenance, service contracts, payroll by shift, insurance and property tax from the renewals), plus what the site knows is coming. The maintenance lines are built in Property & Vendor Management; Accounting assembles the whole.
 
-A budget is the plan leadership approved and the yardstick each month is measured against. In Nexus it is Accounting > Reports > Budget, with Budget vs. Actual, YTD and Budget vs. Actual, MTD beside it. A line nobody can explain is not a plan; it is a wish.
+A budget is the plan leadership approved and the yardstick each month is measured against. In Nexus it is Accounting > Trackers > Budgets, with Budget vs. Actual, Year to Date and Month to Date under Reports beside it. A line nobody can explain is not a plan; it is a wish.
 
 ## Variance Comments
 

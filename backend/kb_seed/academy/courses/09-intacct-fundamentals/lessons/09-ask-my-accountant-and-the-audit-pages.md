@@ -1,6 +1,6 @@
 ---
 title: Ask My Accountant and the Audit Pages
-summary: How a question about a ledger line is asked and answered on AMA, how a reclass is sent to the bookkeeper who alone previews and pushes it, and what Manual Journal Entries, Profitability and the Payroll & People reports show and to whom.
+summary: How a question about a ledger line is asked and answered on AMA, how a reclass is sent to the bookkeeper who alone previews and pushes it, and what Manual Journal Entries, Profitability and the Payroll reports show and to whom.
 teaches: Accounting
 ---
 
@@ -8,7 +8,7 @@ Murrieta's manager drills into utilities and finds a $412 electricity bill on he
 
 ## AMA: Ask My Accountant
 
-Every ledger has lines nobody could code with confidence: a card charge with no receipt, a deposit nobody recognized. They are parked on a suspense account called **Ask My Accountant**. The page for them is **Reports > Audit & Insights > AMA**, and it holds two kinds of row:
+Every ledger has lines nobody could code with confidence: a card charge with no receipt, a deposit nobody recognized. They are parked on a suspense account called **Ask My Accountant**. The page for them is **Trackers > Ask My Accountant**, and it holds two kinds of row:
 
 - every line on the Ask My Accountant account for the period, and
 - every line anyone asked about, from a report's drill-down, the search box or a journal entry.
@@ -44,7 +44,7 @@ This is the one place Nexus changes Intacct, and only the bookkeeper can do it. 
 
 ## Manual Journal Entries
 
-**Reports > Audit & Insights > Manual Journal Entries** lists only the entries a **person** keyed in Intacct, not the ones the bank feed and rules create, with who created each one and who last changed it. A system entry a person later changed is marked **Changed by a Person**. Filter by period, entities, journals and user; group by user.
+**Reports > Ledger & Banking > Manual Journal Entries** lists only the entries a **person** keyed in Intacct, not the ones the bank feed and rules create, with who created each one and who last changed it. A system entry a person later changed is marked **Changed by a Person**. Filter by period, entities, journals and user; group by user.
 
 This is segregation of duties made readable. A month that is mostly system entries has a short manual list; a long one is a question to ask, not proof of a mistake.
 
@@ -52,7 +52,7 @@ This is segregation of duties made readable. A month that is mostly system entri
 
 **Profitability** shows, per entity, revenue, NOI, interest, depreciation, net income, debt service and cash flow after debt service, against the same period a year earlier. Click a figure for the accounts behind it.
 
-## Payroll & People
+## Payroll
 
 **Compensation** (hours and gross wages per employee from Time Clock) and **Payroll Summary** (built from the payroll imported into the payroll journal) open only at the Accounting grant's **Full** level, and Compensation asks you to confirm it is you. Managers see hours elsewhere in Nexus, never pay here.
 
