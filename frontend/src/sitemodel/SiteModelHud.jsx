@@ -64,8 +64,8 @@ export function SiteModelHud({ model, owner, live, stats, unit, attention = [], 
         {[[stats.active, 'Units', null], [`${stats.leasedPct}%`, 'Leased', `${stats.leased} leased`], [stats.vacant, 'Vacant', 'Rentable now'], [stats.bad, 'Out of Service', stats.bad ? 'Needs attention' : 'All clear']].map(([v, l, s]) => (
           <div key={l} style={{ ...card, padding: '8px 12px', minWidth: 96 }}>
             <div style={{ fontSize: 11, ...muted }}>{l}</div>
-            <div style={{ fontSize: 19, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
-            {s && <div style={{ fontSize: 10.5, color: l === 'Out of Service' && stats.bad ? '#b42318' : '#6b7068' }}>{s}</div>}
+            <div style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
+            {s && <div style={{ fontSize: 11, color: l === 'Out of Service' && stats.bad ? '#b42318' : '#6b7068' }}>{s}</div>}
           </div>
         ))}
       </div>}
@@ -79,8 +79,8 @@ export function SiteModelHud({ model, owner, live, stats, unit, attention = [], 
             <li key={i} style={{ display: 'flex', alignItems: 'flex-start', flex: s.end ? '0 0 auto' : '1 1 0', minWidth: 0 }}>
               <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 64 }}>
                 <span style={{ width: 28, height: 28, borderRadius: 999, display: 'grid', placeItems: 'center', color: '#fff', background: s.end ? '#ff7a00' : GREEN, boxShadow: s.end ? '0 0 0 4px rgba(255,122,0,0.18)' : 'none' }}><StepIcon i={i} end={s.end} /></span>
-                <b style={{ textAlign: 'center', maxWidth: 96, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(s.end ? { font: '600 12px ui-monospace, Menlo, monospace' } : { fontSize: 11.5, fontWeight: 600 }) }}>{s.label}</b>
-                <span style={{ fontSize: 10.5, ...muted, whiteSpace: 'nowrap' }}>{s.sub}</span>
+                <b style={{ textAlign: 'center', maxWidth: 96, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', ...(s.end ? { font: '600 12px ui-monospace, Menlo, monospace' } : { fontSize: 12, fontWeight: 600 }) }}>{s.label}</b>
+                <span style={{ fontSize: 11, ...muted, whiteSpace: 'nowrap' }}>{s.sub}</span>
               </span>
               {!s.end && <span aria-hidden="true" style={{ flex: 1, height: 3, borderRadius: 3, background: GREEN, opacity: 0.85, margin: '13px 2px 0', minWidth: 12 }} />}
             </li>

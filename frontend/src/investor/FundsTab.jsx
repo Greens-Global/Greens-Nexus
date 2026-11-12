@@ -114,7 +114,7 @@ function DealPortalAccess({ fundId }) {
       {note && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, border: '1px solid hsla(var(--color-blue), 0.4)', borderRadius: 10, padding: '9px 12px', marginBottom: 10 }}>
           <Info size={14} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 2 }} />
-          <span style={{ fontSize: 12.5, color: 'var(--ink)', flex: 1, lineHeight: 1.5 }}>{note}</span>
+          <span style={{ fontSize: 13, color: 'var(--ink)', flex: 1, lineHeight: 1.5 }}>{note}</span>
           <button type="button" onClick={() => setNote('')} title="Dismiss"
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, display: 'inline-flex', flexShrink: 0 }}>
             <X size={14} />
@@ -122,7 +122,7 @@ function DealPortalAccess({ fundId }) {
         </div>
       )}
       {loading ? <LoadingState label="Loading investors…" /> : error ? <ErrorState message={error} onRetry={reload} /> : rows.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
           No investors have a commitment in this deal yet - add commitments first, then grant portal access here.
         </div>
       ) : (
@@ -131,7 +131,7 @@ function DealPortalAccess({ fundId }) {
             <div key={r.investorId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < rows.length - 1 ? '1px solid var(--line)' : 'none' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || 'Unnamed Investor'}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {formatCurrency(r.amount)} committed{r.email ? ` · ${r.email}` : ''}
                 </div>
               </div>
@@ -145,7 +145,7 @@ function DealPortalAccess({ fundId }) {
           ))}
         </div>
       )}
-      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 12.5, marginTop: 8 }}>{err}</div>}
+      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginTop: 8 }}>{err}</div>}
     </div>
   );
 }
@@ -230,8 +230,8 @@ export default function FundsTab() {
 
   const stat = (label, value) => (
     <div key={label}>
-      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
-      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
     </div>
   );
 
@@ -239,8 +239,8 @@ export default function FundsTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Deals</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Every deal - raise progress, terms, and lifecycle status</p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Deals</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Every deal - raise progress, terms, and lifecycle status</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="secondary-btn" onClick={() => setImporting(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -272,7 +272,7 @@ export default function FundsTab() {
               </div>
 
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 5, fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 5, fontVariantNumeric: 'tabular-nums' }}>
                   <span>Committed <strong style={{ color: 'var(--ink)' }}>{formatCurrency(f.totalCommitted)}</strong></span>
                   <span>Target {formatCurrency(f.targetRaise)}</span>
                 </div>
@@ -389,7 +389,7 @@ export default function FundsTab() {
                       ))}
                     </select>
                   ) : (
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Linked to a property in Asset Management.</div>
+                    <div style={{ fontSize: 13, color: 'var(--muted)' }}>Linked to a property in Asset Management.</div>
                   )}
                   {modal.form.propertyAssetId && (
                     <button type="button" onClick={goToAssetMgmt}
@@ -409,7 +409,7 @@ export default function FundsTab() {
               </FG>
               {modal.id && <DealBooks fundId={modal.id} onChanged={refresh} />}
               {modal.id && <DealPortalAccess fundId={modal.id} />}
-              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
+              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{formErr}</div>}
             </div>
             <div className="modal-footer">
               {modal.id && (

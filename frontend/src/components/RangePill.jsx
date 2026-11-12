@@ -27,7 +27,7 @@ export default function RangePill({ start, end, onChange, reset = null }) {
       border: '1px solid var(--wk-line2)', borderRadius: 9, background: 'var(--card)', padding: '1px 3px' }}>
       <button type="button" aria-label="Previous period" title="Previous period" onClick={() => shift(-1)} style={navBtn}><ChevronLeft size={14} /></button>
       <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} title="Pick the dates"
-        style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12.5, fontWeight: 600,
+        style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 600,
           color: 'var(--ink)', padding: '5px 5px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
         {formatDate(start)} - {formatDate(end)}
       </button>

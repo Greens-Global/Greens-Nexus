@@ -16,10 +16,10 @@ function AnswerRow({ q, showFacility, onAnswer }) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 500, color: C.gray900 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, color: C.gray900 }}>
           {q.askedBy}
           {unanswered && (
-            <span style={{ padding: '2px 6px', borderRadius: 9999, fontSize: 9.5, fontWeight: 500, color: C.amber700, background: C.amber50 }}>Needs answer</span>
+            <span style={{ padding: '2px 6px', borderRadius: 9999, fontSize: 11, fontWeight: 500, color: C.amber700, background: C.amber50 }}>Needs answer</span>
           )}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -27,12 +27,12 @@ function AnswerRow({ q, showFacility, onAnswer }) {
           <span style={{ fontSize: 11, color: C.gray400 }}>{formatDateLabel(q.askedDate)}</span>
         </div>
       </div>
-      <p style={{ fontSize: 12.5, color: C.gray700, marginBottom: 8 }}>{q.question}</p>
+      <p style={{ fontSize: 13, color: C.gray700, marginBottom: 8 }}>{q.question}</p>
       {q.answer ? (
         <div style={{ borderRadius: 6, background: C.gray50, padding: '8px 10px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
-            <span style={{ fontSize: 11.5, fontWeight: 500, color: C.gray700 }}>Greens Storage</span>
-            <span style={{ fontSize: 10.5, color: C.gray400 }}>{q.answeredDate && formatDateLabel(q.answeredDate)}</span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: C.gray700 }}>Greens Storage</span>
+            <span style={{ fontSize: 11, color: C.gray400 }}>{q.answeredDate && formatDateLabel(q.answeredDate)}</span>
           </div>
           <p style={{ fontSize: 12, color: C.gray600 }}>{q.answer}</p>
         </div>
@@ -48,7 +48,7 @@ function AnswerRow({ q, showFacility, onAnswer }) {
               }
             }}
             placeholder="Write a public answer..."
-            style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.gray200, fontSize: 12.5 }}
+            style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.gray200, fontSize: 13 }}
           />
           <button
             onClick={() => {
@@ -81,7 +81,7 @@ export default function GbpQnaCard({ questions, showFacility, onAnswer }) {
       {answered.map((q) => (
         <AnswerRow key={q.id} q={q} showFacility={showFacility} onAnswer={onAnswer} />
       ))}
-      {questions.length === 0 && <div style={{ textAlign: 'center', color: C.gray400, padding: '32px 0', fontSize: 12.5 }}>No questions yet.</div>}
+      {questions.length === 0 && <div style={{ textAlign: 'center', color: C.gray400, padding: '32px 0', fontSize: 13 }}>No questions yet.</div>}
     </div>
   )
 }

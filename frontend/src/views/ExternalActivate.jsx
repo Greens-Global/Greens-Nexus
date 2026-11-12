@@ -14,14 +14,14 @@ const page = { minHeight: '100dvh', display: 'flex', alignItems: 'center', justi
 const card = { width: 440, maxWidth: '100%', background: '#ffffff', borderRadius: 16, border: '1px solid #e5e7eb', padding: '30px 30px 26px', boxSizing: 'border-box' };
 const field = { width: '100%', padding: '11px 13px', borderRadius: 9, border: '1px solid #d1d5db', fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box', color: '#111827', background: '#fff' };
 const label = { fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 5, display: 'block' };
-const primaryBtn = { width: '100%', padding: '12px 18px', borderRadius: 10, border: 'none', background: '#0f3d2e', color: '#fff', fontSize: 14.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' };
+const primaryBtn = { width: '100%', padding: '12px 18px', borderRadius: 10, border: 'none', background: '#0f3d2e', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' };
 const quietBtn = { background: 'none', border: 'none', color: '#0f3d2e', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: 6, textDecoration: 'underline' };
 
 function Brand() {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-      <span style={{ width: 34, height: 34, borderRadius: 9, background: '#0f3d2e', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 17 }}>N</span>
-      <span style={{ fontSize: 17, fontWeight: 800, color: '#111827' }}>Nexus</span>
+      <span style={{ width: 34, height: 34, borderRadius: 9, background: '#0f3d2e', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 18 }}>N</span>
+      <span style={{ fontSize: 18, fontWeight: 800, color: '#111827' }}>Nexus</span>
       <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.14em', color: '#6b7280', marginLeft: 'auto' }}>GREENS GLOBAL</span>
     </div>
   );
@@ -108,14 +108,14 @@ export default function ExternalActivate({ token }) {
         {phase === 'loading' && (
           <div style={{ padding: '38px 0', textAlign: 'center' }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}><Spinner size="section" /></div>
-            <div style={{ fontSize: 13.5, color: '#6b7280' }}>Checking your invitation…</div>
+            <div style={{ fontSize: 13, color: '#6b7280' }}>Checking your invitation…</div>
           </div>
         )}
 
         {phase === 'invalid' && (
           <div style={{ padding: '18px 0 6px' }}>
-            <h1 style={{ margin: '0 0 10px', fontSize: 19, color: '#111827' }}>This link is not valid</h1>
-            <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6, color: '#6b7280' }}>
+            <h1 style={{ margin: '0 0 10px', fontSize: 18, color: '#111827' }}>This link is not valid</h1>
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: '#6b7280' }}>
               {invalidMsg || 'This invitation link is invalid, already used, or expired - ask your Greens Global contact to send a new one.'}
             </p>
           </div>
@@ -123,8 +123,8 @@ export default function ExternalActivate({ token }) {
 
         {phase === 'switch' && invite && (
           <>
-            <h1 style={{ margin: '0 0 8px', fontSize: 20, color: '#111827' }}>Switch accounts?</h1>
-            <p style={{ margin: '0 0 16px', fontSize: 13.5, lineHeight: 1.6, color: '#374151' }}>
+            <h1 style={{ margin: '0 0 8px', fontSize: 18, color: '#111827' }}>Switch accounts?</h1>
+            <p style={{ margin: '0 0 16px', fontSize: 13, lineHeight: 1.6, color: '#374151' }}>
               You are signed in as <strong>{invite.signedInAs?.name}</strong>. Continuing signs that
               account out on this browser and activates this invitation for <strong>{invite.email}</strong>.
             </p>
@@ -143,8 +143,8 @@ export default function ExternalActivate({ token }) {
 
         {phase === 'intro' && invite && (
           <>
-            <h1 style={{ margin: '0 0 8px', fontSize: 20, color: '#111827' }}>Welcome, {invite.firstName || invite.name}</h1>
-            <p style={{ margin: '0 0 16px', fontSize: 13.5, lineHeight: 1.6, color: '#374151' }}>
+            <h1 style={{ margin: '0 0 8px', fontSize: 18, color: '#111827' }}>Welcome, {invite.firstName || invite.name}</h1>
+            <p style={{ margin: '0 0 16px', fontSize: 13, lineHeight: 1.6, color: '#374151' }}>
               {invite.invitedBy} invited you{invite.company ? ` (${invite.company})` : ''} to Greens Global Nexus.
               Verify it's you to finish setting up your access.
             </p>
@@ -165,7 +165,7 @@ export default function ExternalActivate({ token }) {
                   onChange={e => setPhone(e.target.value)} required />
               </div>
             )}
-            {error && <div style={{ margin: '0 0 12px', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{error}</div>}
+            {error && <div style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 600, color: '#b91c1c' }}>{error}</div>}
             <div style={{ display: 'grid', gap: 9 }}>
               <button style={primaryBtn} disabled={busy || !(invite.hasPhone || phone.trim())}
                 title={(invite.hasPhone || phone.trim()) ? '' : 'Enter your mobile number first'}
@@ -187,8 +187,8 @@ export default function ExternalActivate({ token }) {
 
         {phase === 'code' && (
           <>
-            <h1 style={{ margin: '0 0 8px', fontSize: 20, color: '#111827' }}>Enter your code</h1>
-            <p style={{ margin: '0 0 16px', fontSize: 13.5, lineHeight: 1.6, color: '#374151' }}>
+            <h1 style={{ margin: '0 0 8px', fontSize: 18, color: '#111827' }}>Enter your code</h1>
+            <p style={{ margin: '0 0 16px', fontSize: 13, lineHeight: 1.6, color: '#374151' }}>
               {sentTo?.delivered === false
                 ? 'We could not send the code automatically - use resend, or contact your Greens Global contact.'
                 : sentTo?.channel === 'sms'
@@ -199,7 +199,7 @@ export default function ExternalActivate({ token }) {
               inputMode="numeric" autoFocus maxLength={6} placeholder="______" value={code}
               onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               onKeyDown={e => { if (e.key === 'Enter' && code.length === 6) verify(); }} />
-            {error && <div style={{ margin: '10px 0 0', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{error}</div>}
+            {error && <div style={{ margin: '10px 0 0', fontSize: 13, fontWeight: 600, color: '#b91c1c' }}>{error}</div>}
             <button style={{ ...primaryBtn, marginTop: 14 }} disabled={busy || code.length !== 6} onClick={verify}>
               Verify and Continue
             </button>
@@ -220,15 +220,15 @@ export default function ExternalActivate({ token }) {
 
         {phase === 'phone-code' && (
           <>
-            <h1 style={{ margin: '0 0 8px', fontSize: 20, color: '#111827' }}>Now verify your phone</h1>
-            <p style={{ margin: '0 0 16px', fontSize: 13.5, lineHeight: 1.6, color: '#374151' }}>
+            <h1 style={{ margin: '0 0 8px', fontSize: 18, color: '#111827' }}>Now verify your phone</h1>
+            <p style={{ margin: '0 0 16px', fontSize: 13, lineHeight: 1.6, color: '#374151' }}>
               Email verified. We texted a 6-digit code to {sentTo?.hint || 'your phone'} - enter it to finish.
             </p>
             <input style={{ ...field, fontSize: 24, letterSpacing: 10, textAlign: 'center', fontWeight: 700 }}
               inputMode="numeric" autoFocus maxLength={6} placeholder="______" value={code}
               onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               onKeyDown={e => { if (e.key === 'Enter' && code.length === 6) verifyPhone(); }} />
-            {error && <div style={{ margin: '10px 0 0', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{error}</div>}
+            {error && <div style={{ margin: '10px 0 0', fontSize: 13, fontWeight: 600, color: '#b91c1c' }}>{error}</div>}
             <button style={{ ...primaryBtn, marginTop: 14 }} disabled={busy || code.length !== 6} onClick={verifyPhone}>
               Verify and Continue
             </button>
@@ -243,7 +243,7 @@ export default function ExternalActivate({ token }) {
 
         {phase === 'done' && (
           <div style={{ padding: '26px 0', textAlign: 'center' }}>
-            <div style={{ fontSize: 17, fontWeight: 800, color: '#111827', marginBottom: 6 }}>You're in</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: '#111827', marginBottom: 6 }}>You're in</div>
             <div style={{ fontSize: 13, color: '#6b7280' }}>Taking you to Nexus…</div>
           </div>
         )}

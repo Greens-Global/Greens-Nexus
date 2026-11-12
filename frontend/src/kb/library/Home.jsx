@@ -56,7 +56,7 @@ function DepartmentCard({ c, subs }) {
         <ChevronRight size={16} style={{ color: 'var(--kb-dim)', flex: '0 0 auto' }} aria-hidden="true" />
       </div>
       {shown.length > 0 && (
-        <div className="kb-meta kb-ellipsis" style={{ fontSize: 12.5 }}>
+        <div className="kb-meta kb-ellipsis" style={{ fontSize: 13 }}>
           {shown.map((x) => x.name).join(' · ')}{subs.length > shown.length ? ` · +${subs.length - shown.length} more` : ''}
         </div>
       )}
@@ -71,7 +71,7 @@ function NoDepartments({ me }) {
   return (
     <div className="kb-card soft" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 8, padding: '36px 24px' }}>
       <span className="kb-ico" style={{ background: 'var(--kb-green-soft)', color: 'var(--kb-green)', width: 44, height: 44 }} aria-hidden="true"><FolderOpen size={22} /></span>
-      <div className="kb-title" style={{ fontSize: 16 }}>No departments yet</div>
+      <div className="kb-title" style={{ fontSize: 15 }}>No departments yet</div>
       <div className="kb-meta" style={{ maxWidth: 440 }}>Each department gets a collection that holds its how-tos, SOPs, policies and references. {me?.can_manage ? 'Create the first one, or bring the old library in and the departments come with it.' : 'A Knowledge Base manager sets them up.'}</div>
       {me?.can_manage && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginTop: 6 }}>

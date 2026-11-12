@@ -16,7 +16,7 @@ import { ErrorBanner, SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { SettingCard, SettingRow, SwitchRow } from '../components/settings/SettingsUI';
 import { formatDateTime } from '../lib/datetime';
 
-const note = { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 };
+const note = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 };
 
 export default function CubbyTasksSettings({ toastOk, toastErr }) {
   const [state, setState] = useState({ status: 'loading', data: null });
@@ -100,7 +100,7 @@ export default function CubbyTasksSettings({ toastOk, toastErr }) {
       </SettingCard>
 
       <div>
-        <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Where Each Facility&apos;s Tasks Go</div>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Where Each Facility&apos;s Tasks Go</div>
         <SettingCard>
           {(s.facilities || []).length === 0 && (
             <SettingRow title="No facilities yet" desc="The facility list fills in after the first Cubby sync." />
@@ -124,10 +124,10 @@ export default function CubbyTasksSettings({ toastOk, toastErr }) {
 
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>Last Run</div>
+          <div style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>Last Run</div>
           {canEdit && (
             <button type="button" className="secondary-btn" onClick={syncNow} disabled={!s.on || busy === 'sync'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               {busy === 'sync' ? <Spinner size={13} /> : <RefreshCw size={13} />} Sync Now
             </button>
           )}

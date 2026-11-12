@@ -39,7 +39,7 @@ export function PeoplePicker({ value, onChange, exclude = [], max = MAX_ASK, lab
       <span style={{ position: 'relative', display: 'flex' }}>
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} aria-hidden="true" />
         <input className="form-input" value={q} onChange={e => setQ(e.target.value)} placeholder="Search people" aria-label="Search people"
-          style={{ paddingLeft: 30, width: '100%', fontSize: 16 }} />
+          style={{ paddingLeft: 30, width: '100%', fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
       </span>
       <div role="group" aria-label={label} style={{ flex: 1, minHeight: 0, overflowY: 'auto', borderTop: '1px solid var(--line)' }}>
         {shown.length ? shown.map(p => (
@@ -47,7 +47,7 @@ export function PeoplePicker({ value, onChange, exclude = [], max = MAX_ASK, lab
             <input type="checkbox" checked={value.includes(p.email)} onChange={() => toggle(p.email)}
               disabled={!value.includes(p.email) && value.length >= max} />
             <Avatar email={p.email} name={p.name} size={26} card={false} />
-            <span style={{ fontSize: 13.5 }}>{p.name}</span>
+            <span style={{ fontSize: 13 }}>{p.name}</span>
           </label>
         )) : <div style={{ ...muted, padding: 10 }}>Nobody matches.</div>}
       </div>
@@ -84,7 +84,7 @@ export function AskFeedbackModal({ me, subject = '', subjectName = '', reviewId 
         <label style={{ display: 'grid', gap: 5 }}>
           <span style={LBL}>Note (Optional)</span>
           <textarea className="form-input" rows={2} value={note} onChange={e => setNote(e.target.value)} maxLength={1000}
-            placeholder={self ? 'Anything you would like them to think about' : 'The project or period you would like them to think about'} style={{ fontSize: 16, resize: 'vertical' }} />
+            placeholder={self ? 'Anything you would like them to think about' : 'The project or period you would like them to think about'} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, resize: 'vertical' }} />
         </label>
         <PeoplePicker value={givers} onChange={setGivers} exclude={[me, subject].filter(Boolean)} label="Ask" />
       </div>
@@ -132,12 +132,12 @@ export function FeedbackModal({ id, onClose, onChanged, toastOk, toastErr }) {
             <span style={muted}>{f.requestedByName} asked {f.giverName} about {about} · {formatDate(f.requestedAt)}</span>
             {f.private && <span style={{ ...muted, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={12} aria-hidden="true" /> Managers and HR only</span>}
           </div>
-          {f.note && <div style={{ fontSize: 13.5, whiteSpace: 'pre-wrap', borderLeft: '2px solid var(--line)', paddingLeft: 10 }}>{f.note}</div>}
+          {f.note && <div style={{ fontSize: 13, whiteSpace: 'pre-wrap', borderLeft: '2px solid var(--line)', paddingLeft: 10 }}>{f.note}</div>}
           {declining ? (
             <div style={{ display: 'grid', gap: 8 }}>
               <label style={{ display: 'grid', gap: 5 }}>
                 <span style={LBL}>Why Not (Optional)</span>
-                <textarea className="form-input" rows={2} value={why} onChange={e => setWhy(e.target.value)} style={{ fontSize: 16 }} />
+                <textarea className="form-input" rows={2} value={why} onChange={e => setWhy(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
               </label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button type="button" className="secondary-btn" onClick={() => setDeclining(false)}>Keep It</button>
@@ -148,11 +148,11 @@ export function FeedbackModal({ id, onClose, onChanged, toastOk, toastErr }) {
           ) : QUESTIONS.map((q, i) => (
             <label key={q.id} className={i === QUESTIONS.length - 1 && f.can.answer ? 'nx-fill' : undefined}
               style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: i === QUESTIONS.length - 1 && f.can.answer ? 1 : undefined }}>
-              <span style={{ fontSize: 13.5, fontWeight: 600 }}>{q.text}</span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{q.text}</span>
               {f.can.answer ? (
                 <textarea className="form-input" rows={4} value={answers[q.id] || ''} onChange={e => setAnswers(a => ({ ...a, [q.id]: e.target.value }))}
-                  style={{ fontSize: 16, resize: 'vertical', flex: 1, minHeight: 96 }} />
-              ) : <span style={{ fontSize: 13.5, whiteSpace: 'pre-wrap' }}>{f.answers?.[q.id] || <span style={muted}>-</span>}</span>}
+                  style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, resize: 'vertical', flex: 1, minHeight: 96 }} />
+              ) : <span style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{f.answers?.[q.id] || <span style={muted}>-</span>}</span>}
             </label>
           ))}
           {f.status === 'declined' && f.declineNote && <div style={muted}>Declined: {f.declineNote}</div>}
@@ -175,7 +175,7 @@ function FeedbackRows({ items, onOpen, who = 'giver', empty }) {
             <button type="button" className="nx-perf-fb" onClick={() => onOpen(f)}>
               <Avatar email={email} name={name} size={28} card={false} />
               <span style={{ minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{name}</span>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{name}</span>
                 <span style={{ display: 'block', ...muted, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {said || (who === 'asker' ? `About ${f.subjectEmail === f.requestedBy ? 'themselves' : f.subjectName}` : f.note || `Asked ${formatDate(f.requestedAt)}`)}
                 </span>

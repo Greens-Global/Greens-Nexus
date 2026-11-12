@@ -40,7 +40,7 @@ function normalize(cfg) {
   return out;
 }
 
-const inputStyle = (w) => ({ width: w, padding: '4px 8px', borderRadius: 8, border: `1px solid ${NX.border}`, fontSize: 12.5,
+const inputStyle = (w) => ({ width: w, padding: '4px 8px', borderRadius: 8, border: `1px solid ${NX.border}`, fontSize: 13,
   fontFamily: FONT, color: NX.ink, background: NX.surface, boxSizing: 'border-box' });
 
 // The Settings switch (components/settings/SettingsUI.jsx).
@@ -102,14 +102,14 @@ function DayChips({ label, days, min, format, onChange, disabled, rowTitle }) {
           </span>
         )}
       </div>
-      {err && <div role="alert" style={{ fontSize: 11.5, color: NX.red, marginTop: 4 }}>{err}</div>}
+      {err && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>{err}</div>}
     </div>
   );
 }
 
 function NumberField({ label, suffix, value, min, max, onChange, disabled }) {
   return (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.ink }}>
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.ink }}>
       {label}
       <input type="number" inputMode="numeric" min={min} max={max} value={value} disabled={disabled}
         onChange={e => {
@@ -129,7 +129,7 @@ function ReminderRow({ row, value, onChange, disabled }) {
     <div style={{ padding: '14px 0', borderTop: `1px solid ${NX.border}` }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{row.title}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{row.title}</div>
           <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{row.what}</div>
           <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{row.who}</div>
         </div>
@@ -145,7 +145,7 @@ function ReminderRow({ row, value, onChange, disabled }) {
       {on && (row.nums || row.checks) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginTop: 10 }}>
           {(row.checks || []).map(c => (
-            <label key={c.field} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.ink }}>
+            <label key={c.field} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.ink }}>
               <input type="checkbox" checked={!!value[c.field]} disabled={disabled}
                 onChange={e => set({ [c.field]: e.target.checked })} />
               {c.label}
@@ -203,12 +203,12 @@ export default function ReminderSettingsPanel({ load: loadFn, save: saveFn, rows
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12.5, color: NX.dim, lineHeight: 1.5, marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: NX.dim, lineHeight: 1.5, marginBottom: 12 }}>
         <Info size={14} style={{ flexShrink: 0, marginTop: 3 }} />
         <span>{intro}</span>
       </div>
       {!canEdit && (
-        <div style={{ fontSize: 12.5, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border}`,
+        <div style={{ fontSize: 13, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border}`,
           borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
           {lockedNote}
         </div>
@@ -240,7 +240,7 @@ export default function ReminderSettingsPanel({ load: loadFn, save: saveFn, rows
         </div>
       )}
       {state.updatedAt && (
-        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 10 }}>
+        <div style={{ fontSize: 12, color: NX.dim, marginTop: 10 }}>
           Last changed by {state.updatedBy} on {formatDateTime(state.updatedAt)}.
         </div>
       )}

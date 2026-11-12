@@ -92,20 +92,20 @@ function Lines({ lines, hr, canAdjust, onAdjust }) {
       {lines.map((ln) => (
         <div key={ln.id} role="row" data-line={ln.email} style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, alignItems: 'center', padding: '10px 8px', borderTop: '1px solid var(--line)', opacity: ln.excluded ? 0.55 : 1 }}>
           <span role="cell" style={{ minWidth: 0 }}>
-            <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{ln.name}{ln.excluded && <StatusLabel label="Excluded" color="#64748b" size="sm" style={{ marginLeft: 6 }} />}</span>
-            <span style={{ display: 'block', ...muted, fontSize: 11.5 }}>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{ln.name}{ln.excluded && <StatusLabel label="Excluded" color="#64748b" size="sm" style={{ marginLeft: 6 }} />}</span>
+            <span style={{ display: 'block', ...muted, fontSize: 12 }}>
               {ln.managerName ? `Reports to ${ln.managerName}` : 'No manager'}{NOTE_TEXT.filter(([k]) => (ln.note || '').split(',').includes(k)).map(([, t]) => ` - ${t}`).join('')}{ln.score == null ? ((ln.note || '').includes('thin_data') ? ' - thin data, not paid' : ' - no score this period') : ln.measuredWeight < 100 ? ` - ${ln.measuredWeight}% of the weight measured` : ''}
               {ln.reviewScore != null && ` - KPIs ${ln.kpiScore}, review ${ln.reviewScore}`}
             </span>
-            {ln.adjustReason && <span style={{ display: 'block', ...muted, fontSize: 11.5 }}>{ln.adjustedByName}: &quot;{ln.adjustReason}&quot;</span>}
+            {ln.adjustReason && <span style={{ display: 'block', ...muted, fontSize: 12 }}>{ln.adjustedByName}: &quot;{ln.adjustReason}&quot;</span>}
             {ln.reviewedAt && <StatusLabel label={`Reviewed by ${ln.reviewedByName || ln.reviewedBy}`} color={NX.green} size="sm" />}
           </span>
-          <span role="cell" style={{ fontSize: 12.5 }}>{ln.roleName}</span>
+          <span role="cell" style={{ fontSize: 13 }}>{ln.roleName}</span>
           <span role="cell" style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: scoreColor(ln.score) }}>{ln.score ?? '-'}</span>
           <span role="cell" style={{ fontVariantNumeric: 'tabular-nums' }}>{pct(ln.payoutPct)}</span>
           <span role="cell" style={{ fontVariantNumeric: 'tabular-nums', color: ln.adjustPct ? 'var(--ink)' : 'var(--muted)' }}>{signed(ln.adjustPct)}</span>
           {hr && <>
-            <span role="cell" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12.5 }}>{money(ln.basePay, ln.currency)}</span>
+            <span role="cell" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>{money(ln.basePay, ln.currency)}</span>
             <span role="cell" style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{money(ln.finalAmount, ln.currency)}{ln.adjustPct ? <span style={{ ...muted, fontSize: 11, marginLeft: 4 }}>was {money(ln.computedAmount, ln.currency)}</span> : null}</span>
           </>}
           <span role="cell">{canAdjust && (hr || ln.score != null) && <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => onAdjust(ln)}>{ln.adjustPct || ln.excluded ? 'Change' : 'Adjust'}</button>}</span>
@@ -124,7 +124,7 @@ function Fairness({ f }) {
           <span>Group</span><span>People</span><span>Avg Score</span><span>Avg Payout</span><span>Avg Adjust</span><span>Spread</span><span>Flags</span>
         </div>
         {rows.map((r) => (
-          <div key={r.key} role="row" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) 60px 80px 80px 80px 80px minmax(0,1.4fr)', gap: 8, padding: '6px 8px', borderTop: '1px solid var(--line)', fontSize: 12.5, fontVariantNumeric: 'tabular-nums' }}>
+          <div key={r.key} role="row" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) 60px 80px 80px 80px 80px minmax(0,1.4fr)', gap: 8, padding: '6px 8px', borderTop: '1px solid var(--line)', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
             <span style={{ fontWeight: 600 }}>{r.name}</span><span>{r.people}</span><span style={{ color: scoreColor(r.avgScore) }}>{r.avgScore ?? '-'}</span><span>{pct(r.avgPayout)}</span><span>{signed(r.avgAdjust)}</span><span>{r.spread ?? '-'}</span>
             <span>{r.flags.length ? r.flags.map((x) => <StatusLabel key={x} label={x} color={NX.amber} size="sm" style={{ marginRight: 4 }} />) : <span style={muted}>-</span>}</span>
           </div>
@@ -277,7 +277,7 @@ export function BonusRunsAdmin({ company, toastOk, toastErr }) {
             return (
               <button key={r.id} type="button" role="row" className="nx-perf-trow" onClick={() => setOpen(r.id)}
                 style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) 110px minmax(0,1fr) minmax(0,1.4fr)', gap: 12, alignItems: 'center', padding: '12px 10px', border: 'none', borderTop: '1px solid var(--line)', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)' }}>
-                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{r.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{r.label}</span>
                 <span><StatusLabel label={st.label} color={st.color} size="sm" /></span>
                 <span style={muted}>{people(r.lineCount)}</span>
                 <span style={{ ...muted, fontSize: 12 }}>{r.paidAt ? `Paid ${formatDate(r.paidAt.slice(0, 10))}` : r.approvedAt ? `Approved ${formatDate(r.approvedAt.slice(0, 10))}` : `Started ${formatDate(r.createdAt.slice(0, 10))}`}</span>

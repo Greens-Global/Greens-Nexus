@@ -245,13 +245,13 @@ export function DashProvider({ children }) {
   return (
     <Ctx.Provider value={value}>
       {error ? (
-        <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--warn-fg)', background: 'var(--warn-bg)', color: 'var(--warn-fg)', fontSize: '0.82rem' }}>
+        <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--warn-fg)', background: 'var(--warn-bg)', color: 'var(--warn-fg)', fontSize: 13 }}>
           <AlertTriangle size={15} aria-hidden="true" style={{ flexShrink: 0 }} />
           <span style={{ flex: 1, color: 'var(--text-primary)' }}>
             {down ? 'The books could not be reached, so no figures are shown. Nothing here is a real zero.'
               : 'Some figures could not be loaded. Retry to read them again.'}
           </span>
-          <button type="button" className="secondary-btn" onClick={refetchAll} disabled={fetching} style={{ padding: '4px 10px', fontSize: '0.78rem' }}>
+          <button type="button" className="secondary-btn" onClick={refetchAll} disabled={fetching} style={{ padding: '4px 10px', fontSize: 13 }}>
             <RefreshCw size={12} aria-hidden="true" style={{ verticalAlign: -2, marginRight: 4 }} />{fetching ? 'Trying...' : 'Retry'}
           </button>
         </div>

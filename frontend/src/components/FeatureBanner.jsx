@@ -106,7 +106,7 @@ function ReleasePopup({ items, total, onClose, onReload, reloading, weekly = fal
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px', borderBottom: '1px solid var(--nx-border, #e5e7eb)' }}>
           <Sparkles size={18} style={{ color: '#1f7a40' }} aria-hidden="true" />
           <div style={{ flex: 1 }}>
-            <div id="nx-release-title" style={{ fontSize: 17, fontWeight: 700 }}>{weekly ? <>What&apos;s New This Week</> : <>What&apos;s New in This Version</>}</div>
+            <div id="nx-release-title" style={{ fontSize: 18, fontWeight: 700 }}>{weekly ? <>What&apos;s New This Week</> : <>What&apos;s New in This Version</>}</div>
             <div style={{ fontSize: 13, color: 'var(--nx-dim, #64748b)' }}>{weekly ? 'The updates released to Nexus this week.' : 'Reload when you are ready to start using these. Nothing changes until you do.'}</div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ border: 0, background: 'transparent', cursor: 'pointer', padding: 6, color: 'inherit' }}><X size={18} /></button>
@@ -121,10 +121,10 @@ function ReleasePopup({ items, total, onClose, onReload, reloading, weekly = fal
               {g.rows.map((it) => (
                 <div key={it.id} style={{ padding: '10px 0', borderTop: '1px solid var(--nx-border, #eef0f3)' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 14.5, fontWeight: 600 }}>{it.title}</span>
-                    {it.module && <span style={{ fontSize: 11.5, fontWeight: 600, color: '#1f7a40', background: '#e7f4ec', borderRadius: 999, padding: '1px 8px' }}>{it.module}</span>}
+                    <span style={{ fontSize: 15, fontWeight: 600 }}>{it.title}</span>
+                    {it.module && <span style={{ fontSize: 12, fontWeight: 600, color: '#1f7a40', background: '#e7f4ec', borderRadius: 999, padding: '1px 8px' }}>{it.module}</span>}
                   </div>
-                  {it.summary && <div style={{ fontSize: 13.5, color: 'var(--nx-dim, #475569)', marginTop: 3, lineHeight: 1.45 }}>{it.summary}</div>}
+                  {it.summary && <div style={{ fontSize: 13, color: 'var(--nx-dim, #475569)', marginTop: 3, lineHeight: 1.45 }}>{it.summary}</div>}
                 </div>
               ))}
             </section>

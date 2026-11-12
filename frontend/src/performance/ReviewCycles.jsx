@@ -70,20 +70,20 @@ export function CycleFormModal({ companies, company, onClose, onSaved, toastErr 
         {err && <ErrorBanner message={err} />}
         <label style={field}>
           <span style={LBL}>Name</span>
-          <input className="form-input" value={f.name} onChange={e => set('name')(e.target.value)} autoFocus style={{ fontSize: 16 }} />
+          <input className="form-input" value={f.name} onChange={e => set('name')(e.target.value)} autoFocus style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
           {(companies || []).length > 1 && (
             <label style={field}>
               <span style={LBL}>Company</span>
-              <select className="form-input" value={f.company} onChange={e => set('company')(e.target.value)} style={{ fontSize: 16 }}>
+              <select className="form-input" value={f.company} onChange={e => set('company')(e.target.value)} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }}>
                 {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </label>
           )}
           <DateBox label="Due Date" value={f.due} onChange={set('due')} />
         </div>
-        <div style={{ ...muted, fontSize: 12.5, lineHeight: 1.55 }}>
+        <div style={{ ...muted, fontSize: 13, lineHeight: 1.55 }}>
           Everyone at the company who is past probation is in it (not contractors). Self reviews are due a week before the due date.
           {' '}Review period: <strong>{formatDate(f.periodStart)} to {formatDate(f.periodEnd)}</strong>
           {!period && <> · <button type="button" onClick={() => setPeriod(true)}
@@ -104,7 +104,7 @@ function RatingLine({ ratings }) {
   if (!ratings) return null;
   const total = RATINGS.reduce((n, r) => n + (ratings[r.key] || 0), 0);
   if (!total) return null;
-  return <div style={{ ...muted, fontSize: 12.5 }}>{RATINGS.map(r => `${r.label} ${ratings[r.key] || 0}`).join(' - ')}</div>;
+  return <div style={{ ...muted, fontSize: 13 }}>{RATINGS.map(r => `${r.label} ${ratings[r.key] || 0}`).join(' - ')}</div>;
 }
 
 function CycleModal({ cycleId, onClose, onChanged, toastOk, toastErr }) {
@@ -178,7 +178,7 @@ function CycleModal({ cycleId, onClose, onChanged, toastOk, toastErr }) {
                   alignItems: 'center', padding: '10px 4px', minHeight: 44, border: 'none', borderTop: '1px solid var(--line)', background: 'transparent',
                   textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)' }}>
                 <span role="cell" style={{ minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{r.employeeName}</span>
+                  <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{r.employeeName}</span>
                   {phone && <span style={{ display: 'block', ...muted, fontSize: 12 }}>{r.managerName}{r.ratingLabel ? ` · ${r.ratingLabel}` : ''}</span>}
                 </span>
                 {!phone && <span role="cell" style={{ fontSize: 13 }}>{r.managerName}</span>}
@@ -226,7 +226,7 @@ export default function ReviewCycles({ company, companies, toastOk, toastErr }) 
                   style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '6px 12px', alignItems: 'center', width: '100%', textAlign: 'left',
                     padding: '11px 12px', minHeight: 44, border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)' }}>
                   <span style={{ minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{c.name}</span>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{c.name}</span>
                     <span style={{ display: 'block', ...muted, fontSize: 12 }}>
                       {`${c.counts?.complete || 0} of ${total} acknowledged`}
                       {c.counts?.ready ? ` · ${c.counts.ready} ready to share` : ''}

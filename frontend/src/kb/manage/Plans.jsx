@@ -91,7 +91,7 @@ function PlanModal({ plan, seed, courses, policies, onClose, onSaved }) {
                 <Chip color={i.kind === 'course' ? '#1e7b4e' : '#7c3aed'} plain>{i.kind === 'course' ? 'Course' : 'Policy'}</Chip>
                 <span className="kb-grow kb-ellipsis">{t?.title || i.id}{i.kind === 'course' && t?.status && t.status !== 'published' ? <span className="kb-meta"> · {t.status}</span> : ''}</span>
                 {i.kind === 'course' && <LevelChip level={t?.level} />}
-                {form.stages.length > 0 && <select className="kb-select" style={{ width: 'auto', padding: '4px 8px', fontSize: 12.5 }} value={i.stage} onChange={(e) => setStage(n, Number(e.target.value))} aria-label="Stage"><option value={-1}>No stage</option>{form.stages.map((st, k) => <option key={k} value={k}>{st || `Stage ${k + 1}`}</option>)}</select>}
+                {form.stages.length > 0 && <select className="kb-select" style={{ width: 'auto', padding: '4px 8px', fontSize: 13 }} value={i.stage} onChange={(e) => setStage(n, Number(e.target.value))} aria-label="Stage"><option value={-1}>No stage</option>{form.stages.map((st, k) => <option key={k} value={k}>{st || `Stage ${k + 1}`}</option>)}</select>}
                 <button type="button" className="kb-ibtn" style={{ width: 24, height: 24, border: 0 }} aria-label="Up" onClick={() => move(n, -1)}><ArrowUp size={12} /></button>
                 <button type="button" className="kb-ibtn" style={{ width: 24, height: 24, border: 0 }} aria-label="Down" onClick={() => move(n, 1)}><ArrowDown size={12} /></button>
                 <button type="button" className="kb-ibtn" style={{ width: 24, height: 24, border: 0 }} aria-label="Remove" onClick={() => set({ items: form.items.filter((x) => x !== i) })}><X size={13} /></button>

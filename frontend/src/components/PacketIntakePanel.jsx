@@ -16,7 +16,7 @@ import PublicIntake, { LABELS, SECTIONS } from '../views/PublicIntake';
 const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--card)', marginTop: 18 };
 const sub = { fontSize: 12, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '14px 0 6px' };
 const row = { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13, padding: '5px 0', borderBottom: '1px solid var(--line)' };
-const chip = { padding: '2px 8px', borderRadius: 10, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap', background: 'var(--mist)', color: 'var(--muted)' };
+const chip = { padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', background: 'var(--mist)', color: 'var(--muted)' };
 const docNote = (docs) => <span style={{ fontSize: 12, color: 'var(--muted)' }}><FileText size={11} style={{ verticalAlign: -1 }} /> {docs.join(', ')}</span>;
 
 // Who fills each variable, per packet (Pranshu, 11/03/2026): the rows the
@@ -57,13 +57,13 @@ function FieldRow({ r, choice, onChange }) {
           </div>
           {same ? (
             <input className="form-input" aria-label={`${r.label} for everyone`} value={c.value || ''} placeholder="The value every hire gets"
-              onChange={e => onChange({ ...c, value: e.target.value })} style={{ fontSize: 12.5 }} />
+              onChange={e => onChange({ ...c, value: e.target.value })} style={{ fontSize: 13 }} />
           ) : (
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>
               {intake ? 'Asked on the intake form.' : 'They fill it in the document while signing.'}
             </span>
           )}
-        </>) : <span style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>{LOCKED[r.fill] || r.fill}</span>}
+        </>) : <span style={{ fontSize: 13, color: 'var(--muted)', padding: '6px 0' }}>{LOCKED[r.fill] || r.fill}</span>}
       </div>
     </div>
   );
@@ -119,11 +119,11 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
         <ClipboardList size={16} style={{ color: 'var(--pine)' }} />
         <div style={{ flex: '1 1 220px', fontSize: 14, fontWeight: 800, color: 'var(--ink)' }}>What The New Hire Will Be Asked</div>
         <button type="button" className="secondary-btn" disabled={!page} onClick={() => setPreviewOpen(true)}
-          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <Eye size={13} /> Preview Intake Form
         </button>
       </div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.55 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4, lineHeight: 1.55 }}>
         One form, on their phone, no login. Each question is asked once, however many documents print it, and what they answer fills itself into every document.
       </div>
       {data && (
@@ -135,7 +135,7 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
         </div>
       )}
       {problem && (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', color: 'hsl(var(--color-orange))', fontSize: 12.5, marginTop: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', color: 'hsl(var(--color-orange))', fontSize: 13, marginTop: 8 }}>
           <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} /><span>{problem}</span>
         </div>
       )}
@@ -153,23 +153,23 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
         ))}
 
         <div style={sub}>Every Field In These Documents</div>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55 }}>
           Tick Intake Form to ask it on the intake form; leave it unticked and the new hire fills it in the document while signing. The templates are not changed - another packet can choose differently.
         </div>
         {fields.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 6 }}>Add documents to see the fields they print.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>Add documents to see the fields they print.</div>
         ) : fields.map(r => (
           <FieldRow key={r.token} r={r} choice={fieldSources[r.token]} onChange={c => setChoice(r.token, c)} />
         ))}
 
         <div style={sub}>Each Role&apos;s Own Documents</div>
         {(data.roles || []).length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
             {roleIds?.length ? 'This role has no hiring documents of its own.'
               : `None of ${companyName || 'this company'}'s roles has hiring documents of its own yet. When one does, its documents and their questions are added here for hires in that role.`}
           </div>
         ) : (<>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Added to this packet for a hire in that role - their questions are asked too.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Added to this packet for a hire in that role - their questions are asked too.</div>
           {data.roles.map(r => (
             <div key={r.id} style={row} data-testid={`role-${r.id}`}>
               <b style={{ minWidth: 140 }}>{r.name}</b>
@@ -182,14 +182,14 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
       </>)}
 
       <div style={sub}>Also Ask (Saved To Their Record, Not Printed In A Document)</div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55 }}>
         Anything else HR needs from them - an ID, a bank account. Each field is also a {'{{variable}}'} a template could print later.
       </div>
       {children}
 
       {data?.hrAtOffer?.length > 0 && (<>
         <div style={sub}>Pay, Entered At The Offer By HR</div>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Entered on the Make An Offer form with Pay & Benefits access - never typed by the new hire.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>Entered on the Make An Offer form with Pay & Benefits access - never typed by the new hire.</div>
         {data.hrAtOffer.map(q => (
           <div key={q.token} style={row}>
             <span style={{ fontWeight: 600 }}>{q.label}{q.required ? ' *' : ''}</span>
@@ -207,7 +207,7 @@ export default function PacketIntakePanel({ docIds, extraDocs, detailsForm, comp
             <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 800, fontSize: 14 }}>Intake Form - Preview</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Exactly what the new hire sees on their link. Nothing here is sent.</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Exactly what the new hire sees on their link. Nothing here is sent.</div>
               </div>
               <button type="button" onClick={() => setPreviewOpen(false)} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
             </div>

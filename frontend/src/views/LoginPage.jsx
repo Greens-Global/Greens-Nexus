@@ -220,10 +220,10 @@ export default function LoginPage() {
             onChange={e => setPEmail(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') partnerRequest(); }}
             style={{ width: '100%', maxWidth: 340, boxSizing: 'border-box', padding: '12px 14px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, fontFamily: 'inherit', marginBottom: 12 }} />
-          {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
+          {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
           <button className="nxl-cta" style={{ "--i": 3 }} disabled={pBusy} onClick={() => partnerRequest()}>Send Code</button>
           <button onClick={exitPartner}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
             Back to Microsoft Sign-In
           </button>
           </>)}
@@ -238,7 +238,7 @@ export default function LoginPage() {
             Continue
           </button>
           <button onClick={exitPartner}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
             Cancel
           </button>
           <p className="nxl-note" style={{ "--i": 4 }}>
@@ -257,19 +257,19 @@ export default function LoginPage() {
             onChange={e => setPCode(e.target.value.replace(/[^0-9A-Za-z]/g, '').toUpperCase().slice(0, 8))}
             onKeyDown={e => { if (e.key === 'Enter' && (pCode.length === 6 || pCode.length === 8)) partnerVerify(); }}
             style={{ width: '100%', maxWidth: 240, boxSizing: 'border-box', padding: '12px 14px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 24, letterSpacing: 8, textAlign: 'center', fontWeight: 700, fontFamily: 'inherit', marginBottom: 12 }} />
-          {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
+          {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
           <button className="nxl-cta" style={{ "--i": 3 }} disabled={pBusy || !(pCode.length === 6 || pCode.length === 8)} onClick={partnerVerify}>Verify and Sign In</button>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginTop: 4 }}>
             <button disabled={pBusy || resendLeft > 0} onClick={() => partnerRequest()}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>
               {resendLeft > 0 ? `Resend in ${resendLeft}s` : 'Resend Code'}
             </button>
             <button disabled={pBusy || resendLeft > 0} onClick={() => partnerRequest('email')}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>
               Send to My Email Instead
             </button>
             <button disabled={pBusy} onClick={() => { setPartner('email'); setPError(''); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px' }}>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px' }}>
               Different Email
             </button>
           </div>
@@ -331,7 +331,7 @@ export default function LoginPage() {
           font-weight: 800; font-size: 24px;
         }
         .nxl-mark--inverse { background: rgba(255,255,255,.16); color: #fff; }
-        .nxl-hero-name { font-size: 27px; font-weight: 800; letter-spacing: -.01em; }
+        .nxl-hero-name { font-size: 24px; font-weight: 800; letter-spacing: -.01em; }
 
         .nxl-hero-title {
           margin: 0;
@@ -375,7 +375,7 @@ export default function LoginPage() {
           display: inline-flex; align-items: center; justify-content: center;
         }
         .nxl-card-text { display: flex; flex-direction: column; min-width: 0; }
-        .nxl-card-title { font-size: 13.5px; font-weight: 700; }
+        .nxl-card-title { font-size: 13px; font-weight: 700; }
         .nxl-card-sub { font-size: 12px; color: #676879; }
 
         /* ── Right sign-in column ── */
@@ -403,7 +403,7 @@ export default function LoginPage() {
           width: 60px; height: 60px; border-radius: 15px;
           background: ${P.base}; color: #fff;
           display: flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 28px;
+          font-weight: 800; font-size: 32px;
           box-shadow: 0 10px 26px ${P.shadow};
           margin-bottom: 24px;
         }
@@ -421,7 +421,7 @@ export default function LoginPage() {
           background: #ffffff; color: #323338;
           border: 1px solid #d0d4e4; border-radius: 10px;
           font-family: 'Figtree', 'Inter', sans-serif;
-          font-size: 15.5px; font-weight: 700;
+          font-size: 15px; font-weight: 700;
           cursor: pointer;
           box-shadow: 0 4px 12px rgba(29,33,57,.07);
           transition: box-shadow .16s ease, border-color .16s ease, transform .16s ease;
@@ -456,7 +456,7 @@ export default function LoginPage() {
           .nxl-actions .nxl-cta-inner { grid-column: 2; justify-self: start; }
           .nxl-actions .nxl-note { grid-column: 1 / -1; }
         }
-        .nxl-note { margin: 16px 0 0; font-size: 12.5px; color: #9699a6; }
+        .nxl-note { margin: 16px 0 0; font-size: 13px; color: #9699a6; }
 
         /* Pinned to the page corners. The left one sits over the green panel,
            so it is light; below 880px the panel is hidden and the area behind

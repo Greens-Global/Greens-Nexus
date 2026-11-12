@@ -18,7 +18,7 @@ const SIZES = { sm: { box: 28, icon: 14 }, md: { box: 34, icon: 17 } };
 export const PILL = {
   display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1, justifyContent: 'center',
   padding: '5px 8px', borderRadius: 7, background: 'var(--mist)', color: 'var(--ink)',
-  fontSize: 11.5, fontWeight: 600, textDecoration: 'none', font: 'inherit',
+  fontSize: 12, fontWeight: 600, textDecoration: 'none', font: 'inherit',
 };
 
 export default function PersonActions({ email, name = '', external = false, known = true, myEmail = '', size = 'sm', variant = 'icon', message = true, call = true, style }) {

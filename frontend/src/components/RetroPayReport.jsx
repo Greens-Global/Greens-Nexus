@@ -17,9 +17,9 @@ import RangePill from './RangePill';
 const card = { background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, marginTop: 18 };
 const th = { textAlign: 'left', padding: '8px 10px', fontSize: 12, fontWeight: 700, color: 'var(--muted)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const thNum = { ...th, textAlign: 'right' };
-const td = { padding: '8px 10px', fontSize: 12.5, color: 'var(--ink)', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
+const td = { padding: '8px 10px', fontSize: 13, color: 'var(--ink)', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
 const tdNum = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
-const sub = { fontSize: 11.5, color: 'var(--muted)' };
+const sub = { fontSize: 12, color: 'var(--muted)' };
 
 export default function RetroPayReport({ initiallyOpen = false }) {
   const [open, setOpen] = useState(initiallyOpen);
@@ -71,7 +71,7 @@ export default function RetroPayReport({ initiallyOpen = false }) {
       <button type="button" onClick={toggle} aria-expanded={open}
         style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
         {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>Retro Pay</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>Retro Pay</span>
         <span style={{ ...sub, marginLeft: 4 }}>Back-dated rate changes on finalized periods - who is owed what.</span>
       </button>
       {open && (
@@ -80,10 +80,10 @@ export default function RetroPayReport({ initiallyOpen = false }) {
             {/* The one range control every Time toolbar uses (11/03/2026) -
                 never two loose date boxes. */}
             <RangePill start={start} end={end} onChange={(s, e) => setRange([s, e])} />
-            <button type="button" className="primary-btn" onClick={run} disabled={!!rangeError || state.loading} style={{ fontSize: 12.5 }}>Run Report</button>
+            <button type="button" className="primary-btn" onClick={run} disabled={!!rangeError || state.loading} style={{ fontSize: 13 }}>Run Report</button>
             <div style={{ flex: 1 }} />
             <button type="button" className="secondary-btn" onClick={download} disabled={!data || isEmpty}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               <Download size={14} /> Download CSV
             </button>
             {rangeError && <div style={{ width: '100%', fontSize: 12, color: 'hsl(var(--color-red))' }}>{rangeError}</div>}
@@ -94,7 +94,7 @@ export default function RetroPayReport({ initiallyOpen = false }) {
           ) : (
             <AsyncSection loading={state.loading} error={!!state.error} errorMessage={state.error} onRetry={run}
               skeleton={<SkeletonBlocks count={2} />} isEmpty={isEmpty}
-              emptyContent={<div style={{ padding: '22px 14px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 10 }}>No back-dated rate changes in this range.</div>}>
+              emptyContent={<div style={{ padding: '22px 14px', textAlign: 'center', fontSize: 13, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 10 }}>No back-dated rate changes in this range.</div>}>
               {data && !isEmpty && (
                 <>
                   {rows.length > 0 && (
@@ -146,7 +146,7 @@ export default function RetroPayReport({ initiallyOpen = false }) {
                     <div style={{ marginTop: 14 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>Check Manually</div>
                       {manual.map((m) => (
-                        <div key={`${m.email}-${m.periodStart}`} style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 6, fontSize: 12.5 }}>
+                        <div key={`${m.email}-${m.periodStart}`} style={{ padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 6, fontSize: 13 }}>
                           <strong>{m.name}</strong> <span style={sub}>{span(m.periodStart, m.periodEnd)}</span>
                           {m.ratePaid != null && (
                             <span style={sub}> - paid {money(m.ratePaid, m.currency)}{m.rateNow?.length ? `, now ${rateNowText(m.rateNow, m.currency, m.rateNow.length === 1).join(', ')}` : ''}</span>
@@ -156,7 +156,7 @@ export default function RetroPayReport({ initiallyOpen = false }) {
                       ))}
                     </div>
                   )}
-                  <p style={{ margin: '10px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
                     Hours are the ones on the days whose rate changed. Owed is the period priced at the rate now in effect
                     minus what it paid when it was finalized, with the same overtime rule. A negative amount was overpaid.
                     Finalized time sheets are not changed - pay the difference through the payroll provider.

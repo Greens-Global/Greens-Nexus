@@ -36,9 +36,9 @@ import { WarnMark } from './warnMark';
 // columns resized by dragging a header edge.
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const warn = { fontSize: '0.78rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
+const warn = { fontSize: 13, color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 };
 const input = { ...control, width: '100%' };
@@ -53,7 +53,7 @@ function Chip({ tone = 'muted', children, title }) {
     ok: { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' }, bad: { fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
     brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' }, muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
-  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
+  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
 }
 
 const passChip = (ok) => (ok ? <Chip tone="ok">Pass</Chip> : <Chip tone="bad">Below Covenant</Chip>);
@@ -63,7 +63,7 @@ function Field({ id, title, children, hint }) {
     <div>
       <label style={label} htmlFor={id}>{title}</label>
       {children}
-      {hint && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 3 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{hint}</div>}
     </div>
   );
 }
@@ -72,7 +72,7 @@ function ShockPicker({ value, custom, onPick, onCustom }) {
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }} role="group" aria-label="Rate shock">
       {SHOCKS.map((s) => (
-        <button key={s} type="button" className={value === s ? 'primary-btn' : 'secondary-btn'} onClick={() => onPick(s)} style={{ fontSize: '0.76rem', height: 28, padding: '0 10px' }}>{bps(s)}</button>
+        <button key={s} type="button" className={value === s ? 'primary-btn' : 'secondary-btn'} onClick={() => onPick(s)} style={{ fontSize: 12, height: 28, padding: '0 10px' }}>{bps(s)}</button>
       ))}
       <input type="number" step="25" aria-label="Custom shock in basis points" placeholder="Custom bps" value={custom} onChange={(e) => onCustom(e.target.value)}
         style={{ ...control, width: 110, borderColor: value === 'custom' ? 'var(--wk-brand, #2b45e1)' : undefined }} />
@@ -163,18 +163,18 @@ export default function LoanStress({ loan, canEdit = false }) {
             <input id="st-amort" type="number" min="1" max="1200" value={p.amortMonths} disabled={p.interestOnly} onChange={(e) => set({ amortMonths: e.target.value })} style={input} />
           </Field>
         </div>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}><input type="checkbox" checked={p.interestOnly} onChange={(e) => set({ interestOnly: e.target.checked })} /> Interest only</label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}><input type="checkbox" checked={p.interestOnly} onChange={(e) => set({ interestOnly: e.target.checked })} /> Interest only</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ ...label, margin: 0 }}>Shock</span>
           <ShockPicker value={pick} custom={p.custom} onPick={setPick} onCustom={(v) => { set({ custom: v }); setPick('custom'); }} />
         </div>
         {missing.length > 0 && <div style={warn}><WarnMark />Enter {missing.join(', ')} to test this loan.</div>}
-        {fixed && <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>A fixed rate holds the payment until maturity{l.maturity ? ` (${formatDate(l.maturity)})` : ''}: the shocked columns show what a refinance at that rate would cost.</div>}
+        {fixed && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>A fixed rate holds the payment until maturity{l.maturity ? ` (${formatDate(l.maturity)})` : ''}: the shocked columns show what a refinance at that rate would cost.</div>}
       </div>
 
       {missing.length === 0 && (
         <>
-          <div style={{ ...card, padding: '10px 12px', display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'center', fontSize: '0.82rem', fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ ...card, padding: '10px 12px', display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'center', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
             <strong>{bps(chosen)}: </strong>
             {passChip(fixed ? focus.r.passAtRefinance : focus.r.pass)}
             <span>DSCR <strong>{x(fixed ? focus.r.dscrAtRefinance : focus.r.dscr)}</strong> vs {x(focus.r.covenant)}</span>
@@ -201,11 +201,11 @@ export default function LoanStress({ loan, canEdit = false }) {
       )}
 
       <div style={{ ...card, padding: 12, display: 'grid', gap: 8 }}>
-        <strong style={{ fontSize: '0.82rem' }}>Saved Scenarios</strong>
-        {!scenarios.length && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>None saved for this loan yet.</span>}
+        <strong style={{ fontSize: 13 }}>Saved Scenarios</strong>
+        {!scenarios.length && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>None saved for this loan yet.</span>}
         {scenarios.map((s) => (
-          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', flexWrap: 'wrap' }}>
-            <button type="button" className="secondary-btn" style={{ fontSize: '0.74rem', padding: '2px 10px' }} onClick={() => apply(s)}>Apply</button>
+          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, flexWrap: 'wrap' }}>
+            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => apply(s)}>Apply</button>
             <span style={{ fontWeight: 600 }}>{s.name}</span>
             <span style={{ color: 'var(--text-muted)' }}>{bps(s.params?.shockBps ?? 0)} · NOI <Amount value={s.params?.noi} /> · {s.by}{s.at ? `, ${formatDate(s.at)}` : ''}</span>
             {canEdit && <button type="button" aria-label={`Remove ${s.name}`} onClick={() => removeScenario(s)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', marginLeft: 'auto' }}><Trash2 size={13} /></button>}
@@ -214,7 +214,7 @@ export default function LoanStress({ loan, canEdit = false }) {
         {canEdit && missing.length === 0 && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <input type="text" aria-label="Scenario name" placeholder={`${bps(chosen)} on ${pct(p.ratePct)}`} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} style={{ ...control, minWidth: 220 }} />
-            <button type="button" className="secondary-btn" onClick={saveScenario} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}><Save size={14} /> {saving ? 'Saving...' : 'Save Scenario'}</button>
+            <button type="button" className="secondary-btn" onClick={saveScenario} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}><Save size={14} /> {saving ? 'Saving...' : 'Save Scenario'}</button>
           </div>
         )}
       </div>
@@ -271,14 +271,14 @@ export function stressFilter(loans, { entity = '', lender = '', kind = 'all', te
 function AddbackCell({ code, name, value, note, canEdit, onSave }) {
   const [text, setText] = useState(note);     // keyed on the note by its row: a new note from the server starts it over
   if (!canEdit) {
-    return <span title={note || undefined}>{value ? <Amount value={value} /> : <span style={{ color: 'var(--text-muted)' }}>-</span>}{note ? <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{note}</span> : null}</span>;
+    return <span title={note || undefined}>{value ? <Amount value={value} /> : <span style={{ color: 'var(--text-muted)' }}>-</span>}{note ? <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{note}</span> : null}</span>;
   }
   return (
     <div style={{ display: 'grid', gap: 3, minWidth: 140 }}>
       <AmountInput aria-label={`Addback of ${name}`} value={value || null} onChange={(v) => onSave(code, { addback: v })} style={{ ...control, width: 130, textAlign: 'right' }} />
       <input type="text" aria-label={`Addback note of ${name}`} placeholder="Note (e.g. depreciation)" value={text} maxLength={300}
         onChange={(e) => setText(e.target.value)} onBlur={() => { if (text !== note) onSave(code, { addbackNote: text }); }}
-        style={{ ...control, width: 130, height: 24, fontSize: '0.7rem' }} />
+        style={{ ...control, width: 130, height: 24, fontSize: 11 }} />
     </div>
   );
 }
@@ -395,13 +395,13 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
         <span style={{ ...label, margin: 0 }}>Shock</span>
         <ShockPicker value={pick} custom={custom} onPick={setPick} onCustom={(v) => { setCustom(v); setPick('custom'); }} />
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <span style={{ ...label, margin: 0 }}>NOI</span>
           <select value={defaultBasis} onChange={(e) => setDefaultBasis(e.target.value)} aria-label="NOI basis for every entity" style={{ ...control }}>
             {NOI_BASES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </label>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
           <span>Debt Service <strong><Amount value={out.totals.baseDebtService} /></strong> to <strong><Amount value={out.totals.debtService} /></strong></span>
           <span>DSCR <strong>{x(out.totals.dscr)}</strong></span>
           <span>Below Covenant <strong style={{ color: out.totals.failing ? 'var(--bad-fg, #dc2626)' : undefined }}>{out.totals.failing}</strong></span>
@@ -417,8 +417,8 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
           {LOAN_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
         <input type="text" value={f.text} onChange={(e) => setFilter({ text: e.target.value })} placeholder="Filter loans" aria-label="Filter the stress test" style={{ ...control, width: 170 }} />
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}><input type="checkbox" data-nx-filter="1" checked={f.belowOnly} onChange={(e) => setFilter({ belowOnly: e.target.checked })} /> Below Covenant Only</label>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}><input type="checkbox" data-nx-filter="1" checked={f.showExcluded} onChange={(e) => setFilter({ showExcluded: e.target.checked })} /> Show Excluded{excluded.size ? ` (${excluded.size})` : ''}</label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}><input type="checkbox" data-nx-filter="1" checked={f.belowOnly} onChange={(e) => setFilter({ belowOnly: e.target.checked })} /> Below Covenant Only</label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}><input type="checkbox" data-nx-filter="1" checked={f.showExcluded} onChange={(e) => setFilter({ showExcluded: e.target.checked })} /> Show Excluded{excluded.size ? ` (${excluded.size})` : ''}</label>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <CustomizeButton {...customize} />
           <ExportMenu disabled={!rowsShown.length} items={[
@@ -430,8 +430,8 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
       </div>
       {error && <div style={bad}>{error}</div>}
       {noRate > 0 && <div style={warn}><WarnMark />{noRate} {noRate === 1 ? 'loan has' : 'loans have'} no rate on file and {noRate === 1 ? 'is' : 'are'} tested at 0% - type the rate on the loan (pencil) to include it properly.</div>}
-      {ytdLoading && <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Reading the year-to-date NOI from the ledger...</div>}
-      {!rowsShown.length ? <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>{f.belowOnly && out.entities.length ? 'No entity is below its covenant at this shock.' : 'No active loans with a balance to test.'}</div> : (
+      {ytdLoading && <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Reading the year-to-date NOI from the ledger...</div>}
+      {!rowsShown.length ? <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>{f.belowOnly && out.entities.length ? 'No entity is below its covenant at this shock.' : 'No active loans with a balance to test.'}</div> : (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
           <div className="req-table-wrapper" style={{ overflow: 'auto', maxHeight: '70vh' }}>
             <table className="req-table acct-stress" style={{ fontVariantNumeric: 'tabular-nums', '--stress-py': py }}>
@@ -449,12 +449,12 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
                   return (
                     <tr key={e.entityCode} className={e.pass ? undefined : 'fail'}>
                       <td style={cellStyle(cw.width('entity'), { fontWeight: 600, minWidth: cw.width('entity') || 180 })} title={cw.width('entity') ? e.entityName : undefined}>{e.entityName}</td>
-                      <td style={cellStyle(cw.width('loans'), { fontSize: '0.74rem' })}>
+                      <td style={cellStyle(cw.width('loans'), { fontSize: 12 })}>
                         {e.loans.map((y) => (
                           <div key={y.id} style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
                             <span>{y.lender || y.loanNo || 'Loan'} · {pct(y.ratePct)}</span>
                             <select aria-label={`Rate type of ${y.lender || y.loanNo}`} value={y.rateType} onChange={(ev) => setOverrides((o) => ({ ...o, [y.id]: { ...o[y.id], rateType: ev.target.value } }))}
-                              style={{ ...control, height: 22, fontSize: '0.7rem', padding: '0 4px' }}>
+                              style={{ ...control, height: 22, fontSize: 11, padding: '0 4px' }}>
                               <option value="floating">Variable</option><option value="fixed">Fixed</option>
                             </select>
                             {onEditLoan && <button type="button" aria-label={`Edit ${y.lender || y.loanNo}`} title="Change Loan" onClick={() => onEditLoan(loans.find((r) => String(r.id) === String(y.id)) || y)} style={iconBtn}><Pencil size={12} /></button>}
@@ -463,7 +463,7 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
                         ))}
                       </td>
                       <td style={cellStyle(cw.width('basis'))}>
-                        <select value={s.noiBasis || ''} disabled={!canEdit} onChange={(ev) => saveEntity(e.entityCode, { noiBasis: ev.target.value })} aria-label={`NOI basis of ${e.entityName}`} style={{ ...control, height: 26, fontSize: '0.72rem' }}>
+                        <select value={s.noiBasis || ''} disabled={!canEdit} onChange={(ev) => saveEntity(e.entityCode, { noiBasis: ev.target.value })} aria-label={`NOI basis of ${e.entityName}`} style={{ ...control, height: 26, fontSize: 12 }}>
                           <option value="">Default ({basisLabel(defaultBasis)})</option>
                           {NOI_BASES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                         </select>
@@ -478,7 +478,7 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
                       <td style={cellStyle(cw.width('dsToday'), num)}><Amount value={e.baseDebtService} /></td>
                       <td style={cellStyle(cw.width('dsStressed'), num)}><Amount value={e.debtService} /></td>
                       <td style={cellStyle(cw.width('dscr'), num)}><Figure text={`${x(e.dscrBase)} to ${x(e.dscr)}`} /></td>
-                      <td style={cellStyle(cw.width('result'))}>{passChip(e.pass)} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>min {x(e.covenant)}</span></td>
+                      <td style={cellStyle(cw.width('result'))}>{passChip(e.pass)} <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>min {x(e.covenant)}</span></td>
                       <td style={cellStyle(cw.width('cushion'), num)}><Amount value={e.cushion} /></td>
                       <td style={cellStyle(cw.width('breakEven'), num)}>{shockText(e.breakEvenShockBps)}</td>
                     </tr>
@@ -493,16 +493,16 @@ export function LoanStressPortfolio({ loans = [], canEdit = false, to = '', onEd
       {f.showExcluded
  && excludedShown.length > 0 && (
         <div style={{ ...card, padding: 12, display: 'grid', gap: 6 }}>
-          <strong style={{ fontSize: '0.82rem' }}>Left Out of the Stress Test</strong>
+          <strong style={{ fontSize: 13 }}>Left Out of the Stress Test</strong>
           {excludedShown.map((r) => (
-            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem' }}>
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
               <span style={{ flex: 1 }}>{r.lender || r.loanNo} - {r.entityName} · <Amount value={r.balance} /></span>
-              {canEdit && <button type="button" className="secondary-btn" onClick={() => setLoanExcluded(r, false)} style={{ fontSize: '0.74rem', padding: '2px 10px' }}>Restore</button>}
+              {canEdit && <button type="button" className="secondary-btn" onClick={() => setLoanExcluded(r, false)} style={{ fontSize: 12, padding: '2px 10px' }}>Restore</button>}
             </div>
           ))}
         </div>
       )}
-      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Adjusted NOI = NOI (the basis picked) + Addback, and drives the DSCR. Fixed loans keep today's payment. Break-even shock is the rise at which the entity's DSCR falls to its covenant.</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Adjusted NOI = NOI (the basis picked) + Addback, and drives the DSCR. Fixed loans keep today's payment. Break-even shock is the rise at which the entity's DSCR falls to its covenant.</div>
     </div>
   );
 }
@@ -515,7 +515,7 @@ function Dialog({ title, subtitle, onClose, children, width = 980 }) {
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{title}</h3>
-            {subtitle && <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{subtitle}</div>}
+            {subtitle && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{subtitle}</div>}
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>

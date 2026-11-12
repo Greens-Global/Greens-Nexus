@@ -38,11 +38,11 @@ export default function PacketCoverage({ refreshKey, companyId, onSetUp, onOpen,
   const companies = (data.companies || []).filter(c => !companyId || c.id === companyId);
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
         What a new hire at each company gets, by where the company&apos;s people work. Someone hired to work in another state or country gets that place&apos;s documents.
       </div>
       {(data.unplaced || []).length > 0 && (
-        <div role="status" style={{ border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '10px 14px', fontSize: 12.5, lineHeight: 1.5 }}>
+        <div role="status" style={{ border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '10px 14px', fontSize: 13, lineHeight: 1.5 }}>
           <b style={{ color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={13} /> No place set:</b>{' '}
           {data.unplaced.map((u, i) => (
             <span key={u.id}>{i ? ', ' : ''}<button type="button" onClick={() => onOpen?.(u)} style={linkBtn}>{u.name}</button></span>
@@ -61,7 +61,7 @@ export default function PacketCoverage({ refreshKey, companyId, onSetUp, onOpen,
               </span>
             </div>
             {c.rows.map(r => r.notHired ? (
-              <div key={r.workerType} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '10px 14px', borderTop: '1px solid var(--line)', alignItems: 'center', fontSize: 12.5, color: 'var(--muted)' }}>
+              <div key={r.workerType} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '10px 14px', borderTop: '1px solid var(--line)', alignItems: 'center', fontSize: 13, color: 'var(--muted)' }}>
                 <span style={{ flex: '0 0 110px', fontWeight: 700 }}>{WHO[r.workerType]}</span>
                 <span style={{ flex: 1 }}>{c.name} does not hire {WHO[r.workerType].toLowerCase()} - nothing to set up.</span>
                 <button type="button" onClick={() => setHired(c.id, r.workerType, true)} style={linkBtn}>Undo</button>
@@ -71,14 +71,14 @@ export default function PacketCoverage({ refreshKey, companyId, onSetUp, onOpen,
                 <div style={{ flex: '0 0 110px', fontSize: 13, fontWeight: 700, paddingTop: 6 }}>
                   {WHO[r.workerType]}
                   <button type="button" onClick={() => setHired(c.id, r.workerType, false)} title={`${c.name} never hires ${WHO[r.workerType].toLowerCase()}`}
-                    style={{ ...linkBtn, display: 'block', fontSize: 11.5, fontWeight: 500, marginTop: 4, color: 'var(--muted)' }}>Not Hired Here</button>
+                    style={{ ...linkBtn, display: 'block', fontSize: 12, fontWeight: 500, marginTop: 4, color: 'var(--muted)' }}>Not Hired Here</button>
                 </div>
                 {EVENTS.map(([key, label]) => {
                   const s = r[key];
                   const critical = !s && (key === 'offer' || key === 'hire');
                   return (
                     <div key={key} style={{ flex: '1 1 170px', minWidth: 0, border: `1px solid ${critical ? 'rgba(180,83,9,0.4)' : 'var(--line)'}`, borderRadius: 10, padding: '7px 10px', background: 'var(--card)' }}>
-                      <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{label}</div>
+                      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{label}</div>
                       {s ? (
                         <button type="button" onClick={() => onOpen?.({ ...s, event: key })} title={s.place}
                           style={{ ...linkBtn, display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, maxWidth: '100%', textAlign: 'left' }}>
@@ -87,9 +87,9 @@ export default function PacketCoverage({ refreshKey, companyId, onSetUp, onOpen,
                         </button>
                       ) : (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 12.5, color: critical ? '#b45309' : 'var(--muted)', fontWeight: critical ? 700 : 500 }}>Not Set Up</span>
+                          <span style={{ fontSize: 13, color: critical ? '#b45309' : 'var(--muted)', fontWeight: critical ? 700 : 500 }}>Not Set Up</span>
                           <button type="button" className="secondary-btn" onClick={() => onSetUp?.({ event: key, workerType: r.workerType, country: c.country, region: c.region, companyId: '' })}
-                            style={{ fontSize: 11.5, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            style={{ fontSize: 12, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                             <Plus size={11} /> Set Up
                           </button>
                         </div>
@@ -106,4 +106,4 @@ export default function PacketCoverage({ refreshKey, companyId, onSetUp, onOpen,
   );
 }
 
-const linkBtn = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif', textDecoration: 'underline', textDecorationColor: 'var(--line)' };
+const linkBtn = { background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif', textDecoration: 'underline', textDecorationColor: 'var(--line)' };

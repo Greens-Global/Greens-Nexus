@@ -21,7 +21,7 @@ export function Chip({ children, title, onRemove, removeLabel }) {
   return (
     <span title={title} style={{
       display: 'inline-flex', alignItems: 'center', gap: 5, background: 'var(--paper, transparent)', border: '1px solid var(--line)',
-      borderRadius: 999, padding: '2px 9px', fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap', maxWidth: '100%',
+      borderRadius: 999, padding: '2px 9px', fontSize: 12, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap', maxWidth: '100%',
     }}>
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{children}</span>
       {onRemove && (
@@ -86,7 +86,7 @@ export default function HolidaySourcePicker({ country, year, rule = 'keep', chos
       {rows.length === 0 && <p style={HINT}>No holidays found for {year}.</p>}
       {groups.map(g => (
         <section key={g.id} aria-label={g.label} style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-          <h5 style={{ margin: 0, padding: '7px 12px', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', background: 'var(--paper, transparent)', borderBottom: '1px solid var(--line)' }}>
+          <h5 style={{ margin: 0, padding: '7px 12px', fontSize: 12, fontWeight: 700, color: 'var(--muted)', background: 'var(--paper, transparent)', borderBottom: '1px solid var(--line)' }}>
             {g.label}
           </h5>
           {g.rows.map(s => {
@@ -100,7 +100,7 @@ export default function HolidaySourcePicker({ country, year, rule = 'keep', chos
               else setObserve(m => ({ ...m, [rowId(s)]: v }));
             };
             return (
-              <div key={rowId(s)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', borderBottom: '1px solid var(--line)', fontSize: 12.5, flexWrap: 'wrap' }}>
+              <div key={rowId(s)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', borderBottom: '1px solid var(--line)', fontSize: 13, flexWrap: 'wrap' }}>
                 <input type="checkbox" aria-label={`Add ${s.name}`} checked={!!row}
                   disabled={disabled || !!reason || noDay}
                   title={reason || (noDay ? 'No day off when it falls on a weekend - pick a day to add it' : undefined)}
@@ -114,10 +114,10 @@ export default function HolidaySourcePicker({ country, year, rule = 'keep', chos
                 <span style={{ minWidth: 150, color: 'var(--muted)' }}>{dateWithWeekday(s.date)}</span>
                 <span style={{ minWidth: 70, fontSize: 11, color: 'var(--muted)' }}>{holidayTypeLabel(s.suggestedType)}</span>
                 {weekend && (
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--muted)' }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
                     Observe On
                     <select className="form-input" aria-label={`Observe ${s.name} On`} value={day} disabled={disabled || !!reason}
-                      onChange={e => pick(e.target.value)} style={{ width: 'auto', fontSize: 11.5, padding: '3px 6px' }}>
+                      onChange={e => pick(e.target.value)} style={{ width: 'auto', fontSize: 12, padding: '3px 6px' }}>
                       {observeOptions(s.date).concat(row && !observeOptions(s.date).some(o => o.value === row.date)
                         ? [{ value: row.date, label: `Another Day - ${dateWithWeekday(row.date)}` }] : [])
                         .map(o => <option key={o.value} value={o.value}>{o.label}</option>)}

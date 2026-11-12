@@ -1023,21 +1023,21 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
         <div style={{ padding: '9px 16px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, background: 'var(--card)', flexShrink: 0, flexWrap: 'wrap' }}>
           <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
           <div style={{ flex: '0 1 auto', minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fileName || 'Document.pdf'}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>PDF editor · {pages.length} page{pages.length === 1 ? '' : 's'}{elements.length ? ` · ${elements.length} edit${elements.length === 1 ? '' : 's'}` : ''}</div>
+            <div style={{ fontWeight: 800, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fileName || 'Document.pdf'}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>PDF editor · {pages.length} page{pages.length === 1 ? '' : 's'}{elements.length ? ` · ${elements.length} edit${elements.length === 1 ? '' : 's'}` : ''}</div>
           </div>
           <div style={{ flex: 1 }} />
           {iconBtn(Undo2, 'Undo (Ctrl+Z)', undo, !undoStack.length)}
           {iconBtn(Redo2, 'Redo (Ctrl+Y)', redo, !redoStack.length)}
           <span style={{ width: 1, height: 20, background: 'var(--line)' }} />
           {iconBtn(ZoomOut, 'Zoom out', () => setZoom(z => Math.max(0.5, +(z - 0.15).toFixed(2))))}
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', width: 40, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', width: 40, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
           {iconBtn(ZoomIn, 'Zoom in', () => setZoom(z => Math.min(2, +(z + 0.15).toFixed(2))))}
           {iconBtn(Maximize, 'Fit width', () => setZoom(1))}
           <span style={{ width: 1, height: 20, background: 'var(--line)' }} />
-          <button className="secondary-btn" onClick={requestClose} disabled={busy} style={{ fontSize: 12.5 }}>Cancel</button>
+          <button className="secondary-btn" onClick={requestClose} disabled={busy} style={{ fontSize: 13 }}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={busy || loading}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: busy || loading ? 0.6 : 1 }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, opacity: busy || loading ? 0.6 : 1 }}>
             {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Save Changes
           </button>
         </div>
@@ -1055,14 +1055,14 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
           <input type="color" value={color} onChange={e => changeColor(e.target.value)} title="Custom color"
             style={{ width: 24, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 6, background: 'var(--card)', cursor: 'pointer' }} />
           <span style={{ width: 1, height: 20, background: 'var(--line)', margin: '0 4px' }} />
-          <label style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>Stroke</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Stroke</label>
           <select className="form-input" value={strokeW} onChange={e => changeStroke(+e.target.value)}
-            style={{ fontSize: 11.5, padding: '2px 6px', height: 26, width: 56 }}>
+            style={{ fontSize: 12, padding: '2px 6px', height: 26, width: 56 }}>
             {STROKES.map(s => <option key={s} value={s}>{s}pt</option>)}
           </select>
-          <label style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>Text</label>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Text</label>
           <select className="form-input" value={fontSize} onChange={e => changeFont(+e.target.value)}
-            style={{ fontSize: 11.5, padding: '2px 6px', height: 26, width: 60 }}>
+            style={{ fontSize: 12, padding: '2px 6px', height: 26, width: 60 }}>
             {FONT_SIZES.map(s => <option key={s} value={s}>{s}pt</option>)}
           </select>
           {[[Bold, 'Bold', bold, changeBold], [Italic, 'Italic', italic, changeItalic]].map(([Icon, tip, on, fn]) => {
@@ -1080,7 +1080,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
             <>
               <span style={{ width: 1, height: 20, background: 'var(--line)', margin: '0 4px' }} />
               <button className="secondary-btn" onClick={deleteSelected}
-                style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', color: 'hsl(var(--color-red))' }}>
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', color: 'hsl(var(--color-red))' }}>
                 <Trash2 size={12} /> Delete
               </button>
             </>
@@ -1103,7 +1103,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                     style={{ position: 'relative', aspectRatio: `${d.w} / ${d.h}`, background: '#fff', borderRadius: 6, border: '1.5px solid var(--line)', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
                     {img ? <img src={img} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
                       : !pg.blank && <Spinner size={13} style={{ position: 'absolute', top: '46%', left: '46%' }} />}
-                    <span style={{ position: 'absolute', bottom: 3, right: 5, fontSize: 9.5, fontWeight: 800, color: 'var(--muted)', background: 'rgba(255,255,255,0.85)', borderRadius: 4, padding: '0 4px' }}>{i + 1}</span>
+                    <span style={{ position: 'absolute', bottom: 3, right: 5, fontSize: 11, fontWeight: 800, color: 'var(--muted)', background: 'rgba(255,255,255,0.85)', borderRadius: 4, padding: '0 4px' }}>{i + 1}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'center', gap: 1, marginTop: 3 }}>
                     {[[RotateCcw, 'Rotate left', () => rotatePage(pg.id, -1)],
@@ -1196,7 +1196,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                           );
                         })()}
                       </svg>
-                      <span style={{ position: 'absolute', top: -19, right: 2, fontSize: 10.5, color: 'var(--muted)', fontWeight: 600 }}>Page {i + 1} of {pages.length}</span>
+                      <span style={{ position: 'absolute', top: -19, right: 2, fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>Page {i + 1} of {pages.length}</span>
                     </div>
                   );
                 })}
@@ -1209,9 +1209,9 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
         <div style={{ padding: '6px 16px', borderTop: '1px solid var(--line)', background: 'var(--card)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hint}</span>
           <div style={{ flex: 1 }} />
-          <span style={{ fontSize: 10.5, color: 'var(--muted)', flexShrink: 0 }}>Ctrl+V pastes a screenshot</span>
+          <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>Ctrl+V pastes a screenshot</span>
           <span style={{ width: 1, height: 12, background: 'var(--line)', flexShrink: 0 }} />
-          <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Saving bakes every edit into a new PDF - signature fields are placed afterwards.</span>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>Saving bakes every edit into a new PDF - signature fields are placed afterwards.</span>
         </div>
       </div>
 

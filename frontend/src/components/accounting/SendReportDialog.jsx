@@ -29,8 +29,8 @@ import { PersonSelect } from '../../tasks/components';
 // breadcrumb as the Files screen - instead of a one-level list. The same
 // dialog takes ledger lines from a drill-down (makeFile + baseName).
 
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const TITLES = { email: 'Email This Statement', egnyte: 'Save to Files', share: 'Share With a Teammate' };
 const EXTS = { pdf: 'pdf', excel: 'xlsx', csv: 'csv' };
 const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -138,7 +138,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
       <label style={label} htmlFor="send-file-name">File Name</label>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input id="send-file-name" type="text" value={base} maxLength={180} onChange={(e) => setBase(e.target.value)} style={{ ...control, flex: 1, minWidth: 0 }} />
-        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>.{EXTS[format]}</span>
+        <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>.{EXTS[format]}</span>
       </div>
     </div>
   );
@@ -161,7 +161,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{TITLES[mode]}</h3>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
               {mode === 'email' ? 'Sent from your own mailbox, with the statement attached exactly as it is on screen.'
                 : mode === 'egnyte' ? `The ${what} as ${what === 'lines' ? 'they are' : 'it is'} on screen, saved into a folder in Files. The folder is remembered.`
                   : 'Memorizes this view, shares it with the accounting team, and tells the person on their bell.'}
@@ -194,9 +194,9 @@ export default function SendReportDialog({ mode, result, entities, title, config
                 <label style={label} htmlFor="send-folder">Folder</label>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input id="send-folder" type="text" value={folder} onChange={(e) => { setFolder(e.target.value); setOfferCreate(false); }} autoFocus placeholder={DEFAULT_FOLDER} style={{ ...control, flex: 1, minWidth: 0 }} />
-                  <button type="button" className="secondary-btn" onClick={() => setBrowsing(true)} aria-haspopup="dialog" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}><Folder size={14} /> Browse</button>
+                  <button type="button" className="secondary-btn" onClick={() => setBrowsing(true)} aria-haspopup="dialog" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 10px' }}><Folder size={14} /> Browse</button>
                 </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Browse opens Files, or type the path starting with /Shared or /Private. The folder is remembered for next time.</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Browse opens Files, or type the path starting with /Shared or /Private. The folder is remembered for next time.</div>
               </div>
               {browsing && createPortal(
                 <FolderPickModal startPath={dest} showTree title="Save to Files - Pick a Folder"
@@ -206,7 +206,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
               )}
               {nameField}
               {formatPicker}
-              <div role="status" aria-label="Where the file will be saved" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 10px', wordBreak: 'break-all' }}>
+              <div role="status" aria-label="Where the file will be saved" style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 10px', wordBreak: 'break-all' }}>
                 Will be saved as <strong style={{ color: 'var(--text-primary)' }}>{dest}/{fileName}</strong>
               </div>
             </>
@@ -232,7 +232,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
             <div style={bad}>
               {error}
               {offerCreate && (
-                <button type="button" className="secondary-btn" onClick={(e) => send(e, true)} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.74rem', padding: '3px 10px', marginLeft: 10 }}><FolderPlus size={13} /> Create Folder and Save</button>
+                <button type="button" className="secondary-btn" onClick={(e) => send(e, true)} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '3px 10px', marginLeft: 10 }}><FolderPlus size={13} /> Create Folder and Save</button>
               )}
             </div>
           )}

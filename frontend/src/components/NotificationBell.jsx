@@ -619,7 +619,7 @@ export default function NotificationBell({ onNavigate }) {
             position: 'absolute', top: 4, right: 4,
             minWidth: 14, height: 14, padding: myUnread > 9 ? '0 3px' : 0, boxSizing: 'border-box',
             background: 'hsl(var(--color-red))', color: '#fff',
-            borderRadius: 999, fontSize: 9, fontWeight: 700,
+            borderRadius: 999, fontSize: 11, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             lineHeight: 1, fontFamily: 'Inter, sans-serif',
           }}>
@@ -652,15 +652,15 @@ export default function NotificationBell({ onNavigate }) {
             buttons drop to their own line instead of overlapping the title */}
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', padding: '18px 16px 16px 22px', borderBottom: '1px solid var(--line)', gap: 14, flexShrink: 0 }}>
           <div style={{ minWidth: 0, flex: '1 1 120px' }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)' }}>Notifications</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Notifications</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 1 }}>
               {isEmpty ? 'All caught up' : `${actionable.length ? `${actionable.length} need${actionable.length === 1 ? 's' : ''} action · ` : ''}${updates.length} update${updates.length !== 1 ? 's' : ''}`}
             </div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
             {myUnread > 0 && (
               <button onClick={markAllRead}
-                style={{ fontSize: 12.5, color: 'var(--wk-brand)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600, whiteSpace: 'nowrap' }}
+                style={{ fontSize: 13, color: 'var(--wk-brand)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600, whiteSpace: 'nowrap' }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
                 Mark All Read
@@ -669,7 +669,7 @@ export default function NotificationBell({ onNavigate }) {
             {updates.length > 0 && (
               <button onClick={() => { markAllRead(); updates.forEach(n => dismiss(n.id)); }}
                 title="Moves these to Closed, where they stay for 30 days"
-                style={{ fontSize: 12.5, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
+                style={{ fontSize: 13, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
                 Clear All
@@ -731,7 +731,7 @@ export default function NotificationBell({ onNavigate }) {
                             ? <CheckCircle size={19} color={`hsl(${resolvedColor})`} />
                             : <XCircle size={19} color={`hsl(${resolvedColor})`} />}
                         </div>
-                        <span style={{ fontSize: 14.5, fontWeight: 700, color: `hsl(${resolvedColor})`, animation: 'fadeInUp 0.22s cubic-bezier(.16,1,.3,1) both' }}>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: `hsl(${resolvedColor})`, animation: 'fadeInUp 0.22s cubic-bezier(.16,1,.3,1) both' }}>
                           {resolution.kind === 'approved' ? 'Approved - clearing…' : 'Rejected - clearing…'}
                         </span>
                       </div>
@@ -757,15 +757,15 @@ export default function NotificationBell({ onNavigate }) {
                             {/* Neil: Review = yellow/caution with a ? icon so people
                                 know it opens the full list to decide item-by-item */}
                             <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: n.type === 'req_pending' ? { view: 'myhr', sub: 'purchase' } : { view: 'inventory', sub: 'checkouts' } })); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid hsla(var(--color-orange),0.4)', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid hsla(var(--color-orange),0.4)', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <HelpCircle size={15} /> Review
                             </button>
                             <button onClick={e => { e.stopPropagation(); handleAction(n, 'approve'); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <Check size={15} /> {n.type === 'extension_pending' ? 'Approve' : 'Approve All'}
                             </button>
                             <button onClick={e => { e.stopPropagation(); setRejectingId(n.id); setRejectReason(''); setApprovingId(null); clearActionError(n.id); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <X size={15} /> {n.type === 'extension_pending' ? 'Reject' : 'Reject All'}
                             </button>
                           </div>
@@ -779,14 +779,14 @@ export default function NotificationBell({ onNavigate }) {
                                     : `Who should hand this over to ${n.requestedBy}?`}
                                 </p>
                                 {actionError[n.id] && (
-                                  <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
+                                  <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
                                     <AlertCircle size={14} style={{ flexShrink: 0 }} /> {actionError[n.id]}
                                   </p>
                                 )}
                                 <select
                                   autoFocus
                                   className="form-input"
-                                  style={{ width: '100%', fontSize: 13.5, marginBottom: 8, padding: '9px 12px' }}
+                                  style={{ width: '100%', fontSize: 13, marginBottom: 8, padding: '9px 12px' }}
                                   value={pickedAllocator}
                                   onChange={e => setPickedAllocator(e.target.value)}>
                                   <option value="">Select a person…</option>
@@ -796,11 +796,11 @@ export default function NotificationBell({ onNavigate }) {
                                 </select>
                                 <div style={{ display: 'flex', gap: 8 }}>
                                   <button onClick={() => submitApprove(n)} disabled={!pickedAllocator || approvingBusy}
-                                    style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: pickedAllocator && !approvingBusy ? 1 : 0.4 }}>
+                                    style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: pickedAllocator && !approvingBusy ? 1 : 0.4 }}>
                                     {approvingBusy ? <><Spinner size={14} /> Approving…</> : 'Confirm Approval'}
                                   </button>
                                   <button onClick={() => { setApprovingId(null); setPickedAllocator(''); }} disabled={approvingBusy}
-                                    style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13.5, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                                    style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                                     Cancel
                                   </button>
                                 </div>
@@ -810,14 +810,14 @@ export default function NotificationBell({ onNavigate }) {
                         ) : (
                           <div onClick={e => e.stopPropagation()}>
                             {actionError[n.id] && (
-                              <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
+                              <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
                                 <AlertCircle size={14} style={{ flexShrink: 0 }} /> {actionError[n.id]}
                               </p>
                             )}
                             <input
                               autoFocus
                               className="form-input"
-                              style={{ width: '100%', fontSize: 13.5, marginBottom: 8, padding: '9px 12px' }}
+                              style={{ width: '100%', fontSize: 13, marginBottom: 8, padding: '9px 12px' }}
                               placeholder="Reason for rejection…"
                               value={rejectReason}
                               onChange={e => setRejectReason(e.target.value)}
@@ -825,11 +825,11 @@ export default function NotificationBell({ onNavigate }) {
                             />
                             <div style={{ display: 'flex', gap: 8 }}>
                               <button onClick={() => submitReject(n)} disabled={!rejectReason.trim()}
-                                style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-red))', color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: rejectReason.trim() ? 1 : 0.4 }}>
+                                style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-red))', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: rejectReason.trim() ? 1 : 0.4 }}>
                                 Confirm Reject
                               </button>
                               <button onClick={() => { setRejectingId(null); setRejectReason(''); }}
-                                style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13.5, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                                style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                                 Cancel
                               </button>
                             </div>
@@ -958,7 +958,7 @@ export default function NotificationBell({ onNavigate }) {
                 style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
                 {showClosed ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 Closed <span className="nx-ntf-sec-n">{closedRows.length}</span>
-                <span style={{ marginLeft: 'auto', fontWeight: 500, letterSpacing: 0, textTransform: 'none', fontSize: 11.5 }}>Kept 30 days</span>
+                <span style={{ marginLeft: 'auto', fontWeight: 500, letterSpacing: 0, textTransform: 'none', fontSize: 12 }}>Kept 30 days</span>
               </button>
               {showClosed && closedRows.slice(0, 300).map(n => {
                 const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
@@ -968,13 +968,13 @@ export default function NotificationBell({ onNavigate }) {
                     <Icon size={15} color={`hsl(${n.priority === 1 ? 'var(--color-gold)' : meta.color})`} className="nx-ntf-icon" aria-hidden="true" />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</span>
+                        <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</span>
                         <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(n.timestamp)}</span>
                       </div>
-                      {n.body && <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{renderNotifBody(n.body)}</p>}
+                      {n.body && <p style={{ fontSize: 13, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{renderNotifBody(n.body)}</p>}
                     </div>
                     <button onClick={() => restore(n.id)} title="Put it back in the list"
-                      style={{ background: 'none', border: '1px solid var(--line)', cursor: 'pointer', color: 'var(--wk-brand)', padding: '5px 10px', borderRadius: 8, flexShrink: 0, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+                      style={{ background: 'none', border: '1px solid var(--line)', cursor: 'pointer', color: 'var(--wk-brand)', padding: '5px 10px', borderRadius: 8, flexShrink: 0, fontSize: 13, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
                       Restore
                     </button>
                   </div>

@@ -45,9 +45,9 @@ export default function BooksRows({ books }) {
             </datalist>
           </span>
         )} />
-      {error && <div role="alert" style={{ padding: '8px 16px', fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{error}</div>}
+      {error && <div role="alert" style={{ padding: '8px 16px', fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</div>}
       {noLines && (
-        <div data-books-warning="" role="status" style={{ padding: '8px 16px', fontSize: 12.5, color: 'var(--text-secondary)' }}>
+        <div data-books-warning="" role="status" style={{ padding: '8px 16px', fontSize: 13, color: 'var(--text-secondary)' }}>
           {picked || data.limited
             ? `${draft.intacctProjectId.trim()} has no lines on this entity yet. It saves; Money shows nothing until costs post to it.`
             : `${draft.intacctProjectId.trim()} is not on the books - the save will refuse it.`}

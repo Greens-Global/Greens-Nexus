@@ -159,13 +159,13 @@ function LineCard({ r, onOpen }) {
     <Tag type={r.entry_id ? 'button' : undefined} onClick={r.entry_id ? onOpen : undefined} className="acct-line-card"
       style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', border: 'none', borderBottom: '1px solid var(--border-color)', background: 'none', fontFamily: 'inherit', color: 'var(--text-primary)', cursor: r.entry_id ? 'pointer' : 'default' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-        <span style={{ flex: 1, minWidth: 0, fontSize: '0.86rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description || r.memo || r.entry_no || 'Ledger line'}</span>
-        <span style={{ fontSize: '0.86rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{amount}</span>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description || r.memo || r.entry_no || 'Ledger line'}</span>
+        <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{amount}</span>
       </div>
-      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <span className="acct-code">{r.gl_code}</span>{r.account_name}{r.location_name || r.location ? ` · ${r.location_name || r.location}` : ''}
       </div>
-      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2, display: 'flex', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, display: 'flex', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
         <span style={{ whiteSpace: 'nowrap' }}>{[r.entry_date ? formatDate(r.entry_date) : '', r.entry_no].filter(Boolean).join(' · ')}</span>
         {party && <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{party}</span>}
       </div>
@@ -457,7 +457,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const tableWidth = natural + Math.floor(spare / Math.max(1, fillers.length)) * fillers.length + ASK_WIDTH;
 
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' };
-  const select = { height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
+  const select = { height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
 
   const heading = [term ? `"${term}"` : null, party ? partyText(party) : null, account ? `${account.code} ${account.name || ''}`.trim() : drill && !drill.account && drill.accountName ? `${drill.accountName} - Every Line` : null].filter(Boolean).join(' - ') || 'Ledger Lines';
   const periodText = usePeriod ? `${drill.from ? formatDate(drill.from) : 'Start'} - ${formatDate(drill.to)}` : 'All Dates';
@@ -505,13 +505,13 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         {/* A journal page (Records > Journals) is the lines themselves: no report to go back to. */}
         {onClose && (
-          <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '4px 10px' }}>
+          <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '4px 10px' }}>
             <ArrowLeft size={14} /> {backLabel || 'Back to Report'}
           </button>
         )}
         <div style={{ minWidth: 0 }}>
-          <h3 style={{ fontSize: '0.98rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{heading}</h3>
-          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+          <h3 style={{ fontSize: 15, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{heading}</h3>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
             {entityName} · {periodText} · {book === 'all' ? 'All Books' : bookTitle(book)}{loading ? (data ? ' · updating' : ' · searching') : ''}
           </div>
         </div>
@@ -535,7 +535,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
 
       {(party || account || journal || filtering || applied.picked.length > 0) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Narrowed to</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Narrowed to</span>
           {applied.picked.map((d) => (
             <ActiveChip key={d.key} label={dimChipText(d, dimNames)} onClear={() => setDropped((x) => [...x, d.key])} />
           ))}
@@ -552,23 +552,23 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
         </div>
       )}
 
-      {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 10 }}>{error}</div>}
+      {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: 13, marginBottom: 10 }}>{error}</div>}
       {asked && (
-        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px', fontSize: '0.8rem', marginBottom: 8, color: 'var(--ok-fg, #15803d)' }}>
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px', fontSize: 13, marginBottom: 8, color: 'var(--ok-fg, #15803d)' }}>
           <span style={{ flex: 1 }}>{asked.merged ? 'Added to the open question on this line' : 'Question sent'} to {asked.accountantName || asked.accountant}.</span>
-          <button type="button" className="secondary-btn" style={{ fontSize: '0.74rem', padding: '2px 10px' }}
+          <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '2px 10px' }}
             onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'accounting', sub: 'ama' } }))}>Open AMA</button>
           <button type="button" onClick={() => setAsked(null)} aria-label="Dismiss" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex' }}><X size={14} /></button>
         </div>
       )}
 
       {!hasCriteria ? (
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', padding: '24px 0', textAlign: 'center', margin: 0 }}>
+        <p style={{ color: 'var(--text-secondary)', fontSize: 15, padding: '24px 0', textAlign: 'center', margin: 0 }}>
           Type at least two characters - a vendor or customer name, an invoice number, or an amount like 1,500.00.
         </p>
       ) : loading && !data ? (
         <div role="status" aria-live="polite">
-          <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 8 }}>Searching the ledger...</div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>Searching the ledger...</div>
           <SkeletonBlocks count={4} />
         </div>
       ) : data ? (
@@ -577,7 +577,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
               10/23 meeting, item 01: "Narrow by" is gone (Viral, 07:00: "So, this
               line will go") - the funnel on each heading and Filters do it, and
               the count and totals follow them. */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 18px', fontSize: '0.8rem', marginBottom: 8, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '6px 18px', fontSize: 13, marginBottom: 8, fontVariantNumeric: 'tabular-nums' }}>
             <span data-testid="ledger-lines-count">
               <strong>{shownTotals.lines.toLocaleString('en-US')}</strong>{narrowed && complete ? ` of ${base.length.toLocaleString('en-US')}` : ''} lines
             </span>
@@ -610,7 +610,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           {isPhone ? (
             <div className="acct-lines-wrap" style={{ maxHeight: 'none', opacity: loading ? 0.6 : 1 }}>
               {rows.map((r) => <LineCard key={r.line_id} r={r} onOpen={() => openLine(r)} />)}
-              {rows.length === 0 && <div style={{ padding: 16, fontSize: '0.84rem', color: 'var(--text-secondary)', textAlign: 'center' }}>No lines on this page.</div>}
+              {rows.length === 0 && <div style={{ padding: 16, fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center' }}>No lines on this page.</div>}
             </div>
           ) : (
           // Oct 23 (Viral, item 18): the lines scroll inside their own box, sized
@@ -667,27 +667,27 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           </div>
           )}
           {(opFilters.length > 0 || dimsMissed) && (
-            <div role="note" style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            <div role="note" style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
               {opFilters.length > 0 && `${opFilters.map(({ c, f }) => opText(c.label, f)).join(', ')} ${total > PAGE ? `is checked on the ${loaded.length.toLocaleString('en-US')} lines loaded on this page, not the whole search` : 'is checked on the lines loaded here'}: ${rows.length.toLocaleString('en-US')} of ${loaded.length.toLocaleString('en-US')} pass. `}
               {dimsMissed && 'The ledger did not narrow these lines by every report filter, so lines that do not match are left out here. '}
               The line count and totals above are for the whole search{opFilters.length > 0 ? '; the export applies the same filter to every line' : ''}.
             </div>
           )}
           {balanceOn && !linesAll && !readingAll && columns.some((c) => c.key === 'balance') && (
-            <div role="note" style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            <div role="note" style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
               The Balance column fills in once every line of this drill-down is read.
             </div>
           )}
           {capped && (
-            <div role="note" style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            <div role="note" style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
               The filters, sort and totals cover the first {ALL_CAP.toLocaleString('en-US')} of {total.toLocaleString('en-US')} lines. Narrow the search for the rest.
             </div>
           )}
           {all?.error && all.key === readKey && (
-            <div role="alert" style={{ marginTop: 8, fontSize: '0.78rem', color: 'var(--bad-fg, #dc2626)' }}>{all.error} The filters cover the lines on this page only.</div>
+            <div role="alert" style={{ marginTop: 8, fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{all.error} The filters cover the lines on this page only.</div>
           )}
           {total > EXPORT_CAP && (
-            <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
               The export holds the first {EXPORT_CAP.toLocaleString('en-US')} lines. Narrow the search for a complete file.
             </div>
           )}

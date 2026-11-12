@@ -19,7 +19,7 @@ function Choice({ title, sub, onClick }) {
       onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--wk-brand)'; e.currentTarget.style.boxShadow = 'var(--wk-shadow-hov)'; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--wk-line, var(--line))'; e.currentTarget.style.boxShadow = 'none'; }}>
       <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>{title}</span>
-      <span style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.45 }}>{sub}</span>
+      <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.45 }}>{sub}</span>
     </button>
   );
 }
@@ -119,7 +119,7 @@ export function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onC
     <ItemSheet title={title} onClose={onClose} isDirty={dirty} footer={footer} zIndex={zIndex}>
       {step === 'who' && (
         <>
-          <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 18px' }}>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 18px' }}>
             To <strong style={{ color: 'var(--ink)' }}>{who}</strong> - who takes the handover photo?
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
@@ -138,7 +138,7 @@ export function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onC
 
       {step === 'mode' && (
         <>
-          <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 18px' }}>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 18px' }}>
             Handing over <strong style={{ color: 'var(--ink)' }}>{coItems.length} items</strong> to <strong style={{ color: 'var(--ink)' }}>{who}</strong>.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
@@ -152,7 +152,7 @@ export function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onC
 
       {step === 'upload' && (
         <>
-          <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 16px' }}>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px' }}>
             {photoMode === 'batch'
               ? `One photo covering ${isMulti ? `all ${coItems.length} items` : first.itemName} for ${who}.`
               : `A photo of each item being handed to ${who}.`}
@@ -170,7 +170,7 @@ export function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onC
             <div style={{ fontWeight: 700, fontSize: 14 }}>{isMulti ? `${coItems.length} items` : first.itemName} to {who}</div>
             {isMulti && (
               <ul style={{ margin: '8px 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: 2 }}>
-                {coItems.map(co => <li key={co.id} style={{ fontSize: 12.5, color: 'var(--muted)' }}>{co.itemName}</li>)}
+                {coItems.map(co => <li key={co.id} style={{ fontSize: 13, color: 'var(--muted)' }}>{co.itemName}</li>)}
               </ul>
             )}
             <p style={{ fontSize: 13, color: 'var(--muted)', margin: '10px 0 0', lineHeight: 1.5 }}>

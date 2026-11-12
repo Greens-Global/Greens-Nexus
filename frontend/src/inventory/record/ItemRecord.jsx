@@ -46,7 +46,7 @@ function Fact({ label, children }) {
   return (
     <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', overflowWrap: 'anywhere' }}>{children}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflowWrap: 'anywhere' }}>{children}</div>
     </div>
   );
 }
@@ -236,7 +236,7 @@ export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable 
             <Fact label="Photos">{item.pictureRequired === false ? 'Optional at handover and return' : ''}</Fact>
             {custom.map(([k, v]) => <Fact key={k} label={k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}>{typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)}</Fact>)}
             {isManager && onOpenDetails && (
-              <button type="button" className="secondary-btn" style={{ alignSelf: 'end', justifySelf: 'start', fontSize: 12.5 }} onClick={() => onOpenDetails(item)}>Custom Fields</button>
+              <button type="button" className="secondary-btn" style={{ alignSelf: 'end', justifySelf: 'start', fontSize: 13 }} onClick={() => onOpenDetails(item)}>Custom Fields</button>
             )}
           </section>
 
@@ -250,8 +250,8 @@ export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable 
                   <li key={e.id}>
                     <span className="it-tl-when">{formatDate(e.at)}</span>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13.5, color: 'var(--ink)' }}>{e.text}</div>
-                      {e.detail && <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{e.detail}</div>}
+                      <div style={{ fontSize: 13, color: 'var(--ink)' }}>{e.text}</div>
+                      {e.detail && <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{e.detail}</div>}
                       {e.photos.length > 0 && (
                         <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
                           {e.photos.map(p => (

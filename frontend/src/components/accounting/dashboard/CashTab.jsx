@@ -50,7 +50,7 @@ export default function CashTab() {
     <div style={{ display: 'grid', gap: 14 }}>
       <Toolbar right={
         <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }} aria-label="Scenario">
-          {Object.values(SCENARIOS).map((s) => <button key={s.id} type="button" style={{ ...pill(scenarioId === s.id), padding: '4px 10px', fontSize: '0.74rem' }} onClick={() => setScenario(s.id)} title={s.note}>{s.name}</button>)}
+          {Object.values(SCENARIOS).map((s) => <button key={s.id} type="button" style={{ ...pill(scenarioId === s.id), padding: '4px 10px', fontSize: 12 }} onClick={() => setScenario(s.id)} title={s.note}>{s.name}</button>)}
         </div>
       } />
       {loading || !plan ? <LoadingBox height={84} /> : (
@@ -74,7 +74,7 @@ export default function CashTab() {
                 { key: 'actual', label: 'Actual month-end cash', color: 'var(--wk-brand, #2b45e1)' },
                 { key: 'forecast', label: `${S.name} forecast`, color: '#0998c3', dashed: true },
               ]} />
-              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 11, color: 'var(--text-muted)' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Actual month-end cash (all bank accounts in scope)</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#0998c3" />{S.name} forecast</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#8a9a9f" />Downside to upside range</span>
@@ -116,7 +116,7 @@ function PlanTable({ hist, fc }) {
   const cell = (v) => (v == null ? '-' : v ? m(v, { compact: true, paren: true }) : '-');
   const total = (dir, c) => CASH_CATS.filter((x) => x.dir === dir).reduce((t, x) => t + c.v[x.id], 0);
   const net = (c) => CASH_CATS.reduce((t, x) => t + c.v[x.id], 0) + c.v.other;
-  const head = (label) => <tr style={{ background: 'var(--bg-secondary)' }}><td colSpan={cols.length + 1} style={{ fontSize: '0.66rem', fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-muted)', padding: '6px 10px' }}>{label}</td></tr>;
+  const head = (label) => <tr style={{ background: 'var(--bg-secondary)' }}><td colSpan={cols.length + 1} style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-muted)', padding: '6px 10px' }}>{label}</td></tr>;
   const row = (label, f, o = {}) => (
     <tr key={label} style={o.strong ? { fontWeight: 700, borderTop: '1px solid var(--border-color)' } : undefined}>
       <td style={{ position: 'sticky', left: 0, background: 'var(--bg-card)', color: o.muted ? 'var(--text-muted)' : undefined, paddingLeft: !o.strong && !o.muted ? 20 : undefined }}>{label}</td>
@@ -125,7 +125,7 @@ function PlanTable({ hist, fc }) {
   );
   return (
     <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>
-      <thead><tr><th style={{ position: 'sticky', left: 0, background: 'var(--bg-card)' }}>Category</th>{cols.map((c) => <th key={c.k} style={{ ...num, background: !c.actual ? 'var(--bg-secondary)' : undefined }}>{mShort(c.k)}{!c.actual ? <div style={{ fontSize: '0.6rem', fontWeight: 500, color: 'var(--text-muted)' }}>forecast</div> : null}</th>)}</tr></thead>
+      <thead><tr><th style={{ position: 'sticky', left: 0, background: 'var(--bg-card)' }}>Category</th>{cols.map((c) => <th key={c.k} style={{ ...num, background: !c.actual ? 'var(--bg-secondary)' : undefined }}>{mShort(c.k)}{!c.actual ? <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)' }}>forecast</div> : null}</th>)}</tr></thead>
       <tbody>
         {row('Opening cash', (c) => c.beg, { strong: true })}
         {head('Cash in')}

@@ -403,7 +403,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
                       style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 5, minWidth: 0, height: '100%' }}>
                       <div style={{ width: '62%', maxWidth: 22, height: Math.max(s.min ? 6 : 3, (s.min / max) * 56), borderRadius: 99,
                         background: !s.min ? 'var(--mist)' : s.today ? 'var(--wk-brand)' : '#b9c4f4' }} />
-                      <span style={{ fontSize: 10, fontWeight: s.today ? 700 : 500, color: s.today ? 'var(--wk-brand)' : 'var(--wk-faint)' }}>{s.wd}</span>
+                      <span style={{ fontSize: 11, fontWeight: s.today ? 700 : 500, color: s.today ? 'var(--wk-brand)' : 'var(--wk-faint)' }}>{s.wd}</span>
                     </div>
                   ))}
                 </div>

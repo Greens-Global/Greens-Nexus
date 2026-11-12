@@ -33,7 +33,7 @@ export function CloseWidget({ onOpenClose }) {
   };
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: '0.84rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 13 }}>
         <span>{monthLong(period)} · target day 10</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <TaskViewSwitch view={view} onChange={setView} late={state.late.length} size="xs" />
@@ -47,19 +47,19 @@ export function CloseWidget({ onOpenClose }) {
             <label key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', cursor: 'pointer', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
               <input type="checkbox" checked={false} disabled={busy === r.id} onChange={() => complete(r)} aria-label={`Complete ${r.title}`} style={{ marginTop: 3 }} />
               <span style={{ minWidth: 0, flex: 1 }}>
-                <span style={{ display: 'block', fontSize: '0.84rem', lineHeight: 1.3 }}>{r.title}</span>
-                <span style={{ fontSize: '0.7rem', color: r.state === 'past_due' ? BAD : 'var(--text-muted)' }}>{r.owner} · day {r.day_offset}{r.state === 'past_due' ? ' · past due' : ''}</span>
+                <span style={{ display: 'block', fontSize: 13, lineHeight: 1.3 }}>{r.title}</span>
+                <span style={{ fontSize: 11, color: r.state === 'past_due' ? BAD : 'var(--text-muted)' }}>{r.owner} · day {r.day_offset}{r.state === 'past_due' ? ' · past due' : ''}</span>
               </span>
               <Chip>{r.phase}</Chip>
             </label>
           ))}
-          {open.length > 5 ? <div style={{ paddingTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>+{open.length - 5} more open</div> : null}
+          {open.length > 5 ? <div style={{ paddingTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>+{open.length - 5} more open</div> : null}
         </div>
-      ) : view === 'overdue' ? <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>Nothing overdue.</div>
-        : view === 'mine' && !shownTotal ? <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>{role ? `No tasks owned by ${role} this month.` : 'Pick your role on the Close tab and My Tasks lists what is yours.'}</div>
-        : view === 'mine' ? <div style={{ fontSize: '0.84rem', color: toneColor(true) }}>All of your tasks are done.</div>
-        : <div style={{ fontSize: '0.84rem', color: toneColor(true) }}>Closed - package delivered</div>}
-      {onOpenClose ? <button type="button" onClick={onOpenClose} style={{ alignSelf: 'flex-start', border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Open the Close tab →</button> : null}
+      ) : view === 'overdue' ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nothing overdue.</div>
+        : view === 'mine' && !shownTotal ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{role ? `No tasks owned by ${role} this month.` : 'Pick your role on the Close tab and My Tasks lists what is yours.'}</div>
+        : view === 'mine' ? <div style={{ fontSize: 13, color: toneColor(true) }}>All of your tasks are done.</div>
+        : <div style={{ fontSize: 13, color: toneColor(true) }}>Closed - package delivered</div>}
+      {onOpenClose ? <button type="button" onClick={onOpenClose} style={{ alignSelf: 'flex-start', border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Open the Close tab →</button> : null}
     </div>
   );
 }
@@ -101,8 +101,8 @@ export function ReconWidget({ compact, onNavigate }) {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <div><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled}/{rows.length} completed</span> <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>| {remaining} remaining · through {fmtMDY(mEnd(period))}{rows.some((r) => r.source === 'intacct') ? ' · bank and card status from Intacct' : ''}</span></div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{byType.map((g) => <span key={g.t}>{g.t}: {g.rows.filter((r) => r.status === 'Reconciled').length}/{g.rows.length}</span>)}</div>
+        <div><span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled}/{rows.length} completed</span> <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>| {remaining} remaining · through {fmtMDY(mEnd(period))}{rows.some((r) => r.source === 'intacct') ? ' · bank and card status from Intacct' : ''}</span></div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>{byType.map((g) => <span key={g.t}>{g.t}: {g.rows.filter((r) => r.status === 'Reconciled').length}/{g.rows.length}</span>)}</div>
       </div>
       <Meter segments={[{ share: rows.length ? reconciled / rows.length : 0, color: 'var(--wk-brand, #2b45e1)' }]} />
       <div className="req-table-wrapper">
@@ -119,9 +119,9 @@ export function ReconWidget({ compact, onNavigate }) {
                         style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textAlign: 'left' }}>
                         {r.name}
                       </button>
-                    </div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
-                    {!compact ? <td style={{ fontSize: '0.78rem' }}>{entityOf(r) || '-'}</td> : null}
-                    <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}><LastReconciled r={r} /></td>
+                    </div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
+                    {!compact ? <td style={{ fontSize: 13 }}>{entityOf(r) || '-'}</td> : null}
+                    <td style={{ fontSize: 13, whiteSpace: 'nowrap' }}><LastReconciled r={r} /></td>
                     <td style={num}>{r.thru ? m(r.stmt, { report: true }) : '-'}</td>
                     <td style={num}>{r.gl ? (
                       <button type="button" title="See the ledger lines behind this balance (Reports tab)"
@@ -135,7 +135,7 @@ export function ReconWidget({ compact, onNavigate }) {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         {r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>}
                         {/* Charmi, Teams 11/05/2026 ("Not able to see any option under close to reconcile the mortgage account"): said on the row, not only behind the name. */}
-                        {r.liability ? <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '2px 10px' }} onClick={() => setOpenKey(r.key)}>Reconcile</button> : null}
+                        {r.liability ? <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => setOpenKey(r.key)}>Reconcile</button> : null}
                       </div>
                     </td>
                   </tr>
@@ -146,7 +146,7 @@ export function ReconWidget({ compact, onNavigate }) {
         </table>
       </div>
       {!rows.some((r) => r.liability) ? (
-        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No mortgages, loans or credit lines to reconcile in this scope. They come from Financing &gt; Loans: an active loan with its GL account set shows here with a Reconcile button.</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No mortgages, loans or credit lines to reconcile in this scope. They come from Financing &gt; Loans: an active loan with its GL account set shows here with a Reconcile button.</div>
       ) : null}
       {open ? (
         <ReconPanel key={`${open.key}@${period}`} row={open} entityName={entityOf(open)} fullLink={linkOf(open)} onNavigate={onNavigate}
@@ -156,7 +156,7 @@ export function ReconWidget({ compact, onNavigate }) {
   );
 }
 
-const subLine = { fontSize: '0.7rem', color: 'var(--text-muted)' };
+const subLine = { fontSize: 11, color: 'var(--text-muted)' };
 
 /** The Last Reconciled cell: the date (MM/DD/YYYY) and, under it, where it came from. */
 export function LastReconciled({ r }) {
@@ -211,8 +211,8 @@ export function ActivityWidget() {
     <div>
       {rows.map((r, i) => (
         <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
-          <div style={{ minWidth: 0 }}><div style={{ fontSize: '0.84rem' }}>{r.what}</div><div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.detail}</div></div>
-          <div style={{ flexShrink: 0, textAlign: 'right' }}><Chip>{r.by_name}</Chip><div style={{ marginTop: 2, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{whenTxt(r.at)}</div></div>
+          <div style={{ minWidth: 0 }}><div style={{ fontSize: 13 }}>{r.what}</div><div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.detail}</div></div>
+          <div style={{ flexShrink: 0, textAlign: 'right' }}><Chip>{r.by_name}</Chip><div style={{ marginTop: 2, fontSize: 11, color: 'var(--text-muted)' }}>{whenTxt(r.at)}</div></div>
         </div>
       ))}
     </div>
@@ -232,8 +232,8 @@ export function IcWidget() {
       <div>
         {rows.map((r, i) => (
           <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
-            <div style={{ minWidth: 0 }}><div style={{ fontSize: '0.84rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name(r.from_code)} → {name(r.to_code)}</div><div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{r.description}</div></div>
-            <div style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8 }}><span style={{ fontSize: '0.84rem', fontVariantNumeric: 'tabular-nums' }}>{m(r.due_from, { compact: true })}</span>{r.matched ? <Chip tone="ok">Matched</Chip> : <Chip tone="bad">Off {m(r.difference)}</Chip>}</div>
+            <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name(r.from_code)} → {name(r.to_code)}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.description}</div></div>
+            <div style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8 }}><span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{m(r.due_from, { compact: true })}</span>{r.matched ? <Chip tone="ok">Matched</Chip> : <Chip tone="bad">Off {m(r.difference)}</Chip>}</div>
           </div>
         ))}
       </div>
@@ -260,7 +260,7 @@ export function FluxWidget() {
               <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.prior, { report: true })}</td>
               <td style={num}>{m(r.balance, { report: true })}</td>
               <td style={{ ...num, fontWeight: 600, color: toneColor(r.change >= 0) }}>{m(r.change, { report: true })}</td>
-              <td style={{ ...num, fontSize: '0.76rem', color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</td>
+              <td style={{ ...num, fontSize: 12, color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</td>
             </tr>
           ))}
         </tbody>
@@ -277,8 +277,8 @@ export function DeadlinesWidget() {
     <div>
       {items.map(({ deadline, date, days }, i) => (
         <div key={deadline.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
-          <div style={{ width: 40, flexShrink: 0, textAlign: 'center' }}><div style={{ fontSize: '0.64rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{MONTH_SHORT[Number(date.slice(5, 7)) - 1]}</div><div style={{ fontSize: '1.1rem', fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{Number(date.slice(8, 10))}</div></div>
-          <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontSize: '0.84rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deadline.title}</div><div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{deadline.owner}</div></div>
+          <div style={{ width: 40, flexShrink: 0, textAlign: 'center' }}><div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{MONTH_SHORT[Number(date.slice(5, 7)) - 1]}</div><div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{Number(date.slice(8, 10))}</div></div>
+          <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deadline.title}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{deadline.owner}</div></div>
           <Chip tone={days <= 7 ? 'bad' : days <= 30 ? 'wait' : 'neutral'}>{days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `In ${days} days`}</Chip>
         </div>
       ))}

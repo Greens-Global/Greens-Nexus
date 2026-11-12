@@ -172,7 +172,7 @@ export default function FormsTab({ toastOk, toastErr, activeSub = '' }) {
     <div role="tablist" aria-label="Forms" className="scroll-tabs" style={{ display: 'inline-flex', gap: 2, padding: 3, border: '1px solid var(--line)', borderRadius: 10, background: 'var(--mist)', marginBottom: 14 }}>
       {SEGMENTS.map(([k, l]) => (
         <button key={k} type="button" role="tab" aria-selected={segment === k} onClick={() => { setSegment(k); setSelectedId(''); }}
-          style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 650, cursor: 'pointer', fontFamily: 'inherit',
+          style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 650, cursor: 'pointer', fontFamily: 'inherit',
             background: segment === k ? 'var(--card)' : 'transparent', color: segment === k ? 'var(--ink)' : 'var(--muted)', boxShadow: segment === k ? 'var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.08))' : 'none' }}>
           {l}
         </button>

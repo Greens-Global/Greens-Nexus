@@ -43,14 +43,14 @@ import { WarnMark } from './warnMark';
 const MAX_MONTHS = 12;
 const RETURN = 'compensation';
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const th = { textAlign: 'left', padding: '6px 8px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)', verticalAlign: 'bottom' };
+const th = { textAlign: 'left', padding: '6px 8px', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)', verticalAlign: 'bottom' };
 const thNum = { ...th, textAlign: 'right' };
-const td = { padding: '4px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
+const td = { padding: '4px 8px', borderBottom: '1px solid var(--border-color)', fontSize: 13, verticalAlign: 'top' };
 const tdNum = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 // 10/23 meeting, item 02 (fix 10/24): the words sit beside the boxes, not above them, so the bar is one line.
-const inline = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' };
-const muted = { color: 'var(--text-muted)', fontSize: '0.72rem' };
-const note = { margin: 0, padding: '8px 12px 12px', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.5 };
+const inline = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' };
+const muted = { color: 'var(--text-muted)', fontSize: 12 };
+const note = { margin: 0, padding: '8px 12px 12px', fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 };
 const seg = (on) => ({ ...control, cursor: 'pointer', fontWeight: on ? 700 : 400, color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', borderColor: on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)' });
 const plainBtn = { border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', cursor: 'pointer', textAlign: 'inherit' };
 const drillBtn = { ...plainBtn, textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 3 };
@@ -107,13 +107,13 @@ function LoadingDots({ hint, compact = false }) {
   return (
     <div role="status" aria-live="polite" className={compact ? undefined : 'acct-stack-card acct-stack-main'}
       style={compact ? { padding: '14px 4px', textAlign: 'center' } : { ...card, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: 220, padding: '40px 16px', textAlign: 'center' }}>
-      <div style={{ fontSize: compact ? '0.84rem' : '0.95rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+      <div style={{ fontSize: compact ? 13 : 15, fontWeight: 600, color: 'var(--text-primary)' }}>
         Loading
         <span aria-hidden="true">
           {[0, 1, 2].map((i) => <span key={i} style={{ display: 'inline-block', animation: 'nxl-breathe 1.2s ease-in-out infinite', animationDelay: `${i * 0.2}s` }}>.</span>)}
         </span>
       </div>
-      {hint && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', maxWidth: 520 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 520 }}>{hint}</div>}
     </div>
   );
 }
@@ -288,16 +288,16 @@ export default function CompensationReport() {
       ) : state.error ? (
         <ErrorBanner message={state.error} onRetry={reloadAll} />
       ) : report && !report.people?.length ? (
-        <div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>{emptyReason(report)}</div>
+        <div style={{ ...card, padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 14 }}>{emptyReason(report)}</div>
       ) : report && (
         <div className="acct-stack-card acct-stack-main" style={card}>
           <div style={{ padding: '10px 12px 4px', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'baseline' }}>
-            <h3 style={{ margin: 0, fontSize: '0.95rem' }}>Compensation</h3>
+            <h3 style={{ margin: 0, fontSize: 15 }}>Compensation</h3>
             <span style={muted}>{curLabel} · {kept.length} {kept.length === 1 ? 'employee' : 'employees'}{hiddenInactive ? ` (${hiddenInactive} inactive hidden)` : ''}{narrowed ? ` · ${rows.length} of ${all.length} rows pass the filters` : ''}</span>
             {hoursPending && <span role="status" style={muted}>Loading Time Clock hours... {buildingHint(monthsBetween(asked[0], asked[1]))}</span>}
           </div>
           {hoursState.error && (
-            <div role="alert" style={{ margin: '0 12px 6px', fontSize: '0.76rem', color: 'var(--warn-fg)' }}>
+            <div role="alert" style={{ margin: '0 12px 6px', fontSize: 12, color: 'var(--warn-fg)' }}>
               <WarnMark />
               Time Clock hours could not be built: {hoursState.error}{' '}
               <button type="button" style={linkBtn} onClick={() => loadHours(asked)}>Try Again</button>
@@ -499,7 +499,7 @@ function StatementPanel({ panel, curLabel, priorLabel, onClose, onLines, exportI
       <div style={{ ...card, overflowX: 'auto' }}>
         <table aria-label={`Employee Compensation Report - ${name}`} style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
-            <tr><th style={{ ...th, borderBottom: 'none' }} /><th colSpan={2} style={{ ...thNum, textAlign: 'center', borderBottom: 'none', color: 'var(--text-primary)', fontSize: '0.8rem' }}>{heading}</th></tr>
+            <tr><th style={{ ...th, borderBottom: 'none' }} /><th colSpan={2} style={{ ...thNum, textAlign: 'center', borderBottom: 'none', color: 'var(--text-primary)', fontSize: 13 }}>{heading}</th></tr>
             <tr><th style={th} /><th style={thNum}>{priorLabel}</th><th style={thNum}>{curLabel}</th></tr>
           </thead>
           <tbody>

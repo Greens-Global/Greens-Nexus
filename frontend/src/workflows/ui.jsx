@@ -19,7 +19,7 @@ export function SectionTitle({ children, action, count }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
       <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--ink)', fontFamily: FONT, flex: 1, minWidth: 0 }}>
         {children}
-        {count != null && <span style={{ marginLeft: 8, fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>{count}</span>}
+        {count != null && <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>{count}</span>}
       </h3>
       {action}
     </div>
@@ -49,4 +49,4 @@ export function LinkButton({ children, onClick, title, style }) {
   );
 }
 
-export const Muted = ({ children, style }) => <span style={{ color: 'var(--muted)', fontSize: 12.5, ...style }}>{children}</span>;
+export const Muted = ({ children, style }) => <span style={{ color: 'var(--muted)', fontSize: 13, ...style }}>{children}</span>;

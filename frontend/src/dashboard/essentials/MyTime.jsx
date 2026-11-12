@@ -31,7 +31,7 @@ export { deriveMyTime, fmtH };
 
 const ACTION_ICON = { in: Play, out: LogOut, break_start: Coffee, break_end: Play };
 const lineStyle = { display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 12, lineHeight: 1.45 };
-const linkBtn = { border: 'none', background: 'none', padding: 0, color: 'var(--wk-brand, hsl(var(--color-blue)))', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' };
+const linkBtn = { border: 'none', background: 'none', padding: 0, color: 'var(--wk-brand, hsl(var(--color-blue)))', fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' };
 const stop = (e) => e.stopPropagation();
 
 export default function MyTime({ phone }) {
@@ -47,7 +47,7 @@ export default function MyTime({ phone }) {
   // shrinks (tighter padding, then an ellipsis) instead of wrapping.
   // Height budget at 3x3: 162px inside the padding - header ~49 (66 with a
   // two-line note) + state row 41 + gap 8 + buttons 36 = 134 (151).
-  const btnBase = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, minHeight: isMobile ? 44 : 36, padding: '0 8px', fontSize: 12.5, flex: '1 1 0', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' };
+  const btnBase = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, minHeight: isMobile ? 44 : 36, padding: '0 8px', fontSize: 13, flex: '1 1 0', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' };
   const stateColor = vm.state === 'break' ? 'hsl(var(--color-orange))' : vm.state === 'in' ? 'hsl(var(--color-green))' : 'var(--muted)';
   // The line under the title: what the last punch did (or why it did not),
   // else since when the state holds. It lives up here, not as a row of its
@@ -81,13 +81,13 @@ export default function MyTime({ phone }) {
             <>
               {/* The state, and today's hours beside it - one glance. */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13.5, fontWeight: 700, color: stateColor }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 700, color: stateColor }}>
                   <span style={{ width: 8, height: 8, borderRadius: 99, background: stateColor, flexShrink: 0 }} />
                   {vm.stateLabel}
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-.02em', lineHeight: 1.05, color: 'var(--wk-ink, var(--ink))', fontVariantNumeric: 'tabular-nums' }}>{fmtH(vm.todayMin)}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Today</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>Today</div>
                 </div>
               </div>
 

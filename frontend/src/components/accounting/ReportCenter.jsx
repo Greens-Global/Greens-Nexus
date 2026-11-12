@@ -82,7 +82,7 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
         <div role="group" aria-label="Show" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
           {FILTERS.map((f) => (
             <button key={f.key} type="button" aria-pressed={show === f.key} onClick={() => setShow(f.key)}
-              style={{ border: 'none', padding: '0 10px', height: 28, font: 'inherit', fontSize: '0.76rem', cursor: 'pointer', fontWeight: show === f.key ? 600 : 400,
+              style={{ border: 'none', padding: '0 10px', height: 28, font: 'inherit', fontSize: 12, cursor: 'pointer', fontWeight: show === f.key ? 600 : 400,
                 background: show === f.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: show === f.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)' }}>
               {f.label}{f.key === 'standard' ? ` (${counts.standard})` : f.key === 'memorized' && saved ? ` (${counts.memorized})` : ''}
             </button>
@@ -90,12 +90,12 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           {leafKeys.has('packages') && (
-            <button type="button" className="secondary-btn" onClick={() => onOpen?.('packages')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+            <button type="button" className="secondary-btn" onClick={() => onOpen?.('packages')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}>
               <FileStack size={14} /> Packages
             </button>
           )}
           {leafKeys.has('report-builder') && (
-            <button type="button" className="primary-btn" onClick={() => onOpen?.('report-builder')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+            <button type="button" className="primary-btn" onClick={() => onOpen?.('report-builder')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}>
               <Hammer size={14} /> New Custom Report
             </button>
           )}
@@ -103,12 +103,12 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
         </div>
       </div>
 
-      {error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)', fontSize: '0.84rem' }}>{error}</div>}
+      {error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)', fontSize: 13 }}>{error}</div>}
       {saved === null && <div style={{ ...card, padding: 12 }}><SkeletonBlocks count={4} /></div>}
 
       {saved !== null && byGroup.map(([key, g]) => (
         <section key={key} aria-label={g.label} style={{ ...card, padding: 10 }}>
-          <h3 style={{ fontSize: '0.92rem', margin: '0 2px 8px' }}>{g.label}</h3>
+          <h3 style={{ fontSize: 15, margin: '0 2px 8px' }}>{g.label}</h3>
           <div className="acct-lines-wrap">
             <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
               <thead>
@@ -128,7 +128,7 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
                     </td>
                     <td style={{ color: 'var(--text-secondary)' }}>{r.saved?.updatedAt ? formatDate(r.saved.updatedAt) : ''}</td>
                     <td style={{ textAlign: 'right' }}>
-                      <button type="button" className="secondary-btn" style={{ fontSize: '0.74rem', padding: '3px 10px' }} onClick={() => open(r)} aria-label={`Open ${r.label}`}>Open</button>
+                      <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => open(r)} aria-label={`Open ${r.label}`}>Open</button>
                     </td>
                   </tr>
                 ))}
@@ -138,7 +138,7 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
         </section>
       ))}
       {saved !== null && !byGroup.length && (
-        <div style={{ ...card, padding: 22, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.86rem' }}>No report matches that search.</div>
+        <div style={{ ...card, padding: 22, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 14 }}>No report matches that search.</div>
       )}
     </div>
   );

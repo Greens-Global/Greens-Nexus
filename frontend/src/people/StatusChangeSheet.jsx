@@ -120,7 +120,7 @@ export default function StatusChangeSheet({ employee, employees = [], onClose, o
             {SHEET_STATUSES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
           {/* Leaving is never a status pick (Neil, 11/03/2026). */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 13, color: 'var(--muted)', flexWrap: 'wrap' }}>
             <LogOut size={13} style={{ flexShrink: 0 }} />
             <span style={{ flex: '1 1 0', minWidth: 0 }}>Leaving the company is Offboard - it records the termination date and returns their equipment, hands over their tasks and closes their accounts.</span>
             {onOffboard && current !== 'offboarded' && (
@@ -155,24 +155,24 @@ export default function StatusChangeSheet({ employee, employees = [], onClose, o
         {isInactive && (
           <div style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}><Mail size={14} /> Mailbox While They Are Away</div>
-            <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 10px' }}>Grant a colleague access to {employee.firstName || 'their'}&apos;s mailbox while they are inactive.</p>
+            <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 10px' }}>Grant a colleague access to {employee.firstName || 'their'}&apos;s mailbox while they are inactive.</p>
             {manager && <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>Defaulted to their manager <b>{fullName(manager)}</b> from the org chart - add or remove below.</div>}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
               {trustees.map((t) => (
-                <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, borderBottom: '1px solid var(--line)', paddingBottom: 2 }}>
+                <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 600, borderBottom: '1px solid var(--line)', paddingBottom: 2 }}>
                   {nameFor(t)}
                   <button type="button" aria-label={`Remove ${nameFor(t)}`} onClick={() => setTrustees((x) => x.filter((y) => y !== t))}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={12} /></button>
                 </span>
               ))}
-              {trustees.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No one selected yet.</span>}
+              {trustees.length === 0 && <span style={{ fontSize: 13, color: 'var(--muted)' }}>No one selected yet.</span>}
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <PersonSelect value={pick || null} onChange={(v) => setPick(v || '')}
                   people={pickRows(colleagues.filter((c) => !trustees.includes((c.workEmail || '').toLowerCase())))}
                   placeholder="Add a colleague" allowNone={false} ariaLabel="Add a Colleague"
-                  style={{ height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13.5, fontWeight: 400 }} />
+                  style={{ height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13, fontWeight: 400 }} />
               </div>
               <button type="button" className="secondary-btn" onClick={addTrustee} disabled={!pick} style={{ padding: '6px 12px' }}>Add</button>
             </div>
@@ -200,7 +200,7 @@ export default function StatusChangeSheet({ employee, employees = [], onClose, o
           <div style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Recent Changes</div>
             {employee.statusLog.slice(0, 4).map((h, i) => (
-              <div key={i} style={{ fontSize: 12.5, color: 'var(--muted)', padding: '3px 0' }}>
+              <div key={i} style={{ fontSize: 13, color: 'var(--muted)', padding: '3px 0' }}>
                 {LABEL[h.from] || h.from} to {LABEL[h.to] || h.to} · {formatDate(h.effectiveDate || (h.at || '').slice(0, 10))}{h.reason ? ` · ${h.reason}` : ''}
               </div>
             ))}

@@ -102,11 +102,11 @@ export default function EgnyteDetails({ item, isFolder, onClose, onDownload }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           {isFolder ? <FolderIcon size={22} /> : <FileIcon name={item.name} size={22} />}
-          <span style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--wk-ink)', minWidth: 0, wordBreak: 'break-word', lineHeight: 1.35 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--wk-ink)', minWidth: 0, wordBreak: 'break-word', lineHeight: 1.35 }}>
             {item.name || item.path?.split('/').pop() || 'Item'}
           </span>
           {item.locked && (
-            <span title="Locked for editing in Egnyte" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600, color: 'var(--wk-orange)', background: 'var(--wk-orange-bg)', borderRadius: 9, padding: '2px 8px', flexShrink: 0 }}>
+            <span title="Locked for editing in Egnyte" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--wk-orange)', background: 'var(--wk-orange-bg)', borderRadius: 9, padding: '2px 8px', flexShrink: 0 }}>
               <Lock size={11} /> Locked
             </span>
           )}
@@ -154,7 +154,7 @@ export default function EgnyteDetails({ item, isFolder, onClose, onDownload }) {
           )}
         </div>
 
-        <div style={{ fontSize: 11.5, color: 'var(--wk-faint)', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 12, color: 'var(--wk-faint)', lineHeight: 1.5 }}>
           Permissions, version history and sharing are managed in Egnyte - the link above opens this item there.
         </div>
       </div>

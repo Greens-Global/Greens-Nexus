@@ -63,7 +63,7 @@ export default function JournalTab({ symbol }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: 10 }}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
-        <strong style={{ fontSize: '0.9rem' }}>{symbol}{title ? ` - ${title}` : ''}</strong>
+        <strong style={{ fontSize: 15 }}>{symbol}{title ? ` - ${title}` : ''}</strong>
         <PeriodStepper config={config} period="range" onChange={patch} />
         {/* Item 02, round 3 (UI test 10/24: two lines at 1100): the search is an
             icon until used; Entities and Filters are the third to move into
@@ -86,7 +86,7 @@ export default function JournalTab({ symbol }) {
           </BarMore>
         </div>
       </ControlBar>
-      {error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', fontSize: '0.84rem' }}>{error}</div>}
+      {error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', fontSize: 13 }}>{error}</div>}
       <LedgerSearch key={symbol} term={term} entities={config.entities} entityName={entityName} drill={drill} onClearDrill={() => {}}
         dims={dims} onExport={setLines} onBusy={setLinesBusy} syncTick={syncTick} />
     </div>

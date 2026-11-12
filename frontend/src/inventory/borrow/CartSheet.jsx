@@ -152,7 +152,7 @@ export function CartSheet({ onClose, onSubmitted, isManager = false }) {
             <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
               <span style={{ ...LABEL, marginBottom: 0 }}>Return Dates</span>
               {cart.length > 1 && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--muted)' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
                   Same Date for All
                   <DateBox compact value={allDate} min={tomorrow} max={allMax} noPast ariaLabel="Same return date for all"
                     onChange={v => { setAllDate(v); if (v) setAllCartDue(v); }} style={{ width: 150 }} />
@@ -227,7 +227,7 @@ export function CartSheet({ onClose, onSubmitted, isManager = false }) {
 
           <section>
             <label style={LABEL} htmlFor="cart-reason">Why Do You Need It?</label>
-            <textarea id="cart-reason" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }}
+            <textarea id="cart-reason" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
               placeholder="e.g. Pressure washing the Austin site this week" value={reason} onChange={e => setReason(e.target.value)} />
             <p style={HINT}>Once it is approved, you confirm you have each item with a photo.</p>
           </section>

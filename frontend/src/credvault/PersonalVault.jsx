@@ -136,7 +136,7 @@ export default function PersonalVault({ myEmail, flash, active = true }) {
                   <div className="cv-sub">
                     {r.username && r.username !== "-" ? r.username : "no username"}{r.note ? ` · ${r.note}` : ""}
                   </div>
-                  <div className="cv-mono" style={{ marginTop: 4, fontSize: secret ? 13 : 13.5, letterSpacing: secret ? "normal" : ".2em", color: secret ? "var(--text-primary)" : "var(--text-muted)", wordBreak: "break-all" }}>{secret || "••••••••"}</div>
+                  <div className="cv-mono" style={{ marginTop: 4, fontSize: 13, letterSpacing: secret ? "normal" : ".2em", color: secret ? "var(--text-primary)" : "var(--text-muted)", wordBreak: "break-all" }}>{secret || "••••••••"}</div>
                 </div>
                 <div className="cv-field-actions" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
                   {r.username && r.username !== "-" && <button type="button" className="cv-iconbtn" title="Copy Username" aria-label="Copy Username" onClick={() => copy(r.username, r.id + ":u")}>{copied === r.id + ":u" ? <Check size={14} style={{ color: "var(--cv-ok)" }} /> : <Copy size={14} />}</button>}

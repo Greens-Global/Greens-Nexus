@@ -51,7 +51,7 @@ export function ExtendRequestModal({ checkout, onClose, onSubmit, zIndex }) {
           {busy ? <><Spinner size={14} /> Sending…</> : <><Clock size={14} /> Send Request</>}
         </button>
       </>}>
-      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 18px', lineHeight: 1.5 }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 18px', lineHeight: 1.5 }}>
         <strong style={{ color: 'var(--ink)' }}>{checkout.itemName}</strong> is due {current ? formatDate(current) : 'soon'}. A manager reviews the new date.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -66,7 +66,7 @@ export function ExtendRequestModal({ checkout, onClose, onSubmit, zIndex }) {
         </div>
         <div>
           <label style={LABEL} htmlFor="extend-reason">Why Do You Need More Time?</label>
-          <textarea id="extend-reason" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }}
+          <textarea id="extend-reason" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
             placeholder="e.g. The site work is running a week longer than planned"
             value={reason} onChange={e => setReason(e.target.value)} />
         </div>

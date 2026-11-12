@@ -26,14 +26,14 @@ const money = (n, cur) => {
 };
 const num = (n) => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const H = { fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '16px 0 6px' };
-const cell = { padding: '7px 10px', fontSize: 12.5, borderTop: '1px solid var(--line)' };
+const cell = { padding: '7px 10px', fontSize: 13, borderTop: '1px solid var(--line)' };
 const small = { fontSize: 12, padding: '5px 10px' };
 
 function Table({ head, rows }) {
   return (
     <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${head.length}, minmax(0, 1fr))`, background: 'var(--mist)' }}>
-        {head.map((h) => <div key={h} style={{ ...cell, borderTop: 'none', fontWeight: 700, fontSize: 11.5, color: 'var(--muted)' }}>{h}</div>)}
+        {head.map((h) => <div key={h} style={{ ...cell, borderTop: 'none', fontWeight: 700, fontSize: 12, color: 'var(--muted)' }}>{h}</div>)}
       </div>
       {rows.map((r, i) => (
         <div key={i} style={{ display: 'grid', gridTemplateColumns: `repeat(${head.length}, minmax(0, 1fr))` }}>
@@ -44,7 +44,7 @@ function Table({ head, rows }) {
   );
 }
 
-const None = ({ children }) => <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{children}</div>;
+const None = ({ children }) => <div style={{ fontSize: 13, color: 'var(--muted)' }}>{children}</div>;
 
 /** One leaver's statement, with Review / Generate PDF / Close Exit. */
 function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
@@ -110,7 +110,7 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
                 {rv.reviewedByName && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Reviewed by <AvatarName email={rv.reviewedBy} name={rv.reviewedByName} size={18} /> · {formatDateTime(rv.reviewedAt)}</span>}
                 {rv.egnytePath && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Filed to Egnyte</span>}
               </div>
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', margin: '8px 0 0' }}>
+              <div style={{ fontSize: 13, color: 'var(--muted)', margin: '8px 0 0' }}>
                 {st.companyName || 'No company'} · {st.jobTitle || 'No title'} · {st.exitTypeLabel} · Last working day <strong style={{ color: 'var(--ink)' }}>{day(st.lastDay)}</strong> ({st.stage})
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Information for payroll - Nexus does not run the final pay.</div>
@@ -126,7 +126,7 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
                   <ExternalLink size={12} /> Open Time Sheet
                 </button>
                 {st.finalPay && (
-                  <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 6 }}>
+                  <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 6 }}>
                     Gross pay {money(st.finalPay.grossPay, st.finalPay.currency)}
                     {st.finalPay.advanceRepayment !== undefined && <> · Salary Advance Repayment -{money(st.finalPay.advanceRepayment, st.finalPay.currency)} · Net pay {money(st.finalPay.netPay, st.finalPay.currency)}</>}
                   </div>
@@ -138,7 +138,7 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
                 <Table head={['Leave', 'Hours', 'Days', 'Payout']}
                   rows={st.leave.buckets.map((b) => [b.label, formatHoursHM(b.hours), num(b.days), b.payout])} />
                 {st.leave.payouts.map((p) => (
-                  <div key={p.bucket} style={{ fontSize: 12.5, marginTop: 6, color: 'var(--ink)' }}>
+                  <div key={p.bucket} style={{ fontSize: 13, marginTop: 6, color: 'var(--ink)' }}>
                     <strong>{p.label}</strong> <StatusLabel label={p.flag} color="#7c3aed" size="sm" />{' '}
                     {p.amount !== undefined ? `${formatHoursWords(p.hours)} x ${money(p.rate, p.currency)} per hour = ${money(p.amount, p.currency)}` : formatHoursWords(p.hours)}
                   </div>
@@ -169,9 +169,9 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
 
               <div style={H}>Offboarding Checklist</div>
               {st.checklist.exists ? (<>
-                <div style={{ fontSize: 12.5, color: 'var(--ink)' }}>{st.checklist.done} of {st.checklist.total} steps done{st.checklist.overdue ? ` · ${st.checklist.overdue} overdue` : ''}</div>
+                <div style={{ fontSize: 13, color: 'var(--ink)' }}>{st.checklist.done} of {st.checklist.total} steps done{st.checklist.overdue ? ` · ${st.checklist.overdue} overdue` : ''}</div>
                 {st.checklist.open.length > 0 && (
-                  <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12.5, color: 'var(--muted)' }}>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 13, color: 'var(--muted)' }}>
                     {st.checklist.open.map((o, i) => <li key={i}>{o.title}{o.dueDate ? ` - due ${day(o.dueDate)}` : ''}</li>)}
                   </ul>
                 )}
@@ -223,7 +223,7 @@ export default function ExitsTab({ toastOk, toastErr }) {
           <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} /> Show Closed
         </label>
       </div>
-      {err && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginBottom: 8 }}>{err}</div>}
+      {err && <div style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginBottom: 8 }}>{err}</div>}
       {!rows ? <SkeletonBlocks count={3} height={44} />
         : rows.length === 0 ? <None>Nobody is leaving right now.</None>
           : (
@@ -236,7 +236,7 @@ export default function ExitsTab({ toastOk, toastErr }) {
                     <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
                     <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[r.jobTitle, r.companyName].filter(Boolean).join(' · ')}</span>
                   </span>
-                  <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>Last day {day(r.lastDay)}<span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{r.stage} · {r.exitTypeLabel}</span></span>
+                  <span style={{ fontSize: 13, color: 'var(--ink)' }}>Last day {day(r.lastDay)}<span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{r.stage} · {r.exitTypeLabel}</span></span>
                   <span />
                   <StatusLabel label={r.statementStatusLabel} color={STATUS_COLOR[r.statementStatus]} size="sm" />
                 </button>

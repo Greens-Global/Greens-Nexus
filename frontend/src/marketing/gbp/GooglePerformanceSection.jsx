@@ -18,7 +18,7 @@ const RANGES = [
 ]
 
 const select = {
-  padding: '7px 10px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12.5,
+  padding: '7px 10px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13,
   color: C.gray700, background: C.white, cursor: 'pointer',
 }
 
@@ -41,14 +41,14 @@ function KeywordsCard({ keywords, months }) {
   const first = months[0] && formatDate(`${months[0]}-01T12:00:00`)
   return (
     <div style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, height: '100%' }}>
-      <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900, marginBottom: 4 }}>How Customers Find You</h3>
-      <p style={{ fontSize: 11.5, color: C.gray400, marginBottom: 12 }}>
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 4 }}>How Customers Find You</h3>
+      <p style={{ fontSize: 12, color: C.gray400, marginBottom: 12 }}>
         Searches that showed the profile{first ? `, monthly figures from ${first}` : ''}. Google gives a floor (&ldquo;over&rdquo;) for rare terms.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {keywords.map((k) => (
           <div key={k.keyword}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
               <span style={{ color: C.gray700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.keyword}</span>
               <span style={{ color: C.gray500, flexShrink: 0, marginLeft: 8 }}>{k.belowThreshold ? 'over ' : ''}{formatNumber(k.impressions)}</span>
             </div>
@@ -58,7 +58,7 @@ function KeywordsCard({ keywords, months }) {
           </div>
         ))}
         {keywords.length === 0 && (
-          <div style={{ textAlign: 'center', color: C.gray400, padding: '24px 0', fontSize: 12.5 }}>
+          <div style={{ textAlign: 'center', color: C.gray400, padding: '24px 0', fontSize: 13 }}>
             No search terms for these months yet - Google publishes them monthly.
           </div>
         )}
@@ -100,7 +100,7 @@ export default function GooglePerformanceSection({ locations, reloadKey = 0 }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <div>
           <h2 style={{ fontSize: 14, fontWeight: 600, color: C.gray900 }}>Google Business Profile Performance</h2>
-          {data?.syncedAt && <div style={{ fontSize: 11.5, color: C.gray400 }}>Updated {formatDateTime(data.syncedAt)} &middot; compared with the {days} days before</div>}
+          {data?.syncedAt && <div style={{ fontSize: 12, color: C.gray400 }}>Updated {formatDateTime(data.syncedAt)} &middot; compared with the {days} days before</div>}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <select value={locationKey} onChange={(e) => setLocationKey(e.target.value)} style={select} aria-label="Location">

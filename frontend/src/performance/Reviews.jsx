@@ -34,7 +34,7 @@ export function ReviewList({ items, onOpen, showPerson = false, empty = 'No revi
             border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)' }}>
           <span className="wkc-chip"><ClipboardCheck size={14} /></span>
           <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>{showPerson ? r.employeeName : r.cycleName}</span>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{showPerson ? r.employeeName : r.cycleName}</span>
             <span style={{ display: 'block', ...muted, fontSize: 12, marginTop: 2 }}>
               {[showPerson ? r.cycleName : '', r.due ? `Due ${formatDate(r.due)}` : '', r.yours && ['self_review', 'manager_review'].includes(r.stage) ? 'Yours to write' : ''].filter(Boolean).join(' · ')}
             </span>
@@ -51,7 +51,7 @@ function Section({ title, children, aside }) {
   return (
     <section style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, display: 'grid', gap: 12, minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700 }}>{title}</span>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>{title}</span>
         {aside}
       </div>
       {children}
@@ -68,11 +68,11 @@ function Questions({ answers, onChange, readOnly, emptyText = '-', after = {} })
         const text = (answers?.[q.id] || {}).text || '';
         return (
           <label key={q.id} style={{ display: 'grid', gap: 6 }}>
-            <span style={{ fontSize: 13.5, fontWeight: 600 }}>{q.text}</span>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{q.text}</span>
             {readOnly
               ? <span style={{ fontSize: 13, whiteSpace: 'pre-wrap', lineHeight: 1.5, color: text ? 'var(--ink)' : 'var(--muted)' }}>{text || emptyText}</span>
               : <textarea className="form-input" rows={3} value={text} onChange={e => onChange({ ...answers, [q.id]: { text: e.target.value } })}
-                  style={{ fontFamily: 'inherit', resize: 'vertical', fontSize: 16 }} />}
+                  style={{ fontFamily: 'inherit', resize: 'vertical', fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />}
             {after[q.id] ? after[q.id](text) : null}
           </label>
         );
@@ -97,11 +97,11 @@ function GoalsBeside({ goals, scores, onScore, editable }) {
             <span style={{ flex: 1 }}><ProgressBar value={g.progress} status={g.status} dueOn={g.dueOn} label={`${g.title} progress`} /></span>
             <span style={{ ...muted, fontSize: 12, whiteSpace: 'nowrap' }}>{measureText({ ...g, metricGood: 'high' })}</span>
           </div>
-          {g.measuredByNexus && <span style={{ ...muted, fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> {g.metricLabel}</span>}
+          {g.measuredByNexus && <span style={{ ...muted, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sparkles size={11} /> {g.metricLabel}</span>}
           {editable ? (
             <Segmented label={`Score for ${g.title}`} value={scores?.[g.id] || ''} onChange={(k) => onScore({ ...scores, [g.id]: k })} options={GOAL_SCORES} />
           ) : scores?.[g.id] ? (
-            <span style={{ fontSize: 12.5 }}>Score: <strong>{GOAL_SCORES.find(s => s.key === scores[g.id])?.label}</strong></span>
+            <span style={{ fontSize: 13 }}>Score: <strong>{GOAL_SCORES.find(s => s.key === scores[g.id])?.label}</strong></span>
           ) : null}
         </div>
       ))}
@@ -159,7 +159,7 @@ function ManagerPart({ r, scores, onSaved, toastOk, toastErr }) {
   // the server's goal rule, can.addGoal).
   const after = edit && r.can.addGoal ? { next: (text) => (text.trim() ? (
     <button type="button" className="secondary-btn" onClick={(e) => { e.preventDefault(); makeGoal(text); }}
-      style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 36, fontSize: 12.5 }}>
+      style={{ justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 36, fontSize: 13 }}>
       <Target size={13} /> Make This a Goal
     </button>) : null) } : {};
   if (!edit && r.managerAnswers === undefined) return null;
@@ -182,20 +182,20 @@ function ManagerPart({ r, scores, onSaved, toastOk, toastErr }) {
           onSaved={() => { setGoalFor(null); toastOk?.(`Goal added for ${r.employeeName.split(' ')[0]}.`); }} />
       )}
       <div style={{ display: 'grid', gap: 6 }}>
-        <span style={{ fontSize: 13.5, fontWeight: 600 }}>Overall Rating</span>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>Overall Rating</span>
         {edit ? <Segmented label="Overall Rating" value={rating} onChange={setRating} options={RATINGS} />
           : <span style={{ fontSize: 14, fontWeight: 600 }}>{r.ratingLabel || 'Not rated'}</span>}
         {r.calibratedFromLabel && <span style={muted}>Calibrated by HR - the manager rated {r.calibratedFromLabel}.</span>}
       </div>
       {r.promotionReady !== undefined && (edit ? (
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13.5, minHeight: 40 }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, minHeight: 40 }}>
           <input type="checkbox" checked={promo} onChange={e => setPromo(e.target.checked)} /> Ready for Promotion
         </label>
       ) : r.promotionReady ? <span style={{ fontSize: 13 }}>Ready for Promotion</span> : null)}
       {r.privateNote !== undefined && (
         <label style={{ display: 'grid', gap: 6 }}>
           <span style={{ ...LBL, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Private Note for HR - Never Shown to Them</span>
-          {edit ? <textarea className="form-input" rows={2} value={note} onChange={e => setNote(e.target.value)} style={{ fontFamily: 'inherit', resize: 'vertical', fontSize: 16 }} />
+          {edit ? <textarea className="form-input" rows={2} value={note} onChange={e => setNote(e.target.value)} style={{ fontFamily: 'inherit', resize: 'vertical', fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
             : <span style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{r.privateNote || '-'}</span>}
         </label>
       )}
@@ -236,7 +236,7 @@ function HrPart({ r, onSaved, onRemoved, toastOk, toastErr }) {
       {c.returnToManager && (
         <div style={{ display: 'grid', gap: 6 }}>
           <span style={LBL}>Send It Back to the Manager</span>
-          <textarea className="form-input" rows={2} value={back} onChange={e => setBack(e.target.value)} placeholder="What needs changing?" style={{ fontFamily: 'inherit', resize: 'vertical', fontSize: 16 }} />
+          <textarea className="form-input" rows={2} value={back} onChange={e => setBack(e.target.value)} placeholder="What needs changing?" style={{ fontFamily: 'inherit', resize: 'vertical', fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
           <div><button type="button" className="secondary-btn" disabled={busy || back.trim().length < 3} style={{ ...TAP, display: 'inline-flex', alignItems: 'center', gap: 6 }}
             onClick={async () => { const out = await run(() => api.perfReviewReturn(r.id, back), 'Sent back to the manager.'); if (out) onSaved(out); }}><Undo2 size={14} /> Return to Manager</button></div>
         </div>
@@ -282,7 +282,7 @@ function Acknowledge({ r, onClose, toastErr }) {
       <div style={{ fontSize: 13 }}>Signing says you received and read it - it does not mean you agree with everything in it.</div>
       <label className="nx-fill" style={{ display: 'grid', gap: 6 }}>
         <span style={LBL}>Your Comments (Optional - Printed on Your Copy)</span>
-        <textarea className="form-input" rows={3} value={comment} disabled={started} onChange={e => setComment(e.target.value)} style={{ fontFamily: 'inherit', resize: 'vertical', fontSize: 16 }} />
+        <textarea className="form-input" rows={3} value={comment} disabled={started} onChange={e => setComment(e.target.value)} style={{ fontFamily: 'inherit', resize: 'vertical', fontSize: /* type-ok: iOS zooms a field under 16px */ 16 }} />
       </label>
       <div><button type="button" className="primary-btn" disabled={busy} onClick={go} style={{ ...TAP, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         <PenLine size={14} /> {started ? 'Continue to Sign' : 'Acknowledge'}

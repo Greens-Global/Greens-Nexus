@@ -156,7 +156,7 @@ export default function OverviewTab({ canEdit }) {
   const roleViews = views.filter((v) => DEFAULT_IDS.includes(v.id));
   const customViews = views.filter((v) => !DEFAULT_IDS.includes(v.id));
   const shown = attnAll ? attention : attention.slice(0, 4);
-  const small = { fontSize: '0.74rem', padding: '4px 10px' };
+  const small = { fontSize: 12, padding: '4px 10px' };
 
   return (
     <div style={{ display: 'grid', gap: 'var(--dash-gap, 14px)' }}>
@@ -178,7 +178,7 @@ export default function OverviewTab({ canEdit }) {
                 <button type="button" className="secondary-btn" style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => { setNote(''); setEditing(true); }} disabled={!current || editing}>
                   <LayoutGrid size={13} /> Arrange Widgets
                 </button>
-                <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>Add, remove, resize and reorder this view's widgets - for everyone who uses the view.</span>
+                <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Add, remove, resize and reorder this view's widgets - for everyone who uses the view.</span>
               </div>
             ) : null}
           </CustomizeButton>
@@ -186,7 +186,7 @@ export default function OverviewTab({ canEdit }) {
       } />
 
       {editing && current ? (
-        <div style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '10px 14px', borderColor: 'var(--wk-brand, #2b45e1)', background: 'var(--wk-brand-tint, #e8ecfd)', fontSize: '0.8rem' }}>
+        <div style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '10px 14px', borderColor: 'var(--wk-brand, #2b45e1)', background: 'var(--wk-brand-tint, #e8ecfd)', fontSize: 13 }}>
           <span style={{ marginRight: 'auto' }}><b>Arranging {current.name}.</b> Drag to reorder, change a widget's width, add widgets from the library.</span>
           <button type="button" className="secondary-btn" style={small} onClick={() => setAddOpen((v) => !v)}><Plus size={12} style={{ verticalAlign: -2 }} /> Add Widget</button>
           <button type="button" className="secondary-btn" style={small} onClick={() => setForm({ mode: 'rename', name: current.name, role: current.role, copy: '' })}>Rename</button>
@@ -197,7 +197,7 @@ export default function OverviewTab({ canEdit }) {
       ) : null}
 
       {note ? (
-        <div role="status" style={{ ...card, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+        <div role="status" style={{ ...card, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: 13, color: 'var(--text-secondary)' }}>
           <AlertTriangle size={14} style={{ color: 'var(--warn-fg)', flexShrink: 0 }} />
           <span style={{ flex: 1 }}>{note}</span>
           <button type="button" className="icon-btn" aria-label="Dismiss" onClick={() => setNote('')} style={{ padding: 4 }}><X size={13} /></button>
@@ -206,7 +206,7 @@ export default function OverviewTab({ canEdit }) {
 
       {form ? (
         <form onSubmit={submitForm} style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
-          <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{form.mode === 'new' ? 'New view' : 'Rename view'}</span>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{form.mode === 'new' ? 'New view' : 'Rename view'}</span>
           <input autoFocus required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="View name" style={{ ...input, width: 200 }} />
           <input value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} placeholder="Role label" style={{ ...input, width: 140 }} />
           {form.mode === 'new' ? (
@@ -218,7 +218,7 @@ export default function OverviewTab({ canEdit }) {
       ) : null}
 
       {!editing ? (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: '0.78rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 13 }}>
           {/* Books not reached: the notice above says so - never "Nothing needs attention". */}
           {down ? null : loading || isLoading ? (
             <div style={{ width: 320, maxWidth: '100%' }}><SkeletonBlocks count={1} height={20} borderRadius={999} /></div>
@@ -232,7 +232,7 @@ export default function OverviewTab({ canEdit }) {
                   <Chip tone={a.severity === 0 ? 'bad' : a.severity === 1 ? 'wait' : 'ok'}>{a.text}</Chip>
                 </button>
               ))}
-              {attention.length > 4 ? <button type="button" onClick={() => setAttnAll((v) => !v)} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: '0.72rem', color: 'var(--wk-brand, #2b45e1)' }}>{attnAll ? 'Show less' : `+${attention.length - 4} more`}</button> : null}
+              {attention.length > 4 ? <button type="button" onClick={() => setAttnAll((v) => !v)} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: 12, color: 'var(--wk-brand, #2b45e1)' }}>{attnAll ? 'Show less' : `+${attention.length - 4} more`}</button> : null}
             </>
           )}
         </div>
@@ -240,14 +240,14 @@ export default function OverviewTab({ canEdit }) {
 
       {addOpen && editing ? (
         <div style={{ ...card, padding: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}><b style={{ fontSize: '0.86rem' }}>Widget library</b><button type="button" className="icon-btn" aria-label="Close" onClick={() => setAddOpen(false)}><X size={14} /></button></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}><b style={{ fontSize: 14 }}>Widget library</b><button type="button" className="icon-btn" aria-label="Close" onClick={() => setAddOpen(false)}><X size={14} /></button></div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
             {WIDGET_CATS.map((cat) => (
               <div key={cat}>
-                <div style={{ fontSize: '0.66rem', fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>{cat}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 6 }}>{cat}</div>
                 {WIDGET_LIST.filter((w) => w.cat === cat).map((w) => (
                   <button key={w.id} type="button" onClick={() => add(w.id)} style={{ display: 'flex', width: '100%', gap: 8, alignItems: 'flex-start', textAlign: 'left', padding: 8, marginBottom: 6, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-card)', cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
-                    <span style={{ minWidth: 0, flex: 1 }}><span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', fontWeight: 600 }}>{w.title}{widgets.some((x) => x.type === w.id) ? <Chip tone="ok">On view</Chip> : null}</span><span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{w.desc}</span></span>
+                    <span style={{ minWidth: 0, flex: 1 }}><span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}>{w.title}{widgets.some((x) => x.type === w.id) ? <Chip tone="ok">On view</Chip> : null}</span><span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>{w.desc}</span></span>
                     <Plus size={14} style={{ color: 'var(--text-muted)', flexShrink: 0, marginTop: 2 }} />
                   </button>
                 ))}
@@ -263,7 +263,7 @@ export default function OverviewTab({ canEdit }) {
         : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 'var(--dash-gap, 14px)', paddingBottom: 16 }}>
             {widgets.map((w, i) => (folded.includes(w) ? (w === folded[0] ? (
-              <div key="folded" role="note" style={{ ...card, gridColumn: 'span 12', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              <div key="folded" role="note" style={{ ...card, gridColumn: 'span 12', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: 13, color: 'var(--text-secondary)' }}>
                 <Info size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}><b style={{ color: 'var(--text-primary)' }}>Nothing to show yet:</b> {folded.map((x) => `${WIDGETS[x.type].title} (${empty[x.type]})`).join(' · ')}</span>
                 {[...new Map(folded.map((x) => SETUP_AT[x.type] || SETUP_AT.default).map((at) => [at[0], at])).values()].map(([to, where]) => (
@@ -279,7 +279,7 @@ export default function OverviewTab({ canEdit }) {
                   editing ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       <GripVertical size={14} style={{ color: 'var(--text-muted)' }} />
-                      <button type="button" className="secondary-btn" style={{ fontSize: '0.68rem', padding: '2px 8px' }} onClick={() => resize(i)}>{SIZE_LABEL[w.size]}</button>
+                      <button type="button" className="secondary-btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => resize(i)}>{SIZE_LABEL[w.size]}</button>
                       <button type="button" className="icon-btn" aria-label="Remove" onClick={() => remove(i)} style={{ padding: 4, color: 'var(--bad-fg, #dc2626)' }}><X size={13} /></button>
                     </span>
                   ) : canEdit ? (
@@ -294,7 +294,7 @@ export default function OverviewTab({ canEdit }) {
                           [`Change width (${SIZE_LABEL[SIZES[(SIZES.indexOf(w.size) + 1) % SIZES.length]]})`, null, () => resize(i), false],
                           ['Remove from this view', <Trash2 size={13} />, () => remove(i), false, true],
                         ].map(([label, icon, fn, disabled, danger]) => (
-                          <button key={label} type="button" role="menuitem" disabled={disabled} onClick={() => { fn(); setMenuFor(null); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', border: 'none', background: 'none', textAlign: 'left', font: 'inherit', fontSize: '0.78rem', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1, color: danger ? 'var(--bad-fg, #dc2626)' : 'inherit', borderRadius: 6 }}>{icon}{label}</button>
+                          <button key={label} type="button" role="menuitem" disabled={disabled} onClick={() => { fn(); setMenuFor(null); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', border: 'none', background: 'none', textAlign: 'left', font: 'inherit', fontSize: 13, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1, color: danger ? 'var(--bad-fg, #dc2626)' : 'inherit', borderRadius: 6 }}>{icon}{label}</button>
                         ))}
                       </AnchoredMenu>
                     </span>

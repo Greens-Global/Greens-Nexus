@@ -30,7 +30,7 @@ import { DateField, Modal } from '../tasks/components';
 import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
-const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
+const hint = { fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
@@ -83,7 +83,7 @@ export function RoleChangeModal({ employee: e, roles: givenRoles, onClose, onPro
       style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', textAlign: 'left', padding: '12px 14px', marginTop: 10, borderRadius: 12, cursor: off ? 'not-allowed' : 'pointer', opacity: off ? 0.55 : 1, fontFamily: 'Inter,sans-serif', color: 'var(--ink)',
         border: `1.5px solid ${on ? 'var(--pine)' : 'var(--line)'}`, background: on ? 'hsla(var(--color-green),0.06)' : 'var(--card)' }}>
       <Icon size={18} style={{ color, flexShrink: 0, marginTop: 1 }} />
-      <div><div style={{ fontWeight: 700, fontSize: 13.5 }}>{title}</div>
+      <div><div style={{ fontWeight: 700, fontSize: 13 }}>{title}</div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.5 }}>{sub}</div></div>
     </button>
   );
@@ -200,7 +200,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
         )}
       </>}>
         <div style={{ fontFamily: 'Inter,sans-serif' }}>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>A letter through Nexus Sign: {name} signs, then their manager. It takes effect when both have signed.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>A letter through Nexus Sign: {name} signs, then their manager. It takes effect when both have signed.</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, flexWrap: 'wrap' }}>
             <span style={{ padding: '6px 12px', borderRadius: 10, background: 'var(--mist)' }}>{e.jobTitle || 'No title yet'}</span>
             <ArrowRight size={15} style={{ color: 'var(--muted)' }} />
@@ -248,22 +248,22 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
 
           {preview && docsMode && (
             <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
-              <div style={{ fontWeight: 800, fontSize: 13.5 }}>{preview.title}</div>
+              <div style={{ fontWeight: 800, fontSize: 13 }}>{preview.title}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>Documents</div>
-                  {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 12.5 }}>{i + 1}. {d}</div>)}
+                  {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 13 }}>{i + 1}. {d}</div>)}
                 </div>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
-                  {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.name} ({r.isSubject ? 'the employee' : r.roleLabel}) - {r.actionLabel}</div>)}
+                  {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 13 }}>{r.order}. {r.name} ({r.isSubject ? 'the employee' : r.roleLabel}) - {r.actionLabel}</div>)}
                 </div>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>The Change</div>
-                  <div style={{ fontSize: 12.5 }}>{preview.fromTitle || '-'} to <b>{preview.toTitle}</b>, effective <b>{usDay(preview.effectiveDate)}</b></div>
+                  <div style={{ fontSize: 13 }}>{preview.fromTitle || '-'} to <b>{preview.toTitle}</b>, effective <b>{usDay(preview.effectiveDate)}</b></div>
                 </div>
               </div>
-              <div style={{ fontSize: 12.5, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--card)' }}>
+              <div style={{ fontSize: 13, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--card)' }}>
                 Nothing goes to {name} yet: the letter is generated from Documents, and <b>{preview.verifier?.name || 'HR'}</b> ({preview.verifier?.roleLabel || 'HR'}) checks it and sends it.
               </div>
               {(preview.signedPeriods || []).length > 0 && <Warn>Already signed for the new pay period: {preview.signedPeriods.map(p => p.label).join(', ')}. These will be flagged for HR to review - not repriced.</Warn>}
@@ -272,27 +272,27 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
           )}
           {preview && !docsMode && (
             <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
-              <div style={{ fontWeight: 800, fontSize: 13.5 }}>{preview.title}</div>
+              <div style={{ fontWeight: 800, fontSize: 13 }}>{preview.title}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
-                  {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.who === 'employee' ? `${r.name} (${r.email})` : r.who === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - countersign after them`}</div>)}
+                  {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 13 }}>{r.order}. {r.who === 'employee' ? `${r.name} (${r.email})` : r.who === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - countersign after them`}</div>)}
                 </div>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>The Change</div>
-                  <div style={{ fontSize: 12.5 }}>{preview.fromTitle || '-'} to <b>{preview.toTitle}</b>, effective <b>{usDay(preview.effectiveDate)}</b>{preview.salaryText ? <> at <b>{preview.salaryText}</b></> : null}</div>
+                  <div style={{ fontSize: 13 }}>{preview.fromTitle || '-'} to <b>{preview.toTitle}</b>, effective <b>{usDay(preview.effectiveDate)}</b>{preview.salaryText ? <> at <b>{preview.salaryText}</b></> : null}</div>
                   {preview.salaryText && preview.payInLetter === false && <Problem>This letter does not show pay - {preview.salaryText} will be set as their pay when they sign, but they will not read it in the documents. Add {'{{salary}}'} to the template under Documents &gt; Nexus Sign &gt; Templates, or leave pay blank.</Problem>}
                 </div>
                 <div>
                   <div style={{ ...lbl, marginTop: 0 }}>Filed In Egnyte</div>
-                  <div style={{ fontSize: 12.5, display: 'flex', gap: 6 }}><FolderOpen size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--muted)' }} />{name} &gt; {preview.egnyteSubfolder}</div>
+                  <div style={{ fontSize: 13, display: 'flex', gap: 6 }}><FolderOpen size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--muted)' }} />{name} &gt; {preview.egnyteSubfolder}</div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12.5 }}>{name} gets the letter by email with a link to sign; their manager gets one after.</span>
-                <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }}
+                <span style={{ fontSize: 13 }}>{name} gets the letter by email with a link to sign; their manager gets one after.</span>
+                <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }}
                   onClick={() => setMail({ event: 'promotion', entityId: preview.entityId, templateId: preview.templateId, note: preview.emailMessage || '' })}>Preview Email</button>
-                <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }}
+                <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }}
                   onClick={() => setMail({ event: 'promotion', entityId: preview.entityId, templateId: preview.templateId, role: 'manager' })}>Manager Email</button>
               </div>
               {(preview.signedPeriods || []).length > 0 && <Warn>Already signed for the new pay period: {preview.signedPeriods.map(p => p.label).join(', ')}. These will be flagged for HR to review - not repriced.</Warn>}
@@ -379,7 +379,7 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
   const radio = (val, label, sub) => (
     <label style={{ display: 'flex', gap: 10, padding: '9px 11px', borderRadius: 10, border: `1px solid ${mailbox === val ? 'var(--pine)' : 'var(--line)'}`, background: mailbox === val ? 'hsla(var(--color-green),0.06)' : 'transparent', cursor: 'pointer', marginBottom: 8 }}>
       <input type="radio" name="offMailbox" checked={mailbox === val} onChange={() => { setMailbox(val); setPreview(null); }} style={{ marginTop: 2 }} />
-      <div><div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{sub}</div></div>
+      <div><div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>{sub}</div></div>
     </label>
   );
   return (
@@ -406,7 +406,7 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
         )}
       </>}>
         <div style={{ fontFamily: 'Inter,sans-serif' }}>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{companyName || 'Their company'} · {e.jobTitle || 'No title'}</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>{companyName || 'Their company'} · {e.jobTitle || 'No title'}</div>
           {/* One way to leave (Neil, 11/03/2026): Offboard is the only path to
               Left. The last day is the termination date on their record. */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '0 14px' }}>
@@ -418,7 +418,7 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
                 {EXIT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select></div>
           </div>
-          <div style={{ marginTop: 10, borderRadius: 10, padding: '9px 12px', fontSize: 12.5,
+          <div style={{ marginTop: 10, borderRadius: 10, padding: '9px 12px', fontSize: 13,
             background: immediate ? 'hsla(var(--color-red),0.08)' : 'hsla(var(--color-blue),0.08)' }}>
             {immediate
               ? <>Today: their access ends as soon as you confirm, and the paperwork goes to their <b>personal email</b>{e.personalEmail ? ` (${e.personalEmail})` : ' - none on file yet'}.</>
@@ -446,44 +446,44 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
           <label style={lbl}>Their Tasks Go To</label>
           {handoverTo ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>{nameOf(handoverTo)}
-              <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={() => setHandoverTo('')}>Change</button></div>
+              <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => setHandoverTo('')}>Change</button></div>
           ) : (
             <PersonSearchSelect placeholder="Blank = their supervisor" groups={[{ label: 'Nexus People', people: people.filter(p => p.email !== (e.workEmail || '').toLowerCase()) }]}
               onPick={em => setHandoverTo(em || '')} />
           )}
           <div style={hint}>Their open tasks move to this person, in one project of their previously assigned tasks. Equipment they hold is returned and their future shifts come off the schedule.</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={includeCompleted} onChange={ev => { setIncludeCompleted(ev.target.checked); setPreview(null); }} style={{ accentColor: 'var(--pine)' }} /> Include their completed tasks
             </label>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={exportRequested} onChange={ev => setExportRequested(ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Export their mailbox first
             </label>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={f.start_checklist} onChange={ev => set('start_checklist', ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Start the offboarding checklist
             </label>
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={f.send_package} onChange={ev => set('send_package', ev.target.checked)} style={{ accentColor: 'var(--pine)' }} /> Send the separation package through Nexus Sign
             </label>
           </div>
 
           {preview && (
             <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
-              <div style={{ fontWeight: 800, fontSize: 13.5 }}>{preview.immediate ? `${name} leaves today` : `${name} leaves on ${usDay(preview.lastDay)}`}</div>
+              <div style={{ fontWeight: 800, fontSize: 13 }}>{preview.immediate ? `${name} leaves today` : `${name} leaves on ${usDay(preview.lastDay)}`}</div>
               {preview.package && preview.engine === 'documents' ? (
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
                     <div>
                       <div style={{ ...lbl, marginTop: 0 }}>Package</div>
-                      {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 12.5 }}>{i + 1}. {d}</div>)}
+                      {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 13 }}>{i + 1}. {d}</div>)}
                       <div style={hint}>Goes to {preview.sendTo} - {preview.why}.</div>
                     </div>
                     <div>
                       <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
-                      {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.name} ({r.isSubject ? 'leaving' : r.roleLabel}) - {r.actionLabel}</div>)}
+                      {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 13 }}>{r.order}. {r.name} ({r.isSubject ? 'leaving' : r.roleLabel}) - {r.actionLabel}</div>)}
                     </div>
                   </div>
-                  <div style={{ fontSize: 12.5, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--card)' }}>
+                  <div style={{ fontSize: 13, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--card)' }}>
                     The offboarding goes ahead as set above. The package is generated from Documents and sent once <b>{preview.verifier?.name || 'HR'}</b> ({preview.verifier?.roleLabel || 'HR'}) has checked it.
                   </div>
                   {(preview.problems || []).map(p => <Problem key={p}>{p}</Problem>)}
@@ -492,21 +492,21 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
                   <div>
                     <div style={{ ...lbl, marginTop: 0 }}>Package</div>
-                    {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 12.5 }}>{i + 1}. {d}</div>)}
+                    {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 13 }}>{i + 1}. {d}</div>)}
                     <div style={hint}>Goes to {preview.sendTo} - {preview.why}.</div>
-                    <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px', marginTop: 6 }}
+                    <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px', marginTop: 6 }}
                       onClick={() => setMail({ event: 'separation', entityId: preview.entityId, templateId: preview.templateId, note: preview.emailMessage || '' })}>Preview Email</button>
                   </div>
                   <div>
                     <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
-                    {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.isSubject ? name : r.role === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - countersign after ${name}`}</div>)}
+                    {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 13 }}>{r.order}. {r.isSubject ? name : r.role === 'manager' ? `${r.name} (manager)` : `You (${r.role}) - countersign after ${name}`}</div>)}
                   </div>
                   <div>
                     <div style={{ ...lbl, marginTop: 0 }}>Filed In Egnyte</div>
-                    <div style={{ fontSize: 12.5, display: 'flex', gap: 6 }}><FolderOpen size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--muted)' }} />{name} &gt; {preview.egnyteSubfolder}</div>
+                    <div style={{ fontSize: 13, display: 'flex', gap: 6 }}><FolderOpen size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--muted)' }} />{name} &gt; {preview.egnyteSubfolder}</div>
                   </div>
                 </div>
-              ) : <div style={{ fontSize: 12.5, marginTop: 6 }}>No paperwork - only the offboarding itself.</div>}
+              ) : <div style={{ fontSize: 13, marginTop: 6 }}>No paperwork - only the offboarding itself.</div>}
               {(preview.unresolved || []).length > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 14px' }}>
                   {preview.unresolved.map(k => (

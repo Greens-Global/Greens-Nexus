@@ -27,7 +27,7 @@ import { useGroupDirty } from '../lib/groupDirty';
 import SaveRow from './SaveRow';
 import { Switch } from './settings/SettingsUI';
 
-const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+const fieldLabel = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
 const MODES = [
   { key: 'off', label: 'Off', hint: 'Loop still scans and logs (for timing/dedupe visibility) but never sends mail.' },
@@ -129,7 +129,7 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
 
   if (!can('administrator')) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13.5 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13 }}>
         Administrator access is required to view Daily Briefing settings.
       </div>
     );
@@ -154,11 +154,11 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
       {tab === 'log' ? <DeliveryLog /> : (
       <>
       {notice && (
-        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{notice.text}</div>
+        <div role="status" style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: notice.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{notice.text}</div>
       )}
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
-        {modeLocked && <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>Mode and the test recipients apply to every company - only a Super Administrator can change them.</div>}
+        {modeLocked && <div style={{ fontSize: 12, color: NX.faint, marginBottom: 8 }}>Mode and the test recipients apply to every company - only a Super Administrator can change them.</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {MODES.map((m) => (
             <label key={m.key} style={{
@@ -169,7 +169,7 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
               <input type="radio" name="briefing-mode" checked={cfg.mode === m.key} disabled={modeLocked}
                 onChange={() => pickMode(m.key)} style={{ marginTop: 3 }} />
               <span>
-                <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{m.label}</div>
                 <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{m.hint}</div>
               </span>
             </label>
@@ -211,7 +211,7 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
             {withCurrent(ZONES, cfg.defaultTimeZone || 'America/Los_Angeles').map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
-        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 6 }}>
+        <div style={{ fontSize: 12, color: NX.dim, marginTop: 6 }}>
           On a day off or with no shift, the briefing goes out at this time in the person's shift time zone, else the one picked here. Turning it on starts mailing people who get none today.
         </div>
       </div>
@@ -230,14 +230,14 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
                 <input type="radio" name="briefing-card" checked={on} style={{ marginTop: 3 }}
                   onChange={() => instant({ outlook_card: c.key }, 'Outlook card')} />
                 <span>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{c.label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{c.label}</div>
                   <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{c.hint}</div>
                 </span>
               </label>
             );
           })}
         </div>
-        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 6 }}>
+        <div style={{ fontSize: 12, color: NX.dim, marginTop: 6 }}>
           Outlook only shows a card to people covered by the Actionable Messages registration; everyone else gets the designed email.
         </div>
       </div>
@@ -259,14 +259,14 @@ export default function DailyBriefingSettings({ toastOk, toastErr }) {
             <label style={fieldLabel} htmlFor="briefing-test-recipients">Test Recipients</label>
             <input id="briefing-test-recipients" value={draft.recipients} onChange={(e) => editDraft({ recipients: e.target.value })} readOnly={modeLocked}
               placeholder="you@company.com, another@company.com" style={inputStyle} />
-            <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: NX.dim, marginTop: 4 }}>
               Comma-separated. Every employee's briefing computes on their own real data, but the send is
               redirected here instead of their own inbox, with a "[TEST -&gt; original]" subject prefix.
             </div>
           </div>
         )}
 
-        {err && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.red, margin: '12px 0 0' }}>
+        {err && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.red, margin: '12px 0 0' }}>
           <AlertTriangle size={13} /> {err}
         </div>}
 
@@ -401,7 +401,7 @@ function DeliveryLog() {
           onKeyDown={(e) => { if (e.key === 'Enter') { setOffset(0); load(); } }}
           placeholder="Filter by employee email…" style={{ ...inputStyle, width: 260 }} />
         <button style={btn('ghost')} onClick={() => { setOffset(0); load(); }} title="Refresh"><RefreshCw size={14} /></button>
-        {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
+        {err && <span style={{ fontSize: 13, color: NX.red }}>{err}</span>}
         <span style={{ flex: 1 }} />
         {selected.size > 0 && !bulk?.total && (
           <button style={btn('ghost')} onClick={() => setSelected(new Set())}>Clear</button>
@@ -412,10 +412,10 @@ function DeliveryLog() {
         </button>
       </div>
       {bulk?.summary && (
-        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, marginBottom: 12,
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 12,
           color: bulk.failed ? NX.red : 'var(--nx-tag-green-fg)', fontWeight: 600 }}>
           {bulk.failed ? <XCircle size={14} /> : <CheckCircle2 size={14} />} {bulk.summary}
-          <button style={{ ...btn('ghost'), fontSize: 11.5, padding: '2px 8px' }} onClick={() => setBulk(null)}>Dismiss</button>
+          <button style={{ ...btn('ghost'), fontSize: 12, padding: '2px 8px' }} onClick={() => setBulk(null)}>Dismiss</button>
         </div>
       )}
       {rows === null ? (
@@ -433,7 +433,7 @@ function DeliveryLog() {
             {rows.map((r) => {
               const meta = statusOf(r);
               return (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5,
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13,
                   background: selected.has(r.id) ? 'var(--wk-brand-tint)' : 'transparent' }}>
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)}
                     aria-label={`Select ${r.employeeEmail} ${formatDate(r.briefingDate, r.briefingDate)}`} style={{ flexShrink: 0 }} />
@@ -445,7 +445,7 @@ function DeliveryLog() {
                   <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, width: 130 }}>{meta.label}</span>
                   <button onClick={() => forceResend(r)} disabled={resendingId === r.id}
                     title="Sends this employee's briefing right now, regardless of their shift window"
-                    style={{ ...btn('ghost'), flexShrink: 0, fontSize: 11.5, padding: '4px 8px', opacity: resendingId === r.id ? 0.5 : 1 }}>
+                    style={{ ...btn('ghost'), flexShrink: 0, fontSize: 12, padding: '4px 8px', opacity: resendingId === r.id ? 0.5 : 1 }}>
                     {resendingId === r.id ? 'Sending…' : 'Force Resend'}
                   </button>
                 </div>

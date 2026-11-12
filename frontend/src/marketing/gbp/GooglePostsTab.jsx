@@ -177,7 +177,7 @@ export default function GooglePostsTab({ location, canEdit }) {
         onRetry={load}
         isEmpty={posts.length === 0}
         skeleton={<SkeletonBlocks count={2} height={70} />}
-        emptyContent={<div style={{ fontSize: 12.5, color: C.gray400, padding: '16px 0' }}>No posts on this Google profile yet.</div>}
+        emptyContent={<div style={{ fontSize: 13, color: C.gray400, padding: '16px 0' }}>No posts on this Google profile yet.</div>}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {posts.map((p) => {
@@ -193,9 +193,9 @@ export default function GooglePostsTab({ location, canEdit }) {
                 {p.imageUrl && <img src={p.imageUrl} alt="" referrerPolicy="no-referrer" style={{ width: 96, height: 72, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-                    {st && <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 500, background: st.background, color: st.color }}>{st.label}</span>}
-                    <span style={{ fontSize: 11.5, color: C.gray400 }}>{formatDate(p.createdAt)}</span>
-                    {p.ctaType && <span style={{ fontSize: 11.5, color: C.gray500 }}>&middot; {CTA_LABEL[p.ctaType] || p.ctaType} button</span>}
+                    {st && <span style={{ padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 500, background: st.background, color: st.color }}>{st.label}</span>}
+                    <span style={{ fontSize: 12, color: C.gray400 }}>{formatDate(p.createdAt)}</span>
+                    {p.ctaType && <span style={{ fontSize: 12, color: C.gray500 }}>&middot; {CTA_LABEL[p.ctaType] || p.ctaType} button</span>}
                   </div>
                   {p.eventTitle && <div style={{ fontSize: 13, fontWeight: 500, color: C.gray900 }}>{p.eventTitle}</div>}
                   <p style={{ fontSize: 13, color: C.gray700, whiteSpace: 'pre-wrap', margin: 0 }}>{p.summary}</p>

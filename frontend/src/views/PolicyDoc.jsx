@@ -24,12 +24,12 @@ export default function PolicyDoc({ title, updated, sections, embedded = false, 
     <div style={wrapStyle}>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: embedded ? '0 0 40px' : '48px 24px 80px' }}>
         {!embedded && <a href="/" style={{ fontSize: 13, fontWeight: 600, color: '#676879', textDecoration: 'none' }}>&larr; Back to Nexus</a>}
-        <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-.02em', margin: embedded ? '0 0 4px' : '20px 0 4px' }}>{title}</h1>
+        <h1 style={{ fontSize: 32, fontWeight: 800, letterSpacing: '-.02em', margin: embedded ? '0 0 4px' : '20px 0 4px' }}>{title}</h1>
         {updated ? <p style={{ fontSize: 13, color: mutedColor, margin: '0 0 32px' }}>Last updated: {updated}</p> : <div style={{ height: 24 }} />}
         {before}
         {sections.map(s => (
           <div key={s.h} style={{ marginBottom: 26 }}>
-            <h2 style={{ fontSize: 15.5, fontWeight: 800, margin: '0 0 8px' }}>{s.h}</h2>
+            <h2 style={{ fontSize: 15, fontWeight: 800, margin: '0 0 8px' }}>{s.h}</h2>
             {s.extraFirst && s.extra}
             {(s.p || []).map((para, i) => (
               <p key={i} style={{ fontSize: 14, lineHeight: 1.65, color: bodyColor, margin: '0 0 10px' }}>{para}</p>

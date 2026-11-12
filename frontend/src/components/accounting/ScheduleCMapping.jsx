@@ -86,20 +86,20 @@ export default function ScheduleCMapping({ rows = [], entity = '', entityLabel =
   const footer = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', flexWrap: 'wrap' }}>
       {canEdit && counts.suggested > 0 && (
-        <button type="button" className="secondary-btn" onClick={acceptSuggestions} title="Keep every suggested line as a saved mapping" style={{ fontSize: '0.78rem' }}>Accept Suggestions ({counts.suggested})</button>
+        <button type="button" className="secondary-btn" onClick={acceptSuggestions} title="Keep every suggested line as a saved mapping" style={{ fontSize: 13 }}>Accept Suggestions ({counts.suggested})</button>
       )}
       <span style={{ flex: 1 }} />
-      {error && <span role="alert" style={{ color: 'var(--bad-fg, #dc2626)', fontSize: '0.78rem' }}>{error}</span>}
-      {canEdit && <button type="button" className="secondary-btn" disabled={!dirty || busy} onClick={() => setDraft({})} style={{ fontSize: '0.78rem' }}>Discard Changes</button>}
+      {error && <span role="alert" style={{ color: 'var(--bad-fg, #dc2626)', fontSize: 13 }}>{error}</span>}
+      {canEdit && <button type="button" className="secondary-btn" disabled={!dirty || busy} onClick={() => setDraft({})} style={{ fontSize: 13 }}>Discard Changes</button>}
       {canEdit
-        ? <button type="button" className="primary-btn" disabled={!dirty || busy} onClick={save} style={{ fontSize: '0.78rem' }}>{busy ? 'Saving...' : dirty ? `Save (${changed.length})` : 'Save'}</button>
-        : <button type="button" className="secondary-btn" onClick={onClose} style={{ fontSize: '0.78rem' }}>Close</button>}
+        ? <button type="button" className="primary-btn" disabled={!dirty || busy} onClick={save} style={{ fontSize: 13 }}>{busy ? 'Saving...' : dirty ? `Save (${changed.length})` : 'Save'}</button>
+        : <button type="button" className="secondary-btn" onClick={onClose} style={{ fontSize: 13 }}>Close</button>}
     </div>
   );
   return (
     <Modal title="Schedule C Line Mapping" onClose={onClose} footer={footer} isDirty={dirty}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0, flex: 1 }}>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
           Saving for: <strong style={{ color: 'var(--text-primary)' }}>{scope}</strong>. Kept in Nexus only - nothing is sent to Intacct.
           {!canEdit && ' You can read the mapping; changing it needs the editor level on Accounting.'}
         </div>
@@ -111,7 +111,7 @@ export default function ScheduleCMapping({ rows = [], entity = '', entityLabel =
           <div role="group" aria-label="Show" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
             {SHOW.map((f) => (
               <button key={f.key} type="button" aria-pressed={show === f.key} onClick={() => setShow(f.key)}
-                style={{ border: 'none', padding: '0 10px', height: 28, font: 'inherit', fontSize: '0.76rem', cursor: 'pointer', fontWeight: show === f.key ? 600 : 400,
+                style={{ border: 'none', padding: '0 10px', height: 28, font: 'inherit', fontSize: 12, cursor: 'pointer', fontWeight: show === f.key ? 600 : 400,
                   background: show === f.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)', color: show === f.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)' }}>
                 {f.label}{f.key === 'unmapped' ? ` (${counts.unmapped})` : f.key === 'suggested' ? ` (${counts.suggested})` : ''}
               </button>
@@ -132,7 +132,7 @@ export default function ScheduleCMapping({ rows = [], entity = '', entityLabel =
                   <td className="acct-num"><Amount value={r.amount} /></td>
                   <td style={{ whiteSpace: 'normal', minWidth: 130 }}>
                     <span style={{ color: r.line ? undefined : 'var(--bad-fg, #dc2626)' }}>{r.line ? lineText(r.line) : 'Not mapped'}</span>
-                    {r.line && <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{SOURCE[r.source]}</span>}
+                    {r.line && <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>{SOURCE[r.source]}</span>}
                   </td>
                   <td>
                     <select value={pick(r)} disabled={!canEdit || !r.code} onChange={(e) => setDraft((d) => ({ ...d, [r.code]: e.target.value }))}
