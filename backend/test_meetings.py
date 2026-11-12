@@ -47,6 +47,12 @@ EVENT = {
              "________________________________________________________________________________\n"
              "Microsoft Teams meeting\nJoin on your computer\n"},
 }
+# Two meetings of one weekly series (Phase 2: Last Time).
+SERIES_LAST = {**EVENT, "id": "evtS1", "iCalUId": "uid-s1", "seriesMasterId": "SERIES-1", "type": "occurrence",
+               "start": {"dateTime": "2026-11-05T15:00:00.0000000", "timeZone": "UTC"},
+               "end": {"dateTime": "2026-11-05T15:30:00.0000000", "timeZone": "UTC"}}
+SERIES_NOW = {**EVENT, "id": "evtS2", "iCalUId": "uid-s2", "seriesMasterId": "SERIES-1", "type": "occurrence"}
+EVENTS = {quote(e["id"], safe=""): e for e in (EVENT, SERIES_LAST, SERIES_NOW)}
 NOT_TEAMS = {**EVENT, "id": "evt2", "iCalUId": "uid-2", "subject": "Lunch", "isOnlineMeeting": False, "onlineMeeting": None}
 VTT = ("WEBVTT\n\n"
        "abc/1-0\n00:00:01.000 --> 00:00:03.000\n<v Neil>Okay, rent roll first.</v>\n\n"
@@ -75,8 +81,9 @@ def fake_graph(calendar_ok=True, transcripts=True):
                 return _R(403, {"error": {"code": "ErrorAccessDenied"}})
             return _R(200, {"value": [EVENT, NOT_TEAMS]})
         if "/events/" in url:
-            assert url.endswith("/events/" + quote(EVENT["id"], safe="")), url
-            return _R(200, EVENT)
+            ev = EVENTS.get(url.rsplit("/events/", 1)[1])
+            assert ev, url
+            return _R(200, ev)
         if url.endswith(f"/users/{OID}/onlineMeetings"):
             return _R(200, {"value": [{"id": "MSo1", "chatInfo": {"threadId": "19:meeting_abc@thread.v2"}}]})
         if url.endswith("/transcripts"):
@@ -109,6 +116,8 @@ class MeetingNotesTests(unittest.TestCase):
         db = database.SessionLocal()
         db.query(models.NexusMeetingNote).delete()
         db.query(models.NexusNote).delete()
+        db.query(models.NexusNotification).delete()
+        db.query(models.NexusSetting).filter(models.NexusSetting.key.like(meetings.ALERTS_KEY + "%")).delete(synchronize_session=False)
         db.query(models.NexusSetting).filter(models.NexusSetting.key == meetings.ACCESS_KEY).delete()
         # Testers first: Neil, Visesh (the tenant alias, same person) and Sam may use it.
         db.add(models.NexusSetting(key=meetings.ACCESS_KEY, value=json.dumps(
@@ -128,9 +137,9 @@ class MeetingNotesTests(unittest.TestCase):
         with mock.patch.object(meetings.httpx, "get", side_effect=fake_graph(**kw)):
             return self.client.get("/meetings/day", params={"start": "2026-11-12T05:00:00Z", "end": "2026-11-13T05:00:00Z"})
 
-    def open_note(self):
+    def open_note(self, ev=EVENT):
         with mock.patch.object(meetings.httpx, "get", side_effect=fake_graph()):
-            return self.client.post("/meetings/notes", json={"eventId": EVENT["id"], "day": "2026-11-12"})
+            return self.client.post("/meetings/notes", json={"eventId": ev["id"], "day": ev["start"]["dateTime"][:10]})
 
     def test_the_day_lists_only_teams_meetings_with_people_but_no_rooms(self):
         self.as_("neil@greensglobal.com")
@@ -212,6 +221,101 @@ class MeetingNotesTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_the_transcript_carries_rule_based_highlights_and_marks_it_ready(self):
+        self.as_("neil@greensglobal.com")
+        nid = self.open_note().json()["noteId"]
+        with mock.patch.object(meetings.httpx, "get", side_effect=fake_graph()):
+            t = self.client.get(f"/meetings/notes/{nid}/transcript").json()
+        acts = t["highlights"]["actions"]
+        self.assertEqual([(a["speaker"], a["text"], a["due"], a["i"]) for a in acts],
+                         [("Visesh", "I will fix the gate codes by Friday.", "by Friday", 1)])
+        self.assertEqual(t["highlights"]["decisions"], [])
+        # Read it yourself = ready: the ready bell never tells you about it.
+        self.assertTrue(self.client.get(f"/meetings/notes/{nid}").json()["transcriptReady"])
+
+    def test_last_time_shows_the_series_previous_note_and_its_open_tasks(self):
+        self.as_("neil@greensglobal.com")
+        last = self.open_note(SERIES_LAST).json()["noteId"]
+        now = self.open_note(SERIES_NOW).json()["noteId"]
+        one_off = self.open_note().json()["noteId"]
+        # Last week's note made two tasks from its lines; one is done, one is someone else's wall.
+        db = database.SessionLocal()
+        n = db.get(models.NexusNote, last)
+        n.body = ('<p><a data-type="recordLink" data-ref="task:t-open" title="Send rent roll">Send rent roll</a></p>'
+                  '<p><a data-type="recordLink" data-ref="task:t-done" title="Order locks">Order locks</a></p>'
+                  '<p><a data-type="recordLink" data-ref="task:t-walled" title="Secret">Secret</a></p>')
+        db.commit()
+        db.close()
+        items = {"t-open": {"id": "t-open", "title": "Send rent roll", "code": "T-1", "done": False},
+                 "t-done": {"id": "t-done", "title": "Order locks", "code": "T-2", "done": True}}
+        import record_links
+        with mock.patch.object(record_links, "_task_item", side_effect=lambda db, user, tid: items.get(tid)):
+            prev = self.client.get(f"/meetings/notes/{now}").json()["previous"]
+            self.assertEqual(prev["noteId"], last)
+            self.assertEqual(prev["start"], "2026-11-05T15:00:00Z")
+            self.assertEqual(prev["openTasks"], [{"id": "t-open", "title": "Send rent roll", "code": "T-1"}])
+            self.assertIsNone(self.client.get(f"/meetings/notes/{last}").json()["previous"])   # nothing before it
+            self.assertIsNone(self.client.get(f"/meetings/notes/{one_off}").json()["previous"])  # not a series
+        # Someone else in the series with no note of their own last time sees none (not Neil's private note).
+        self.as_("visesh.lodha@greensglobal.com")
+        mine = self.open_note(SERIES_NOW).json()["noteId"]
+        self.assertIsNone(self.client.get(f"/meetings/notes/{mine}").json()["previous"])
+
+    def test_the_ready_bell_is_opt_in_and_rings_once(self):
+        self.as_("neil@greensglobal.com")
+        self.assertEqual(self.client.get("/meetings/alerts").json(), {"on": False})
+        nid = self.open_note().json()["noteId"]
+        after = meetings.datetime(2026, 11, 12, 15, 45, tzinfo=meetings.timezone.utc)   # 15 minutes after the end
+
+        def run():
+            db = database.SessionLocal()
+            try:
+                with mock.patch.object(meetings.httpx, "get", side_effect=fake_graph()):
+                    return meetings.ready_pass(db, now=after)
+            finally:
+                db.close()
+
+        CALLS.clear()
+        self.assertEqual(run(), 0)                 # not opted in: Teams is never asked
+        self.assertEqual(CALLS, [])
+        self.assertEqual(self.client.put("/meetings/alerts", json={"on": True}).json(), {"on": True})
+        self.assertTrue(self.client.get("/meetings/access").json()["alerts"])
+        self.assertEqual(run(), 1)
+        self.assertFalse(any(u.endswith("/content") for u in CALLS))   # the list only, never the words
+        db = database.SessionLocal()
+        bells = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == "neil@greensglobal.com").all()
+        self.assertEqual([b.title for b in bells], ["Meeting Transcript Ready"])
+        self.assertIn("Weekly Ops", bells[0].body)
+        self.assertEqual(json.loads(bells[0].action), {"view": "dashboard", "sub": f"notes:{nid}"})
+        db.close()
+        self.assertEqual(run(), 0)                 # once
+        self.assertTrue(self.client.get(f"/meetings/notes/{nid}").json()["transcriptReady"])
+
+    def test_the_ready_bell_waits_for_teams_and_gives_up_after_eight_hours(self):
+        self.as_("neil@greensglobal.com")
+        self.client.put("/meetings/alerts", json={"on": True})
+        self.open_note()
+
+        def run(now, transcripts=False):
+            db = database.SessionLocal()
+            try:
+                with mock.patch.object(meetings.httpx, "get", side_effect=fake_graph(transcripts=transcripts)):
+                    return meetings.ready_pass(db, now=now)
+            finally:
+                db.close()
+
+        utc = meetings.timezone.utc
+        CALLS.clear()
+        self.assertEqual(run(meetings.datetime(2026, 11, 12, 15, 20, tzinfo=utc)), 0)   # still running
+        self.assertEqual(CALLS, [])
+        self.assertEqual(run(meetings.datetime(2026, 11, 12, 15, 40, tzinfo=utc)), 0)   # no transcript yet
+        n = len(CALLS)
+        self.assertGreater(n, 0)
+        self.assertEqual(run(meetings.datetime(2026, 11, 12, 15, 45, tzinfo=utc)), 0)   # asked 5 minutes ago: waits
+        self.assertEqual(len(CALLS), n)
+        self.assertEqual(run(meetings.datetime(2026, 11, 13, 0, 0, tzinfo=utc), transcripts=True), 0)  # past 8 hours
+        self.assertEqual(len(CALLS), n)
+
     def test_no_transcript_yet_is_a_plain_404(self):
         self.as_("neil@greensglobal.com")
         nid = self.open_note().json()["noteId"]
@@ -234,9 +338,9 @@ class MeetingNotesTests(unittest.TestCase):
 
     def test_only_testers_get_it_until_everyone_is_on(self):
         self.as_("visesh.lodha@greensglobal.com")      # listed under the tenant alias - same person
-        self.assertEqual(self.client.get("/meetings/access").json(), {"enabled": True})
+        self.assertTrue(self.client.get("/meetings/access").json()["enabled"])
         self.as_("charmi@greensglobal.com")
-        self.assertEqual(self.client.get("/meetings/access").json(), {"enabled": False})
+        self.assertFalse(self.client.get("/meetings/access").json()["enabled"])
         r = self.day()
         self.assertEqual(r.status_code, 403)
         self.assertEqual(CALLS, [])                    # refused before anything is read from Graph
@@ -246,13 +350,13 @@ class MeetingNotesTests(unittest.TestCase):
             {"value": json.dumps({"everyone": True})})
         db.commit()
         db.close()
-        self.assertEqual(self.client.get("/meetings/access").json(), {"enabled": True})
+        self.assertTrue(self.client.get("/meetings/access").json()["enabled"])
         db = database.SessionLocal()
         db.query(models.NexusSetting).filter(models.NexusSetting.key == meetings.ACCESS_KEY).delete()
         db.commit()
         db.close()
         self.as_("neil@greensglobal.com")
-        self.assertEqual(self.client.get("/meetings/access").json(), {"enabled": False})   # no row = nobody
+        self.assertFalse(self.client.get("/meetings/access").json()["enabled"])   # no row = nobody
 
     def test_a_line_stamp_survives_the_sanitizer_and_junk_does_not(self):
         out = notes.sanitize_note('<p data-at="1794495720">Gate codes</p><h2 data-at="12ab">X</h2><p data-at="17934589201">Y</p>')

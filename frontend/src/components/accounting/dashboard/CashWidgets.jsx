@@ -121,7 +121,7 @@ export function UncatWidget({ onOpenBanks }) {
               <tr key={l.id}>
                 <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{fmtNumMD(l.txn_date)}</td>
                 <td style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.description}>{l.description}</td>
-                <td style={{ ...num, color: l.amount > 0 ? toneColor(true) : undefined }}>{m(l.amount, { cents: true })}</td>
+                <td style={{ ...num, color: l.amount > 0 ? toneColor(true) : undefined }}>{m(l.amount, { report: true })}</td>
                 <td>{l.suggested ? <Chip><span style={{ fontFamily: 'monospace' }}>{l.suggested.gl_code}</span>&nbsp;{l.suggested.account_name}</Chip> : <Chip tone="bad">Needs review</Chip>}</td>
               </tr>
             ))}

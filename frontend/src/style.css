@@ -7153,6 +7153,9 @@ body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; u
 .acct-dash { --dash-pad: 16px; --dash-head-pad: 12px 16px; --dash-gap: 14px; --dash-row-py: 8px; }
 .acct-dash.acct-dash--compact { --dash-pad: 12px; --dash-head-pad: 9px 12px; --dash-gap: 10px; --dash-row-py: 5px; }
 .acct-dash.acct-dash--condensed { --dash-pad: 8px; --dash-head-pad: 6px 10px; --dash-gap: 6px; --dash-row-py: 2px; }
+/* 11/11/2026 (picture 4): a dashboard figure that opens its ledger lines looks like the figure until hovered. */
+.acct-dash .acct-drill { border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; text-underline-offset: 3px; }
+.acct-dash .acct-drill:hover, .acct-dash .acct-drill:focus-visible { text-decoration: underline; color: var(--wk-brand, #2b45e1); }
 .acct-dash.acct-dash--compact .req-table td, .acct-dash.acct-dash--compact .req-table th,
 .acct-dash.acct-dash--condensed .req-table td, .acct-dash.acct-dash--condensed .req-table th {
   padding-top: var(--dash-row-py) !important; padding-bottom: var(--dash-row-py) !important;
@@ -10525,3 +10528,14 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
   --fs-page:    24px;   /* page titles, greetings */
   --fs-figure:  32px;   /* big numbers */
 }
+
+/* Accounting page line (11/11/2026, picture 1): "Trackers > Monthly Recurring
+   Expenses" in the page's top padding. The negative top margin equals the
+   line's height plus its gap, so the page below does not move; every
+   computer padding (32 / 24 / 18px) has room for it. Phones put it in the flow. */
+.acct-page-line { display: flex; align-items: center; gap: 4px; min-width: 0; height: 16px; margin: -18px 0 2px; font-size: 12px; line-height: 16px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; }
+.acct-page-line button { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.acct-page-line button:hover { color: var(--text-primary); text-decoration: underline; }
+.acct-page-line [aria-current="page"] { color: var(--text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.acct-page-line svg { flex: none; opacity: 0.6; }
+@media (max-width: 640px) { .acct-page-line { margin: 0 0 8px; } }

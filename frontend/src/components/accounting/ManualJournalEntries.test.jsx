@@ -92,6 +92,9 @@ describe('Manual Journal Entries', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open entry 94650' }));
     await waitFor(() => expect(api.searchAccountingLedger).toHaveBeenCalledWith(expect.objectContaining({ q: '502', journal: 'GJCA', from: '2026-10-21', to: '2026-10-21' })));
     await waitFor(() => expect(api.getAccountingEntry).toHaveBeenCalled());
+    // Picture 9 (11/11/2026): on the right, the list still beside it.
+    expect(screen.getByTestId('acct-side-panel').getAttribute('aria-label')).toMatch(/Journal entry/);
+    expect(document.querySelector('.modal-overlay')).toBeNull();
   });
 
   // 11/11/2026: a line from some other entry that the search also matched is

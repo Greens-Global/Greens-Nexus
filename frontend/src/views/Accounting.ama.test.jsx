@@ -38,7 +38,8 @@ describe('Accounting > AMA from the bell', () => {
   it('draws the AMA tab and opens the question the bell named', async () => {
     setPendingOpen('amaThread', 'T1');
     render(<Harness />);
-    expect(await screen.findByRole('heading', { name: 'Ask My Accountant' })).toBeTruthy();
+    // The page line names the page (picture 1, 11/11/2026); the screen has no heading of its own.
+    expect((await screen.findByRole('navigation', { name: 'This page' })).textContent).toBe('TrackersAsk My Accountant');
     expect(await screen.findByRole('dialog', { name: 'Ask My Accountant Question' })).toBeTruthy();
     expect(await screen.findByText('Charge Card Transaction')).toBeTruthy();
   });

@@ -25,6 +25,7 @@ import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnF
 import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
 import { StatusLabel } from '../StatusLabel';
 import HoldButton from '../../ui/HoldButton';
+import { pill } from './dashboard/Bits';
 
 // Accounting -> Leasing: leases and monthly recurring income (Neil and
 // Charmi, Sep 25). Rent was tracked in a workbook and chased by hand; this is
@@ -576,7 +577,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
             {SECTIONS.map((s) => (
               <button key={s.key} type="button" onClick={() => setSection(s.key)} aria-pressed={section === s.key}
-                style={{ ...control, cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: section === s.key ? 700 : 500, border: `1px solid ${section === s.key ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: section === s.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', background: section === s.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' }}>
+                style={pill(section === s.key)}>
                 {s.label}{s.key === 'outstanding' && sum.behind ? ` (${sum.behind})` : ''}
               </button>
             ))}
@@ -1344,7 +1345,7 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
           </div>
         )}
       </div>
-      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} /></div>}
+      {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel /></div>}
     </div>
   );
 }
