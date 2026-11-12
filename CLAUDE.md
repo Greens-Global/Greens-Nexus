@@ -630,6 +630,20 @@ keep the diff minimal.
   `/my-timecard/sign` returns 410; never add a signing path around this.
   `test_timesheet_review_matrix` drives every state x actor x action - keep it
   passing so nobody gets stuck.
+- **"Submit Your Time Sheet" reminders (Neil, 11/12/2026,
+  `timesheet_due.py`):** ONE rule for a person's own Time Sheets waiting on
+  them, read by the Daily Briefing (Action Required; "With <manager> for
+  Review" under Updates), the Weekly Digest, My Briefing / My Day and the
+  bell. Every pay type (hourly, salaried bi-weekly or monthly, contractors
+  incl. India), the person's own local date, a period with a punch in it,
+  from the period's last day until it is finalized (every closed period
+  since `REVIEW_LAUNCH`); never the exempt or people who left. Each row
+  carries a `cta` - one solid button (Review and Submit / Fix and Submit /
+  Review and Resubmit / Sign Time Sheet) to `/timeclock/timesheet?start=
+  &type=&do=submit`, which focuses Send to Manager and never submits by
+  itself. The Time Sheet table leads Action Required. The bell fires on
+  the last day and the day after close; Submit / Approve settle it
+  (`settle_bells`). Never add a second reminder rule.
 - HR signing order (Neil, Oct 22 2026): the company NEVER signs before the
   employee - no pre-signed or countersigned document is ever sent out. An
   offer letter is signed by the candidate only (no company signer, no Signs

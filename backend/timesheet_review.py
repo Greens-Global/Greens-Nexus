@@ -939,6 +939,9 @@ def submit(db: Session, employee_email: str, anchor: str, note: str = "") -> Tim
     _notify_reviewer(db, r, "Time Sheet to Review",
                      f"{who} {'submitted' if first else 'resubmitted'} their time sheet for {_label(r)}."
                      + (f' "{note.strip()[:200]}"' if (note or "").strip() else ""), email)
+    # Its Submit Your Time Sheet bell is done (timesheet_due, 11/12/2026).
+    import timesheet_due
+    timesheet_due.settle_bells(db, email, start)
     db.commit()
     return r
 
@@ -987,6 +990,9 @@ def approve(db: Session, r: TimesheetReview, actor: str, note: str = "", *, ip: 
     _round(db, r, by=actor, action="agreed", note=note, with_changes=True)
     r.sign_request_id = _send_envelope(db, r, actor, ip=ip, user_agent=user_agent)
     r.status = "signing"
+    # Approved without a submission: the Submit bell is done (11/12/2026).
+    import timesheet_due
+    timesheet_due.settle_bells(db, r.employee_email, r.period_start)
     db.commit()
     return r
 
