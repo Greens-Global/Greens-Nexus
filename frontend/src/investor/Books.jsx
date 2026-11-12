@@ -57,6 +57,35 @@ function useDrill() {
   return { open, panel };
 }
 
+// A member's percentage in the operating agreement, typed in place; it is
+// kept on their commitment in the deal (the books do not hold it).
+function MembershipCell({ fundId, member, onSaved }) {
+  const shown = member.membershipPct == null ? '' : String(member.membershipPct);
+  const [value, setValue] = useState(shown);
+  const [state, setState] = useState('');
+  if (!member.investorId) return <span style={{ color: 'var(--muted)' }}>-</span>;
+  const save = async () => {
+    if (value.trim() === shown || state === 'saving') return;
+    const pct = value.trim() === '' ? null : Number(value);
+    if (pct != null && (!Number.isFinite(pct) || pct < 0 || pct > 100)) { setState('Use 0 to 100'); return; }
+    setState('saving');
+    try { await api.setIrMembership(fundId, member.investorId, pct); setState(''); onSaved?.(); }
+    catch (e) { setState(e?.message || 'Not saved'); }
+  };
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        <input className="form-input" type="number" min="0" max="100" step="any" value={value} placeholder="-"
+          aria-label={`${member.name} membership percentage`}
+          onChange={e => { setValue(e.target.value); setState(''); }} onBlur={save}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); save(); } }}
+          style={{ width: 76, textAlign: 'right', padding: '3px 6px', fontSize: 12.5 }} />%
+      </span>
+      {state && state !== 'saving' && <span style={{ fontSize: 11, color: 'hsl(var(--color-red))' }}>{state}</span>}
+    </span>
+  );
+}
+
 const ofKind = (accounts, kind) => (accounts || []).filter(a => a.startsWith(KIND_PREFIX[kind]));
 
 function Tiles({ items }) {
@@ -136,6 +165,8 @@ export function DealBooks({ fundId, onChanged }) {
   const p = d.property || {};
   const members = d.members || [];
   const unlinked = members.filter(m => !m.investorId).length;
+  const pcts = members.filter(m => m.membershipPct != null);
+  const pctTotal = pcts.reduce((t, m) => t + m.membershipPct, 0);
   const at = (title, accounts, from) => accounts?.length ? () => drill.open(title, accounts, d.entity, d.asOf, from) : null;
   const yearStart = d.asOf ? `${d.asOf.slice(0, 4)}-01-01` : undefined;
 
@@ -158,17 +189,22 @@ export function DealBooks({ fundId, onChanged }) {
               ['Revenue YTD', p.revenueYtd, at('Revenue YTD', p.revenueAccounts, yearStart)],
               ['Net Income YTD', p.netIncomeYtd],
             ]} />
-            <Head title="Members" sub="Each member's own partner accounts on this entity. Share is of the partner capital, not the ownership in the operating agreement."
+            <Head title="Members" sub="Each member's capital account is their own partner accounts on this entity. Membership is the percentage in the operating agreement - type it in."
               right={unlinked > 0 && (
                 <button type="button" className="secondary-btn" disabled={importing} onClick={importMembers} style={{ fontSize: 12, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   {importing ? <Spinner size={12} /> : <Download size={13} />} Add {unlinked} Profile{unlinked === 1 ? '' : 's'}
                 </button>
               )} />
             {note && <div style={{ fontSize: 12.5, color: 'var(--ink)', marginBottom: 8 }}>{note}</div>}
+            {pcts.length > 0 && Math.abs(pctTotal - 100) > 0.005 && (
+              <div style={{ fontSize: 12, color: 'var(--warn-fg)', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+                <AlertTriangle size={12} /> Membership adds up to {+pctTotal.toFixed(4)}%, not 100%{pcts.length < members.length ? ` - ${members.length - pcts.length} member${members.length - pcts.length === 1 ? '' : 's'} not set` : ''}.
+              </div>
+            )}
             {members.length === 0 ? <Muted>No partner capital on this entity.</Muted> : (
               <div style={{ overflowX: 'auto' }}>
                 <table className="req-table stack-table">
-                  <thead><tr><th>Member</th><th style={num}>E&C</th><th style={num}>Contributed</th><th style={num}>Distributed</th><th style={num}>Capital Balance</th><th style={num}>Share</th></tr></thead>
+                  <thead><tr><th>Member</th><th style={num}>Membership</th><th style={num}>E&C</th><th style={num}>Contributed</th><th style={num}>Distributed</th><th style={num}>Capital Account</th></tr></thead>
                   <tbody>
                     {members.map(m => {
                       const gap = m.nexus && Math.abs((m.nexus.called || 0) - m.contributed) >= 1;
@@ -183,15 +219,21 @@ export function DealBooks({ fundId, onChanged }) {
                               </div>
                             )}
                           </td>
+                          <td data-th="Membership" style={num}><MembershipCell key={m.membershipPct ?? ''} fundId={fundId} member={m} onSaved={reload} /></td>
                           <td data-th="E&C" style={num}><Amt value={m.ec} onDrill={at(`${m.name} - E&C`, ofKind(m.accounts, 'ec'))} /></td>
                           <td data-th="Contributed" style={num}><Amt value={m.contributed} onDrill={at(`${m.name} - Contributed`, ofKind(m.accounts, 'contributed'))} /></td>
                           <td data-th="Distributed" style={num}><Amt value={m.distributed} onDrill={at(`${m.name} - Distributed`, ofKind(m.accounts, 'distributed'))} /></td>
-                          <td data-th="Capital Balance" style={{ ...num, fontWeight: 600 }}><Amt value={m.balance} onDrill={at(`${m.name} - Capital`, m.accounts)} /></td>
-                          <td data-th="Share" style={num}>{m.share == null ? '-' : `${(m.share * 100).toFixed(1)}%`}</td>
+                          <td data-th="Capital Account" style={{ ...num, fontWeight: 600 }}><Amt value={m.balance} onDrill={at(`${m.name} - Capital Account`, m.accounts)} /></td>
                         </tr>
                       );
                     })}
                   </tbody>
+                  <tfoot><tr style={{ fontWeight: 600 }}>
+                    <td>Total</td>
+                    <td data-th="Membership" style={num}>{pcts.length ? `${+pctTotal.toFixed(4)}%` : '-'}</td>
+                    <td colSpan={3} />
+                    <td data-th="Capital Account" style={num}>{formatCurrency(d.partnerCapital)}</td>
+                  </tr></tfoot>
                 </table>
               </div>
             )}
@@ -299,7 +341,7 @@ export function InvestorBooks({ investorId, onChanged }) {
         : d.positions.length === 0 ? <Muted>No balance on these accounts in any entity you can read.</Muted> : (
           <div style={{ overflowX: 'auto' }}>
             <table className="req-table stack-table">
-              <thead><tr><th>Entity</th><th style={num}>Contributed</th><th style={num}>Distributed</th><th style={num}>E&C</th><th style={num}>Capital Balance</th></tr></thead>
+              <thead><tr><th>Entity</th><th style={num}>Membership</th><th style={num}>Contributed</th><th style={num}>Distributed</th><th style={num}>E&C</th><th style={num}>Capital Account</th></tr></thead>
               <tbody>
                 {d.positions.map(x => (
                   <tr key={x.entity}>
@@ -307,14 +349,15 @@ export function InvestorBooks({ investorId, onChanged }) {
                       <div style={{ fontWeight: 600 }}>{x.name}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{x.entity}{x.fundName ? ` - Deal: ${x.fundName}` : ''}</div>
                     </td>
+                    <td data-th="Membership" style={num}>{x.membershipPct == null ? '-' : `${x.membershipPct}%`}</td>
                     <td data-th="Contributed" style={num}><Amt value={x.contributed} onDrill={at(`${x.name} - Contributed`, ofKind(x.accounts, 'contributed'), x.entity)} /></td>
                     <td data-th="Distributed" style={num}><Amt value={x.distributed} onDrill={at(`${x.name} - Distributed`, ofKind(x.accounts, 'distributed'), x.entity)} /></td>
                     <td data-th="E&C" style={num}><Amt value={x.ec} onDrill={at(`${x.name} - E&C`, ofKind(x.accounts, 'ec'), x.entity)} /></td>
-                    <td data-th="Capital Balance" style={{ ...num, fontWeight: 600 }}><Amt value={x.balance} onDrill={at(`${x.name} - Capital`, x.accounts, x.entity)} /></td>
+                    <td data-th="Capital Account" style={{ ...num, fontWeight: 600 }}><Amt value={x.balance} onDrill={at(`${x.name} - Capital Account`, x.accounts, x.entity)} /></td>
                   </tr>
                 ))}
                 <tr>
-                  <td style={{ fontWeight: 700 }}>Total</td><td /><td /><td />
+                  <td style={{ fontWeight: 700 }}>Total</td><td /><td /><td /><td />
                   <td data-th="Total" style={{ ...num, fontWeight: 700 }}>{formatCurrency(d.total)}</td>
                 </tr>
               </tbody>

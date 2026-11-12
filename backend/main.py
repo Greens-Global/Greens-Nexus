@@ -1629,6 +1629,7 @@ def _run_migrations():
             "ALTER TABLE ir_funds ADD COLUMN intacct_entity VARCHAR DEFAULT ''",
             "ALTER TABLE ir_investors ADD COLUMN intacct_accounts VARCHAR DEFAULT ''",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_ir_funds_intacct_entity ON ir_funds (intacct_entity) WHERE intacct_entity <> ''",
+            "ALTER TABLE ir_commitments ADD COLUMN membership_pct FLOAT",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3900,6 +3901,8 @@ def _run_migrations():
         "ALTER TABLE ir_funds ADD COLUMN IF NOT EXISTS intacct_entity VARCHAR DEFAULT ''",
         "ALTER TABLE ir_investors ADD COLUMN IF NOT EXISTS intacct_accounts VARCHAR DEFAULT ''",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_ir_funds_intacct_entity ON ir_funds (intacct_entity) WHERE intacct_entity <> ''",
+        # A member's percentage in the operating agreement (Neil, 11/11/2026).
+        "ALTER TABLE ir_commitments ADD COLUMN IF NOT EXISTS membership_pct DOUBLE PRECISION",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

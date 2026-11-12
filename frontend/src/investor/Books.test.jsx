@@ -15,8 +15,8 @@ const DEAL = {
   partnerCapital: 714377,
   property: { assets: 1000000, liabilities: 350000, bookEquity: 650000, cash: 100000, revenueYtd: 80000, netIncomeYtd: 50000, cashAccounts: ['11101'], revenueAccounts: ['40001'], pnlAccounts: [] },
   members: [
-    { investorId: '', name: 'Jitendra Jain', accounts: ['30031', '31019'], ec: 51477, contributed: 594876, distributed: 0, balance: 646353, share: 0.9048 },
-    { investorId: 'i1', name: 'Neil Kadakia', accounts: ['30016', '31010', '32013'], ec: -40207, contributed: 138231, distributed: 30000, balance: 68024, share: 0.0952, nexus: { called: 100000, distributed: 30000 } },
+    { investorId: '', name: 'Jitendra Jain', accounts: ['30031', '31019'], ec: 51477, contributed: 594876, distributed: 0, balance: 646353 },
+    { investorId: 'i1', name: 'Neil Kadakia', accounts: ['30016', '31010', '32013'], ec: -40207, contributed: 138231, distributed: 30000, balance: 68024, membershipPct: 9.5, nexus: { called: 100000, distributed: 30000 } },
   ],
 };
 
@@ -27,10 +27,12 @@ describe('Live from Intacct', () => {
     calls.getIrFundBooks.mockResolvedValue(DEAL);
     render(<DealBooks fundId="f1" />);
     expect(await screen.findByText('Jitendra Jain')).toBeTruthy();
-    expect(screen.getByText('$714,377')).toBeTruthy();
+    expect(screen.getAllByText('$714,377').length).toBe(2);       // the tile and the Capital Account total
     expect(screen.getByText('$646,353')).toBeTruthy();
     expect(screen.getByText(/Nexus capital calls show \$100,000 paid in/)).toBeTruthy();
     expect(screen.getByText('Add 1 Profile')).toBeTruthy();
+    expect(screen.getByLabelText('Neil Kadakia membership percentage').value).toBe('9.5');
+    expect(screen.getByText(/Membership adds up to 9.5%, not 100% - 1 member not set/)).toBeTruthy();
     expect(screen.getByText(/as of 11\/11\/2026/)).toBeTruthy();
   });
 

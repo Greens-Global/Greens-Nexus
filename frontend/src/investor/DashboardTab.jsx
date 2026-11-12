@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Download, Landmark, Megaphone, Pin, Sprout } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Download, Landmark, Megaphone, Pin, Sprout, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { formatCurrency, formatDate, formatMultiple, formatPercent, statusColor, statusLabel } from './lib/format';
 import { EmptyState, ErrorState, LoadingState, StatusText, useIrLoad } from './lib/ui';
 import { Spinner } from '../components/AsyncState';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 // GP-side portfolio overview: raise / call / distribute KPIs plus what needs
 // attention next (upcoming calls, recent distributions, latest updates).
@@ -50,6 +52,13 @@ export default function DashboardTab({ onOpenTab }) {
     );
   }
 
+  // The sample portfolio goes in one held action; the server deletes only
+  // what the seed made (its deals by name, its investors by name and email).
+  const removeSample = () => dialog.confirm(
+    'The three sample deals, their commitments, calls, distributions, documents and posts, and the sample investors are deleted. Real deals and investors stay.',
+    { title: 'Remove Sample Data?', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Remove Sample Data', doneText: 'Removed',
+      onConfirm: async () => { await api.removeIrSampleData(); await reload(); } });
+
   const calledPct = d.totalCommitted > 0 ? `${((d.totalCalled / d.totalCommitted) * 100).toFixed(0)}% of committed` : '-';
   const byStatus = d.fundsByStatus || {};
   const kpis = [
@@ -88,6 +97,14 @@ export default function DashboardTab({ onOpenTab }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {d.sampleFunds > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 10, fontSize: 12.5, color: 'var(--ink)' }}>
+          <span>{d.sampleFunds} sample deal{d.sampleFunds === 1 ? ' is' : 's are'} still here. Remove the sample data before importing real deals from Intacct.</span>
+          <button type="button" className="secondary-btn" onClick={removeSample} style={{ fontSize: 12, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Trash2 size={13} /> Remove Sample Data
+          </button>
+        </div>
+      )}
       {liveKpis && (
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 8 }}>

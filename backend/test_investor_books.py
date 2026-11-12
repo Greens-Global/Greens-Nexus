@@ -6,9 +6,15 @@ Pins:
     not line up); Opening Balance Equity and every non-equity account are not
     investors; "Greens Global Inv 1" and "Greens Global Inv 1, LLC" are one;
   * a member's capital on an entity = credit - debit of their accounts;
-    distributions read positive; share is of the partner capital; a member
-    whose accounts are all zero is left out; linked accounts add up under the
-    profile;
+    distributions read positive; a member whose accounts are all zero is
+    left out; linked accounts add up under the profile;
+  * membership %: kept on the member's commitment (one made with no amount
+    when the member came from the books, which never trips the Nexus gap
+    warning), 0-100 only, shown on the deal's members;
+  * the portal: an investor reads ONLY their own accounts, only on deals
+    they are scoped to and committed in, without the Accounting grant;
+  * Remove Sample Data: the seed's deals, posts and investors go; a person's
+    own investor, an Intacct-linked one and a linked deal stay;
   * property figures: book equity = assets - liabilities, cash = bank
     accounts, net income over revenue / cogs / expense / other expense only;
   * who sees figures: the IR read gate AND the Accounting grant AND the
@@ -93,7 +99,9 @@ class BooksTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.IrFund, models.IrInvestor, models.IrCommitment):
+        for m in (models.IrFund, models.IrInvestor, models.IrCommitment, models.IrCapitalCall,
+                  models.IrCapitalCallAllocation, models.IrDistribution, models.IrDistributionAllocation,
+                  models.IrDocument, models.IrUpdate, models.NexusAccessScope):
             self.db.query(m).delete()
         self.db.commit()
         self.calls = []
@@ -153,7 +161,7 @@ class BooksTests(unittest.TestCase):
         neil = rows[1]
         self.assertEqual((neil["ec"], neil["contributed"], neil["distributed"], neil["balance"]),
                          (-40207.0, 138231.0, 30000.0, 68024.0))
-        self.assertAlmostEqual(sum(r["share"] for r in rows), 1.0, places=5)
+        self.assertNotIn("share", neil)       # the percentage is the operating agreement's, never worked out
         p = ib.property_figures(BS, PL)
         self.assertEqual((p["assets"], p["liabilities"], p["bookEquity"], p["cash"]), (1000000.0, 350000.0, 650000.0, 100000.0))
         self.assertEqual((p["revenueYtd"], p["netIncomeYtd"]), (80000.0, 50000.0))
@@ -257,6 +265,68 @@ class BooksTests(unittest.TestCase):
         pos = run(R.investor_books(R._positions_ctx("pre", self.ctx())))
         self.assertEqual(pos["total"], 68024.0)
         self.assertEqual(pos["positions"][0]["fundId"], out["fundId"])
+
+
+    # ── membership, portal, sample data ───────────────────────────────────────
+    def test_membership_on_the_commitment(self):
+        out = run(R.import_entity(R.ImportIn(entity="67000"), R._import_ctx(self.ctx())))
+        jain = self.db.query(models.IrInvestor).filter(models.IrInvestor.display_name == "Jitendra Jain").one()
+        R._save_membership(self.db, SUPER, out["fundId"], jain.id, 90.5)
+        R._save_membership(self.db, SUPER, out["fundId"], jain.id, 90)          # updates, never a second row
+        c = self.db.query(models.IrCommitment).one()
+        self.assertEqual((c.membership_pct, c.commitment_amount, c.status), (90.0, 0, "active"))
+        with self.assertRaises(HTTPException) as e:
+            R._save_membership(self.db, SUPER, out["fundId"], jain.id, 101)
+        self.assertEqual(e.exception.status_code, 422)
+        books = run(R.deal_books(R._deal_ctx(out["fundId"], self.ctx())))
+        by = {m["name"]: m for m in books["members"]}
+        self.assertEqual(by["Jitendra Jain"]["membershipPct"], 90.0)
+        self.assertNotIn("nexus", by["Jitendra Jain"])        # a percentage-only commitment is not a gap
+        self.assertIsNone(by["Neil Kadakia"]["membershipPct"])
+        R._save_membership(self.db, SUPER, out["fundId"], jain.id, None)
+        self.db.expire_all()
+        self.assertIsNone(self.db.query(models.IrCommitment).one().membership_pct)
+
+    def test_portal_reads_only_my_own_accounts(self):
+        out = run(R.import_entity(R.ImportIn(entity="67000"), R._import_ctx(self.ctx())))
+        other = self.fund("66000", name="Georgetown")
+        neil = self.db.query(models.IrInvestor).filter(models.IrInvestor.display_name == "Neil Kadakia").one()
+        neil.email = "lp@example.com"
+        R._save_membership(self.db, SUPER, out["fundId"], neil.id, 9.5)
+        R._save_membership(self.db, SUPER, other.id, neil.id, 5)             # committed but NOT scoped
+        self.db.add(models.NexusAccessScope(id="s1", email="lp@example.com", module_id="investor-relations",
+                                            scope_type="fund", scope_id=out["fundId"], created_at="x"))
+        self.db.commit()
+        lp = {"email": "lp@example.com", "level": 1}
+        res = run(R.portal_books(R._portal_ctx(lp, self.db)))
+        self.assertEqual(list(res["deals"]), [out["fundId"]])
+        mine = res["deals"][out["fundId"]]
+        self.assertEqual((mine["live"], mine["capitalAccount"], mine["contributed"], mine["membershipPct"]),
+                         (True, 68024.0, 138231.0, 9.5))
+        self.assertNotIn(646353.0, [v for v in mine.values()])               # never Jain's figures
+        stranger = {"email": "nobody@example.com", "level": 1}
+        self.assertEqual(run(R.portal_books(R._portal_ctx(stranger, self.db)))["deals"], {})
+
+    def test_remove_sample_data_keeps_real_rows(self):
+        from routers import investor_relations as ir
+        ir.seed_demo_data(SUPER, self.db)
+        real_deal = self.fund("67000", name="Greens Austin")
+        mine = models.IrInvestor(id="real", display_name="Real Person", email="real@greensglobal.com", created_at="x")
+        linked = self.db.query(models.IrInvestor).filter(models.IrInvestor.email == "tgrady@example.com").one()
+        linked.intacct_accounts = "30099"
+        self.db.add(mine)
+        self.db.add(models.IrCommitment(id="rc", fund_id=real_deal.id, investor_id="real", commitment_amount=5, created_at="x"))
+        self.db.commit()
+        out = ir.remove_sample_data(SUPER, self.db)["removed"]
+        self.assertEqual((out["ir_funds"], out["ir_investors"]), (3, 13))
+        self.db.expire_all()
+        self.assertEqual([f.name for f in self.db.query(models.IrFund).all()], ["Greens Austin"])
+        self.assertEqual(sorted(v.display_name for v in self.db.query(models.IrInvestor).all()), ["Real Person", "Thomas Grady"])
+        self.assertEqual([c.id for c in self.db.query(models.IrCommitment).all()], ["rc"])
+        for m in (models.IrCapitalCall, models.IrCapitalCallAllocation, models.IrDistribution,
+                  models.IrDistributionAllocation, models.IrDocument, models.IrUpdate):
+            self.assertEqual(self.db.query(m).count(), 0, m.__tablename__)
+        self.assertEqual(ir.remove_sample_data(SUPER, self.db)["removed"]["ir_investors"], 0)
 
 
 if __name__ == "__main__":

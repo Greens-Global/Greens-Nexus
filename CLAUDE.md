@@ -686,7 +686,14 @@ keep the diff minimal.
   proxy, never keyed or stored; a figure needs the IR read gate AND the
   Accounting grant AND the entity in the caller's entity access. Import
   makes the deal and a linked profile per member and never invents a
-  commitment. The portal still shows only Nexus's own records.
+  commitment amount. A member's Capital Account is their accounts' balance;
+  their MEMBERSHIP % is the operating agreement's, typed on the deal's
+  members (kept on `ir_commitments.membership_pct`, a commitment with no
+  amount made if needed) - never worked out from the capital. The investor
+  portal (`GET /portal/books`) shows an investor their OWN capital account
+  and membership, live, on the deals the portal already shows them - no
+  Accounting grant, never another member's accounts. Remove Sample Data
+  (Dashboard) deletes only what the demo seed made.
 - Personal financial statements (`routers/pfs.py`, Sep 2026) are the most
   sensitive records in Nexus: owners and the explicit `pfs` grant only
   (`bypass_level="owner"` - an administrator's role does NOT open them). Never

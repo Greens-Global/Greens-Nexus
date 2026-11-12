@@ -89,7 +89,7 @@ export default function CapitalCallsTab() {
     setBusy(true); setFormErr('');
     try {
       await api.createIrCapitalCall({
-        fundId: Number(modal.fundId),
+        fundId: String(modal.fundId),
         title: modal.title.trim(),
         purpose: modal.purpose.trim() || null,
         totalAmount: Number(modal.totalAmount) || 0,

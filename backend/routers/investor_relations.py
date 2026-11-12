@@ -285,6 +285,7 @@ def _serialize_commitment(c: IrCommitment, fund_names: dict, investor_names: dic
         "investorName":     investor_names.get(c.investor_id, ""),
         "commitmentAmount": float(c.commitment_amount or 0),
         "units":            float(c.units or 0),
+        "membershipPct":    c.membership_pct,
         "subscriptionDate": c.subscription_date or "",
         "status":           c.status or "pending",
         "signedDocUrl":     c.signed_doc_url or "",
@@ -708,6 +709,7 @@ def get_dashboard(user: dict = Depends(require_ir_view), db: Session = Depends(g
         "totalDistributed":     round(total_distributed, 2),
         "totalUnfunded":        round(max(total_committed - total_called, 0.0), 2),
         "fundCount":            len(funds),
+        "sampleFunds":          sum(1 for f in funds if f.name in SAMPLE_FUNDS),
         "activeFundCount":      deals_by_status["active"],
         "investorCount":        int(db.query(func.count(IrInvestor.id)).scalar() or 0),
         "avgIrrPct":            round(sum(irrs) / len(irrs), 2) if irrs else None,
@@ -1004,11 +1006,22 @@ def delete_investor(investor_id: str, user: dict = Depends(require_ir_admin),
 
 # ── Commitments ───────────────────────────────────────────────────────────────
 
+def membership_pct(v) -> Optional[float]:
+    """A member's percentage in the operating agreement: 0-100, or None."""
+    if v is None:
+        return None
+    v = float(v)
+    if not 0 <= v <= 100:
+        raise HTTPException(422, "Membership percentage must be between 0 and 100")
+    return round(v, 6)
+
+
 class CommitmentIn(BaseModel):
     fundId:           str
     investorId:       str
     commitmentAmount: float
     units:            Optional[float] = 0
+    membershipPct:    Optional[float] = None
     subscriptionDate: Optional[str] = ""
     status:           Optional[str] = "pending"
     signedDocUrl:     Optional[str] = ""
@@ -1018,6 +1031,8 @@ class CommitmentIn(BaseModel):
 class CommitmentUpdate(BaseModel):
     commitmentAmount: Optional[float] = None
     units:            Optional[float] = None
+    membershipPct:    Optional[float] = None
+    clearMembershipPct: Optional[bool] = False
     subscriptionDate: Optional[str] = None
     status:           Optional[str] = None
     signedDocUrl:     Optional[str] = None
@@ -1059,6 +1074,7 @@ def create_commitment(body: CommitmentIn, user: dict = Depends(require_ir_edit),
         investor_id=investor.id,
         commitment_amount=float(body.commitmentAmount or 0),
         units=float(body.units or 0),
+        membership_pct=membership_pct(body.membershipPct),
         subscription_date=_iso_date(body.subscriptionDate, "subscriptionDate"),
         status=status,
         signed_doc_url=(body.signedDocUrl or "").strip(),
@@ -1088,6 +1104,8 @@ def update_commitment(commitment_id: str, body: CommitmentUpdate,
     if body.status is not None:
         c.status = _require_enum(body.status.strip(), _COMMITMENT_STATUSES, "status")
     if body.units            is not None: c.units             = float(body.units)
+    if body.membershipPct    is not None: c.membership_pct    = membership_pct(body.membershipPct)
+    if body.clearMembershipPct:           c.membership_pct    = None
     if body.subscriptionDate is not None: c.subscription_date = _iso_date(body.subscriptionDate, "subscriptionDate")
     if body.signedDocName    is not None: c.signed_doc_name   = body.signedDocName.strip()
     c.updated_at = _now_iso()
@@ -1974,6 +1992,29 @@ def portal_deal_detail(fund_id: str, user: dict = Depends(require_ir_portal), db
 
 
 # ── Demo seed ─────────────────────────────────────────────────────────────────
+# The sample's names and emails, so Remove Sample Data deletes exactly what
+# the seed made and nothing a person keyed in.
+SAMPLE_FUNDS = ("Greens Multifamily Growth Fund III", "Oceanview Value-Add Partners II",
+                "Sunbelt Industrial Income Fund")
+_SAMPLE_INVESTORS = [
+    # (name, entity_type, email, accredited, kyc, status, owned_by_seeder, tax_id)
+    ("Robert & Diane Castellano",                    "individual",  "rcastellano@example.com",   "verified",       "cleared",   "active",   True, True),
+    ("Meridian Capital Holdings LLC",                "llc",         "invest@meridiancap.example", "verified",      "cleared",   "active",   False, True),
+    ("The Harold Weintraub Revocable Trust",         "trust",       "hweintraub@example.com",    "verified",       "cleared",   "active",   True, True),
+    ("Anjali Mehta",                                 "individual",  "anjali.mehta@example.com",  "self_certified", "cleared",   "active",   False, True),
+    ("Brightstone Family Office LLC",                "llc",         "ops@brightstonefo.example", "verified",       "cleared",   "active",   True, True),
+    ("Equity Trust Co. FBO James J. O'Rourke IRA",   "ira",         "jorourke@example.com",      "verified",       "cleared",   "active",   False, True),
+    ("Marcus & Lena Feldman",                        "individual",  "mfeldman@example.com",      "verified",       "cleared",   "active",   False, True),
+    ("Tidewater Ventures LP",                        "partnership", "lp@tidewaterventures.example", "verified",    "in_review", "active",   False, True),
+    ("Sandra Okafor",                                "individual",  "sandra.okafor@example.com", "self_certified", "cleared",   "active",   True, True),
+    ("Kessler Brothers Properties Inc.",             "corporation", "office@kesslerbros.example", "verified",     "cleared",   "active",   False, True),
+    ("Priya & Dev Raghunathan",                      "individual",  "praghunathan@example.com",  "verified",       "cleared",   "active",   False, True),
+    ("Bluff Creek Holdings LLC",                     "llc",         "manager@bluffcreek.example", "self_certified", "in_review", "active",  False, False),
+    ("Thomas Grady",                                 "individual",  "tgrady@example.com",        "self_certified", "pending",   "active",   False, False),
+    ("Helen Marsh",                                  "individual",  "helen.marsh@example.com",   "unverified",     "pending",   "prospect", True, False),
+]
+_SAMPLE_UPDATE = "Welcome to the Greens Investor Relations Portal"
+
 
 @router.post("/seed-demo-data")
 def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends(get_db)):
@@ -1998,7 +2039,7 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
 
     # Funds ------------------------------------------------------------------
     fund_mf3 = IrFund(
-        id=_id(), name="Greens Multifamily Growth Fund III",
+        id=_id(), name=SAMPLE_FUNDS[0],
         entity_name="Greens MF Growth III, LLC", strategy="Value-Add Multifamily",
         property_name="Cypress Grove Apartments (312 units)", status="active",
         target_raise=25000000, minimum_investment=100000,
@@ -2009,7 +2050,7 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
         thesis="Buy below replacement cost, renovate unit interiors, push rents to market, refinance in year 3.",
         created_by=me, created_at=ts(420), updated_at=now_iso)
     fund_ocean = IrFund(
-        id=_id(), name="Oceanview Value-Add Partners II",
+        id=_id(), name=SAMPLE_FUNDS[1],
         entity_name="Oceanview VA Partners II, LP", strategy="Coastal Value-Add Multifamily",
         property_name="Oceanview Terrace (188 units)", status="active",
         target_raise=12000000, minimum_investment=50000,
@@ -2020,7 +2061,7 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
         thesis="Under-managed coastal asset with 22% loss-to-lease; renovate, restaff, refinance.",
         created_by=me, created_at=ts(540), updated_at=now_iso)
     fund_sunbelt = IrFund(
-        id=_id(), name="Sunbelt Industrial Income Fund",
+        id=_id(), name=SAMPLE_FUNDS[2],
         entity_name="Greens Sunbelt Industrial, LLC", strategy="Core-Plus Industrial",
         property_name="", status="raising",
         target_raise=15000000, minimum_investment=250000,
@@ -2034,25 +2075,9 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
         db.add(f)
 
     # Investors ----------------------------------------------------------------
-    inv_specs = [
-        # (name, entity_type, email, accredited, kyc, status, rel_owner, tax_id)
-        ("Robert & Diane Castellano",                    "individual",  "rcastellano@example.com",   "verified",       "cleared",   "active",   me, True),
-        ("Meridian Capital Holdings LLC",                "llc",         "invest@meridiancap.example", "verified",      "cleared",   "active",   "", True),
-        ("The Harold Weintraub Revocable Trust",         "trust",       "hweintraub@example.com",    "verified",       "cleared",   "active",   me, True),
-        ("Anjali Mehta",                                 "individual",  "anjali.mehta@example.com",  "self_certified", "cleared",   "active",   "", True),
-        ("Brightstone Family Office LLC",                "llc",         "ops@brightstonefo.example", "verified",       "cleared",   "active",   me, True),
-        ("Equity Trust Co. FBO James J. O'Rourke IRA",   "ira",         "jorourke@example.com",      "verified",       "cleared",   "active",   "", True),
-        ("Marcus & Lena Feldman",                        "individual",  "mfeldman@example.com",      "verified",       "cleared",   "active",   "", True),
-        ("Tidewater Ventures LP",                        "partnership", "lp@tidewaterventures.example", "verified",    "in_review", "active",   "", True),
-        ("Sandra Okafor",                                "individual",  "sandra.okafor@example.com", "self_certified", "cleared",   "active",   me, True),
-        ("Kessler Brothers Properties Inc.",             "corporation", "office@kesslerbros.example", "verified",     "cleared",   "active",   "", True),
-        ("Priya & Dev Raghunathan",                      "individual",  "praghunathan@example.com",  "verified",       "cleared",   "active",   "", True),
-        ("Bluff Creek Holdings LLC",                     "llc",         "manager@bluffcreek.example", "self_certified", "in_review", "active",  "", False),
-        ("Thomas Grady",                                 "individual",  "tgrady@example.com",        "self_certified", "pending",   "active",   "", False),
-        ("Helen Marsh",                                  "individual",  "helen.marsh@example.com",   "unverified",     "pending",   "prospect", me, False),
-    ]
     investors = []
-    for i, (name, etype, email, accr, kyc, status, rel, tax) in enumerate(inv_specs):
+    for i, (name, etype, email, accr, kyc, status, rel, tax) in enumerate(_SAMPLE_INVESTORS):
+        rel = me if rel else ""
         v = IrInvestor(
             id=_id(), display_name=name, entity_type=etype, email=email,
             phone=f"+1 (555) 01{i:02d}-{1000 + 37 * i}", address="",
@@ -2196,7 +2221,7 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
 
     # Updates ---------------------------------------------------------------------
     updates = [
-        IrUpdate(id=_id(), fund_id="", title="Welcome to the Greens Investor Relations Portal",
+        IrUpdate(id=_id(), fund_id="", title=_SAMPLE_UPDATE,
                  body="All fund reporting, capital-call notices, and distribution statements now live here.",
                  pinned=True, created_by=me, created_at=ts(90)),
         IrUpdate(id=_id(), fund_id=fund_mf3.id, title="Cypress Grove Renovation - Phase I Complete",
@@ -2223,3 +2248,38 @@ def seed_demo_data(user: dict = Depends(require_ir_admin), db: Session = Depends
         "documentsCreated": len(docs),
         "updatesCreated": len(updates),
     }
+
+
+@router.post("/sample-data/remove")
+def remove_sample_data(user: dict = Depends(require_ir_admin), db: Session = Depends(get_db)):
+    """Delete the sample portfolio (Neil, 11/11/2026: real deals come from
+    Intacct now). Only what the seed made: its three deals by name (never one
+    linked to Intacct) with everything filed under them, its welcome post, and
+    its investors by name AND email - an investor with Intacct accounts or a
+    commitment in any other deal is kept."""
+    fund_ids = [f.id for f in db.query(IrFund).filter(IrFund.name.in_(SAMPLE_FUNDS),
+                                                      IrFund.intacct_entity == "").all()]
+    out = {}
+    if fund_ids:
+        for model in (IrCapitalCallAllocation, IrCapitalCall, IrDistributionAllocation, IrDistribution,
+                      IrCommitment, IrDocument, IrUpdate):
+            out[model.__tablename__] = (db.query(model).filter(model.fund_id.in_(fund_ids))
+                                        .delete(synchronize_session=False))
+        db.query(NexusAccessScope).filter(NexusAccessScope.module_id == "investor-relations",
+                                          NexusAccessScope.scope_id.in_(fund_ids)).delete(synchronize_session=False)
+        out["ir_funds"] = db.query(IrFund).filter(IrFund.id.in_(fund_ids)).delete(synchronize_session=False)
+    out["ir_updates"] = out.get("ir_updates", 0) + (
+        db.query(IrUpdate).filter(IrUpdate.fund_id == "", IrUpdate.title == _SAMPLE_UPDATE)
+        .delete(synchronize_session=False))
+    pairs = {(n, e) for n, _, e, *_ in _SAMPLE_INVESTORS}
+    gone = 0
+    for v in db.query(IrInvestor).filter(IrInvestor.email.in_([e for _, e in pairs])).all():
+        if (v.display_name, v.email) not in pairs or (v.intacct_accounts or "") \
+                or db.query(IrCommitment).filter(IrCommitment.investor_id == v.id).first():
+            continue
+        db.query(IrDocument).filter(IrDocument.investor_id == v.id).delete(synchronize_session=False)
+        db.delete(v)
+        gone += 1
+    out["ir_investors"] = gone
+    db.commit()
+    return {"removed": out}

@@ -4650,6 +4650,8 @@ class IrCommitment(Base):
     investor_id        = Column(String, nullable=False, index=True)
     commitment_amount  = Column(Float, default=0)
     units              = Column(Float, default=0)
+    # The member's percentage in the operating agreement (0-100); None = not set.
+    membership_pct     = Column(Float, nullable=True)
     subscription_date  = Column(String, default="")
     status             = Column(String, default="pending")   # pending|active|closed|withdrawn
     signed_doc_url     = Column(String, default="")

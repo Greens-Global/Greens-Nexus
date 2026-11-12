@@ -54,14 +54,14 @@ export default function CommitmentsTab() {
 
   const openAdd = () => {
     setFormErr('');
-    const form = { fundId: fundFilter || '', investorId: investorFilter || '', commitmentAmount: '', units: '', subscriptionDate: today(), status: 'pending' };
+    const form = { fundId: fundFilter || '', investorId: investorFilter || '', commitmentAmount: '', units: '', membershipPct: '', subscriptionDate: today(), status: 'pending' };
     setModal({ id: null, form, initialForm: form });
   };
   const openEdit = (c) => {
     setFormErr('');
     const form = {
       fundId: String(c.fundId), investorId: String(c.investorId),
-      commitmentAmount: c.commitmentAmount ?? '', units: c.units ?? '',
+      commitmentAmount: c.commitmentAmount ?? '', units: c.units ?? '', membershipPct: c.membershipPct ?? '',
       subscriptionDate: (c.subscriptionDate || '').slice(0, 10), status: c.status || 'pending',
     };
     setModal({ id: c.id, investorName: c.investorName, fundName: c.fundName, form, initialForm: form });
@@ -77,9 +77,11 @@ export default function CommitmentsTab() {
     try {
       const f = modal.form;
       const payload = {
-        fundId: Number(f.fundId), investorId: Number(f.investorId),
+        fundId: String(f.fundId), investorId: String(f.investorId),
         commitmentAmount: Number(f.commitmentAmount) || 0,
         units: f.units === '' ? null : Number(f.units),
+        membershipPct: f.membershipPct === '' ? null : Number(f.membershipPct),
+        clearMembershipPct: f.membershipPct === '' && modal.initialForm.membershipPct !== '',
         subscriptionDate: f.subscriptionDate || null,
         status: f.status,
       };
@@ -149,6 +151,7 @@ export default function CommitmentsTab() {
                 <th>Deal</th>
                 <th style={{ textAlign: 'right' }}>Commitment</th>
                 <th style={{ textAlign: 'right' }}>Units</th>
+                <th style={{ textAlign: 'right' }}>Membership</th>
                 <th>Subscription Date</th>
                 <th>Status</th>
                 <th>Subscription Doc</th>
@@ -161,6 +164,7 @@ export default function CommitmentsTab() {
                   <td data-th="Deal" style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}>{c.fundName}</td>
                   <td data-th="Commitment" style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }} onClick={() => openEdit(c)}>{formatCurrency(c.commitmentAmount)}</td>
                   <td data-th="Units" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }} onClick={() => openEdit(c)}>{c.units ?? '-'}</td>
+                  <td data-th="Membership" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }} onClick={() => openEdit(c)}>{c.membershipPct == null ? '-' : `${c.membershipPct}%`}</td>
                   <td data-th="Subscribed" style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}>{formatDate(c.subscriptionDate)}</td>
                   <td data-th="Status" style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}><StatusText status={c.status} /></td>
                   <td data-th="Doc">
@@ -208,6 +212,10 @@ export default function CommitmentsTab() {
               <FG label="Units">
                 <input className="form-input" type="number" min="0" step="any" value={modal.form.units}
                   onChange={e => setF({ units: e.target.value })} />
+              </FG>
+              <FG label="Membership (%)">
+                <input className="form-input" type="number" min="0" max="100" step="any" value={modal.form.membershipPct}
+                  placeholder="From the operating agreement" onChange={e => setF({ membershipPct: e.target.value })} />
               </FG>
               <FG label="Subscription Date">
                 <input className="form-input" type="date" value={modal.form.subscriptionDate} onChange={e => setF({ subscriptionDate: e.target.value })} />

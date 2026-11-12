@@ -110,9 +110,9 @@ def members(bal: dict, titles: dict, investor_of: dict) -> list:
     investor_of: {account_no: (investor_id, display_name)} for linked accounts.
     A linked investor's accounts add up under the profile; an unlinked one's
     under the name in the books (investorId ''). Members whose accounts are
-    all zero are left out. `share` is the member's part of the partner
-    capital on this entity - not an ownership percentage, which lives in the
-    operating agreement."""
+    all zero are left out. `balance` is the member's capital account; the
+    membership percentage is not in the books (it is the operating
+    agreement's, kept on the Nexus commitment)."""
     groups: dict = {}
     for no, amt in bal.items():
         kind = KINDS.get(no[:3])
@@ -130,13 +130,11 @@ def members(bal: dict, titles: dict, investor_of: dict) -> list:
         g[kind] += amt
         g["balance"] += amt
     rows = [g for g in groups.values() if any(abs(g[k]) >= 0.005 for k in ("ec", "contributed", "distributed"))]
-    total = sum(g["balance"] for g in rows)
     for g in rows:
         g["distributed"] = -g["distributed"]       # paid out reads as a positive figure
         for k in ("ec", "contributed", "distributed", "balance"):
             g[k] = r2(g[k])
         g["accounts"].sort()
-        g["share"] = round(g["balance"] / total, 6) if total > 0 else None
     rows.sort(key=lambda g: (-g["balance"], g["name"].lower()))
     return rows
 

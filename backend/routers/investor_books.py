@@ -26,6 +26,12 @@ only await the accounting app.
   GET  /investor-relations/funds-books             every linked deal's headline figures
   GET  /investor-relations/investors/{id}/books    a profile's live positions, entity by entity
   POST /investor-relations/books/import            a deal and its members' profiles from one entity
+  PUT  /investor-relations/funds/{id}/members/{investor}/membership   a member's percentage
+  GET  /investor-relations/portal/books            the signed-in investor's OWN capital account, deal by deal
+
+The investor portal (last route) is the one read without the Accounting
+grant: an investor sees only their own linked accounts, on the deals the
+portal already shows them (scoped AND committed) - never another member's.
 """
 from __future__ import annotations
 
@@ -90,6 +96,16 @@ def _edit_ctx(user: dict = Depends(ir.require_ir_edit), db: Session = Depends(ge
     if ctx["why"]:
         raise HTTPException(403, "Linking to Intacct needs Accounting access.")
     return ctx
+
+
+def _membership(db: Session, fund_id: str) -> dict:
+    """{investor_id: membership %} from the deal's commitments (summed when a
+    member holds more than one); members with none set are left out."""
+    out: dict = {}
+    for iid, pct in db.query(IrCommitment.investor_id, IrCommitment.membership_pct) \
+            .filter(IrCommitment.fund_id == fund_id, IrCommitment.membership_pct.isnot(None)).all():
+        out[iid] = out.get(iid, 0.0) + float(pct)
+    return out
 
 
 def _off(why: str) -> dict:
@@ -294,23 +310,26 @@ def _deal_ctx(fund_id: str, ctx: dict = Depends(_view_ctx)) -> dict:
         raise HTTPException(404, "Deal not found")
     # What Nexus's own records say each investor paid in and got back, to set
     # beside the books (a gap means a call or distribution was not recorded) -
-    # read only when the books will be shown.
+    # read only when the books will be shown, and only for a real commitment
+    # (one made to hold a membership percentage has no amount).
     nexus = {}
     pairs = [] if ctx["why"] or not f.intacct_entity else \
-        db.query(IrCommitment.investor_id).filter(IrCommitment.fund_id == f.id).distinct().all()
+        db.query(IrCommitment.investor_id).filter(IrCommitment.fund_id == f.id,
+                                                  IrCommitment.commitment_amount > 0).distinct().all()
     for (iid,) in pairs:
         a = ir._capital_account(db, f, iid)
         if a:
             nexus[iid] = {"called": ib.r2(a["called"]), "distributed": ib.r2(a["distributed"])}
-    return {**ctx, "fundId": f.id, "entity": f.intacct_entity or "", "investorOf": _investor_of(db), "nexus": nexus}
+    return {**ctx, "fundId": f.id, "entity": f.intacct_entity or "", "investorOf": _investor_of(db), "nexus": nexus,
+            "membership": _membership(db, f.id)}
 
 
 @router.get("/funds/{fund_id}/books")
 async def deal_books(ctx: dict = Depends(_deal_ctx)):
     """A deal's live figures from its entity: the property (cash, assets,
     liabilities, book equity, this year's revenue and net income) and every
-    member's capital (E&C, contributed, distributed, balance, share), each
-    member with what Nexus recorded beside it."""
+    member's capital account (E&C, contributed, distributed, balance) with
+    their membership percentage and what Nexus recorded beside it."""
     if ctx["why"]:
         return _off(ctx["why"])
     entity, today = ctx["entity"], ctx["today"]
@@ -329,6 +348,7 @@ async def deal_books(ctx: dict = Depends(_deal_ctx)):
     for r in rows:
         if r["investorId"] in ctx["nexus"]:
             r["nexus"] = ctx["nexus"][r["investorId"]]
+        r["membershipPct"] = ctx["membership"].get(r["investorId"]) if r["investorId"] else None
     return {**out, "entityName": names.get(entity, ""), "property": ib.property_figures(bs, pl),
             "partnerCapital": ib.r2(sum(r["balance"] for r in rows)), "members": rows}
 
@@ -360,7 +380,11 @@ def _positions_ctx(investor_id: str, ctx: dict = Depends(_view_ctx)) -> dict:
     v = ctx["db"].query(IrInvestor).filter(IrInvestor.id == investor_id).first()
     if not v:
         raise HTTPException(404, "Investor not found")
-    return {**ctx, "accounts": _accounts_of(v), "name": v.display_name, "deals": _deal_of(ctx["db"])}
+    pct = {}
+    for fid, p in ctx["db"].query(IrCommitment.fund_id, IrCommitment.membership_pct).filter(
+            IrCommitment.investor_id == v.id, IrCommitment.membership_pct.isnot(None)).all():
+        pct[fid] = pct.get(fid, 0.0) + float(p)
+    return {**ctx, "accounts": _accounts_of(v), "name": v.display_name, "deals": _deal_of(ctx["db"]), "membership": pct}
 
 
 @router.get("/investors/{investor_id}/books")
@@ -386,7 +410,8 @@ async def investor_books(ctx: dict = Depends(_positions_ctx)):
             deal = ctx["deals"].get(code) or ("", "")
             out["positions"].append({"entity": code, "name": labels.get(code) or code, "accounts": r["accounts"],
                                      "ec": r["ec"], "contributed": r["contributed"], "distributed": r["distributed"],
-                                     "balance": r["balance"], "fundId": deal[0], "fundName": deal[1]})
+                                     "balance": r["balance"], "fundId": deal[0], "fundName": deal[1],
+                                     "membershipPct": ctx["membership"].get(deal[0]) if deal[0] else None})
     out["positions"].sort(key=lambda p: -p["balance"])
     out["total"] = ib.r2(sum(p["balance"] for p in out["positions"]))
     return out
@@ -469,3 +494,84 @@ async def import_entity(body: ImportIn, ctx: dict = Depends(_import_ctx)):
         raise HTTPException(422, f"Entity {entity} has no partner capital on the books.")
     return await asyncio.to_thread(_import, ctx["db"], ctx["user"], entity, names[entity], members,
                                    ib.partners_from_chart(chart))
+
+
+# ── Membership percentage ───────────────────────────────────────────────────
+class MembershipIn(BaseModel):
+    pct: Optional[float] = None
+
+
+def _save_membership(db: Session, user: dict, fund_id: str, investor_id: str, pct) -> dict:
+    """Set a member's percentage on their commitment in the deal. A member
+    brought in from the books may have no commitment yet: one is made with
+    no amount (capital lives in Intacct), so pro-rata calls skip it."""
+    if not db.query(IrFund).filter(IrFund.id == fund_id).first():
+        raise HTTPException(404, "Deal not found")
+    if not db.query(IrInvestor).filter(IrInvestor.id == investor_id).first():
+        raise HTTPException(404, "Investor not found")
+    value = ir.membership_pct(pct)
+    rows = db.query(IrCommitment).filter(IrCommitment.fund_id == fund_id,
+                                         IrCommitment.investor_id == investor_id).with_for_update().all()
+    now = _now()
+    if rows:
+        rows[0].membership_pct, rows[0].updated_at = value, now
+        for extra in rows[1:]:         # one figure per member, kept on the first commitment
+            extra.membership_pct = None
+    elif value is not None:
+        db.add(IrCommitment(id=str(uuid.uuid4()), fund_id=fund_id, investor_id=investor_id, commitment_amount=0,
+                            membership_pct=value, status="active", created_by=user["email"],
+                            created_at=now, updated_at=now))
+    db.commit()
+    return {"fundId": fund_id, "investorId": investor_id, "membershipPct": value}
+
+
+@router.put("/funds/{fund_id}/members/{investor_id}/membership")
+def set_membership(fund_id: str, investor_id: str, body: MembershipIn,
+                   user: dict = Depends(ir.require_ir_edit), db: Session = Depends(get_db)):
+    """A member's percentage in the operating agreement (0-100, null clears)."""
+    return _save_membership(db, user, fund_id, investor_id, body.pct)
+
+
+# ── Investor portal: my own capital account ─────────────────────────────────
+def _portal_ctx(user: dict = Depends(ir.require_ir_portal), db: Session = Depends(get_db)) -> dict:
+    """The deals the portal shows this investor (scoped AND committed, as
+    /portal/my-deals), their own linked accounts and membership."""
+    out = {"today": maintenance_services.local_today(db).isoformat(), "deals": [], "accounts": []}
+    me = ir._my_investor_record(user, db)
+    visible = ir._my_visible_fund_ids(user, db)
+    if not me or (visible is not None and not visible):
+        return out
+    fund_ids = {c.fund_id for c in db.query(IrCommitment).filter(IrCommitment.investor_id == me.id).all()}
+    if visible is not None:
+        fund_ids &= visible
+    for f in db.query(IrFund).filter(IrFund.id.in_(fund_ids)).all() if fund_ids else []:
+        out["deals"].append({"fundId": f.id, "entity": f.intacct_entity or "",
+                             "membershipPct": _membership(db, f.id).get(me.id)})
+    return {**out, "accounts": _accounts_of(me), "name": me.display_name}
+
+
+@router.get("/portal/books")
+async def portal_books(ctx: dict = Depends(_portal_ctx)):
+    """{asOf, deals: {fundId: {membershipPct, live, ec, contributed,
+    distributed, capitalAccount}}} - live figures only where the deal is
+    linked to its entity and the profile to its accounts; only the caller's
+    own accounts are ever read into the answer."""
+    mine = set(ctx["accounts"])
+    me = {a: ("me", ctx.get("name", "")) for a in mine}
+
+    async def one(d: dict) -> dict:
+        row = {"membershipPct": d["membershipPct"], "live": False}
+        if not d["entity"] or not mine:
+            return row
+        try:
+            bs = await _entity_total(d["entity"], ctx["today"])
+        except HTTPException:
+            return {**row, "booksError": True}
+        bal = {a: v for a, v in ib.balances(bs).items() if a in mine}
+        m = ib.members(bal, {}, me)
+        if not m:
+            return row
+        return {**row, "live": True, "ec": m[0]["ec"], "contributed": m[0]["contributed"],
+                "distributed": m[0]["distributed"], "capitalAccount": m[0]["balance"]}
+    rows = await asyncio.gather(*(one(d) for d in ctx["deals"]))
+    return {"asOf": ctx["today"], "deals": {d["fundId"]: r for d, r in zip(ctx["deals"], rows)}}
