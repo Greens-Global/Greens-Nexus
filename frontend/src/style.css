@@ -174,35 +174,38 @@
   --loader:     #3fbe6f;
   --skel:       #1a2a20;
   --skel-sheen: #2a4533;
-  --body-bg: linear-gradient(145deg, #0a0e1a 0%, #0f1629 100%);
-  --paper:   #0d1117;
-  --card:    #161b27;
-  --sidebar: #0d1117;
-  --ink:     #e8edf5;
-  --muted:   #8b97b0;
-  --line:    rgba(255,255,255,0.09);
+  /* Neutral near-black (Pranshu, 11/12/2026: the navy blue-gray strained the
+     eyes). Three text levels on the card #141619: ink 15.9:1, muted 9.3:1,
+     --text-muted 5.7:1 (it was 3.1:1). No tint, no gradient. */
+  --body-bg: #0b0c0e;
+  --paper:   #0b0c0e;
+  --card:    #141619;
+  --sidebar: #0b0c0e;
+  --ink:     #eef0f3;
+  --muted:   #b4bac4;
+  --line:    rgba(255,255,255,0.12);
   /* --pine and --fern stay dark (inherited from :root) â€” DO NOT override */
-  --mist:    #161b27;
+  --mist:    #141619;
   --ok-bg:   #0a2218; --ok-fg:   #4ade80;
   --warn-bg: #1c1206; --warn-fg: #fbbf24;
   --bad-bg:  #200d0d; --bad-fg:  #f87171;
   --info-bg: #0c1830; --info-fg: #60a5fa;
   --bg-primary:   var(--paper);
-  --bg-secondary: #161b27;
+  --bg-secondary: #141619;
   --bg-sidebar:   var(--sidebar);
   --bg-card:      var(--card);
-  --border-color: rgba(255,255,255,0.09);
-  --border-hover: rgba(255,255,255,0.16);
+  --border-color: rgba(255,255,255,0.12);
+  --border-hover: rgba(255,255,255,0.22);
   --text-primary:   var(--ink);
   --text-secondary: var(--muted);
-  --text-muted:     #5c687e;
+  --text-muted:     #8a919c;
   --sidebar-hover-bg:   rgba(255,255,255,0.07);
   --sidebar-active-bg:  rgba(255,255,255,0.12);
   --sidebar-active-text: #f1f5f9;
-  --nav-text:           #7a90ad;
-  --nav-text-hover:     #b8cce0;
+  --nav-text:           #9aa1ac;
+  --nav-text-hover:     #d3d7de;
   --nav-text-active:    #f1f5f9;
-  --header-bg:          rgba(13,17,23,0.92);
+  --header-bg:          rgba(11,12,14,0.92);
   --header-border:      rgba(255,255,255,0.07);
   --search-bg:          rgba(255,255,255,0.06);
   --search-bg-focus:    rgba(255,255,255,0.1);
@@ -212,12 +215,12 @@
 
   /* Task Module palette - dark theme. Elevation order (darkest→lightest):
      canvas < surface2 < surface, mirroring light where page < band < card. */
-  --nx-canvas:   #0d1117;
-  --nx-surface:  #171c29;
-  --nx-surface2: #10141e;
-  --nx-ink:      #e8edf5;
-  --nx-dim:      #9aa6bd;
-  --nx-faint:    #6b7688;
+  --nx-canvas:   #0b0c0e;
+  --nx-surface:  #16181c;
+  --nx-surface2: #101215;
+  --nx-ink:      #eef0f3;
+  --nx-dim:      #b4bac4;
+  --nx-faint:    #8a919c;
   --nx-border:   rgba(255,255,255,0.10);
   --nx-border2:  rgba(255,255,255,0.055);
   --nx-hover:    rgba(255,255,255,0.06);
@@ -4348,8 +4351,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   --wk-ink:       var(--ink);
   --wk-dim:       var(--muted);
   --wk-faint:     var(--text-muted);
-  --wk-line:      rgba(255,255,255,0.10);
-  --wk-line2:     rgba(255,255,255,0.08);
+  --wk-line:      rgba(255,255,255,0.16);
+  --wk-line2:     rgba(255,255,255,0.12);
   --wk-hover:     rgba(255,255,255,0.05);
   --wk-brand-tint:rgba(43,69,225,0.18);
   --wk-green:     #4ade80;
