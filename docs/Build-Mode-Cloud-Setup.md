@@ -32,15 +32,14 @@ environment** allows, and it needs your Build Token to act as you.
      sent as `Authorization: Bearer <your Build Token>`. A network secret is
      added to the request on its way out, so the session never sees the
      token;
-   - an **environment variable** `NEXUS_BUILD_TOKEN=nxbn_cloud` - a
-     placeholder so the command line starts; the network secret replaces it
-     on the wire;
    - **allowed hosts**: the storage host the pins' screenshots are on (for
      dev: `xemoocdvqzhfbwjxcjdx.supabase.co`) and `cdn.sheetjs.com` (one
      frontend package is downloaded from there; without it `npm ci` fails).
 
 Never put the real Build Token in an environment variable, a prompt or a
 file in the repository.
+Claude Code calls the command line with a placeholder token
+(`--token nxbn_cloud`); the network secret replaces it on the wire.
 
 ## Step 2 - Make the scheduled task
 
