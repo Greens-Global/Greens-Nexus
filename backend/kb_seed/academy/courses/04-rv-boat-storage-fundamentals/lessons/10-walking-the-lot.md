@@ -42,7 +42,7 @@ Every exception gets **a dated photo and a note**. A problem with no photo did n
 |---|---|
 | Something about a tenant's vehicle or account: a leak, a flat, expired tags, wrong space | A note on the lease in Cubby with the photo, and a call to the tenant |
 | Something broken at the site: the gate, a light, a post, a canopy panel | Nexus: scan the site's QR tag and tap **Report a Problem**, or file a ticket |
-| The walk itself | Nexus: **Fill a Form** on Workday (also in the + menu) |
+| The walk itself | Nexus: **Fill a Form** on Workday (also under the bolt in the header) |
 | Damage, injury or theft | The incident steps below, the same day |
 
 **Which form?** Nexus has no single lot-walk form for every site. Your manager picks the form your site uses: it sits in Fill a Form under its category, usually **Inspection** or **Vehicle Check**, and an incident goes on an **Incident Report** form. Fill a Form works with no signal and sends when you are back in range, and it keeps your photos with the place and the time.
