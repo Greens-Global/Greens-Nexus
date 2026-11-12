@@ -133,9 +133,9 @@ export default function CloseTab({ canEdit, meName = '' }) {
                   return (
                     <tr key={r.id}>
                       <td><span style={mono}>{r.gl}</span>{r.name}</td>
-                      <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.prior, { paren: true })}</td>
-                      <td style={num}>{m(r.balance, { paren: true })}</td>
-                      <td style={{ ...num, color: toneColor(r.change >= 0) }}>{m(r.change, { paren: true })}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</div></td>
+                      <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.prior, { report: true })}</td>
+                      <td style={num}>{m(r.balance, { report: true })}</td>
+                      <td style={{ ...num, color: toneColor(r.change >= 0) }}>{m(r.change, { report: true })}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</div></td>
                       <td>
                         {note ? <div style={{ fontSize: '0.84rem' }}>{note.body}<div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{note.written_by} · {whenTxt(note.written_at)}</div></div> : canEdit ? (
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

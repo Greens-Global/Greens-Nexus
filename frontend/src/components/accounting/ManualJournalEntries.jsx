@@ -246,7 +246,7 @@ export default function ManualJournalEntries() {
           </div>
         </div>
       )}
-      {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+      {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
     </div>
   );
 }

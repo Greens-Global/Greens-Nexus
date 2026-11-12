@@ -113,7 +113,7 @@ export default function ReconPanel({ row, entityName, fullLink, onNavigate, canE
         {row.gl ? <LedgerLines gl={row.gl} entity={row.entityCode} entityName={entityName} period={period} book={book} onOpenEntry={setEntry} />
           : <PanelSection title="Ledger Lines" caption="This account has no GL account, so there are no ledger lines to show."><span /></PanelSection>}
       </SidePanel>
-      {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+      {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
     </>
   );
 }
