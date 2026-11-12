@@ -32,6 +32,14 @@ copied from the calendar event when the note was made) - sharing the note with
 someone who was not invited shares the notes, never the call. Externals and
 Act As are refused: a calendar and a call are a person's own.
 
+TESTERS FIRST (Neil, 11/12/2026: "turn this feature on for Neil Kadakia on
+production as a tester"): Meeting Notes is off for everyone except the people
+in the `meeting_notes.access` nexus_settings row - JSON {"everyone": false,
+"emails": [...]} - per database, so dev and production each keep their own
+list. Every route answers 403 to anyone else and GET /meetings/access tells
+the screen whether to show the Meetings button. No row = nobody. Widen it by
+editing the row (or "everyone": true), never by a code default.
+
 The Graph lookups reuse routers/meeting_files.py (Visesh, Oct 24 2026: the
 organizer's id from the join link, the Teams application access policy, the
 transcript list and its "switched off for the tenant" answer) - never a second
@@ -82,12 +90,46 @@ def _me(user: dict) -> str:
     return meeting_files._canon(user.get("email", ""))
 
 
-def _guard(user: dict) -> str:
+ACCESS_KEY = "meeting_notes.access"
+
+
+def _access_rule(db: Session) -> dict:
+    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == ACCESS_KEY).first()
+    try:
+        rule = json.loads(row.value) if row and row.value else {}
+    except ValueError:
+        rule = {}
+    return rule if isinstance(rule, dict) else {}
+
+
+def may_use(db: Session, email: str) -> bool:
+    """Whether Meeting Notes is turned on for this person (testers first)."""
+    rule = _access_rule(db)
+    if rule.get("everyone") is True:
+        return True
+    emails = rule.get("emails") if isinstance(rule.get("emails"), list) else []
+    return meeting_files._canon(email) in {meeting_files._canon(str(e)) for e in emails}
+
+
+def _guard(user: dict, db: Session) -> str:
     if user.get("external"):
         raise HTTPException(403, "Meeting notes are for Greens staff only")
     if user.get("acting_as"):
         raise HTTPException(403, "Meeting notes are not available while acting as someone - a calendar is a person's own")
-    return _me(user)
+    me = _me(user)
+    if not may_use(db, me):
+        raise HTTPException(403, "Meeting Notes is not turned on for you yet")
+    return me
+
+
+@router.get("/access")
+def meetings_access(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Whether the screen shows Meetings to this person."""
+    try:
+        _guard(user, db)
+    except HTTPException:
+        return {"enabled": False}
+    return {"enabled": True}
 
 
 def _iso(value: str) -> datetime:
@@ -156,7 +198,7 @@ def meetings_day(start: str = Query(...), end: str = Query(...),
     ISO with an offset), earliest first, each with `noteId` - the caller's note
     for it, else one shared with them, else ''. `enabled: false` with a reason
     when Graph cannot read calendars yet (the screen says so, never an error)."""
-    me = _guard(user)
+    me = _guard(user, db)
     s, e = _iso(start), _iso(end)
     if e <= s or e - s > DAY_SPAN_MAX:
         raise HTTPException(400, "Pick a span of up to two days")
@@ -227,7 +269,7 @@ def open_meeting_note(body: OpenIn, user: dict = Depends(get_current_user), db: 
     time, the same one after ({noteId, created}). The event is read from the
     caller's calendar, never taken from the request, so nobody can make a
     meeting note for a call they were not invited to."""
-    me = _guard(user)
+    me = _guard(user, db)
     day = (body.day or "").strip()
     if day and not _DAY.match(day):
         raise HTTPException(400, "Day must be YYYY-MM-DD")
@@ -305,7 +347,7 @@ def _invited(row: models.NexusMeetingNote, me: str) -> bool:
 def meeting_of_note(note_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The meeting a note was taken for. `invited` says whether the caller was
     on the invite - only then are the join link and the transcript theirs."""
-    me = _guard(user)
+    me = _guard(user, db)
     _, can, row = _row_for_note(db, note_id, me)
     invited = _invited(row, me)
     return {
@@ -409,7 +451,7 @@ def meeting_transcript(note_id: str, user: dict = Depends(get_current_user), db:
     (transcription stopped and started again), plus how many recordings Teams
     has and the meeting chat's thread (Open in Teams - the recording lives
     there). 404 with a plain reason while there is none yet."""
-    me = _guard(user)
+    me = _guard(user, db)
     _, _, row = _row_for_note(db, note_id, me)
     if not _invited(row, me):
         raise HTTPException(403, "The transcript is only for the people invited to the meeting")
