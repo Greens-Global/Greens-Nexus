@@ -3,9 +3,13 @@
 // Open Notes and Join. Opening one makes its note once (POST /meetings/notes)
 // and hands the id back to the Notes page. A sheet from the right on a
 // computer, the bottom sheet on a phone - the shared Modal. Phase 2: the
-// person's own opt-in to the Transcript Ready bell sits at its foot.
+// person's own opt-in to the Transcript Ready bell sits at its foot. Phase 3:
+// every meeting on the calendar (in person, Zoom, Google Meet as well as
+// Teams) and New Meeting Note for one that is not on it - those are
+// transcribed on the device.
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Video, NotebookPen, CalendarX2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Video, NotebookPen, CalendarX2, ExternalLink, Plus } from 'lucide-react';
+import { dialog } from '../../ui/dialog';
 import { api } from '../../api';
 import { Modal } from '../../tasks/components';
 import { SkeletonBlocks } from '../../components/AsyncState';
@@ -14,9 +18,14 @@ import { formatTime } from '../../lib/datetime';
 import { addDays, dayHeading, localDay } from '../notesModel';
 import { dayBounds, joinable, meetingPhase } from './meetingModel';
 
+const where = (m) => (m.kind === 'teams' ? 'Teams' : m.onlineUrl
+  ? (/zoom\.us/i.test(m.onlineUrl) ? 'Zoom' : /meet\.google/i.test(m.onlineUrl) ? 'Google Meet' : 'Online')
+  : (m.location ? `In Person · ${m.location}` : 'In Person'));
+
 function Row({ m, busy, onOpen }) {
   const phase = meetingPhase(m);
   const others = (m.attendees || []).length;
+  const link = m.joinUrl || m.onlineUrl;
   return (
     <li className={`nt-mtg-row${phase === 'ended' ? ' is-past' : ''}`}>
       <div className="nt-mtg-when">
@@ -29,14 +38,15 @@ function Row({ m, busy, onOpen }) {
           {m.subject}
         </div>
         <div className="nt-mtg-sub">
+          <span className="nt-mtg-where">{where(m)}</span>{' · '}
           {m.isOrganizer ? 'You organized' : `Organized by ${m.organizer?.name || m.organizer?.email || 'someone'}`}
           {others > 0 && ` · ${others} ${others === 1 ? 'person' : 'people'} invited`}
         </div>
       </div>
       <div className="nt-mtg-actions">
-        {joinable(m) && (
-          <a className="nt-text-btn" href={m.joinUrl} target="_blank" rel="noopener noreferrer" title="Join in Teams">
-            <Video size={14} aria-hidden="true" /> Join
+        {link && joinable({ ...m, joinUrl: link }) && (
+          <a className="nt-text-btn" href={link} target="_blank" rel="noopener noreferrer" title={m.joinUrl ? 'Join in Teams' : 'Open the meeting link'}>
+            {m.joinUrl ? <Video size={14} aria-hidden="true" /> : <ExternalLink size={14} aria-hidden="true" />} Join
           </a>
         )}
         <button type="button" className={`nt-text-btn${m.noteId ? '' : ' is-primary'}`} disabled={busy} onClick={() => onOpen(m)}>
@@ -78,6 +88,18 @@ export default function MeetingsSheet({ onClose, onOpened }) {
   }, [day]);
   useEffect(() => { load(); }, [load]);
 
+  // A meeting that is not on the calendar: a note of its own, starting now.
+  const startAdhoc = async () => {
+    const title = await dialog.prompt('What is this meeting?', { title: 'New Meeting Note', defaultValue: '', confirmText: 'Start', required: true });
+    if (title == null) return;
+    setOpening('adhoc');
+    try {
+      const r = await api.meetingAdhoc(title.trim(), day);
+      onOpened(r.noteId, true);
+    } catch (e) { setError(e.message || 'Could not start the meeting note'); }
+    finally { setOpening(''); }
+  };
+
   const open = async (m) => {
     if (m.noteId) { onOpened(m.noteId); return; }
     setOpening(m.eventId);
@@ -96,6 +118,10 @@ export default function MeetingsSheet({ onClose, onOpened }) {
         <span className="nt-mtg-day-label" aria-live="polite">{dayHeading(day, today)}</span>
         <button type="button" className="nt-icon-btn" aria-label="Next day" onClick={() => setDay((d) => addDays(d, 1))}><ChevronRight size={17} /></button>
         {day !== today && <button type="button" className="nt-tag" onClick={() => setDay(today)}>Today</button>}
+        <button type="button" className="nt-text-btn nt-mtg-new" onClick={startAdhoc} disabled={opening === 'adhoc'}
+          title="Notes for a meeting that is not on your calendar - a site walk, a quick huddle">
+          <Plus size={14} aria-hidden="true" /> New Meeting Note
+        </button>
       </div>
       {error && (
         <div className="nt-banner is-bad" role="alert">
@@ -110,8 +136,8 @@ export default function MeetingsSheet({ onClose, onOpened }) {
       {data?.enabled && meetings.length === 0 && (
         <div className="nt-empty">
           <CalendarX2 size={26} aria-hidden="true" style={{ color: 'var(--wk-faint)', marginBottom: 8 }} />
-          <strong>No Teams meetings {day === today ? 'today' : 'this day'}</strong>
-          Meetings with a Teams link on your Outlook calendar show here.
+          <strong>No meetings {day === today ? 'today' : 'this day'}</strong>
+          Meetings on your Outlook calendar show here. For one that is not on it, use New Meeting Note.
         </div>
       )}
       {meetings.length > 0 && (
@@ -128,8 +154,9 @@ export default function MeetingsSheet({ onClose, onOpened }) {
       )}
       {data?.enabled && (
         <p className="nt-mtg-foot">
-          Take Notes during the call; each line keeps the time you wrote it. After the call, the Teams transcript opens beside
-          your notes - turn on transcription in the meeting so there is one. Nexus links to the transcript and recording in Teams and keeps no copy.
+          Take Notes during the meeting; each line keeps the time you wrote it. A Teams meeting's transcript comes from Teams (turn on
+          transcription in the meeting) - Nexus links to it and keeps no copy. Any other meeting - in person, Zoom, Google Meet - press
+          Start Transcribing in its note: speech is turned into text on your device, and only the words are kept.
         </p>
       )}
     </Modal>

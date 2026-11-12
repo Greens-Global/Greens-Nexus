@@ -186,14 +186,15 @@ describe('Notes page - meetings', () => {
 
   it('lists the day\'s Teams meetings and opens a meeting\'s notes', async () => {
     apiMock.meetingsDay.mockResolvedValue({ enabled: true, meetings: [{
-      eventId: 'evt1', icalUid: 'u1', subject: 'Weekly Ops', start: MEETING.start, end: MEETING.end,
+      eventId: 'evt1', icalUid: 'u1', subject: 'Weekly Ops', kind: 'teams', onlineUrl: '', start: MEETING.start, end: MEETING.end,
       organizer: { email: 'neil@greensglobal.com', name: 'Neil' }, isOrganizer: true, attendees: [{ email: 'bob@greensglobal.com', name: 'Bob' }],
       joinUrl: MEETING.joinUrl, noteId: '' }] });
     apiMock.meetingNoteOpen.mockResolvedValue({ noteId: 'note_m', created: true });
     const onSubChange = vi.fn();
     render(<NotesPage activeSub="notes" onSubChange={onSubChange} />);
     fireEvent.click(await screen.findByRole('button', { name: /Meetings/ }));
-    expect(await screen.findByText('You organized · 1 person invited')).toBeTruthy();
+    await screen.findByText('Teams');
+    expect(document.querySelector('.nt-mtg-sub').textContent).toBe('Teams · You organized · 1 person invited');
     expect(screen.getByRole('link', { name: /Join/ }).getAttribute('href')).toBe(MEETING.joinUrl);
     fireEvent.click(screen.getByRole('button', { name: /Take Notes/ }));
     await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('notes:note_m'));

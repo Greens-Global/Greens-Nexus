@@ -53,7 +53,10 @@ SERIES_LAST = {**EVENT, "id": "evtS1", "iCalUId": "uid-s1", "seriesMasterId": "S
                "end": {"dateTime": "2026-11-05T15:30:00.0000000", "timeZone": "UTC"}}
 SERIES_NOW = {**EVENT, "id": "evtS2", "iCalUId": "uid-s2", "seriesMasterId": "SERIES-1", "type": "occurrence"}
 EVENTS = {quote(e["id"], safe=""): e for e in (EVENT, SERIES_LAST, SERIES_NOW)}
-NOT_TEAMS = {**EVENT, "id": "evt2", "iCalUId": "uid-2", "subject": "Lunch", "isOnlineMeeting": False, "onlineMeeting": None}
+NOT_TEAMS = {**EVENT, "id": "evt2", "iCalUId": "uid-2", "subject": "Lunch", "isOnlineMeeting": False, "onlineMeeting": None,
+             "location": {"displayName": "https://us02web.zoom.us/j/123456789?pwd=abc"}}
+ALL_DAY = {**EVENT, "id": "evt3", "iCalUId": "uid-3", "subject": "Out of Office", "isAllDay": True}
+EVENTS[quote(NOT_TEAMS["id"], safe="")] = NOT_TEAMS
 VTT = ("WEBVTT\n\n"
        "abc/1-0\n00:00:01.000 --> 00:00:03.000\n<v Neil>Okay, rent roll first.</v>\n\n"
        "abc/2-0\n00:00:03.500 --> 00:00:05.000\n<v Neil>It closed at 16,200.</v>\n\n"
@@ -79,7 +82,7 @@ def fake_graph(calendar_ok=True, transcripts=True):
         if url.endswith("/calendarView"):
             if not calendar_ok:
                 return _R(403, {"error": {"code": "ErrorAccessDenied"}})
-            return _R(200, {"value": [EVENT, NOT_TEAMS]})
+            return _R(200, {"value": [EVENT, NOT_TEAMS, ALL_DAY]})
         if "/events/" in url:
             ev = EVENTS.get(url.rsplit("/events/", 1)[1])
             assert ev, url
@@ -117,6 +120,7 @@ class MeetingNotesTests(unittest.TestCase):
         db.query(models.NexusMeetingNote).delete()
         db.query(models.NexusNote).delete()
         db.query(models.NexusNotification).delete()
+        db.query(models.NexusMeetingTranscript).delete()
         db.query(models.NexusSetting).filter(models.NexusSetting.key.like(meetings.ALERTS_KEY + "%")).delete(synchronize_session=False)
         db.query(models.NexusSetting).filter(models.NexusSetting.key == meetings.ACCESS_KEY).delete()
         # Testers first: Neil, Visesh (the tenant alias, same person) and Sam may use it.
@@ -147,7 +151,10 @@ class MeetingNotesTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         got = r.json()
         self.assertTrue(got["enabled"])
-        self.assertEqual([m["subject"] for m in got["meetings"]], ["Weekly Ops"])
+        # Every meeting (Phase 3), never an all-day item; Teams and the rest told apart.
+        self.assertEqual([(m["subject"], m["kind"]) for m in got["meetings"]], [("Weekly Ops", "teams"), ("Lunch", "other")])
+        self.assertEqual(got["meetings"][1]["onlineUrl"], "https://us02web.zoom.us/j/123456789?pwd=abc")
+        self.assertEqual(got["meetings"][1]["joinUrl"], "")
         m = got["meetings"][0]
         self.assertEqual(m["start"], "2026-11-12T15:00:00Z")
         self.assertTrue(m["isOrganizer"])
@@ -367,6 +374,111 @@ class MeetingNotesTests(unittest.TestCase):
     def test_vtt_without_voices_or_hours(self):
         cues = meetings.parse_vtt("WEBVTT\n\n01:02.500 --> 01:04.000\nPlain words\n")
         self.assertEqual(cues, [{"start": 62.5, "end": 64.0, "speaker": "", "text": "Plain words"}])
+
+    # ── Phase 3: meetings outside Teams, transcribed on the device ────────────
+    def rec(self, nid, path="", method="get", **kw):
+        return getattr(self.client, method)(f"/meetings/notes/{nid}/recorded{path}", **kw)
+
+    def test_a_meeting_outside_teams_gets_a_note_but_no_teams_transcript(self):
+        self.as_("neil@greensglobal.com")
+        r = self.open_note(NOT_TEAMS)
+        self.assertEqual(r.status_code, 200, r.text)
+        nid = r.json()["noteId"]
+        info = self.client.get(f"/meetings/notes/{nid}").json()
+        self.assertEqual((info["kind"], info["onlineUrl"], info["joinUrl"]), ("other", "https://us02web.zoom.us/j/123456789?pwd=abc", ""))
+        self.assertTrue(info["mayRecord"])
+        self.assertEqual(info["recorded"], {"exists": False, "segments": 0, "live": False})
+        with mock.patch.object(meetings.httpx, "get", side_effect=fake_graph()):
+            self.assertEqual(self.client.get(f"/meetings/notes/{nid}/transcript").status_code, 404)
+        # The ready bell never asks Teams about it.
+        self.client.put("/meetings/alerts", json={"on": True})
+        CALLS.clear()
+        db = database.SessionLocal()
+        try:
+            with mock.patch.object(meetings.httpx, "get", side_effect=fake_graph()):
+                meetings.ready_pass(db, now=meetings.datetime(2026, 11, 12, 15, 45, tzinfo=meetings.timezone.utc))
+        finally:
+            db.close()
+        self.assertFalse(any("onlineMeetings" in u for u in CALLS))
+
+    def test_an_adhoc_meeting_note_is_its_owners(self):
+        self.as_("neil@greensglobal.com")
+        r = self.client.post("/meetings/adhoc", json={"title": "  Site Walk   Plano ", "day": "2026-11-12"})
+        self.assertEqual(r.status_code, 200, r.text)
+        nid = r.json()["noteId"]
+        note = self.client.get(f"/notes/{nid}").json()
+        self.assertEqual((note["title"], note["day"], note["source"]["kind"]), ("Site Walk Plano", "2026-11-12", "meeting"))
+        info = self.client.get(f"/meetings/notes/{nid}").json()
+        self.assertEqual(info["kind"], "adhoc")
+        self.assertTrue(info["invited"])
+        self.assertEqual(self.client.post("/meetings/adhoc", json={"day": "11/12/2026"}).status_code, 400)
+
+    def test_recording_needs_consent_and_keeps_words_only_once(self):
+        self.as_("neil@greensglobal.com")
+        nid = self.client.post("/meetings/adhoc", json={"title": "Site Walk"}).json()["noteId"]
+        self.assertEqual(self.rec(nid).json()["cues"], [])
+        no = self.rec(nid, "/sessions", "post", json={"id": "s1", "engine": "whisper", "source": "mic", "consent": False})
+        self.assertEqual(no.status_code, 400)
+        self.assertIn("agreed", no.json()["detail"])
+        self.assertEqual(self.rec(nid, "/segments", "post", json={"sessionId": "s1", "segments": [
+            {"id": "a", "at": 1794495600, "text": "x"}]}).status_code, 409)       # no session yet
+        ok = self.rec(nid, "/sessions", "post", json={"id": "s1", "engine": "whisper", "source": "mic+tab", "consent": True})
+        self.assertEqual(ok.status_code, 200, ok.text)
+        seg = {"sessionId": "s1", "segments": [
+            {"id": "a", "at": 1794495600.5, "end": 1794495604, "speaker": "You", "text": "  I will send the   gate codes by Friday. "},
+            {"id": "b", "at": 1794495610, "speaker": "Others", "text": "Let's go with the Austin vendor."},
+            {"id": "bad id!", "at": 1794495611, "text": "dropped"},
+            {"id": "c", "at": 12, "text": "dropped - not a time"},
+            {"id": "d", "at": 1794495612, "text": "   "},
+        ]}
+        self.assertEqual(self.rec(nid, "/segments", "post", json=seg).json(), {"added": 2, "total": 2})
+        self.assertEqual(self.rec(nid, "/segments", "post", json=seg).json(), {"added": 0, "total": 2})   # a resend
+        got = self.rec(nid).json()
+        self.assertEqual([(c["speaker"], c["text"]) for c in got["cues"]],
+                         [("You", "I will send the gate codes by Friday."), ("Others", "Let's go with the Austin vendor.")])
+        self.assertEqual([a["text"] for a in got["highlights"]["actions"]], ["I will send the gate codes by Friday."])
+        self.assertEqual([d["text"] for d in got["highlights"]["decisions"]], ["Let's go with the Austin vendor."])
+        sess = got["sessions"][0]
+        self.assertEqual((sess["by"], sess["engine"], sess["source"], sess["endedAt"]), ("neil@greensglobal.com", "whisper", "mic+tab", ""))
+        self.assertTrue(sess["consentAt"])
+        self.assertTrue(self.client.get(f"/meetings/notes/{nid}").json()["recorded"]["live"])
+        self.assertEqual(self.rec(nid, "/sessions/s1/end", "post").status_code, 200)
+        self.assertFalse(self.client.get(f"/meetings/notes/{nid}").json()["recorded"]["live"])
+        named = self.rec(nid, "/speakers", "put", json={"speakers": {"Others": "Visesh", "You": "You"}}).json()
+        self.assertEqual([c["speaker"] for c in named["cues"]], ["You", "Visesh"])
+        self.assertEqual(named["speakers"], {"Others": "Visesh"})
+        # Nothing of the audio: the row holds words and session facts only.
+        db = database.SessionLocal()
+        row = db.query(models.NexusMeetingTranscript).first()
+        self.assertEqual(sorted(c.name for c in row.__table__.columns),
+                         ["created_at", "id", "note_id", "owner_email", "rev", "segments", "sessions", "speakers", "updated_at"])
+        db.close()
+
+    def test_who_reads_records_and_deletes_a_recorded_transcript(self):
+        self.as_("neil@greensglobal.com")
+        nid = self.client.post("/meetings/adhoc", json={"title": "Site Walk"}).json()["noteId"]
+        self.rec(nid, "/sessions", "post", json={"id": "s1", "engine": "browser", "source": "mic", "consent": True})
+        self.rec(nid, "/segments", "post", json={"sessionId": "s1", "segments": [{"id": "a", "at": 1794495600, "text": "Hello"}]})
+        with mock.patch.object(notes, "_directory_person", return_value={"email": "x"}):
+            self.client.put(f"/notes/{nid}/share", json={"email": "sam.staff@greensglobal.com", "can": "read"})
+            self.client.put(f"/notes/{nid}/share", json={"email": "visesh.lodha@greensglobal.com", "can": "edit"})
+        self.as_("sam.staff@greensglobal.com")              # Can Read: reads, never records
+        self.assertEqual([c["text"] for c in self.rec(nid).json()["cues"]], ["Hello"])
+        self.assertFalse(self.rec(nid).json()["mayRecord"])
+        self.assertEqual(self.rec(nid, "/sessions", "post", json={"id": "s2", "engine": "whisper", "source": "mic", "consent": True}).status_code, 403)
+        self.assertEqual(self.rec(nid, "", "delete").status_code, 403)
+        self.as_("visesh.lodha@greensglobal.com")           # Can Edit: records, never deletes
+        self.assertEqual(self.rec(nid, "/sessions", "post", json={"id": "s2", "engine": "whisper", "source": "mic", "consent": True}).status_code, 200)
+        self.assertEqual(self.rec(nid, "", "delete").status_code, 403)
+        self.as_("other.person@greensglobal.com")           # neither: no such note
+        self.assertEqual(self.rec(nid).status_code, 404)
+        self.as_("neil@greensglobal.com")
+        self.assertEqual(self.rec(nid, "", "delete").status_code, 200)
+        self.assertEqual(self.rec(nid).json()["cues"], [])
+
+    def test_recording_is_testers_only_like_the_rest(self):
+        self.as_("charmi@greensglobal.com")
+        self.assertEqual(self.client.post("/meetings/adhoc", json={"title": "x"}).status_code, 403)
 
 
 if __name__ == "__main__":
