@@ -612,7 +612,7 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
         <div className="nt-empty" style={{ margin: 'auto' }}>
           <StickyNote size={28} aria-hidden="true" style={{ color: 'var(--wk-faint)', marginBottom: 8 }} />
           <strong>Pick a note or start a new one</strong>
-          Everything you write saves by itself and follows you to Quick Note - New Note in the top bar's + menu.
+          Everything you write saves by itself and follows you to Quick Note - New Note under the bolt in the top bar.
         </div>
       </div>
     );

@@ -8640,30 +8640,71 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .nx-plan-line > :last-child { grid-column: 2; justify-self: start; }
 }
 
-/* ── Header Create menu (Neil, Oct 29 2026; components/QuickCreate.jsx) ──
-   The "+" beside the search bar. Its panel is the profile menu's
-   (.header-user-dropdown / .hud-sec / .hud-item), a little wider, and
-   scrolls when the screen is short. On a phone it is a full-width sheet
-   under the header with 44px rows. */
+/* ── Header Quick Actions menu (Neil, 11/12/2026; components/QuickCreate.jsx) ──
+   The green bolt beside the search bar - it took over from the "+" Create
+   menu (Neil, Oct 29 2026). Its panel is the profile menu's
+   (.header-user-dropdown / .hud-sec / .hud-item), wider, in two steps: the
+   top row of icons and a row per group, then a group's own list sliding in
+   with a line back. It scrolls when the screen is short. On a phone it is a
+   full-width sheet under the header with finger-sized rows. */
 .qc-wrap { position: relative; }
 /* An action button, not another grey icon (Neil, Oct 30 2026): Nexus green
-   with a white "+", the same green as Notes' New Note, in both themes. */
+   with a white bolt, the same green as Notes' New Note, in both themes -
+   never yellow or orange (orange means "in progress", DESIGN.md "Live accent"). */
 .icon-btn.qc-btn { background: #00a25b; color: #fff; }
 .icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] { background: #008a4c; }
 .icon-btn.qc-btn:active { background: #007a43; }
 .icon-btn.qc-btn:focus-visible { outline-offset: 2px; }
-.qc-btn:focus-visible, .qc-item:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
+.qc-btn:focus-visible, .qc-item:focus-visible, .qc-tile:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
 .qc-item:focus { background: var(--sidebar-hover-bg); }
-.header-user-dropdown.qc-menu { width: 248px; max-height: calc(100dvh - 88px); overflow-y: auto; overscroll-behavior: contain; }
+.header-user-dropdown.qc-menu { width: 320px; max-height: calc(100dvh - 88px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+/* The top row: one tap each. */
+.qc-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px 2px 6px; }
+.qc-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 2px;
+  border: none; background: none; border-radius: 10px; cursor: pointer;
+  font-family: 'Inter', sans-serif; font-size: var(--fs-label); font-weight: 500; line-height: 1.2; color: var(--ink); text-align: center;
+}
+.qc-tile-ico {
+  width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink);
+  transition: background var(--transition-fast), transform 120ms var(--ease-out);
+}
+.qc-tile:hover .qc-tile-ico, .qc-tile:focus .qc-tile-ico { background: color-mix(in srgb, var(--ink) 11%, transparent); }
+.qc-tile:active .qc-tile-ico { transform: scale(.95); }
+/* A group row: its name, what is inside it, and the way in. */
+.qc-group-text { display: flex; align-items: baseline; gap: 10px; flex: 1; min-width: 0; }
+.qc-group-name { width: 58px; flex-shrink: 0; font-weight: 600; }
+.qc-group-hint { flex: 1; min-width: 0; font-size: var(--fs-label); font-weight: 400; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qc-chev { flex-shrink: 0; color: var(--muted); }
+/* The second step: the line back (the module bar's "← Operations" idea) over the group's name. */
+.hud-item.qc-back { width: auto; padding: 6px 10px; font-size: var(--fs-label); color: var(--muted); }
+.qc-title { padding: 4px 10px 6px; font-size: var(--fs-title); font-weight: 700; color: var(--ink); }
+@keyframes qc-step-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+@keyframes qc-step-back { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
+.qc-sub { animation: qc-step-in 180ms var(--ease-out) both; }
+.qc-level.is-back { animation: qc-step-back 180ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) { .qc-sub, .qc-level.is-back { animation: none; } .qc-tile-ico { transition: none; } }
 @media (max-width: 900px) {
   .qc-btn { width: 44px; height: 44px; }
-  /* The header's backdrop blur makes it the box "fixed" measures from, so
-     this pins to the header's bottom edge, full width with a gutter. */
+  /* A full-width sheet under the header: measured from the header itself
+     (it is sticky, so it is the box an absolute child measures from), not
+     from the bolt. It used to be "fixed" and lean on the header's backdrop
+     blur to be that box - where the blur is missing (the production CSS
+     keeps only the -webkit- form, which Chrome ignores) it landed below the
+     screen (11/12/2026). */
+  .qc-wrap { position: static; }
   .header-user-dropdown.qc-menu {
-    position: fixed; top: calc(100% + 6px); left: 8px; right: 8px; width: auto;
+    position: absolute; top: calc(100% + 6px); left: 8px; right: 8px; width: auto;
     max-height: calc(100dvh - 140px - env(safe-area-inset-bottom));
   }
   .qc-menu .qc-item { min-height: 44px; font-size: 14px; }
+  .qc-tile-ico { width: 56px; height: 56px; border-radius: 16px; }
+  .qc-tile-ico svg { width: 24px; height: 24px; }
+  .qc-menu .qc-group { min-height: 52px; }
+  .qc-group-text { flex-direction: column; align-items: stretch; gap: 2px; }
+  .qc-group-name { width: auto; }
+  .qc-group-hint { flex: none; }
 }
 /* The bell matches the header's other buttons (Neil, 10/29/2026: it read
    smaller than the "+" and the photo beside it). Its size is inline in

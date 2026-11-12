@@ -62,7 +62,7 @@ import NotesPage from './NotesPage';
 import NotesWidget from './NotesWidget';
 import QuickNotePanel from './QuickNotePanel';
 import { noteTitle, isBoard, writeDraft } from './notesModel';
-import { CREATE_ITEMS } from '../lib/quickCreate';
+import { ACTIONS } from '../lib/quickCreate';
 
 beforeEach(() => {
   boardCollabMock.useBoardCollab.mockReset();
@@ -174,10 +174,10 @@ describe('Boards in the Notes list and bar', () => {
     expect(isBoard({ kind: 'board' })).toBe(true);
   });
 
-  it('the + menu lists New Board right after New Note', () => {
-    const keys = CREATE_ITEMS.map((it) => it.key);
+  it('Quick Actions lists New Board right after New Note', () => {
+    const keys = ACTIONS.map((it) => it.key);
     expect(keys.indexOf('board')).toBe(keys.indexOf('note') + 1);
-    expect(CREATE_ITEMS.find((it) => it.key === 'board').label).toBe('New Board');
+    expect(ACTIONS.find((it) => it.key === 'board').label).toBe('New Board');
   });
 });
 
@@ -448,11 +448,11 @@ describe('New Board elsewhere asks the same question', () => {
     } finally { window.removeEventListener('nexus:navigate', nav); }
   });
 
-  it('the + menu\'s New Board goes to the same question', async () => {
+  it('Quick Actions\' New Board goes to the same question', async () => {
     const nav = vi.fn();
     window.addEventListener('nexus:navigate', nav);
     try {
-      await CREATE_ITEMS.find((it) => it.key === 'board').run();
+      await ACTIONS.find((it) => it.key === 'board').run();
       expect(nav.mock.calls[0][0].detail).toEqual({ view: 'dashboard', sub: 'notes:new-board' });
       expect(apiMock.noteCreate).not.toHaveBeenCalled();
     } finally { window.removeEventListener('nexus:navigate', nav); }

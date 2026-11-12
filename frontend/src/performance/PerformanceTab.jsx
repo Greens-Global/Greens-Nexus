@@ -21,7 +21,7 @@ import { scoreColor } from './Score';
 import { BonusReviewCard } from './BonusRuns';
 import { NX } from '../tasks/theme';
 import { FeedbackCard } from './Feedback';
-import { KudosCard } from './Kudos';
+import { KudosCard, GiveKudosModal } from './Kudos';
 import { PlanCard } from './Plans';
 
 // Needs You (Oct 29 2026): what a manager's team is waiting on, each a
@@ -110,6 +110,9 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
   const [need, setNeed] = useState('');
   const [openFeedback, setOpenFeedback] = useState(initial.feedback || '');
   const [openKudos, setOpenKudos] = useState(initial.kudos || '');
+  // Give Kudos opened from outside the card (the header's Quick Actions); kudosRound reloads the card after one is sent.
+  const [giveKudos, setGiveKudos] = useState(!!initial.newKudos);
+  const [kudosRound, setKudosRound] = useState(0);
   const [openPlan, setOpenPlan] = useState(initial.plan || '');
 
   // A new bell while the tab is open opens what it points at.
@@ -120,11 +123,12 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
     if (p?.goal) setOpenGoal(p.goal);
     if (p?.oneOnOne) setOpenSeries(p.oneOnOne);
     if (p?.review) setOpenReview(p.review);
-    if (p?.feedback || p?.kudos || p?.plan) { setView('me'); setPerson(null); }
+    if (p?.feedback || p?.kudos || p?.plan || p?.newKudos) { setView('me'); setPerson(null); }
     if (p?.feedback) setOpenFeedback(p.feedback);
     if (p?.kudos) setOpenKudos(p.kudos);
     if (p?.plan) setOpenPlan(p.plan);
     if (p?.newOneOnOne) setNewOneOnOne({ reportEmail: '' });
+    if (p?.newKudos) setGiveKudos(true);
     if (p?.view === 'team') { setView('team'); setPerson(null); }
   }
   useEffect(() => { if (focus) onFocusUsed?.(); }, [focus, onFocusUsed]);
@@ -242,13 +246,17 @@ export default function PerformanceTab({ focus = null, onFocusUsed, toastOk, toa
               <div style={{ ...muted, fontSize: 12, marginTop: 8 }}>Next: {formatDateTime((oneOnOnes.find(s => s.next?.at) || {}).next.at)}</div>
             )}
           </section>
-          <KudosCard key={openKudos} ctx={ctx} focusId={openKudos} toastOk={toastOk} toastErr={toastErr} />
+          <KudosCard key={`${openKudos}:${kudosRound}`} ctx={ctx} focusId={openKudos} toastOk={toastOk} toastErr={toastErr} />
           </div>
         )} />
       )}
 
       {view === 'team' && openReview && (
         <ReviewModal reviewId={openReview} onClose={() => { setOpenReview(''); changed(); }} toastOk={toastOk} toastErr={toastErr} />
+      )}
+      {giveKudos && ctx && (
+        <GiveKudosModal me={ctx.email} onClose={() => setGiveKudos(false)} toastErr={toastErr}
+          onGiven={(k) => { setGiveKudos(false); toastOk?.(`Kudos sent to ${k.toName}.`); setKudosRound(n => n + 1); }} />
       )}
       {newOneOnOne && (
         <NewOneOnOneModal ctx={ctx} reportEmail={newOneOnOne.reportEmail} onClose={() => setNewOneOnOne(null)} toastOk={toastOk} toastErr={toastErr}

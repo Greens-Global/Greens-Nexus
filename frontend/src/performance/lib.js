@@ -67,15 +67,18 @@ export function localTimeZone() {
 
 // Workday sub keys: 'performance', 'performance:team',
 // 'performance:goal:<id>', 'performance:1on1:<id>', 'performance:review:<id>',
-// 'performance:feedback:<id>', 'performance:kudos:<id>', 'performance:plan:<id>'.
+// 'performance:feedback:<id>', 'performance:kudos:<id>', 'performance:plan:<id>',
+// and the two that open a form: 'performance:1on1:new', 'performance:kudos:new'.
 export function parsePerfSub(sub) {
   const m = String(sub || '').match(/^performance(?::(team|goal|1on1|review|feedback|kudos|plan)(?::(.+))?)?$/);
   if (!m) return null;
   const id = (k) => (m[1] === k ? m[2] || '' : '');
   // "performance:1on1:new" (the header's Create menu, Oct 29 2026) opens Set Up a 1:1.
   const newOneOnOne = m[1] === '1on1' && m[2] === 'new';
+  // "performance:kudos:new" (the header's Quick Actions, 11/12/2026) opens Give Kudos.
+  const newKudos = m[1] === 'kudos' && m[2] === 'new';
   return { view: m[1] === 'team' ? 'team' : 'me', goal: id('goal'), oneOnOne: newOneOnOne ? '' : id('1on1'), review: id('review'),
-    feedback: id('feedback'), kudos: id('kudos'), plan: id('plan'), newOneOnOne };
+    feedback: id('feedback'), kudos: newKudos ? '' : id('kudos'), plan: id('plan'), newOneOnOne, newKudos };
 }
 
 export const card = {

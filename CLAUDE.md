@@ -303,6 +303,27 @@ keep the diff minimal.
   Bold capped at 1.26, cascade 14ms a row,
   nothing loops, nothing on touch, the phone drawer untouched, the folded
   rail never peeks. The sidebar tooltip (`NavTip`) is the light flyout card.
+- **Quick Actions is the bolt (Neil, 11/12/2026, mock
+  https://claude.ai/artifact/KKVpfc4ZqEjyaTUF3DDoDj):** the green bolt in
+  the top header (where the "+" Create menu was, Oct 29 2026) starts things
+  from any screen, in two steps: the top row is four icons, one tap each -
+  New Task, New Ticket, New Note, New Board, in that order (Neil) - then one
+  row per group, and a group row slides to its own list (New, Request,
+  Send) with a line back. Every row STARTS something that is yours (a thing
+  you make, ask for or send) through the module's own create flow; a place
+  to go is the left menu's and search's job, and the punch stays on the
+  left menu's clock - never a row here. The list, the one visibility rule
+  and the layout are `lib/quickCreate.js` (a group of one shows as that
+  action; a group the top row already covers is left out; a person who
+  cannot use one of the four gets the next action they can); the button and
+  menu are `components/QuickCreate.jsx`. A new action = one `ACTIONS` row
+  whose `go` / `compose` / `run` opens the module's own form - never a form
+  in the header, never a third step, never a second quick menu. The bolt is
+  green, never yellow or orange (Live accent). On a phone the menu is a
+  sheet measured from the header itself, never `position: fixed` (the
+  production CSS drops the header's unprefixed backdrop-filter, so "fixed"
+  lands below the screen in Chrome). Still off on purpose (Neil, Oct 29
+  2026): 1:1s, Ask HR, Credentials, Send for Signature, Workflows.
 - **Hold to confirm (Neil, Oct 30 2026, plan
   https://claude.ai/artifact/MU1RMFQ9nHYxSB31XjDwQ1, PRs #883-#884):** an
   action that cannot be taken back (delete forever, void, offboard, end
@@ -562,7 +583,7 @@ keep the diff minimal.
   allowed sites is not a site member); a submitter never reviews their own
   entry, and nothing changes an entry's state by itself. Crews fill a form
   from Workday's Fill a Form tile, the shift card (`showOnShifts` for the
-  shift's site), the + menu and the Quick Actions dock; photos and
+  shift's site), the header's Quick Actions (Request) and the Quick Actions dock; photos and
   signatures go to `task-files/forms/<entryKey>/`; the same `entryKey` sent
   twice is one entry. `form.submitted` / `form.reviewed` are emitted through
   `workflows.emit` at the two choke points in `routers/forms.py` with the
@@ -895,7 +916,7 @@ keep the diff minimal.
   mirrored in `canvas/shape.js`) carries step kinds only.
 
 - **Notes (Neil, Oct 29-31 2026, `routers/notes.py`, `frontend/src/notes/`).**
-  Dashboard > Notes (the page), Quick Note (the slide-over from the + menu's
+  Dashboard > Notes (the page), Quick Note (the slide-over from Quick Actions'
   New Note, or `quickNoteKeys()` - Ctrl+Alt+N / Ctrl+Cmd+N) and the
   dashboard's Notes widget read and write the same rows (`nexus_notes`,
   `nexus_note_versions`, `nexus_note_presence` - each needs RLS on dev and prod). A
