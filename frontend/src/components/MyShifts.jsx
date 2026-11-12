@@ -346,7 +346,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           <button type="button" onClick={() => step(-1)} title={`Previous ${unit}`} aria-label={`Previous ${unit.toLowerCase()}`}
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronLeft size={16} /></button>
           <button type="button" onClick={() => setCursor(new Date())} disabled={atNow}
-            style={{ border: 'none', borderLeft: '1px solid var(--wk-line2)', borderRight: '1px solid var(--wk-line2)', background: 'none', padding: '7px 12px', cursor: atNow ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
+            style={{ border: 'none', borderLeft: '1px solid var(--wk-line2)', borderRight: '1px solid var(--wk-line2)', background: 'none', padding: '7px 12px', cursor: atNow ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
             This {unit}
           </button>
           <button type="button" onClick={() => step(1)} title={`Next ${unit}`} aria-label={`Next ${unit.toLowerCase()}`}
@@ -362,7 +362,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
               const on = (monthView ? 'month' : 'week') === k;
               return (
                 <button key={k} type="button" onClick={() => setRange(k)} aria-pressed={on}
-                  style={{ border: 'none', padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                  style={{ border: 'none', padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
                     background: on ? 'var(--wk-brand-tint)' : 'transparent', color: on ? 'var(--wk-brand)' : 'var(--muted)' }}>{label}</button>
               );
             })}
@@ -372,7 +372,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           <div role="tablist" aria-label="Whose week" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 2, background: 'var(--wk-line2)', borderRadius: 9, padding: 2 }}>
             {[['mine', 'My Week'], ['team', 'Team']].map(([k, label]) => (
               <button key={k} type="button" role="tab" aria-selected={part === k} onClick={() => setPart(k)}
-                style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, padding: '5px 12px', borderRadius: 7,
+                style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, padding: '5px 12px', borderRadius: 7,
                   background: part === k ? 'var(--card)' : 'transparent', color: part === k ? 'var(--ink)' : 'var(--muted)', boxShadow: part === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
                 {label}
               </button>
@@ -392,7 +392,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
             {moreWaiting > 0 && <span style={{ color: 'var(--muted)', fontSize: 12 }}> {moreWaiting} more waiting.</span>}
             {confirmErr && <span role="status" style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{confirmErr}</span>}
           </div>
-          <button type="button" className="primary-btn" onClick={() => confirmSchedule(toConfirm)} disabled={confirming === toConfirm.publishId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <button type="button" className="primary-btn" onClick={() => confirmSchedule(toConfirm)} disabled={confirming === toConfirm.publishId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
             <Check size={13} /> Confirm
           </button>
         </div>
@@ -408,7 +408,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
                 <div style={{ fontSize: 13, fontWeight: 800 }}>{c.headline}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>{c.groupName} · {formatMonthDay(parseIso(c.date))}{c.reason ? ` · ${c.reason}` : ''}{c.outcome === 'cancelled' && c.status === 'active' ? ' · The day is unpaid.' : ''}</div>
               </div>
-              <button type="button" className="primary-btn" onClick={() => acknowledge(c)} disabled={acking === c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              <button type="button" className="primary-btn" onClick={() => acknowledge(c)} disabled={acking === c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                 <Check size={13} /> Acknowledge
               </button>
             </div>
@@ -417,7 +417,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       )}
 
       {mine && glance && !error && (
-        <div role="status" aria-label="Week summary" style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
+        <div role="status" aria-label="Week summary" style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
           {thisWeek ? 'This week' : 'That week'}: <b style={{ color: 'var(--ink)' }}>{glance.shiftCount} shift{glance.shiftCount === 1 ? '' : 's'}</b>
           {' · '}<b style={{ color: 'var(--ink)' }}>{fmtHrs(glance.mins)}</b>
           {' · '}{glance.offDays ? <b style={{ color: 'hsl(var(--color-orange))' }}>{glance.offDays} day{glance.offDays === 1 ? '' : 's'} off{glance.pending ? ' (one requested)' : ''}</b> : 'no time off'}
@@ -431,7 +431,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           waits on the shifts fetch, the Team toggle or an error, and it does
           not read "That week: ... Time off this year" when stepping weeks. */}
       {trail && (
-        <div data-trail style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>{trail}</div>
+        <div data-trail style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>{trail}</div>
       )}
       {mine && glance && !error && calPrefs && (
         <CalendarRow prefs={calPrefs} companyOn={calPrefs.companyOutlookCalendar === true} hasMailbox={calPrefs.hasMailbox !== false}
@@ -450,29 +450,29 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
               boxShadow: d.isToday ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 5,
             }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 800, color: d.isToday ? 'var(--wk-brand)' : 'var(--ink)', whiteSpace: 'nowrap' }}>{dayShort(d.date)}</span>
-                {(i === 0 || d.date.getDate() === 1) && <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>{formatMonthDay(d.date).replace(/ \d+$/, '')}</span>}
-                {d.isToday && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand)', marginLeft: 'auto' }}>Today</span>}
+                <span style={{ fontSize: 13, fontWeight: 800, color: d.isToday ? 'var(--wk-brand)' : 'var(--ink)', whiteSpace: 'nowrap' }}>{dayShort(d.date)}</span>
+                {(i === 0 || d.date.getDate() === 1) && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>{formatMonthDay(d.date).replace(/ \d+$/, '')}</span>}
+                {d.isToday && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--wk-brand)', marginLeft: 'auto' }}>Today</span>}
               </div>
-              {d.holiday && <div style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={11} /> {d.holiday}</div>}
-              {d.note && <div title={d.note} style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-orange))', display: 'flex', alignItems: 'flex-start', gap: 5 }}><StickyNote size={11} style={{ flexShrink: 0, marginTop: 2 }} /> <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.note}</span></div>}
+              {d.holiday && <div style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={11} /> {d.holiday}</div>}
+              {d.note && <div title={d.note} style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-orange))', display: 'flex', alignItems: 'flex-start', gap: 5 }}><StickyNote size={11} style={{ flexShrink: 0, marginTop: 2 }} /> <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.note}</span></div>}
               {d.timeoff.map((t, i2) => <TimeOffBlock key={t.id || i2} off={t} style={{ marginBottom: 0 }} />)}
               {d.shifts.map((s) => {
                 const askable = canAsk && s.date >= todayKey && !pendingIds.has(s.id);
                 return (
                   <ShiftBlock key={s.id} shift={s} teamZone={teamZone} style={{ marginBottom: 0 }} actual={actualOf(s, d.shifts.length === 1)} tapActual>
-                    {s.note && <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.note}</div>}
+                    {s.note && <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.note}</div>}
                     {formsForShift(shiftForms, s, data?.teams).map((f) => (
                       <button key={f.id} type="button" onClick={() => setFillForm({ form: f, shift: s })} aria-label={`Fill ${f.title}`}
-                        style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
+                        style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
                           border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', maxWidth: '100%', ...smallTap }}>
                         <ClipboardList size={10} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Fill {f.title}</span>
                       </button>
                     ))}
-                    {pendingIds.has(s.id) ? <div style={{ fontSize: 10.5, color: 'hsl(var(--color-orange))', fontWeight: 600, marginTop: 2 }}>Request Pending</div>
+                    {pendingIds.has(s.id) ? <div style={{ fontSize: 11, color: 'hsl(var(--color-orange))', fontWeight: 600, marginTop: 2 }}>Request Pending</div>
                       : askable && (
                         <button type="button" onClick={() => setAsk({ shift: s })} aria-label={`Request a swap${canRelease ? ', offer or release' : ' or offer'} for ${formatHHMM(s.start)} - ${formatHHMM(s.end)}`}
-                          style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
+                          style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
                             border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', ...smallTap }}>
                           <ArrowLeftRight size={10} /> Request
                         </button>
@@ -482,7 +482,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
               })}
               {!d.shifts.length && !d.holiday && !d.timeoff.length && d.usual && (
                 <div title="Your regular hours. No shift is shared for this day yet." style={{ marginTop: 'auto', border: '1px dashed var(--wk-line2, var(--line))', borderRadius: 6, padding: '4px 8px' }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>Usual Hours</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Usual Hours</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{formatHHMM(d.usual.start)} - {formatHHMM(d.usual.end)}</div>
                 </div>
               )}
@@ -491,7 +491,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
         </div>
       )}
 
-      {flash && <div role="status" style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>{flash}</div>}
+      {flash && <div role="status" style={{ marginTop: 12, fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-green))' }}>{flash}</div>}
       {fillForm && (
         <Suspense fallback={<ModalLoading zIndex={4100} />}>
           <FillForm templateId={fillForm.form.id} shiftId={fillForm.shift.id} workSiteId={fillForm.form.workSiteId || ''} projectId={jobOfShift(fillForm.shift)} onClose={() => setFillForm(null)}
@@ -519,15 +519,15 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           ) : null} />
       ) : data ? (
         <div>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Your manager shares shifts here. Swaps and open-shift requests are in Workday &gt; Time Off.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Your manager shares shifts here. Swaps and open-shift requests are in Workday &gt; Time Off.</div>
           <EmptyWeek days={days} phone={phone} embedded={embedded} />
-          {teamZoneLabel && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>}
+          {teamZoneLabel && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>}
         </div>
       ) : null}
 
       {mine && embedded && (
         <button type="button" onClick={() => setAvailOpen((v) => !v)} aria-expanded={availOpen}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
           {availOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />} My Availability
         </button>
       )}
@@ -543,7 +543,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       </div>}
       {/* The texts switch is for people in a weather department only (10/29/2026). */}
       {mine && prefs && prefs.weatherOn !== false && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 13, cursor: 'pointer', color: 'var(--ink)' }}>
           <input type="checkbox" checked={prefs.weatherSms !== false} onChange={(e) => setWeatherSms(e.target.checked)} aria-label="Text me when a weather call changes my shift" />
           Text me when a weather call changes my shift{prefs.phone ? '' : ' (no phone number on file - ask HR to add one)'}
         </label>
@@ -564,12 +564,12 @@ function EmptyWeek({ days, phone, embedded }) {
           boxShadow: d.isToday ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 5,
         }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-            <span style={{ fontSize: 13.5, fontWeight: 800, color: d.isToday ? 'var(--wk-brand)' : 'var(--ink)', whiteSpace: 'nowrap' }}>{dayShort(d.date)}</span>
-            {(i === 0 || d.date.getDate() === 1) && <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>{formatMonthDay(d.date).replace(/ \d+$/, '')}</span>}
-            {d.isToday && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand)', marginLeft: 'auto' }}>Today</span>}
+            <span style={{ fontSize: 13, fontWeight: 800, color: d.isToday ? 'var(--wk-brand)' : 'var(--ink)', whiteSpace: 'nowrap' }}>{dayShort(d.date)}</span>
+            {(i === 0 || d.date.getDate() === 1) && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>{formatMonthDay(d.date).replace(/ \d+$/, '')}</span>}
+            {d.isToday && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--wk-brand)', marginLeft: 'auto' }}>Today</span>}
           </div>
-          {d.holiday ? <div style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={11} /> {d.holiday}</div>
-            : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shifts</div>}
+          {d.holiday ? <div style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={11} /> {d.holiday}</div>
+            : <div style={{ fontSize: 13, color: 'var(--muted)' }}>No shifts</div>}
         </div>
       ))}
     </div>
@@ -619,7 +619,7 @@ export function CalendarRow({ prefs, companyOn, hasMailbox = true, onToggle, onF
   }
   const on = !!prefs && prefs.shiftCalendar !== false;
   return (
-    <div data-calendar-row="" style={{ marginBottom: 12, fontSize: 12.5 }}>
+    <div data-calendar-row="" style={{ marginBottom: 12, fontSize: 13 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <CalendarDays size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
         {/* Off by default (Oct 15 2026): with the company switch off there
@@ -640,7 +640,7 @@ export function CalendarRow({ prefs, companyOn, hasMailbox = true, onToggle, onF
         )}
         {companyOn && <span aria-hidden="true" style={{ color: 'var(--muted)' }}>·</span>}
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
-          style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
+          style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--wk-brand)' }}>
           Subscribe in another calendar
         </button>
       </div>

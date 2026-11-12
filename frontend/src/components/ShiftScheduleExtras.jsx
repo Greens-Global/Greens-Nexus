@@ -34,20 +34,20 @@ export function ShiftTypeWeek({ days, shifts, presets, names, teamZone, onOpen }
             const ds = isoDate(d);
             return (
               <div key={ds} aria-current={ds === today ? 'date' : undefined} style={{ padding: '8px 10px', borderLeft: '1px solid var(--line)', background: 'transparent', ...(ds === today ? TODAY_HEAD : null) }}>
-                <span style={{ fontSize: 17, fontWeight: 800, color: ds === today ? TODAY_INK : 'var(--ink)' }}>{d.getDate()}</span>{' '}
-                <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)' }}>{dayHeading(d).replace(/ \d+$/, '')}</span>
+                <span style={{ fontSize: 18, fontWeight: 800, color: ds === today ? TODAY_INK : 'var(--ink)' }}>{d.getDate()}</span>{' '}
+                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{dayHeading(d).replace(/ \d+$/, '')}</span>
               </div>
             );
           })}
         </div>
-        {list.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>No shifts in this week.</div>}
+        {list.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>No shifts in this week.</div>}
         {list.map((r) => (
           <div key={r.key} data-type-row={r.name} style={{ ...GRID, borderBottom: '1px solid var(--line)' }}>
             <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, position: 'sticky', left: 0, background: 'var(--card)', borderRight: '1px solid var(--line)' }}>
               <span style={{ width: 10, height: 10, borderRadius: 3, background: r.color || DEFAULT_SHIFT_COLOR, flexShrink: 0 }} />
               <span style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.code ? `${r.code} · ${r.name}` : r.name}</div>
-                <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{r.items.length} shift{r.items.length === 1 ? '' : 's'}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.code ? `${r.code} · ${r.name}` : r.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{r.items.length} shift{r.items.length === 1 ? '' : 's'}</div>
               </span>
             </div>
             {days.map((d) => {
@@ -132,22 +132,22 @@ export function ImportModal({ employees, busy, onImport, onClose }) {
           Add shifts from an Excel or CSV file: download the template, fill one row per shift (Date, Employee or Email, Start, End;
           the other columns are optional) and choose it here. Every shift comes in as a draft until you Save &amp; Share.
         </div>
-        <button type="button" className="secondary-btn" onClick={template} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+        <button type="button" className="secondary-btn" onClick={template} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
           <Download size={13} /> Download Template
         </button>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 14px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
           <Upload size={15} /> Choose a File
           <input type="file" aria-label="Schedule file" accept=".xlsx,.xls,.csv" onChange={(e) => pick(e.target.files?.[0])} style={{ display: 'none' }} />
           {reading && <Spinner size={14} style={{ marginLeft: 'auto' }} />}
         </label>
         {parsed && !result && (
-          <div style={{ fontSize: 12.5, marginTop: 12, fontWeight: 700 }}>
+          <div style={{ fontSize: 13, marginTop: 12, fontWeight: 700 }}>
             {parsed.rows.length} shift{parsed.rows.length === 1 ? '' : 's'} ready to import
             {parsed.problems.length > 0 && ` · ${parsed.problems.length} row${parsed.problems.length === 1 ? '' : 's'} can't be read`}
           </div>
         )}
         {result && (
-          <div style={{ fontSize: 12.5, marginTop: 12, fontWeight: 700 }}>
+          <div style={{ fontSize: 13, marginTop: 12, fontWeight: 700 }}>
             Added {result.created} shift{result.created === 1 ? '' : 's'} as drafts · {result.errorCount} skipped
           </div>
         )}
@@ -257,7 +257,7 @@ export function ShiftDetails({ at, shift: s, name, status, onEdit, onClose }) {
   const left = Math.max(8, Math.min(at.x + 8, (window.innerWidth || 1000) - 300));
   const top = Math.max(8, Math.min(at.y + 8, (window.innerHeight || 800) - 320));
   const row = (label, value) => (value ? (
-    <div style={{ display: 'flex', gap: 8, fontSize: 12.5, padding: '2px 0' }}>
+    <div style={{ display: 'flex', gap: 8, fontSize: 13, padding: '2px 0' }}>
       <span style={{ width: 78, color: 'var(--muted)', flexShrink: 0 }}>{label}</span><span style={{ minWidth: 0 }}>{value}</span>
     </div>
   ) : null);
@@ -284,7 +284,7 @@ export function ShiftDetails({ at, shift: s, name, status, onEdit, onClose }) {
           <div style={{ marginTop: 6, fontSize: 12, color: 'hsl(var(--color-orange))' }}>{s.conflicts.map((c) => <div key={c}>{c}</div>)}</div>
         )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-          {onEdit && <button type="button" className="primary-btn" onClick={onEdit} style={{ fontSize: 12.5 }}><Pencil size={12} /> Edit Shift</button>}
+          {onEdit && <button type="button" className="primary-btn" onClick={onEdit} style={{ fontSize: 13 }}><Pencil size={12} /> Edit Shift</button>}
         </div>
       </div>
     </div>

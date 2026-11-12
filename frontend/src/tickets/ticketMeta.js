@@ -614,7 +614,7 @@ export const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBotto
 export const field = { marginBottom: 14 };
 
 // Inline "Required" note shown under a field after a failed submit.
-export const requiredHint = { fontSize: 11.5, color: NX.red, marginTop: 4, fontWeight: 600 };
+export const requiredHint = { fontSize: 12, color: NX.red, marginTop: 4, fontWeight: 600 };
 
 
 // The fields INTAKE asks for. A retired field stays in TYPE_FIELDS so a ticket

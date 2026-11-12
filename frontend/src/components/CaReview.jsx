@@ -129,12 +129,12 @@ export default function CaReview({ onOpenTimecard, toastOk, toastErr, autoRun = 
     <section data-testid="ca-review" style={{ border: '1px solid var(--wk-line2, var(--line))', borderRadius: 12, background: 'var(--card)', padding: '12px 14px', marginBottom: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <Scale size={16} style={{ color: 'var(--wk-brand)' }} />
-        <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: 'var(--ink)' }}>California Review</h3>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>California Review</h3>
         {data && (
           <StatusLabel size="sm" label={`${data.openCount} Open`} color={data.openCount ? '#b45309' : '#16a34a'} />
         )}
         {P && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--muted)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: 'var(--muted)' }}>
             <button type="button" className="secondary-btn" aria-label="Previous Period" disabled={loading} onClick={() => run(addDays(P.start, -14))} style={{ padding: '2px 6px' }}><ChevronLeft size={14} /></button>
             <span>{formatDate(P.start)} - {formatDate(P.end)}</span>
             <button type="button" className="secondary-btn" aria-label="Next Period" disabled={loading} onClick={() => run(addDays(P.end, 1))} style={{ padding: '2px 6px' }}><ChevronRight size={14} /></button>
@@ -157,12 +157,12 @@ export default function CaReview({ onOpenTimecard, toastOk, toastErr, autoRun = 
       </div>
 
       {!data && !loading && !error && !stepLocked && (
-        <p style={{ margin: '8px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>
+        <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--muted)' }}>
           Check the time sheets of hourly staff who work in California against California rules - meal breaks, 7th-day and double time, split shifts, reporting time, minimum wage and manual time. Each flag says what happened, what is owed and what you can do.
         </p>
       )}
       {loading && !data && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0 2px', fontSize: 12.5, color: 'var(--muted)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0 2px', fontSize: 13, color: 'var(--muted)' }}>
           <Spinner size="inline" /> Reading every California time sheet in your scope.
         </div>
       )}
@@ -171,7 +171,7 @@ export default function CaReview({ onOpenTimecard, toastOk, toastErr, autoRun = 
 
       {data && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, fontSize: 12.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, fontSize: 13, color: 'var(--muted)', flexWrap: 'wrap' }}>
             <span>
               {data.people} {data.people === 1 ? 'person' : 'people'} who work in California checked.
               {outside.length > 0 && (
@@ -200,7 +200,7 @@ export default function CaReview({ onOpenTimecard, toastOk, toastErr, autoRun = 
           {unknown.length > 0 && (
             <div style={{ marginTop: 10, border: '1px dashed var(--line)', borderRadius: 10, padding: '8px 10px' }}>
               <button type="button" onClick={() => setUnknownOpen(o => !o)} aria-expanded={unknownOpen}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'none', border: 0, padding: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', textAlign: 'left' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', background: 'none', border: 0, padding: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: 13, fontWeight: 700, color: 'var(--ink)', textAlign: 'left' }}>
                 <MapPinOff size={14} style={{ color: '#b45309' }} />
                 Work State Unknown
                 <StatusLabel size="sm" label={String(unknown.length)} color="#b45309" />
@@ -213,7 +213,7 @@ export default function CaReview({ onOpenTimecard, toastOk, toastErr, autoRun = 
                     On the California rule, but Nexus cannot tell where they work, so they are not checked. Give them a work site on their People profile (or pick an overtime rule on Pay &amp; Benefits) and they are.
                   </div>
                   {unknown.map(u => (
-                    <div key={u.email} style={{ display: 'flex', gap: 10, fontSize: 12.5, flexWrap: 'wrap' }}>
+                    <div key={u.email} style={{ display: 'flex', gap: 10, fontSize: 13, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 600, color: 'var(--ink)', minWidth: 160 }}>{u.name}</span>
                       <span style={{ color: 'var(--muted)' }}>{u.reason}</span>
                     </div>
@@ -224,7 +224,7 @@ export default function CaReview({ onOpenTimecard, toastOk, toastErr, autoRun = 
           )}
 
           {!people.length ? (
-            <div style={{ padding: '14px 4px 6px', fontSize: 12.5, color: 'var(--muted)' }}>
+            <div style={{ padding: '14px 4px 6px', fontSize: 13, color: 'var(--muted)' }}>
               {only ? 'Nothing of this type to look at.' : 'Nothing to look at for this period.'}
             </div>
           ) : (
@@ -235,7 +235,7 @@ export default function CaReview({ onOpenTimecard, toastOk, toastErr, autoRun = 
                   <div key={p.email} data-person={p.email} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)' }}>
                     <button type="button" aria-expanded={!isClosed} onClick={() => setClosed(c => ({ ...c, [p.email]: !c[p.email] }))}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 0, padding: '9px 12px', cursor: 'pointer', fontFamily: 'Inter,sans-serif', textAlign: 'left' }}>
-                      <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{p.name}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{p.name}</span>
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                         {p.days} {p.days === 1 ? 'day' : 'days'} · {p.open} open
                       </span>
@@ -282,15 +282,15 @@ function FlagRow({ f, busy, onPay, onHandled, onNote, onReopen, onAdjust }) {
   return (
     <div data-flag={f.key} style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start', padding: '10px 12px', borderTop: '1px solid var(--line)', opacity: open ? 1 : 0.75 }}>
       <div style={{ flex: '0 0 118px', display: 'grid', gap: 4, alignContent: 'start' }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{formatDate(f.date)}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{formatDate(f.date)}</span>
         <StatusLabel size="sm" label={kindLabel(f)} color={KIND_COLOR[kindOf(f)] || '#64748b'} />
       </div>
-      <div style={{ flex: 1, minWidth: 220, display: 'grid', gap: 3, fontSize: 12.5, lineHeight: 1.45 }}>
+      <div style={{ flex: 1, minWidth: 220, display: 'grid', gap: 3, fontSize: 13, lineHeight: 1.45 }}>
         <div style={{ color: 'var(--ink)' }}>{f.what || f.reason}</div>
         {f.means && <div style={{ color: 'var(--muted)' }}>{f.means}</div>}
-        {f.changedSinceResolved && <div style={{ fontSize: 11.5, color: '#b45309' }}>Resolved before, but the facts changed since.</div>}
+        {f.changedSinceResolved && <div style={{ fontSize: 12, color: '#b45309' }}>Resolved before, but the facts changed since.</div>}
         {f.status === 'resolved' && f.resolution && (
-          <div style={{ fontSize: 11.5, color: '#15803d', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ fontSize: 12, color: '#15803d', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <Check size={12} />
             {f.premiumAdded ? f.resolution.note : `Resolved${f.resolution.at ? ` ${formatDateTime(f.resolution.at)}` : ''}: ${f.resolution.note}`}
           </div>

@@ -58,7 +58,7 @@ export default function SavedReplyPicker({ ticket, agentEmail, nameOf, onInsert,
   const footer = (
     <>
       <button type="button" onClick={() => setManaging(true)} style={{ ...btn('ghost'), marginRight: 'auto' }}>Manage</button>
-      <span style={{ fontSize: 11.5, color: NX.faint }}>Inserted into your reply for editing - nothing is sent until you click Done.</span>
+      <span style={{ fontSize: 12, color: NX.faint }}>Inserted into your reply for editing - nothing is sent until you click Done.</span>
       <button type="button" onClick={onClose} style={btn('ghost')}>Cancel</button>
       <button type="button" onClick={insert} disabled={!sel} style={{ ...btn('primary'), opacity: sel ? 1 : 0.55 }}>Insert Reply</button>
     </>
@@ -73,7 +73,7 @@ export default function SavedReplyPicker({ ticket, agentEmail, nameOf, onInsert,
             aria-label="Search saved replies" style={{ ...inputStyle, width: '100%', paddingLeft: 30, boxSizing: 'border-box' }} />
         </div>
         {replies === null ? <SkeletonBlocks count={4} height={40} />
-          : err ? <div style={{ fontSize: 12.5, color: NX.red }}>{err}</div>
+          : err ? <div style={{ fontSize: 13, color: NX.red }}>{err}</div>
             : ranked.length === 0 ? (
               <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 24, lineHeight: 1.5 }}>
                 {query ? 'No saved replies match your search.' : 'No saved replies yet. Click Manage to add one.'}
@@ -92,9 +92,9 @@ export default function SavedReplyPicker({ ticket, agentEmail, nameOf, onInsert,
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {r.shared ? <Users size={12} style={{ color: NX.dim, flexShrink: 0 }} /> : <User size={12} style={{ color: NX.dim, flexShrink: 0 }} />}
                           <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
-                          {r.matchesTopic && <span style={{ ...chip(NX.blue, 'rgba(37,99,235,0.12)'), fontSize: 10.5 }}>This Topic</span>}
+                          {r.matchesTopic && <span style={{ ...chip(NX.blue, 'rgba(37,99,235,0.12)'), fontSize: 11 }}>This Topic</span>}
                         </div>
-                        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{replyText(r.body)}</div>
+                        <div style={{ fontSize: 12, color: NX.faint, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{replyText(r.body)}</div>
                       </button>
                     );
                   })}
@@ -104,7 +104,7 @@ export default function SavedReplyPicker({ ticket, agentEmail, nameOf, onInsert,
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                       <MessageSquareText size={14} style={{ color: NX.dim }} />
                       <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{sel.title}</span>
-                      <span style={{ fontSize: 11.5, color: NX.faint }}>{sel.shared ? 'Shared' : 'Personal'}{sel.helpTopic ? ` · ${sel.helpTopic}` : ''}</span>
+                      <span style={{ fontSize: 12, color: NX.faint }}>{sel.shared ? 'Shared' : 'Personal'}{sel.helpTopic ? ` · ${sel.helpTopic}` : ''}</span>
                     </div>
                     <div className="nx-rich-body" data-testid="saved-reply-preview"
                       style={{ flex: 1, fontSize: 13, color: NX.ink, border: `1px solid ${NX.border2}`, borderRadius: 10, padding: '10px 12px', background: NX.surface2 }}

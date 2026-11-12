@@ -125,7 +125,7 @@ function TicketAttachments({ ticketId, ticketType, canDelete = false, markupSour
                     ) : a.kind === 'video' ? (
                       <Play size={22} style={{ color: NX.faint }} />
                     ) : a.kind === 'audio' ? (
-                      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: NX.dim, fontSize: 11.5, fontWeight: 600 }}>
+                      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, color: NX.dim, fontSize: 12, fontWeight: 600 }}>
                         <AudioLines size={24} style={{ color: NX.primary }} aria-hidden="true" />Voice Note
                       </span>
                     ) : (

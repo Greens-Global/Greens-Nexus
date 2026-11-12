@@ -36,7 +36,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false, canMove 
               ...(mobile ? { scrollSnapAlign: 'start', boxSizing: 'border-box' } : null) }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px' }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color }} />
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: NX.ink }}>{m.label}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{m.label}</span>
               <span style={{ fontSize: 12, color: NX.faint, marginLeft: 'auto' }}>{col.length}</span>
             </div>
             {col.slice(0, 100).map((t) => {
@@ -48,7 +48,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false, canMove 
                 style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 10, cursor: drag ? 'grab' : 'pointer', opacity: dragId === t.id ? 0.5 : 1, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <TicketTypeIcon type={t.type} size={13} boxed />
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: NX.faint }}>{ticketNoShort(t.code)}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>{ticketNoShort(t.code)}</span>
                 </div>
                 <div style={{ marginTop: 6, fontSize: 13, fontWeight: 600, color: NX.ink }}>{t.subject}</div>
                 <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -65,7 +65,7 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false, canMove 
                     <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim, whiteSpace: 'nowrap' }}>Move To</span>
                     <select value={t.status} aria-label={`Move ${ticketNoShort(t.code) || 'ticket'} To`}
                       onChange={(e) => { const next = e.target.value; if (next && next !== t.status) onMove(t.id, next); }}
-                      style={{ ...inputStyle, flex: 1, minWidth: 0, width: 'auto', fontSize: 16, padding: '6px 8px', minHeight: 36, cursor: 'pointer', appearance: 'auto' }}>
+                      style={{ ...inputStyle, flex: 1, minWidth: 0, width: 'auto', fontSize: 16, /* type-ok: iOS zooms a field under 16px */ padding: '6px 8px', minHeight: 36, cursor: 'pointer', appearance: 'auto' }}>
                       {TICKET_STATUS_ORDER.map((st) => <option key={st} value={st}>{TICKET_STATUS_META[st].label}</option>)}
                     </select>
                   </div>
@@ -73,8 +73,8 @@ function TicketBoard({ tickets, nameOf, onOpen, onMove, mobile = false, canMove 
               </div>
               );
             })}
-            {col.length > 100 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '6px 0' }}>+ {col.length - 100} more - filter to narrow down</div>}
-            {col.length === 0 && <div style={{ fontSize: 11.5, color: NX.faint, textAlign: 'center', padding: '10px 0' }}>No tickets</div>}
+            {col.length > 100 && <div style={{ fontSize: 12, color: NX.faint, textAlign: 'center', padding: '6px 0' }}>+ {col.length - 100} more - filter to narrow down</div>}
+            {col.length === 0 && <div style={{ fontSize: 12, color: NX.faint, textAlign: 'center', padding: '10px 0' }}>No tickets</div>}
           </div>
         );
       })}

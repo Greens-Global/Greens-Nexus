@@ -127,7 +127,7 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
             const selected = id === value;
             return (
               <div key={id} onClick={(e) => { e.stopPropagation(); pick(id); }}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', fontSize: 12.5, borderRadius: 6, cursor: 'pointer', color: NX.ink, background: selected ? NX.hover : 'transparent' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', fontSize: 13, borderRadius: 6, cursor: 'pointer', color: NX.ink, background: selected ? NX.hover : 'transparent' }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = selected ? NX.hover : 'transparent'; }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.color || NX.dim, flexShrink: 0 }} />
@@ -213,11 +213,11 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <TicketTypeIcon type={t.type} size={15} boxed />
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 14.5, fontWeight: 600, color: NX.ink, lineHeight: 1.35 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: NX.ink, lineHeight: 1.35 }}>
               {t.subject}
               {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
             </div>
-            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>
               {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}{t.source === 'email' ? ' · Via Email' : ''}
             </div>
           </div>
@@ -236,14 +236,14 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
               needs a comment. */}
           {clock.kind !== 'none' && (
             <span data-testid="ticket-row-due" title={clock.title}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: clockM ? clockM.color : NX.dim, fontWeight: clockM ? 600 : 400 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, color: clockM ? clockM.color : NX.dim, fontWeight: clockM ? 600 : 400 }}>
               {clockM ? <clockM.Icon size={11} /> : <Clock size={11} style={{ color: NX.faint }} />}
               {clock.label}
             </span>
           )}
           {staleM && (
             <span title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h - past this priority's check-in window`}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, fontWeight: 600, color: staleM.color }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, fontWeight: 600, color: staleM.color }}>
               <staleM.Icon size={11} /> {staleM.label}
             </span>
           )}
@@ -258,7 +258,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
               style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, minHeight: 32, padding: '3px 8px 3px 4px',
                 border: `1px solid ${NX.border}`, borderRadius: 999, background: NX.surface, cursor: 'pointer', fontFamily: FONT }}>
               {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} card={false} /> : <UnassignedAvatar size={22} />}
-              <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.blue, fontWeight: t.assigneeId ? 400 : 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+              <span style={{ fontSize: 13, color: t.assigneeId ? NX.dim : NX.blue, fontWeight: t.assigneeId ? 400 : 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
                 {t.assigneeId ? nameOf(t.assigneeId) || t.assigneeId : 'Assign'}
               </span>
               <ChevronDown size={13} style={{ color: NX.faint, flexShrink: 0 }} />
@@ -311,7 +311,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
             {t.subject}
             {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
           </div>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 1 }}>
             {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}{t.source === 'email' ? ' · Via Email' : ''}
           </div>
         </div>
@@ -319,7 +319,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
     ),
     company: (
       <div style={{ ...cell, justifyContent: 'flex-start', overflow: 'hidden' }} title={companyName(t.companyId) || ''}>
-        <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{companyName(t.companyId) || '-'}</span>
+        <span style={{ fontSize: 13, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{companyName(t.companyId) || '-'}</span>
       </div>
     ),
     // Soft labels, not solid fills (Neil, Oct 14 2026): the status as a label,
@@ -372,7 +372,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
     requester: (
       <div style={{ ...cell, justifyContent: 'flex-start', gap: 6, overflow: 'hidden' }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
         {t.requesterId ? <Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
-        <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '-'}</span>
+        <span style={{ fontSize: 13, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '-'}</span>
       </div>
     ),
     assignee: (
@@ -380,8 +380,8 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
         {/* Unassigned is said here, once (Neil, Oct 14 2026): the dashed avatar
             and the word in amber - the row itself is never tinted for it. */}
         {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <UnassignedAvatar size={22} />}
-        {!t.assigneeId && !CLOSED_STATES.includes(t.status) && <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.amber, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>Unassigned</span>}
-        {t.assigneeId && <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.assigneeId)}</span>}
+        {!t.assigneeId && !CLOSED_STATES.includes(t.status) && <span style={{ fontSize: 13, fontWeight: 600, color: NX.amber, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>Unassigned</span>}
+        {t.assigneeId && <span style={{ fontSize: 13, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.assigneeId)}</span>}
       </div>
     ),
     created: (

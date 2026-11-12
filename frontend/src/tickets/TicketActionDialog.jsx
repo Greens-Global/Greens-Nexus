@@ -95,7 +95,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       </>
     }>
       {ticket && (
-        <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: NX.dim, marginBottom: 14 }}>
           <b style={{ color: NX.ink }}>{ticketNoShort(ticket.code)}</b> · {ticket.subject}
         </div>
       )}
@@ -126,7 +126,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
               {showErr && costBad && <div style={requiredHint}>An amount like 1250.50</div>}
             </div>
           </div>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: -6, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: -6, marginBottom: 12 }}>
             Optional - goes on {ticket.propertyName || 'the property'}'s maintenance record and its Total Spend.
           </div>
         </>)}
@@ -137,7 +137,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
           <textarea ref={commentRef} autoFocus value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000}
             placeholder="e.g. A colleague showed me how to reconnect the printer."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>
             Posted on the ticket's conversation so the team knows. You can still reopen it if the problem comes back.
           </div>
         </div>
@@ -157,7 +157,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
           {showErr && invalid && <div style={requiredHint}>Pick 1 to 5 stars to close the ticket.</div>}
         </div>
         {ticket?.resolutionNote && (
-          <div style={{ fontSize: 12.5, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 10px', marginBottom: 14, whiteSpace: 'pre-wrap' }}>
+          <div style={{ fontSize: 13, color: NX.dim, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 10px', marginBottom: 14, whiteSpace: 'pre-wrap' }}>
             <b style={{ color: NX.ink }}>Resolution:</b> {ticket.resolutionNote}
           </div>
         )}
@@ -174,7 +174,7 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
             placeholder="e.g. The light went out again this morning."
             style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT, ...(showErr && invalid ? { borderColor: NX.red } : null) }} />
           {showErr && invalid && <div style={requiredHint}>Required</div>}
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>The ticket goes back to the team with its full history.</div>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>The ticket goes back to the team with its full history.</div>
         </div>
       )}
     </Modal>
