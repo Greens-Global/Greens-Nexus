@@ -132,7 +132,7 @@ export default function QuickCreate() {
         aria-haspopup="menu" aria-expanded={open} aria-controls={open ? 'qc-menu' : undefined}
         onClick={() => (open ? close(false) : setOpen(true))}
         onKeyDown={(e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOpen(true); } }}>
-        <BoltIcon size={23} className="qc-bolt" />
+        <BoltIcon size={24} className="qc-bolt" />
       </button>
       {open && (
         <div id="qc-menu" ref={menuRef} role="menu" aria-label={group ? group.label : NAME} className="header-user-dropdown qc-menu" onKeyDown={onMenuKey}>

@@ -410,7 +410,8 @@ keep the diff minimal.
   whose `go` / `compose` / `run` opens the module's own form - never a form
   in the header, never a third step, never a second quick menu. The bolt is
   green, never yellow or orange (Live accent): the GRADIENT IS ON THE BOLT
-  (`icons/BoltIcon.jsx`, faceted, bright green to deep green) and the tile
+  (`icons/BoltIcon.jsx`: the chunky two-block shape of Neil's reference, a
+  fine extruded edge, bright green to deep green) and the tile
   behind it is calm - a quiet light tile with a hairline edge, tinted green
   on hover, dark charcoal in dark mode (Neil, 11/13/2026: "the gradient on
   the bolt and the background to look less flashy"). On a phone the menu is a
