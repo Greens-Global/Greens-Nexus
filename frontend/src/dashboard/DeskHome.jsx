@@ -15,7 +15,7 @@ Jul 28); craft bar monday.com.
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
-  ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight,
+  ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight, House,
   Package, Ticket,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
@@ -74,8 +74,14 @@ function useCountUp(target, ms = 650) {
 
 // One clock from headerClocks: "7:42 PM" for the viewer's own time,
 // "California 4:42 PM PDT" / "India 8:12 AM" for the others.
+// The home zone (clock.away - the person's own zone while the device is
+// elsewhere) wears a small house and says so to a screen reader.
 const ZoneClock = ({ clock, now }) => (
-  <>{clock.label && <>{clock.label} </>}<b>{formatTimeIn(now, clock.tz)}{clock.abbr && ` ${clock.abbr}`}</b></>
+  <>
+    {clock.away && <House size={12} className="dk-zone-home" aria-hidden="true" />}
+    {clock.away && <span className="dk-sr">Home time: </span>}
+    {clock.label && <>{clock.label} </>}<b>{formatTimeIn(now, clock.tz)}{clock.abbr && ` ${clock.abbr}`}</b>
+  </>
 );
 
 
@@ -128,7 +134,7 @@ function Stat({ i, label, value, sub, tip, chip, Icon, onGo, links = [] }) {
 // passes its attention-count sentence, grid views just get the date.
 export function DeskGreeting({ summary = null, right = null, menu = null }) {
   const { accounts } = useMsal();
-  const { actingAs } = useRole();
+  const { actingAs, myHomeZone } = useRole();
   const now = useNow();
   const picks = useWorldClockPicks();
   // Own time bare, California beside it only when it differs, then the My
@@ -136,7 +142,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   // lands on a minute boundary.
   const minute = Math.floor(now.getTime() / 60000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const clocks = useMemo(() => headerClocks(picks, now), [picks, minute]);
+  const clocks = useMemo(() => headerClocks(picks, now, undefined, myHomeZone), [picks, minute, myHomeZone]);
   // While acting as someone, the greeting greets THEM - this whole screen is
   // their day, and "Good Evening, Visesh" on Pranshu's dashboard read wrong.
   const firstName = ((actingAs?.targetName || accounts[0]?.name) ?? 'there').split(' ')[0];
@@ -178,18 +184,22 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             keeps the top-right corner beside the greeting (style.css regrids
             the header there); only the small zones hide. */}
         <div className="dk-clock-row">
-          {clocks.length > 1 && (
-            <div className="dk-zones">
-              {clocks.slice(1).map((c, i) => (
-                <Fragment key={c.tz}>
-                  {i > 0 && <span className="dk-zone-sep" />}
-                  <span><ZoneClock clock={c} now={now} /></span>
-                </Fragment>
-              ))}
-            </div>
-          )}
           <div className="dk-clock">{formatTimeIn(now, clocks[0].tz)}</div>
         </div>
+        {/* The other clocks on their own line UNDER the big one, the way a
+            phone's world clock reads (Neil, 11/13/2026: in Texas he did not
+            see California - small and faint BESIDE the big clock, it read as
+            decoration). Home comes first, with its house. */}
+        {clocks.length > 1 && (
+          <div className="dk-zones">
+            {clocks.slice(1).map((c, i) => (
+              <Fragment key={c.tz}>
+                {i > 0 && <span className="dk-zone-sep" />}
+                <span className={c.away ? 'dk-zone is-home' : 'dk-zone'} title={c.away ? 'Your home time zone' : undefined}><ZoneClock clock={c} now={now} /></span>
+              </Fragment>
+            ))}
+          </div>
+        )}
         {/* View picker + Customize, moved up here from their own title band
             (Neil, Sep 15) - repeating "Dashboard" under the tab strip plus a
             whole separate control row was pure clutter, stealing real estate
@@ -198,11 +208,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
         <div className="dk-toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {right}
           <SessionChip mine={mine} onOpen={() => navTo('timeclock')} />
-          {/* "…" view menu: its own distinct button, at the far right corner
-              after the session chip - not merged with it (Pranshu, Sep 15
-              2nd follow-up: the pill merge read as one control when he
-              wanted two separate ones, positioned like the old title-band
-              layout where "…" was the rightmost element). */}
+          {/* The Customize menu (portaled; its button is in `right`). */}
           {menu}
         </div>
       </div>

@@ -5073,6 +5073,45 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 /* On a computer the rail's clock already says this (Neil, 11/07/2026: one
    clock on Home, not two); the chip stays for phones, which have no rail. */
 @media (min-width: 901px) { .dk-toolbar .dk-session-chip { display: none; } }
+
+/* The clocks under the big one (Neil, 11/13/2026): readable, not decoration -
+   the label dim, the time in ink, the home zone first with a green house. */
+.dk-head-right > .dk-zones { font-size: 13px; color: var(--wk-dim); margin-top: -2px; }
+.dk-head-right > .dk-zones b { color: var(--ink); }
+.dk-zone { white-space: nowrap; }
+.dk-zone-home { display: inline-block; vertical-align: -1px; margin-right: 4px; color: var(--wk-green); }
+.dk-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* No wasted band above the date and the clock (Neil, 11/13/2026): the page
+   starts 18px under the header on a computer, not 36px. */
+@media (min-width: 901px) {
+  .viewport-desk:has(.dk-head) { padding-top: 18px; }
+  .dk-head { padding-top: 0; }
+}
+
+/* ONE Customize (Neil, 11/13/2026): its menu holds Edit Layout, the views and
+   the view's own actions - the view picker and the "..." it replaced. */
+.dk-customize .dk-customize-caret { margin-left: -1px; opacity: .7; transition: transform .16s var(--ease-out, ease-out); }
+.dk-customize[aria-expanded="true"] .dk-customize-caret { transform: rotate(180deg); }
+.dk-cz-menu {
+  width: 272px; padding: 4px; border-radius: 12px; background: var(--card);
+  border: 1px solid var(--wk-line2); box-shadow: 0 18px 50px rgba(17, 24, 39, .18); font-family: var(--wk-font);
+}
+.dk-cz-row {
+  display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px;
+  background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background .12s ease-out;
+}
+.dk-cz-row:hover, .dk-cz-row:focus-visible { background: var(--mist); outline: none; }
+.dk-cz-row.is-danger { color: hsl(var(--color-red)); }
+.dk-cz-ico { flex: 0 0 16px; display: inline-flex; justify-content: center; margin-top: 2px; color: var(--muted); }
+.dk-cz-row.is-on .dk-cz-ico { color: var(--wk-green); }
+.dk-cz-row.is-danger .dk-cz-ico { color: inherit; }
+.dk-cz-words { display: flex; flex-direction: column; min-width: 0; }
+.dk-cz-label { font-size: 13px; font-weight: 600; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-cz-row.is-on .dk-cz-label { color: var(--wk-green); }
+.dk-cz-hint { font-size: 12px; line-height: 1.35; color: var(--muted); }
+.dk-cz-head { padding: 6px 10px 2px 35px; font-size: 12px; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-cz-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+@media (max-width: 640px) { .dk-cz-row { padding: 10px; } }
 .dk-session-chip b { font-variant-numeric: tabular-nums; font-weight: 700; }
 [data-theme="dark"] .dk-session-chip { background: var(--card); border-color: var(--line); color: var(--muted); box-shadow: none; }
 [data-theme="dark"] .dk-session-chip--on { color: #4ade80; }

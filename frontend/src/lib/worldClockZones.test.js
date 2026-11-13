@@ -60,6 +60,31 @@ describe('headerClocks', () => {
     expect(view(headerClocks(['America/Los_Angeles', india], SUMMER, 'America/Los_Angeles'), SUMMER))
       .toEqual(['4:42 PM', 'India 5:12 AM']);
   });
+
+  // Home (Neil, 11/13/2026): away from the zone you work in, that zone shows
+  // next to the device's own time, marked as home.
+  it('a Californian in Texas: Texas time, then California marked as home', () => {
+    const clocks = headerClocks([], WINTER, 'America/Chicago', 'America/Los_Angeles');
+    expect(view(clocks, WINTER)).toEqual(['5:42 PM', 'California 3:42 PM PST']);
+    expect(clocks[1].away).toBe(true);
+  });
+
+  it('at home: one bare time, nothing marked away', () => {
+    const clocks = headerClocks([], WINTER, 'America/Los_Angeles', 'America/Los_Angeles');
+    expect(view(clocks, WINTER)).toEqual(['3:42 PM']);
+  });
+
+  it('someone from India in Texas: India as home, then the company\'s California', () => {
+    const india = ALL_ZONES.find((tz) => /Kolkata|Calcutta/.test(tz));
+    const clocks = headerClocks([], WINTER, 'America/Chicago', india);
+    expect(view(clocks, WINTER)).toEqual(['5:42 PM', 'India 5:12 AM', 'California 3:42 PM PST']);
+    expect(clocks.map((c) => !!c.away)).toEqual([false, true, false]);
+  });
+
+  it('someone from India at home in India: California, as before', () => {
+    const india = ALL_ZONES.find((tz) => /Kolkata|Calcutta/.test(tz));
+    expect(view(headerClocks([], WINTER, india, india), WINTER)).toEqual(['5:12 AM', 'California 3:42 PM PST']);
+  });
 });
 
 describe('zoneLabel', () => {

@@ -185,6 +185,14 @@ keep the diff minimal.
   routing: the company's HR contact, administrators and Full HR inside their
   reach). A new ticket reader, count, export or code generator must know
   this - a missing opt-in silently drops the row, a blanket opt-in leaks it.
+- **Home time zone (Neil, 11/13/2026):** `/roles/me` carries `home_zone`
+  (`item_due.zone_for`: the shift preset's zone, else the company's / the
+  tenant's team zone, else California). The Dashboard clock
+  (`worldClockZones.headerClocks`) shows it, with a green house, UNDER the
+  big clock whenever the device reads differently; California, the
+  company's clock (Neil, Sep 28), still shows when it differs from both.
+  The Dashboard's header right is ONE Customize menu (Edit Layout, the
+  views, the view's own actions) - never a view picker or a "..." beside it.
 - **Approval badge counts come from one place**: `approvals_inbox.collect`,
   read by `routers/action_counts.py`. A new approval kind registers an
   `@source` in `approvals_inbox.py` - never a separate count query, or the
@@ -496,7 +504,13 @@ keep the diff minimal.
   Only Needs Reply, Unassigned, Mine and All Open stand as tabs (Neil,
   11/06/2026: the bar was "too cluttered"); the rest, in the order above,
   sit in ONE "Other Queues" dropdown, and Save View is in the ... menu (no
-  "+ View" tab). Create is the last control in the toolbar. The
+  "+ View" tab). Create is the last control in the toolbar.
+  The bar, calmer (Neil, 11/13/2026): Reports is the header's LAST tab (a
+  place, not a way to show the queue; a queue tab returns to List or Board,
+  whichever was on screen); the toolbar is search and Filters on the left,
+  then View (List / Board, the side pane, Group By, columns), ... (saved
+  views, Export) and Create on the right - no List / Board / Reports
+  switch. On Reports only Filters and Create stand. Phones unchanged. The
   server's `needsReply` flag on every `GET /task-tickets` row (`_needs_reply`
   in routers/tickets.py) decides Needs Reply; the client copy in queues.js
   is only a fallback for a row that arrived without the flag and must stay

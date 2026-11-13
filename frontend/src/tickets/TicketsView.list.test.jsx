@@ -131,7 +131,7 @@ describe('Ticket list - Oct 14 column and queue words', () => {
     expect(screen.queryByText('Created')).toBeNull();
     expect(screen.queryByText('Company')).toBeNull();
     expect(screen.queryByText('Assigned To')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View: List' }));   // columns live in View (11/13/2026)
     const created = screen.getByLabelText('Created');
     expect(created.checked).toBe(false);
     expect(screen.getByLabelText('Company').checked).toBe(false);
@@ -218,7 +218,7 @@ describe('The desk bar', () => {
       c.querySelectorAll('.hdr-tab-badge, .tab-group-current').forEach((n) => n.remove());
       return c.textContent.trim();
     });
-    expect(labels).toEqual(['Needs Reply', 'Unassigned', 'Mine', 'All Open', 'Other Queues']);
+    expect(labels).toEqual(['Needs Reply', 'Unassigned', 'Mine', 'All Open', 'Other Queues', 'Reports']);
     const pill = (name) => screen.getByRole('button', { name: new RegExp(`^${name}`) }).querySelector('.hdr-tab-badge');
     expect(pill('Unassigned')).toBeTruthy();
     expect(pill('All Open')).toBeNull();
