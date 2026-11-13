@@ -10816,3 +10816,62 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 /* Fold step "0" (ControlBar): the words of Saved Reports, Memorize and Customize
    (.acct-bar-label-keep) stay while the other action words fold; at "1" they fold too. */
 .acct-controlbar[data-fold="0"] .acct-bar-label-keep { display: inline; }
+
+/* ── Documents library redesign (Pranshu, 11/13/2026, canvas
+   https://claude.ai/artifact/TapZUK47Diz1k3jgFh5TNW): the rail and the list
+   are cards, rows carry a kind chip and a second line, the selected row a left
+   accent, quick actions show on hover, 12 rows a page. Later in the file than
+   the 10/31 block, so these win at the same specificity. ─────────────────── */
+.nx-dl { gap: 14px; }
+.nx-dl.nx-dl-open { grid-template-columns: 212px minmax(0, 1fr) minmax(340px, 30%); }
+.nx-dl-rail { padding: 8px 6px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
+.nx-dl-rail button { padding: 7px 10px 7px 12px; border-left: none; border-radius: 7px; color: var(--ink); position: relative; }
+.nx-dl-rail button.on { background: var(--mist); color: var(--pine); font-weight: 600; }
+.nx-dl-rail button.on::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: var(--pine); }
+.nx-dl-rail button.zero { color: var(--muted); }
+.nx-dl-rail button > span:first-child { display: inline-flex; align-items: center; gap: 7px; }
+.nx-dl-rail button.on .nx-dl-count { color: var(--pine); }
+.nx-dl-count { font-size: 11px; min-width: 18px; text-align: right; }
+.nx-dl-count-hot { display: inline-flex; justify-content: center; align-items: center; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px; background: hsl(var(--color-orange) / .18); color: hsl(var(--color-orange)); font-weight: 700; font-size: 11px; }
+.nx-dl-rail-head { display: flex; justify-content: space-between; align-items: center; margin: 6px 0 2px; padding: 4px 12px; font: 600 11px Inter, sans-serif; color: var(--muted); }
+.nx-dl-rail-head + .nx-dl-rail-head, .nx-dl-rail button + .nx-dl-rail-head { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.nx-dl-rail .nx-dl-rail-new { width: auto; padding: 2px 4px; font: 600 11px Inter, sans-serif; color: var(--pine); border-radius: 5px; }
+.nx-dl-rail .nx-dl-rail-more { font: 500 11px Inter, sans-serif; color: var(--pine); padding: 6px 12px; }
+.nx-dl-tools { gap: 10px; }
+.nx-dl-title { display: flex; flex-direction: column; gap: 2px; margin-right: 6px; }
+.nx-dl-title h2 { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--ink); }
+.nx-dl-title span { font-size: 12px; color: var(--muted); }
+.nx-dl-search { flex: 1 1 280px; max-width: 520px; }
+.nx-dl-chip { height: 32px; padding: 0 28px 0 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); font: 500 13px Inter, sans-serif; color: var(--ink); cursor: pointer; }
+.nx-dl-table { border-top: none; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
+.nx-dl-table th { padding: 9px 14px; font: 500 12px Inter, sans-serif; background: var(--mist); }
+.nx-dl-table td { padding: 9px 14px; }
+.nx-dl-table tbody tr.sel { background: var(--mist); box-shadow: inset 3px 0 0 var(--pine); }
+.nx-dl-table tr.nx-dl-group td { padding: 6px 16px; font: 600 11px Inter, sans-serif; color: var(--muted); background: var(--card); cursor: default; }
+.nx-dl-name { display: flex; align-items: center; gap: 10px; }
+.nx-dl-kind { flex: none; width: 28px; height: 28px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; background: var(--mist); color: var(--muted); }
+.nx-dl-kind.is-doc { background: hsl(var(--color-blue) / .14); color: hsl(var(--color-blue)); }
+.nx-dl-kind.is-sheet { background: hsl(var(--color-green) / .14); color: hsl(var(--color-green)); }
+.nx-dl-kind.is-hr { background: hsl(var(--color-orange) / .16); color: hsl(var(--color-orange)); }
+.nx-dl-kind.is-form { background: hsl(var(--color-purple, 262 83% 58%) / .14); color: hsl(var(--color-purple, 262 83% 58%)); }
+.nx-dl-name-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.nx-dl-name-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-dl-name-text small { font-size: 11px; font-weight: 400; color: var(--muted); }
+.nx-dl-for { display: flex; align-items: center; gap: 7px; }
+.nx-dl-av { flex: none; width: 22px; height: 22px; border-radius: 50%; background: hsl(var(--color-blue) / .14); color: hsl(var(--color-blue)); font: 700 11px Inter, sans-serif; display: inline-flex; align-items: center; justify-content: center; }
+.nx-dl-quick { opacity: 0; transition: opacity .15s; }
+.nx-dl-table tbody tr:hover .nx-dl-quick, .nx-dl-table tbody tr.sel .nx-dl-quick, .nx-dl-table tbody tr:focus-within .nx-dl-quick { opacity: 1; }
+.nx-dl-pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 4px 0; flex-wrap: wrap; }
+.nx-dl-pages { display: inline-flex; gap: 6px; align-items: center; }
+.nx-dl-pages button { height: 28px; min-width: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); font: 600 12px Inter, sans-serif; color: var(--ink); cursor: pointer; }
+.nx-dl-pages button.on { background: var(--pine); border-color: var(--pine); color: #fff; }
+.nx-dl-pages button:disabled { opacity: .45; cursor: default; }
+.nx-dl-panel { padding: 0; border-left: none; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
+.nx-dl-panel > * { padding-left: 16px; padding-right: 16px; }
+.nx-dl-panel > :first-child { padding-top: 14px; }
+.nx-dl-panel > :last-child { padding-bottom: 16px; }
+.nx-dl-panel .nx-dl-page { width: auto; height: 220px; margin: 0 16px; border-radius: 8px; }
+@media (max-width: 900px) {
+  .nx-dl-title h2 { font-size: 18px; }
+  .nx-dl-quick { opacity: 1; }
+}

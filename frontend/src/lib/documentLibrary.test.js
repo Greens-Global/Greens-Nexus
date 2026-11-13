@@ -78,3 +78,27 @@ describe('One Publish', () => {
     expect(templateUsable({ state: 'archived' })).toBe(false);
   });
 });
+
+// The library's shape (Pranshu, 11/13/2026): date groups, 12 a page, the kind line.
+describe('Library shape', async () => {
+  const lib = await import('./documentLibrary');
+  it('groups rows by when they changed', () => {
+    const now = new Date(2026, 10, 13, 12);
+    expect(lib.groupLabel({ updatedAt: '2026-11-12T10:00:00Z' }, now)).toBe('This week');
+    expect(lib.groupLabel({ updatedAt: '2026-11-03T10:00:00Z' }, now)).toBe('Earlier this month');
+    expect(lib.groupLabel({ updatedAt: '2026-09-22T10:00:00Z' }, now)).toBe('Older');
+    expect(lib.groupLabel({ updatedAt: '' }, now)).toBe('Older');
+  });
+  it('pages 12 at a time and clamps the page', () => {
+    const rows = Array.from({ length: 18 }, (_, i) => ({ id: String(i) }));
+    expect(lib.pageOf(rows, 1)).toMatchObject({ page: 1, pages: 2, from: 1, to: 12 });
+    expect(lib.pageOf(rows, 9).rows.map((r) => r.id)).toEqual(['12', '13', '14', '15', '16', '17']);
+    expect(lib.pageOf([], 1)).toMatchObject({ page: 1, pages: 1, from: 0, to: 0 });
+  });
+  it('writes the kind line and the initials', () => {
+    expect(lib.rowSubline({ docKind: 'sheet', folderId: 'f1' }, [{ id: 'f1', name: 'Finance' }])).toBe('Sheet · Finance');
+    expect(lib.rowSubline({ kind: 'hr', signers: 2 })).toBe('Packet · HR · 2 signers');
+    expect(lib.initials('Sophia Martinez')).toBe('SM');
+    expect(lib.initials('')).toBe('?');
+  });
+});
