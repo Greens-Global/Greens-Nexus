@@ -8,6 +8,9 @@ Briefing - and a course that was due showed in none of them. This is the
 registry behind ONE list, the way approvals_inbox is the registry behind one
 approvals inbox.
 
+The Dashboard's Action Required tile is retired with it (Neil, 11/13/2026):
+what is mine is here, and what waits on my DECISION is Dashboard > Approvals.
+
 NO NEW RULES. Every source asks the module's OWN "this is yours" rule and
 never re-derives it:
 

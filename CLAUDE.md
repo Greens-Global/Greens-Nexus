@@ -207,6 +207,12 @@ keep the diff minimal.
   (`test_my_work_sources.py` fails one that does not). My Day still empties
   at midnight; last time's open picks are OFFERED once ("Add to Today" /
   "Not Today", `POST /tasks/my-day/carry`), never moved by themselves.
+  The Dashboard's Action Required tile (`my-day`) is RETIRED (Neil,
+  11/13/2026) - never bring it back or add another "needs me" tile: the key
+  stays in `widgets.jsx` (hidden, retired) so saved boards load, and a board
+  that had it without My Work gets My Work in its place
+  (`useDashboards.swapRetired`). The Daily Briefing email and My Briefing
+  keep their Action Required section.
 - **Header search finds what you can open** (Neil, 11/13/2026,
   `components/search/useNexusSearch.js`): besides tasks, jobs, KB and pages
   it reads tickets (`GET /task-tickets/search?header=true`, the list's own
@@ -792,7 +798,7 @@ keep the diff minimal.
 - **"Submit Your Time Sheet" reminders (Neil, 11/12/2026,
   `timesheet_due.py`):** ONE rule for a person's own Time Sheets waiting on
   them, read by the Daily Briefing (Action Required; "With <manager> for
-  Review" under Updates), the Weekly Digest, My Briefing / My Day and the
+  Review" under Updates), the Weekly Digest, My Briefing, My Work and the
   bell. Every pay type (hourly, salaried bi-weekly or monthly, contractors
   incl. India), the person's own local date, a period with a punch in it,
   from the period's last day until it is finalized or the next period

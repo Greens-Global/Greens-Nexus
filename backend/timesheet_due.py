@@ -7,7 +7,8 @@ Briefing until the time sheet is finalized. ONE rule, read by:
   - the Daily Briefing (daily_briefing._timecard_rows: Action Required, and
     _timecard_update_rows: Updates for You while it is with the manager),
   - the Weekly Digest (it reads the briefing's Action Required rows),
-  - My Briefing and the dashboard's My Day (the same rows),
+  - My Briefing (the same rows) and the dashboard's My Work
+    (my_work_sources._timesheet - the action states, in the briefing's words),
   - the bell (reminders.run_daily_scan: the period's last day and the day
     after it closes).
 
@@ -38,7 +39,7 @@ A review out for the employee's signature ("signing") is the Nexus Sign row
 not repeated here.
 
 `due_cached` keeps one person's answer for a minute (cache.timesheet_due,
-dropped by every commit to a time sheet table) because My Day reloads often
+dropped by every commit to a time sheet table) because My Work reloads often
 and the hours on each row cost a time card computation.
 """
 from __future__ import annotations
