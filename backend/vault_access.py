@@ -235,6 +235,23 @@ def options(db, scope) -> dict:
     depts = [{"name": d.name, "companyId": d.company_id, "head": d.lead_email or "", "backup": d.backup_email or ""}
              for d in db.query(models.HrDepartment).order_by(models.HrDepartment.sort_order, models.HrDepartment.name).all()
              if company_ok(d.company_id, scope)]
-    groups = [{"id": g.id, "name": g.name} for g in db.query(models.NexusGroup).order_by(models.NexusGroup.name).all()
+    # A group's departments (11/13/2026): its own, plus those of the people in
+    # it, so the form lists only the groups of the departments picked.
+    member_depts: dict = {}
+    for gid, dept in (db.query(models.NexusGroupMember.group_id, models.NexusEmployee.department)
+                      .join(models.NexusEmployee, func.lower(models.NexusEmployee.work_email) == func.lower(models.NexusGroupMember.email))
+                      .filter(func.coalesce(models.NexusEmployee.deleted_at, "") == "").all()):
+        if (dept or "").strip():
+            member_depts.setdefault(gid, set()).add(dept.strip())
+    groups = [{"id": g.id, "name": g.name,
+               "departments": sorted(member_depts.get(g.id, set()) | ({g.department.strip()} if (g.department or "").strip() else set()))}
+              for g in db.query(models.NexusGroup).order_by(models.NexusGroup.name).all()
               if not (g.company_id or "") or company_ok(g.company_id, scope)]
-    return {"companies": companies, "departments": depts, "groups": groups}
+    # Work sites (Settings > Locations) a site-specific login can belong to.
+    links: dict = {}
+    for cid, sid in db.query(models.HrCompanyWorkSite.company_id, models.HrCompanyWorkSite.site_id).all():
+        links.setdefault(sid, []).append(cid)
+    sites = [{"id": s.id, "name": s.name, "companyIds": links.get(s.id, [])}
+             for s in db.query(models.HrWorkSite).order_by(models.HrWorkSite.name).all()
+             if not links.get(s.id) or any(company_ok(c, scope) for c in links[s.id])]
+    return {"companies": companies, "departments": depts, "groups": groups, "sites": sites}

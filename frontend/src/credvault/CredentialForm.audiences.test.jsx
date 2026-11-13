@@ -20,7 +20,7 @@ const DEPTS = [{ name: 'IT', companyId: 'co-a' }, { name: 'Accounting', companyI
 const chip = (name) => screen.getByRole('button', { name, pressed: undefined });
 
 beforeEach(() => {
-  calls.cvAudienceOptions.mockResolvedValue({ companies: COMPANIES, departments: DEPTS, groups: [{ id: 'g1', name: 'Night Crew' }] });
+  calls.cvAudienceOptions.mockResolvedValue({ companies: COMPANIES, departments: DEPTS, groups: [{ id: 'g1', name: 'Night Crew', departments: ['IT'] }, { id: 'g2', name: 'Yard Team', departments: ['Yard'] }] });
 });
 
 describe('Who Can Open It', () => {
@@ -37,6 +37,10 @@ describe('Who Can Open It', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /^IT · Greens Nexus/ })[0]);
     fireEvent.click(screen.getByRole('button', { name: /^Accounting/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Can open: Everyone at Greens Nexus' }));   // view only
+    // Access Groups follow the departments picked (11/13/2026): Yard Team has nobody in IT or Accounting.
+    expect(screen.queryByRole('button', { name: 'Yard Team' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show All Groups (2)' }));
+    expect(screen.getByRole('button', { name: 'Yard Team' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Night Crew' }));
     fireEvent.change(screen.getByLabelText('Add a person'), { target: { value: 'ben@x.com' } });
     fireEvent.change(screen.getByPlaceholderText('e.g. Stripe Dashboard'), { target: { value: 'Wi-Fi' } });
@@ -46,7 +50,7 @@ describe('Who Can Open It', () => {
     const saved = onSave.mock.calls[0][0];
     expect(saved.companyId).toBe('co-a');
     expect(saved.audiences).toEqual([
-      { kind: 'department', value: 'IT', level: 'open' },                 // the starting row from the Department box
+      { kind: 'department', value: 'co-a:IT', level: 'open' },            // the starting row, keyed like its chip
       { kind: 'company', value: 'co-b', level: 'view' },
       { kind: 'company', value: 'co-a', level: 'open' },
       { kind: 'department', value: 'co-b:IT', level: 'open' },
@@ -54,6 +58,37 @@ describe('Who Can Open It', () => {
       { kind: 'group', value: 'g1', level: 'open' },
       { kind: 'person', value: 'ben@x.com', level: 'open' },
     ]);
+  });
+
+  it('an older plain department row is its own company chip, never listed twice', async () => {
+    const onSave = vi.fn().mockResolvedValue({});
+    const cred = { id: 'c2', name: 'Gate', dept: 'IT', type: 'Password', tier: 'Standard', username: 'x', owner: 'me@x.com', backupOwner: '', rotationMax: 90, companyId: 'co-a',
+      audiences: [{ kind: 'department', value: 'IT', level: 'open', label: 'Everyone in IT' }] };
+    render(<CredentialForm cred={cred} depts={['IT']} people={PEOPLE} myEmail="me@x.com" nameOf={(e) => e} companies={COMPANIES} deptRows={DEPTS} onClose={() => {}} onSave={onSave} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /^IT/ }).getAttribute('aria-pressed')).toBe('true'));
+    fireEvent.click(screen.getByRole('button', { name: /^IT/ }));                            // off: the plain row goes
+    expect(screen.queryByText('Everyone in IT')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^IT/ }));                            // on again: one row, company-keyed
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0].audiences).toEqual([{ kind: 'department', value: 'co-a:IT', level: 'open' }]);
+  });
+
+  it('a login can be site specific: Location lists its company sites', async () => {
+    const onSave = vi.fn().mockResolvedValue({});
+    const SITES = [{ id: 's1', name: 'Fresno Storage', companyIds: ['co-a'] }, { id: 's2', name: 'Delhi Office', companyIds: ['co-b'] }];
+    render(<CredentialForm cred={null} depts={['IT']} people={PEOPLE} myEmail="me@x.com" nameOf={(e) => e} companies={COMPANIES} deptRows={DEPTS} sites={SITES} onClose={() => {}} onSave={onSave} />);
+    const box = await screen.findByRole('combobox', { name: 'Location' });
+    expect([...box.options].map((o) => o.textContent)).toEqual(['Not Site Specific', 'Fresno Storage']);
+    fireEvent.change(box, { target: { value: 's1' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Company' }), { target: { value: 'co-b' } });   // another company: its sites, the pick cleared
+    expect(screen.getByRole('combobox', { name: 'Location' }).value).toBe('');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Location' }), { target: { value: 's2' } });
+    fireEvent.change(screen.getByPlaceholderText('e.g. Stripe Dashboard'), { target: { value: 'Gate' } });
+    fireEvent.change(screen.getByPlaceholderText('Enter or generate a password'), { target: { value: 'Corr3ct-Horse!' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0]).toMatchObject({ companyId: 'co-b', siteId: 's2' });
   });
 
   it('All Companies is one row, a second click removes a row, and Critical warns about broad rows', async () => {

@@ -25,12 +25,25 @@ export const EXPIRY_WARN_DAYS = 30;
 
 export const rotationDaysLeft = (c) => (c.rotationMax || 90) - (c.rotatedDays || 0);
 
+// Why a flag is up (11/13/2026: "I did random passwords and this was noted as
+// found in a breach"). The check is exact - the very password is on Have I Been
+// Pwned's list of leaked ones - and a made-up one is often there too.
+export const BREACH_HINT = "This exact password is on public lists of leaked passwords (Have I Been Pwned). Attackers try those first - even one you made up yourself, like a keyboard pattern or a word with numbers. Change it on the site using Generate, then save it here.";
+export const WEAK_HINT = "Short or easy to guess. Use 12 or more characters mixing letters, numbers and symbols - Generate makes one.";
+
+/** The owners who did not move it to the trash: one of them, or an admin,
+ *  confirms a permanent delete (11/13/2026, routers/credvault._second_owners). */
+export function secondOwners(c, by = c.deletedBy) {
+  const who = (by || "").toLowerCase();
+  return [...new Set([c.owner, c.backupOwner].map((e) => (e || "").toLowerCase()))].filter((e) => e && e !== who);
+}
+
 /** The dated things wrong with a credential, worst first. */
 export function healthFlags(c) {
   const f = [];
-  if (c.breached) f.push({ key: "breached", label: "Found in a Breach", tone: "bad" });
+  if (c.breached) f.push({ key: "breached", label: "Found in a Breach", tone: "bad", hint: BREACH_HINT });
   if (c.expiresInDays != null && c.expiresInDays < 0) f.push({ key: "expired", label: "Expired", tone: "bad" });
-  if (c.strength === "weak") f.push({ key: "weak", label: "Weak Password", tone: "bad" });
+  if (c.strength === "weak") f.push({ key: "weak", label: "Weak Password", tone: "bad", hint: WEAK_HINT });
   const left = rotationDaysLeft(c);
   if (left < 0) f.push({ key: "overdue", label: `Rotation Overdue ${Math.abs(left)}d`, tone: "bad" });
   if (c.reused) f.push({ key: "reused", label: "Reused Password", tone: "warn" });
@@ -86,7 +99,7 @@ export function filterCredentials(creds, { collection = "all", query = "", type 
     if (!inCollection(c, collection, { favorites, myEmail })) return false;
     if (type !== "All" && c.type !== type) return false;
     if (tier !== "All" && c.tier !== tier) return false;
-    if (q && !`${c.name} ${c.username} ${c.dept} ${c.url} ${c.note} ${c.owner}`.toLowerCase().includes(q)) return false;
+    if (q && !`${c.name} ${c.username} ${c.dept} ${c.siteName || ""} ${c.url} ${c.note} ${c.owner}`.toLowerCase().includes(q)) return false;
     return true;
   });
 }
@@ -174,7 +187,7 @@ export function siteOf(url) {
  *  not open (Request Access / View Only). A row appears in one group only. */
 export function groupLogins(rows, { favorites = new Set(), recents = [], query = "" } = {}) {
   const q = query.trim().toLowerCase();
-  const hit = (c) => !q || `${c.name} ${c.username} ${c.dept} ${c.url} ${c.note}`.toLowerCase().includes(q);
+  const hit = (c) => !q || `${c.name} ${c.username} ${c.dept} ${c.siteName || ""} ${c.url} ${c.note}`.toLowerCase().includes(q);
   const liveRows = rows.filter((c) => !c.deletedAt && hit(c));
   const open = liveRows.filter((c) => c.canReveal);
   const seen = new Set();

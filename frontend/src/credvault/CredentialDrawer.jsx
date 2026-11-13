@@ -8,13 +8,13 @@ import { useEffect, useRef, useState } from "react";
 import { teamsChatUrl } from '../lib/teamsLinks';
 import {
   X, Copy, Check, Eye, EyeOff, ExternalLink, Pencil, Trash2, RefreshCw, Share2, KeyRound, Star,
-  ShieldAlert, Clock, UserMinus, Lock, Send, ShieldCheck,
+  MapPin, Clock, UserMinus, Lock, Send, ShieldCheck,
 } from "lucide-react";
 import { api } from "../api";
 import { useDialogFocus, trapTab } from "../lib/useDialogFocus";
 import { formatDate, formatDateTime } from "../lib/datetime";
-import { TeamsIcon, agoLabel, actionStyle, Pager } from "./vaultShared";
-import { ACCESS_LABEL, ACCESS_TONE, healthFlags, rotationDaysLeft, rotationDueDate, timeLeft } from "./vaultModel";
+import { TeamsIcon, TierChip, agoLabel, actionStyle, Pager } from "./vaultShared";
+import { ACCESS_LABEL, ACCESS_TONE, BREACH_HINT, healthFlags, rotationDaysLeft, rotationDueDate, secondOwners, timeLeft } from "./vaultModel";
 import { Monogram } from "./vaultCards";
 import HoldButton from "../ui/HoldButton";
 
@@ -53,7 +53,7 @@ function TotpRow({ credId, first, onCopied }) {
 }
 
 export function CredentialDetail({
-  cred, logs, myEmail, nameOf, depts = [], favorite, onToggleFavorite,
+  cred, logs, myEmail, nameOf, depts = [], siteName = "", favorite, onToggleFavorite,
   revealed, onReveal, onHide, onCopiedSecret,
   onEdit, onTrash, onRestore, onPurge, onShare, onRequest, onClose, onChanged, sheet = false,
 }) {
@@ -65,6 +65,8 @@ export function CredentialDetail({
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const inTrash = !!cred.deletedAt;
   const flags = healthFlags(cred);
+  // Two people agree before a login is erased (11/13/2026): whoever trashed it waits for the other owner.
+  const waitingOn = inTrash && (cred.deletedBy || "").toLowerCase() === (myEmail || "").toLowerCase() ? secondOwners(cred) : [];
 
   // The parent keys this drawer by credential id, so state starts fresh per
   // credential; this only fetches who has access (owners only).
@@ -103,12 +105,14 @@ export function CredentialDetail({
             {cred.url && /^https?:\/\//i.test(cred.url) && <a className="cv-link cv-detail-domain" href={cred.url} target="_blank" rel="noopener noreferrer">{cred.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "")}<ExternalLink size={11} /></a>}
             <div className="cv-drawer-chips">
               <span className={`cv-chip tone-${ACCESS_TONE[cred.access] || "muted"}`}>{ACCESS_LABEL[cred.access] || cred.access}</span>
-              {cred.tier !== "Standard" && <span className={`cv-chip ${cred.tier === "Critical" ? "tone-bad" : "tone-warn"}`}><ShieldAlert size={12} /> {cred.tier}</span>}
+              <TierChip tier={cred.tier} />
               {cred.dept && <span className="cv-chip">{cred.dept}</span>}
+              {siteName && <span className="cv-chip"><MapPin size={12} /> {siteName}</span>}
               <span className="cv-chip">{cred.type}</span>
               {inTrash && <span className="cv-chip tone-bad"><Trash2 size={12} /> In Trash</span>}
-              {flags.map((f) => <span key={f.key} className={`cv-chip tone-${f.tone}`}>{f.label}</span>)}
+              {flags.map((f) => <span key={f.key} className={`cv-chip tone-${f.tone}`} title={f.hint}>{f.label}</span>)}
             </div>
+            {flags.some((f) => f.key === "breached") && <p className="cv-hint" style={{ marginTop: 6 }} data-breach-why="">{BREACH_HINT}</p>}
           </div>
           {!inTrash && (
             <button type="button" className={`cv-star${favorite ? " is-on" : ""}`} aria-label={favorite ? "Remove from Favorites" : "Add to Favorites"} aria-pressed={favorite} onClick={onToggleFavorite}>
@@ -248,8 +252,12 @@ export function CredentialDetail({
             {inTrash ? (<>
               <button type="button" className="cv-btn" onClick={onRestore}><RefreshCw size={14} /> Recover</button>
               <span className="cv-spacer" />
-              <HoldButton size="sm" label="Delete Permanently" doneLabel="Deleted" onConfirm={onPurge}
-                fallbackMessage={`Delete ${cred.name} permanently? This cannot be undone.`} />
+              {waitingOn.length ? (
+                <span className="cv-hint" data-purge-waits="">You moved this to the trash, so {waitingOn.map(nameOf).join(" or ")} or an admin confirms the permanent delete.</span>
+              ) : (
+                <HoldButton size="sm" label="Delete Permanently" doneLabel="Deleted" onConfirm={onPurge}
+                  fallbackMessage={`Delete ${cred.name} permanently? This cannot be undone.`} />
+              )}
             </>) : (<>
               <button type="button" className="cv-btn" onClick={onEdit}><Pencil size={14} /> Edit</button>
               <span className="cv-spacer" />

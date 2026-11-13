@@ -91,10 +91,15 @@ export function findDuplicates(rows, existing) {
 }
 
 /** The server's shape for one row. */
-export function toPayload(r, { backupOwner = "", everyone = false, companyId = "" } = {}) {
+// Who opens it: the row's own department (unless switched off) plus the
+// audiences picked on the review step, each once (11/13/2026).
+export function toPayload(r, { backupOwner = "", ownDept = true, audiences = [], companyId = "", siteId = "" } = {}) {
+  const rows = [...(ownDept && r.dept ? [{ kind: "department", value: r.dept, level: "open" }] : []),
+    ...audiences.map(({ kind, value, level }) => ({ kind, value, level: level || "open" }))];
+  const seen = new Set();
   return {
     name: r.name, department: r.dept, type: r.type, username: r.username, secret: r.secret, tier: r.tier, url: r.url, note: r.note,
-    backupOwner,
-    audiences: everyone ? [{ kind: "company", value: companyId, level: "open" }] : (r.dept ? [{ kind: "department", value: r.dept, level: "open" }] : []),
+    backupOwner, companyId, siteId,
+    audiences: rows.filter((a) => { const k = `${a.kind}:${String(a.value).toLowerCase()}`; return !seen.has(k) && seen.add(k); }),
   };
 }

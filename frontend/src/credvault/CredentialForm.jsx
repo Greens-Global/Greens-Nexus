@@ -11,8 +11,14 @@ import { DURATIONS, ROTATION_CHOICES, audienceKey, siteOf, localDay } from "./va
 import { formatDate, formatTime } from "../lib/datetime";
 import { FIELDS, guessMap, applyMap, validateRows, findDuplicates, toPayload } from "./importModel";
 
-const EMPTY = { name: "", dept: "", type: "Password", tier: "Standard", username: "", secret: "", url: "", note: "", owner: "", backupOwner: "", rotationMax: 90, expiresAt: "", totpSecret: "", clearTotp: false };
-const deptAudience = (dept) => (dept ? [{ kind: "department", value: dept, level: "open", label: `Everyone in ${dept}` }] : []);
+const EMPTY = { name: "", dept: "", type: "Password", tier: "Standard", username: "", secret: "", url: "", note: "", owner: "", backupOwner: "", rotationMax: 90, expiresAt: "", totpSecret: "", clearTotp: false, siteId: "" };
+// The department's own audience row. With several companies the key carries the
+// company ("co-1:Operations"), the same key the picker's chips use - a plain
+// "Operations" beside it listed the department twice (11/13/2026).
+const deptAudience = (dept, companyId = "") => (dept ? [{ kind: "department", value: companyId ? `${companyId}:${dept}` : dept, level: "open", label: `Everyone in ${dept}` }] : []);
+const deptName = (a) => String(a.value || "").split(":").pop();
+// Work sites a company uses (or every site when the login has no company yet).
+export const sitesFor = (sites, companyId) => sites.filter((x) => !companyId || !x.companyIds?.length || x.companyIds.includes(companyId));
 
 // Who may open the credential (Oct 29 2026, vault_access.py): rows of
 // company / department / Access Group / person, each openable or view-only.
@@ -21,6 +27,7 @@ const deptAudience = (dept) => (dept ? [{ kind: "department", value: dept, level
 export function AudiencePicker({ value, onChange, people, tier, nameOf = (e) => e, companyId = "" }) {
   const [opts, setOpts] = useState({ companies: [], departments: [], groups: [] });
   const [person, setPerson] = useState("");
+  const [allGroups, setAllGroups] = useState(false);
   useEffect(() => { api.cvAudienceOptions().then((o) => setOpts({ companies: o?.companies || [], departments: o?.departments || [], groups: o?.groups || [] })).catch(() => {}); }, []);
   const keyOf = audienceKey;
   const has = (a) => value.some((x) => keyOf(x) === keyOf(a));
@@ -35,6 +42,19 @@ export function AudiencePicker({ value, onChange, people, tier, nameOf = (e) => 
   const multi = opts.companies.length > 1;
   const deptRows = opts.departments.filter((d) => !multi || scopeIds.includes(d.companyId));
   const deptAud = (d) => ({ kind: "department", value: multi && d.companyId ? `${d.companyId}:${d.name}` : d.name, label: `Everyone in ${d.name}${multi && d.companyId ? ` at ${companyName(d.companyId)}` : ""}` });
+  // A plain "Operations" row (older logins) is the same department as its own company's chip.
+  const plainOf = (d) => ({ kind: "department", value: d.name });
+  const isOwnPlain = (d, x) => multi && d.companyId === companyId && keyOf(x) === keyOf(plainOf(d));
+  const deptOn = (d) => has(deptAud(d)) || value.some((x) => isOwnPlain(d, x));
+  const toggleDept = (d) => (deptOn(d)
+    ? onChange(value.filter((x) => keyOf(x) !== keyOf(deptAud(d)) && !isOwnPlain(d, x)))
+    : toggle(deptAud(d)));
+  // Access Groups follow the departments picked (11/13/2026): only the groups
+  // whose people work there, plus any already chosen; Show All lists the rest.
+  const pickedDepts = new Set(value.filter((a) => a.kind === "department").map((a) => deptName(a).toLowerCase()));
+  const groupHas = (g) => has({ kind: "group", value: g.id });
+  const shownGroups = allGroups || !pickedDepts.size ? opts.groups
+    : opts.groups.filter((g) => groupHas(g) || (g.departments || []).some((d) => pickedDepts.has(d.toLowerCase())));
   const Chip = ({ on, children, onClick, title }) => (
     <button type="button" className={`cv-pick${on ? " is-on" : ""}`} aria-pressed={on} onClick={onClick} title={title}>{on && <Check size={11} />}{children}</button>
   );
@@ -51,13 +71,20 @@ export function AudiencePicker({ value, onChange, people, tier, nameOf = (e) => 
         <span className="cv-pick-label">Departments{multi && pickedCompanies.length ? ` at ${pickedCompanies.map(companyName).join(", ")}` : ""}</span>
         <div className="cv-pick-row">
           {deptRows.length === 0 && <span className="cv-hint">No departments set up under Settings &gt; Companies.</span>}
-          {deptRows.map((d) => { const a = deptAud(d); return <Chip key={`${d.companyId}:${d.name}`} on={has(a)} onClick={() => toggle(a)}>{d.name}{multi && pickedCompanies.length !== 1 && d.companyId ? <span className="cv-pick-sub"> · {companyName(d.companyId)}</span> : null}</Chip>; })}
+          {deptRows.map((d) => { return <Chip key={`${d.companyId}:${d.name}`} on={deptOn(d)} onClick={() => toggleDept(d)}>{d.name}{multi && pickedCompanies.length !== 1 && d.companyId ? <span className="cv-pick-sub"> · {companyName(d.companyId)}</span> : null}</Chip>; })}
         </div>
       </div>
       {opts.groups.length > 0 && (
-        <div className="cv-pick-group">
-          <span className="cv-pick-label">Access Groups</span>
-          <div className="cv-pick-row">{opts.groups.map((g) => <Chip key={g.id} on={has({ kind: "group", value: g.id })} onClick={() => toggle({ kind: "group", value: g.id, label: g.name })}>{g.name}</Chip>)}</div>
+        <div className="cv-pick-group" data-groups-shown={shownGroups.length}>
+          <span className="cv-pick-label">Access Groups{pickedDepts.size && !allGroups ? " in These Departments" : ""}</span>
+          <div className="cv-pick-row">
+            {shownGroups.length === 0 && <span className="cv-hint">No Access Group has people in the departments picked.</span>}
+            {shownGroups.map((g) => <Chip key={g.id} on={groupHas(g)} onClick={() => toggle({ kind: "group", value: g.id, label: g.name })}>{g.name}</Chip>)}
+            {pickedDepts.size > 0 && shownGroups.length < opts.groups.length && !allGroups && (
+              <button type="button" className="cv-link" onClick={() => setAllGroups(true)}>Show All Groups ({opts.groups.length})</button>
+            )}
+            {allGroups && pickedDepts.size > 0 && <button type="button" className="cv-link" onClick={() => setAllGroups(false)}>Only These Departments</button>}
+          </div>
         </div>
       )}
       <div className="cv-pick-group">
@@ -90,20 +117,26 @@ export function AudiencePicker({ value, onChange, people, tier, nameOf = (e) => 
   );
 }
 
-export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, onSave, companies = [], deptRows = [], myCompanyId = "" }) {
+export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, onSave, companies = [], deptRows = [], sites = [], myCompanyId = "" }) {
   const editing = !!cred;
+  const multi = companies.length > 1;
+  const ownAud = (dept, companyId) => deptAudience(dept, multi ? companyId : "");
   const [form, setForm] = useState(() => editing
-    ? { ...EMPTY, name: cred.name, dept: cred.dept || "", type: cred.type, tier: cred.tier, username: cred.username === "-" ? "" : cred.username, url: cred.url || "", note: cred.note || "", owner: cred.owner || "", backupOwner: cred.backupOwner || "", rotationMax: cred.rotationMax || 90, expiresAt: cred.expiresAt || "", companyId: cred.companyId || myCompanyId || "",
+    ? { ...EMPTY, name: cred.name, dept: cred.dept || "", type: cred.type, tier: cred.tier, username: cred.username === "-" ? "" : cred.username, url: cred.url || "", note: cred.note || "", owner: cred.owner || "", backupOwner: cred.backupOwner || "", rotationMax: cred.rotationMax || 90, expiresAt: cred.expiresAt || "", companyId: cred.companyId || myCompanyId || "", siteId: cred.siteId || "",
       // A credential from before audiences (no rows) is still opened by its own
       // department unless Critical - show that, so saving writes it out as a row.
       audiences: cred.audiences?.length ? cred.audiences : (cred.tier === "Critical" ? [] : deptAudience(cred.dept || "")) }
-    : { ...EMPTY, dept: depts[0] || "", owner: myEmail, audiences: deptAudience(depts[0] || ""), companyId: myCompanyId || companies[0]?.id || "" });
+    : { ...EMPTY, dept: depts[0] || "", owner: myEmail, audiences: ownAud(depts[0] || "", myCompanyId || companies[0]?.id || ""), companyId: myCompanyId || companies[0]?.id || "" });
   const [initial] = useState(form);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   // The department box leads the audience until the owner edits the list.
-  const setDept = (d) => setForm((f) => ({ ...f, dept: d, audiences: JSON.stringify(f.audiences) === JSON.stringify(deptAudience(f.dept)) ? deptAudience(d) : f.audiences }));
+  const follows = (f) => JSON.stringify(f.audiences) === JSON.stringify(ownAud(f.dept, f.companyId));
+  const setDept = (d) => setForm((f) => ({ ...f, dept: d, audiences: follows(f) ? ownAud(d, f.companyId) : f.audiences }));
+  const setCompany = (co) => setForm((f) => ({ ...f, companyId: co, audiences: follows(f) ? ownAud(f.dept, co) : f.audiences,
+    siteId: sitesFor(sites, co).some((x) => x.id === f.siteId) ? f.siteId : "" }));
+  const siteChoices = sitesFor(sites, form.companyId);
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
   const valid = form.name.trim() && (editing || form.secret) && form.dept;
   // Departments follow the Company box when Nexus knows them per company.
@@ -136,7 +169,7 @@ export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, 
           <div className="cv-form-grid">
             {companies.length > 0 && (
               <Field label="Company" required>
-                <select value={form.companyId} onChange={(e) => set("companyId", e.target.value)} className="cv-ipt" aria-label="Company">
+                <select value={form.companyId} onChange={(e) => setCompany(e.target.value)} className="cv-ipt" aria-label="Company">
                   {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </Field>
@@ -149,6 +182,14 @@ export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, 
             </Field>
             <Field label="Type"><select value={form.type} onChange={(e) => set("type", e.target.value)} className="cv-ipt">{TYPES.map((t) => <option key={t}>{t}</option>)}</select></Field>
           </div>
+          {(siteChoices.length > 0 || form.siteId) && (
+            <Field label="Location">
+              <select value={form.siteId} onChange={(e) => set("siteId", e.target.value)} className="cv-ipt" aria-label="Location">
+                <option value="">Not Site Specific</option>
+                {siteChoices.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+            </Field>
+          )}
           <div className="cv-form-grid">
             <Field label="Username"><input value={form.username} onChange={(e) => set("username", e.target.value)} className="cv-ipt" placeholder="account@…" autoComplete="off" /></Field>
             <Field label="Tier">
@@ -211,14 +252,19 @@ export function CredentialForm({ cred, depts, people, myEmail, nameOf, onClose, 
 // retire the spreadsheet. Passwords stay in the browser until Import.
 const STEP_TITLES = ["Choose the File", "Match the Columns", "Review", "Done"];
 
-export function ImportWizard({ depts, people, myEmail, existing = [], nameOf = (e) => e, onClose, onImport }) {
+export function ImportWizard({ depts, sites = [], people, myEmail, existing = [], nameOf = (e) => e, onClose, onImport }) {
   const [step, setStep] = useState(0);
   const [file, setFile] = useState(null);
   const [sheet, setSheet] = useState(null);            // { headers: [], rows: [[]] , sheets: [names], name }
   const [map, setMap] = useState({});
   const [defaultDept, setDefaultDept] = useState(depts[0] || "");
   const [backupOwner, setBackupOwner] = useState("");
-  const [everyone, setEveryone] = useState(false);
+  // Who opens them (11/13/2026: the sheet said Operations and nothing else
+  // could be picked until after the import): each login's own department,
+  // plus anyone picked here - departments, companies, groups, people.
+  const [ownDept, setOwnDept] = useState(true);
+  const [extra, setExtra] = useState([]);
+  const [siteId, setSiteId] = useState("");
   const [companies, setCompanies] = useState([]);
   const [companyId, setCompanyId] = useState("");
   const [skipDups, setSkipDups] = useState(true);
@@ -253,7 +299,7 @@ export function ImportWizard({ depts, people, myEmail, existing = [], nameOf = (
   async function run() {
     setBusy(true); setError("");
     try {
-      const res = await onImport(ready.map((r) => toPayload(r, { backupOwner, everyone, companyId })));
+      const res = await onImport(ready.map((r) => toPayload(r, { backupOwner, ownDept, audiences: extra, companyId, siteId })));
       setResult({ imported: res?.imported || 0, skipped: res?.skipped || 0, sent: ready.length, bad: bad.length, dups: skipDups ? dups.length : 0 });
       setStep(3);
     } catch (e) { setError(e?.message || "Import failed."); }
@@ -312,16 +358,28 @@ export function ImportWizard({ depts, people, myEmail, existing = [], nameOf = (
               <PersonSelect value={backupOwner} onChange={(v) => setBackupOwner(v || "")} people={people.filter((p) => p.email !== myEmail)} placeholder="Nobody" />
             </Field>
           </div>
-          <Field label="Who Can Open Them">
-            <div className="cv-segment" style={{ gridTemplateColumns: "1fr 1fr" }}>
-              <button type="button" className={`cv-btn${!everyone ? " is-on" : ""}`} onClick={() => setEveryone(false)}>Each login's department</button>
-              <button type="button" className={`cv-btn${everyone ? " is-on" : ""}`} onClick={() => setEveryone(true)} disabled={!companies.length}>Everyone at {companies.length > 1 ? "a company" : companies[0]?.name || "the company"}</button>
-            </div>
-            {everyone && companies.length > 1 && (
-              <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="cv-ipt" style={{ marginTop: 8 }} aria-label="Company">{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+          <div className="cv-form-grid">
+            {companies.length > 1 && (
+              <Field label="Company">
+                <select value={companyId} onChange={(e) => { setCompanyId(e.target.value); if (!sitesFor(sites, e.target.value).some((x) => x.id === siteId)) setSiteId(""); }} className="cv-ipt" aria-label="Company">{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+              </Field>
             )}
+            {sitesFor(sites, companyId).length > 0 && (
+              <Field label="Location for Every Login">
+                <select value={siteId} onChange={(e) => setSiteId(e.target.value)} className="cv-ipt" aria-label="Location for every login">
+                  <option value="">Not Site Specific</option>
+                  {sitesFor(sites, companyId).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </select>
+              </Field>
+            )}
+          </div>
+          <Field label="Who Can Open Them">
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 13 }}>
+              <input type="checkbox" checked={ownDept} onChange={(e) => setOwnDept(e.target.checked)} /> Everyone in each login's own department
+            </label>
+            <AudiencePicker value={extra} onChange={setExtra} people={people} nameOf={nameOf} companyId={companyId} />
           </Field>
-          <p className="cv-hint">You own every imported login. Change the owner, audience or tier on any of them afterwards.</p>
+          <p className="cv-hint">You own every imported login.{!ownDept && !extra.length ? " Nobody else is picked, so only you, the department heads and admins open them." : ""} Change the owner, audience or tier on any of them afterwards.</p>
           <div className="cv-import-summary">
             <span className="cv-chip tone-ok"><CheckCircle2 size={12} /> {ready.length} ready</span>
             {dups.length > 0 && (

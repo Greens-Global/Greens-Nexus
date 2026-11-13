@@ -650,7 +650,8 @@ def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
     # "view" (Oct 29 2026): the row, username, link and notes - never the password.
     can_see = access != "request"
     return {
-        "id": c.id, "name": c.name, "dept": c.dept or "", "companyId": c.company_id or "", "type": c.type or "Password",
+        "id": c.id, "name": c.name, "dept": c.dept or "", "companyId": c.company_id or "", "siteId": c.site_id or "",
+        "type": c.type or "Password",
         # The username is half of a login: only for people who can see the other half.
         "username": (c.username or "") if can_see else "",
         "url": c.url or "", "tier": c.tier or "Standard",
@@ -669,7 +670,7 @@ def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
         "hasPrevious": bool(c.prev_secret_enc) if can_reveal else False,
         "hasTotp": bool(c.totp_enc), "breached": bool(c.breached) if can_reveal else False,
         "prevRotatedAt": (c.prev_rotated_at or "") if can_reveal else "",
-        "sharedWith": shared_with, "deletedAt": _ms(c.deleted_at) or None,
+        "sharedWith": shared_with, "deletedAt": _ms(c.deleted_at) or None, "deletedBy": c.deleted_by or "",
         "createdAt": _ms(c.created_at),
         "access": access, "canReveal": can_reveal, "canEdit": access in MANAGE,
         "grantUntil": _ms(grant_until) if grant_until else None,
@@ -699,6 +700,22 @@ class CredentialIn(BaseModel):
     totpSecret: str = ""
     clearTotp: bool = False
     companyId: str = ""          # home company (HrEntity id); "" on a create = the owner's company
+    siteId: str | None = None    # work site (HrWorkSite id) for a site-specific login; None on an edit = unchanged
+
+
+def _clean_site(db: Session, v: str | None) -> str:
+    """A work site id from Settings > Locations, or "" for none."""
+    v = (v or "").strip()
+    if v and not db.query(models.HrWorkSite.id).filter(models.HrWorkSite.id == v).first():
+        raise HTTPException(400, "That location is not in Settings > Locations")
+    return v
+
+
+def _site_name(db: Session, site_id: str) -> str:
+    if not site_id:
+        return "-"
+    s = db.query(models.HrWorkSite.name).filter(models.HrWorkSite.id == site_id).first()
+    return s[0] if s else "-"
 
 
 def _clean_url(v: str) -> str:
@@ -803,6 +820,7 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
         totp_enc=_enc(_clean_totp(body.totpSecret)) if _clean_totp(body.totpSecret) else "",
         tier=body.tier if body.tier in TIERS else "Standard",
         company_id=(body.companyId or "").strip() or company_of(user["email"], db),
+        site_id=_clean_site(db, body.siteId),
         owner_email=user["email"],
         backup_owner_email=(body.backupOwner or "").lower().strip(),
         strength=_eval_strength(body.secret),
@@ -847,6 +865,10 @@ def update_credential(cred_id: str, body: CredentialIn,
     if body.companyId and body.companyId != (c.company_id or ""):
         changed.append({"field": "Company", "from": c.company_id or "-", "to": body.companyId})
         c.company_id = body.companyId
+    if body.siteId is not None and _clean_site(db, body.siteId) != (c.site_id or ""):
+        new_site = _clean_site(db, body.siteId)
+        changed.append({"field": "Location", "from": _site_name(db, c.site_id or ""), "to": _site_name(db, new_site)})
+        c.site_id = new_site
     if body.type != c.type and body.type in TYPES:
         changed.append({"field": "Type", "from": c.type, "to": body.type})
         c.type = body.type
@@ -917,13 +939,25 @@ def delete_credential(cred_id: str, user: dict = Depends(get_current_user), db: 
     c.deleted_at = _now()
     c.deleted_by = user["email"]
     _log(db, user, "Removed", c.name, c.dept, c.id)
-    for who in {(c.owner_email or "").lower(), (c.backup_owner_email or "").lower()} - {"", user["email"]}:
-        _notify(db, type="vault_change", recipient=who,
-                title="Credentials - Moved to the Trash",
-                body=f"{_display_name(user['email'], db)} moved {c.name} ({c.dept}) to the trash. It can be recovered from there.",
-                ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": "trash"})
+    _tell_trashed(db, user, c)
     db.commit()
     return {"ok": True}
+
+
+def _second_owners(c: models.VaultCredential) -> set:
+    """The owners who did NOT move it to the trash - the second person a
+    permanent delete waits for (11/13/2026: deleting a login is serious, so
+    whoever trashed it cannot also erase it when another owner can check)."""
+    return {(c.owner_email or "").lower(), (c.backup_owner_email or "").lower()} - {"", (c.deleted_by or "").lower()}
+
+
+def _tell_trashed(db: Session, user: dict, c: models.VaultCredential) -> None:
+    for who in _second_owners(c) - {user["email"]}:
+        _notify(db, type="vault_change", recipient=who,
+                title="Credentials - Moved to the Trash",
+                body=f"{_display_name(user['email'], db)} moved {c.name} ({c.dept}) to the trash. Check it: Restore it, "
+                     f"or Delete Permanently to confirm - only you or an admin can erase it now.",
+                ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": "trash"})
 
 
 class BulkIds(BaseModel):
@@ -939,6 +973,7 @@ def bulk_delete(body: BulkIds, user: dict = Depends(get_current_user), db: Sessi
         if _can_modify(c, user, db) and not c.deleted_at and _in_company(c, scope, cmap):
             c.deleted_at = _now()
             c.deleted_by = user["email"]
+            _tell_trashed(db, user, c)
             count += 1
     if count:
         label = f"{count} credential{'' if count == 1 else 's'}"
@@ -968,6 +1003,11 @@ def purge_credential(cred_id: str, user: dict = Depends(get_current_user), db: S
         raise HTTPException(403, "Only the owner, backup owner or an admin can permanently delete this")
     if not c.deleted_at:
         raise HTTPException(400, "Move the credential to the trash first")
+    if user["email"] == (c.deleted_by or "").lower() and _second_owners(c):
+        names = " or ".join(_display_name(e, db) for e in sorted(_second_owners(c)))
+        raise HTTPException(403, f"You moved this to the trash, so a second person confirms the delete: {names}, or an admin.")
+    _log(db, user, "Deleted Permanently", c.name, c.dept, c.id,
+         detail=[{"field": "Moved to the trash by", "from": "", "to": c.deleted_by or "-"}])
     db.delete(c)
     db.commit()
     return {"ok": True}
@@ -1108,6 +1148,7 @@ def import_credentials(body: ImportIn, user: dict = Depends(get_current_user), d
             .filter(models.VaultCredential.deleted_at == "").all()}
     known = {e for (e,) in db.query(models.NexusEmployee.work_email).all() if e}
     known = {e.lower() for e in known}
+    site_ids = {i for (i,) in db.query(models.HrWorkSite.id).all()}
     created, skipped = [], []
     for r in body.rows or []:
         name = (r.get("name") or "").strip()
@@ -1131,6 +1172,7 @@ def import_credentials(body: ImportIn, user: dict = Depends(get_current_user), d
             secret_hash=_hash(secret),
             tier=r.get("tier") if r.get("tier") in TIERS else "Standard",
             company_id=(r.get("companyId") or "").strip() or company_of(user["email"], db),
+            site_id=(r.get("siteId") or "").strip() if (r.get("siteId") or "").strip() in site_ids else "",
             owner_email=user["email"],
             backup_owner_email=backup if backup in known and backup != user["email"] else "",
             strength=_eval_strength(secret),

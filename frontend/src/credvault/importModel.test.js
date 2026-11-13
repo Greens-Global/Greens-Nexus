@@ -27,6 +27,10 @@ describe('import wizard model', () => {
   it('builds the server row with the department audience, or everyone at the company', () => {
     const r = { name: 'Wi-Fi', dept: 'IT', type: 'Password', username: 'staff', secret: 's', tier: 'Standard', url: '', note: '' };
     expect(toPayload(r, { backupOwner: 'b@x.com' })).toMatchObject({ department: 'IT', backupOwner: 'b@x.com', audiences: [{ kind: 'department', value: 'IT', level: 'open' }] });
-    expect(toPayload(r, { everyone: true, companyId: 'co' }).audiences).toEqual([{ kind: 'company', value: 'co', level: 'open' }]);
+    // Picked on the review step, before the import: more departments, a company - each once.
+    const more = toPayload(r, { audiences: [{ kind: 'department', value: 'Operations' }, { kind: 'department', value: 'it' }, { kind: 'company', value: 'co', level: 'view' }], companyId: 'co', siteId: 's1' });
+    expect(more.audiences).toEqual([{ kind: 'department', value: 'IT', level: 'open' }, { kind: 'department', value: 'Operations', level: 'open' }, { kind: 'company', value: 'co', level: 'view' }]);
+    expect(more).toMatchObject({ companyId: 'co', siteId: 's1' });
+    expect(toPayload(r, { ownDept: false, audiences: [] }).audiences).toEqual([]);
   });
 });

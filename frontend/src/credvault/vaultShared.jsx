@@ -28,6 +28,16 @@ export const DEPT_ICONS = {
 export const iconFor = (n) => DEPT_ICONS[n] || Building2;
 export const DEFAULT_DEPTS = Object.keys(DEPT_ICONS);
 export const TIERS = ["Standard", "High", "Critical"];
+// A tier is how closely a login is guarded, not something wrong with it
+// (11/13/2026: a red Critical read as an error) - a calm shield, never red.
+export function TierChip({ tier, xs = false }) {
+  if (!tier || tier === "Standard") return null;
+  return (
+    <span className={`cv-chip${xs ? " cv-chip-xs" : ""} tone-info`} title={tier === "Critical" ? "Critical: only named people open it" : "High: closely guarded"}>
+      <ShieldCheck size={xs ? 10 : 12} /> {tier}
+    </span>
+  );
+}
 export const TYPES = ["Password", "API key", "Access key", "Certificate"];
 
 

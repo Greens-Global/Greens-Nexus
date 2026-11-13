@@ -128,6 +128,20 @@ class VaultHardeningTests(unittest.TestCase):
         finally:
             db.close()
 
+    def _bells(self, who):
+        db = database.SessionLocal()
+        try:
+            return db.query(models.NexusNotification).filter(models.NexusNotification.recipient == who).all()
+        finally:
+            db.close()
+
+    def _get(self, cid):
+        db = database.SessionLocal()
+        try:
+            return db.get(models.VaultCredential, cid)
+        finally:
+            db.close()
+
     def _logs(self, who):
         r = self._as(who).get("/credvault/logs")
         self.assertEqual(r.status_code, 200, r.text)
@@ -530,6 +544,56 @@ class VaultHardeningTests(unittest.TestCase):
         self.assertNotIn("Far", [e["cred"] for e in self._logs(OWNER)])
         self.assertIn("Far", [e["cred"] for e in self._logs(FAR)])
         self.assertNotIn("Far", [e["cred"] for e in self._logs(ADMIN)])   # Company A's Administrator
+
+    # ── 11/13/2026 feedback ───────────────────────────────────────────────
+    def test_whoever_trashed_it_cannot_also_erase_it_when_another_owner_can_check(self):
+        cid = self._create()                       # OWNER owns it, BACKUP is the backup owner
+        self.assertEqual(self._as(OWNER).delete(f"/credvault/credentials/{cid}").status_code, 200)
+        bells = [n for n in self._bells(BACKUP) if n.title == "Credentials - Moved to the Trash"]
+        self.assertEqual(len(bells), 1)
+        self.assertIn("Delete Permanently to confirm", bells[0].body)
+        r = self._as(OWNER).delete(f"/credvault/credentials/{cid}/permanent")
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertIn("second person", r.json()["detail"])
+        self.assertEqual(self._as(BACKUP).delete(f"/credvault/credentials/{cid}/permanent").status_code, 200)
+        self.assertIsNone(self._get(cid))
+        self.assertTrue(any(l["action"] == "Deleted Permanently" for l in self._logs(ADMIN)))
+
+    def test_a_sole_owner_erases_their_own_after_the_trash(self):
+        cid = self._create(backupOwner="")
+        self._as(OWNER).delete(f"/credvault/credentials/{cid}")
+        self.assertEqual(self._as(OWNER).delete(f"/credvault/credentials/{cid}/permanent").status_code, 200)
+
+    def test_bulk_trash_tells_the_other_owner_too(self):
+        cid = self._create()
+        self.assertEqual(self._as(OWNER).post("/credvault/credentials/bulk-delete", json={"ids": [cid]}).json()["deleted"], 1)
+        self.assertEqual(len([n for n in self._bells(BACKUP) if n.title == "Credentials - Moved to the Trash"]), 1)
+        self.assertEqual(self._as(OWNER).delete(f"/credvault/credentials/{cid}/permanent").status_code, 403)
+
+    def test_a_login_can_belong_to_one_location(self):
+        db = database.SessionLocal()
+        db.query(models.HrCompanyWorkSite).delete()
+        db.query(models.HrWorkSite).delete()
+        db.add(models.HrWorkSite(id="site-1", name="Fresno Storage"))
+        db.add(models.HrCompanyWorkSite(id=f"{CO_A}:site-1", company_id=CO_A, site_id="site-1"))
+        db.commit()
+        db.close()
+        self.assertEqual(self._as(OWNER).post("/credvault/credentials", json={"name": "Gate", "dept": "Accounting", "secret": "x-Y-z-123456!", "siteId": "nope"}).status_code, 400)
+        cid = self._create(siteId="site-1")
+        row = next(c for c in self._as(OWNER).get("/credvault/credentials").json() if c["id"] == cid)
+        self.assertEqual(row["siteId"], "site-1")
+        opts = self._as(OWNER).get("/credvault/audience-options").json()
+        self.assertEqual([s["name"] for s in opts["sites"]], ["Fresno Storage"])
+        # An edit without siteId keeps it; "" clears it, and the log says so.
+        self.assertEqual(self._as(OWNER).patch(f"/credvault/credentials/{cid}", json={"name": "Stripe", "dept": "Accounting"}).status_code, 200)
+        self.assertEqual(self._cred(cid).site_id, "site-1")
+        self.assertEqual(self._as(OWNER).patch(f"/credvault/credentials/{cid}", json={"name": "Stripe", "dept": "Accounting", "siteId": ""}).status_code, 200)
+        self.assertEqual(self._cred(cid).site_id, "")
+
+    def test_access_groups_carry_the_departments_of_their_people(self):
+        groups = {g["id"]: g for g in self._as(OWNER).get("/credvault/audience-options").json()["groups"]}
+        # g-vault holds Accounting and Operations people (FAR's Accounting is in company B - still a department name).
+        self.assertEqual(groups["g-vault"]["departments"], ["Accounting", "Operations"])
 
     def test_no_grant_no_vault(self):
         self.assertEqual(self._as(NOGRANT).get("/credvault/credentials").status_code, 403)
