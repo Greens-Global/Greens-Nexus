@@ -1651,6 +1651,10 @@ def _run_migrations():
             # A pin made from a ticket (11/12/2026) - see the Postgres list.
             "ALTER TABLE dev_notes ADD COLUMN ticket_id VARCHAR DEFAULT ''",
             "ALTER TABLE dev_notes ADD COLUMN ticket_code VARCHAR DEFAULT ''",
+            # A person's own time zone and working hours (11/13/2026) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN time_zone VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN work_start VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN work_end VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3963,6 +3967,13 @@ def _run_migrations():
         # which ticket it was made from (build_mode_tickets.py).
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
         "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS ticket_code VARCHAR DEFAULT ''",
+        # A person's own time zone and working hours (11/13/2026): set by the
+        # person under My Profile > Date & Time. time_zone '' = not set, the
+        # Contact Directory keeps inferring it (routers/directory._tz_name);
+        # work_start / work_end are "HH:MM" in that zone.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS time_zone VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_start VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_end VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

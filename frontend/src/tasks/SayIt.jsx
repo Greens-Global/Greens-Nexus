@@ -5,18 +5,14 @@
 // what it was. Nothing is created until the person taps Create.
 // Browsers that cannot dictate (Firefox) show nothing.
 import { useEffect, useRef, useState } from 'react';
-import { Mic, X } from 'lucide-react';
+import { Mic } from 'lucide-react';
 import { canDictate, useDictation } from '../lib/voice';
 import { parseSpokenTask } from './sayTask';
 import { fmtDate } from './lib';
 import { localTodayISO } from './components';
 import { NX, FONT, btn, PRIORITY_META } from './theme';
-
-const chip = {
-  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 4px 3px 9px', borderRadius: 999,
-  background: 'rgba(37,99,235,0.08)', color: NX.ink, fontSize: 12, fontWeight: 600, maxWidth: '100%',
-};
-const chipX = { border: 'none', background: 'transparent', cursor: 'pointer', color: NX.dim, display: 'flex', padding: 3, borderRadius: 999 };
+// The chip is shared with the typed name boxes (11/13/2026).
+import { UnderstoodChip } from './TypedTaskChips';
 
 /**
  * snapshot() -> { title, dueOn, priority, assigneeIds } as the form stands;
@@ -95,11 +91,8 @@ export default function SayIt({ people, myEmail, snapshot, onFill }) {
         </button>
         {!result && <span style={{ fontSize: 12, color: NX.faint }}>Say the whole task: what, when, who</span>}
         {result && result.r.matched.map((m) => (
-          <span key={m.kind} style={chip} title={`Heard "${m.words}"`}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label(m)}</span>
-            <button type="button" style={chipX} aria-label={`Undo ${kindName[m.kind]} from Say It`} title="Put these words back in the name"
-              onClick={() => undo(m.kind)}><X size={12} aria-hidden="true" /></button>
-          </span>
+          <UnderstoodChip key={m.kind} label={label(m)} title={`Heard "${m.words}"`}
+            removeLabel={`Undo ${kindName[m.kind]} from Say It`} onRemove={() => undo(m.kind)} />
         ))}
       </div>
       {result && (

@@ -26,6 +26,7 @@ import LabelsEditor from './LabelsEditor';
 import AddSeveralModal from './AddSeveralModal';
 import { pastedTaskList } from './batchPaste';
 import { labelsInUse } from './labels';
+import LocalTimeHint from '../components/LocalTimeHint';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -433,6 +434,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               <PersonMultiSelect value={form.assigneeIds} onChange={(v) => set('assigneeIds', v)} addTitle="Add assignee"
                 people={people} placeholder="Assign to…" />
             </div>
+            {/* "It is 9:40 PM for Priya" - only when it is outside their hours (11/13/2026). */}
+            <LocalTimeHint emails={form.assigneeIds} me={myEmail} />
           </div>
           <div style={field}>
             <label style={label}>Collaborators</label>

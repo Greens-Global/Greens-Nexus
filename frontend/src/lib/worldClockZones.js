@@ -42,7 +42,7 @@ const LEGACY_KEY_TZ = {
 // showed "None" in the picker's own <select> (whose <option value> couldn't
 // match the differently-spelled stored value) - Pranshu, Sep 4. Returns null
 // for a string that isn't a real zone at all.
-function canonicalTz(tz) {
+export function canonicalTz(tz) {
   try { return new Intl.DateTimeFormat('en-US', { timeZone: tz }).resolvedOptions().timeZone; }
   catch { return null; }
 }

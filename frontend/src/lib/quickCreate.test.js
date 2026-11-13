@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ACTIONS, GROUPS, TOP, TOP_FILL, layoutActions } from './quickCreate';
+import { ACTIONS, GROUPS, TOP, TOP_FILL, layoutActions, findActions } from './quickCreate';
 
 // The header's Quick Actions (Neil, 11/12/2026): the list and its layout.
 describe('ACTIONS', () => {
@@ -38,5 +38,45 @@ describe('ACTIONS', () => {
     // Four or fewer actions: the top row is the whole menu.
     expect(layoutActions(only('note', 'board', 'email')).rows).toEqual([]);
     expect(layoutActions([])).toEqual({ tiles: [], rows: [] });
+  });
+});
+
+// The header search answers with the same actions (11/13/2026).
+describe('findActions', () => {
+  const labels = (q, items = ACTIONS) => findActions(items, q).map((h) => h.item.label);
+
+  it('names an action by the words of its name, whatever their order or case', () => {
+    expect(labels('time off')).toEqual(['Request Time Off']);
+    expect(labels('Off Time')).toEqual(['Request Time Off']);
+    expect(labels('new ticket')).toEqual(['New Ticket']);
+    expect(labels('kud')).toEqual(['Give Kudos']);
+    expect(labels('request item')).toEqual(['Request an Item']);
+    expect(labels('event invite')).toEqual(['New Event']);       // its short name counts
+  });
+
+  it('is plain: no guesses, no small words, two characters at least, three rows at most', () => {
+    expect(labels('expense')).toEqual([]);
+    expect(labels('an')).toEqual([]);
+    expect(labels('t')).toEqual([]);
+    expect(labels('ime')).toEqual([]);                            // a word must START with what was typed
+    expect(labels('new')).toEqual(['New Task', 'New Ticket', 'New Note']);   // the menu's own order
+    expect(findActions(ACTIONS, 'new', 10).length).toBeGreaterThan(3);
+  });
+
+  it('offers only what it is given - the person\'s own actions', () => {
+    expect(labels('time off', ACTIONS.filter((it) => it.module !== 'myhr'))).toEqual([]);
+    expect(findActions(null, 'time off')).toEqual([]);
+  });
+
+  it('`starts` is a typed name gone past its first word', () => {
+    const starts = (q) => findActions(ACTIONS, q).filter((h) => h.starts).map((h) => h.item.label);
+    expect(starts('new ti')).toEqual(['New Ticket']);
+    expect(starts('request time')).toEqual(['Request Time Off']);
+    expect(starts('fill a')).toEqual(['Fill a Form']);
+    expect(starts('new')).toEqual([]);
+    expect(starts('ticket')).toEqual([]);
+    expect(starts('time off')).toEqual([]);
+    // The ones that start the name sort first.
+    expect(findActions(ACTIONS, 'new t').map((h) => [h.item.label, h.starts])).toEqual([['New Task', true], ['New Ticket', true]]);
   });
 });

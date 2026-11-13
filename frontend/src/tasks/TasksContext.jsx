@@ -119,6 +119,11 @@ async function reloadTicketsInto(setTickets) {
 
 let pingChannelSeq = 0;
 
+// A task_events row about tickets, not tasks: the backend marks it in the
+// row's `kind` (ticket_events.PING_KIND). A row that arrives without its
+// columns reads as a task ping, as every row did before tickets pinged.
+const isTicketPing = (payload) => String(payload?.new?.kind || '').startsWith('ticket');
+
 export function TasksProvider({ children }) {
   const { myEmail } = useRole();
   const nameOf = useNameResolver();
@@ -270,9 +275,16 @@ export function TasksProvider({ children }) {
     });
     sinceRef.current = serverTime;
   }, []);
+  // A ticket ping's handler (set by the ticket refresh effect further down).
+  // Ticket changes ride the same task_events table, marked `kind: "ticket"`
+  // (backend ticket_events.py), and so the same ONE channel: a ticket ping
+  // refetches the ticket list and never the tasks, a task ping never the
+  // tickets - the ticket fetch is the whole list.
+  const ticketPingRef = useRef(null);
   useEffect(() => {
     let timer = null;
     const debounced = () => { clearTimeout(timer); timer = setTimeout(() => { refetchTasks(); loadNotifications(); }, 400); };
+    const onPing = (payload) => (isTicketPing(payload) ? ticketPingRef.current?.() : debounced());
     const stopPoll = pollWhileVisible(() => { refetchTasks().catch(() => {}); }, 45000);
     let channel = null;
     if (supabase) {
@@ -280,18 +292,21 @@ export function TasksProvider({ children }) {
       // for a reused topic and `.on()` on it throws - the Tasks view's provider
       // plus the header's New Task crashed the header (hotfix 11/05/2026).
       channel = supabase.channel(`task_event_pings:${++pingChannelSeq}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_events' }, debounced)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_events' }, onPing)
         .subscribe();
     }
     return () => { stopPoll(); clearTimeout(timer); if (channel) supabase?.removeChannel(channel); };
   }, [refetchTasks, loadNotifications]);
 
   // Tickets: they used to load once per session, so a desk agent's list went
-  // stale until a reload. Tickets do not write task_events rows (only task
-  // routes ping), so there is no realtime hook to share - poll every 60s while
-  // the tab is visible, and refresh straight away when the tab comes back
-  // from being hidden. Quiet by design: a failed fetch keeps the list on
-  // screen, and ticketsLoaded only ever moves to true.
+  // stale until a reload. Live since 11/13/2026: every committed ticket change
+  // writes a task_events row marked `kind: "ticket"` (backend
+  // ticket_events.py - nothing else in the row), and that ping refetches the
+  // list 400ms later, so a reply shows up in Needs Reply within about a
+  // second. The fallback is unchanged: poll every 60s while the tab is
+  // visible, and refresh straight away when the tab comes back from being
+  // hidden. Quiet by design: a failed fetch keeps the list on screen, and
+  // ticketsLoaded only ever moves to true.
   //  - A fetch that was in flight when a local ticket write landed is dropped
   //    (generation check) - its answer may predate that write.
   //  - An open drawer's held edits live in the drawer (its `pending` state,
@@ -302,18 +317,29 @@ export function TasksProvider({ children }) {
   //    tab-return refresh, so a tick can land seconds after one. A refresh
   //    within 15s of the last good answer is skipped (on a phone hopping
   //    between apps that was the whole list downloaded twice in a row).
+  //  - A ticket ping marks the list stale (ticketsStaleRef) until a fetch
+  //    that started AFTER it has answered. A stale list is never skipped as
+  //    "fresh"; a ping that lands while a fetch is on the wire, or whose
+  //    answer was dropped or failed, keeps the mark, so the change it stood
+  //    for is still fetched. A ping heard while the tab is hidden or another
+  //    screen is showing downloads nothing - the mark waits for the return.
   const ticketsFetching = useRef(false);
   const lastTicketFetchRef = useRef(0);
+  const ticketsStaleRef = useRef(false);
   const refreshTickets = useCallback(async () => {
     if (ticketsFetching.current) return;
-    if (Date.now() - lastTicketFetchRef.current < 15000) return;
+    const live = ticketsStaleRef.current;
+    if (!live && Date.now() - lastTicketFetchRef.current < 15000) return;
     ticketsFetching.current = true;
+    ticketsStaleRef.current = false;
     const gen = ticketGenRef.current;
+    let answered = false;
     try {
       const rows = await api.getTaskTickets();
-      if (!Array.isArray(rows)) return;
+      if (!Array.isArray(rows)) { if (live) ticketsStaleRef.current = true; return; }
       lastTicketFetchRef.current = Date.now();
-      if (gen !== ticketGenRef.current) return;
+      answered = true;
+      if (gen !== ticketGenRef.current) { if (live) ticketsStaleRef.current = true; return; }
       // Read from the rendered list (ticketsRef), not a state updater: the
       // generation check above already rules out a write still waiting to
       // render, and deciding here lets an unchanged answer skip setState.
@@ -332,8 +358,13 @@ export function TasksProvider({ children }) {
       if (!ticketsLoadedRef.current) setTicketsLoaded(true);
     } catch {
       // keep the list we have; the next tick tries again
+      if (live) ticketsStaleRef.current = true;
     } finally {
       ticketsFetching.current = false;
+      // Still stale after an answer: a ping landed meanwhile, or a local
+      // write made this answer unusable. Go again - not after a failure,
+      // which waits for the next tick instead of retrying in a loop.
+      if (answered && ticketsStaleRef.current) ticketPingRef.current?.();
     }
   }, []);
   // Only while a ticket surface is on screen: the Tickets module, or Support
@@ -363,8 +394,20 @@ export function TasksProvider({ children }) {
     };
     const arriveTimer = setInterval(onArrive, 1000);
     window.addEventListener('popstate', onArrive);
+    // A ticket ping (see the channel above): debounced like the task ping, so
+    // a burst of changes is one download.
+    let pingTimer = null;
+    const onTicketPing = () => {
+      ticketsStaleRef.current = true;
+      clearTimeout(pingTimer);
+      pingTimer = setTimeout(() => {
+        if (document.visibilityState === 'visible') refreshIfShowing();
+      }, 400);
+    };
+    ticketPingRef.current = onTicketPing;
     return () => {
-      stopPoll(); clearInterval(arriveTimer);
+      stopPoll(); clearInterval(arriveTimer); clearTimeout(pingTimer);
+      if (ticketPingRef.current === onTicketPing) ticketPingRef.current = null;
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('popstate', onArrive);
     };
@@ -817,7 +860,9 @@ export function TasksProvider({ children }) {
     createTeam: mk(api.createTaskTeam, setTeams),
     updateTeam: mkUpd(api.updateTaskTeam, setTeams),
     deleteTeam: mkDel(api.deleteTaskTeam, setTeams),
-    createTicket: mk(api.createTaskTicket, setTickets),
+    // Not mk: with live tickets (ticket_events.py) the ping's refetch can
+    // land before this answer does, and the new ticket must not be listed twice.
+    createTicket: async (data) => { const r = await api.createTaskTicket(toBody(data)); setTickets((p) => [r, ...p.filter((x) => x.id !== r?.id)]); return r; },
     updateTicket: mkUpd(api.updateTaskTicket, setTickets),
     deleteTicket: mkDel(api.deleteTaskTicket, setTickets),
     createTicketComponent: mk(api.addTicketComponent, setTicketComponents),

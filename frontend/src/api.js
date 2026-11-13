@@ -616,6 +616,8 @@ export const api = {
   addToMyDay: (day, taskId, pick = true) => req("/tasks/my-day/add", { method: "POST", body: JSON.stringify({ day, task_id: taskId, pick }) }),
   removeFromMyDay: (day, taskId) => req("/tasks/my-day/remove", { method: "POST", body: JSON.stringify({ day, task_id: taskId }) }),
   reorderMyDay: (day, taskIds) => req("/tasks/my-day/order", { method: "PUT", body: JSON.stringify({ day, task_ids: taskIds }) }),
+  // Left From Last Time (11/13/2026): answer the offer - bring last time's open picks to today, or not.
+  carryMyDay: (day, accept) => req("/tasks/my-day/carry", { method: "POST", body: JSON.stringify({ day, accept: !!accept }) }),
   // Keep Private (Oct 23 2026): a subtask private only because of its main
   // task stays private when that task is shared again. Answers the task.
   keepTaskPrivate: (id) => req(`/tasks/${id}/keep-private`, { method: "POST" }),
@@ -3862,3 +3864,11 @@ api.meetingRecordedSegments = (noteId, sessionId, segments) => req(`/meetings/no
 api.meetingRecordedEnd = (noteId, sessionId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded/sessions/${encodeURIComponent(sessionId)}/end`, { method: 'POST' });
 api.meetingRecordedSpeakers = (noteId, speakers) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded/speakers`, { method: 'PUT', body: JSON.stringify({ speakers }) });
 api.meetingRecordedDelete = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded`, { method: 'DELETE' });
+// The header search (11/13/2026, components/search/useNexusSearch.js): each
+// source asks its own module, which answers with its own list's access rule
+// and a few rows - tickets (the list's scope, the caller's own Ask HR
+// included, `view` = where each opens), notes and boards (own and shared),
+// and the Documents library narrowed by title.
+api.searchTicketsEverywhere = (q, limit = 6) => req(`/task-tickets/search?header=true&q=${encodeURIComponent(q)}&limit=${limit}`);
+api.searchNotes = (q, limit = 6) => req(`/notes/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+api.searchDocumentLibrary = (q, limit = 6) => req(`/documents/library?q=${encodeURIComponent(q)}&limit=${limit}`);

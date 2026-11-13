@@ -431,6 +431,20 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   };
 
   useEffect(() => { load(); }, []);
+  // The header search opens a document here (11/13/2026): the note above
+  // serves a library still loading, this event one already on screen - the
+  // same two-part handoff a ticket uses (lib/pendingOpen.js).
+  useEffect(() => {
+    const onOpen = (e) => {
+      const id = e.detail?.id;
+      if (!id) return;
+      takePendingOpen('document');
+      setView('all');
+      setSelectedId(id);
+    };
+    window.addEventListener('nexus:open-document', onOpen);
+    return () => window.removeEventListener('nexus:open-document', onOpen);
+  }, []);
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
 
   const all = useMemo(() => rows || [], [rows]);

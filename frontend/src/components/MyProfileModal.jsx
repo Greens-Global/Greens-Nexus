@@ -6,18 +6,19 @@ import { dialog } from '../ui/dialog';
 import { StatusLabel } from './StatusLabel';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
-import { ZONE_GROUPS, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
+import { ZONE_GROUPS, ALL_ZONES, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel, canonicalTz } from '../lib/worldClockZones';
 import { Spinner } from './AsyncState';
 import EmailSettingsPanel from '../tasks/MyEmailSettings';
 import KbTrainingEmailPref from './KbTrainingEmailPref';
 import DigestEmailPrefs from './DigestEmailPrefs';
 import WorkflowTextPref from './WorkflowTextPref';
 import { DATE_FORMATS, getDateFormat, setDateFormat, formatDate, formatDateTime } from '../lib/datetime';
-import { Modal, useIsMobile } from '../tasks/components';
+import { Modal, useIsMobile, TimeField } from '../tasks/components';
 import { SettingCard, SettingRow, SwitchRow } from './settings/SettingsUI';
 import { useRailMotion, FOLLOW_COMPANY } from '../lib/railMotion';
 import SaveRow from './SaveRow';
 import { useInstallPrompt, usePushSubscription } from '../lib/pwa';
+import { FS } from '../lib/typeScale';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
@@ -90,6 +91,13 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     return () => { live = false; clearTimeout(t); };
   }, [sig, sigSaved]);
   const [dateFmtStatus, setDateFmtStatus] = useState('');
+  // My Time Zone and Working Hours (11/13/2026): kept on the person's own
+  // People record (PUT /myhr/profile), so colleagues see the right clock for
+  // them. Selects, so each saves on change; working hours are a pair and save
+  // once both ends are picked (or both cleared).
+  const [zoneStatus, setZoneStatus] = useState('');
+  const [hoursStatus, setHoursStatus] = useState('');
+  const [hours, setHours] = useState(null);   // { start, end } while a pair is half picked
   // Fixed MAX_ZONES slots, '' = unset - a dropdown per slot (Pranshu, Sep 1).
   // Local (the detected system zone) always shows first on the greeting and
   // is not one of these slots (Pranshu, Sep 9).
@@ -148,6 +156,25 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
       setSignature(s); const v = fromSignature(s); setSig(v); setSigSaved(v); setLiveSigHtml(null); setSigStatus('Saved.');
     } catch (e) { setSigStatus(e?.message || 'Could not save.'); }
     setSigBusy(false);
+  }
+
+  async function saveMyZone(tz) {
+    setZoneStatus('Saving...');
+    try {
+      setProfile(await api.myHrProfileSave({ time_zone: tz }));
+      setZoneStatus('Saved.');
+    } catch (err) { setZoneStatus(err?.message || 'Could not save your time zone.'); }
+  }
+
+  async function pickHours(patch) {
+    const next = { start: hours?.start ?? profile?.workStart ?? '', end: hours?.end ?? profile?.workEnd ?? '', ...patch };
+    if (!next.start !== !next.end) { setHours(next); setHoursStatus('Pick the other time to save.'); return; }
+    if (next.start && next.start === next.end) { setHours(next); setHoursStatus('The start and end cannot be the same time.'); return; }
+    setHours(next); setHoursStatus('Saving...');
+    try {
+      setProfile(await api.myHrProfileSave({ work_start: next.start, work_end: next.end }));
+      setHours(null); setHoursStatus('Saved.');
+    } catch (err) { setHoursStatus(err?.message || 'Could not save your working hours.'); }
   }
 
   // Every date on every screen is already drawn, so a reload shows the new order everywhere.
@@ -268,6 +295,11 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
       })}
     </span>
   );
+  // The zone on the People record in this browser's own spelling of it (the
+  // options are canonical: "Asia/Kolkata" reads "Asia/Calcutta" on some engines).
+  const myZone = profile?.timeZone ? (canonicalTz(profile.timeZone) || profile.timeZone) : '';
+  const detectedZone = profile?.detectedTimeZone ? (canonicalTz(profile.detectedTimeZone) || '') : '';
+  const shownHours = hours || { start: profile?.workStart || '', end: profile?.workEnd || '' };
   const zoneSelect = (val, i) => (
     <select className="form-input" value={val} onChange={(e) => setSlot(i, e.target.value)} aria-label={`Extra clock ${i + 1}`}
       style={{ fontSize: 13, width: isMobile ? '100%' : 300 }}>
@@ -284,7 +316,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     appearance: (
       <SettingCard>
         {onThemeToggle && (
-          <SwitchRow id="profile-dark" title="Dark Mode" desc="Dark backgrounds across Nexus, on this device."
+          <SwitchRow id="profile-dark" title="Dark Mode" desc="Dark backgrounds across Nexus. Your choice follows your account to every device you sign in on."
             checked={theme === 'dark'} onChange={() => onThemeToggle()} />
         )}
         {setWkTheme && (
@@ -337,7 +369,34 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
               {DATE_FORMATS.map((f) => <option key={f} value={f}>{f} - {formatDate(new Date(), '', undefined, f)}{f === DATE_FORMATS[0] ? ' (Default)' : ''}</option>)}
             </select>
           )} />
-        <SettingRow title="Your Time Zone"
+        {profile?.workEmail && (<>
+          <SettingRow title="My Time Zone"
+            desc={zoneStatus || 'The clock colleagues see for you in the Contact Directory. Until you pick one, Nexus works it out from your location and your punches.'}
+            control={(
+              <select className="form-input" aria-label="My Time Zone" value={myZone} onChange={(e) => saveMyZone(e.target.value)}
+                disabled={zoneStatus === 'Saving...'} style={{ fontSize: FS.body, width: isMobile ? '100%' : 300 }}>
+                <option value="">{detectedZone ? `Detected: ${zoneOptionLabel(detectedZone)}` : 'Detected Automatically'}</option>
+                {myZone && !ALL_ZONES.includes(myZone) && <option value={myZone}>{zoneOptionLabel(myZone)}</option>}
+                {Object.entries(ZONE_GROUPS).map(([region, tzs]) => (
+                  <optgroup key={region} label={region.replace(/_/g, ' ')}>
+                    {tzs.map((tz) => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            )} />
+          <SettingRow title="Working Hours"
+            desc={hoursStatus || 'When you usually work, on your own clock. Outside these hours, colleagues see a quiet note before they assign you work.'}
+            control={(
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <TimeField step={30} value={shownHours.start} onChange={(v) => pickHours({ start: v })} ariaLabel="Working Hours Start"
+                  emptyLabel="Not Set" disabled={hoursStatus === 'Saving...'} style={{ width: 124, fontSize: FS.body }} />
+                <span style={{ fontSize: FS.body, color: 'var(--muted)' }}>to</span>
+                <TimeField step={30} value={shownHours.end} onChange={(v) => pickHours({ end: v })} ariaLabel="Working Hours End"
+                  emptyLabel="Not Set" disabled={hoursStatus === 'Saving...'} style={{ width: 124, fontSize: FS.body }} />
+              </span>
+            )} />
+        </>)}
+        <SettingRow title="This Device's Time Zone"
           desc="From this computer. It shows first on your Dashboard greeting, with California time beside it when yours is different."
           control={<span style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right', display: 'block', maxWidth: 300 }}>{zoneOptionLabel(LOCAL_TZ)}</span>} />
         {zoneSlots.map((val, i) => (

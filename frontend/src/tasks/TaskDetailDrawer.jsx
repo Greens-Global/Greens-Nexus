@@ -68,6 +68,7 @@ import { labelsInUse } from './labels';
 import { FieldHistoryContext, useHistoryCtx } from './fieldHistoryContext';
 import { groupFieldChanges, historyFieldName } from './fieldHistory';
 import { STOP_VOICE_FIRST } from '../lib/voice';
+import LocalTimeHint from '../components/LocalTimeHint';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const VIEW_ONLY_TITLE = 'You can view this task but not change it';
@@ -1478,6 +1479,8 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
               completes it for all (one row, one flag). */}
           <PersonMultiSelect value={taskAssignees(task)} people={people} addTitle="Add assignee"
             onChange={(list) => patch({ assigneeIds: list })} placeholder="Unassigned" />
+          {/* "It is 9:40 PM for Priya" - only when it is outside their hours (11/13/2026). */}
+          <LocalTimeHint emails={taskAssignees(task)} me={myEmail} />
           {/* Message / Call each assignee on Teams (Frontline Reach, 11/02/2026):
               the first name before each pair, so three assignees are not six
               identical icons; only people in Nexus People, never yourself. */}

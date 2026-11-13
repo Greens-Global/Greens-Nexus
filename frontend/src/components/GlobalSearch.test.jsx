@@ -36,7 +36,7 @@ describe('GlobalSearch sheet', () => {
     fireEvent(window, new CustomEvent('nexus:search-open'));
     const box = screen.getByRole('textbox', { name: 'Search Nexus' });
     expect(box.placeholder).toBe('Search Nexus');
-    expect(screen.getByText('Pages, tasks, projects, people, items and requests.')).toBeTruthy();
+    expect(screen.getByText('Tasks, tickets, notes, documents, people, pages and actions.')).toBeTruthy();
     fireEvent.change(box, { target: { value: 'hilti' } });
     expect(screen.getByText('Hilti Drill')).toBeTruthy();
     expect(screen.getByText('Tool · Checked Out')).toBeTruthy();

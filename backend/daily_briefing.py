@@ -276,9 +276,14 @@ def _no_shift_eligible(emp: "models.NexusEmployee") -> bool:
 
 
 def _person_zone(db: Session, email: str, cfg: dict) -> str:
-    """The person's own time zone when Nexus knows it (their assigned Shift
-    preset's timezone, which still holds on their days off), else the
-    configured default. NexusEmployee has no timezone column."""
+    """The person's own time zone when Nexus knows it: the one they set for
+    themselves (My Profile > Date & Time, person_zone.py, 11/13/2026), else
+    their assigned Shift preset's timezone, which still holds on their days
+    off, else the configured default."""
+    import person_zone
+    own = person_zone.stored(db, email)
+    if own:
+        return own
     assign = db.query(models.ShiftAssignment).filter(models.ShiftAssignment.employee_email == email).first()
     if assign and assign.shift_id:
         preset = db.query(models.Shift).filter(models.Shift.id == assign.shift_id).first()

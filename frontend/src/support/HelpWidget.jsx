@@ -17,7 +17,7 @@ import { useMsal } from '@azure/msal-react';
 import {
   X, Search, ChevronRight, ChevronLeft, ArrowUpRight, Home as HomeIcon, MessageSquare, CircleHelp,
   BookOpen, ListChecks, Layers, Lightbulb, ShieldCheck, FileText, GraduationCap, Send, Ticket as TicketIcon,
-  Compass, PlayCircle, Sparkles, Maximize2, Minimize2,
+  Compass, PlayCircle, Sparkles, Maximize2, Minimize2, Keyboard,
 } from 'lucide-react';
 import { api } from '../api';
 import { DOCS, DOC_GROUPS } from './docsContent';
@@ -39,6 +39,8 @@ import { KnownIssuesNotice } from './KnownIssues';
 import { useSearchMissLogger } from './helpLog';
 import { ticketSeedFor } from './ticketSeed';
 import ExpectReply from './ExpectReply';
+import ShortcutsPage from './ShortcutsPage';
+import { isPhone } from '../lib/keys';
 
 const HELP_TABS = [
   { key: 'home', label: 'Home', Icon: HomeIcon },
@@ -58,6 +60,10 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabi
 
 const nav = (view, sub) => window.dispatchEvent(
   new CustomEvent('nexus:navigate', { detail: sub ? { view, sub } : { view } }));
+
+// Help > Keyboard Shortcuts (11/13/2026): read in the panel like an article,
+// drawn by ShortcutsPage from lib/shortcutList.js.
+const SHORTCUTS_ARTICLE = { kind: 'shortcuts', title: 'Keyboard Shortcuts' };
 
 // A guide page as an article the widget can show (same shape as a search result).
 const moduleArticle = (d) => ({ source: 'guide', kind: 'module', docId: d.id, docName: d.name, title: d.name, anchor: null, body: [] });
@@ -157,6 +163,17 @@ function HomeTab({ firstName, pageDoc, liveTour, otherTours, onSearch, onAsk, on
             <span className="hw-card-text">
               <span className="hw-card-title" style={{ fontSize: 13 }}>Take the Tour</span>
               <span className="hw-card-sub">A guided walk through {liveTour ? liveTour.label : pageDoc.name}</span>
+            </span>
+            <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+          </button>
+        )}
+        {/* Keyboard Shortcuts (11/13/2026) - not on a phone, which has no keyboard. */}
+        {!isPhone() && (
+          <button type="button" className="hw-card hw-card-quiet" onClick={() => onOpenArticle(SHORTCUTS_ARTICLE)}>
+            <Keyboard size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+            <span className="hw-card-text">
+              <span className="hw-card-title" style={{ fontSize: 13 }}>Keyboard Shortcuts</span>
+              <span className="hw-card-sub">Search, Help, New Task, Quick Note and more</span>
             </span>
             <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
           </button>
@@ -579,7 +596,9 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
           onClose={() => onClose(true)} />
       )}
       {tab === 'messages' && <MessagesTab onAsk={() => onAsk?.()} onOpenTicket={openTicket} />}
-      {tab === 'help' && (article ? (
+      {tab === 'help' && (article?.kind === 'shortcuts' ? (
+        <ShortcutsPage onBack={() => setTrail((t) => t.slice(0, -1))} />
+      ) : article ? (
         <Article key={`${article.docId}-${article.title}-${trail.length}`} a={article}
           onBack={() => setTrail((t) => t.slice(0, -1))}
           onOpenArticle={openArticle} onOpenFull={openFull} />

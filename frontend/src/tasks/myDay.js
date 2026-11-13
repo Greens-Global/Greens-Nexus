@@ -42,6 +42,8 @@ export const STALE_MS = 5 * 60 * 1000;
 const EMPTY = Object.freeze({
   email: '', day: '', status: 'idle', error: '',
   addedIds: [], dismissedIds: [], orderIds: [], serverOrder: [], serverTasks: {}, suggestions: [],
+  // Left From Last Time: { day, count, tasks: [{ id, title }] } or null.
+  carryOver: null,
   loadedAt: 0,
 });
 
@@ -87,7 +89,16 @@ function fromPayload(p) {
     orderIds: Array.isArray(body.orderIds) ? body.orderIds : [],
     serverOrder: tasks.map((t) => t.id),
     serverTasks, suggestions,
+    carryOver: carryFrom(body.carryOver),
   };
+}
+
+// The server's offer: last time's picks that are still open. Kept small -
+// the day it was, how many, and the names to show.
+function carryFrom(c) {
+  const tasks = (Array.isArray(c?.tasks) ? c.tasks : []).filter((t) => t?.id).map((t) => ({ id: t.id, title: t.title || 'Untitled task' }));
+  if (!c?.day || !tasks.length) return null;
+  return { day: String(c.day), count: Math.max(tasks.length, Number(c.count) || 0), tasks };
 }
 
 /** Make sure the copy is for this person and today - a new day starts empty
@@ -154,7 +165,7 @@ function mutate(email, change, send) {
       } else if (mine === seq && before.status === 'ready') {
         setState({
           addedIds: before.addedIds, dismissedIds: before.dismissedIds, orderIds: before.orderIds, serverOrder: before.serverOrder,
-          serverTasks: before.serverTasks, suggestions: before.suggestions,
+          serverTasks: before.serverTasks, suggestions: before.suggestions, carryOver: before.carryOver,
         });
       } else {
         // Newer changes are on screen, or the list never loaded: re-read the truth.
@@ -209,6 +220,13 @@ export function reorderMyDay(email, ids) {
 }
 
 // ── Composition (pure - tested in myDay.test.jsx) ──────────────────────────
+/** Answer Left From Last Time: `accept` brings the open picks to today's
+ *  list (the server decides which are still open and visible); either way
+ *  the offer is over. The offer leaves the screen at once. */
+export function carryOverMyDay(email, accept) {
+  return mutate(email, () => ({ carryOver: null }), (day) => api.carryMyDay(day, accept));
+}
+
 const dueDay = (t) => String(t?.dueOn || '').slice(0, 10);
 
 /** Whether a task is on today's list by itself: mine and due today. */
@@ -322,6 +340,7 @@ export function useMyDay() {
     }, fail('remove that from My Day'));
   }, [me, list, s, mineNow, offerUndo, fail]);
   const reorder = useCallback((ids) => reorderMyDay(me, ids).catch(fail('reorder My Day')), [me, fail]);
+  const carry = useCallback((accept) => carryOverMyDay(me, accept).catch(fail(accept ? 'add those to My Day' : 'save that')), [me, fail]);
   const reload = useCallback(() => loadMyDay(me, { force: true }), [me]);
   const has = useCallback((id) => list.ids.has(id), [list]);
 
@@ -329,5 +348,6 @@ export function useMyDay() {
     day: view.day || todayISO(), status: view.status, error: view.error,
     rows: list.rows, open: list.open, done: list.done, total: list.rows.length,
     suggestions, has, add, remove, reorder, reload, me,
+    carryOver: view.status === 'ready' ? view.carryOver : null, carry,
   };
 }

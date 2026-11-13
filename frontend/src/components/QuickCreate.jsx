@@ -18,7 +18,7 @@ import { createPortal } from 'react-dom';
 import { Zap, ChevronRight, ArrowLeft } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { ModalLoading } from './AsyncState';
-import { visibleActions, layoutActions, goTo } from '../lib/quickCreate';
+import { visibleActions, layoutActions, goTo, takeQuickAction, QUICK_ACTION_EVENT } from '../lib/quickCreate';
 
 const QuickActionModal = lazy(() => import('../dashboard/QuickActionModals.jsx'));
 
@@ -39,6 +39,7 @@ export default function QuickCreate() {
   const [open, setOpen] = useState(false);
   const [level, setLevel] = useState('');             // '' = the first tap, else the open group's key
   const [composing, setComposing] = useState(null);   // a QuickActionModal kind
+  const [seed, setSeed] = useState(null);             // what that composer starts with (a shortcut, Share to Nexus)
   const wrapRef = useRef(null);
   const btnRef = useRef(null);
   const menuRef = useRef(null);
@@ -116,12 +117,30 @@ export default function QuickCreate() {
     }
   }
 
-  function pick(it) {
+  function pick(it, withSeed = null) {
     close(false);
-    if (it.compose) setComposing(it.compose);
-    else if (it.run) it.run();
+    if (it.compose) { setSeed(withSeed); setComposing(it.compose); }
+    else if (it.run) it.run(withSeed);
     else if (it.go) goTo(it.go[0], it.go[1]);
   }
+
+  // A start asked for from outside the menu - an app shortcut, Share to Nexus
+  // (lib/quickCreate.js runQuickAction): the same pick, for an action this
+  // person has; one asked for before the bolt was on screen is taken now.
+  const askedRef = useRef(null);
+  useEffect(() => {
+    askedRef.current = () => {
+      const ask = takeQuickAction();
+      const it = ask && items.find((x) => x.key === ask.key);
+      if (it) pick(it, ask.seed);
+    };
+  });
+  useEffect(() => {
+    const onAsk = () => askedRef.current?.();
+    onAsk();
+    window.addEventListener(QUICK_ACTION_EVENT, onAsk);
+    return () => window.removeEventListener(QUICK_ACTION_EVENT, onAsk);
+  }, []);
 
   if (!items.length) return null;
 
@@ -186,7 +205,7 @@ export default function QuickCreate() {
       {/* At the page root: the header's backdrop blur would box a fixed overlay. */}
       {composing && createPortal(
         <Suspense fallback={<ModalLoading />}>
-          <QuickActionModal kind={composing} onClose={() => setComposing(null)} />
+          <QuickActionModal kind={composing} seed={seed} onClose={() => setComposing(null)} />
         </Suspense>,
         document.body,
       )}

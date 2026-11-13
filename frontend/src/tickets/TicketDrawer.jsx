@@ -10,6 +10,7 @@ import LiveView from '../components/LiveView';
 import { richBodyHtml, externalizeInlineImages } from '../tasks/lib';
 import RichDescription, { isEmptyDoc } from '../tasks/RichDescription';
 import { setOpenTicketId, clearOpenTicketId } from './recordingDraft';
+import { useTicketReplyDraft, draftOwner, noteHeld, clearHeld, leaveQuestion } from './ticketDrafts';
 import { NX, FONT, chip, btn, input as inputStyle } from '../tasks/theme';
 import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
 import { Avatar, PriorityChip, Modal, PersonSelect, usePeople, useIsMobile } from '../tasks/components';
@@ -148,7 +149,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const collabExtras = useCollaboratorExtras();
   const sites = useTicketSites();
   const isMobile = useIsMobile();
-  const { myLevel, canAccessModule } = useRole();
+  const { myLevel, canAccessModule, realEmail, actingAs } = useRole();
   // The desk role the server gives this person (ticket_roles.py) - internal
   // notes and deleting follow it, not the raw module grants.
   const deskAccess = useTicketAccess();
@@ -156,7 +157,13 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // A phone opens on the Conversation - what the requester and the agent
   // came for (11/03/2026); Overview is its Details tab there.
   const phone = isMobile && !inline;
-  const [tab, setTab] = useState(initialTab || (phone ? 'conversation' : 'overview'));
+  // The reply being written on Conversation. A kept draft (ticketDrafts.js,
+  // 11/13/2026): one per ticket and person, it survives a reload, another
+  // screen and the drawer closing, and goes when it is sent (commit below).
+  const [reply, setReply] = useTicketReplyDraft(ticketId, draftOwner({ myEmail, realEmail, actingAs }));
+  // A reply left unsent on an earlier visit opens the ticket on it: Done
+  // sends whatever is held, so the words are in front of the person first.
+  const [tab, setTab] = useState(initialTab || (phone || !isEmptyDoc(reply.body) ? 'conversation' : 'overview'));
   // The phone card sends a reply without closing; this re-reads the thread.
   const [threadKey, setThreadKey] = useState(0);
   // In the side pane the drawer stays mounted while the SAME ticket's Latest
@@ -227,7 +234,6 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // instead of one per field (Pranshu, Oct 1: "till the time I click on Done
   // it should not update the ticket, nor post the mail or message").
   const [pending, setPending] = useState({});
-  const [reply, setReply] = useState({ body: '', internal: false });
   const [saving, setSaving] = useState(false);
   // A voice note recording under the reply: Done waits for Stop (the clip
   // would be lost with the drawer).
@@ -272,12 +278,20 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   }, [t, ticketsLoaded, refetch, reloadTickets]);
   // Tells the screen that opened this drawer whether closing it now would
   // throw edits away (a bell click opening another ticket asks first).
-  const dirtyNow = Object.keys(pending).length > 0 || !isEmptyDoc(reply.body);
+  const heldEdits = Object.keys(pending).length > 0;
+  const heldReply = !isEmptyDoc(reply.body);
+  const dirtyNow = heldEdits || heldReply;
   useEffect(() => {
     if (!dirtyRef) return undefined;
     dirtyRef.current = dirtyNow;
     return () => { dirtyRef.current = false; };
   }, [dirtyRef, dirtyNow]);
+  // ...and what it would be: field edits are discarded, the reply is a
+  // draft that stays with the ticket (drawerGuard words its question from this).
+  useEffect(() => {
+    noteHeld(ticketId, heldEdits, heldReply);
+    return () => clearHeld(ticketId);
+  }, [ticketId, heldEdits, heldReply]);
   const meIsRequester = !!t && (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   useEffect(() => {
     if (!t || !meIsRequester || seenBefore !== undefined) return;
@@ -559,9 +573,12 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
       setSaving(false);
     } catch (e) { appDialog.alert(`Could not update ticket: ${e.message || e}`); setSaving(false); }
   };
+  // Closing without Done. Held field edits are discarded (asked first); the
+  // reply is not - it is a draft that stays with the ticket, and the
+  // question says so.
   const closeDrawer = async () => {
-    if (dirty && !(await appDialog.confirm('Discard your changes to this ticket? Nothing has been saved or sent yet.',
-      { title: 'Discard Changes?', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true }))) return;
+    const q = leaveQuestion({ edits: Object.keys(pending).length > 0, reply: hasReply }, 'Close');
+    if (q && !(await appDialog.confirm(q.message, q.opts))) return;
     onClose();
   };
   // A move into Resolved/Closed goes through the Resolve dialog (it needs a

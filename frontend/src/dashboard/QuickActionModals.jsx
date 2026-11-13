@@ -251,10 +251,12 @@ function EventModal({ onClose }) {
 // The Tasks module's own modal, with the provider it expects. The provider
 // fetches the workspace on mount; the form's title/assignee/due fields are
 // usable immediately and the project list fills in when the load lands.
-function TaskModal({ onClose }) {
+// `seed` (Share to Nexus, lib/shareTarget.js): the form's own `defaults` -
+// a title, a description and files for its attachment list.
+function TaskModal({ onClose, seed }) {
   return (
     <TasksProvider>
-      <CreateTaskModal onClose={() => onClose()} />
+      <CreateTaskModal onClose={() => onClose()} defaults={seed || undefined} />
     </TasksProvider>
   );
 }
@@ -267,21 +269,22 @@ const CreateTicketModal = lazy(async () => {
   const { CreateTicketModal: M } = await import('../tickets/TicketsView');
   return { default: M };
 });
-function TicketModal({ onClose }) {
+// `seed` (Share to Nexus): the form's own `initial` - subject, description, files.
+function TicketModal({ onClose, seed }) {
   return (
     <TasksProvider>
       <Suspense fallback={null}>
-        <CreateTicketModal onClose={() => onClose()} />
+        <CreateTicketModal onClose={() => onClose()} initial={seed || null} />
       </Suspense>
     </TasksProvider>
   );
 }
 
-export default function QuickActionModal({ kind, onClose, initialUrl }) {
+export default function QuickActionModal({ kind, onClose, initialUrl, seed = null }) {
   if (kind === 'personal-link') return <PersonalLinkComposer initialUrl={initialUrl} onClose={onClose} />;
   if (kind === 'email') return <EmailModal onClose={onClose} />;
   if (kind === 'event') return <EventModal onClose={onClose} />;
-  if (kind === 'task')  return <TaskModal  onClose={onClose} />;
-  if (kind === 'ticket') return <TicketModal onClose={onClose} />;
+  if (kind === 'task')  return <TaskModal  onClose={onClose} seed={seed} />;
+  if (kind === 'ticket') return <TicketModal onClose={onClose} seed={seed} />;
   return null;
 }
