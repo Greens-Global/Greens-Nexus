@@ -40,6 +40,13 @@ const MID_MIN_H = 160;      // header + now + details (~148)
 const FOOTER_MIN_H = 185;   // ... + footer (~175)
 const FULL_MIN_H = 285;     // ... + the hourly strip (~272)
 const DAY_ROW_H = 27;
+// Wide (Neil, 11/13/2026: "it just doesn't show anything extra as the width
+// expands but the height doesn't"): from this width the tile lays out side by
+// side and the extra width carries the forecast - the week as day columns
+// beside a short tile, beside the details on a medium one, the week's list
+// beside the hours on a tall one. Phones and narrow tiles keep the stack.
+const WIDE_MIN_W = 520;
+const DAY_COL_W = 62;
 
 const deg = (v) => (v == null ? '-' : `${Math.round(v)}°`);
 // The place's own wall clock ("2026-09-28T06:40") -> "6:40 AM", never moved
@@ -69,6 +76,30 @@ function locate() {
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 30 * 60 * 1000 },
     );
   });
+}
+
+// The week as columns - day, sky, high, low, rain - for the wide layouts.
+// `tight` (a short tile) keeps the day, sky and high only.
+// `beside` (in a row): it takes the row's leftover width; under the hours it
+// takes the column's width and only its own height.
+function DayCols({ days, rgb, tight = false, beside = false }) {
+  return (
+    <div aria-label="Daily forecast" style={{ ...(beside ? { flex: 1 } : { flex: 'none', width: '100%' }), minWidth: 0, display: 'grid', gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))`, gap: 4 }}>
+      {days.map((d, i) => {
+        const ds = sky(d.code, true);
+        return (
+          <div key={d.date} title={`${ds.text} - ${d.precipChance ?? 0}% chance of rain`}
+            style={{ textAlign: 'center', padding: tight ? '3px 2px' : '6px 2px', borderRadius: 10, minWidth: 0, background: i === 0 ? `rgba(${rgb},0.14)` : 'transparent' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{dayLabel(d.date, i)}</div>
+            <ds.Icon size={18} style={{ color: `rgb(${TONE[ds.tone]})`, margin: '4px auto 2px', display: 'block' }} strokeWidth={1.8} />
+            <div style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(d.high)}</div>
+            {!tight && <div style={{ fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{deg(d.low)}</div>}
+            {!tight && <div style={{ fontSize: 11, fontWeight: 600, color: '#2563eb', minHeight: 12 }}>{(d.precipChance ?? 0) >= 20 ? `${d.precipChance}%` : ''}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // Size tiers off the tile itself, not the window - a 3-wide tile on a big
@@ -157,6 +188,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
 
   const tier = box.h < MID_MIN_H || box.w < 250 ? 'compact' : box.h < FULL_MIN_H ? 'mid' : 'full';
   const showFooter = box.h >= FOOTER_MIN_H;
+  const wide = !phone && box.w >= WIDE_MIN_W;
   // The outlook fills whatever height is left under now / details / hours /
   // footer - as many days as fit, up to seven - so a tile never shows a
   // blank band and never needs its own scrollbar.
@@ -241,8 +273,36 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
     </div>
   );
 
+  const hours = data.hourly || [];
+  const days = data.daily || [];
+  const lo = Math.min(...days.map(d => d.low)), hi = Math.max(...days.map(d => d.high));
+  const span = Math.max(1, hi - lo);
+
   // ── Compact: the glance ──
   if (tier === 'compact') {
+    // Short but wide: the glance on the left, the week beside it.
+    const cols = wide ? Math.min(7, days.length, Math.floor((box.w - 240) / DAY_COL_W)) : 0;
+    if (cols >= 3) {
+      return shell(
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0, height: '100%' }}>
+          {header}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minHeight: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto', maxWidth: 220, minWidth: 0 }}>
+              <HeroIcon size={34} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.6} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {s.text} · H {deg(t.high)} L {deg(t.low)}
+                </div>
+                {rainLine}
+              </div>
+            </div>
+            <span aria-hidden="true" style={{ width: 1, alignSelf: 'stretch', background: 'var(--line)', flexShrink: 0 }} />
+            <DayCols days={days.slice(0, cols)} rgb={rgb} tight={box.h < 120} beside />
+          </div>
+        </div>,
+      );
+    }
     return shell(
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0, height: '100%' }}>
         {header}
@@ -260,16 +320,117 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
     );
   }
 
-  const hours = data.hourly || [];
-  const days = data.daily || [];
-  const lo = Math.min(...days.map(d => d.low)), hi = Math.max(...days.map(d => d.high));
-  const span = Math.max(1, hi - lo);
+  // Side by side, the left column's width (the details live there).
+  const leftW = tier === 'full' ? Math.max(280, Math.min(460, box.w * 0.52)) : Math.max(260, Math.min(380, box.w * 0.42));
   const chips = [
     { Icon: Wind, label: 'Wind', value: `${Math.round(c.wind ?? 0)} ${u.wind} ${compass(c.windDir)}`.trim() },
     { Icon: Droplets, label: 'Humidity', value: `${Math.round(c.humidity ?? 0)}%` },
     { Icon: Umbrella, label: 'Rain', value: `${Math.round(t.precipChance ?? 0)}%` },
-    ...(box.w >= 380 ? [{ Icon: SunMedium, label: 'UV', value: t.uvMax == null ? '-' : `${Math.round(t.uvMax)}` }] : []),
+    ...((wide ? leftW : box.w) >= 380 ? [{ Icon: SunMedium, label: 'UV', value: t.uvMax == null ? '-' : `${Math.round(t.uvMax)}` }] : []),
   ];
+
+  // The pieces, shared by the stacked and the wide layouts.
+  const nowEl = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <HeroIcon size={48} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.5} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{s.text}</span>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span>Feels like {deg(c.feelsLike)} · H {deg(t.high)} · L {deg(t.low)}</span>
+          {rainLine}
+        </div>
+      </div>
+    </div>
+  );
+  const detailsEl = (
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${chips.length}, minmax(0, 1fr))`, gap: 6 }}>
+      {chips.map(({ Icon, label, value }) => (
+        <div key={label} title={label}
+          style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '6px 8px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+            <Icon size={11} /> {label}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+  // The next hours (the API sends a day; the strip scrolls) - its own quiet
+  // scroller (.scroll-tabs paints a paper band on phones).
+  const hoursEl = hours.length > 0 && (
+      <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, flexShrink: 0, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }} aria-label="Hourly">
+        {hours.map((h, i) => {
+          const hs = sky(h.code, h.isDay);
+          return (
+            <div key={h.time} style={{ flex: '0 0 auto', minWidth: 46, textAlign: 'center', padding: '6px 4px', borderRadius: 10,
+              background: i === 0 ? `rgba(${rgb},0.14)` : 'transparent' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{i === 0 ? 'Now' : hourLabel(h.time)}</div>
+              <hs.Icon size={17} style={{ color: `rgb(${TONE[hs.tone]})`, margin: '4px auto 2px', display: 'block' }} strokeWidth={1.8} />
+              <div style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#2563eb', minHeight: 12 }}>{h.precipChance >= 20 ? `${h.precipChance}%` : ''}</div>
+            </div>
+          );
+        })}
+      </div>
+  );
+  // The week with range bars - its lowest low to highest high.
+  const dayList = (rows) => rows >= 2 && days.length > 0 && (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0 }} aria-label="Daily forecast">
+        {days.slice(0, rows).map((d, i) => {
+          const ds = sky(d.code, true);
+          const left = ((d.low - lo) / span) * 100, width = Math.max(4, ((d.high - d.low) / span) * 100);
+          return (
+            <div key={d.date} style={{ display: 'grid', gridTemplateColumns: '46px 22px 34px 1fr 34px', alignItems: 'center', gap: 6, padding: '4px 2px', borderTop: i ? '1px solid var(--line)' : 'none' }}>
+              <span style={{ fontSize: 13, fontWeight: i === 0 ? 800 : 600 }}>{dayLabel(d.date, i)}</span>
+              <ds.Icon size={16} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} />
+              <span style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{deg(d.low)}</span>
+              <span title={`${d.precipChance ?? 0}% chance of rain`} style={{ position: 'relative', height: 6, borderRadius: 99, background: 'var(--mist)' }}>
+                <span style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: 0, bottom: 0, borderRadius: 99,
+                  background: 'linear-gradient(90deg, #38bdf8, #fbbf24 70%, #f97316)' }} />
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{deg(d.high)}</span>
+            </div>
+          );
+        })}
+      </div>
+  );
+  // Sun + freshness.
+  const footerEl = (
+      <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', flexShrink: 0 }}>
+        {t.sunrise && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunrise size={12} /> {clock12(t.sunrise)}</span>}
+        {t.sunset && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunset size={12} /> {clock12(t.sunset)}</span>}
+        {data.fetchedAt && <span style={{ marginLeft: 'auto' }}>Updated {formatTime(data.fetchedAt)}</span>}
+      </div>
+  );
+
+  // ── Wide: side by side, the extra width carrying the forecast ──
+  if (wide) {
+    const full = tier === 'full';
+    const cols = Math.min(7, days.length, Math.floor((box.w - leftW - 24) / DAY_COL_W));
+    return shell(
+      <div style={{ display: 'flex', gap: 18, minHeight: 0, height: '100%' }}>
+        <div style={{ flex: `0 0 ${Math.round(leftW)}px`, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', scrollbarWidth: 'thin' }}>
+          {header}
+          {nowEl}
+          {detailsEl}
+          {full && hoursEl}
+          {showFooter && footerEl}
+        </div>
+        <span aria-hidden="true" style={{ width: 1, alignSelf: 'stretch', background: 'var(--line)', flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, justifyContent: full ? 'flex-start' : 'center', overflow: 'hidden' }}>
+          {full
+            ? dayList(Math.min(7, Math.floor(box.h / (DAY_ROW_H + 2))))
+            : (<>
+                {box.h >= 200 && hoursEl}
+                {cols >= 2 && <DayCols days={days.slice(0, cols)} rgb={rgb} />}
+              </>)}
+        </div>
+      </div>,
+    );
+  }
 
   return shell(
     // The tiers above keep this inside the tile; overflow:auto is only the
@@ -277,84 +438,11 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
     // .dash-scroll: its card-colored edge covers would band the sky tint.)
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, height: '100%', overflowY: 'auto', scrollbarWidth: 'thin' }}>
       {header}
-
-      {/* Now */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <HeroIcon size={48} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.5} />
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{s.text}</span>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span>Feels like {deg(c.feelsLike)} · H {deg(t.high)} · L {deg(t.low)}</span>
-            {rainLine}
-          </div>
-        </div>
-      </div>
-
-      {/* Details */}
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${chips.length}, minmax(0, 1fr))`, gap: 6 }}>
-        {chips.map(({ Icon, label, value }) => (
-          <div key={label} title={label}
-            style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '6px 8px', minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-              <Icon size={11} /> {label}
-            </div>
-            <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* The next hours (the API sends a day; the strip scrolls) */}
-      {tier === 'full' && hours.length > 0 && (
-        // Its own quiet scroller - .scroll-tabs paints a paper band on phones.
-        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, flexShrink: 0, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }} aria-label="Hourly">
-          {hours.map((h, i) => {
-            const hs = sky(h.code, h.isDay);
-            return (
-              <div key={h.time} style={{ flex: '0 0 auto', minWidth: 46, textAlign: 'center', padding: '6px 4px', borderRadius: 10,
-                background: i === 0 ? `rgba(${rgb},0.14)` : 'transparent' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{i === 0 ? 'Now' : hourLabel(h.time)}</div>
-                <hs.Icon size={17} style={{ color: `rgb(${TONE[hs.tone]})`, margin: '4px auto 2px', display: 'block' }} strokeWidth={1.8} />
-                <div style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#2563eb', minHeight: 12 }}>{h.precipChance >= 20 ? `${h.precipChance}%` : ''}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* 7 days with range bars - the week's lowest low to highest high */}
-      {dayRows >= 2 && days.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0 }} aria-label="Daily forecast">
-          {days.slice(0, dayRows).map((d, i) => {
-            const ds = sky(d.code, true);
-            const left = ((d.low - lo) / span) * 100, width = Math.max(4, ((d.high - d.low) / span) * 100);
-            return (
-              <div key={d.date} style={{ display: 'grid', gridTemplateColumns: '46px 22px 34px 1fr 34px', alignItems: 'center', gap: 6, padding: '4px 2px', borderTop: i ? '1px solid var(--line)' : 'none' }}>
-                <span style={{ fontSize: 13, fontWeight: i === 0 ? 800 : 600 }}>{dayLabel(d.date, i)}</span>
-                <ds.Icon size={16} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} />
-                <span style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{deg(d.low)}</span>
-                <span title={`${d.precipChance ?? 0}% chance of rain`} style={{ position: 'relative', height: 6, borderRadius: 99, background: 'var(--mist)' }}>
-                  <span style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: 0, bottom: 0, borderRadius: 99,
-                    background: 'linear-gradient(90deg, #38bdf8, #fbbf24 70%, #f97316)' }} />
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{deg(d.high)}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Sun + freshness */}
-      {showFooter && (
-        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', flexShrink: 0 }}>
-          {t.sunrise && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunrise size={12} /> {clock12(t.sunrise)}</span>}
-          {t.sunset && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunset size={12} /> {clock12(t.sunset)}</span>}
-          {data.fetchedAt && <span style={{ marginLeft: 'auto' }}>Updated {formatTime(data.fetchedAt)}</span>}
-        </div>
-      )}
+      {nowEl}
+      {detailsEl}
+      {tier === 'full' && hoursEl}
+      {dayList(dayRows)}
+      {showFooter && footerEl}
     </div>,
   );
 }
