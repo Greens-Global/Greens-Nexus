@@ -410,7 +410,9 @@ keep the diff minimal.
   whose `go` / `compose` / `run` opens the module's own form - never a form
   in the header, never a third step, never a second quick menu. The bolt is
   green, never yellow or orange (Live accent): the GRADIENT IS ON THE BOLT
-  (`icons/BoltIcon.jsx`: the chunky two-block shape of Neil's reference, a
+  (`icons/BoltIcon.jsx`: the two-block shape TRACED from the pixels of Neil's
+  reference - its tight waist, its lean, its soft corners - never redrawn by
+  eye; a
   THIN 3D OBJECT - stacked slices make solid side walls joined to the face at
   every corner, never a flat copy behind it like a shadow - bright green to
   brand green) and the tile

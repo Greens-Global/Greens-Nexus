@@ -7,22 +7,28 @@
 // are part of it"): the same outline is stacked from the back to the front in
 // thin steps, so its right and bottom side walls are solid, joined to the face
 // at every corner, a mid green that darkens toward the back; the face sits on
-// top with a faint light edge. Its COLOR is ours: the gradient is on the bolt
+// top and meets them by color alone, no drawn edge. Its COLOR is ours: the gradient is on the bolt
 // (bright green to brand green; "the gradient on the bolt and the background
 // to look less flashy"). Green only - never yellow or orange (Live accent).
 // .qc-btn in style.css draws the calm tile behind it.
 import { useId } from 'react';
 
-// The outline in a 24 x 24 box (traced from the reference).
-const BOLT = 'M7.1 1.4H16.2L14.2 8.2 20.1 8.8 7.7 22.2 8.6 13.2 3.5 12.9Z';
+// The outline in a 24 x 24 box, TRACED FROM THE REFERENCE'S PIXELS (Neil,
+// 11/13/2026: "the center is a little tighter ... there's a little angle to
+// it"): its face's edges fitted row by row - the deep right notch that pulls
+// the waist in, the upper block leaning at the reference's angle, the lower
+// block's left edge a touch off vertical. Set inside the traced lines by half
+// the round 1.4 stroke below (the reference's soft corners), so the edges land on them and only the corners round.
+const BOLT = 'M7.88 2.2H15.61L12.78 9.87 19.36 10.51 8.85 20.61 9.84 13.15 4.05 13.15Z';
 // The lower block: from the notch, out to the right tip, down to the point,
 // back up to the left notch - a shade deeper on the face.
-const LOWER = 'M14.2 8.2 20.1 8.8 7.7 22.2 8.6 13.2Z';
+const LOWER = 'M12.78 9.87 19.36 10.51 8.85 20.61 9.84 13.15Z';
 // The depth: how far the back sits right and down, and in how many steps.
-const DEPTH = { x: 0.62, y: 0.78, steps: 9 };
+// Measured from the reference too: a thin slab, a little deeper down than right.
+const DEPTH = { x: 0.42, y: 0.62, steps: 8 };
 // The side walls from the back (deepest) to just behind the face.
-const SIDE_BACK = [0, 92, 51];     // #005c33
-const SIDE_FRONT = [10, 134, 74];  // #0a864a
+const SIDE_BACK = [3, 104, 58];    // #03683a
+const SIDE_FRONT = [12, 150, 82];  // #0c9652 - close to the face's lower green, so they blend
 const mix = (a, b, t) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(',')})`;
 
 export default function BoltIcon({ size = 24, style, ...rest }) {
@@ -52,15 +58,12 @@ export default function BoltIcon({ size = 24, style, ...rest }) {
         {/* the body: thin slices from the back to the front make solid side walls */}
         {layers.map((l) => (
           <path key={`${l.x}`} d={BOLT} transform={`translate(${l.x.toFixed(3)} ${l.y.toFixed(3)})`}
-            fill={l.color} stroke={l.color} strokeWidth="0.9" />
+            fill={l.color} stroke={l.color} strokeWidth="1.4" />
         ))}
         {/* the face, lit from the top left */}
-        <path d={BOLT} fill={`url(#${id}-face)`} stroke={`url(#${id}-face)`} strokeWidth="0.9" />
+        <path d={BOLT} fill={`url(#${id}-face)`} stroke={`url(#${id}-face)`} strokeWidth="1.4" />
         {/* the lower block, a shade deeper - the step the reference shows */}
         <path d={LOWER} fill={`url(#${id}-lower)`} opacity="0.22" />
-        {/* the face's edge, where it turns into the side walls - barely there
-            (Neil, 11/13/2026: "minimize the striking-ness of the stroke") */}
-        <path d={BOLT} fill="none" stroke="#c9f9de" strokeOpacity="0.18" strokeWidth="0.25" />
       </g>
     </svg>
   );
