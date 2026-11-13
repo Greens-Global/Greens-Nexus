@@ -471,7 +471,9 @@ keep the diff minimal.
   cannot use one of the four gets the next action they can); the button and
   menu are `components/QuickCreate.jsx`. A new action = one `ACTIONS` row
   whose `go` / `compose` / `run` opens the module's own form - never a form
-  in the header, never a third step, never a second quick menu. The bolt is
+  in the header, never a third step, never a second quick menu. The Dashboard's
+  Quick Actions widget is RETIRED (Neil, 11/13/2026): `quick-actions` stays in
+  `widgets.jsx` (hidden, retired) so saved boards load - never bring it back. The bolt is
   green, never yellow or orange (Live accent): `icons/BoltIcon.jsx`, the
   two-block shape FITTED to the pixels of Neil's reference - corners and each
   corner's rounding solved until the outlines overlap 97.5%: its tight waist,
@@ -791,7 +793,7 @@ keep the diff minimal.
   allowed sites is not a site member); a submitter never reviews their own
   entry, and nothing changes an entry's state by itself. Crews fill a form
   from Workday's Fill a Form tile, the shift card (`showOnShifts` for the
-  shift's site), the header's Quick Actions (Request) and the Quick Actions dock; photos and
+  shift's site), the header's Quick Actions (Request); photos and
   signatures go to `task-files/forms/<entryKey>/`; the same `entryKey` sent
   twice is one entry. `form.submitted` / `form.reviewed` are emitted through
   `workflows.emit` at the two choke points in `routers/forms.py` with the
