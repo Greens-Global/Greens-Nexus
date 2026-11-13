@@ -8713,7 +8713,7 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08), inset 0 1px 0 #fff, 0 1px 2px rgba(15, 23, 42, .06);
   transition: transform .16s var(--ease-out, ease-out), background .16s ease-out, box-shadow .16s ease-out;
 }
-.icon-btn.qc-btn .qc-bolt { filter: drop-shadow(0 1px 1px rgba(0, 90, 48, .28)); }
+.icon-btn.qc-btn .qc-bolt { filter: drop-shadow(0 1px 1.5px rgba(0, 70, 38, .18)); }
 .icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] {
   background: linear-gradient(180deg, #f6fdf9 0%, #e7f6ee 100%); transform: translateY(-1px);
   box-shadow: inset 0 0 0 1px rgba(0, 162, 91, .28), inset 0 1px 0 #fff, 0 3px 8px -2px rgba(0, 122, 67, .22);
