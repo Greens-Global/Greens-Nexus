@@ -1,9 +1,10 @@
-// The Quick Actions bolt (Neil, 11/13/2026: "make the action button look
-// cooler ... a badass button. Take the best elements but keep it our green"):
-// a faceted, filled bolt - the light upper-left face and a mint lower-right
-// face split along the bolt's spine, so it reads as a solid 3D shape on the
-// green tile (.qc-btn in style.css draws the tile, its rim and its gloss).
-// Colors stay white and mint: the bolt is never yellow or orange (Live accent).
+// The Quick Actions bolt (Neil, 11/13/2026: "a badass button ... keep it our
+// green"; then "the gradient on the bolt and the background to look less
+// flashy"): a faceted, filled bolt carrying the gradient itself - the lit
+// upper-left face bright green to brand green, the shaded lower-right face
+// brand green to deep green, split along the spine so it reads as a solid 3D
+// shape on a calm tile (.qc-btn in style.css). Green only: never yellow or
+// orange (Live accent).
 import { useId } from 'react';
 
 export default function BoltIcon({ size = 22, style, ...rest }) {
@@ -11,13 +12,17 @@ export default function BoltIcon({ size = 22, style, ...rest }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" style={style} aria-hidden="true" focusable="false" {...rest}>
       <defs>
-        <linearGradient id={`${id}-lit`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#ffffff" />
-          <stop offset="1" stopColor="#e9fbf1" />
+        {/* The gradient is ON the bolt (Neil, 11/13/2026): bright green lit
+            from the top, down to the brand green; the shaded face runs
+            brand green to deep green. */}
+        <linearGradient id={`${id}-lit`} x1="0.2" y1="0" x2="0.6" y2="1">
+          <stop offset="0" stopColor="#6ef2ad" />
+          <stop offset="0.55" stopColor="#1fc274" />
+          <stop offset="1" stopColor="#00a25b" />
         </linearGradient>
         <linearGradient id={`${id}-shade`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#d3f6e2" />
-          <stop offset="1" stopColor="#a8ebc5" />
+          <stop offset="0" stopColor="#12b066" />
+          <stop offset="1" stopColor="#006b3a" />
         </linearGradient>
       </defs>
       {/* the whole bolt, the lit face */}
