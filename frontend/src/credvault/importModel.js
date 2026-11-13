@@ -12,6 +12,7 @@ export const FIELDS = [
   { key: "username", label: "Username / Email" },
   { key: "secret", label: "Password", required: true },
   { key: "url", label: "Link" },
+  { key: "company", label: "Company" },
   { key: "dept", label: "Department" },
   { key: "note", label: "Notes" },
   { key: "type", label: "Type" },
@@ -22,6 +23,7 @@ const SYNONYMS = {
   username: ["username", "user name", "user", "login", "login id", "email", "e-mail", "account", "user id", "userid", "id"],
   secret: ["password", "pass", "pwd", "secret", "passcode", "pin", "key", "api key", "token"],
   url: ["url", "link", "website", "web site", "site", "address", "web address", "login url", "login link"],
+  company: ["company", "entity", "business", "organization", "organisation", "legal entity"],
   dept: ["department", "dept", "team", "group", "division", "area", "owner team"],
   note: ["notes", "note", "comments", "comment", "remarks", "description", "info", "details", "security question", "recovery"],
   type: ["type", "kind", "category"],
@@ -55,7 +57,7 @@ export function applyMap(rows, map) {
   return rows.map((r, i) => ({
     line: i + 2,
     name: cell(r, "name"), username: cell(r, "username"), secret: cell(r, "secret"), url: cell(r, "url"),
-    dept: cell(r, "dept"), note: cell(r, "note"),
+    dept: cell(r, "dept"), company: cell(r, "company"), note: cell(r, "note"),
     type: TYPES.find((t) => t.toLowerCase() === cell(r, "type").toLowerCase()) || "Password",
     tier: TIERS.find((t) => t.toLowerCase() === cell(r, "tier").toLowerCase()) || "Standard",
   })).filter((r) => r.name || r.username || r.secret || r.url);
@@ -63,17 +65,35 @@ export function applyMap(rows, map) {
 
 const fixUrl = (u) => (!u ? "" : /^https?:\/\//i.test(u) ? u : /^[\w.-]+\.[a-z]{2,}(\/|$)/i.test(u) ? `https://${u}` : "");
 
-/** What is wrong with a row, given the department it falls back to. */
-export function validateRows(rows, { defaultDept = "" } = {}) {
+/** "weak" | "fair" | "strong" - the same rule as the server's _eval_strength. */
+export function passwordStrength(pwd) {
+  if (!pwd) return "weak";
+  const s = (pwd.length >= 12 ? 1 : 0) + (/[A-Z]/.test(pwd) ? 1 : 0) + (/[0-9]/.test(pwd) ? 1 : 0) + (/[^A-Za-z0-9]/.test(pwd) ? 1 : 0);
+  return s >= 3 ? "strong" : s >= 2 ? "fair" : "weak";
+}
+
+/** What is wrong with a row, given the department it falls back to and the
+ *  companies / departments in Settings (11/13/2026: the template names a
+ *  company per row; an unknown company, a department that company does not
+ *  have, or a weak password is left out - the server refuses them too). */
+export function validateRows(rows, { defaultDept = "", companies = [], departments = [] } = {}) {
+  const byName = new Map(companies.map((c) => [c.name.trim().toLowerCase(), c.id]));
   return rows.map((r) => {
     const url = fixUrl(r.url);
     const dept = r.dept || defaultDept;
+    const companyId = r.company ? byName.get(r.company.trim().toLowerCase()) || "" : "";
     const problems = [];
     if (!r.name) problems.push("no name");
     if (!r.secret) problems.push("no password");
+    else if (passwordStrength(r.secret) === "weak") problems.push("weak password");
     if (!dept) problems.push("no department");
+    if (r.company && !companyId) problems.push(`no company called ${r.company}`);
+    if (companyId && dept) {
+      const own = departments.filter((d) => d.companyId === companyId).map((d) => d.name.toLowerCase());
+      if (own.length && !own.includes(dept.toLowerCase())) problems.push(`${r.company} has no ${dept} department`);
+    }
     if (r.url && !url) problems.push("link is not a web address");
-    return { ...r, url, dept, problems, ok: problems.length === 0 };
+    return { ...r, url, dept, companyId, problems, ok: problems.length === 0 };
   });
 }
 
@@ -99,7 +119,7 @@ export function toPayload(r, { backupOwner = "", ownDept = true, audiences = [],
   const seen = new Set();
   return {
     name: r.name, department: r.dept, type: r.type, username: r.username, secret: r.secret, tier: r.tier, url: r.url, note: r.note,
-    backupOwner, companyId, siteId,
+    backupOwner, companyId: r.companyId || companyId, siteId,
     audiences: rows.filter((a) => { const k = `${a.kind}:${String(a.value).toLowerCase()}`; return !seen.has(k) && seen.add(k); }),
   };
 }

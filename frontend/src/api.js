@@ -1891,6 +1891,10 @@ export const api = {
   cvRevokeGrant:    (grantId)    => req(`/credvault/grants/${grantId}`, { method: 'DELETE' }),
   cvOtpStatus:      ()           => req('/credvault/otp/status'),
   cvPersonalUpdate: (id, body)   => req(`/credvault/personal/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  // The department head's code for a change (11/13/2026, vault_head.py) and the import template.
+  cvHeadCodeRequest: (body)      => req('/credvault/head-code/request', { method: 'POST', body: JSON.stringify(body) }),
+  cvHeadCodeVerify:  (body)      => req('/credvault/head-code/verify', { method: 'POST', body: JSON.stringify(body) }),
+  cvImportTemplate:  ()          => reqBlob('/credvault/import-template'),
 
   // ── Documents (DMS) - Phase 1: folders + drafts/library, next to E-Sign ──
   getDocFolders:      ()             => req('/documents/folders'),

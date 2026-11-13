@@ -13,6 +13,10 @@ AUDIENCE rows (models.VaultCredentialAudience):
                                          named company, else of the owner's company
   group       NexusGroup id              the Access Group's members
   person      work email                 that one person, for good (a grant is timed)
+  only_group  NexusGroup id              nobody by itself: with any of these, a company or
+                                         department row admits only the members of one of
+                                         them (11/13/2026 - the form's optional Access
+                                         Groups; none picked = the whole department)
 
 each at a level: 'open' reveals the password; 'view' sees the row, username
 and link but never the password (Bitwarden's "view, except passwords" - for
@@ -37,7 +41,8 @@ from sqlalchemy import func
 import models
 from auth import company_of
 
-KINDS = ("company", "department", "group", "person")
+KINDS = ("company", "department", "group", "person", "only_group")
+SCOPE_KINDS = ("company", "department")
 LEVELS = ("open", "view")
 ANY_COMPANY = ""
 
@@ -99,6 +104,25 @@ def _matches(row, ctx: dict) -> bool:
 matches = _matches   # public: routers/credvault._home_dept reads a row the same way
 
 
+def _only(rows) -> set:
+    return {(r.value or "").strip() for r in rows if r.kind == "only_group" and (r.value or "").strip()}
+
+
+def _admits(row, ctx: dict, only: set) -> bool:
+    """A row admits the person - a company / department row only when they are
+    also in one of the login's only_group groups, if it has any."""
+    if not _matches(row, ctx):
+        return False
+    return not (only and row.kind in SCOPE_KINDS and not (ctx["groups"] & only))
+
+
+def scope_admits(rows, ctx: dict) -> bool:
+    """Whether the login's own companies / departments (open rows) take the
+    person in - what routers/credvault._home_dept asks."""
+    only = _only(rows)
+    return any(_admits(r, ctx, only) for r in rows if r.kind in SCOPE_KINDS and (r.level or "open") != "view")
+
+
 def audience_access(cred, rows, ctx: dict) -> str:
     """'' when the audiences do not admit this person; else the kind of the
     best matching row ('company' | 'department' | 'group' | 'person'), or
@@ -110,7 +134,8 @@ def audience_access(cred, rows, ctx: dict) -> str:
         return ""
     if (cred.tier or "Standard") == "Critical":
         rows = [r for r in rows if r.kind == "person"]
-    hit = [r for r in rows if _matches(r, ctx)]
+    only = _only(rows)
+    hit = [r for r in rows if _admits(r, ctx, only)]
     if not hit:
         return ""
     opens = [r for r in hit if (r.level or "open") != "view"]
@@ -205,6 +230,8 @@ def labels(db, rows) -> list:
             label = f"Everyone in {name}" + (f" at {companies.get(co, '')}" if co else "")
         elif r.kind == "group":
             label = groups.get(r.value, "Access Group")
+        elif r.kind == "only_group":
+            label = f"Only {groups.get(r.value, 'an Access Group')}"
         else:
             label = r.value
         out.append({"kind": r.kind, "value": r.value, "level": r.level or "open", "label": label})
@@ -222,6 +249,11 @@ def openers(db, cred, rows) -> set:
     owner_co = company_of(cred.owner_email or "", db)
     people = [e for e in db.query(models.NexusEmployee).all() if _active(e)]
     opening = [r for r in rows if (r.level or "open") != "view"]
+    only = _only(rows)
+    in_only = ({m.lower() for (m,) in db.query(models.NexusGroupMember.email)
+                .filter(models.NexusGroupMember.group_id.in_(sorted(only))).all()} if only else None)
+    if in_only is not None:
+        people = [e for e in people if e.work_email.lower() in in_only or not any(r.kind in SCOPE_KINDS for r in opening)]
     if not rows and (cred.tier or "Standard") != "Critical" and cred.dept:
         emails |= {e.work_email.lower() for e in people
                    if (e.department or "").strip().lower() == cred.dept.strip().lower() and (not owner_co or (e.company or "") == owner_co)}

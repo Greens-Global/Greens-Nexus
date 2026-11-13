@@ -211,6 +211,7 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/hr/intake/public/",
                           "/timeclock/ical/",   # the calendar subscribe feed: a signed link, no login (Shifts Phase 3a)
                           "/credvault/personal/lock/",   # the Personal Vault password: guessed online (Oct 29 2026)
+                          "/credvault/head-code/",   # a department head code: guessed online (11/13/2026)
                           "/task-changelog-feed/",   # What's New RSS: a signed link, no login (Oct 16 2026)
                           "/unit-map/",   # customer unit map: a signed link, no login (Oct 20 2026)
                           "/documents/word-file/",   # Open in Word: a signed 15-minute link, no login (11/05/2026)

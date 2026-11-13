@@ -5,7 +5,6 @@
 // phone the same content slides in as a full-screen sheet (CredentialSheet).
 // The screen owns the data and the gated calls; this file only lays them out.
 import { useEffect, useRef, useState } from "react";
-import { teamsChatUrl } from '../lib/teamsLinks';
 import {
   X, Copy, Check, Eye, EyeOff, ExternalLink, Pencil, Trash2, RefreshCw, Share2, KeyRound, Star,
   MapPin, Clock, UserMinus, Lock, Send, ShieldCheck,
@@ -13,7 +12,8 @@ import {
 import { api } from "../api";
 import { useDialogFocus, trapTab } from "../lib/useDialogFocus";
 import { formatDate, formatDateTime } from "../lib/datetime";
-import { TeamsIcon, TierChip, agoLabel, actionStyle, Pager } from "./vaultShared";
+import { TierChip, agoLabel, actionStyle, Pager } from "./vaultShared";
+import PersonActions from "../components/PersonActions";
 import { ACCESS_LABEL, ACCESS_TONE, BREACH_HINT, healthFlags, rotationDaysLeft, rotationDueDate, secondOwners, timeLeft } from "./vaultModel";
 import { Monogram } from "./vaultCards";
 import HoldButton from "../ui/HoldButton";
@@ -191,16 +191,25 @@ export function CredentialDetail({
             </div>
             <div className="cv-person">
               <span>{nameOf(cred.owner)} <span className="cv-muted">· Owner</span></span>
-              {cred.owner && cred.owner !== myEmail && <a href={teamsChatUrl(cred.owner)} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(cred.owner)} on Teams`} style={{ display: "flex" }}><TeamsIcon size={18} /></a>}
+              <PersonActions email={cred.owner} name={nameOf(cred.owner)} myEmail={myEmail} />
             </div>
-            {cred.backupOwner && <div className="cv-person"><span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span></div>}
+            {cred.backupOwner && (
+              <div className="cv-person">
+                <span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span>
+                <PersonActions email={cred.backupOwner} name={nameOf(cred.backupOwner)} myEmail={myEmail} />
+              </div>
+            )}
             {access?.heads?.filter((h) => h !== cred.owner && h !== cred.backupOwner).map((h) => (
-              <div className="cv-person" key={h}><span>{nameOf(h)} <span className="cv-muted">· {access?.headRoles?.[h] || "Department Head"}</span></span></div>
+              <div className="cv-person" key={h}>
+                <span>{nameOf(h)} <span className="cv-muted">· {access?.headRoles?.[h] || "Department Head"}</span></span>
+                <PersonActions email={h} name={nameOf(h)} myEmail={myEmail} />
+              </div>
             ))}
             {/* Who may open it (Oct 29 2026): the audience rows, or the old department rule when there are none. */}
             {(cred.audiences || []).filter((a) => cred.tier !== "Critical" || a.kind === "person").map((a) => (
               <div className="cv-person" key={`${a.kind}:${a.value}`}>
-                <span>{a.kind === "person" ? nameOf(a.value) : a.label} <span className="cv-muted">· {a.level === "view" ? "View only" : a.kind === "person" ? "Can open" : "Everyone in it can open"}</span></span>
+                <span>{a.kind === "person" ? nameOf(a.value) : a.label} <span className="cv-muted">· {a.level === "view" ? "View only" : a.kind === "person" ? "Can open" : a.kind === "only_group" ? "Only its members open it" : "Everyone in it can open"}</span></span>
+                {a.kind === "person" && <PersonActions email={a.value} name={nameOf(a.value)} myEmail={myEmail} />}
               </div>
             ))}
             {!(cred.audiences || []).length && cred.dept && cred.tier !== "Critical" && <div className="cv-person"><span>Everyone in {cred.dept} <span className="cv-muted">· Department</span></span></div>}

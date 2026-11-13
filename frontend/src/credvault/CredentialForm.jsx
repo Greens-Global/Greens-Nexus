@@ -3,9 +3,9 @@
 // Tasks module's Modal (phone sheet, focus, unsaved-changes prompt) and its
 // PersonSelect (the curated Nexus People list).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Upload, CheckCircle2, AlertCircle, Share2, Send, Users, Building2, X, Eye, EyeOff, Check, RefreshCw } from "lucide-react";
-import { api } from "../api";
-import { Modal, PersonSelect, PersonMultiSelect, DateField } from "../tasks/components";
+import { Upload, Download, CheckCircle2, AlertCircle, Share2, Send, Users, Building2, X, Eye, EyeOff, Check, RefreshCw } from "lucide-react";
+import { api, saveBlob } from "../api";
+import { Modal, PersonSelect, PersonMultiSelect, DateField, ChipMultiSelect } from "../tasks/components";
 import { Field, PasswordField, TYPES, TIERS } from "./vaultShared";
 import { DURATIONS, ROTATION_CHOICES, audienceKey, siteOf, localDay } from "./vaultModel";
 import { formatDate, formatTime } from "../lib/datetime";
@@ -38,7 +38,7 @@ export function useAudienceOptions() {
     if (fresh || !optsPromise || Date.now() - optsAt > OPTS_TTL_MS) { optsPromise = api.cvAudienceOptions(); optsAt = Date.now(); }
     setState((s) => ({ ...s, error: false }));
     optsPromise
-      .then((o) => setState({ opts: { companies: o?.companies || [], departments: o?.departments || [], groups: o?.groups || [] }, loaded: true, error: false }))
+      .then((o) => setState({ opts: { companies: o?.companies || [], departments: o?.departments || [], groups: o?.groups || [], me: o?.me || null }, loaded: true, error: false }))
       .catch(() => { optsPromise = null; setState((s) => ({ ...s, loaded: true, error: true })); });
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -61,11 +61,14 @@ const Chip = ({ on, children, onClick, title, disabled = false }) => (
   <button type="button" className={`cv-pick${on ? " is-on" : ""}`} aria-pressed={on} onClick={onClick} title={title} disabled={disabled}>{on && <Check size={11} />}{children}</button>
 );
 
-// Company, then Department (Pranshu, 11/13/2026): several companies (or All),
-// and once a company is picked, several of its departments (or All). These
-// picks ARE the company / department rows of who may open the login - All
-// departments = everyone at each company picked. `cos` (the companies picked)
-// is the caller's, since a company can be picked before any department.
+// Company, Department and Access Groups (Pranshu, 11/13/2026): dropdowns.
+// Company (several, or All) first; Department (several, or All) opens once a
+// company is picked and lists only its departments; Access Groups is optional
+// - none picked = everyone in those departments, a group picked keeps it to
+// that group's members (only_group rows, vault_access.py). These picks ARE
+// who may open the login. `cos` (the companies picked) is the caller's, since
+// a company can be picked before any department.
+const ALL = "*";
 export function ScopePicker({ value, onChange, cos, onCos, homeCo = "", errors = {}, optsState }) {
   const { opts, error, retry, loaded } = optsState;
   const multi = opts.companies.length > 1;
@@ -73,62 +76,77 @@ export function ScopePicker({ value, onChange, cos, onCos, homeCo = "", errors =
   const has = (a) => value.some((x) => keyOf(x) === keyOf(a));
   const coName = (id) => opts.companies.find((c) => c.id === id)?.name || "";
   const coAud = (id) => ({ kind: "company", value: id, level: "open", label: `Everyone at ${coName(id)}` });
-  const deptAud = (d) => ({ kind: "department", value: multi && d.companyId ? `${d.companyId}:${d.name}` : d.name, level: "open", label: `Everyone in ${d.name}${multi && d.companyId ? ` at ${coName(d.companyId)}` : ""}` });
+  const dKey = (d) => (multi && d.companyId ? `${d.companyId}:${d.name}` : d.name);
+  const deptAud = (d) => ({ kind: "department", value: dKey(d), level: "open", label: `Everyone in ${d.name}${multi && d.companyId ? ` at ${coName(d.companyId)}` : ""}` });
   // A plain "Operations" row (older logins) is the department of the login's own company.
   const coOfRow = (a) => (a.kind === "company" ? a.value : (splitDept(a.value)[0] || homeCo));
   const scopeRow = (a) => a.kind === "company" || a.kind === "department";
   const everyone = value.some((a) => a.kind === "company" && !a.value);
-  const allCos = opts.companies.length > 0 && opts.companies.every((c) => cos.includes(c.id));
+  const allIds = opts.companies.map((c) => c.id);
+  const allCos = allIds.length > 1 && allIds.every((id) => cos.includes(id));
   const depts = opts.departments.filter((d) => !multi || cos.includes(d.companyId));
   const allDepts = cos.length > 0 && (everyone || cos.every((id) => has(coAud(id))));
-  const deptOn = (d) => allDepts || has(deptAud(d)) || (multi && d.companyId === homeCo && has({ kind: "department", value: d.name }));
-  const dropCo = (id) => value.filter((a) => !(scopeRow(a) && a.value && coOfRow(a) === id));
-  function toggleCo(id) {
-    if (cos.includes(id)) { onCos(cos.filter((x) => x !== id)); onChange(dropCo(id)); return; }
-    onCos([...cos, id]);
-    if (allDepts && !everyone) onChange([...value, coAud(id)]);   // All departments stays all
-  }
-  function toggleAllCos() {
-    if (allCos) { onCos([]); onChange(value.filter((a) => !scopeRow(a))); return; }
-    const ids = opts.companies.map((c) => c.id);
+  const deptOn = (d) => has(deptAud(d)) || (multi && d.companyId === homeCo && has({ kind: "department", value: d.name }));
+
+  function pickCompanies(next) {
+    let ids = next;
+    if (next.includes(ALL) && !allCos) ids = allIds;                 // All picked
+    else if (allCos && !next.includes(ALL)) ids = [];                 // All removed
+    else ids = next.filter((x) => x !== ALL);
     onCos(ids);
-    if (allDepts && !everyone) onChange([...value, ...ids.filter((id) => !has(coAud(id))).map(coAud)]);
+    const kept = value.filter((a) => !(scopeRow(a) && a.value && !ids.includes(coOfRow(a))));
+    const add = allDepts && !everyone ? ids.filter((id) => !kept.some((a) => a.kind === "company" && a.value === id)).map(coAud) : [];
+    onChange([...kept, ...add]);
   }
-  function toggleDept(d) {
-    if (allDepts) return;
-    const plain = { kind: "department", value: d.name };
-    if (deptOn(d)) onChange(value.filter((x) => keyOf(x) !== keyOf(deptAud(d)) && !(multi && d.companyId === homeCo && keyOf(x) === keyOf(plain))));
-    else onChange([...value, deptAud(d)]);
-  }
-  function toggleAllDepts() {
+  function pickDepartments(next) {
     const inScope = (a) => scopeRow(a) && (!a.value || cos.includes(coOfRow(a)) || !multi);
-    if (allDepts) { onChange(value.filter((a) => !inScope(a))); return; }
-    onChange([...value.filter((a) => !inScope(a)), ...cos.map(coAud)]);
+    if (next.includes(ALL) && !allDepts) { onChange([...value.filter((a) => !inScope(a)), ...cos.map(coAud)]); return; }
+    if (allDepts && !next.includes(ALL)) { onChange(value.filter((a) => !inScope(a))); return; }
+    const rows = depts.filter((d) => next.includes(dKey(d))).map(deptAud);
+    onChange([...value.filter((a) => !inScope(a)), ...rows]);
+  }
+  // Access Groups: those with people in the departments picked (all of them
+  // with All departments or none picked), plus any already chosen.
+  const pickedDepts = new Set(value.filter((a) => a.kind === "department").map((a) => deptName(a).toLowerCase()));
+  const onlyIds = value.filter((a) => a.kind === "only_group").map((a) => a.value);
+  const groupOpts = opts.groups.filter((g) => allDepts || !pickedDepts.size || onlyIds.includes(g.id)
+    || (g.departments || []).some((d) => pickedDepts.has(d.toLowerCase())));
+  function pickGroups(ids) {
+    const rows = ids.map((id) => ({ kind: "only_group", value: id, level: "open", label: `Only ${opts.groups.find((g) => g.id === id)?.name || "an Access Group"}` }));
+    onChange([...value.filter((a) => a.kind !== "only_group"), ...rows]);
   }
   if (error) return <LoadFailed onRetry={retry} />;
   return (
     <>
       <Field label="Company" required as="div" error={errors.cos}>
-        <div className={`cv-pick-row cv-pick-box${errors.cos ? " is-error" : ""}`} data-scope="companies">
-          {!loaded && <span className="cv-hint">Loading…</span>}
-          {loaded && opts.companies.length === 0 && <span className="cv-hint">No companies set up under Settings &gt; Companies.</span>}
-          {opts.companies.length > 1 && <Chip on={allCos} onClick={toggleAllCos}>All</Chip>}
-          {opts.companies.map((c) => <Chip key={c.id} on={cos.includes(c.id)} onClick={() => toggleCo(c.id)}>{c.name}</Chip>)}
+        <div className={`cv-pick-box${errors.cos ? " is-error" : ""}`} data-scope="companies">
+          {!loaded ? <span className="cv-hint">Loading…</span> : opts.companies.length === 0
+            ? <span className="cv-hint">No companies set up under Settings &gt; Companies.</span>
+            : <ChipMultiSelect value={allCos ? [ALL] : cos} onChange={pickCompanies} placeholder="Pick a company" searchPlaceholder="Search companies…"
+                options={[...(allIds.length > 1 ? [{ id: ALL, label: "All Companies" }] : []), ...opts.companies.map((c) => ({ id: c.id, label: c.name }))]} />}
         </div>
       </Field>
-      {cos.length > 0 && (
+      {cos.length > 0 && (<>
         <Field label="Department" required as="div" error={errors.depts}>
-          <div className={`cv-pick-row cv-pick-box${errors.depts ? " is-error" : ""}`} data-scope="departments">
-            {depts.length > 0 && <Chip on={allDepts} onClick={toggleAllDepts} title="Everyone at the companies picked">All</Chip>}
-            {depts.length === 0 && <span className="cv-hint">No departments set up for {cos.length === 1 ? coName(cos[0]) : "these companies"} under Settings &gt; Companies.</span>}
-            {depts.map((d) => (
-              <Chip key={`${d.companyId}:${d.name}`} on={deptOn(d)} disabled={allDepts} onClick={() => toggleDept(d)}>
-                {d.name}{multi && cos.length > 1 && d.companyId ? <span className="cv-pick-sub"> · {coName(d.companyId)}</span> : null}
-              </Chip>
-            ))}
+          <div className={`cv-pick-box${errors.depts ? " is-error" : ""}`} data-scope="departments">
+            {depts.length === 0
+              ? <span className="cv-hint">No departments set up for {cos.length === 1 ? coName(cos[0]) : "these companies"} under Settings &gt; Companies.</span>
+              : <ChipMultiSelect value={allDepts ? [ALL] : depts.filter(deptOn).map(dKey)} onChange={pickDepartments} placeholder="Pick a department" searchPlaceholder="Search departments…"
+                  options={[{ id: ALL, label: "All Departments" }, ...depts.map((d) => ({ id: dKey(d), label: `${d.name}${multi && cos.length > 1 && d.companyId ? ` · ${coName(d.companyId)}` : ""}` }))]} />}
           </div>
         </Field>
-      )}
+        {opts.groups.length > 0 && (
+          <Field label="Access Groups" as="div">
+            <div data-scope="groups">
+              <ChipMultiSelect value={onlyIds} onChange={pickGroups} options={groupOpts.map((g) => ({ id: g.id, label: g.name }))}
+                placeholder="All (optional)" placeholderInk searchPlaceholder="Search Access Groups…" emptyText="No Access Group has people in these departments." />
+              <span className="cv-hint" style={{ display: "block", marginTop: 4 }}>
+                {onlyIds.length ? "Only members of these groups, in the departments above, can open it." : "None picked = everyone in the departments above. Pick groups to keep it to their members."}
+              </span>
+            </div>
+          </Field>
+        )}
+      </>)}
     </>
   );
 }
@@ -188,7 +206,7 @@ export function AudiencePicker({ value, onChange, people, tier, nameOf = (e) => 
           </div>
         </div>
       </>)}
-      {opts.groups.length > 0 && (
+      {!scopeAbove && opts.groups.length > 0 && (
         <div className="cv-pick-group" data-groups-shown={shownGroups.length}>
           <span className="cv-pick-label">Access Groups{pickedDepts.size && !allGroups ? " in These Departments" : ""}</span>
           <div className="cv-pick-row">
@@ -263,18 +281,31 @@ export function CredentialForm({ cred, people, myEmail, nameOf, onClose, onSave,
   // The companies picked. A new login starts on the person's own company (or
   // the only one); its departments are theirs to pick.
   const [cos, setCos] = useState(() => (editing ? companiesOf(form.audiences, homeCo, companies.map((c) => c.id)) : (homeCo ? [homeCo] : companies.length === 1 ? [companies[0].id] : [])));
-  useEffect(() => {   // the options arrive after the first render: one company = picked for you
-    if (!editing && !cos.length && allIds.length === 1) setCos(allIds);
-  }, [editing, cos.length, allIds]);
+  // A new login starts on the person's own company and department (11/13/2026),
+  // else on the only company there is; set once, when the options arrive.
+  const started = useRef(editing);
+  useEffect(() => {
+    if (started.current || !optsState.loaded) return;
+    started.current = true;
+    const me = optsState.opts.me || {};
+    const co = me.companyId || (allIds.length === 1 ? allIds[0] : "");
+    if (!co) return;
+    setCos([co]);
+    if (me.dept && me.companyId === co) {
+      const multi = allIds.length > 1;
+      setForm((f) => (f.audiences.length ? f : { ...f, audiences: deptAudience(me.dept, multi ? co : "") }));
+    }
+  }, [optsState.loaded, optsState.opts.me, allIds]);
   const [initial] = useState(form);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [showErrors, setShowErrors] = useState(false);
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const [serverErrors, setServerErrors] = useState({});   // a weak / leaked password, from the server
+  const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); if (serverErrors[k]) setServerErrors((e) => ({ ...e, [k]: "" })); };
   const setAudiences = (v) => set("audiences", v);
   const scopeRows = form.audiences.filter((a) => a.kind === "department" || a.kind === "company");
   const errors = formErrors(form, { editing, cos, scopeRows });
-  const shown = showErrors ? errors : {};
+  const shown = { ...(showErrors ? errors : {}), ...Object.fromEntries(Object.entries(serverErrors).filter(([, v]) => v)) };
   const siteChoices = sitesFor(sites, cos);
   // Expires On follows Rotate Every (11/13/2026) until a date is picked by hand.
   const fromLastChange = editing && !form.secret && !!cred.rotatedAt;
@@ -296,7 +327,13 @@ export function CredentialForm({ cred, people, myEmail, nameOf, onClose, onSave,
     try {
       await onSave({ ...form, dept, companyId, url: form.url.trim(), expiresAt: form.expiresAt === autoExpiry ? "" : form.expiresAt,
         customExpiry: form.rotationMax !== 90, audiences: form.audiences.map(({ kind, value, level }) => ({ kind, value, level })) });
-    } catch (e) { setError(e?.message || "Could not save."); setSaving(false); return; }
+    } catch (e) {
+      if (e?.detail?.field) {
+        setServerErrors({ [e.detail.field]: e.detail.message });
+        requestAnimationFrame(() => document.querySelector("[data-field-error]")?.scrollIntoView?.({ block: "center", behavior: "smooth" }));
+      }
+      setError(e?.detail?.field ? "Fix the fields marked in red." : e?.message || "Could not save."); setSaving(false); return;
+    }
     setSaving(false);
   }
 
@@ -369,7 +406,7 @@ export function CredentialForm({ cred, people, myEmail, nameOf, onClose, onSave,
               <PersonSelect value={form.backupOwner} onChange={(v) => set("backupOwner", v || "")} people={people.filter((p) => p.email !== form.owner)} placeholder="Nobody" />
             </Field>
           </div>
-          <Field label="Who Else Can Open It" as="div">
+          <Field label="Who Can Access" as="div">
             <AudiencePicker value={form.audiences} onChange={setAudiences} people={people} tier={form.tier} nameOf={nameOf} companyId={cos[0] || homeCo} scopeAbove optsState={optsState} />
           </Field>
           <p className="cv-hint">
@@ -391,7 +428,7 @@ export function CredentialForm({ cred, people, myEmail, nameOf, onClose, onSave,
 // retire the spreadsheet. Passwords stay in the browser until Import.
 const STEP_TITLES = ["Choose the File", "Match the Columns", "Review", "Done"];
 
-export function ImportWizard({ depts, sites = [], people, myEmail, existing = [], nameOf = (e) => e, onClose, onImport }) {
+export function ImportWizard({ depts, sites = [], departments = [], people, myEmail, existing = [], nameOf = (e) => e, onClose, onImport }) {
   const [step, setStep] = useState(0);
   const [file, setFile] = useState(null);
   const [sheet, setSheet] = useState(null);            // { headers: [], rows: [[]] , sheets: [names], name }
@@ -429,7 +466,14 @@ export function ImportWizard({ depts, sites = [], people, myEmail, existing = []
     } catch { setError("Could not read that file. Save it as .xlsx or .csv and try again."); }
   }
   const mapped = useMemo(() => (sheet ? applyMap(sheet.rows, map) : []), [sheet, map]);
-  const reviewed = useMemo(() => findDuplicates(validateRows(mapped, { defaultDept }), existing), [mapped, defaultDept, existing]);
+  const reviewed = useMemo(() => findDuplicates(validateRows(mapped, { defaultDept, companies, departments }), existing), [mapped, defaultDept, companies, departments, existing]);
+  const [templateBusy, setTemplateBusy] = useState(false);
+  async function downloadTemplate() {
+    setTemplateBusy(true); setError("");
+    try { const { blob, filename } = await api.cvImportTemplate(); saveBlob(blob, filename || "credentials-import-template.xlsx"); }
+    catch (e) { setError(e?.message || "Could not download the template."); }
+    setTemplateBusy(false);
+  }
   const ready = reviewed.filter((r) => r.ok && !(skipDups && r.duplicateOf));
   const dups = reviewed.filter((r) => r.duplicateOf);
   const bad = reviewed.filter((r) => !r.ok);
@@ -439,7 +483,7 @@ export function ImportWizard({ depts, sites = [], people, myEmail, existing = []
     setBusy(true); setError("");
     try {
       const res = await onImport(ready.map((r) => toPayload(r, { backupOwner, ownDept, audiences: extra, companyId, siteId })));
-      setResult({ imported: res?.imported || 0, skipped: res?.skipped || 0, sent: ready.length, bad: bad.length, dups: skipDups ? dups.length : 0 });
+      setResult({ imported: res?.imported || 0, skipped: res?.skipped || 0, sent: ready.length, bad: bad.length, dups: skipDups ? dups.length : 0, refused: res?.refused || [] });
       setStep(3);
     } catch (e) { setError(e?.message || "Import failed."); }
     setBusy(false);
@@ -466,8 +510,11 @@ export function ImportWizard({ depts, sites = [], people, myEmail, existing = []
           <div className="cv-drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) readFile(f); }}>
             <Upload size={26} style={{ opacity: .5 }} />
             <strong>Drop your password spreadsheet here</strong>
-            <span className="cv-hint">Excel (.xlsx, .xls) or CSV. Any column names - you match them on the next step. The first sheet is read; passwords stay in your browser until you click Import.</span>
-            <button type="button" className="cv-btn-dark" onClick={() => fileRef.current?.click()}><Upload size={14} /> Choose File</button>
+            <span className="cv-hint">Best: the template - its Company column lists your companies and Department only that company&apos;s departments. Any other Excel (.xlsx, .xls) or CSV works too; you match its columns on the next step. The first sheet is read; passwords stay in your browser until you click Import.</span>
+            <span style={{ display: "inline-flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+              <button type="button" className="cv-btn" onClick={downloadTemplate} disabled={templateBusy}><Download size={14} /> {templateBusy ? "Preparing…" : "Download the Template"}</button>
+              <button type="button" className="cv-btn-dark" onClick={() => fileRef.current?.click()}><Upload size={14} /> Choose File</button>
+            </span>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" onChange={(e) => { const f = e.target.files?.[0]; if (f) readFile(f); e.target.value = ""; }} style={{ display: "none" }} />
           </div>
         )}
@@ -548,6 +595,11 @@ export function ImportWizard({ depts, sites = [], people, myEmail, existing = []
             <CheckCircle2 size={34} style={{ color: "var(--cv-ok)", display: "block", margin: "0 auto 10px" }} />
             <strong>{result.imported} login{result.imported === 1 ? "" : "s"} imported</strong>
             {result.skipped + result.dups > 0 ? `${result.skipped + result.dups} already in the vault were skipped. ` : ""}{result.bad > 0 ? `${result.bad} row${result.bad === 1 ? "" : "s"} had no name, password or department and were left out. ` : ""}
+            {result.refused.length > 0 && (
+              <div className="cv-callout tone-warn" style={{ marginTop: 12, textAlign: "left" }} data-import-refused="">
+                <span><b>{result.refused.length} left out:</b> {result.refused.map((r) => `${r.name} (${r.reason})`).join("; ")}.</span>
+              </div>
+            )}
             <p className="cv-hint" style={{ marginTop: 12 }}>They are in My Logins now, owned by you{backupOwner ? ` with ${nameOf(backupOwner)} as backup` : ""}. The spreadsheet can go: delete it, and tell the team the vault is the place from now on.</p>
           </div>
         )}

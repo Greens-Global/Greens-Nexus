@@ -11,6 +11,13 @@ vi.mock('../tasks/components', () => ({
   Modal: ({ children, footer }) => <div>{children}{footer}</div>,
   PersonSelect: ({ value, onChange, placeholder }) => <input aria-label={placeholder} value={value || ''} onChange={(e) => onChange(e.target.value)} />,
   DateField: ({ value, onChange }) => <input aria-label="Expires On" value={value || ''} onChange={(e) => onChange(e.target.value)} />,
+  // The dropdown, flattened: each option a toggle button (pressed = picked).
+  ChipMultiSelect: ({ value, onChange, options }) => (
+    <div>{options.map((o) => (
+      <button key={o.id} type="button" aria-pressed={value.includes(o.id)}
+        onClick={() => onChange(value.includes(o.id) ? value.filter((x) => x !== o.id) : [...value, o.id])}>{o.label}</button>
+    ))}</div>
+  ),
 }));
 
 import { CredentialForm, resetAudienceOptions } from './CredentialForm';
@@ -21,6 +28,7 @@ const DEPTS = [{ name: 'IT', companyId: 'co-a' }, { name: 'Accounting', companyI
 const OPTIONS = { companies: COMPANIES, departments: DEPTS, groups: [{ id: 'g1', name: 'Night Crew', departments: ['IT'] }, { id: 'g2', name: 'Yard Team', departments: ['Yard'] }] };
 const companiesBox = () => within(document.querySelector('[data-scope="companies"]'));
 const deptsBox = () => within(document.querySelector('[data-scope="departments"]'));
+const groupsBox = () => within(document.querySelector('[data-scope="groups"]'));
 const form = (props = {}) => render(<CredentialForm cred={null} people={PEOPLE} myEmail="me@x.com" nameOf={(e) => e} companies={COMPANIES} onClose={() => {}} onSave={vi.fn()} {...props} />);
 const fillBasics = () => {
   fireEvent.change(screen.getByPlaceholderText('e.g. Stripe Dashboard'), { target: { value: 'Wi-Fi' } });
@@ -40,16 +48,15 @@ describe('Company, then Department', () => {
     await waitFor(() => expect(companiesBox().getByRole('button', { name: 'Greens Nexus' })).toBeTruthy());
     expect(document.querySelector('[data-scope="departments"]')).toBeNull();                   // no company yet
     fireEvent.click(companiesBox().getByRole('button', { name: 'Greens' }));
-    expect(deptsBox().getAllByRole('button').map((b) => b.textContent)).toEqual(['All', 'IT', 'Accounting']);
+    expect(deptsBox().getAllByRole('button').map((b) => b.textContent)).toEqual(['All Departments', 'IT', 'Accounting']);
     fireEvent.click(companiesBox().getByRole('button', { name: 'Greens Nexus' }));          // several companies
-    expect(deptsBox().getAllByRole('button').map((b) => b.textContent)).toEqual(['All', 'IT · Greens', 'Accounting · Greens', 'IT · Greens Nexus']);
+    expect(deptsBox().getAllByRole('button').map((b) => b.textContent)).toEqual(['All Departments', 'IT · Greens', 'Accounting · Greens', 'IT · Greens Nexus']);
     fireEvent.click(deptsBox().getByRole('button', { name: 'IT · Greens' }));
     fireEvent.click(deptsBox().getByRole('button', { name: 'IT · Greens Nexus' }));
-    // Access Groups follow the departments: Yard Team has nobody in IT.
-    expect(screen.queryByRole('button', { name: 'Yard Team' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Show All Groups (2)' }));
-    expect(screen.getByRole('button', { name: 'Yard Team' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Night Crew' }));
+    // Access Groups (optional) follow the departments: Yard Team has nobody in IT.
+    expect(groupsBox().getAllByRole('button').map((b) => b.textContent)).toEqual(['Night Crew']);
+    expect(screen.getByText(/None picked = everyone in the departments above/)).toBeTruthy();
+    fireEvent.click(groupsBox().getByRole('button', { name: 'Night Crew' }));         // keep it to the Night Crew
     fireEvent.change(screen.getByLabelText('Add a person'), { target: { value: 'ben@x.com' } });
     fillBasics();
     fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
@@ -59,7 +66,7 @@ describe('Company, then Department', () => {
     expect(saved.audiences).toEqual([
       { kind: 'department', value: 'co-a:IT', level: 'open' },
       { kind: 'department', value: 'co-b:IT', level: 'open' },
-      { kind: 'group', value: 'g1', level: 'open' },
+      { kind: 'only_group', value: 'g1', level: 'open' },
       { kind: 'person', value: 'ben@x.com', level: 'open' },
     ]);
   });
@@ -69,10 +76,10 @@ describe('Company, then Department', () => {
     form({ onSave });
     await waitFor(() => expect(companiesBox().getByRole('button', { name: 'Greens' })).toBeTruthy());
     fireEvent.click(companiesBox().getByRole('button', { name: 'Greens' }));
-    fireEvent.click(deptsBox().getByRole('button', { name: 'All' }));
-    expect(deptsBox().getByRole('button', { name: 'IT' }).disabled).toBe(true);              // all of them, already
-    fireEvent.click(companiesBox().getByRole('button', { name: 'All' }));                  // + Greens Nexus, still All
-    expect(companiesBox().getByRole('button', { name: 'Greens Nexus' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(deptsBox().getByRole('button', { name: 'All Departments' }));
+    expect(deptsBox().getByRole('button', { name: 'All Departments' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(companiesBox().getByRole('button', { name: 'All Companies' }));        // + Greens Nexus, still All
+    expect(companiesBox().getByRole('button', { name: 'All Companies' }).getAttribute('aria-pressed')).toBe('true');
     fillBasics();
     fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
@@ -94,6 +101,18 @@ describe('Company, then Department', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     expect(onSave.mock.calls[0][0].audiences).toEqual([{ kind: 'department', value: 'co-a:IT', level: 'open' }]);
+  });
+
+  it('a new login starts on the person\'s own company and department', async () => {
+    calls.cvAudienceOptions.mockResolvedValue({ ...OPTIONS, me: { companyId: 'co-b', dept: 'IT' } });
+    const onSave = vi.fn().mockResolvedValue({});
+    form({ onSave });
+    await waitFor(() => expect(companiesBox().getByRole('button', { name: 'Greens Nexus' }).getAttribute('aria-pressed')).toBe('true'));
+    expect(deptsBox().getByRole('button', { name: 'IT' }).getAttribute('aria-pressed')).toBe('true');
+    fillBasics();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0]).toMatchObject({ companyId: 'co-b', dept: 'IT', audiences: [{ kind: 'department', value: 'co-b:IT', level: 'open' }] });
   });
 
   it('a failed load says so and Retry loads again, never "No departments set up"', async () => {
@@ -121,6 +140,21 @@ describe('Checks and dates', () => {
     expect(screen.getByPlaceholderText('https://…').className).toContain('cv-ipt-error');
     fireEvent.click(companiesBox().getByRole('button', { name: 'Greens' }));
     expect(screen.getByText('Pick at least one department, or All.')).toBeTruthy();
+  });
+
+  it('a weak or leaked password the server refuses shows in red under Password', async () => {
+    const refusal = Object.assign(new Error('weak'), { detail: { code: 'weak_password', field: 'secret', message: 'This password is weak - use 12 or more characters.' } });
+    const onSave = vi.fn().mockRejectedValue(refusal);
+    form({ onSave });
+    await waitFor(() => expect(companiesBox().getByRole('button', { name: 'Greens' })).toBeTruthy());
+    fireEvent.click(companiesBox().getByRole('button', { name: 'Greens' }));
+    fireEvent.click(deptsBox().getByRole('button', { name: 'IT' }));
+    fillBasics();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
+    expect(await screen.findByText('This password is weak - use 12 or more characters.')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Enter or generate a password').className).toContain('cv-ipt-error');
+    fireEvent.change(screen.getByPlaceholderText('Enter or generate a password'), { target: { value: 'Another-Strong-1!' } });
+    expect(screen.queryByText('This password is weak - use 12 or more characters.')).toBeNull();   // typing clears it
   });
 
   it('Expires On follows Rotate Every until a date is picked by hand', async () => {

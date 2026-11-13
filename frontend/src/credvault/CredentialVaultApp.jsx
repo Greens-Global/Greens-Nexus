@@ -38,6 +38,7 @@ import { Monogram } from "./vaultCards";
 import MyLogins from "./MyLogins";
 import Overview from "./Overview";
 import CredentialSheet, { CredentialDetail } from "./CredentialDrawer";
+import HeadCodeModal from "./HeadCode";
 import { CredentialForm, ImportWizard, ShareModal, RequestModal } from "./CredentialForm";
 import PersonalVault from "./PersonalVault";
 import { Pager } from "./vaultShared";
@@ -271,14 +272,28 @@ export default function CredentialVaultApp({ activeSub }) {
     }, c.homeDept);
   }
 
+  // The department head's code (11/13/2026): a change the server answers with
+  // head_code_required opens the code card; once it is confirmed the same
+  // change runs again. Cancel rejects, so the form / button keeps its state.
+  const [headGate, setHeadGate] = useState(null);
+  function withHead(run, action) {
+    return run().catch((e) => {
+      if (e?.detail?.code !== "head_code_required") throw e;
+      return new Promise((resolve, reject) => setHeadGate({
+        scopes: e.detail.scopes || [], action,
+        done: () => { setHeadGate(null); withHead(run, action).then(resolve, reject); },
+        cancel: () => { setHeadGate(null); reject(new Error("Not saved - it waits for the department head's code.")); },
+      }));
+    });
+  }
   async function saveCredential(f) {
     if (form?.cred) {
-      await api.cvUpdate(form.cred.id, f);
-      if (f.owner && f.owner !== form.cred.owner) await api.cvTransfer(form.cred.id, f.owner);
+      await withHead(() => api.cvUpdate(form.cred.id, f), `change ${f.name}`);
+      if (f.owner && f.owner !== form.cred.owner) await withHead(() => api.cvTransfer(form.cred.id, f.owner), `hand ${f.name} to a new owner`);
       flash(`${f.name} updated.`);
     } else {
-      const res = await api.cvCreate(f);
-      if (f.owner && f.owner !== myEmail) await api.cvTransfer(res.id, f.owner);
+      const res = await withHead(() => api.cvCreate(f), `add ${f.name}`);
+      if (f.owner && f.owner !== myEmail) await withHead(() => api.cvTransfer(res.id, f.owner), `hand ${f.name} to a new owner`);
       flash(`${f.name} added.`);
       setSelectedId(res.id);
     }
@@ -288,7 +303,7 @@ export default function CredentialVaultApp({ activeSub }) {
   // The wizard shows the result itself and closes on Done; this only sends
   // the rows and refreshes the list behind it.
   async function importRows(list) {
-    const res = await api.cvImport(list);
+    const res = await withHead(() => api.cvImport(list), `import ${list.length} login${list.length === 1 ? "" : "s"}`);
     refresh().catch(() => {});
     return res;
   }
@@ -296,21 +311,21 @@ export default function CredentialVaultApp({ activeSub }) {
     const second = secondOwners(c, myEmail);
     const ok = await dialog.confirm(`Move ${c.name} to the trash? It can be recovered from there.${second.length ? ` To delete it for good, ${second.map(nameOf).join(" or ")} or an admin confirms - not you.` : ""}`, { title: "Move to Trash", confirmText: "Move to Trash", danger: true });
     if (!ok) return;
-    try { await api.cvDelete(c.id); closeDetail(); await refresh(); flash(`${c.name} moved to the trash.`); } catch (e) { flash(e?.message || "Could not remove.", "info"); }
+    try { await withHead(() => api.cvDelete(c.id), `move ${c.name} to the trash`); closeDetail(); await refresh(); flash(`${c.name} moved to the trash.`); } catch (e) { flash(e?.message || "Could not remove.", "info"); }
   }
   async function trashChecked() {
     const n = checkedEditable.length;
     const ok = await dialog.confirm(`Move ${n} credential${n === 1 ? "" : "s"} to the trash?`, { title: "Move to Trash", confirmText: "Move to Trash", danger: true });
     if (!ok) return;
-    try { await api.cvBulkDelete(checkedEditable.map((c) => c.id)); setChecked(new Set()); await refresh(); flash(`${n} moved to the trash.`); } catch (e) { flash(e?.message || "Could not remove.", "info"); }
+    try { await withHead(() => api.cvBulkDelete(checkedEditable.map((c) => c.id)), `move ${n} logins to the trash`); setChecked(new Set()); await refresh(); flash(`${n} moved to the trash.`); } catch (e) { flash(e?.message || "Could not remove.", "info"); }
   }
   async function restore(c) {
-    try { await api.cvRestore(c.id); await refresh(); flash(`${c.name} recovered.`); } catch (e) { flash(e?.message || "Could not recover.", "info"); }
+    try { await withHead(() => api.cvRestore(c.id), `recover ${c.name}`); await refresh(); flash(`${c.name} recovered.`); } catch (e) { flash(e?.message || "Could not recover.", "info"); }
   }
   // Held on the drawer's Delete Permanently (Neil, Oct 30 2026): no dialog;
   // a refusal throws so the button rewinds with the reason.
   async function purge(c) {
-    try { await api.cvPurge(c.id); } catch (e) { throw new Error(e?.message || "Could not delete.", { cause: e }); }
+    try { await withHead(() => api.cvPurge(c.id), `delete ${c.name} for good`); } catch (e) { throw new Error(e?.message || "Could not delete.", { cause: e }); }
     closeDetail(); await refresh(); flash(`${c.name} deleted permanently.`, "info");
   }
   async function share(c, body) {
@@ -606,7 +621,8 @@ export default function CredentialVaultApp({ activeSub }) {
 
       {selected && isMobile && <CredentialSheet key={selected.id} {...detailProps} />}
       {form && <CredentialForm cred={form.cred} people={people} myEmail={myEmail} nameOf={nameOf} companies={orgOpts.companies} sites={orgOpts.sites} myCompanyId={orgOpts.companies.length === 1 ? orgOpts.companies[0].id : ""} onClose={() => setForm(null)} onSave={saveCredential} />}
-      {importOpen && <ImportWizard depts={depts} sites={orgOpts.sites} people={people} myEmail={myEmail} existing={creds} nameOf={nameOf} onClose={() => setImportOpen(false)} onImport={importRows} />}
+      {importOpen && <ImportWizard depts={depts} sites={orgOpts.sites} departments={orgOpts.departments} people={people} myEmail={myEmail} existing={creds} nameOf={nameOf} onClose={() => setImportOpen(false)} onImport={importRows} />}
+      {headGate && <HeadCodeModal scopes={headGate.scopes} action={headGate.action} onDone={headGate.done} onCancel={headGate.cancel} />}
       {shareFor && <ShareModal cred={shareFor} people={people.filter((p) => p.email !== myEmail)} nameOf={nameOf} deptRows={orgOpts.departments} companies={orgOpts.companies} onClose={() => setShareFor(null)} onSubmit={(body) => share(shareFor, body)} />}
       {requestFor && <RequestModal cred={requestFor} nameOf={nameOf} onClose={() => setRequestFor(null)} onSubmit={(ms, label) => request(requestFor, ms, label)} />}
       {otpGate && <VaultOtpModal onClose={() => setOtpGate(null)} onVerified={afterOtp} />}

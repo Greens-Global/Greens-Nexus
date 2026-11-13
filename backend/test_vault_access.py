@@ -70,6 +70,10 @@ class VaultAccessTests(unittest.TestCase):
             pass
 
     def setUp(self):
+        import vault_head
+        _req = vault_head.require
+        vault_head.require = lambda *a, **k: None   # the head code has its own suite (test_vault_head.py)
+        self.addCleanup(setattr, vault_head, "require", _req)
         self.client = TestClient(main.app)
         self._skip = auth.SKIP_AUTH
         auth.SKIP_AUTH = True
@@ -261,12 +265,14 @@ class VaultAccessTests(unittest.TestCase):
         self._create(name="Zoom Admin", username="it@x.com")
         r = self._as(OWNER).post("/credvault/import", json={"rows": [
             {"name": "Zoom Admin", "username": "it@x.com", "secret": "Dup!2026xx", "department": "IT"},           # already there
-            {"name": "Procore", "username": "field", "secret": "Build!2026xx", "department": "Construction", "backupOwner": PEER,
+            {"name": "Procore", "username": "field", "secret": "Build!2026xx", "department": "IT", "backupOwner": PEER,
              "audiences": [{"kind": "company", "value": CO}], "url": "https://app.procore.com"},
             {"name": "Wi-Fi Guest", "secret": "Guest!2026xx", "department": "IT"},                               # default: its department
+            {"name": "Payroll", "secret": "Pay!2026xxLong", "department": "Payroll"},                           # Greens has no Payroll
         ]})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual((r.json()["imported"], r.json()["skipped"], r.json()["skippedNames"]), (2, 1, ["Zoom Admin"]))
+        self.assertEqual(r.json()["refused"], [{"name": "Payroll", "reason": "Greens has no Payroll department"}])
         rows = {c["name"]: c for c in self._as(OWNER).get("/credvault/credentials").json()}
         self.assertEqual(rows["Procore"]["backupOwner"], PEER)
         self.assertEqual(rows["Procore"]["audiences"][0]["kind"], "company")

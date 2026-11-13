@@ -70,6 +70,10 @@ class VaultHardeningTests(unittest.TestCase):
             pass
 
     def setUp(self):
+        import vault_head
+        _req = vault_head.require
+        vault_head.require = lambda *a, **k: None   # the head code has its own suite (test_vault_head.py)
+        self.addCleanup(setattr, vault_head, "require", _req)
         self.client = TestClient(main.app)
         self._skip = auth.SKIP_AUTH
         auth.SKIP_AUTH = True
@@ -444,18 +448,35 @@ class VaultHardeningTests(unittest.TestCase):
         self.assertEqual((rows[0]["name"], rows[0]["note"]), ("Bank (joint)", "with Sam"))
 
     # ── daily reminders ────────────────────────────────────────────────────
-    def test_rotation_reminders_once_a_day_to_owner_and_backup(self):
-        cid = self._create()
+    def test_expiry_alerts_3_1_0_days_before_then_weekly_to_owner_backup_and_head(self):
+        # 11/13/2026: 3 days, 1 day, the day, then weekly while expired - owner, backup owner, department head.
         db = database.SessionLocal()
-        c = db.get(models.VaultCredential, cid)
-        c.rotated_at = (datetime.now(timezone.utc) - timedelta(days=85)).isoformat()    # due in 5 days
+        db.query(models.HrDepartment).delete()
+        db.add(models.HrDepartment(id="dA", company_id=CO_A, name="Accounting", lead_email=PEER, backup_email=""))
         db.commit()
-        self.assertEqual(CV.rotation_reminders(db), 2)
-        self.assertEqual(CV.rotation_reminders(db), 0)                                 # same day: no repeat
-        bells = db.query(models.NexusNotification).filter(models.NexusNotification.type == "vault_rotation").all()
-        self.assertEqual({b.recipient for b in bells}, {OWNER, BACKUP})
-        self.assertIn("due in 5 days", bells[0].body)
+        cid = self._create()
+        c = db.get(models.VaultCredential, cid)
+        for ago, alerts in ((85, 0), (87, 1), (88, 0), (89, 1), (90, 1)):
+            c.rotated_at = (datetime.now(timezone.utc) - timedelta(days=ago)).isoformat()
+            db.query(models.NexusNotification).filter(models.NexusNotification.type == "vault_expiry").delete()
+            db.commit()
+            self.assertEqual(CV.rotation_reminders(db), alerts, f"{ago} days after the last change")
+        self.assertEqual(CV.rotation_reminders(db), 0)                                   # same day: once
+        bells = db.query(models.NexusNotification).filter(models.NexusNotification.type == "vault_expiry").all()
+        self.assertEqual({b.recipient for b in bells}, {OWNER, BACKUP, PEER})
+        self.assertIn("expires today", bells[0].body)
         self.assertEqual(json.loads(bells[0].action), {"view": "credvault", "sub": f"cred-{cid}"})
+        c.rotated_at = (datetime.now(timezone.utc) - timedelta(days=95)).isoformat()   # expired 5 days ago
+        db.commit()
+        self.assertEqual(CV.rotation_reminders(db), 1)
+        self.assertEqual(CV.rotation_reminders(db), 0)                                   # weekly, not daily
+        # A new password moves the rotation on: nothing more to say.
+        self.assertEqual(self._as(OWNER).patch(f"/credvault/credentials/{cid}", json={"name": "Stripe", "dept": "Accounting", "secret": "N3w-Rotated-Value!"}).status_code, 200)
+        db.query(models.NexusNotification).filter(models.NexusNotification.type == "vault_expired").delete()
+        db.commit()
+        self.assertEqual(CV.rotation_reminders(db), 0)
+        db.query(models.HrDepartment).delete()
+        db.commit()
         db.close()
 
     def test_bells_carry_where_to_open(self):
@@ -479,7 +500,11 @@ class VaultHardeningTests(unittest.TestCase):
         self.assertEqual(row["url"], "")
 
     def test_rows_you_cannot_open_carry_no_health_facts(self):
-        cid = self._create(secret="weak")
+        cid = self._create()
+        db = database.SessionLocal()
+        db.get(models.VaultCredential, cid).strength = "weak"     # an older login - new weak ones are refused
+        db.commit()
+        db.close()
         row = [c for c in self._as(OTHER).get("/credvault/credentials").json() if c["id"] == cid][0]
         self.assertEqual((row["strength"], row["reused"], row["rotatedAt"], row["rotatedDays"], row["expiresInDays"], row["hasPrevious"]),
                          ("", False, "", 0, None, False))
