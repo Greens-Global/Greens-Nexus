@@ -358,7 +358,8 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const guard = useUnsavedGuard(dirty, onClose, send);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1420, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    // `nx-bod-scrim`: the phone menu steps aside while this is open (style.css).
+    <div className="nx-bod-scrim" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1420, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => { if (e.target === e.currentTarget && !required) guard.requestClose(); }}>
       <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>

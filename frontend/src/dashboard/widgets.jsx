@@ -1100,9 +1100,15 @@ export const WIDGETS = {
   // Quick Actions (styles Oct 13): the size, the resize bounds and the phone
   // height all follow the style in the tile's config - a bare icon dock is
   // one row on a phone, the list keeps what it had.
+  // RETIRED (Neil, 11/13/2026: "Remove the quick actions widget from
+  // dashboard"): the header's bolt starts things from every screen. The key
+  // stays so a saved board still loads; the tile is hidden from every board
+  // and the gallery (widgetHidden), never deleted from a saved layout, and no
+  // tile stands in for it. Never bring it back - a new way to start something
+  // is a row in lib/quickCreate.js.
   'quick-actions': { title: 'Quick Actions', cat: 'Actions',   icon: ListTodo,         size: QUICK_SIZE.icons, limits: QUICK_LIMITS.list, render: QuickActionsWidget, configurable: 'quick-actions',
                      sizeWhen: (config) => QUICK_SIZE[quickStyleOf(config)], limitsWhen: (config) => QUICK_LIMITS[quickStyleOf(config)],
-                     phoneRowsWhen: (config) => (quickStyleOf(config) === 'icons' ? 1 : undefined) },
+                     phoneRowsWhen: (config) => (quickStyleOf(config) === 'icons' ? 1 : undefined), hidden: true, retired: true },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget, fit: true },
   // 'agenda' is the pre-merge widget type (My Agenda, list-only) - kept as a
   // hidden alias so dashboards that already have one keep working, but it now
