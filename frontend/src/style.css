@@ -10333,6 +10333,13 @@ button.nx-docb-hbtn.is-icon { width: 32px; padding: 0; }
 .nx-docb.is-phone button.nx-docb-hbtn, .nx-docb.is-phone .nx-docb-head .primary-btn { height: 38px; }
 .nx-docb.is-phone button.nx-docb-hbtn.is-icon { width: 38px; }
 body:has(.nx-docb.is-phone) .mobile-nav { display: none; }
+/* Punch In from the phone menu's clock (Neil, 11/13/2026: it "opens the
+   screen behind and you can't access it"): the Start the Day / End the Day /
+   break note (BodModal, z 1420) opened UNDER the menu (z 2700). Closing the
+   menu would unmount the clock that is waiting on that note, so the menu
+   only steps aside - hidden, still mounted - while the note is up, and comes
+   back showing the new state once it is sent or closed. */
+body:has(.nx-bod-scrim) :is(.mobile-menu, .mobile-menu-scrim, .mobile-submenu) { visibility: hidden; pointer-events: none; }
 /* The full ribbon, when asked for on a phone: the tabs on one sliding line
    with Done held at its end, the groups on one sliding row. */
 .nx-docb.is-phone .doc-ribbon-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
