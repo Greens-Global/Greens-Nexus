@@ -51,6 +51,8 @@ describe('Delete a template', () => {
   it('a refusal (409) rewinds the button and says to archive instead', async () => {
     calls.deleteDocTemplate.mockRejectedValue(Object.assign(new Error('Conflict'), { status: 409 }));
     render(<DocumentTemplates toastOk={vi.fn()} toastErr={vi.fn()} />);
+    // Templates opens on category cards (Pranshu, 11/13/2026): open HR, then the row.
+    fireEvent.click(await screen.findByRole('button', { name: 'HR, 1 template' }));
     fireEvent.click(await screen.findByRole('cell', { name: 'Offer Letter' }));
     const btn = await screen.findByRole('button', { name: 'Delete template Offer Letter, press and hold' });
     vi.useFakeTimers();
