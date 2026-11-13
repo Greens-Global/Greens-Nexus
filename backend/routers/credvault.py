@@ -44,6 +44,7 @@ import vault_breach
 import vault_totp
 import vault_head as VH
 import vault_alerts
+import vault_external
 
 # Where a request came from (Oct 29 2026): set once per request by the router
 # dependency below, read by _log so every reveal, share and change says which
@@ -647,7 +648,8 @@ def _can_reveal(c: models.VaultCredential, user: dict, db: Session) -> bool:
 
 
 def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
-               access: str = "owner", grant_until: str = "", audiences: list | None = None, home: bool = False) -> dict:
+               access: str = "owner", grant_until: str = "", audiences: list | None = None, home: bool = False,
+               shared_outside: bool = False) -> dict:
     can_reveal = access not in ("request", "view")
     # "view" (Oct 29 2026): the row, username, link and notes - never the password.
     can_see = access != "request"
@@ -679,6 +681,8 @@ def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
         "audiences": audiences or [],
         # Opens without the text / email code (own department, not Critical) - _home_dept.
         "homeDept": bool(home and can_reveal),
+        # Its current password was shown to someone outside Nexus (vault_external).
+        "sharedOutside": bool(shared_outside and can_reveal),
     }
 
 
@@ -824,6 +828,7 @@ def list_credentials(user: dict = Depends(get_current_user), db: Session = Depen
     ctx, mine = _access_ctx(user, db)
     heads = VA.heads_map(db, rows)
     auds = VA.rows_for(db, [c.id for c in rows])
+    exposed = vault_external.exposed_ids(db)
     out = []
     for c in rows:
         access = _access_for(c, user, ctx, mine, heads.get(c.id), auds.get(c.id))
@@ -836,6 +841,7 @@ def list_credentials(user: dict = Depends(get_current_user), db: Session = Depen
             access=access, grant_until=mine.get(c.id, ""),
             audiences=VA.labels(db, auds.get(c.id, [])),
             home=_home_dept(c, ctx, auds.get(c.id)),
+            shared_outside=c.id in exposed,
         ))
     return out
 
@@ -1412,6 +1418,8 @@ class ShareIn(BaseModel):
     recipientEmail: str = ""                 # one person (the old shape)
     recipients: list[str] = []               # several people (Oct 29 2026)
     departments: list[str] = []              # whole departments: "Name" or "companyId:Name"
+    companies: list[str] = []                # everyone at these companies (11/13/2026)
+    externals: list[dict] = []               # people outside Nexus: [{email, phone}] (vault_external.py)
     durationMs: int = 14400000
     durationLabel: str = "4 Hours"
 
@@ -1432,6 +1440,32 @@ def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_curre
         raise HTTPException(403, "Only the owner, backup owner or an admin can share this credential")
     _require_critical_stepup(c, user, db)
     everyone = [e for e in db.query(models.NexusEmployee).all() if e.work_email]
+    # People outside Nexus (11/13/2026): any address; never someone in Nexus
+    # People (they get a normal share); 7 days at most.
+    nexus_emails = {(e.work_email or "").lower() for e in everyone}
+    outside, seen_out = [], set()
+    for x in body.externals or []:
+        em = str((x or {}).get("email") or "").strip().lower()
+        phone = re.sub(r"[^0-9+]", "", str((x or {}).get("phone") or ""))[:20]
+        if not em:
+            continue
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", em):
+            raise HTTPException(400, f"{em} is not an email address")
+        if em in nexus_emails:
+            raise HTTPException(400, f"{em} is in Nexus People - add them under People instead")
+        if em not in seen_out:
+            seen_out.add(em)
+            outside.append((em, phone))
+    if len(outside) > 20:
+        raise HTTPException(400, "Share with 20 people outside Nexus at most at a time")
+    if outside and (body.durationMs or 0) > vault_external.MAX_MS:
+        raise HTTPException(400, "A share with someone outside Nexus lasts 7 days at most")
+    # The department head's OK for any share (11/13/2026, vault_head); a
+    # Critical login goes outside only with a Super Administrator's.
+    scopes = [_scope_of(db, c)]
+    if outside and (c.tier or "Standard") == "Critical":
+        scopes.append(VH.scope(c.company_id or company_of(c.owner_email or "", db), "Critical Logins"))
+    _head(db, user, scopes)
     people = {(e.work_email or "").lower(): e for e in everyone}
     wanted = {(body.recipientEmail or "").lower().strip()} | {(r or "").lower().strip() for r in body.recipients}
     wanted.discard("")
@@ -1452,8 +1486,13 @@ def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_curre
         if not members:
             raise HTTPException(400, f"Nobody active in {name} to share with")
         wanted |= set(members)
+    for co in body.companies or []:
+        co = (co or "").strip()
+        if co and company_ok(co, company_scope(user, db)):
+            wanted |= {(e.work_email or "").lower() for e in everyone if (e.company or "") == co
+                       and (e.status or "active").lower() == "active" and not (e.deleted_at or "")}
     wanted -= {user["email"], (c.owner_email or "").lower()}
-    if not wanted:
+    if not wanted and not outside:
         raise HTTPException(400, "Pick who to share it with")
     duration_ms = max(60000, min(body.durationMs or 3600000, MAX_SHARE_MS))
     expires = (datetime.now(timezone.utc) + timedelta(milliseconds=duration_ms)).isoformat()
@@ -1471,10 +1510,88 @@ def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_curre
                 title="Credentials - Access Granted",
                 body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open Credentials to view it.",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
-    _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": ", ".join(names[:12]) + (f" +{len(names) - 12}" if len(names) > 12 else "")},
-                                                            {"field": "For", "from": "", "to": body.durationLabel or ""}])
+    if names:
+        _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": ", ".join(names[:12]) + (f" +{len(names) - 12}" if len(names) > 12 else "")},
+                                                                {"field": "For", "from": "", "to": body.durationLabel or ""}])
+    dev_links = _share_outside(db, user, c, outside, expires, body.durationLabel or "")
     db.commit()
-    return {"granted": len(wanted)}
+    out = {"granted": len(wanted), "external": len(outside)}
+    if dev_links:
+        out["devLinks"] = dev_links
+    return out
+
+
+def _share_outside(db: Session, user: dict, c: models.VaultCredential, outside: list, expires: str, label: str) -> list:
+    """One VaultExternalShare and one email per outside person. The email
+    carries only the link (never the password). Returns the links themselves
+    only where no email can be sent (a laptop with no Graph), for testing."""
+    import html as _html
+    import app_url
+    dev = []
+    sharer = _display_name(user["email"], db)
+    for em, phone in outside:
+        token, token_hash = vault_external.new_token()
+        db.add(models.VaultExternalShare(id=str(uuid.uuid4()), cred_id=c.id, email=em, phone=phone, token_hash=token_hash,
+                                         shared_by=user["email"], created_at=_now(), expires_at=expires))
+        link = f"{app_url.app_url()}/vault-share/{token}"
+        if graph_mail.graph_configured():
+            try:
+                graph_mail.send_mail(
+                    from_email=graph_mail.DEFAULT_FROM_EMAIL, to=[em], cc=None,
+                    subject=f"{sharer} shared a login with you",
+                    html=(f"<p>{_html.escape(sharer)} shared the login <b>{_html.escape(c.name)}</b> with you for {_html.escape(label or 'a limited time')}.</p>"
+                          f"<p><a href=\"{link}\" style=\"display:inline-block;padding:10px 18px;background:#1f7a3a;color:#fff;border-radius:8px;text-decoration:none\">Get Password Details</a></p>"
+                          f"<p>You will be asked for a one-time code we send you. The link stops working when the share ends. "
+                          f"If you were not expecting this, ignore this email.</p>"))
+            except graph_mail.GraphMailError as e:
+                print(f"[credvault] outside share email to {em} failed: {e}")
+        elif not _ON_AZURE:
+            print(f"[credvault] OUTSIDE SHARE STUB (Graph not configured) - link for {em}: {link}")
+            dev.append({"email": em, "link": link})
+    if outside:
+        _log(db, user, "Shared Outside", c.name, c.dept, c.id,
+             detail=[{"field": "With", "from": "", "to": ", ".join(em for em, _ in outside)}, {"field": "For", "from": "", "to": label}])
+    return dev
+
+
+def external_ended_alert(db: Session, share: models.VaultExternalShare, c: models.VaultCredential) -> None:
+    """An outside share ended and the password it showed is still current:
+    the owner, backup owner and department head change it (11/13/2026)."""
+    people = []
+    for e in [c.owner_email, c.backup_owner_email, *sorted(VA.heads_for(db, c))]:
+        e = (e or "").strip().lower()
+        if e and e not in people:
+            people.append(e)
+    how = "was ended" if share.ended_at else "expired"
+    body = (f"{c.name} ({c.dept or 'every department'}) was shared outside Nexus with {share.email}, and that share {how}. "
+            f"Change the password on the site and save the new one in Credentials.")
+    for who in people:
+        _notify(db, type="vault_attention", recipient=who, title="Credentials - Change the Password", body=body,
+                ref_id=c.id, actor=share.shared_by or c.owner_email or who, action={"view": "credvault", "sub": f"cred-{c.id}"})
+    if people and graph_mail.graph_configured():
+        try:
+            graph_mail.send_mail(from_email=graph_mail.DEFAULT_FROM_EMAIL, to=people, cc=None,
+                                 subject=f"Change the password for {c.name}", html=f"<p>{body}</p>")
+        except graph_mail.GraphMailError as e:
+            print(f"[credvault] outside share ended email failed: {e}")
+
+
+@router.post("/external-shares/{share_id}/end")
+def end_external_share(share_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """End an outside share now (owner, backup owner, head or admin): the link
+    stops working at once and the change-the-password alert follows."""
+    share = db.get(models.VaultExternalShare, share_id)
+    c = db.get(models.VaultCredential, share.cred_id) if share else None
+    if not share or not c:
+        raise HTTPException(404, "Share not found")
+    _get_cred(c.id, db, user)
+    if not _can_modify(c, user, db):
+        raise HTTPException(403, "Only the owner, backup owner, department head or an admin can end this share")
+    if vault_external.state(share) == "active":
+        share.ended_at, share.ended_by = _now(), user["email"]
+        _log(db, user, "Ended Outside Share", c.name, c.dept, c.id, detail=[{"field": "With", "from": share.email, "to": "-"}])
+        db.commit()
+    return {"ok": True}
 
 
 @router.get("/requests")
@@ -1602,6 +1719,10 @@ def credential_access(cred_id: str, user: dict = Depends(get_current_user), db: 
     if not _can_modify(c, user, db):
         return out
     now = _now()
+    out["externals"] = [{"id": x.id, "email": x.email, "until": _ms(x.expires_at), "views": x.views or 0,
+                         "opened": bool(x.first_opened_at), "state": vault_external.state(x, now)}
+                        for x in db.query(models.VaultExternalShare).filter(models.VaultExternalShare.cred_id == c.id)
+                        .order_by(models.VaultExternalShare.created_at.desc()).all()]
     for g in (db.query(models.VaultAccessGrant)
               .filter(models.VaultAccessGrant.cred_id == c.id, models.VaultAccessGrant.expires_at > now)
               .order_by(models.VaultAccessGrant.expires_at).all()):
@@ -2048,7 +2169,9 @@ def _run_alerts(db: Session, creds, only: str | None = None) -> int:
         except graph_mail.GraphMailError as e:
             print(f"[credvault] alert email failed for {c.id}: {e}")
 
+    exposed = vault_external.exposed_ids(db)
     return vault_alerts.run(db, creds, reused_of=lambda c: hashes.get(c.secret_hash or "", 0) > 1,
+                            exposed_of=lambda c: c.id in exposed,
                             heads_of=lambda c: heads.get(c.id, set()), days_since=_days_since,
                             days_until=_days_until, notify=notify, mail=mail, only=only)
 

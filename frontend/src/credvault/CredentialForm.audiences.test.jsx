@@ -10,6 +10,7 @@ vi.mock('../api', () => ({ api: new Proxy({}, { get: (_t, k) => (...a) => (calls
 vi.mock('../tasks/components', () => ({
   Modal: ({ children, footer }) => <div>{children}{footer}</div>,
   PersonSelect: ({ value, onChange, placeholder }) => <input aria-label={placeholder} value={value || ''} onChange={(e) => onChange(e.target.value)} />,
+  PersonMultiSelect: ({ value, onChange, placeholder }) => <input aria-label={placeholder} value={(value || []).join(',')} onChange={(e) => onChange(e.target.value ? e.target.value.split(',') : [])} />,
   DateField: ({ value, onChange }) => <input aria-label="Expires On" value={value || ''} onChange={(e) => onChange(e.target.value)} />,
   // The dropdown, flattened: each option a toggle button (pressed = picked).
   ChipMultiSelect: ({ value, onChange, options }) => (
@@ -20,7 +21,7 @@ vi.mock('../tasks/components', () => ({
   ),
 }));
 
-import { CredentialForm, resetAudienceOptions } from './CredentialForm';
+import { CredentialForm, ShareModal, resetAudienceOptions } from './CredentialForm';
 
 const PEOPLE = [{ email: 'ben@x.com', name: 'Ben Builder' }];
 const COMPANIES = [{ id: 'co-a', name: 'Greens' }, { id: 'co-b', name: 'Greens Nexus' }];
@@ -201,5 +202,26 @@ describe('Checks and dates', () => {
     expect(screen.getByText('Ben Builder')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Remove ben@x.com' }));
     expect(screen.queryByText('Ben Builder')).toBeNull();
+  });
+});
+
+describe('Share Access (11/13/2026)', () => {
+  it('Company and Department are optional; All Departments shares with each company; people outside Nexus by email', async () => {
+    const onSubmit = vi.fn().mockResolvedValue({});
+    render(<ShareModal cred={{ id: 'c1', name: 'Gate', dept: 'IT', tier: 'Standard' }} people={PEOPLE} nameOf={(e) => e} onClose={() => {}} onSubmit={onSubmit} />);
+    const share = () => screen.getByRole('button', { name: /Share$/ });
+    await waitFor(() => expect(within(document.querySelector('[data-share="companies"]')).getByRole('button', { name: 'Greens' })).toBeTruthy());
+    expect(share().disabled).toBe(true);                                                    // nobody picked yet
+    fireEvent.change(screen.getByLabelText('Outside email 1'), { target: { value: 'not-an-email' } });
+    expect(screen.getByText(/not an email address/)).toBeTruthy();
+    expect(share().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Outside email 1'), { target: { value: 'Vendor@Acme.com' } });
+    fireEvent.change(screen.getByLabelText('Outside mobile 1'), { target: { value: '+1 555 0100' } });
+    fireEvent.click(within(document.querySelector('[data-share="companies"]')).getByRole('button', { name: 'Greens' }));
+    fireEvent.click(within(document.querySelector('[data-share="departments"]')).getByRole('button', { name: 'All Departments' }));
+    fireEvent.click(share());
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ recipients: [], departments: [], companies: ['co-a'],
+      externals: [{ email: 'vendor@acme.com', phone: '+1 555 0100' }], durationLabel: '4 Hours' });
   });
 });

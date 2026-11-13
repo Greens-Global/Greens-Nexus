@@ -642,39 +642,100 @@ export function DurationPicker({ value, onChange }) {
   );
 }
 
-// Share (Oct 29 2026): several people and whole departments in one go, for
-// the same time; the screen passes the departments it knows (per company).
-export function ShareModal({ cred, people, nameOf, deptRows = [], companies = [], onClose, onSubmit }) {
+// Share (Oct 29 2026; reworked 11/13/2026): Company and Department (both
+// optional, several or All - All departments = everyone at those companies),
+// people in Nexus, and people OUTSIDE Nexus by email (vault_external.py: an
+// email link + a one-time code, 7 days at most), all for the same time.
+const SEVEN_DAYS = 7 * 86400000;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+export function ShareModal({ cred, people, nameOf, onClose, onSubmit }) {
+  const optsState = useAudienceOptions();
+  const { opts } = optsState;
   const [emails, setEmails] = useState([]);
-  const [depts, setDepts] = useState([]);                 // "companyId:Name" or "Name"
+  const [cos, setCos] = useState([]);
+  const [deptKeys, setDeptKeys] = useState([]);           // "companyId:Name" (several companies) or "Name", or ALL
+  const [outside, setOutside] = useState([{ email: "", phone: "" }]);
   const [dur, setDur] = useState({ key: "4h", ms: 14400000, label: "4 Hours" });
   const [busy, setBusy] = useState(false);
-  const multi = companies.length > 1;
-  const mine = deptRows.filter((d) => !multi || !cred.companyId || d.companyId === cred.companyId);
-  const keyOf = (d) => (multi && d.companyId ? `${d.companyId}:${d.name}` : d.name);
-  const ready = (emails.length || depts.length) && dur;
-  async function go() { if (!ready) return; setBusy(true); try { await onSubmit({ recipients: emails, departments: depts, durationMs: dur.ms, durationLabel: dur.label }); } finally { setBusy(false); } }
+  const multi = opts.companies.length > 1;
+  const allIds = opts.companies.map((c) => c.id);
+  const allCos = allIds.length > 1 && allIds.every((id) => cos.includes(id));
+  const coName = (id) => opts.companies.find((c) => c.id === id)?.name || "";
+  const depts = opts.departments.filter((d) => !multi || cos.includes(d.companyId));
+  const dKey = (d) => (multi && d.companyId ? `${d.companyId}:${d.name}` : d.name);
+  const allDepts = deptKeys.includes(ALL);
+  const out = outside.map((x) => ({ email: x.email.trim().toLowerCase(), phone: x.phone.trim() })).filter((x) => x.email);
+  const badOut = out.filter((x) => !EMAIL_RE.test(x.email));
+  const tooLong = out.length > 0 && dur && dur.ms > SEVEN_DAYS;
+  const picked = emails.length + (allDepts ? cos.length : deptKeys.length) + out.length;
+  const ready = picked > 0 && dur && !badOut.length && !tooLong;
+  function pickCompanies(next) {
+    const ids = next.includes(ALL) && !allCos ? allIds : allCos && !next.includes(ALL) ? [] : next.filter((x) => x !== ALL);
+    setCos(ids);
+    setDeptKeys((k) => k.filter((x) => x === ALL || !multi || ids.includes(x.split(":")[0])));
+  }
+  function pickDepartments(next) {
+    setDeptKeys(next.includes(ALL) && !allDepts ? [ALL] : allDepts && next.includes(ALL) ? next.filter((x) => x !== ALL) : next);
+  }
+  async function go() {
+    if (!ready) return;
+    setBusy(true);
+    try {
+      await onSubmit({ recipients: emails, departments: allDepts ? [] : deptKeys, companies: allDepts ? cos : [],
+        externals: out, durationMs: dur.ms, durationLabel: dur.label });
+    } finally { setBusy(false); }
+  }
   return (
-    <Modal title="Share Access" onClose={onClose} isDirty={emails.length > 0 || depts.length > 0} onSave={ready ? go : undefined} width="clamp(480px, 48vw, 640px)"
+    <Modal title="Share Access" onClose={onClose} isDirty={picked > 0} onSave={ready ? go : undefined} width="clamp(480px, 52vw, 700px)"
       footer={<>
         <button type="button" className="cv-btn" onClick={onClose}>Cancel</button>
         <button type="button" className="cv-btn-dark" onClick={go} disabled={!ready || busy}><Share2 size={14} /> {busy ? "Sharing…" : "Share"}</button>
       </>}>
       <div className="cv-root" style={{ gap: 14, animation: "none" }}>
         <p className="cv-hint" style={{ marginTop: -4 }}>{cred.name} · {cred.dept}</p>
+        {optsState.error ? <LoadFailed onRetry={optsState.retry} /> : (<>
+          <div className="cv-form-grid">
+            <Field label="Company (Optional)" as="div">
+              <div data-share="companies">
+                <ChipMultiSelect value={allCos ? [ALL] : cos} onChange={pickCompanies} placeholder="Pick companies" searchPlaceholder="Search companies…"
+                  options={[...(allIds.length > 1 ? [{ id: ALL, label: "All Companies" }] : []), ...opts.companies.map((c) => ({ id: c.id, label: c.name }))]} />
+              </div>
+            </Field>
+            <Field label="Department (Optional)" as="div">
+              <div data-share="departments">
+                {cos.length === 0 && multi
+                  ? <span className="cv-hint">Pick a company first.</span>
+                  : <ChipMultiSelect value={deptKeys} onChange={pickDepartments} placeholder="Pick departments" searchPlaceholder="Search departments…"
+                      options={[{ id: ALL, label: "All Departments" }, ...depts.map((d) => ({ id: dKey(d), label: `${d.name}${multi && cos.length > 1 ? ` · ${coName(d.companyId)}` : ""}` }))]} />}
+              </div>
+            </Field>
+          </div>
+        </>)}
         <Field label="People"><PersonMultiSelect value={emails} onChange={(v) => setEmails(v || [])} people={people} placeholder="Add people" /></Field>
-        {mine.length > 0 && (
-          <Field label="Whole Departments">
-            <div className="cv-pick-row">
-              {mine.map((d) => { const k = keyOf(d); const on = depts.includes(k); return (
-                <button key={k} type="button" className={`cv-pick${on ? " is-on" : ""}`} aria-pressed={on} onClick={() => setDepts(on ? depts.filter((x) => x !== k) : [...depts, k])}>{on && <Check size={11} />}{d.name}{multi && !cred.companyId && d.companyId ? <span className="cv-pick-sub"> · {companies.find((c) => c.id === d.companyId)?.name || ""}</span> : null}</button>
-              ); })}
-            </div>
-          </Field>
-        )}
+        <Field label="People Outside Nexus (Optional)" as="div">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }} data-share="outside">
+            {outside.map((x, i) => (
+              <div key={i} className="cv-form-grid" style={{ gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr) auto", alignItems: "center" }}>
+                <input className={`cv-ipt${x.email.trim() && !EMAIL_RE.test(x.email.trim()) ? " cv-ipt-error" : ""}`} type="email" placeholder="name@company.com"
+                  aria-label={`Outside email ${i + 1}`} value={x.email} autoComplete="off"
+                  onChange={(e) => setOutside((o) => o.map((y, j) => (j === i ? { ...y, email: e.target.value } : y)))} />
+                <input className="cv-ipt" type="tel" placeholder="Mobile for a text code (optional)" aria-label={`Outside mobile ${i + 1}`} value={x.phone} autoComplete="off"
+                  onChange={(e) => setOutside((o) => o.map((y, j) => (j === i ? { ...y, phone: e.target.value } : y)))} />
+                <button type="button" className="cv-iconbtn is-danger" aria-label={`Remove outside person ${i + 1}`}
+                  onClick={() => setOutside((o) => (o.length === 1 ? [{ email: "", phone: "" }] : o.filter((_, j) => j !== i)))}><X size={13} /></button>
+              </div>
+            ))}
+            <button type="button" className="cv-link" style={{ alignSelf: "flex-start" }} onClick={() => setOutside((o) => [...o, { email: "", phone: "" }])}>+ Add Another</button>
+            {badOut.length > 0 && <span className="cv-field-error">{badOut.map((x) => x.email).join(", ")} - not an email address.</span>}
+          </div>
+        </Field>
         <Field label="For"><DurationPicker value={dur} onChange={setDur} /></Field>
+        {tooLong && <span className="cv-field-error">A share with someone outside Nexus lasts 7 days at most - pick a shorter time.</span>}
         <div className="cv-callout">
-          <span>{emails.length + depts.length ? "They" : "The people you pick"} will see the password on their own My Logins {dur ? (dur.custom ? dur.label.toLowerCase() : `for ${dur.label.toLowerCase()}`) : ""}, then it leaves their list. They need the Credentials grant to open the screen. Every recipient gets a bell.</span>
+          <span>People in Nexus see it on their own My Logins {dur ? (dur.custom ? dur.label.toLowerCase() : `for ${dur.label.toLowerCase()}`) : ""}, then it leaves their list; they need the Credentials grant, and each gets a bell.
+            {out.length > 0 && <> People outside Nexus get an email link; they see the username, link and password only after a one-time code we send them, and only until it ends. When it ends, you and the department head are asked to change the password.</>}
+            {cred.tier === "Critical" && out.length > 0 && <> This is a Critical login: sharing it outside needs a Super Administrator&apos;s code.</>}
+          </span>
         </div>
       </div>
     </Modal>

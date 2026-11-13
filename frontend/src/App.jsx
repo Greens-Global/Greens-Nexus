@@ -80,6 +80,7 @@ const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicIntake        = lazy(() => import("./views/PublicIntake"));
+const PublicVaultShare    = lazy(() => import("./views/PublicVaultShare"));
 const PublicCareers       = lazy(() => import("./views/PublicCareers"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
@@ -564,6 +565,16 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicIntake token={token} />
+      </Suspense>
+    );
+  }
+  // A login shared outside Nexus (/vault-share/{token}, 11/13/2026) - same
+  // reasoning: the person has no login; the link plus a one-time code is it.
+  if (parsePath().view === 'vault-share') {
+    const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicVaultShare token={token} />
       </Suspense>
     );
   }

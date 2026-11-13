@@ -332,10 +332,12 @@ export default function CredentialVaultApp({ activeSub }) {
     setShareFor(null);
     await gated(async () => {
       try {
-        const r = await api.cvShare(c.id, body);
+        const r = await withHead(() => api.cvShare(c.id, body), `share ${c.name}`);
         await refresh();
-        const who = body.recipients.length === 1 && !body.departments.length ? nameOf(body.recipients[0]) : `${r?.granted ?? ""} ${r?.granted === 1 ? "person" : "people"}`.trim();
-        flash(`${c.name} shared with ${who} ${body.durationLabel.startsWith("Until") ? body.durationLabel.toLowerCase() : `for ${body.durationLabel.toLowerCase()}`}.`);
+        const total = (r?.granted || 0) + (r?.external || 0);
+        const who = body.recipients.length === 1 && !body.departments.length && !(body.externals || []).length ? nameOf(body.recipients[0]) : `${total} ${total === 1 ? "person" : "people"}`;
+        flash(`${c.name} shared with ${who} ${body.durationLabel.startsWith("Until") ? body.durationLabel.toLowerCase() : `for ${body.durationLabel.toLowerCase()}`}.${r?.external ? ` ${r.external} outside Nexus got an email link.` : ""}`);
+        if (r?.devLinks?.length) console.info("[credvault] local test links (no email here):", r.devLinks);
       } catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not share.", "info"); }
     });
   }
@@ -623,7 +625,7 @@ export default function CredentialVaultApp({ activeSub }) {
       {form && <CredentialForm cred={form.cred} people={people} myEmail={myEmail} nameOf={nameOf} companies={orgOpts.companies} sites={orgOpts.sites} myCompanyId={orgOpts.companies.length === 1 ? orgOpts.companies[0].id : ""} onClose={() => setForm(null)} onSave={saveCredential} />}
       {importOpen && <ImportWizard depts={depts} sites={orgOpts.sites} departments={orgOpts.departments} people={people} myEmail={myEmail} existing={creds} nameOf={nameOf} onClose={() => setImportOpen(false)} onImport={importRows} />}
       {headGate && <HeadCodeModal scopes={headGate.scopes} action={headGate.action} onDone={headGate.done} onCancel={headGate.cancel} />}
-      {shareFor && <ShareModal cred={shareFor} people={people.filter((p) => p.email !== myEmail)} nameOf={nameOf} deptRows={orgOpts.departments} companies={orgOpts.companies} onClose={() => setShareFor(null)} onSubmit={(body) => share(shareFor, body)} />}
+      {shareFor && <ShareModal cred={shareFor} people={people.filter((p) => p.email !== myEmail)} nameOf={nameOf} onClose={() => setShareFor(null)} onSubmit={(body) => share(shareFor, body)} />}
       {requestFor && <RequestModal cred={requestFor} nameOf={nameOf} onClose={() => setRequestFor(null)} onSubmit={(ms, label) => request(requestFor, ms, label)} />}
       {otpGate && <VaultOtpModal onClose={() => setOtpGate(null)} onVerified={afterOtp} />}
 

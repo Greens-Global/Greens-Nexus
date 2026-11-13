@@ -75,7 +75,7 @@ export function CredentialDetail({
     let alive = true;
     api.cvAccess(cred.id).then((a) => { if (alive) setAccess(a); }).catch(() => {});
     return () => { alive = false; };
-  }, [cred.id, cred.canEdit, cred.sharedWith]);
+  }, [cred.id, cred.canEdit, cred.sharedWith, cred.sharedOutside]);   // an outside share does not move sharedWith
 
 
   // End access is held on the row (Neil, Oct 30 2026 - hold to confirm). A
@@ -88,6 +88,13 @@ export function CredentialDetail({
     onChanged?.();
   }
   const dropGrant = (g) => setAccess((a) => a && { ...a, grants: a.grants.filter((x) => x.id !== g.id) });
+  // An outside share (11/13/2026): ended at once; the owners are then asked to change the password.
+  async function endExternal(x) {
+    try { await api.cvEndExternal(x.id); }
+    catch (e) { throw new Error(e?.message || "Could not end this share.", { cause: e }); }
+    setAccess((a) => a && { ...a, externals: (a.externals || []).map((y) => (y.id === x.id ? { ...y, state: "ended" } : y)) });
+    onChanged?.();
+  }
 
   const left = rotationDaysLeft(cred);
   // History, 10 a page (Pranshu, Oct 29 2026).
@@ -219,6 +226,13 @@ export function CredentialDetail({
                 <span>{g.name} <span className="cv-muted">· <Clock size={11} style={{ verticalAlign: -1 }} /> {timeLeft(g.expiresAt - now)} left</span></span>
                 <HoldButton size="sm" label="End Access" doneLabel="Ended" icon={UserMinus} ariaLabel={`End access for ${g.name}`}
                   fallbackMessage={`End ${g.name}'s access to ${cred.name} now?`} onConfirm={() => revoke(g)} onDone={() => dropGrant(g)} />
+              </div>
+            ))}
+            {access?.externals?.filter((x) => x.state === "active").map((x) => (
+              <div className="cv-person" key={x.id} data-external={x.email}>
+                <span>{x.email} <span className="cv-muted">· Outside Nexus · <Clock size={11} style={{ verticalAlign: -1 }} /> {timeLeft(x.until - now)} left{x.views ? ` · viewed ${x.views}x` : x.opened ? " · opened" : ""}</span></span>
+                <HoldButton size="sm" label="End Access" doneLabel="Ended" icon={UserMinus} ariaLabel={`End access for ${x.email}`}
+                  fallbackMessage={`End ${x.email}'s access to ${cred.name} now?`} onConfirm={() => endExternal(x)} />
               </div>
             ))}
             {access?.pending?.map((p) => (

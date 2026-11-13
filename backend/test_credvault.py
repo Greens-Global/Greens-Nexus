@@ -285,7 +285,7 @@ class VaultHardeningTests(unittest.TestCase):
         r = self._as(BACKUP).post(f"/credvault/credentials/{cid}/share",
                                   json={"recipientEmail": OTHER, "durationMs": 3600000, "durationLabel": "1 Hour"})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json(), {"granted": True})
+        self.assertEqual(r.json()["granted"], 1)
 
     # ── ownership ──────────────────────────────────────────────────────────
     def test_transfer_by_owner_backup_or_admin_to_someone_in_people(self):

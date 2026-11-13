@@ -29,6 +29,7 @@ export const rotationDaysLeft = (c) => (c.rotationMax || 90) - (c.rotatedDays ||
 // found in a breach"). The check is exact - the very password is on Have I Been
 // Pwned's list of leaked ones - and a made-up one is often there too.
 export const BREACH_HINT = "This exact password is on public lists of leaked passwords (Have I Been Pwned). Attackers try those first - even one you made up yourself, like a keyboard pattern or a word with numbers. Change it on the site using Generate, then save it here.";
+export const SHARED_OUTSIDE_HINT = "This password was shown to someone outside Nexus. Change it on the site and save the new one here once they are done.";
 export const WEAK_HINT = "Short or easy to guess. Use 12 or more characters mixing letters, numbers and symbols - Generate makes one.";
 
 /** The owners who did not move it to the trash: one of them, or an admin,
@@ -47,6 +48,7 @@ export function healthFlags(c) {
   const left = rotationDaysLeft(c);
   if (left < 0) f.push({ key: "overdue", label: `Rotation Overdue ${Math.abs(left)}d`, tone: "bad" });
   if (c.reused) f.push({ key: "reused", label: "Reused Password", tone: "warn" });
+  if (c.sharedOutside) f.push({ key: "sharedOutside", label: "Shared Outside", tone: "bad", hint: SHARED_OUTSIDE_HINT });
   if (left >= 0 && left <= WARN_DAYS) f.push({ key: "dueSoon", label: left === 0 ? "Rotation Due Today" : `Rotation Due in ${left}d`, tone: "warn" });
   if (c.expiresInDays != null && c.expiresInDays >= 0 && c.expiresInDays <= EXPIRY_WARN_DAYS) {
     f.push({ key: "expiring", label: c.expiresInDays === 0 ? "Expires Today" : `Expires in ${c.expiresInDays}d`, tone: "warn" });

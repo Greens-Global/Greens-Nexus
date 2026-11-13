@@ -6,7 +6,8 @@ whichever is first. An email and a bell go out 3 days before, 1 day before and
 on the day, then once a week while it stays expired. Changing the password
 moves the rotation on, so the alerts stop by themselves.
 
-Needs attention: a password that is weak, found in a breach or reused alerts
+Needs attention: a password that is weak, found in a breach, reused or shared
+with someone outside Nexus (vault_external) alerts
 once when it starts and weekly after, until it is changed.
 
 Each alert is one NexusNotification row per person (type vault_expiry /
@@ -35,7 +36,7 @@ def days_left(c, days_since, days_until):
     return min(left) if left else None
 
 
-def attention(c, reused: bool) -> list:
+def attention(c, reused: bool, exposed: bool = False) -> list:
     out = []
     if c.breached:
         out.append("its password was found in a known data breach")
@@ -43,6 +44,8 @@ def attention(c, reused: bool) -> list:
         out.append("its password is weak")
     if reused:
         out.append("its password is used on another login too")
+    if exposed:
+        out.append("its password was shared with someone outside Nexus")
     return out
 
 
@@ -52,7 +55,7 @@ def _sent_since(db, ntype: str, cred_id: str, since: datetime) -> bool:
                     models.NexusNotification.created_at >= since.strftime("%Y-%m-%d")).first()) is not None
 
 
-def due(db, c, *, reused: bool, days_since, days_until, today: datetime) -> list:
+def due(db, c, *, reused: bool, days_since, days_until, today: datetime, exposed: bool = False) -> list:
     """[(type, title, line)] - what this login should say today."""
     out = []
     left = days_left(c, days_since, days_until)
@@ -62,13 +65,13 @@ def due(db, c, *, reused: bool, days_since, days_until, today: datetime) -> list
     if left is not None and left < 0 and not _sent_since(db, "vault_expired", c.id, today - timedelta(days=REPEAT_DAYS - 1)):
         out.append(("vault_expired", "Credentials - Expired",
                     f"it expired {-left} day{'s' if left != -1 else ''} ago"))
-    issues = attention(c, reused)
+    issues = attention(c, reused, exposed)
     if issues and not _sent_since(db, "vault_attention", c.id, today - timedelta(days=REPEAT_DAYS - 1)):
         out.append(("vault_attention", "Credentials - Needs Attention", " and ".join(issues)))
     return out
 
 
-def run(db, creds, *, reused_of, heads_of, days_since, days_until, notify, mail, only=None) -> int:
+def run(db, creds, *, reused_of, heads_of, days_since, days_until, notify, mail, only=None, exposed_of=lambda c: False) -> int:
     """Send what is due for `creds` (or just `only`). `notify(type, who, title,
     body, cred)` adds a bell; `mail(to_list, subject, body, cred)` emails.
     Returns how many alerts went out. The caller commits."""
@@ -79,7 +82,7 @@ def run(db, creds, *, reused_of, heads_of, days_since, days_until, notify, mail,
             continue
         if c.deleted_at:
             continue
-        items = due(db, c, reused=reused_of(c), days_since=days_since, days_until=days_until, today=today)
+        items = due(db, c, reused=reused_of(c), days_since=days_since, days_until=days_until, today=today, exposed=exposed_of(c))
         if not items:
             continue
         people = []
