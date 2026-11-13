@@ -448,7 +448,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
         <ErrorBanner message="Your shifts could not be loaded right now." onRetry={() => setReload((n) => n + 1)} />
       ) : !data ? (
         <SkeletonBlocks count={7} height={96} gridTemplateColumns="repeat(auto-fill, minmax(150px, 1fr))" />
-      ) : !mine ? null : (
+      ) : !mine ? null : (phone && days.every(quietDay)) ? <QuietWeek days={days} /> : (
         <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : embedded ? 'repeat(7, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
           {days.map((d, i) => (
             <div key={d.key} style={{
@@ -558,10 +558,30 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   );
 }
 
+// A week with nothing in it, on a phone (Neil, 11/13/2026: yes to the phone
+// review's "one line, not seven No shifts cards"): one card saying so, with a
+// company holiday named under it. A computer keeps the seven day cells.
+const quietDay = (d) => !d.shifts?.length && !d.timeoff?.length && !d.note;   // a holiday is named on the card
+function QuietWeek({ days }) {
+  const holidays = days.filter((d) => d.holiday);
+  return (
+    <div data-quiet-week="" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '12px 14px',
+      boxShadow: 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)' }}>No shifts this week</div>
+      {holidays.map((d) => (
+        <div key={d.key} style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <CalendarDays size={11} /> {dayShort(d.date)} {formatMonthDay(d.date)} - {d.holiday}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // The group's week for someone in no shift group (Neil, 11/08/2026): seven
 // day cells - the day, a company holiday's name, else "No shifts". Nothing
 // personal (own shifts, time off, Request, actuals): a group view, not My Week.
 function EmptyWeek({ days, phone, embedded }) {
+  if (phone) return <QuietWeek days={days} />;
   return (
     <div data-empty-week="" style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : embedded ? 'repeat(7, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
       {days.map((d, i) => (
