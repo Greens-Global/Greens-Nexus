@@ -1,6 +1,6 @@
 ---
 name: build-notes
-description: Work the Build Mode pins sent from Nexus - claim them, read the screenshots, open the stamped source file, fix each pin on one branch per Build Session (never committing another developer's files), run the checks, prove the fix with an e2e regression spec / style check / before-after evidence, open ONE PR to dev, record it on the pins, start the Ready To Check preview and attach an after screenshot; a pin reopened on the preview is reworked on the same branch. Use when the watcher starts a session with `/build-notes <ids>`, when the user says "build notes", "work the pins", "Build Mode pins" or "fix the pins", or pastes pin ids.
+description: Work the Build Mode pins sent from Nexus - claim them, read the screenshots, open the stamped source file, fix each pin on one branch per Build Session, run the checks, prove the fix with an e2e regression spec / style check / before-after evidence, open ONE PR to dev, record it on the pins, start the Ready To Check preview and attach an after screenshot; a pin reopened on the preview is reworked on the same branch. Use when the watcher starts a session with `/build-notes <ids>`, when the user says "build notes", "work the pins", "Build Mode pins" or "fix the pins", or pastes pin ids.
 user-invocable: true
 argument-hint: "[pin ids...]"
 allowed-tools:
@@ -104,7 +104,7 @@ Blocking first, then Normal, then Nice To Have. For each pin:
 - A **Question** pin gets an answer, not code: `python3 tools/build_notes/cli.py reply <id> "<answer>" --answered`. That closes it.
 - When a pin is ambiguous (two readings, a change that would break something they did not mention, data you cannot see), ask and move on: `python3 tools/build_notes/cli.py reply <id> "<one clear question>" --needs-input`. Do not guess, do not touch that pin again in this run - the author's answer brings it back through the watcher later. Continue with the next pin.
 - One commit per pin, message starting with the pin: `Pin #3 - Title Case on Mark All Read (Tasks Home)`. Several pins fixed by one change may share a commit that names them all.
-- **Before every commit, check ownership:**
+- **Before every commit, check ownership** (since Neil, 11/13/2026, nobody owns any files - `backend/code_owners.py` lists no owners, so this always exits 0 and no pin is held; keep running it in case an owner is ever added back):
 
   ```
   python3 tools/build_notes/cli.py owners --check

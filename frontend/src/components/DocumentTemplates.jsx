@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Plus, FileText, Award, Star, ChevronDown, FileUp, Sparkles } from 'lucide-react';
-import AnchoredMenu from './AnchoredMenu';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, Plus, FileText, Award, Star, FileUp, Sparkles } from 'lucide-react';
+import NewButton from './NewButton';
 import { TEMPLATE_CATEGORIES } from '../lib/templateCategories';
 import { UNTITLED_TEMPLATE } from '../lib/untitled';
 import { api } from '../api';
@@ -289,8 +289,6 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
   // once; closing it asks for the name and category. Its arrow holds the
   // other ways to start one and the letterheads.
   const [makingTpl, setMakingTpl] = useState(false);
-  const [tplMenuOpen, setTplMenuOpen] = useState(false);
-  const tplMenuRef = useRef(null);
   const [wordOpen, setWordOpen] = useState(false);       // New template from a Word file (Oct 14)
   // Open In Documents from an HR packet (Oct 14) lands straight in the editor.
   // ?template=<id> opens one in a new tab (Make An Offer's Preview, Neil 11/04/2026).
@@ -380,39 +378,22 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
             <option value="draft">{TEMPLATE_STATES.draft.label}</option>
             <option value="archived">{TEMPLATE_STATES.archived.label}</option>
           </select>
-          <span className="nx-dl-split" role="group" aria-label="New Template">
-            {/* Says "+ New" like every create button (Neil, 11/13/2026) and still
-                opens a blank template in one click (Neil, 11/11/2026). */}
-            <button className="primary-btn" data-tour="documents-new-template" disabled={makingTpl} onClick={newTemplate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              aria-label="New Template" title="A blank template, named when you close it">
-              <Plus size={14} /> {makingTpl ? 'Opening...' : 'New'}
-            </button>
-            <button ref={tplMenuRef} type="button" className="primary-btn nx-dl-split-arrow" aria-label="More ways to start a template" title="More ways to start a template"
-              aria-haspopup="menu" aria-expanded={tplMenuOpen} onClick={() => setTplMenuOpen((o) => !o)}>
-              <ChevronDown size={14} />
-            </button>
-          </span>
-          <AnchoredMenu anchorRef={tplMenuRef} open={tplMenuOpen} onClose={() => setTplMenuOpen(false)} align="end"
-            className="doc-toolbar doc-ribbon doc-ribbon-panel" style={{ width: 250 }}>
-            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setTplMenuOpen(false); newTemplate(); }}>
-              <Plus size={14} /><span>Blank Template</span>
-            </button>
-            <button type="button" role="menuitem" className="doc-ribbon-item" title="Nexus reads the Word file and finds every blank and signature line"
-              onClick={() => { setTplMenuOpen(false); setWordOpen(true); }}>
-              <FileUp size={14} /><span>From a Word File...</span>
-            </button>
-            {isAdmin && templates?.length > 0 && (
-              <button type="button" role="menuitem" className="doc-ribbon-item" disabled={seeding} title="Add any starter template the library does not have yet"
-                onClick={() => { setTplMenuOpen(false); seedStarters(); }}>
-                <Sparkles size={14} /><span>{seeding ? 'Adding…' : 'Add Starter Templates'}</span>
-              </button>
-            )}
-            <div className="doc-ribbon-sep" role="separator" />
-            <button type="button" role="menuitem" className="doc-ribbon-item" title="Letterheads are under Settings > Branding & Email"
-              onClick={() => { setTplMenuOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'branding:letterheads' } })); }}>
-              <Award size={14} /><span>Letterheads</span>
-            </button>
-          </AnchoredMenu>
+          {/* "+ New", the one create button across Nexus (Neil, 11/13/2026) -
+              its menu replaces the New Template split. Template still opens
+              a blank draft at once (Neil, 11/11/2026). */}
+          <NewButton dataTour="documents-new-template" busy={makingTpl ? 'Opening...' : seeding ? 'Adding...' : ''}
+            items={[
+              { key: 'blank', label: 'Template', hint: 'A blank template, named on Close', Icon: FileText },
+              { key: 'word', label: 'From a Word File...', hint: 'Nexus finds every blank and signature line', Icon: FileUp },
+              ...(isAdmin && templates?.length > 0 ? [{ key: 'starters', label: 'Add Starter Templates', hint: 'Any starter the library does not have yet', Icon: Sparkles }] : []),
+              { key: 'letterheads', label: 'Letterheads', hint: 'Under Settings > Branding & Email', Icon: Award, sep: true },
+            ]}
+            onPick={(k) => {
+              if (k === 'blank') newTemplate();
+              else if (k === 'word') setWordOpen(true);
+              else if (k === 'starters') seedStarters();
+              else window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'branding:letterheads' } }));
+            }} />
         </div>
 
         {!templates ? (

@@ -1,13 +1,35 @@
-"""code_owners.py: the machine-readable File Ownership table. Stdlib only, no
-database. Run on its own: python -m pytest test_code_owners.py
+"""code_owners.py: who owns which files - nobody since Neil, 11/13/2026.
+The mechanism is still tested on a sample list. Stdlib only, no database.
+Run on its own: python -m pytest test_code_owners.py
 """
 import ast
 from pathlib import Path
+
+import pytest
 
 import code_owners as C
 
 VISESH = "visesh.lodha@greensglobal.com"
 NEIL = "neil@greensglobal.com"
+SAMPLE = [
+    {"name": "Visesh", "email": VISESH, "paths": [
+        "frontend/src/views/InventoryManagement.jsx", "frontend/src/inventory/", "backend/routers/items.py"]},
+    {"name": "Neil", "email": NEIL, "paths": [
+        "frontend/src/views/AssetModule.jsx", "frontend/src/asset/", "backend/routers/property_assets.py"]},
+]
+
+
+@pytest.fixture
+def sample(monkeypatch):
+    monkeypatch.setattr(C, "OWNERS", SAMPLE)
+
+
+def test_nobody_owns_any_files():
+    # Neil, 11/13/2026: "Remove those limitations permanently".
+    assert C.OWNERS == []
+    assert C.owner_of("src/views/InventoryManagement.jsx") is None
+    assert C.owner_of("src/asset/lib/sync.js") is None
+    assert C.foreign_files(["backend/routers/items.py", "frontend/src/asset/App.jsx"], NEIL) == []
 
 
 def test_normalize_adds_frontend_to_source_stamps():
@@ -21,14 +43,14 @@ def test_normalize_adds_frontend_to_source_stamps():
     assert C.normalize("") == "" and C.normalize(None) == ""
 
 
-def test_normalize_picks_the_last_marker_in_an_absolute_path():
+def test_normalize_picks_the_last_marker_in_an_absolute_path(sample):
     assert C.normalize("/home/frontend/Greens-Nexus/backend/routers/items.py") == "backend/routers/items.py"
     assert C.owner_of("/home/frontend/Greens-Nexus/backend/routers/items.py")["name"] == "Visesh"
     assert C.normalize("/srv/backend/Greens-Nexus/frontend/src/asset/Map.jsx") == "frontend/src/asset/Map.jsx"
     assert C.normalize("C:/work/frontend/src/views/AssetModule.jsx") == "frontend/src/views/AssetModule.jsx"
 
 
-def test_owner_of_files_and_folders():
+def test_owner_of_files_and_folders(sample):
     assert C.owner_of("src/views/InventoryManagement.jsx") == {"name": "Visesh", "email": VISESH}
     assert C.owner_of("backend/routers/items.py") == {"name": "Visesh", "email": VISESH}
     assert C.owner_of("src/asset/lib/sync.js") == {"name": "Neil", "email": NEIL}
@@ -39,7 +61,7 @@ def test_owner_of_files_and_folders():
     assert C.owner_of("") is None
 
 
-def test_foreign_files_lists_only_other_peoples_files_once():
+def test_foreign_files_lists_only_other_peoples_files_once(sample):
     paths = ["frontend/src/views/InventoryManagement.jsx", "src/views/InventoryManagement.jsx",
              "frontend/src/asset/App.jsx", "frontend/src/tasks/X.jsx"]
     assert C.foreign_files(paths, NEIL) == [
@@ -57,13 +79,7 @@ def test_stdlib_only():
     assert imports == []
 
 
-def test_claude_md_table_names_the_same_owners():
+def test_claude_md_has_no_ownership_limits():
     text = (Path(__file__).resolve().parent.parent / "CLAUDE.md").read_text()
-    assert "backend/code_owners.py" in text
-    rows = {line.split("|")[2].strip().strip("*"): line.split("|")[3]
-            for line in text.splitlines() if line.startswith("| ") and line.count("|") >= 4}
-    for owner in C.OWNERS:
-        assert f"**{owner['name']}**" in text
-        # every path code_owners.py lists is in that owner's table row
-        for path in owner["paths"]:
-            assert f"`{path}`" in rows[owner["name"]], (owner["name"], path)
+    assert "Do not modify the other developer's files" not in text
+    assert "| Owner |" not in text

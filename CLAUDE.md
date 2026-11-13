@@ -41,20 +41,16 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 
 ## File ownership
 
-| Area | Owner | Files |
-|---|---|---|
-| Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/inventory/`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/property_assets.py`, property models/tables |
-
-Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
-the build-notes skill refuses commits by it) - change both together.
-
-**Do not modify the other developer's files** — ask them instead.
-**Neil has the final say** (Oct 28 2026): he is head of the company and
-Visesh's lead. A change Neil made or a decision he gave (the "(Neil, <date>)"
-notes in this file and in code comments) is never changed or undone without
-discussing it with him first - the same guardrail as another developer's
-files. Neil may green-light work on anyone's files himself.
+**Nobody owns any files** (Neil, 11/13/2026: "It doesn't matter that it is
+Visesh's module or that asset management is Neil's module. Remove those
+limitations permanently"). Every file is open to whoever is doing the work -
+Item Management, the bell, Asset Management and the rest included.
+`backend/code_owners.py` keeps its mechanism with an EMPTY `OWNERS` list, so
+Build Mode holds no pin for anyone and the build-notes skill refuses no
+commit; add an owner back only if Neil asks.
+**Neil has the final say** (Oct 28 2026): he is head of the company. A
+decision he gave (the "(Neil, <date>)" notes in this file and in code
+comments) is never changed or undone without discussing it with him first.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
 `frontend/src/api.js`, `App.jsx`/`Sidebar`): **append only, never reorder**,
 keep the diff minimal.
@@ -284,12 +280,13 @@ keep the diff minimal.
   line). Tasks, Tickets, Notes, People (Person / From Hiring...), Hiring
   (Candidate, Opening), Asset Management, Credentials, Training (Course),
   the Knowledge Base (Page), Forms, Construction (Job), Investor Relations
-  (Deal, Investor), Workflows, Google Posts and Links use it. Documents
-  keeps its split button (Document / Template in ONE click, Neil 11/11/2026)
-  labeled "+ New" (aria "New Document" / "New Template"). An empty state's
+  (Deal, Investor), Workflows, Google Posts and Links use it. An empty state's
   button may name the thing ("New Job"); "Add Field" / "Add Condition" rows
   inside a form and a form's own confirm button are not create buttons and
-  keep their words. Item Management's "Add Item" is Visesh's (ask him).
+  keep their words. Item Management (Item / Import From a CSV...) and
+  Documents (Document / Sheet / From a Template... / Open a File...; Template
+  / From a Word File... / Add Starter Templates / Letterheads) use it too -
+  Neil, 11/13/2026: the Documents split button is retired.
   People > New > From Hiring (`people/FromHiringSheet.jsx`) never hires
   anyone itself: it lists the candidates at Offer and Decision and opens
   the candidate's card in Hiring (`hr-hiring-<id>`), where Send Hiring
@@ -392,8 +389,7 @@ keep the diff minimal.
   row, the same setting as My Profile > Appearance > Sidebar (Neil,
   11/12/2026: "keep auto-fold, but fix it"). Keyboard users get Skip to
   Content (`.nx-skip-link` -> `#nx-main`) as the first Tab stop, and the
-  bell's closed panel is `inert` (Neil green-lit that change to Visesh's
-  `NotificationBell.jsx`). The bell's panel is 620px (Neil, 11/13/2026) and
+  bell's closed panel is `inert` (`NotificationBell.jsx`). The bell's panel is 620px (Neil, 11/13/2026) and
   shows ONE scroll bar: while it is open the page's own bar and html's
   stable gutter are taken off and the body is padded by the same width, so
   nothing behind it moves.
@@ -1137,9 +1133,10 @@ keep the diff minimal.
   name (and a template's category) is asked on Close in
   `docRibbon/NameOnClose.jsx`, filled in with the first line or
   "Document - MM/DD/YYYY" (`lib/untitled.js`), and a blank, unnamed draft
-  that is the caller's own (`mine` on the GET) is not kept. The rest of the
-  ways in (a sheet, a template, a file, Word, starters, Letterheads) sit under
-  the split button's arrow - one primary button per toolbar.
+  that is the caller's own (`mine` on the GET) is not kept. Every way in
+  (a document, a sheet, a template, a file, Word, starters, Letterheads) is a
+  row of the toolbar's ONE "+ New" (Neil, 11/13/2026; the split button is
+  retired).
 
 - **Sheets and live editing (Neil, 11/05/2026, `routers/documents.py`
   "Working together", `frontend/src/sheets/`, `frontend/src/docLive/`).** A
@@ -1339,7 +1336,7 @@ lists every one and counts the archived rows. The custom-status merge that
 used to live in the sync is `backend/task_status_dedupe.py`; the API's
 public-URL helper is `app_url.public_base`.
 
-## Asset Management module (Neil's)
+## Asset Management module
 
 `frontend/src/asset/` (the module, mounted by `views/AssetModule.jsx`) and
 `backend/routers/property_assets.py`. The data is real: 24+ properties,

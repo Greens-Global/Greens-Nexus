@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import AnchoredMenu from './AnchoredMenu';
+import NewButton from './NewButton';
 import { UNTITLED_DOCUMENT, UNTITLED_SHEET } from '../lib/untitled';
 import { generateJSON } from '@tiptap/core';
-import { Search, Plus, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon, LayoutTemplate } from 'lucide-react';
+import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon, LayoutTemplate } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -479,8 +479,6 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   };
   // The header's + > New Document lands here: the same blank draft, at once.
   useEffect(() => { if (openCreateSignal) newDocument(); }, [openCreateSignal]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const [newMenuOpen, setNewMenuOpen] = useState(false);
-  const newMenuRef = useRef(null);
   // New Sheet, or a spreadsheet file picked in Import: a sheet row, then open it.
   const newSheet = async (file = null) => {
     setMakingSheet(true);
@@ -544,37 +542,18 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
           <button type="button" className="secondary-btn" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
             Send For Signature
           </button>
-          {/* New Document opens a blank draft at once (named on Close); its arrow
-              holds a blank sheet, a template and a file (Word, PDF, Excel...). */}
-          <span className="nx-dl-split" role="group" aria-label="New Document">
-            {/* Says "+ New" like every create button (Neil, 11/13/2026) and still
-                opens a blank document in one click (Neil, 11/11/2026). */}
-            <button type="button" className="primary-btn" data-tour="documents-new-document" disabled={makingDoc} onClick={newDocument}
-              aria-label="New Document" title="A blank document, named when you close it">
-              <Plus size={14} /> {makingDoc ? 'Opening...' : 'New'}
-            </button>
-            <button ref={newMenuRef} type="button" className="primary-btn nx-dl-split-arrow" aria-label="More ways to start a document" title="More ways to start a document"
-              aria-haspopup="menu" aria-expanded={newMenuOpen} onClick={() => setNewMenuOpen((o) => !o)}>
-              <ChevronDown size={14} />
-            </button>
-          </span>
-          <AnchoredMenu anchorRef={newMenuRef} open={newMenuOpen} onClose={() => setNewMenuOpen(false)} align="end"
-            className="doc-toolbar doc-ribbon doc-ribbon-panel" style={{ width: 230 }}>
-            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); newDocument(); }}>
-              <FilePlus2 size={14} /><span>Blank Document</span>
-            </button>
-            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); newSheet(); }}>
-              <SheetIcon size={14} /><span>{makingSheet ? 'Making...' : 'Blank Sheet'}</span>
-            </button>
-            <div className="doc-ribbon-sep" role="separator" />
-            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); setCreateOpen(true); }}>
-              <LayoutTemplate size={14} /><span>From a Template...</span>
-            </button>
-            <button type="button" role="menuitem" className="doc-ribbon-item" title="Open a Word, PDF, text, Excel or CSV file as a new document or sheet"
-              onClick={() => { setNewMenuOpen(false); importRef.current?.click(); }}>
-              <Upload size={14} /><span>Open a File...</span>
-            </button>
-          </AnchoredMenu>
+          {/* "+ New", the one create button across Nexus (Neil, 11/13/2026:
+              "fix the document module too so it is + New too") - its menu
+              replaces the New Document split. Document still opens a blank
+              draft at once and asks its name on Close (Neil, 11/11/2026). */}
+          <NewButton dataTour="documents-new-document" busy={makingDoc ? 'Opening...' : makingSheet ? 'Making...' : ''}
+            items={[
+              { key: 'doc', label: 'Document', hint: 'A blank page, named on Close', Icon: FilePlus2 },
+              { key: 'sheet', label: 'Sheet', hint: 'A blank spreadsheet', Icon: SheetIcon },
+              { key: 'template', label: 'From a Template...', hint: 'Start from your company\'s wording', Icon: LayoutTemplate, sep: true },
+              { key: 'file', label: 'Open a File...', hint: 'Word, PDF, text, Excel or CSV', Icon: Upload, title: 'Open a Word, PDF, text, Excel or CSV file as a new document or sheet' },
+            ]}
+            onPick={(k) => { if (k === 'doc') newDocument(); else if (k === 'sheet') newSheet(); else if (k === 'template') setCreateOpen(true); else importRef.current?.click(); }} />
         </div>
 
         <AsyncSection

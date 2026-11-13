@@ -261,10 +261,12 @@ describe('New Document', () => {
 
   // New Document (Neil, 11/10/2026): a blank draft opens at once - no name,
   // no popup; the editor asks for a name on Close (lib/untitled.js).
+  // "+ New" (Neil, 11/13/2026): Document is the menu's first row.
   it('New Document opens a blank, unnamed draft straight away, and so does the + menu', async () => {
     createDocument.mockResolvedValue({ id: 'new-1', title: 'Untitled Document', status: 'draft' });
     const { unmount } = render(<DocumentsBrowser employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: /^New Document$/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Document/ }));
     await waitFor(() => expect(createDocument).toHaveBeenCalledWith({ title: 'Untitled Document' }));
     expect(await screen.findByText('document builder')).toBeTruthy();
     expect(screen.queryByLabelText('Name')).toBeNull();
@@ -277,7 +279,7 @@ describe('New Document', () => {
   it('the popup (From a Template) does not need a name either', async () => {
     createDocument.mockResolvedValue({ id: 'new-2', title: 'Untitled Document', status: 'draft' });
     render(<DocumentsBrowser employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'More ways to start a document' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: /From a Template/ }));
     expect(await screen.findByText('Untitled Document')).toBeTruthy();
     const create = await screen.findByRole('button', { name: 'Create Draft' });
@@ -288,7 +290,7 @@ describe('New Document', () => {
 
   it('picking a template and a person names the document and tells it who it is for', async () => {
     render(<DocumentsBrowser employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'More ways to start a document' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: /From a Template/ }));
     const person = await screen.findByLabelText('Who this document is for');
     const option = await screen.findByRole('option', { name: 'Offer Letter' });
@@ -305,13 +307,14 @@ describe('New Document', () => {
 });
 
 describe('The toolbar', () => {
-  it('keeps one New Document button; Blank Sheet and Open a File are under its arrow', async () => {
+  it('keeps ONE + New; Document, Sheet, From a Template and Open a File are its menu', async () => {
     render(<DocumentsBrowser toastOk={() => {}} />);
-    await screen.findByRole('button', { name: 'More ways to start a document' });
+    await screen.findByRole('button', { name: 'New' });
     expect(screen.queryByRole('button', { name: /^New Sheet/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Import$/ })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'More ways to start a document' }));
-    for (const n of ['Blank Document', 'Blank Sheet', 'From a Template...', 'Open a File...']) {
+    expect(screen.queryByRole('button', { name: 'More ways to start a document' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'New' }));
+    for (const n of [/^Document/, /^Sheet/, /^From a Template\.\.\./, /^Open a File\.\.\./]) {
       expect(await screen.findByRole('menuitem', { name: n })).toBeTruthy();
     }
   });
