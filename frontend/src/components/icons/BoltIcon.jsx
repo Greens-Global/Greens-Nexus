@@ -7,7 +7,7 @@
 // are part of it"): the same outline is stacked from the back to the front in
 // thin steps, so its right and bottom side walls are solid, joined to the face
 // at every corner, a mid green that darkens toward the back; the face sits on
-// top with a crisp light edge. Its COLOR is ours: the gradient is on the bolt
+// top with a faint light edge. Its COLOR is ours: the gradient is on the bolt
 // (bright green to brand green; "the gradient on the bolt and the background
 // to look less flashy"). Green only - never yellow or orange (Live accent).
 // .qc-btn in style.css draws the calm tile behind it.
@@ -35,13 +35,16 @@ export default function BoltIcon({ size = 24, style, ...rest }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" style={style} aria-hidden="true" focusable="false" {...rest}>
       <defs>
-        <linearGradient id={`${id}-face`} x1="0.15" y1="0" x2="0.55" y2="1">
-          <stop offset="0" stopColor="#62eea7" />
-          <stop offset="0.5" stopColor="#24c878" />
-          <stop offset="1" stopColor="#05a65e" />
+        {/* One long, even blend from the lit top left to the brand green
+            (Neil, 11/13/2026: "blend the gradient a little better"). */}
+        <linearGradient id={`${id}-face`} x1="0.2" y1="0" x2="0.5" y2="1">
+          <stop offset="0" stopColor="#56e9a0" />
+          <stop offset="0.35" stopColor="#3ad88d" />
+          <stop offset="0.7" stopColor="#1cbe72" />
+          <stop offset="1" stopColor="#0aa962" />
         </linearGradient>
         <linearGradient id={`${id}-lower`} x1="0.4" y1="0" x2="0.3" y2="1">
-          <stop offset="0" stopColor="#1dbd70" />
+          <stop offset="0" stopColor="#1dbd70" stopOpacity="0" />
           <stop offset="1" stopColor="#008a4c" />
         </linearGradient>
       </defs>
@@ -54,9 +57,10 @@ export default function BoltIcon({ size = 24, style, ...rest }) {
         {/* the face, lit from the top left */}
         <path d={BOLT} fill={`url(#${id}-face)`} stroke={`url(#${id}-face)`} strokeWidth="0.9" />
         {/* the lower block, a shade deeper - the step the reference shows */}
-        <path d={LOWER} fill={`url(#${id}-lower)`} opacity="0.35" />
-        {/* the face's crisp edge, where it turns into the side walls */}
-        <path d={BOLT} fill="none" stroke="#b8f7d5" strokeOpacity="0.55" strokeWidth="0.35" />
+        <path d={LOWER} fill={`url(#${id}-lower)`} opacity="0.22" />
+        {/* the face's edge, where it turns into the side walls - barely there
+            (Neil, 11/13/2026: "minimize the striking-ness of the stroke") */}
+        <path d={BOLT} fill="none" stroke="#c9f9de" strokeOpacity="0.18" strokeWidth="0.25" />
       </g>
     </svg>
   );
