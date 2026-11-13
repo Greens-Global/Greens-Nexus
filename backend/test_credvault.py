@@ -595,6 +595,48 @@ class VaultHardeningTests(unittest.TestCase):
         # g-vault holds Accounting and Operations people (FAR's Accounting is in company B - still a department name).
         self.assertEqual(groups["g-vault"]["departments"], ["Accounting", "Operations"])
 
+    def test_own_department_opens_without_the_code_other_departments_and_critical_still_ask(self):
+        cid = self._create(audiences=[{"kind": "department", "value": "Accounting", "level": "open"},
+                                      {"kind": "person", "value": OTHER, "level": "open"}])
+        rows = {c["id"]: c for c in self._as(PEER).get("/credvault/credentials").json()}
+        self.assertTrue(rows[cid]["homeDept"])
+        # PEER is in Accounting, like the login: no code needed, and the log says so.
+        r = self._as(PEER).post(f"/credvault/credentials/{cid}/reveal")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["secret"], "Corr3ct-Horse-Battery!")
+        logged = [l for l in self._logs(ADMIN) if l["action"] == "Revealed"]
+        self.assertIn("own department", json.dumps(logged[0]))
+        # OTHER (Operations) may open it too, but from another department: the code first.
+        self.assertFalse({c["id"]: c for c in self._as(OTHER).get("/credvault/credentials").json()}[cid]["homeDept"])
+        r = self._as(OTHER).post(f"/credvault/credentials/{cid}/reveal")
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertEqual(r.json()["detail"]["code"], "vault_otp_required")
+        self._otp(OTHER)
+        self.assertEqual(self._as(OTHER).post(f"/credvault/credentials/{cid}/reveal").status_code, 200)
+        # Critical: the code always, even for the owner in the same department.
+        crit = self._create(name="Bank", tier="Critical")
+        self.assertFalse({c["id"]: c for c in self._as(OWNER).get("/credvault/credentials").json()}[crit]["homeDept"])
+        r = self._as(OWNER).post(f"/credvault/credentials/{crit}/reveal")
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertEqual(r.json()["detail"]["code"], "vault_otp_required")
+
+    def test_department_head_comes_from_the_logins_own_company(self):
+        db = database.SessionLocal()
+        db.query(models.HrDepartment).delete()
+        # OWNER works at company A, where they are the backup head; the login is company B's.
+        db.add(models.HrDepartment(id="dA", company_id=CO_A, name="Accounting", lead_email="", backup_email=OWNER))
+        db.add(models.HrDepartment(id="dB", company_id=CO_B, name="Accounting", lead_email=FAR, backup_email=PEER))
+        db.commit()
+        db.close()
+        cid = self._create(companyId=CO_B, backupOwner="")
+        acc = self._as(OWNER).get(f"/credvault/credentials/{cid}/access").json()
+        self.assertEqual(acc["heads"], sorted([FAR, PEER]))
+        self.assertEqual(acc["headRoles"], {FAR: "Department Head", PEER: "Backup Head"})
+        db = database.SessionLocal()
+        db.query(models.HrDepartment).delete()
+        db.commit()
+        db.close()
+
     def test_no_grant_no_vault(self):
         self.assertEqual(self._as(NOGRANT).get("/credvault/credentials").status_code, 403)
 

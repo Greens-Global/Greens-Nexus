@@ -96,6 +96,9 @@ def _matches(row, ctx: dict) -> bool:
     return False
 
 
+matches = _matches   # public: routers/credvault._home_dept reads a row the same way
+
+
 def audience_access(cred, rows, ctx: dict) -> str:
     """'' when the audiences do not admit this person; else the kind of the
     best matching row ('company' | 'department' | 'group' | 'person'), or
@@ -118,25 +121,38 @@ def audience_access(cred, rows, ctx: dict) -> str:
     return sorted(opens, key=lambda r: rank.get(r.kind, 9))[0].kind
 
 
-def heads_map(db, creds) -> dict:
+def heads_map(db, creds, roles: bool = False) -> dict:
     """{cred_id: {emails}} - the head and backup head of each credential's
-    department, in the owner's company (a department named the same in another
-    company is someone else's). Built once for a list."""
+    department, in the credential's own company (11/13/2026: it used the
+    owner's company, so a Greens Global login owned by someone employed at
+    Oversite showed Oversite's Operations head), else the owner's for a row
+    with no company. A department named the same in another company is
+    someone else's. Built once for a list. `roles`: {cred_id: {email: role}}."""
     depts = db.query(models.HrDepartment).all()
     by_name: dict = {}
     for d in depts:
         if d.lead_email or d.backup_email:
             by_name.setdefault((d.name or "").strip().lower(), []).append(d)
     if not by_name:
-        return {c.id: set() for c in creds}
+        return {c.id: ({} if roles else set()) for c in creds}
     emp_company = {(e.work_email or "").lower(): (e.company or "")
                    for e in db.query(models.NexusEmployee.work_email, models.NexusEmployee.company).all()}
     out = {}
     for c in creds:
         found = by_name.get((c.dept or "").strip().lower(), [])
-        owner_co = emp_company.get((c.owner_email or "").lower(), "")
-        same = [d for d in found if owner_co and d.company_id == owner_co] or ([] if owner_co and found and all(d.company_id for d in found) else found)
-        out[c.id] = {x for d in same for x in ((d.lead_email or "").lower(), (d.backup_email or "").lower()) if x}
+        home_co = (getattr(c, "company_id", "") or "") or emp_company.get((c.owner_email or "").lower(), "")
+        same = [d for d in found if home_co and d.company_id == home_co] or ([] if home_co and found and all(d.company_id for d in found) else found)
+        if roles:
+            who: dict = {}
+            for d in same:
+                if (d.backup_email or "").strip():
+                    who[d.backup_email.strip().lower()] = "Backup Head"
+            for d in same:
+                if (d.lead_email or "").strip():
+                    who[d.lead_email.strip().lower()] = "Department Head"
+            out[c.id] = who
+        else:
+            out[c.id] = {x for d in same for x in ((d.lead_email or "").lower(), (d.backup_email or "").lower()) if x}
     return out
 
 

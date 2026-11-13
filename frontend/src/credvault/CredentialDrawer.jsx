@@ -157,7 +157,7 @@ export function CredentialDetail({
                 </div>
               )}
               {revealed?.previousSecret && revealed.prevRotatedAt && <p className="cv-hint">Previous password kept from the rotation on {formatDate(revealed.prevRotatedAt)}. It goes when the password is rotated again.</p>}
-              {!revealed && !inTrash && <p className="cv-hint"><Lock size={11} style={{ verticalAlign: -1 }} /> Revealing is logged. The first reveal asks for a code by text or email.</p>}
+              {!revealed && !inTrash && <p className="cv-hint"><Lock size={11} style={{ verticalAlign: -1 }} /> {cred.homeDept ? "Your department's login - it opens without a code. Revealing is logged." : "Revealing is logged. The first reveal asks for a code by text or email."}</p>}
             </>) : (
               <div className="cv-callout tone-info">
                 <KeyRound size={15} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -195,7 +195,7 @@ export function CredentialDetail({
             </div>
             {cred.backupOwner && <div className="cv-person"><span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span></div>}
             {access?.heads?.filter((h) => h !== cred.owner && h !== cred.backupOwner).map((h) => (
-              <div className="cv-person" key={h}><span>{nameOf(h)} <span className="cv-muted">· Department Head</span></span></div>
+              <div className="cv-person" key={h}><span>{nameOf(h)} <span className="cv-muted">· {access?.headRoles?.[h] || "Department Head"}</span></span></div>
             ))}
             {/* Who may open it (Oct 29 2026): the audience rows, or the old department rule when there are none. */}
             {(cred.audiences || []).filter((a) => cred.tier !== "Critical" || a.kind === "person").map((a) => (

@@ -645,7 +645,7 @@ def _can_reveal(c: models.VaultCredential, user: dict, db: Session) -> bool:
 
 
 def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
-               access: str = "owner", grant_until: str = "", audiences: list | None = None) -> dict:
+               access: str = "owner", grant_until: str = "", audiences: list | None = None, home: bool = False) -> dict:
     can_reveal = access not in ("request", "view")
     # "view" (Oct 29 2026): the row, username, link and notes - never the password.
     can_see = access != "request"
@@ -675,6 +675,8 @@ def _cred_dict(c: models.VaultCredential, reused: bool, shared_with: int,
         "access": access, "canReveal": can_reveal, "canEdit": access in MANAGE,
         "grantUntil": _ms(grant_until) if grant_until else None,
         "audiences": audiences or [],
+        # Opens without the text / email code (own department, not Critical) - _home_dept.
+        "homeDept": bool(home and can_reveal),
     }
 
 
@@ -789,6 +791,7 @@ def list_credentials(user: dict = Depends(get_current_user), db: Session = Depen
             shared_with=1 + grant_counts.get(c.id, 0),
             access=access, grant_until=mine.get(c.id, ""),
             audiences=VA.labels(db, auds.get(c.id, [])),
+            home=_home_dept(c, ctx, auds.get(c.id)),
         ))
     return out
 
@@ -1013,9 +1016,35 @@ def purge_credential(cred_id: str, user: dict = Depends(get_current_user), db: S
     return {"ok": True}
 
 
+def _home_dept(c: models.VaultCredential, ctx: dict, rows: list | None = None) -> bool:
+    """A login of the person's own department, in their own company, and not
+    Critical: it opens without the text / email code (Pranshu, 11/13/2026 -
+    the code is for someone reaching into another department's logins). The
+    login's departments are its department rows (a company row = all of that
+    company's departments); a login with no such rows has its one department.
+    The person still needs access to open it; sharing still asks for the code."""
+    if (c.tier or "Standard") == "Critical":
+        return False
+    scope = [r for r in rows or [] if r.kind in ("department", "company") and (r.level or "open") != "view"]
+    if scope:
+        return any(VA.matches(r, ctx) for r in scope)
+    dept = (c.dept or "").strip().lower()
+    if not dept or dept != ctx.get("dept"):
+        return False
+    return not c.company_id or not ctx.get("company") or c.company_id == ctx["company"]
+
+
+def _code_unless_home(c: models.VaultCredential, user: dict, db: Session) -> bool:
+    """The code gate for one credential: True when skipped (own department),
+    else require_vault_otp raises unless the caller verified recently."""
+    if _home_dept(c, VA.person_ctx(db, user["email"]), VA.rows_for(db, [c.id]).get(c.id, [])):
+        return True
+    require_vault_otp(user, db)
+    return False
+
+
 @router.post("/credentials/{cred_id}/reveal")
-def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
-                      _otp: dict = Depends(require_vault_otp), db: Session = Depends(get_db)):
+def reveal_credential(cred_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The ONLY way a company secret leaves the server (besides grant reveal).
     Requires a fresh SMS/Email OTP verification (require_vault_otp). Critical
     tier: the owner, backup owner and admins read it; anyone else (without a
@@ -1032,6 +1061,7 @@ def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
         # Request Access (POST .../request) instead. Keep the gate anyway.
         raise HTTPException(403, {"code": "vault_access_required",
                                   "message": "Ask the owner for access to this credential."})
+    home = _code_unless_home(c, user, db)
     _require_critical_stepup(c, user, db)
     out = {"secret": _dec(c.secret_enc)}
     if c.totp_enc:
@@ -1043,7 +1073,8 @@ def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
             out["prevRotatedAt"] = c.prev_rotated_at or ""
         except HTTPException:
             pass            # an old row from another key: the current one still shows
-    _log(db, user, "Revealed", c.name, c.dept, c.id)
+    _log(db, user, "Revealed", c.name, c.dept, c.id,
+         detail=[{"field": "Code", "from": "", "to": "Not asked - own department"}] if home else None)
     db.commit()
     return out
 
@@ -1068,8 +1099,7 @@ def _require_critical_stepup(c: models.VaultCredential, user: dict, db: Session)
 
 
 @router.get("/credentials/{cred_id}/totp")
-def current_totp(cred_id: str, user: dict = Depends(get_current_user),
-                 _otp: dict = Depends(require_vault_otp), db: Session = Depends(get_db)):
+def current_totp(cred_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The authenticator code right now, for whoever may open the credential -
     the drawer refreshes it every 30 seconds while it is open; the reveal that
     opened it is what the log records."""
@@ -1078,6 +1108,7 @@ def current_totp(cred_id: str, user: dict = Depends(get_current_user),
         raise HTTPException(404, "This credential has no authenticator key")
     if _access_one(c, user, db) in ("request", "view"):
         raise HTTPException(403, {"code": "vault_access_required", "message": "Ask the owner for access to this credential."})
+    _code_unless_home(c, user, db)
     _require_critical_stepup(c, user, db)
     code, left = vault_totp.code_at(_dec(c.totp_enc))
     return {"code": code, "left": left}
@@ -1471,7 +1502,8 @@ def credential_access(cred_id: str, user: dict = Depends(get_current_user), db: 
     c = _get_cred(cred_id, db, user)
     out = {"owner": c.owner_email or "", "backupOwner": c.backup_owner_email or "",
            "dept": c.dept or "", "tier": c.tier or "Standard", "grants": [], "pending": [],
-           "heads": sorted(VA.heads_for(db, c)), "audiences": VA.labels(db, VA.rows_for(db, [c.id]).get(c.id, []))}
+           "heads": sorted(VA.heads_for(db, c)), "headRoles": VA.heads_map(db, [c], roles=True).get(c.id, {}),
+           "audiences": VA.labels(db, VA.rows_for(db, [c.id]).get(c.id, []))}
     if not _can_modify(c, user, db):
         return out
     now = _now()

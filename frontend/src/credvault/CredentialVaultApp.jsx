@@ -209,7 +209,9 @@ export default function CredentialVaultApp({ activeSub }) {
   // reveal / share / approve runs straight away. The window is checked at
   // click time, and an action the API still refuses with vault_otp_required
   // re-opens the gate with the same action instead of a toast.
-  function gated(run) {
+  // `skip`: a login of my own department opens without the code (homeDept,
+  // 11/13/2026); if the server still asks, the catch below opens the gate.
+  function gated(run, skip = false) {
     const wrapped = () => run().catch(async (e) => {
       if (e?.detail?.code === "vault_otp_required") { setOtp({ verified: false, until: null }); setOtpGate({ run: wrapped }); return; }
       // Critical + Settings > Security step-up (Oct 29 2026): run the Entra
@@ -217,7 +219,7 @@ export default function CredentialVaultApp({ activeSub }) {
       if (isStepUpRequired(e)) { const r = await ensureStepUp(); if (r.ok) return wrapped(); if (!r.cancelled) flash("Verification did not complete.", "info"); return; }
       throw e;
     });
-    if (otp.verified && otp.until > Date.now()) return wrapped();
+    if (skip || (otp.verified && otp.until > Date.now())) return wrapped();
     setOtpGate({ run: wrapped });
     return undefined;
   }
@@ -244,14 +246,14 @@ export default function CredentialVaultApp({ activeSub }) {
     gated(async () => {
       try { const res = await api.cvReveal(c.id); await clip(res.secret, `${c.id}:p`); copiedSecret(c); }
       catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not copy.", "info"); }
-    });
+    }, c.homeDept);
   }
   // Copy Code from the row: the current authenticator code, behind the same gate.
   function copyCode(c) {
     gated(async () => {
       try { const r = await api.cvTotp(c.id); await clip(r.code, `${c.id}:t`); used(c.id); flash(`Code copied - good for ${r.left}s.`); }
       catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not get the code.", "info"); }
-    });
+    }, c.homeDept);
   }
   // Open: copy the password, then open the site - the username is in the
   // toast, so signing in is paste, type, done. (The clipboard cannot be
@@ -266,7 +268,7 @@ export default function CredentialVaultApp({ activeSub }) {
         window.open(c.url, "_blank", "noopener,noreferrer");
         flash(`Password copied - paste it on ${site}.${c.username && c.username !== "-" ? ` Username: ${c.username}` : ""}`);
       } catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not open.", "info"); }
-    });
+    }, c.homeDept);
   }
 
   async function saveCredential(f) {
@@ -361,7 +363,7 @@ export default function CredentialVaultApp({ activeSub }) {
     cred: selected, logs, myEmail, nameOf, depts: deptsInUse, siteName: selected.siteName || "",
     favorite: favorites.has(selected.id), onToggleFavorite: () => toggleFavorite(selected.id),
     revealed: revealed?.id === selected.id ? revealed : null,
-    onReveal: () => gated(() => reveal(selected)), onHide: () => setRevealed(null), onCopiedSecret: () => copiedSecret(selected),
+    onReveal: () => gated(() => reveal(selected), selected.homeDept), onHide: () => setRevealed(null), onCopiedSecret: () => copiedSecret(selected),
     onEdit: () => setForm({ cred: selected }), onTrash: () => trash(selected), onRestore: () => restore(selected), onPurge: () => purge(selected),
     onShare: () => setShareFor(selected), onRequest: () => setRequestFor(selected), onChanged: () => refresh().catch(() => {}),
     onClose: closeDetail,
@@ -375,7 +377,7 @@ export default function CredentialVaultApp({ activeSub }) {
         <div className="cv-header-actions">
           {verified
             ? <span className="cv-chip tone-ok cv-chip-lg" title="Reveals and approvals inside this window do not ask for another code"><ShieldCheck size={13} /> {verifiedLabel(otp.until, now)}</span>
-            : <span className="cv-chip cv-chip-lg" title="The first reveal asks for a code by text or email"><Shield size={13} /> Code on First Reveal</span>}
+            : <span className="cv-chip cv-chip-lg" title="The first reveal asks for a code by text or email - except your own department's logins"><Shield size={13} /> Code on First Reveal</span>}
           {canWrite && (
             // "+ New", the one create button across Nexus (Neil, 11/13/2026).
             <NewButton title="Add a credential" items={[
@@ -603,7 +605,7 @@ export default function CredentialVaultApp({ activeSub }) {
       )}
 
       {selected && isMobile && <CredentialSheet key={selected.id} {...detailProps} />}
-      {form && <CredentialForm cred={form.cred} depts={depts} people={people} myEmail={myEmail} nameOf={nameOf} companies={orgOpts.companies} deptRows={orgOpts.departments} sites={orgOpts.sites} myCompanyId={orgOpts.companies.length === 1 ? orgOpts.companies[0].id : ""} onClose={() => setForm(null)} onSave={saveCredential} />}
+      {form && <CredentialForm cred={form.cred} people={people} myEmail={myEmail} nameOf={nameOf} companies={orgOpts.companies} sites={orgOpts.sites} myCompanyId={orgOpts.companies.length === 1 ? orgOpts.companies[0].id : ""} onClose={() => setForm(null)} onSave={saveCredential} />}
       {importOpen && <ImportWizard depts={depts} sites={orgOpts.sites} people={people} myEmail={myEmail} existing={creds} nameOf={nameOf} onClose={() => setImportOpen(false)} onImport={importRows} />}
       {shareFor && <ShareModal cred={shareFor} people={people.filter((p) => p.email !== myEmail)} nameOf={nameOf} deptRows={orgOpts.departments} companies={orgOpts.companies} onClose={() => setShareFor(null)} onSubmit={(body) => share(shareFor, body)} />}
       {requestFor && <RequestModal cred={requestFor} nameOf={nameOf} onClose={() => setRequestFor(null)} onSubmit={(ms, label) => request(requestFor, ms, label)} />}

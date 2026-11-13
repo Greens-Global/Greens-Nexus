@@ -145,11 +145,13 @@ export function Modal({ children, onClose, isDirty = false, onSave, center = fal
   );
 }
 
-export const Field = ({ label, required, children }) => (
-  <label style={{ display: "block" }}>
-    <span className="cv-label" style={{ marginBottom: 0 }}>{label}{required && <span style={{ color: "var(--cv-rose)", marginLeft: 2 }}>*</span>}</span>
+// `error` (11/13/2026): the field says what to fix, in red, right under it.
+export const Field = ({ label, required, children, error = "", as: Tag = "label" }) => (
+  <Tag style={{ display: "block" }} data-field-error={error ? "" : undefined}>
+    <span className="cv-label" style={{ marginBottom: 0, color: error ? "var(--cv-bad)" : undefined }}>{label}{required && <span style={{ color: "var(--cv-rose)", marginLeft: 2 }}>*</span>}</span>
     <div style={{ marginTop: 5 }}>{children}</div>
-  </label>
+    {error && <span className="cv-field-error" role="alert">{error}</span>}
+  </Tag>
 );
 
 export function ModalHeader({ icon, tint, title, subtitle }) {
@@ -300,13 +302,13 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
   );
 }
 
-export function PasswordField({ value, onChange, placeholder, required = true, label = "Password" }) {
+export function PasswordField({ value, onChange, placeholder, required = true, label = "Password", error = "" }) {
   const [show, setShow] = useState(false);
   return (
-    <Field label={label} required={required}>
+    <Field label={label} required={required} error={error}>
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ position: "relative", flex: 1 }}>
-          <input type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)} className="cv-ipt" style={{ paddingRight: 34 }} placeholder={placeholder} />
+          <input type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)} className={`cv-ipt${error ? " cv-ipt-error" : ""}`} style={{ paddingRight: 34 }} placeholder={placeholder} aria-invalid={error ? true : undefined} />
           <button type="button" onClick={() => setShow((v) => !v)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", display: "flex" }}>
             {show ? <EyeOff size={15} /> : <Eye size={15} />}
           </button>
