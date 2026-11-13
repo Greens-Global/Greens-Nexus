@@ -201,7 +201,7 @@ def _next_code(db: Session) -> str:
     return f"GG-{best + 1:03d}"
 
 
-def _serialize(e: NexusEmployee, db: Session = None, tiers: dict = None) -> dict:
+def _serialize(e: NexusEmployee, db: Session = None, tiers: dict = None, countries: dict = None) -> dict:
     # The tier mark beside the name (Neil, 11/02/2026): `tiers` is
     # auth.tiers_by_email(db) for a list (one query), `db` reads one person
     # through the role cache; neither given = '' (the field is always there).
@@ -234,6 +234,11 @@ def _serialize(e: NexusEmployee, db: Session = None, tiers: dict = None) -> dict
         "status":         e.status,
         "location":       e.location,
         "country":        e.country or "",
+        # Their own country, else their company's (`countries` = company_countries
+        # for a list) - what India-only fields like the PAN key off.
+        "workCountry":    (_country_of(e, countries) if countries is not None
+                           else _person_country(db, e) if db is not None
+                           else (e.country or "").strip().upper()),
         "officePhone":    e.office_phone or "",
         "streetAddress":  e.street_address or "",
         "city":           e.city or "",
@@ -287,7 +292,9 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
         out = [_team_view(_serialize(e, tiers=tiers)) for e in rows]
     else:
         sees_pay = _has_comp(user, db)
-        out = [_serialize(e, tiers=tiers) for e in rows]
+        from holiday_policies import company_countries
+        countries = company_countries(db, [e.company for e in rows])
+        out = [_serialize(e, tiers=tiers, countries=countries) for e in rows]
         if not sees_pay:
             for o in out:
                 o["contractor"] = {k: v for k, v in (o.get("contractor") or {}).items() if k not in _CONTRACTOR_PAY}
@@ -5143,6 +5150,11 @@ def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
         # GSTIN and PAN only to people in India (Neil, 11/12/2026).
         "country": _person_country(db, emp),
     }
+
+
+def _country_of(emp: NexusEmployee, countries: dict) -> str:
+    from holiday_policies import person_country
+    return person_country(emp, countries.get(getattr(emp, "company", "") or "", ""))
 
 
 def _person_country(db: Session, emp: NexusEmployee) -> str:

@@ -195,7 +195,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(plaza["current"]["cashFlowAfterDebt"], 570.0)
         self.assertEqual(plaza["prior"]["netIncome"], 600.0)
         self.assertEqual(plaza["change"]["netIncome"], {"amount": -100.0, "pct": round(-100 / 600 * 100, 2)})
-        self.assertNotIn("accounts", plaza["prior"])
+        self.assertIn("accounts", plaza["prior"])   # the Prior Year column drills too (11/12/2026)
         self.assertEqual(d["totals"]["current"]["revenue"], 1550.0)
         self.assertEqual((d["priorFrom"], d["priorTo"]), ("2025-01-01", "2025-12-31"))
 
