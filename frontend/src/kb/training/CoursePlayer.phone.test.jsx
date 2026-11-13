@@ -2,7 +2,7 @@
 // first under a "Lesson N of M" strip, the list folds out of the strip, and
 // Next and Complete and Continue share one row.
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('../../lib/useIsMobile', () => ({ useIsMobile: () => true, default: () => true }));
 vi.mock('../../lib/useActionCounts', () => ({ useActionCounts: () => ({}), tabCount: () => 0, moduleCount: () => 0, withBadges: (t) => t, DATA_WRITTEN: 'nexus:data-written' }));
@@ -36,8 +36,14 @@ describe('lesson player on a phone', () => {
     expect(document.querySelector('#kb-lesson-list')).toBeNull();   // the list waits behind the strip
     expect(document.querySelector('.kb-lesson-nav.compact')).toBeTruthy();
     expect(screen.getByText('Punching In', { exact: false })).toBeTruthy();   // "Next: Punching In"
-    fireEvent.click(screen.getByRole('button', { name: /Lesson 2 of 3/ }));
-    expect(document.querySelector('#kb-lesson-list')).toBeTruthy();
+    // The player is still settling after the first paint (the lesson-change
+    // effect folds the list), so a click can land before it; tap again while
+    // the strip still says folded (it flaked in CI, 11/12/2026).
+    await waitFor(() => {
+      const strip = screen.getByRole('button', { name: /Lesson 2 of 3/ });
+      if (strip.getAttribute('aria-expanded') !== 'true') fireEvent.click(strip);
+      expect(document.querySelector('#kb-lesson-list')).toBeTruthy();
+    });
     expect(screen.getByText('Course Home')).toBeTruthy();
   });
 

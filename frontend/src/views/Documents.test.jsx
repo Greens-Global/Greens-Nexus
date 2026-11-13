@@ -93,8 +93,9 @@ describe('Documents module', () => {
   it('Hiring Documents opens the same setup as Settings for whoever may set it up (Pranshu, 11/04/2026)', async () => {
     renderDocs('documents-hiring');
     expect(publishedTabs()).toBe('Browse Files|Documents|Templates|Hiring Documents|Forms|Filing & Sorting|Nexus Sign|PDF Tools|Wiring');
+    // The panel is the page (Pranshu, 11/13/2026): no Open button, no popup to dismiss.
     expect(await screen.findByText('hiring documents panel')).toBeTruthy();
-    expect(screen.getByText(/same setup as Settings/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Open Hiring Documents' })).toBeNull();
   });
 
   it('renders Filing & Sorting, explaining itself when Egnyte is unconfigured', async () => {

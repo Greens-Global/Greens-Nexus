@@ -1,8 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import NewButton from './NewButton';
 import { UNTITLED_DOCUMENT, UNTITLED_SHEET } from '../lib/untitled';
 import { generateJSON } from '@tiptap/core';
-import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon, LayoutTemplate } from 'lucide-react';
+import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon, LayoutTemplate, Folder as FolderIcon, ClipboardList, Package } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -17,7 +17,7 @@ import DocumentSidePanel, { StatusWord } from './DocumentSidePanel';
 import { PersonSelect } from '../tasks/components';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { useIsMobile } from '../lib/useIsMobile';
-import { VIEWS, folderKey, mergeRows, rowFor, rowStatus, rowsInView, searchRows, sortRows, startView } from '../lib/documentLibrary';
+import { VIEWS, folderKey, mergeRows, rowFor, rowStatus, rowsInView, searchRows, sortRows, startView, PAGE_SIZE, groupLabel, rowSubline, pageOf, initials } from '../lib/documentLibrary';
 import { validateFieldValue, formatFieldValue, RESERVED_TYPES, isAutoToken } from '../lib/mergeFieldTypes';
 
 // Sheets (Neil, 11/05/2026): the workbook page and its engine load when a sheet is opened or made.
@@ -398,6 +398,10 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState({ key: 'updatedAt', dir: 'desc' });
+  // The redesign (Pranshu, 11/13/2026): 12 rows a page, filter chips, folded empty folders.
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ company: '', status: '', type: '' });
+  const [showEmptyFolders, setShowEmptyFolders] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);   // true, or { file } from the Import button
   const importRef = useRef(null);
   const [editingDoc, setEditingDoc] = useState(null);
@@ -448,8 +452,17 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
 
   const all = useMemo(() => rows || [], [rows]);
-  const visible = useMemo(() => sortRows(searchRows(rowsInView(all, view), search, folders), sort.key, sort.dir),
-    [all, view, search, folders, sort]);
+  const typeOf = (r) => (r.kind === 'hr' ? 'Packet' : r.kind === 'form_entry' ? 'Form Entry' : r.docKind === 'sheet' ? 'Sheet' : 'Document');
+  const visible = useMemo(() => sortRows(searchRows(rowsInView(all, view), search, folders), sort.key, sort.dir)
+    .filter((r) => (!filters.company || r.company === filters.company) && (!filters.status || rowStatus(r).label === filters.status) && (!filters.type || typeOf(r) === filters.type)),
+    [all, view, search, folders, sort, filters]);
+  useEffect(() => { setPage(1); }, [view, search, filters, sort]);
+  const paged = useMemo(() => pageOf(visible, page, PAGE_SIZE), [visible, page]);
+  // Each option carries its count ("Signed (3)"), so a chip never reads as a row.
+  const options = useMemo(() => {
+    const tally = (read) => { const m = new Map(); all.forEach((r) => { const k = read(r); if (k) m.set(k, (m.get(k) || 0) + 1); }); return [...m].sort(([a], [b]) => a.localeCompare(b)); };
+    return { company: tally((r) => r.company), status: tally((r) => rowStatus(r).label), type: tally(typeOf) };
+  }, [all]);
   const selected = selectedId ? all.find((r) => r.id === selectedId) : null;
   const views = VIEWS.filter((v) => (!v.hrOnly || hrAccess) && (!v.formsOnly || all.some((r) => r.kind === 'form_entry')));
   const countOf = (key) => rowsInView(all, key).length;
@@ -526,22 +539,36 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   return (
     <div className={`nx-dl${selected ? ' nx-dl-open' : ''}`}>
       <nav className="nx-dl-rail" aria-label="Document views">
-        {views.map((v) => (
-          <button key={v.key} type="button" className={view === v.key ? 'on' : ''} aria-current={view === v.key ? 'true' : undefined} onClick={() => pickView(v.key)}>
-            <span>{v.label}</span><span className="nx-dl-count">{countOf(v.key)}</span>
-          </button>
-        ))}
-        {(folders.length > 0 || canAddFolder) && <div className="nx-dl-rail-head">Folders</div>}
-        {folders.filter((f) => f.name !== 'Archived' || countOf(folderKey(f.id)) > 0).map((f) => (
-          <button key={f.id} type="button" className={view === folderKey(f.id) ? 'on' : ''} aria-current={view === folderKey(f.id) ? 'true' : undefined} onClick={() => pickView(folderKey(f.id))}>
-            <span>{f.name}</span><span className="nx-dl-count">{countOf(folderKey(f.id))}</span>
-          </button>
-        ))}
-        {canAddFolder && (
-          <button type="button" className="nx-dl-rail-add" title="New Folder" onClick={() => setNewFolderOpen(true)}>
-            <FolderPlus size={14} /> <span>New Folder</span>
-          </button>
+        <div className="nx-dl-rail-head">Views</div>
+        {views.map((v) => {
+          const n = countOf(v.key);
+          return (
+            <button key={v.key} type="button" className={`${view === v.key ? 'on' : ''}${!n && view !== v.key ? ' zero' : ''}`} aria-current={view === v.key ? 'true' : undefined} onClick={() => pickView(v.key)}>
+              <span>{v.label}</span>
+              {v.key === 'needs' && n > 0 ? <span className="nx-dl-count nx-dl-count-hot">{n}</span> : <span className="nx-dl-count">{n}</span>}
+            </button>
+          );
+        })}
+        {(folders.length > 0 || canAddFolder) && (
+          <div className="nx-dl-rail-head">
+            <span>Folders</span>
+            {canAddFolder && <button type="button" className="nx-dl-rail-new" aria-label="New Folder" title="New Folder" onClick={() => setNewFolderOpen(true)}><FolderPlus size={12} /> New</button>}
+          </div>
         )}
+        {(() => {
+          const withCount = folders.map((f) => [f, countOf(folderKey(f.id))]);
+          const shown = withCount.filter(([f, n]) => n > 0 || view === folderKey(f.id) || showEmptyFolders);
+          const hidden = withCount.length - shown.length;
+          return (<>
+            {shown.map(([f, n]) => (
+              <button key={f.id} type="button" className={`${view === folderKey(f.id) ? 'on' : ''}${!n ? ' zero' : ''}`} aria-current={view === folderKey(f.id) ? 'true' : undefined} onClick={() => pickView(folderKey(f.id))}>
+                <span><FolderIcon size={13} aria-hidden="true" /> {f.name}</span><span className="nx-dl-count">{n}</span>
+              </button>
+            ))}
+            {hidden > 0 && <button type="button" className="nx-dl-rail-more" onClick={() => setShowEmptyFolders(true)}>Show {hidden} Empty Folder{hidden === 1 ? '' : 's'}</button>}
+            {showEmptyFolders && withCount.some(([, n]) => !n) && <button type="button" className="nx-dl-rail-more" onClick={() => setShowEmptyFolders(false)}>Hide Empty Folders</button>}
+          </>);
+        })()}
       </nav>
 
       <div className="nx-dl-main">
@@ -551,9 +578,15 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
             <input className="form-input" placeholder="Search by title, person, signer or tag" aria-label="Search documents"
               value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
+          {[['company', 'Company'], ['status', 'Status'], ['type', 'Type']].map(([k, label]) => (
+            <select key={k} className="nx-dl-chip" aria-label={label} value={filters[k]} onChange={(e) => setFilters((f) => ({ ...f, [k]: e.target.value }))}>
+              <option value="">{label}: {k === 'company' ? 'All' : 'Any'}</option>
+              {options[k].map(([o, n]) => <option key={o} value={o}>{o} ({n})</option>)}
+            </select>
+          ))}
           <input ref={importRef} type="file" accept=".docx,.doc,.pdf,.txt,.xlsx,.xls,.csv" style={{ display: 'none' }} aria-label="Import a file"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) { if (SHEET_FILE.test(f.name)) newSheet(f); else setCreateOpen({ file: f }); } e.target.value = ''; }} />
-          <button type="button" className="secondary-btn" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
+          <button type="button" className="secondary-btn nx-dl-push" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
             Send For Signature
           </button>
           {/* "+ New", the one create button across Nexus (Neil, 11/13/2026:
@@ -588,7 +621,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
         >
           {isMobile ? (
             <div className="nx-dl-cards">
-              {visible.slice(0, 500).map((r) => (
+              {paged.rows.map((r) => (
                 <button key={r.id} type="button" className="nx-dl-card" onClick={() => setSelectedId(r.id)}>
                   <strong>{r.docKind === 'sheet' && <SheetIcon size={13} aria-label="Sheet" style={{ marginRight: 5, verticalAlign: -2 }} />}{r.title}</strong>
                   {rowFor(r) && <span className="nx-dl-muted">{rowFor(r)}</span>}
@@ -608,24 +641,51 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
                         </button>
                       </th>
                     ))}
+                    <th className="nx-dl-rowact" aria-label="Actions"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visible.slice(0, 500).map((r) => (
-                    <tr key={r.id} data-row={r.id} tabIndex={0} className={selectedId === r.id ? 'sel' : ''} aria-selected={selectedId === r.id}
-                      onClick={() => setSelectedId(r.id)} onKeyDown={(e) => onRowKey(e, r)}>
-                      <td className="nx-dl-name">{r.docKind === 'sheet' && <SheetIcon size={13} aria-label="Sheet" style={{ marginRight: 6, verticalAlign: -2 }} />}{r.title}</td>
-                      <td className="nx-dl-for">{rowFor(r) || '-'}</td>
-                      <td><StatusWord status={rowStatus(r)} /></td>
-                      <td className="nx-dl-co">{r.company || '-'}</td>
-                      <td className="nx-dl-date">{formatDate(r.updatedAt)}</td>
-                    </tr>
-                  ))}
+                  {paged.rows.map((r, i) => {
+                    const group = sort.key === 'updatedAt' ? groupLabel(r) : '';
+                    const divider = group && (i === 0 || groupLabel(paged.rows[i - 1]) !== group);
+                    const Kind = r.kind === 'hr' ? Package : r.kind === 'form_entry' ? ClipboardList : r.docKind === 'sheet' ? SheetIcon : FileText;
+                    const kindClass = r.kind === 'hr' ? 'is-hr' : r.kind === 'form_entry' ? 'is-form' : r.docKind === 'sheet' ? 'is-sheet' : 'is-doc';
+                    const who = rowFor(r);
+                    return (<Fragment key={r.id}>
+                      {divider && <tr className="nx-dl-group" aria-hidden="true"><td colSpan={6}>{group}</td></tr>}
+                      <tr data-row={r.id} tabIndex={0} className={selectedId === r.id ? 'sel' : ''} aria-selected={selectedId === r.id}
+                        onClick={() => setSelectedId(r.id)} onKeyDown={(e) => onRowKey(e, r)}>
+                        <td className="nx-dl-name">
+                          <span className="nx-dl-cellrow">
+                            <span className={`nx-dl-kind ${kindClass}`}><Kind size={14} aria-hidden="true" /></span>
+                            <span className="nx-dl-name-text"><span>{r.title}</span><small>{rowSubline(r, folders)}</small></span>
+                          </span>
+                        </td>
+                        <td className="nx-dl-for">{who ? <span className="nx-dl-cellrow"><span className="nx-dl-av" aria-hidden="true">{initials(who)}</span>{who}</span> : <span className="nx-dl-muted">-</span>}</td>
+                        <td><StatusWord status={rowStatus(r)} /></td>
+                        <td className="nx-dl-co">{r.company || <span className="nx-dl-muted">-</span>}</td>
+                        <td className="nx-dl-date">{formatDate(r.updatedAt)}</td>
+                        <td className="nx-dl-rowact"><button type="button" className="secondary-btn nx-dl-quick" onClick={(e) => { e.stopPropagation(); setSelectedId(r.id); }}>Open</button></td>
+                      </tr>
+                    </Fragment>);
+                  })}
                 </tbody>
               </table>
             </div>
           )}
-          {visible.length > 500 && <p className="nx-dl-muted" style={{ marginTop: 10 }}>Showing the newest 500. Search to find the rest.</p>}
+          {paged.pages > 1 && (
+            <div className="nx-dl-pager" role="navigation" aria-label="Pages">
+              <span className="nx-dl-muted">Showing {paged.from}-{paged.to} of {visible.length} · {PAGE_SIZE} a page</span>
+              <span className="nx-dl-pages">
+                <button type="button" aria-label="Previous page" disabled={paged.page <= 1} onClick={() => setPage(paged.page - 1)}>‹</button>
+                {Array.from({ length: paged.pages }, (_, n) => n + 1).filter((n) => n === 1 || n === paged.pages || Math.abs(n - paged.page) <= 2).map((n, idx, arr) => (<Fragment key={n}>
+                  {idx > 0 && arr[idx - 1] !== n - 1 && <span className="nx-dl-muted">…</span>}
+                  <button type="button" className={n === paged.page ? 'on' : ''} aria-current={n === paged.page ? 'page' : undefined} onClick={() => setPage(n)}>{n}</button>
+                </Fragment>))}
+                <button type="button" aria-label="Next page" disabled={paged.page >= paged.pages} onClick={() => setPage(paged.page + 1)}>›</button>
+              </span>
+            </div>
+          )}
         </AsyncSection>
       </div>
 
@@ -647,7 +707,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
 
       {newFolderOpen && (
         <NewFolderModal toastErr={toastErr} onClose={() => setNewFolderOpen(false)}
-          onCreated={(f) => { setFolders(prev => [...prev, f].sort((a, b) => a.name.localeCompare(b.name))); toastOk?.(`Folder "${f.name}" created`); }} />
+          onCreated={(f) => { setFolders(prev => [...prev, f].sort((a, b) => a.name.localeCompare(b.name))); pickView(folderKey(f.id)); toastOk?.(`Folder "${f.name}" created`); }} />
       )}
 
       {organizeDoc && (

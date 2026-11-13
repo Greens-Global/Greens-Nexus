@@ -46,6 +46,8 @@ export default function ComplianceTab({ e, canEdit = false, paperworkKey, onSave
   const c = t.draft || saved;
   const set = (k, v) => t.patch({ [k]: v });
   const panBad = !!c.pan && !PAN_RE.test(c.pan);
+  // India only (Neil, 11/12/2026): a PAN means nothing for a US person; one already saved still shows.
+  const india = e.workCountry === 'IN' || !!(e.compliance || {}).pan;
   const cur = e.compliance || {};
   const vs = VERIFY_STATUS[cur.status || 'unverified'] || VERIFY_STATUS.unverified;
 
@@ -84,6 +86,7 @@ export default function ComplianceTab({ e, canEdit = false, paperworkKey, onSave
                 {Object.entries(VERIFY_STATUS).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
               </select>
             </Field>
+            {india && (
             <Field label="PAN (India)" htmlFor="compliance-pan">
               <input id="compliance-pan" className="form-input" style={{ ...BOX, borderColor: panBad ? 'hsl(var(--color-red))' : undefined }} value={c.pan} maxLength={10}
                 onChange={ev => set('pan', ev.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="ABCDE1234F" aria-invalid={panBad} />
@@ -91,6 +94,7 @@ export default function ComplianceTab({ e, canEdit = false, paperworkKey, onSave
                 {panBad ? 'PAN is 5 letters, 4 digits and a letter, e.g. ABCDE1234F.' : "Printed on the person's invoices when they are a contractor."}
               </div>
             </Field>
+            )}
           </div>
           <div style={HINT}>Upload the passport or visa scan on the Documents tab (private, signed-link access).</div>
         </>
@@ -104,7 +108,7 @@ export default function ComplianceTab({ e, canEdit = false, paperworkKey, onSave
           ) : ''} />
           <Row icon={FileText} label="Document" value={[DOC_TYPES.find(([v]) => v === cur.docType)?.[1], cur.docNumber].filter(Boolean).join(' · ')} />
           <Row icon={CalendarDays} label="Issued" value={formatDate(cur.issueDate, cur.issueDate || '')} />
-          <Row icon={FileText} label="PAN (India)" value={cur.pan ? maskId(cur.pan) : ''} />
+          {india && <Row icon={FileText} label="PAN (India)" value={cur.pan ? maskId(cur.pan) : ''} />}
           {(() => {
             if (!cur.expiryDate) return <Row icon={CalendarDays} label="Doc Expiry" value="" />;
             const dd = daysUntil(cur.expiryDate); const warn = dd !== null && dd <= 60;

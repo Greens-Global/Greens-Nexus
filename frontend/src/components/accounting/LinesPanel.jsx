@@ -35,6 +35,10 @@ import { requestReportDrill } from './drill';
 // With `keep` every page of each search is read (readAllLines), so the kept
 // lines are complete, never the first page of them. `figure` (optional): the
 // amount the lines stand behind - the panel says whether they add up to it.
+// `load` (optional): a reader of its own in place of the ledger search,
+// () => Promise<{ lines, more }> - the Compensation report's lines, matched to
+// people by the server (11/12/2026). `children` sits above the lines (a Back
+// link, a note); `after(lines)` below them.
 
 export const LINES_LIMIT = 500;
 
@@ -100,8 +104,9 @@ async function readAllLines(queries) {
   return { lines, more: answers.some((d) => d.more) };
 }
 
-export default function LinesPanel({ title, caption = '', queries, report = null, widthsKey = 'lines', label = 'Ledger lines', keep = null, figure = null, onClose }) {
-  const key = JSON.stringify(queries || []);
+export default function LinesPanel({ title, caption = '', queries, report = null, widthsKey = 'lines', label = 'Ledger lines', keep = null, figure = null, load = null, loadKey = '', children = null, after = null, onClose }) {
+  const key = load ? `load:${loadKey}` : JSON.stringify(queries || []);
+  const loadRef = useRef(load);   // read with loadKey: a new figure = a new key
   const [state, setState] = useState({ key: '', lines: null, more: false, error: '' });
   const [entry, setEntry] = useState(null);
   const entryOpen = useRef(false);
@@ -110,7 +115,7 @@ export default function LinesPanel({ title, caption = '', queries, report = null
   const cols = useColumnWidths(`lines-panel:${widthsKey}`, Object.fromEntries(LINE_COLUMNS.map((c) => [c.key, c.width])), { min: 60 });
   useEffect(() => {
     let alive = true;
-    (keepRef.current ? readAllLines : readLines)(JSON.parse(key))
+    (loadRef.current ? loadRef.current() : (keepRef.current ? readAllLines : readLines)(JSON.parse(key)))
       .then((d) => { if (alive) setState({ key, ...d, lines: keepRef.current ? d.lines.filter(keepRef.current) : d.lines, error: '' }); })
       .catch((e) => { if (alive) setState({ key, lines: [], more: false, error: e?.message || 'Could not read the ledger lines.' }); });
     return () => { alive = false; };
@@ -143,6 +148,7 @@ export default function LinesPanel({ title, caption = '', queries, report = null
             <button type="button" className="secondary-btn" onClick={toReports} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ExternalLink size={13} /> Open in Reports</button>
           </div>
         ) : null}>
+        {children}
         {lines === null ? <SkeletonBlocks count={3} /> : state.error ? (
           <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>{state.error}</div>
         ) : !lines.length ? (
@@ -190,6 +196,7 @@ export default function LinesPanel({ title, caption = '', queries, report = null
             </div>
           )
         )}
+        {lines && !state.error && after ? after(lines) : null}
       </SidePanel>
       {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
     </>

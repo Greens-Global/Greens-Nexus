@@ -117,6 +117,11 @@ export function MaturityWidget() {
   // One horizon everywhere: the model's MATURITY_SOON_MONTHS (18).
   const soon = loans.filter((l) => maturingSoon(l, period)).reduce((t, l) => t + l.balance, 0);
   const compact = (v) => m(v, { compact: true });
+  // Only years with debt still owed (11/12/2026: prod's one dated loan was paid
+  // down to $0, so the chart drew a single empty 2050 bar), and say how many
+  // loans have no maturity date rather than leaving them out silently.
+  const years = s.byYear.filter((y) => Math.abs(y.balance) >= 0.005);
+  const undated = loans.filter((l) => !l.maturity && Math.abs(l.balance) >= 0.005).length;
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={tiles}>
@@ -125,7 +130,8 @@ export function MaturityWidget() {
         <Tile label="Annual debt service" value={compact(s.annualService)} />
         <Tile label={`Maturing within ${MATURITY_SOON_MONTHS} mo`} value={compact(soon)} />
       </div>
-      {s.byYear.length ? <ColoredBars data={s.byYear.map((y) => ({ label: String(y.year), value: y.balance, color: y.soon ? WARN : '#0998c3' }))} height={150} valueLabel={compact} /> : null}
+      {undated ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Maturity date not set on {undated} of {loans.length} loan{loans.length === 1 ? '' : 's'}{years.length ? ' - they are not in the chart.' : ', so there is nothing to chart yet.'} Set it under Financing &gt; Loans.</div> : null}
+      {years.length ? <ColoredBars data={years.map((y) => ({ label: String(y.year), value: y.balance, color: y.soon ? WARN : '#0998c3' }))} height={150} valueLabel={compact} /> : null}
       <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: WARN }}><WarnMark size={11} />Maturing within {MATURITY_SOON_MONTHS} months</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#0998c3" />Later maturities</span></div>
       <Footnote>Refinance conversations typically start 12 to 18 months before maturity.</Footnote>
     </div>

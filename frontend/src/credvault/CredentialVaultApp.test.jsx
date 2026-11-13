@@ -83,6 +83,20 @@ describe('Credentials', () => {
     expect(screen.getByText('Recently Used')).toBeTruthy();
   });
 
+  it('my own department\'s login copies without the code; another department\'s asks for it (11/13/2026)', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue() }, configurable: true });
+    calls.cvOtpStatus.mockResolvedValue({ verified: false, until: null, windowSec: 900 });
+    calls.cvCredentials.mockResolvedValue([{ ...mine, homeDept: true }, { ...mine, id: 'c3', name: 'Payroll', dept: 'HR', homeDept: false }]);
+    render(<CredentialVaultApp />);
+    await toLogins();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy password for Stripe' }));
+    await waitFor(() => expect(calls.cvReveal).toHaveBeenCalledWith('c1'));
+    expect(screen.queryByText('Verify Your Identity')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy password for Payroll' }));
+    expect(await screen.findByText('Verify Your Identity')).toBeTruthy();
+    expect(calls.cvReveal).not.toHaveBeenCalledWith('c3');
+  });
+
   it('a row I cannot open sits folded, hides the username and asks instead of revealing', async () => {
     render(<CredentialVaultApp />);
     await toLogins();

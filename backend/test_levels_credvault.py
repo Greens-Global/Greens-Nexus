@@ -24,6 +24,10 @@ OWNER, VIEWER, EDITOR, FULL = "cv.owner" + D, "cv.viewer" + D, "cv.editor" + D, 
 
 class CredvaultLevelTests(unittest.TestCase):
     def setUp(self):
+        import vault_head
+        _req = vault_head.require
+        vault_head.require = lambda *a, **k: None   # the head code has its own suite (test_vault_head.py)
+        self.addCleanup(setattr, vault_head, "require", _req)
         self.client = TestClient(main.app)
         db = database.SessionLocal()
         try:

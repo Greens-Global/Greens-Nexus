@@ -10898,3 +10898,111 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
   .mktg-reviews-feed { max-height: none !important; overflow: visible !important; padding-right: 0 !important; }
   .mktg-review-actions button { white-space: nowrap; min-height: 36px; }
 }
+
+/* ── Documents library redesign (Pranshu, 11/13/2026, canvas
+   https://claude.ai/artifact/TapZUK47Diz1k3jgFh5TNW): the rail and the list
+   are cards, rows carry a kind chip and a second line, the selected row a left
+   accent, quick actions show on hover, 12 rows a page. Later in the file than
+   the 10/31 block, so these win at the same specificity. ─────────────────── */
+.nx-dl { gap: 14px; }
+.nx-dl.nx-dl-open { grid-template-columns: 212px minmax(0, 1fr) minmax(340px, 30%); }
+.nx-dl-rail { padding: 8px 6px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
+.nx-dl-rail button { padding: 7px 10px 7px 12px; border-left: none; border-radius: 7px; color: var(--ink); position: relative; }
+.nx-dl-rail button.on { background: var(--mist); color: var(--pine); font-weight: 600; }
+.nx-dl-rail button.on::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: var(--pine); }
+.nx-dl-rail button.zero { color: var(--muted); }
+.nx-dl-rail button > span:first-child { display: inline-flex; align-items: center; gap: 7px; }
+.nx-dl-rail button.on .nx-dl-count { color: var(--pine); }
+.nx-dl-count { font-size: 11px; min-width: 18px; text-align: right; }
+.nx-dl-count-hot { display: inline-flex; justify-content: center; align-items: center; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9px; background: hsl(var(--color-orange) / .18); color: hsl(var(--color-orange)); font-weight: 700; font-size: 11px; }
+.nx-dl-rail-head { display: flex; justify-content: space-between; align-items: center; margin: 6px 0 2px; padding: 4px 12px; font: 600 11px Inter, sans-serif; color: var(--muted); }
+.nx-dl-rail-head + .nx-dl-rail-head, .nx-dl-rail button + .nx-dl-rail-head { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.nx-dl-rail .nx-dl-rail-new { width: auto; padding: 2px 4px; font: 600 11px Inter, sans-serif; color: var(--pine); border-radius: 5px; }
+.nx-dl-rail .nx-dl-rail-more { font: 500 11px Inter, sans-serif; color: var(--pine); padding: 6px 12px; }
+/* The toolbar is a card like the rail and the list: padded, so nothing
+   touches its edge, and every control in it one height (34px), one radius. */
+.nx-dl-tools { gap: 8px; padding: 10px 12px; margin: 0 0 12px; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
+.nx-dl-search { flex: 1 1 220px; min-width: 180px; max-width: 520px; }
+.nx-dl-tools .nx-dl-search input { height: 34px; padding-top: 0; padding-bottom: 0; border-radius: 8px; }
+.nx-dl-tools .primary-btn, .nx-dl-tools .secondary-btn { height: 34px; padding-top: 0; padding-bottom: 0; border-radius: 8px; display: inline-flex; align-items: center; white-space: nowrap; }
+/* One select look for every filter here: the house chevron, the text centered. */
+select.nx-dl-chip { flex: 0 1 auto; min-width: 116px; max-width: 200px; height: 34px; margin: 0; padding: 0 30px 0 12px; line-height: 32px;
+  border: 1px solid var(--wk-line2, var(--line)); border-radius: 8px; background-color: var(--card); font: 500 13px Inter, sans-serif; color: var(--ink);
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden; cursor: pointer; outline: none;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 11px center;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast); }
+/* Filters on the left, actions at the right end of the bar. */
+.nx-dl-tools .nx-dl-push { margin-left: auto; }
+select.nx-dl-chip:hover:not(:focus) { border-color: var(--wk-faint, var(--muted)); }
+select.nx-dl-chip:focus { border-color: var(--wk-brand, var(--pine)); background-color: var(--card); box-shadow: 0 0 0 3px var(--wk-brand-tint, transparent); }
+[data-theme="dark"] select.nx-dl-chip { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b97b0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E"); }
+.nx-dl-table { border-top: none; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
+.nx-dl-table th { padding: 9px 14px; font: 500 12px Inter, sans-serif; background: var(--mist); }
+.nx-dl-table td { padding: 9px 14px; }
+.nx-dl-table tbody tr.sel { background: var(--mist); box-shadow: inset 3px 0 0 var(--pine); }
+.nx-dl-table tr.nx-dl-group td { padding: 6px 16px; font: 600 11px Inter, sans-serif; color: var(--muted); background: var(--card); cursor: default; }
+/* A <td> stays a table cell; the row of icon + text is an inner wrapper. */
+.nx-dl-cellrow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.nx-dl-for .nx-dl-cellrow { gap: 7px; }
+.nx-dl-kind { flex: none; width: 28px; height: 28px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; background: var(--mist); color: var(--muted); }
+.nx-dl-kind.is-doc { background: hsl(var(--color-blue) / .14); color: hsl(var(--color-blue)); }
+.nx-dl-kind.is-sheet { background: hsl(var(--color-green) / .14); color: hsl(var(--color-green)); }
+.nx-dl-kind.is-hr { background: hsl(var(--color-orange) / .16); color: hsl(var(--color-orange)); }
+.nx-dl-kind.is-form { background: hsl(var(--color-purple, 262 83% 58%) / .14); color: hsl(var(--color-purple, 262 83% 58%)); }
+.nx-dl-name-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.nx-dl-name-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-dl-name-text small { font-size: 11px; font-weight: 400; color: var(--muted); }
+.nx-dl-av { flex: none; width: 22px; height: 22px; border-radius: 50%; background: hsl(var(--color-blue) / .14); color: hsl(var(--color-blue)); font: 700 11px Inter, sans-serif; display: inline-flex; align-items: center; justify-content: center; }
+.nx-dl-quick { opacity: 0; transition: opacity .15s; }
+.nx-dl-table tbody tr:hover .nx-dl-quick, .nx-dl-table tbody tr.sel .nx-dl-quick, .nx-dl-table tbody tr:focus-within .nx-dl-quick { opacity: 1; }
+.nx-dl-pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 4px 0; flex-wrap: wrap; }
+.nx-dl-pages { display: inline-flex; gap: 6px; align-items: center; }
+.nx-dl-pages button { height: 28px; min-width: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); font: 600 12px Inter, sans-serif; color: var(--ink); cursor: pointer; }
+.nx-dl-pages button.on { background: var(--pine); border-color: var(--pine); color: #fff; }
+.nx-dl-pages button:disabled { opacity: .45; cursor: default; }
+.nx-dl-panel { padding: 0; border-left: none; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
+.nx-dl-panel > * { padding-left: 16px; padding-right: 16px; }
+.nx-dl-panel > :first-child { padding-top: 14px; }
+.nx-dl-panel > :last-child { padding-bottom: 16px; }
+.nx-dl-panel .nx-dl-page { width: auto; height: 220px; margin: 0 16px; border-radius: 8px; }
+@media (max-width: 900px) {
+  .nx-dl-quick { opacity: 1; }
+  select.nx-dl-chip { flex: 1 1 140px; max-width: none; }
+}
+
+/* Templates board - category cards (Pranshu, 11/13/2026, canvas https://claude.ai/artifact/TapZUK47Diz1k3jgFh5TNW) */
+.nx-tc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.nx-tc { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 14px; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: var(--card); border: 1px solid #e6e9f2; border-radius: 10px; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05);
+  transition: box-shadow .15s var(--ease-out), transform .15s var(--ease-out); }
+.nx-tc:hover { box-shadow: 0 10px 24px rgba(29,33,57,.10); transform: translateY(-1px); }
+.nx-tc:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.nx-tc-top { display: flex; align-items: center; gap: 12px; }
+.nx-tc-ico { width: 38px; height: 38px; border-radius: 10px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: #e6f7ee; color: var(--primary); }
+.nx-tc-head { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.nx-tc-head strong { font-size: 15px; font-weight: 700; color: var(--ink); }
+.nx-tc-head span { font-size: 12px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.nx-tc-n { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+.nx-tc-names { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.nx-tc-names > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.nx-tc-names > span > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nx-tc-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid #e6e9f2; padding-top: 12px; margin-top: auto; }
+.nx-tc-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 5px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.nx-tc-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.nx-tc-pill.ok { background: #e6f7ee; color: #0b7a42; }
+.nx-tc-pill.warn { background: #fff4e0; color: #8a5a00; }
+.nx-tc-open { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; font-weight: 600; color: var(--primary); }
+/* Inside a category: one line, the same height as the toolbar's controls. */
+.nx-tc-crumb { display: inline-flex; align-items: center; height: 34px; border: 1px solid var(--wk-line2, var(--line)); border-radius: 8px; overflow: hidden; flex: none; }
+.nx-tc-back { display: inline-flex; align-items: center; gap: 5px; height: 100%; padding: 0 10px; border: 0; border-right: 1px solid var(--line); background: var(--card); font: 500 13px Inter, sans-serif; color: var(--muted); cursor: pointer; }
+.nx-tc-back:hover { color: var(--ink); background: var(--mist); }
+.nx-tc-here { display: inline-flex; align-items: center; gap: 8px; height: 100%; padding: 0 12px; background: var(--mist); font: 600 13px Inter, sans-serif; color: var(--ink); }
+@media (max-width: 640px) { .nx-tc-grid { grid-template-columns: 1fr; } }
+
+/* Hiring Documents as a page (Pranshu, 11/13/2026) */
+.nx-hd { margin-top: 4px; font-family: Inter, sans-serif; }
+.nx-hd-body { background: var(--card); border: 1px solid #e6e9f2; border-radius: 10px; padding: 16px 20px 20px; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
+@media (max-width: 640px) { .nx-hd-body { padding: 12px; } }

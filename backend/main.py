@@ -1655,6 +1655,7 @@ def _run_migrations():
             "ALTER TABLE nexus_employees ADD COLUMN time_zone VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN work_start VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_employees ADD COLUMN work_end VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_credentials ADD COLUMN site_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3974,6 +3975,7 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS time_zone VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_start VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_end VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS site_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4967,6 +4969,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] long-session watch skipped: {e}")
         try:
+            # Credentials shared outside Nexus: once a minute, a share that ended
+            # tells its owners to change the password (vault_external.py).
+            from vault_external import vault_external_loop
+            _tasks.append(_a.create_task(vault_external_loop()))
+        except Exception as e:
+            print(f"[startup] outside-share expiry loop skipped: {e}")
+        try:
             from teams_post import teams_post_loop
             _tasks.append(_a.create_task(teams_post_loop()))
         except Exception as e:
@@ -5824,6 +5833,8 @@ app.include_router(task_config.router)    # Task Module: views/rules/templates/n
 app.include_router(task_config.view_router)   # What's New, read side: every signed-in user (Oct 12)
 app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
+from routers import vault_share  # noqa: E402
+app.include_router(vault_share.router)    # Credentials shared OUTSIDE Nexus: the no-login page's routes (vault_external.py, 11/13/2026)
 app.include_router(github_webhook.router) # PR/push merged to dev/main: public webhook receiver (verified by HMAC)
 app.include_router(teams_webhook.router) # Graph change notifications for kudos posts in Teams (Neil, 11/12/2026)
 app.include_router(construction.router)  # Construction: projects, daily logs, jobsite media

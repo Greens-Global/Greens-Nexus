@@ -497,8 +497,10 @@ describe('Companies', () => {
     expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();   // typing alone saves nothing
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith({ earlyPunchAlertMin: 20 }, ''));
+    // Let the first save land before typing again: when it lands the draft resets
+    // to the saved value, which on a loaded CI runner wiped a 999 typed too early.
+    await waitFor(() => expect(saveButton().disabled).toBe(true));
     fireEvent.change(mins, { target: { value: '999' } });
-    // The first save may still be settling on a loaded CI runner: click only once Save is live again.
     await waitFor(() => expect(saveButton().disabled).toBe(false));
     fireEvent.click(saveButton());
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ earlyPunchAlertMin: 240 }, ''));

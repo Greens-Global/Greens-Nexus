@@ -642,18 +642,18 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
         ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled}
         onClick={toggle} onKeyDown={onKeyDown}
         style={{
-          flex: 1, textAlign: 'left', border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
+          flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+          textAlign: 'left', border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
           fontFamily: FONT, fontSize: 'inherit', fontWeight: 'inherit', whiteSpace: 'nowrap',
           color: color || (value ? NX.ink : NX.faint),
         }}
-      >{value ? (monthOnly ? `${CAL_MONTHS[Number(value.slice(5, 7)) - 1]} ${value.slice(0, 4)}` : fmtDate(value)) : placeholder}</button>
-      {!(compact && value) && (
-        <CalendarDays
-          size={15} strokeWidth={2} color={NX.faint}
-          style={{ flexShrink: 0, cursor: disabled ? 'default' : 'pointer' }}
-          onClick={toggle}
-        />
-      )}
+      >
+        <span>{value ? (monthOnly ? `${CAL_MONTHS[Number(value.slice(5, 7)) - 1]} ${value.slice(0, 4)}` : fmtDate(value)) : placeholder}</span>
+        {/* The icon is part of the button (11/13/2026): beside it, inside a <label>,
+            a click on it opened the calendar and the label passed the click on
+            to the label's first button, which closed it again - a flicker. */}
+        {!(compact && value) && <CalendarDays size={15} strokeWidth={2} color={NX.faint} style={{ flexShrink: 0 }} aria-hidden="true" />}
+      </button>
       {open && rect && <CalendarPopover value={monthOnly && value ? `${value}-01` : value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} monthOnly={monthOnly} />}
     </span>
   );

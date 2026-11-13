@@ -75,6 +75,25 @@ describe('Credential drawer holds', () => {
     await act(async () => { vi.advanceTimersByTime(200); });
     expect(onPurge).toHaveBeenCalledTimes(1);
   });
+
+  it('whoever moved it to the trash waits for the other owner to delete it for good (11/13/2026)', async () => {
+    render(detail({ deletedAt: '2026-11-13T00:00:00Z', deletedBy: 'olive@x.com', backupOwner: 'bea@x.com' }));
+    expect(await screen.findByText(/so bea@x.com or an admin confirms the permanent delete/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Delete Permanently, press and hold' })).toBeNull();
+  });
+
+  it('the other owner gets the hold', async () => {
+    render(detail({ deletedAt: '2026-11-13T00:00:00Z', deletedBy: 'bea@x.com', backupOwner: 'bea@x.com' }));
+    expect(await screen.findByRole('button', { name: 'Delete Permanently, press and hold' })).toBeTruthy();
+  });
+
+  it('a breached password says why, and Critical is a calm shield, not red', async () => {
+    const { container } = render(detail({ breached: true, tier: 'Critical' }));
+    expect(await screen.findByText(/This exact password is on public lists of leaked passwords/)).toBeTruthy();
+    const tier = within(container.querySelector('.cv-drawer-chips')).getByText('Critical');
+    expect(tier.className).toContain('tone-info');
+    expect(tier.className).not.toContain('tone-bad');
+  });
 });
 
 describe('Personal Vault delete', () => {

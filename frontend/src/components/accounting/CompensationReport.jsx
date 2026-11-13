@@ -20,7 +20,7 @@ import { COMP_REQUEST_TIMEOUT_MS } from './assumptions';
 import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
 import SidePanel from './SidePanel';
-import EntryDetail from './EntryDetail';
+import LinesPanel from './LinesPanel';
 import { parkDrillReturn, requestReportDrill, takeDrillReturn } from './drill';
 import { Avatar, DateField } from '../../tasks/components';
 import { formatHM, formatHoursHM } from '../../lib/hoursText';
@@ -597,127 +597,42 @@ function HoursPanel({ panel, range, onClose }) {
   );
 }
 
-const NO_LINES = { lines: [], total: 0 };
+// People's lines as the shared lines panel reads them: newest first (the
+// server sends them oldest first) and `more` for a cut-off read.
+const compLines = (range, spec) => api.getCompensationLines({ from: range.from, to: range.to, employees: spec.employees, accounts: spec.accounts })
+  .then((d) => ({ lines: [...(d?.lines || [])].reverse(), more: !!d?.truncated }));
 
-// Intacct's General Ledger report columns (10/27 call, 14:48: the lines behind
-// Valinda's Fuel) plus the entry and account, with a running balance. Each
-// drags to its width, kept per person (useColumnWidths).
-const GL_COLUMNS = [
-  { key: 'date', label: 'Date', width: 92, text: (l) => formatDate(l.entry_date) },
-  { key: 'entry', label: 'Entry', width: 86 },
-  { key: 'doc', label: 'Doc', width: 64, text: (l) => l.doc },
-  { key: 'account', label: 'Account', width: 140 },
-  { key: 'memo', label: 'Memo', width: 150, text: (l) => l.memo || l.description },
-  { key: 'location', label: 'Entity', width: 112, text: (l) => l.location_name || l.location },
-  { key: 'vendor', label: 'Vendor', width: 110, text: (l) => l.vendor_name || l.vendor_id },
-  { key: 'customer', label: 'Customer', width: 90, text: (l) => l.customer_name || l.customer_id },
-  { key: 'item', label: 'Item', width: 80, text: (l) => l.item_name || l.item_id },
-  { key: 'employee', label: 'Employee', width: 110, text: (l) => l.employee_name || l.employee_id },
-  { key: 'department', label: 'Department', width: 90, text: (l) => l.department_name || l.department },
-  { key: 'debit', label: 'Debit', width: 84, num: true },
-  { key: 'credit', label: 'Credit', width: 84, num: true },
-  { key: 'balance', label: 'Balance', width: 92, num: true },
-];
-const GL_WIDTHS = Object.fromEntries(GL_COLUMNS.map((c) => [c.key, c.width]));
-
-/** The ledger lines behind one figure, in Intacct's General Ledger columns; each entry opens its transaction (item 17). */
+/** The ledger lines behind one figure, in the shared lines panel (LinesPanel); each entry opens its transaction (item 17). */
 function LedgerLinesPanel({ panel, periods, onClose, onBack, onReports }) {
   const { subject, name, key, period, account } = panel;
   const range = periods[period];
   const spec = useMemo(() => drillSpec(subject, key, period, account), [subject, key, period, account]);
-  // The panel is keyed by the figure, so another figure starts a fresh read.
   const nothing = !spec.accounts.length || !spec.employees.length;
-  const [fetched, setFetched] = useState(null);
-  const [error, setError] = useState('');
-  const [entry, setEntry] = useState(null);
-  useEscape(onClose, !!entry);
-  const specKey = JSON.stringify(spec);
-  useEffect(() => {
-    if (nothing) return undefined;
-    let alive = true;
-    api.getCompensationLines({ from: range.from, to: range.to, employees: spec.employees, accounts: spec.accounts })
-      .then((d) => { if (alive) setFetched(d); })
-      .catch((e) => { if (alive) setError(e?.message || 'Could not read the ledger lines.'); });
-    return () => { alive = false; };
-  }, [specKey, range.from, range.to]); // eslint-disable-line react-hooks/exhaustive-deps
-  const data = nothing ? NO_LINES : fetched;
   const accountRow = account ? (subject.accounts?.[period]?.[key] || []).filter((a) => a.account === account) : [];
   const figure = account ? accountRow.reduce((s, a) => s + a.amount, 0) : Number(subject[period]?.[key]) || 0;
   const wc = key === 'workersComp';
   const title = `${lineLabel(key)}${account ? ` - ${account} ${accountRow[0]?.title || ''}`.trimEnd() : ''}`;
-  const lines = data?.lines || [];
-  const off = data && !wc && Math.abs((Number(data.total) || 0) - figure) > 0.005;
-  const accountsShown = [...new Map(lines.map((l) => [l.gl_code, l.account_name])).entries()];
-  const cw = useColumnWidths('compensation-lines', GL_WIDTHS, { min: 50 });
-  // The balance after each line, as on Intacct's General Ledger.
-  const running = useMemo(() => (data?.lines || []).reduce((acc, l) => {
-    acc.push(Math.round(((acc.at(-1) || 0) + (Number(l.amount) || 0)) * 100) / 100);
-    return acc;
-  }, []), [data]);
-  const sum = (k) => lines.reduce((n, l) => n + (Number(l[k]) || 0), 0);
-  const glCell = (c, l, i) => {
-    if (c.key === 'entry') {
-      return l.entry_id
-        ? <button type="button" style={linkBtn} onClick={() => setEntry({ id: l.entry_id, no: l.entry_no })} title="Open the transaction behind this line">{l.entry_no || 'Open'}</button>
-        : l.entry_no;
-    }
-    if (c.key === 'account') return <><span className="acct-code">{l.gl_code}</span> {l.account_name}</>;
-    if (c.key === 'balance') return <Amount value={running[i]} />;
-    if (c.num) return <Amount value={Number(l[c.key]) || 0} zero="dash" />;
-    return c.text(l) || <span style={muted}>-</span>;
-  };
   return (
-    <SidePanel label="Ledger Lines" title={title} caption={`${name} · ${periodLabel(range.from, range.to)} · ${formatAmount(figure)}`} onClose={onClose}>
+    <LinesPanel label="Ledger Lines" title={title} caption={`${name} · ${periodLabel(range.from, range.to)} · ${formatAmount(figure)}`}
+      widthsKey="compensation" onClose={onClose}
+      load={() => (nothing ? Promise.resolve({ lines: [], more: false }) : compLines(range, spec))}
+      loadKey={JSON.stringify([spec, range.from, range.to])}
+      // Workers' comp is worked out on the gross wages listed, so its lines never add up to it.
+      figure={wc ? null : figure}
+      after={(lines) => {
+        const accounts = [...new Map(lines.map((l) => [l.gl_code, l.account_name])).entries()];
+        return accounts.length ? (
+          <div style={{ ...muted, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'baseline', marginTop: 8 }}>
+            <span>Open in Reports:</span>
+            {accounts.map(([acct, accountName]) => (
+              <button key={acct} type="button" style={linkBtn} onClick={() => onReports({ account: acct, accountName, subject, name, period })}>{acct} {accountName}</button>
+            ))}
+          </div>
+        ) : null;
+      }}>
       {onBack && <div><button type="button" style={linkBtn} onClick={onBack}>Back to {name}&apos;s report</button></div>}
       {wc && <WorkersCompNote subject={subject} period={period} />}
       {wc && <div style={{ ...muted, fontWeight: 600 }}>The gross wages it is worked out on - the Bonus and Salaried / Hourly Payroll lines:</div>}
-      {!!lines.length && <div style={muted}>Open Full shows every column; drag a heading&apos;s edge to resize it (kept for you).</div>}
-      {error ? <ErrorBanner message={error} /> : !data ? <LoadingDots compact hint="Reading the ledger lines." /> : (
-        <div style={{ ...card, overflowX: 'auto' }}>
-          <table aria-label={`Ledger lines - ${title}`} style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: GL_COLUMNS.reduce((n, c) => n + (cw.width(c.key) || c.width), 0) }}>
-            <thead>
-              <tr>
-                {GL_COLUMNS.map((c) => (
-                  <th key={c.key} style={{ ...(c.num ? thNum : th), position: 'relative', width: cw.width(c.key) }}>
-                    {c.label}<ColumnResizer {...cw.resizer(c.key, c.label)} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {!lines.length && <tr><td colSpan={GL_COLUMNS.length} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }}>No ledger lines.</td></tr>}
-              {lines.map((l, i) => (
-                <tr key={`${l.line_id || i}-${l.gl_code}`}>
-                  {GL_COLUMNS.map((c) => (
-                    <td key={c.key} style={c.num ? tdNum : { ...td, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.text ? c.text(l) || undefined : undefined}>{glCell(c, l, i)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-            {!!lines.length && (
-              <tfoot>
-                <tr>
-                  <td colSpan={GL_COLUMNS.length - 3} style={{ ...td, fontWeight: 700 }}>Total - {lines.length} {lines.length === 1 ? 'line' : 'lines'}</td>
-                  <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={sum('debit')} zero="dash" /></td>
-                  <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={sum('credit')} zero="dash" /></td>
-                  <td style={{ ...tdNum, fontWeight: 700 }}><Amount value={data.total} /></td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      )}
-      {data?.truncated && <p style={{ ...muted, margin: 0 }}>More lines than shown here - open the account in Reports for every line.</p>}
-      {off && <p role="note" style={{ ...muted, margin: 0, color: 'var(--warn-fg)' }}><WarnMark />These lines add up to {formatAmount(data.total)}; the report shows {formatAmount(figure)}. The ledger may have changed since the report was read - Sync reads it again.</p>}
-      {!!accountsShown.length && (
-        <div style={{ ...muted, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'baseline' }}>
-          <span>Open in Reports:</span>
-          {accountsShown.map(([acct, accountName]) => (
-            <button key={acct} type="button" style={linkBtn} onClick={() => onReports({ account: acct, accountName, subject, name, period })}>{acct} {accountName}</button>
-          ))}
-        </div>
-      )}
-      {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
-    </SidePanel>
+    </LinesPanel>
   );
 }

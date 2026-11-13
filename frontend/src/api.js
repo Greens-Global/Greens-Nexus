@@ -1891,6 +1891,11 @@ export const api = {
   cvRevokeGrant:    (grantId)    => req(`/credvault/grants/${grantId}`, { method: 'DELETE' }),
   cvOtpStatus:      ()           => req('/credvault/otp/status'),
   cvPersonalUpdate: (id, body)   => req(`/credvault/personal/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  // The department head's code for a change (11/13/2026, vault_head.py) and the import template.
+  cvHeadCodeRequest: (body)      => req('/credvault/head-code/request', { method: 'POST', body: JSON.stringify(body) }),
+  cvHeadCodeVerify:  (body)      => req('/credvault/head-code/verify', { method: 'POST', body: JSON.stringify(body) }),
+  cvImportTemplate:  ()          => reqBlob('/credvault/import-template'),
+  cvEndExternal:     (id)        => req(`/credvault/external-shares/${id}/end`, { method: 'POST' }),
 
   // ── Documents (DMS) - Phase 1: folders + drafts/library, next to E-Sign ──
   getDocFolders:      ()             => req('/documents/folders'),
@@ -3520,6 +3525,23 @@ export const fetchPublicIntake = (token) => _publicIntake(token);
 export const submitPublicIntake = (token, values) => _publicIntake(token, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values }),
 });
+
+// A login shared OUTSIDE Nexus (/vault-share/{token}, 11/13/2026): no login -
+// the emailed link plus a one-time code (routers/vault_share.py).
+async function _vaultShare(token, path = '', body) {
+  const res = await fetch(`${BASE}/vault-share/${encodeURIComponent(token)}${path}`, body === undefined ? undefined : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === 'string' && detail ? detail : res.status === 429 ? 'Too many tries - wait a minute and try again.' : `Could not load this page (${res.status})`);
+  }
+  return res.json();
+}
+export const fetchVaultShare = (token) => _vaultShare(token);
+export const sendVaultShareCode = (token, channel) => _vaultShare(token, '/code', { channel });
+export const verifyVaultShare = (token, challengeId, code) => _vaultShare(token, '/verify', { challengeId, code });
 
 // Public unit finder (/map/{propertyId}) - a customer looking for their unit
 // has no Nexus login, so this is a plain fetch of the customer-safe model.

@@ -638,7 +638,7 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual((row["interestAccount"], row["interestSource"], row["interestPaid"]), ("71200", "wired", 500.0))
         self.assertEqual((row["originalPrincipal"], row["originalPrincipalEdited"], row["originalPrincipalLedger"], row["internal"]), (1500000.0, True, None, True))
         self.assertEqual((row["docsPath"], row["statementsPath"]), ("/Shared/Loans/F&M 6870/Documents", "/Shared/Loans/F&M 6870/Statements"))
-        self.assertEqual(row["docsUrl"], "https://greensglobal.egnyte.com/app/index.do#storage/files/1/Shared/Loans/F&M 6870/Documents")
+        self.assertEqual(row["docsUrl"], "https://greensglobal.egnyte.com/app/index.do#storage/files/1/Shared/Loans/F%26M%206870/Documents")   # encoded since 11/05/2026 (Urmi: "&" broke the link)
         # Back to automatic: null clears the interest account and the original principal.
         self.client.put("/accounting/loans/FL1", json={"interestAccount": None, "originalPrincipal": None, "internal": None})
         [row] = self._review()["loans"]
