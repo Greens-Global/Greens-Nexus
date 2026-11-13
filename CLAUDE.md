@@ -449,6 +449,13 @@ keep the diff minimal.
   shows ONE scroll bar: while it is open the page's own bar and html's
   stable gutter are taken off and the body is padded by the same width, so
   nothing behind it moves.
+  The phone menu (`MobileMenu.jsx`) opens on ONE row - the web's own time
+  clock (`SidebarClock`, the same component as the computer's sidebar, never
+  a phone copy or the old chip; Neil, 11/13/2026) and the close button - then
+  the modules: no N tile or wordmark, no photo, name, job title or tier mark
+  (Neil, 11/13/2026: "Not adding any value just adding bloat"; the phone
+  header already says NEXUS beside it); the header's photo is the way to the
+  profile.
 - **Quick Actions is the bolt (Neil, 11/12/2026, mock
   https://claude.ai/artifact/KKVpfc4ZqEjyaTUF3DDoDj):** the green bolt in
   the top header (where the "+" Create menu was, Oct 29 2026) starts things
@@ -465,17 +472,17 @@ keep the diff minimal.
   menu are `components/QuickCreate.jsx`. A new action = one `ACTIONS` row
   whose `go` / `compose` / `run` opens the module's own form - never a form
   in the header, never a third step, never a second quick menu. The bolt is
-  green, never yellow or orange (Live accent): the GRADIENT IS ON THE BOLT
-  (`icons/BoltIcon.jsx`: the two-block shape FITTED to the pixels of Neil's
-  reference - corners and each corner's rounding solved until the outlines
-  overlap 97.5%: its tight waist, its lean, its soft corners - never redrawn
-  by eye; a
-  THIN 3D OBJECT - stacked slices make solid side walls joined to the face at
-  every corner, never a flat copy behind it like a shadow - bright green to
-  brand green) and the tile
-  behind it is calm - a quiet light tile with a hairline edge, tinted green
-  on hover, dark charcoal in dark mode (Neil, 11/13/2026: "the gradient on
-  the bolt and the background to look less flashy"). On a phone the menu is a
+  green, never yellow or orange (Live accent): `icons/BoltIcon.jsx`, the
+  two-block shape FITTED to the pixels of Neil's reference - corners and each
+  corner's rounding solved until the outlines overlap 97.5%: its tight waist,
+  its lean - then every corner's rounding halved (Neil, 11/13/2026), never
+  redrawn by eye; a THIN 3D OBJECT - stacked slices make solid side walls
+  joined to the face at every corner, never a flat copy behind it like a
+  shadow - with ONE solid green on the face, no gradient (Neil, 11/13/2026:
+  "remove the gradient and keep the slab styling"). It sits on the SAME
+  plain tile as the bell and Help - no edge, no shadow, no tile of its own
+  ("it feels a bit out of place compared to the other icons") - and only a
+  faint green on hover / open marks it. On a phone the menu is a
   sheet measured from the header itself, never `position: fixed` (the
   production CSS drops the header's unprefixed backdrop-filter, so "fixed"
   lands below the screen in Chrome). Still off on purpose (Neil, Oct 29
@@ -1209,6 +1216,16 @@ keep the diff minimal.
   (a document, a sheet, a template, a file, Word, starters, Letterheads) is a
   row of the toolbar's ONE "+ New" (Neil, 11/13/2026; the split button is
   retired).
+  **On a phone** (Neil, 11/13/2026: "absolutely sucks on mobile") the
+  builder is one header row - Close, the name and save state, Send and the
+  Document Menu (`docRibbon/PhoneBar.jsx` `PhoneMenuSheet`: the SAME
+  `docMenus` the computer's menu bar draws, never a phone copy of a command)
+  - the page, and `DocPhoneBar` on the keyboard (the Notes phone bar's look:
+  undo, bold, lists, alignment, a picture; Aa for styles, link, table, page
+  break and All Formatting). The ribbon waits until All Formatting or a
+  command that needs one of its boxes (`openOnRibbon`) opens it, then slides
+  sideways (`RibbonBar scroll`) with Done. The Files tab bar and the status
+  bar step aside while a document is open.
 
 - **Sheets and live editing (Neil, 11/05/2026, `routers/documents.py`
   "Working together", `frontend/src/sheets/`, `frontend/src/docLive/`).** A
@@ -1249,6 +1266,11 @@ keep the diff minimal.
   third party, no CDN (the CSP is self only), no AI path. Each open, save, send,
   redact, protect and export writes one Audit Log row through
   `POST /pdf-tools/events` (name, page count and places only, never the file).
+  On a touch screen (Neil, 11/13/2026: "You can't drop") the start is no
+  drop box: Choose a File, then tiles for Take a Photo (the camera hands the
+  picture to `#fileInput`, so it opens as a PDF the ordinary way), Egnyte and
+  Documents (`nexus-bridge.js` mountLanding puts them in that row) - and the
+  phone drops the PDF Tools title card. The computer keeps the drop box.
   Unsaved work: `setInlineDirty` for navigate() and `usePopGuard` for Back and
   Forward, which App's popstate listener asks first (`runPopGuard`) - never a
   second popstate listener, because Chrome runs a window's listeners in the

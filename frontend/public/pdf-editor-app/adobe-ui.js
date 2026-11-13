@@ -1053,6 +1053,66 @@
     const leftCol = document.createElement('div');
     leftCol.className = 'welcome-left';
 
+    // A phone or tablet cannot drop a file (Neil, 11/13/2026: "drop your file
+    // here makes no sense at all ... You can't drop"). On a touch screen the
+    // start is two plain buttons - Choose a File (the phone's own picker:
+    // Files, Photos, iCloud, Drive) and Take a Photo (the camera; a picture
+    // opens as a PDF through the same file input) - with no dashed drop box
+    // and no "drop" or "click" words. The computer keeps the drop box.
+    const TOUCH = !!(window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches);
+    if (TOUCH) {
+      const start = document.createElement('div');
+      start.className = 'welcome-start';
+      start.innerHTML =
+        '<span class="welcome-start-t">Open a PDF</span>' +
+        '<span class="welcome-start-s">Pick a file, or take a photo of a page to turn it into a PDF.</span>';
+      const choose = document.createElement('button');
+      choose.type = 'button';
+      choose.className = 'welcome-start-main';
+      choose.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Choose a File';
+      choose.addEventListener('click', (e) => { e.stopPropagation(); el('#fileInput')?.click(); });
+      start.appendChild(choose);
+      // The camera hands its picture to #fileInput, so the open, the
+      // picture-to-PDF conversion and the bridge's "where it came from" all
+      // run exactly as for a picked file. A browser that cannot set an
+      // input's files gets no camera button rather than a broken one.
+      let canHandOff = false;
+      try { canHandOff = typeof DataTransfer === 'function' && !!new DataTransfer().items; } catch { canHandOff = false; }
+      // The other ways in, one row of tiles under the main button: the camera
+      // here, Egnyte and Documents added by nexus-bridge.js (mountLanding puts
+      // them in this row when it is there).
+      const more = document.createElement('div');
+      more.className = 'welcome-start-more';
+      if (canHandOff) {
+        const cam = document.createElement('input');
+        cam.type = 'file'; cam.accept = 'image/*'; cam.setAttribute('capture', 'environment');
+        cam.id = 'cameraInput'; cam.style.display = 'none';
+        cam.addEventListener('change', () => {
+          const file = cam.files && cam.files[0];
+          cam.value = '';
+          const input = el('#fileInput');
+          if (!file || !input) return;
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          input.files = dt.files;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        const shoot = document.createElement('button');
+        shoot.type = 'button';
+        shoot.className = 'welcome-start-tile';
+        shoot.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/></svg>Take a Photo';
+        shoot.addEventListener('click', (e) => { e.stopPropagation(); cam.click(); });
+        more.appendChild(shoot);
+        start.appendChild(cam);
+      }
+      start.appendChild(more);
+      const hint = document.createElement('span');
+      hint.className = 'welcome-start-hint';
+      hint.textContent = 'A PDF up to 750 MB, a Word (.docx) file or a picture.';
+      start.appendChild(hint);
+      leftCol.appendChild(start);
+    }
+
     const drop = document.createElement('button');
     drop.className = 'welcome-drop';
     drop.type = 'button';
@@ -1067,7 +1127,7 @@
       '<span class="welcome-drop-btn">Choose File</span>' +
       '<span class="welcome-drop-hint">Upload a PDF up to 750 MB, or a Word (.docx) or image (PNG, JPG) file to convert into a PDF.</span>';
     drop.addEventListener('click', (e) => { e.stopPropagation(); el('#fileInput')?.click(); });
-    leftCol.appendChild(drop);
+    if (!TOUCH) leftCol.appendChild(drop);
     wrap.appendChild(leftCol);
 
     // ── Right column: Step 2 = pick a tool ──

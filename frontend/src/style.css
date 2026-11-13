@@ -2592,25 +2592,18 @@ html { overflow-x: hidden; }
 @keyframes menuIn { from { transform: translateX(-100%); } to { transform: none; } }
 @keyframes menuOut { from { transform: none; } to { transform: translateX(-100%); } }
 
-.mobile-menu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
-/* The drawer wears the rail's brand (Neil, 11/07/2026): the N tile and the
-   wordmark as written, the green avatar, the rail's groups in order, the
-   time clock chip under the person, and no chevron on a row that simply
-   goes somewhere (only a row that opens a list keeps one). */
-.mobile-menu-brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; letter-spacing: 0; }
-.mobile-menu-brand .dk-mark { width: 30px; height: 30px; font-size: 15px; }
+/* The drawer's top (Neil, 11/13/2026: no brand, no name or title - "reduce
+   bloat"): ONE row, the time clock chip and the close button, then the
+   rail's groups in order, and no chevron on a row that simply goes
+   somewhere (only a row that opens a list keeps one). Someone with no time
+   clock gets the close button alone at the right. */
+.mobile-menu-head { display: flex; align-items: flex-start; gap: 6px; padding: 12px 6px 6px 16px; border-bottom: 1px solid var(--line); }
 .mm-kicker { font-family: var(--wk-font); font-size: 12px; font-weight: 500; color: var(--wk-dim); padding: 12px 20px 2px; }
-.mobile-menu-clock { padding: 10px 16px 0; }
-.mobile-menu-clock:empty { display: none; }
-.mobile-menu-clock .dk-session-chip { width: 100%; justify-content: flex-start; }
-.mobile-menu-clock .dk-session-long { display: inline; }
-.mobile-menu-clock .dk-dot--off { background: var(--wk-faint); opacity: 1; }
-.mobile-menu-close { position: absolute; right: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
-
-.mobile-menu-user { display: flex; gap: 12px; align-items: center; padding: 8px 20px 16px; border-bottom: 1px solid var(--line); }
-.mobile-menu-avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--wk-brand); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; overflow: hidden; }
-.mobile-menu-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mobile-menu-role { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.mobile-menu-clock { flex: 1; min-width: 0; padding: 0 0 6px; }
+.mobile-menu-clock:empty { padding: 0; }
+/* The sidebar's clock, as it is on the web, without the sidebar's own edge. */
+.mobile-menu-clock .sidebar-foot { padding: 0; border-top: 0; }
+.mobile-menu-close { flex-shrink: 0; margin-bottom: 6px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
 
 .mobile-menu-rows { display: flex; flex-direction: column; padding: 8px 8px; }
 .mobile-menu-row {
@@ -3572,6 +3565,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 
 .mobile-submenu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
 .mobile-submenu-back { position: absolute; left: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
+.mobile-submenu-head .mobile-menu-close { position: absolute; right: 10px; top: 12px; margin: 0; }
 .mobile-submenu-title { font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── HR org chart - top-down tree with connector lines (Busacta-style) ───────
@@ -5546,10 +5540,11 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   background: var(--wk-brand-tint);
   color: var(--wk-brand);
 }
+/* On a phone the title card goes (Neil, 11/13/2026: rethink PDF Tools for a
+   phone): the bottom tab already says PDF Tools and the start card's "Open a
+   PDF" says what to do, so the card was only height. */
 @media (max-width: 640px) {
-  .pdf-editor-head { padding: 14px 16px 12px; gap: 11px; }
-  .pdf-editor-head h1 { font-size: 18px; }
-  .pdf-editor-head p { font-size: 13px; }
+  .pdf-editor-head { display: none; }
 }
 
 .pdf-editor-module {
@@ -8700,35 +8695,14 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    with a line back. It scrolls when the screen is short. On a phone it is a
    full-width sheet under the header with finger-sized rows. */
 .qc-wrap { position: relative; }
-/* An action button, not another grey icon (Neil, Oct 30 2026): Nexus green
-   with a white bolt, the same green as Notes' New Note, in both themes -
-   never yellow or orange (orange means "in progress", DESIGN.md "Live accent"). */
-/* The bolt (Neil, 11/13/2026): the gradient is on the BOLT (icons/BoltIcon.jsx)
-   and the tile is calm - "the background to look less flashy". A quiet light
-   tile with a hairline edge and a faint lift; hover tints it green and lifts
-   it a pixel, a press settles it. */
-.icon-btn.qc-btn {
-  border-radius: 12px; color: var(--wk-green);
-  background: linear-gradient(180deg, #ffffff 0%, #f2f5f3 100%);
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08), inset 0 1px 0 #fff, 0 1px 2px rgba(15, 23, 42, .06);
-  transition: transform .16s var(--ease-out, ease-out), background .16s ease-out, box-shadow .16s ease-out;
-}
-.icon-btn.qc-btn .qc-bolt { filter: drop-shadow(0 1px 1.5px rgba(0, 70, 38, .18)); }
-.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] {
-  background: linear-gradient(180deg, #f6fdf9 0%, #e7f6ee 100%); transform: translateY(-1px);
-  box-shadow: inset 0 0 0 1px rgba(0, 162, 91, .28), inset 0 1px 0 #fff, 0 3px 8px -2px rgba(0, 122, 67, .22);
-}
-.icon-btn.qc-btn:active { transform: translateY(0); }
+/* The bolt (Neil, 11/13/2026: "it feels a bit out of place compared to the
+   other icons"): the SAME plain tile as the bell and Help - .icon-btn's own
+   background, corners and press, no edge, no shadow. Only the bolt
+   (icons/BoltIcon.jsx) and a faint green on hover / open mark it as the
+   action button. */
+.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] { background: #e7f6ee; }
 .icon-btn.qc-btn:focus-visible { outline-offset: 2px; }
-[data-theme="dark"] .icon-btn.qc-btn {
-  background: linear-gradient(180deg, #232a26 0%, #1a201c 100%);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 2px rgba(0, 0, 0, .4);
-}
-[data-theme="dark"] .icon-btn.qc-btn:hover, [data-theme="dark"] .icon-btn.qc-btn[aria-expanded="true"] {
-  background: linear-gradient(180deg, #26332c 0%, #1c2620 100%);
-  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, .3), 0 3px 8px -2px rgba(0, 0, 0, .5);
-}
-@media (prefers-reduced-motion: reduce) { .icon-btn.qc-btn, .icon-btn.qc-btn:hover { transform: none; } }
+[data-theme="dark"] .icon-btn.qc-btn:hover, [data-theme="dark"] .icon-btn.qc-btn[aria-expanded="true"] { background: rgba(74, 222, 128, .12); }
 .qc-btn:focus-visible, .qc-item:focus-visible, .qc-tile:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
 .qc-item:focus { background: var(--sidebar-hover-bg); }
 .header-user-dropdown.qc-menu { width: 320px; max-height: calc(100dvh - 88px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
@@ -10342,6 +10316,51 @@ button.nx-docb-hbtn.is-icon { width: 32px; padding: 0; }
   .nx-docb-head button.nx-docb-hbtn.nx-docb-compact { font-size: 0; gap: 0; width: 32px; padding: 0; }
   input.nx-docb-title { flex-basis: 160px; }
 }
+
+/* The Document Builder on a phone (Neil, 11/13/2026: "absolutely sucks on
+   mobile"): ONE header row - Close, the name with its save state, Send and
+   the More sheet (the whole menu bar) - no file mark; the ribbon waits for
+   All Formatting; the phone bar (docRibbon/PhoneBar.jsx, the Notes bar's
+   look) rides on the keyboard, so the page keeps room for it; the Files tab
+   bar steps aside while a document is open. */
+.nx-docb.is-phone { padding-bottom: 76px; }
+.nx-docb.is-phone .nx-docb-head { flex-wrap: nowrap; gap: 6px; }
+.nx-docb.is-phone .nx-docb-mark { display: none; }
+.nx-docb.is-phone .nx-docb-titlecol { flex: 1 1 auto; min-width: 0; }
+.nx-docb.is-phone .nx-docb-titlerow { flex-direction: column; align-items: stretch; gap: 0; }
+.nx-docb.is-phone input.nx-docb-title { min-width: 0; height: 30px; flex: none; }
+.nx-docb.is-phone .nx-docb-save { min-width: 0; padding-left: 8px; font-size: 11px; }
+.nx-docb.is-phone button.nx-docb-hbtn, .nx-docb.is-phone .nx-docb-head .primary-btn { height: 38px; }
+.nx-docb.is-phone button.nx-docb-hbtn.is-icon { width: 38px; }
+body:has(.nx-docb.is-phone) .mobile-nav { display: none; }
+/* The full ribbon, when asked for on a phone: the tabs on one sliding line
+   with Done held at its end, the groups on one sliding row. */
+.nx-docb.is-phone .doc-ribbon-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.nx-docb.is-phone .doc-ribbon-tabs::-webkit-scrollbar { display: none; }
+.nx-docb.is-phone .doc-ribbon-tabs > * { flex: 0 0 auto; }
+.nx-docb.is-phone button.doc-ribbon-done { position: sticky; right: 0; box-shadow: -10px 0 10px var(--card); }
+.doc-ribbon-bar.is-scroll { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+.doc-ribbon-bar.is-scroll::-webkit-scrollbar { display: none; }
+.doc-ribbon-bar.is-scroll > * { flex: 0 0 auto; }
+button.doc-ribbon-done {
+  margin-left: auto; flex: 0 0 auto; height: 32px; padding: 0 14px; border: none; border-radius: 8px;
+  background: var(--wk-brand, hsl(var(--color-green))); color: #fff; font: 700 13px Inter, sans-serif; cursor: pointer;
+}
+/* The More sheet: the menus, then a menu's commands, finger-sized. */
+.doc-pm { display: flex; flex-direction: column; }
+button.doc-pm-row, button.doc-pm-back {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 6px;
+  background: none; border: none; border-radius: 10px; text-align: left; cursor: pointer;
+  font: 500 15px Inter, sans-serif; color: var(--ink); -webkit-tap-highlight-color: transparent;
+}
+button.doc-pm-row:active:not(:disabled) { background: var(--mist); }
+button.doc-pm-row:disabled { opacity: .4; cursor: default; }
+button.doc-pm-back { min-height: 40px; gap: 4px; font-size: 13px; font-weight: 600; color: var(--wk-brand, hsl(var(--color-green))); }
+.doc-pm-ic { flex: 0 0 22px; display: inline-flex; justify-content: center; color: var(--muted); }
+.doc-pm-label { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.doc-pm-hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+.doc-pm-chev { color: var(--muted); flex: none; }
+.doc-pm-line { height: 1px; background: var(--line); margin: 4px 6px; }
 
 /* The menu bar under the document's name, Google Docs style (Neil, 11/10/2026). */
 .nx-docb-titlecol { flex: 1 1 320px; min-width: 200px; display: flex; flex-direction: column; gap: 0; }

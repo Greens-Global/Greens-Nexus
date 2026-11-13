@@ -4,9 +4,8 @@ import { render, screen } from '@testing-library/react';
 
 // External users are badged "External" wherever a role/tier label renders
 // (Visesh, Aug 18) - Pranshu's live guest test showed "Employee" in the
-// profile chip. All three chip sites (TopHeader, Sidebar, MobileMenu) resolve
-// the label with the same `isExternal ? EXTERNAL_ROLE_META : ROLES[myRole]`
-// expression; MobileMenu is the lightest to mount, so it is the render probe.
+// profile chip. The label comes from EXTERNAL_ROLE_META; the phone menu no
+// longer shows a role line at all (Neil, 11/13/2026).
 
 vi.mock('@azure/msal-react', () => ({
   useMsal: () => ({ instance: {}, accounts: [{ name: 'Jane Doe', username: 'jane.doe@acmeconstruction.com' }] }),
@@ -35,18 +34,13 @@ describe('external role label', () => {
     expect(EXTERNAL_ROLE_META.level).toBe(1);
   });
 
-  it('shows External, not Employee, for an external account', () => {
+  // The phone menu no longer carries a name or a line under it (Neil,
+  // 11/13/2026), so it shows no role word at all - for an external account
+  // neither "External" nor "Employee".
+  it('the phone menu shows no role word for an external account', () => {
     roleState.isExternal = true;
     render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="tasks" />);
-    expect(screen.getByText('External')).toBeTruthy();
-    expect(screen.queryByText('Employee')).toBeNull();
-  });
-
-  it('an internal employee with no job title shows nothing under the name - never "Employee" (Neil, 11/02/2026)', () => {
-    roleState.isExternal = false;
-    render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="tasks" />);
-    expect(screen.queryByText('Employee')).toBeNull();
     expect(screen.queryByText('External')).toBeNull();
-    expect(document.querySelector('.mobile-menu-role')).toBeNull();
+    expect(screen.queryByText('Employee')).toBeNull();
   });
 });

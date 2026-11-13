@@ -2591,6 +2591,45 @@ html[data-theme="light"] {
     .welcome-drop-hint { white-space: normal; }
 }
 
+/* The start on a touch screen (Neil, 11/13/2026): no drop box - a title, the
+   phone's own file picker as the one main button, then a row of tiles for
+   the other ways in (the camera, Egnyte, Documents), one line of what opens.
+   adobe-ui.js builds it only where hover is impossible. */
+.welcome-start {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 18px 16px 14px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+}
+.welcome-start-t { font-size: 18px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.2px; }
+.welcome-start-s { margin: -4px 0 4px; font-size: 14px; line-height: 1.4; color: var(--text-secondary); }
+.welcome-start-main {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 50px; padding: 0 16px; border-radius: 12px;
+    background: var(--accent); color: #fff; border: 1px solid var(--accent);
+    font: inherit; font-size: 16px; font-weight: 700; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.welcome-start-more { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
+.welcome-start-more .nx-open-from { display: contents; }
+.welcome-start-tile,
+.welcome-start-more .nx-open-from button {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    min-height: 74px; padding: 10px 6px; border-radius: 12px;
+    background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border);
+    font: inherit; font-size: 13px; font-weight: 600; line-height: 1.2; text-align: center; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+.welcome-start-more .nx-open-from button svg { width: 20px; height: 20px; }
+.welcome-start-main:active, .welcome-start-tile:active, .welcome-start-more .nx-open-from button:active { transform: scale(.98); }
+.welcome-start-hint { font-size: 12px; color: var(--text-secondary); text-align: center; }
+.welcome-start-main:focus-visible, .welcome-start-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* No file open yet: the paint bar has nothing to hold, so it takes no room -
+   it was a blank 40px band above the start. Once a file opens the drop zone
+   hides and the bar keeps its fixed 40px again (no reflow while editing). */
+.page-wrapper:has(#dropZone:not([style*="display: none"])) .paint-bar:not(.visible) { display: none; }
+
 /* Keyboard focus rings - the landing buttons had only the near-invisible UA
    default against their tinted backgrounds (audit finding). Purely additive. */
 .welcome-card:focus-visible,

@@ -253,7 +253,10 @@ export function SizeBox({ value, sizes, onPick, ariaLabel = 'Font Size', min = 1
 // groups that do not fit move, in order, into a More menu at its end - Word's
 // own collapsing ribbon. `render()` draws the tab's groups; it is drawn again
 // inside More while that is open, showing only the groups the row hid.
-export function RibbonBar({ render, tabKey, className = '', ...rest }) {
+// `scroll` (a phone, 11/13/2026): every group stays on the row and the row
+// scrolls sideways - a 375px screen would otherwise keep one group and put the
+// rest of the tab behind More.
+export function RibbonBar({ render, tabKey, className = '', scroll = false, ...rest }) {
   const barRef = useRef(null);
   const moreRef = useRef(null);
   const [hideFrom, setHideFrom] = useState(-1);   // index of the first hidden group, -1 = all fit
@@ -268,6 +271,7 @@ export function RibbonBar({ render, tabKey, className = '', ...rest }) {
     if (!bar) return;
     const kids = [...bar.children].filter((c) => !c.classList.contains('doc-ribbon-more'));
     kids.forEach((c) => c.classList.remove('is-overflow'));
+    if (scroll) { setHideFrom((h) => (h === -1 ? h : -1)); return; }
     const cs = getComputedStyle(bar);
     const room = bar.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0);
     const widths = kids.map((c) => c.getBoundingClientRect().width);
@@ -282,7 +286,7 @@ export function RibbonBar({ render, tabKey, className = '', ...rest }) {
     }
     if (cut >= 0) kids.slice(cut).forEach((c) => c.classList.add('is-overflow'));
     setHideFrom((h) => (h === cut ? h : cut));
-  }, []);
+  }, [scroll]);
 
   // Every render: a group can change width (a picked font name, a context tab).
   useLayoutEffect(() => { fit(); });
@@ -295,7 +299,7 @@ export function RibbonBar({ render, tabKey, className = '', ...rest }) {
   }, [fit]);
 
   return (
-    <div ref={barRef} className={`doc-toolbar doc-ribbon doc-ribbon-bar ${className}`.trim()} {...rest}>
+    <div ref={barRef} className={`doc-toolbar doc-ribbon doc-ribbon-bar${scroll ? ' is-scroll' : ''} ${className}`.trim()} {...rest}>
       {render()}
       {hideFrom >= 0 && (
         <div className="doc-ribbon-group doc-ribbon-more">
