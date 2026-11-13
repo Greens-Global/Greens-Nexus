@@ -26,13 +26,14 @@ export function SessionChip({ mine, onOpen }) {
     <button
       className={`dk-session-chip${on ? ' dk-session-chip--on' : ''}${mine.track ? ' has-track' : ''}`}
       onClick={onOpen}
-      aria-label={trackText ? `${said} - ${trackText}` : undefined}
+      // Always named in full: a phone shows "In · 6h 12m" (style.css).
+      aria-label={trackText ? `${said} - ${trackText}` : said}
       title={trackText ? `Open Time Clock - ${trackText}` : 'Open Time Clock'}
       style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
     >
       <span className={`dk-dot ${on ? 'dk-dot--up' : 'dk-dot--off'}`} />
       {mine.state === 'break' ? <>On Break · <b>{fmtHM(mine.todayMin)}</b></>
-        : on ? <>Clocked In · <b>{fmtHM(mine.todayMin)}</b></>
+        : on ? <><span className="dk-session-word">Clocked </span>In · <b>{fmtHM(mine.todayMin)}</b></>
           : <>Clocked Out<span className="dk-session-long"> · Open Time Clock</span></>}
       {/* Phones only: the chip leads the toolbar row there, and the chevron
           says a tap opens the Time Clock (style.css hides it elsewhere). */}

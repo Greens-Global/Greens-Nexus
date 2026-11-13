@@ -12,7 +12,7 @@ row.
 FORM: category standard played straight at full fidelity (user's canon call,
 Jul 28); craft bar monday.com.
 */
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
   ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight, House,
@@ -79,7 +79,10 @@ const ZoneClock = ({ clock, now }) => (
   <>
     {clock.away && <House size={12} className="dk-zone-home" aria-hidden="true" />}
     {clock.away && <span className="dk-sr">Home time: </span>}
-    {clock.label && <>{clock.label} </>}<b>{formatTimeIn(now, clock.tz)}{clock.abbr && ` ${clock.abbr}`}</b>
+    {/* A phone shows the short label ("CA") and drops the abbreviation
+        (style.css); a computer the full one. */}
+    {clock.label && <><span className="dk-zl">{clock.label}</span>{clock.short && <span className="dk-zl-short">{clock.short}</span>} </>}
+    <b>{formatTimeIn(now, clock.tz)}{clock.abbr && <span className="dk-zabbr"> {clock.abbr}</span>}</b>
   </>
 );
 
@@ -151,28 +154,46 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   // read as clocked out), so the two never disagree on whether a shift is live.
   const mine = deriveMyTime({ status, now });
 
+  // The phone header lays the greeting's two lines beside the big clock and
+  // the controls (style.css, max-width 640px); each line stops short of what
+  // is beside it, so their real widths are handed to the CSS here. The zones
+  // line comes and goes (travel, a DST switch), so the effect re-runs then.
+  const headRef = useRef(null);
+  const hasZones = clocks.length > 1;
+  useLayoutEffect(() => {
+    const head = headRef.current;
+    if (!head || typeof ResizeObserver === 'undefined') return undefined;
+    const tools = head.querySelector('.dk-toolbar');
+    const clock = head.querySelector('.dk-clock');
+    const zones = head.querySelector('.dk-head-right > .dk-zones');
+    const measure = () => {
+      head.style.setProperty('--dk-zones-w', `${zones ? Math.ceil(zones.getBoundingClientRect().width) : 0}px`);
+      if (tools) head.style.setProperty('--dk-tools-w', `${Math.ceil(tools.getBoundingClientRect().width)}px`);
+      if (clock) head.style.setProperty('--dk-clock-w', `${Math.ceil(clock.getBoundingClientRect().width)}px`);
+    };
+    const ro = new ResizeObserver(measure);
+    if (tools) ro.observe(tools);
+    if (clock) ro.observe(clock);
+    if (zones) ro.observe(zones);
+    measure();
+    return () => ro.disconnect();
+  }, [hasZones]);
+
   const greeting = greetingFor(now);
   // "Wednesday, Oct 14" - through the shared date helpers (lib/datetime.js).
   const dateLine = formatDayLong(now);
 
   return (
-    <div className="dk-head dk-rise" style={{ '--i': 0 }}>
+    <div ref={headRef} className="dk-head dk-rise" style={{ '--i': 0 }}>
       <div className="dk-head-left">
         {/* The date sits ABOVE the greeting, small, like a dateline (Neil,
             11/04/2026); the line under the greeting is the summary. */}
         <div className="dk-head-date">{dateLine}</div>
-        <h1>{greeting}, {firstName}!</h1>
-        <div className="dk-head-sub">
-          {summary}
-          {/* On a phone the small zones beside the big clock are hidden and
-              California (when different) rides here instead (Sep 23 / Oct 7)
-              - one line, no separate row. The viewer's own time is the big
-              clock at every width now, so it is not repeated here; the My
-              Profile picks stay on the wider layout. */}
-          {clocks.filter((c) => c.home && c.label).map((c, i) => (
-            <span key={c.tz} className="dk-sub-local">{summary || i ? ' · ' : ''}<ZoneClock clock={c} now={now} /></span>
-          ))}
-        </div>
+        {/* Two lines on a phone (the name level with the controls), one on a computer. */}
+        <h1><span className="dk-hi">{greeting},</span> <span className="dk-hi-name">{firstName}!</span></h1>
+        {/* The summary; on a phone the home clocks sit at the top right
+            (style.css), so nothing else rides here. */}
+        <div className="dk-head-sub">{summary}</div>
       </div>
       <div className="dk-head-right">
         {/* The viewer's own time, as big as the greeting, on the row ABOVE the
@@ -194,7 +215,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             {clocks.slice(1).map((c, i) => (
               <Fragment key={c.tz}>
                 {i > 0 && <span className="dk-zone-sep" />}
-                <span className={c.away ? 'dk-zone is-home' : 'dk-zone'} title={c.away ? 'Your home time zone' : undefined}><ZoneClock clock={c} now={now} /></span>
+                <span className={c.away ? 'dk-zone is-home' : c.home ? 'dk-zone' : 'dk-zone is-pick'} title={c.away ? 'Your home time zone' : undefined}><ZoneClock clock={c} now={now} /></span>
               </Fragment>
             ))}
           </div>

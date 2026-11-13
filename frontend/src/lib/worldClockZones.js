@@ -283,6 +283,22 @@ export function homeLabel(tz) {
   return zoneLabel(canonicalTz(tz) || tz) || tz;
 }
 
+// The short words a phone header shows beside a clock (Neil, 11/13/2026:
+// "CA 2:09 PM"): California is CA; a North American zone is its time
+// family, read off Intl so it follows DST (CST / CDT -> CT, AKST -> AKT);
+// anywhere else its country, with the two long names shortened, else the
+// city.
+const SHORT_COUNTRY = { 'United Arab Emirates': 'UAE', 'United Kingdom': 'UK', 'United States': 'US', 'Solomon Islands': 'Solomon Is.' };
+export function shortZoneLabel(tz, d = new Date()) {
+  const canon = canonicalTz(tz) || tz;
+  if (canon === CALIFORNIA_TZ) return 'CA';
+  const fam = /^([A-Z]{1,3})[SD]T$/.exec(tzAbbrev(canon, d));
+  if (fam) return `${fam[1]}T`;
+  const country = TZ_COUNTRY[canon];
+  if (country && !MULTI_ZONE_COUNTRIES.has(country)) return SHORT_COUNTRY[country] || country;
+  return cityOf(canon);
+}
+
 /** The clocks the Dashboard greeting shows, in order:
  *  1. the viewer's own time - no label;
  *  2. HOME - the zone the person works in (`homeTz`, /roles/me home_zone:
@@ -309,13 +325,13 @@ export function headerClocks(picks = [], now = new Date(), localTz = LOCAL_TZ, h
     if (!shown.has(homeOff)) {
       // "PST" reads; "GMT+5:30" (what en-US gives India) does not, so it goes.
       const abbr = tzAbbrev(home, now);
-      clocks.push({ tz: home, label: homeLabel(home), abbr: /^(GMT|UTC)/.test(abbr) ? '' : abbr, home: true, away: true });
+      clocks.push({ tz: home, label: homeLabel(home), short: shortZoneLabel(home, now), abbr: /^(GMT|UTC)/.test(abbr) ? '' : abbr, home: true, away: true });
       shown.add(homeOff);
     }
   }
   const caOff = tzOffsetMinutes(CALIFORNIA_TZ, now);
   if (!shown.has(caOff)) {
-    clocks.push({ tz: CALIFORNIA_TZ, label: 'California', abbr: tzAbbrev(CALIFORNIA_TZ, now), home: true });
+    clocks.push({ tz: CALIFORNIA_TZ, label: 'California', short: 'CA', abbr: tzAbbrev(CALIFORNIA_TZ, now), home: true });
     shown.add(caOff);
   }
   for (const tz of picks) {

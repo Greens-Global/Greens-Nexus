@@ -108,6 +108,7 @@ describe('the dashboard header chip', () => {
     const chip = screen.getByRole('button');
     expect(chip.querySelector('.nx-track')).toBeNull();
     expect(chip.getAttribute('title')).toBe('Open Time Clock');
-    expect(chip.hasAttribute('aria-label')).toBe(false);   // its own words name it, as before
+    // Named in full: a phone shows the shorter "In · 7:30" (11/13/2026).
+    expect(chip.getAttribute('aria-label')).toMatch(/^Clocked In · /);
   });
 });

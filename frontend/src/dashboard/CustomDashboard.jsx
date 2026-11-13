@@ -282,8 +282,9 @@ export default function CustomDashboard() {
               // menu below - Edit Layout, the views to switch between, and
               // what can be done to the view on screen.
               <button ref={menuBtn} type="button" className="secondary-btn dk-customize" style={btn}
-                onClick={() => setMenu(m => !m)} aria-haspopup="menu" aria-expanded={menu} title="Customize your dashboard">
-                <SlidersHorizontal size={14} /> Customize<ChevronDown size={14} className="dk-customize-caret" aria-hidden="true" />
+                onClick={() => setMenu(m => !m)} aria-haspopup="menu" aria-expanded={menu} aria-label="Customize" title="Customize your dashboard">
+                {/* A phone shows the icon alone (style.css). */}
+                <SlidersHorizontal size={14} aria-hidden="true" /> <span className="dk-customize-word">Customize</span><ChevronDown size={14} className="dk-customize-caret" aria-hidden="true" />
               </button>
             )}
           </div>
