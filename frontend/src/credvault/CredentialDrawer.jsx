@@ -5,16 +5,16 @@
 // phone the same content slides in as a full-screen sheet (CredentialSheet).
 // The screen owns the data and the gated calls; this file only lays them out.
 import { useEffect, useRef, useState } from "react";
-import { teamsChatUrl } from '../lib/teamsLinks';
 import {
   X, Copy, Check, Eye, EyeOff, ExternalLink, Pencil, Trash2, RefreshCw, Share2, KeyRound, Star,
-  ShieldAlert, Clock, UserMinus, Lock, Send, ShieldCheck,
+  MapPin, Clock, UserMinus, Lock, Send, ShieldCheck,
 } from "lucide-react";
 import { api } from "../api";
 import { useDialogFocus, trapTab } from "../lib/useDialogFocus";
 import { formatDate, formatDateTime } from "../lib/datetime";
-import { TeamsIcon, agoLabel, actionStyle, Pager } from "./vaultShared";
-import { ACCESS_LABEL, ACCESS_TONE, healthFlags, rotationDaysLeft, rotationDueDate, timeLeft } from "./vaultModel";
+import { TierChip, agoLabel, actionStyle, Pager } from "./vaultShared";
+import PersonActions from "../components/PersonActions";
+import { ACCESS_LABEL, ACCESS_TONE, BREACH_HINT, healthFlags, rotationDaysLeft, rotationDueDate, secondOwners, timeLeft } from "./vaultModel";
 import { Monogram } from "./vaultCards";
 import HoldButton from "../ui/HoldButton";
 
@@ -53,7 +53,7 @@ function TotpRow({ credId, first, onCopied }) {
 }
 
 export function CredentialDetail({
-  cred, logs, myEmail, nameOf, depts = [], favorite, onToggleFavorite,
+  cred, logs, myEmail, nameOf, depts = [], siteName = "", favorite, onToggleFavorite,
   revealed, onReveal, onHide, onCopiedSecret,
   onEdit, onTrash, onRestore, onPurge, onShare, onRequest, onClose, onChanged, sheet = false,
 }) {
@@ -65,6 +65,8 @@ export function CredentialDetail({
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const inTrash = !!cred.deletedAt;
   const flags = healthFlags(cred);
+  // Two people agree before a login is erased (11/13/2026): whoever trashed it waits for the other owner.
+  const waitingOn = inTrash && (cred.deletedBy || "").toLowerCase() === (myEmail || "").toLowerCase() ? secondOwners(cred) : [];
 
   // The parent keys this drawer by credential id, so state starts fresh per
   // credential; this only fetches who has access (owners only).
@@ -73,7 +75,7 @@ export function CredentialDetail({
     let alive = true;
     api.cvAccess(cred.id).then((a) => { if (alive) setAccess(a); }).catch(() => {});
     return () => { alive = false; };
-  }, [cred.id, cred.canEdit, cred.sharedWith]);
+  }, [cred.id, cred.canEdit, cred.sharedWith, cred.sharedOutside]);   // an outside share does not move sharedWith
 
 
   // End access is held on the row (Neil, Oct 30 2026 - hold to confirm). A
@@ -86,6 +88,13 @@ export function CredentialDetail({
     onChanged?.();
   }
   const dropGrant = (g) => setAccess((a) => a && { ...a, grants: a.grants.filter((x) => x.id !== g.id) });
+  // An outside share (11/13/2026): ended at once; the owners are then asked to change the password.
+  async function endExternal(x) {
+    try { await api.cvEndExternal(x.id); }
+    catch (e) { throw new Error(e?.message || "Could not end this share.", { cause: e }); }
+    setAccess((a) => a && { ...a, externals: (a.externals || []).map((y) => (y.id === x.id ? { ...y, state: "ended" } : y)) });
+    onChanged?.();
+  }
 
   const left = rotationDaysLeft(cred);
   // History, 10 a page (Pranshu, Oct 29 2026).
@@ -103,12 +112,14 @@ export function CredentialDetail({
             {cred.url && /^https?:\/\//i.test(cred.url) && <a className="cv-link cv-detail-domain" href={cred.url} target="_blank" rel="noopener noreferrer">{cred.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "")}<ExternalLink size={11} /></a>}
             <div className="cv-drawer-chips">
               <span className={`cv-chip tone-${ACCESS_TONE[cred.access] || "muted"}`}>{ACCESS_LABEL[cred.access] || cred.access}</span>
-              {cred.tier !== "Standard" && <span className={`cv-chip ${cred.tier === "Critical" ? "tone-bad" : "tone-warn"}`}><ShieldAlert size={12} /> {cred.tier}</span>}
+              <TierChip tier={cred.tier} />
               {cred.dept && <span className="cv-chip">{cred.dept}</span>}
+              {siteName && <span className="cv-chip"><MapPin size={12} /> {siteName}</span>}
               <span className="cv-chip">{cred.type}</span>
               {inTrash && <span className="cv-chip tone-bad"><Trash2 size={12} /> In Trash</span>}
-              {flags.map((f) => <span key={f.key} className={`cv-chip tone-${f.tone}`}>{f.label}</span>)}
+              {flags.map((f) => <span key={f.key} className={`cv-chip tone-${f.tone}`} title={f.hint}>{f.label}</span>)}
             </div>
+            {flags.some((f) => f.key === "breached") && <p className="cv-hint" style={{ marginTop: 6 }} data-breach-why="">{BREACH_HINT}</p>}
           </div>
           {!inTrash && (
             <button type="button" className={`cv-star${favorite ? " is-on" : ""}`} aria-label={favorite ? "Remove from Favorites" : "Add to Favorites"} aria-pressed={favorite} onClick={onToggleFavorite}>
@@ -153,7 +164,7 @@ export function CredentialDetail({
                 </div>
               )}
               {revealed?.previousSecret && revealed.prevRotatedAt && <p className="cv-hint">Previous password kept from the rotation on {formatDate(revealed.prevRotatedAt)}. It goes when the password is rotated again.</p>}
-              {!revealed && !inTrash && <p className="cv-hint"><Lock size={11} style={{ verticalAlign: -1 }} /> Revealing is logged. The first reveal asks for a code by text or email.</p>}
+              {!revealed && !inTrash && <p className="cv-hint"><Lock size={11} style={{ verticalAlign: -1 }} /> {cred.homeDept ? "Your department's login - it opens without a code. Revealing is logged." : "Revealing is logged. The first reveal asks for a code by text or email."}</p>}
             </>) : (
               <div className="cv-callout tone-info">
                 <KeyRound size={15} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -187,16 +198,25 @@ export function CredentialDetail({
             </div>
             <div className="cv-person">
               <span>{nameOf(cred.owner)} <span className="cv-muted">· Owner</span></span>
-              {cred.owner && cred.owner !== myEmail && <a href={teamsChatUrl(cred.owner)} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(cred.owner)} on Teams`} style={{ display: "flex" }}><TeamsIcon size={18} /></a>}
+              <PersonActions email={cred.owner} name={nameOf(cred.owner)} myEmail={myEmail} />
             </div>
-            {cred.backupOwner && <div className="cv-person"><span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span></div>}
+            {cred.backupOwner && (
+              <div className="cv-person">
+                <span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span>
+                <PersonActions email={cred.backupOwner} name={nameOf(cred.backupOwner)} myEmail={myEmail} />
+              </div>
+            )}
             {access?.heads?.filter((h) => h !== cred.owner && h !== cred.backupOwner).map((h) => (
-              <div className="cv-person" key={h}><span>{nameOf(h)} <span className="cv-muted">· Department Head</span></span></div>
+              <div className="cv-person" key={h}>
+                <span>{nameOf(h)} <span className="cv-muted">· {access?.headRoles?.[h] || "Department Head"}</span></span>
+                <PersonActions email={h} name={nameOf(h)} myEmail={myEmail} />
+              </div>
             ))}
             {/* Who may open it (Oct 29 2026): the audience rows, or the old department rule when there are none. */}
             {(cred.audiences || []).filter((a) => cred.tier !== "Critical" || a.kind === "person").map((a) => (
               <div className="cv-person" key={`${a.kind}:${a.value}`}>
-                <span>{a.kind === "person" ? nameOf(a.value) : a.label} <span className="cv-muted">· {a.level === "view" ? "View only" : a.kind === "person" ? "Can open" : "Everyone in it can open"}</span></span>
+                <span>{a.kind === "person" ? nameOf(a.value) : a.label} <span className="cv-muted">· {a.level === "view" ? "View only" : a.kind === "person" ? "Can open" : a.kind === "only_group" ? "Only its members open it" : "Everyone in it can open"}</span></span>
+                {a.kind === "person" && <PersonActions email={a.value} name={nameOf(a.value)} myEmail={myEmail} />}
               </div>
             ))}
             {!(cred.audiences || []).length && cred.dept && cred.tier !== "Critical" && <div className="cv-person"><span>Everyone in {cred.dept} <span className="cv-muted">· Department</span></span></div>}
@@ -206,6 +226,13 @@ export function CredentialDetail({
                 <span>{g.name} <span className="cv-muted">· <Clock size={11} style={{ verticalAlign: -1 }} /> {timeLeft(g.expiresAt - now)} left</span></span>
                 <HoldButton size="sm" label="End Access" doneLabel="Ended" icon={UserMinus} ariaLabel={`End access for ${g.name}`}
                   fallbackMessage={`End ${g.name}'s access to ${cred.name} now?`} onConfirm={() => revoke(g)} onDone={() => dropGrant(g)} />
+              </div>
+            ))}
+            {access?.externals?.filter((x) => x.state === "active").map((x) => (
+              <div className="cv-person" key={x.id} data-external={x.email}>
+                <span>{x.email} <span className="cv-muted">· Outside Nexus · <Clock size={11} style={{ verticalAlign: -1 }} /> {timeLeft(x.until - now)} left{x.views ? ` · viewed ${x.views}x` : x.opened ? " · opened" : ""}</span></span>
+                <HoldButton size="sm" label="End Access" doneLabel="Ended" icon={UserMinus} ariaLabel={`End access for ${x.email}`}
+                  fallbackMessage={`End ${x.email}'s access to ${cred.name} now?`} onConfirm={() => endExternal(x)} />
               </div>
             ))}
             {access?.pending?.map((p) => (
@@ -248,8 +275,12 @@ export function CredentialDetail({
             {inTrash ? (<>
               <button type="button" className="cv-btn" onClick={onRestore}><RefreshCw size={14} /> Recover</button>
               <span className="cv-spacer" />
-              <HoldButton size="sm" label="Delete Permanently" doneLabel="Deleted" onConfirm={onPurge}
-                fallbackMessage={`Delete ${cred.name} permanently? This cannot be undone.`} />
+              {waitingOn.length ? (
+                <span className="cv-hint" data-purge-waits="">You moved this to the trash, so {waitingOn.map(nameOf).join(" or ")} or an admin confirms the permanent delete.</span>
+              ) : (
+                <HoldButton size="sm" label="Delete Permanently" doneLabel="Deleted" onConfirm={onPurge}
+                  fallbackMessage={`Delete ${cred.name} permanently? This cannot be undone.`} />
+              )}
             </>) : (<>
               <button type="button" className="cv-btn" onClick={onEdit}><Pencil size={14} /> Edit</button>
               <span className="cv-spacer" />

@@ -13,6 +13,10 @@ AUDIENCE rows (models.VaultCredentialAudience):
                                          named company, else of the owner's company
   group       NexusGroup id              the Access Group's members
   person      work email                 that one person, for good (a grant is timed)
+  only_group  NexusGroup id              nobody by itself: with any of these, a company or
+                                         department row admits only the members of one of
+                                         them (11/13/2026 - the form's optional Access
+                                         Groups; none picked = the whole department)
 
 each at a level: 'open' reveals the password; 'view' sees the row, username
 and link but never the password (Bitwarden's "view, except passwords" - for
@@ -37,7 +41,8 @@ from sqlalchemy import func
 import models
 from auth import company_of
 
-KINDS = ("company", "department", "group", "person")
+KINDS = ("company", "department", "group", "person", "only_group")
+SCOPE_KINDS = ("company", "department")
 LEVELS = ("open", "view")
 ANY_COMPANY = ""
 
@@ -96,6 +101,28 @@ def _matches(row, ctx: dict) -> bool:
     return False
 
 
+matches = _matches   # public: routers/credvault._home_dept reads a row the same way
+
+
+def _only(rows) -> set:
+    return {(r.value or "").strip() for r in rows if r.kind == "only_group" and (r.value or "").strip()}
+
+
+def _admits(row, ctx: dict, only: set) -> bool:
+    """A row admits the person - a company / department row only when they are
+    also in one of the login's only_group groups, if it has any."""
+    if not _matches(row, ctx):
+        return False
+    return not (only and row.kind in SCOPE_KINDS and not (ctx["groups"] & only))
+
+
+def scope_admits(rows, ctx: dict) -> bool:
+    """Whether the login's own companies / departments (open rows) take the
+    person in - what routers/credvault._home_dept asks."""
+    only = _only(rows)
+    return any(_admits(r, ctx, only) for r in rows if r.kind in SCOPE_KINDS and (r.level or "open") != "view")
+
+
 def audience_access(cred, rows, ctx: dict) -> str:
     """'' when the audiences do not admit this person; else the kind of the
     best matching row ('company' | 'department' | 'group' | 'person'), or
@@ -107,7 +134,8 @@ def audience_access(cred, rows, ctx: dict) -> str:
         return ""
     if (cred.tier or "Standard") == "Critical":
         rows = [r for r in rows if r.kind == "person"]
-    hit = [r for r in rows if _matches(r, ctx)]
+    only = _only(rows)
+    hit = [r for r in rows if _admits(r, ctx, only)]
     if not hit:
         return ""
     opens = [r for r in hit if (r.level or "open") != "view"]
@@ -118,25 +146,38 @@ def audience_access(cred, rows, ctx: dict) -> str:
     return sorted(opens, key=lambda r: rank.get(r.kind, 9))[0].kind
 
 
-def heads_map(db, creds) -> dict:
+def heads_map(db, creds, roles: bool = False) -> dict:
     """{cred_id: {emails}} - the head and backup head of each credential's
-    department, in the owner's company (a department named the same in another
-    company is someone else's). Built once for a list."""
+    department, in the credential's own company (11/13/2026: it used the
+    owner's company, so a Greens Global login owned by someone employed at
+    Oversite showed Oversite's Operations head), else the owner's for a row
+    with no company. A department named the same in another company is
+    someone else's. Built once for a list. `roles`: {cred_id: {email: role}}."""
     depts = db.query(models.HrDepartment).all()
     by_name: dict = {}
     for d in depts:
         if d.lead_email or d.backup_email:
             by_name.setdefault((d.name or "").strip().lower(), []).append(d)
     if not by_name:
-        return {c.id: set() for c in creds}
+        return {c.id: ({} if roles else set()) for c in creds}
     emp_company = {(e.work_email or "").lower(): (e.company or "")
                    for e in db.query(models.NexusEmployee.work_email, models.NexusEmployee.company).all()}
     out = {}
     for c in creds:
         found = by_name.get((c.dept or "").strip().lower(), [])
-        owner_co = emp_company.get((c.owner_email or "").lower(), "")
-        same = [d for d in found if owner_co and d.company_id == owner_co] or ([] if owner_co and found and all(d.company_id for d in found) else found)
-        out[c.id] = {x for d in same for x in ((d.lead_email or "").lower(), (d.backup_email or "").lower()) if x}
+        home_co = (getattr(c, "company_id", "") or "") or emp_company.get((c.owner_email or "").lower(), "")
+        same = [d for d in found if home_co and d.company_id == home_co] or ([] if home_co and found and all(d.company_id for d in found) else found)
+        if roles:
+            who: dict = {}
+            for d in same:
+                if (d.backup_email or "").strip():
+                    who[d.backup_email.strip().lower()] = "Backup Head"
+            for d in same:
+                if (d.lead_email or "").strip():
+                    who[d.lead_email.strip().lower()] = "Department Head"
+            out[c.id] = who
+        else:
+            out[c.id] = {x for d in same for x in ((d.lead_email or "").lower(), (d.backup_email or "").lower()) if x}
     return out
 
 
@@ -189,6 +230,8 @@ def labels(db, rows) -> list:
             label = f"Everyone in {name}" + (f" at {companies.get(co, '')}" if co else "")
         elif r.kind == "group":
             label = groups.get(r.value, "Access Group")
+        elif r.kind == "only_group":
+            label = f"Only {groups.get(r.value, 'an Access Group')}"
         else:
             label = r.value
         out.append({"kind": r.kind, "value": r.value, "level": r.level or "open", "label": label})
@@ -206,6 +249,11 @@ def openers(db, cred, rows) -> set:
     owner_co = company_of(cred.owner_email or "", db)
     people = [e for e in db.query(models.NexusEmployee).all() if _active(e)]
     opening = [r for r in rows if (r.level or "open") != "view"]
+    only = _only(rows)
+    in_only = ({m.lower() for (m,) in db.query(models.NexusGroupMember.email)
+                .filter(models.NexusGroupMember.group_id.in_(sorted(only))).all()} if only else None)
+    if in_only is not None:
+        people = [e for e in people if e.work_email.lower() in in_only or not any(r.kind in SCOPE_KINDS for r in opening)]
     if not rows and (cred.tier or "Standard") != "Critical" and cred.dept:
         emails |= {e.work_email.lower() for e in people
                    if (e.department or "").strip().lower() == cred.dept.strip().lower() and (not owner_co or (e.company or "") == owner_co)}
@@ -235,6 +283,23 @@ def options(db, scope) -> dict:
     depts = [{"name": d.name, "companyId": d.company_id, "head": d.lead_email or "", "backup": d.backup_email or ""}
              for d in db.query(models.HrDepartment).order_by(models.HrDepartment.sort_order, models.HrDepartment.name).all()
              if company_ok(d.company_id, scope)]
-    groups = [{"id": g.id, "name": g.name} for g in db.query(models.NexusGroup).order_by(models.NexusGroup.name).all()
+    # A group's departments (11/13/2026): its own, plus those of the people in
+    # it, so the form lists only the groups of the departments picked.
+    member_depts: dict = {}
+    for gid, dept in (db.query(models.NexusGroupMember.group_id, models.NexusEmployee.department)
+                      .join(models.NexusEmployee, func.lower(models.NexusEmployee.work_email) == func.lower(models.NexusGroupMember.email))
+                      .filter(func.coalesce(models.NexusEmployee.deleted_at, "") == "").all()):
+        if (dept or "").strip():
+            member_depts.setdefault(gid, set()).add(dept.strip())
+    groups = [{"id": g.id, "name": g.name,
+               "departments": sorted(member_depts.get(g.id, set()) | ({g.department.strip()} if (g.department or "").strip() else set()))}
+              for g in db.query(models.NexusGroup).order_by(models.NexusGroup.name).all()
               if not (g.company_id or "") or company_ok(g.company_id, scope)]
-    return {"companies": companies, "departments": depts, "groups": groups}
+    # Work sites (Settings > Locations) a site-specific login can belong to.
+    links: dict = {}
+    for cid, sid in db.query(models.HrCompanyWorkSite.company_id, models.HrCompanyWorkSite.site_id).all():
+        links.setdefault(sid, []).append(cid)
+    sites = [{"id": s.id, "name": s.name, "companyIds": links.get(s.id, [])}
+             for s in db.query(models.HrWorkSite).order_by(models.HrWorkSite.name).all()
+             if not links.get(s.id) or any(company_ok(c, scope) for c in links[s.id])]
+    return {"companies": companies, "departments": depts, "groups": groups, "sites": sites}

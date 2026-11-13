@@ -28,6 +28,16 @@ export const DEPT_ICONS = {
 export const iconFor = (n) => DEPT_ICONS[n] || Building2;
 export const DEFAULT_DEPTS = Object.keys(DEPT_ICONS);
 export const TIERS = ["Standard", "High", "Critical"];
+// A tier is how closely a login is guarded, not something wrong with it
+// (11/13/2026: a red Critical read as an error) - a calm shield, never red.
+export function TierChip({ tier, xs = false }) {
+  if (!tier || tier === "Standard") return null;
+  return (
+    <span className={`cv-chip${xs ? " cv-chip-xs" : ""} tone-info`} title={tier === "Critical" ? "Critical: only named people open it" : "High: closely guarded"}>
+      <ShieldCheck size={xs ? 10 : 12} /> {tier}
+    </span>
+  );
+}
 export const TYPES = ["Password", "API key", "Access key", "Certificate"];
 
 
@@ -135,11 +145,13 @@ export function Modal({ children, onClose, isDirty = false, onSave, center = fal
   );
 }
 
-export const Field = ({ label, required, children }) => (
-  <label style={{ display: "block" }}>
-    <span className="cv-label" style={{ marginBottom: 0 }}>{label}{required && <span style={{ color: "var(--cv-rose)", marginLeft: 2 }}>*</span>}</span>
+// `error` (11/13/2026): the field says what to fix, in red, right under it.
+export const Field = ({ label, required, children, error = "", as: Tag = "label" }) => (
+  <Tag style={{ display: "block" }} data-field-error={error ? "" : undefined}>
+    <span className="cv-label" style={{ marginBottom: 0, color: error ? "var(--cv-bad)" : undefined }}>{label}{required && <span style={{ color: "var(--cv-rose)", marginLeft: 2 }}>*</span>}</span>
     <div style={{ marginTop: 5 }}>{children}</div>
-  </label>
+    {error && <span className="cv-field-error" role="alert">{error}</span>}
+  </Tag>
 );
 
 export function ModalHeader({ icon, tint, title, subtitle }) {
@@ -186,6 +198,43 @@ function SmsConsent({ checked, onChange }) {
   );
 }
 
+// Where the code goes (11/13/2026: picking Email or SMS sent the code at once,
+// and while it was on its way nothing on screen moved - "it doesn't show
+// anything after that"). Pick a channel, agree to texts for SMS, then Get Code;
+// the button says Sending… until the code is out, and a failure says why.
+export function ChannelPicker({ targets, busy, error, onGetCode, emailFallback = "" }) {
+  const [pick, setPick] = useState("");
+  const [consent, setConsent] = useState(false);
+  const smsOk = !targets || targets.sms?.available;
+  const ready = pick === "email" || (pick === "sms" && smsOk && consent);
+  const Card = ({ ch, icon, title, sub, disabled }) => (
+    <label className={`cv-channel${pick === ch ? " is-on" : ""}${disabled ? " is-off" : ""}`} data-channel={ch}>
+      <input type="radio" name="cv-code-channel" value={ch} checked={pick === ch} disabled={disabled || busy} onChange={() => setPick(ch)} />
+      {icon}
+      <span style={{ textAlign: "left" }}>
+        <span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>{title}</span>
+        <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>{sub}</span>
+      </span>
+    </label>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }} data-channel-picker="">
+      <Card ch="email" icon={<Mail size={19} style={{ color: "var(--cv-sky)", flexShrink: 0 }} />} title="Authenticate via Email"
+        sub={`Send a code to ${targets?.email?.masked || emailFallback || "your work email"}`} />
+      <Card ch="sms" disabled={!smsOk} icon={<MessageCircle size={19} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} />} title="Authenticate via SMS"
+        sub={smsOk ? `Send a code to ${targets?.sms?.masked || "your phone"}` : "No phone number on file - ask HR to add one"} />
+      {pick === "sms" && smsOk && <SmsConsent checked={consent} onChange={setConsent} />}
+      {error && <div style={{ fontSize: 12, color: "var(--cv-rose)" }} role="alert">{error}</div>}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button type="button" className="cv-btn-dark" onClick={() => onGetCode(pick)} disabled={!ready || busy}>
+          {busy ? "Sending…" : "Get Code"}
+        </button>
+      </div>
+      {pick === "sms" && smsOk && !consent && <span className="cv-hint" style={{ textAlign: "right" }}>Tick the box above to get the code by text.</span>}
+    </div>
+  );
+}
+
 // reveal/share and access-request approval (require_vault_otp on the backend).
 export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identity", subtitle = "This is a sensitive action - confirm it is really you." }) {
   const [targets, setTargets] = useState(null);
@@ -196,7 +245,6 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [resendIn, setResendIn] = useState(0);
-  const [smsConsent, setSmsConsent] = useState(false);
 
   useEffect(() => {
     api.cvOtpTargets().then(setTargets).catch((e) => setLoadErr(e.message || "Could not load verification options."));
@@ -237,27 +285,7 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
   if (!channel) return (
     <Modal center onClose={onClose}>
       <ModalHeader icon={<ShieldCheck size={19} />} tint="sky" title={title} subtitle={subtitle} />
-      {!targets ? <LoadingState compact /> : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <button onClick={() => sendCode("email")} disabled={busy} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
-            <Mail size={19} style={{ color: "var(--cv-sky)", flexShrink: 0 }} />
-            <span style={{ textAlign: "left" }}>
-              <span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>Authenticate via Email</span>
-              <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>Send a code to {targets.email.masked}</span>
-            </span>
-          </button>
-          <button onClick={() => targets.sms.available && smsConsent && sendCode("sms")} disabled={busy || !targets.sms.available || !smsConsent} className="cv-btn"
-            style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12, opacity: targets.sms.available ? 1 : 0.5, cursor: targets.sms.available ? "pointer" : "not-allowed" }}>
-            <MessageCircle size={19} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} />
-            <span style={{ textAlign: "left" }}>
-              <span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>Authenticate via SMS</span>
-              <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>{targets.sms.available ? `Send a code to ${targets.sms.masked}` : "No phone number on file - ask HR to add one"}</span>
-            </span>
-          </button>
-          {targets.sms.available && <SmsConsent checked={smsConsent} onChange={setSmsConsent} />}
-        </div>
-      )}
-      {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginTop: 10 }}>{error}</div>}
+      {!targets ? <LoadingState compact /> : <ChannelPicker targets={targets} busy={busy} error={error} onGetCode={sendCode} />}
       <div style={rowBetween}><button onClick={onClose} className="cv-btn">Cancel</button></div>
     </Modal>
   );
@@ -284,19 +312,30 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
       <div style={rowSplit}>
         <button onClick={() => { setChannel(null); setChallenge(null); setCode(""); setError(""); }} className="cv-btn">← Back</button>
         <button onClick={() => resendIn === 0 && sendCode(channel)} disabled={resendIn > 0 || busy} className="cv-btn" style={{ fontSize: 12 }}>{resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}</button>
-        <button onClick={verify} disabled={code.length !== 6 || busy} className="cv-btn-dark">{busy ? "Verifying…" : "Verify"}</button>
+        <button onClick={verify} disabled={code.length !== 6 || busy} className="cv-btn-dark">{busy ? "Checking…" : "Authenticate"}</button>
       </div>
     </Modal>
   );
 }
 
-export function PasswordField({ value, onChange, placeholder, required = true, label = "Password" }) {
+// A company login's password is never offered to the browser's own password
+// manager (11/13/2026: Chrome asked to save it to the person's Google account,
+// filed under the Nexus address - a copy of a company secret in a private
+// account, and no autofill on the real site anyway). Chrome finds password
+// boxes by type="password", so where the browser can draw the dots with CSS
+// the box is plain text; elsewhere it stays a password box.
+const MASK_BY_CSS = typeof CSS !== "undefined" && !!CSS.supports?.("-webkit-text-security", "disc");
+
+export function PasswordField({ value, onChange, placeholder, required = true, label = "Password", error = "" }) {
   const [show, setShow] = useState(false);
   return (
-    <Field label={label} required={required}>
+    <Field label={label} required={required} error={error}>
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ position: "relative", flex: 1 }}>
-          <input type={show ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)} className="cv-ipt" style={{ paddingRight: 34 }} placeholder={placeholder} />
+          <input type={show || MASK_BY_CSS ? "text" : "password"} value={value} onChange={(e) => onChange(e.target.value)}
+            className={`cv-ipt${error ? " cv-ipt-error" : ""}`} style={{ paddingRight: 34, ...(MASK_BY_CSS && !show ? { WebkitTextSecurity: "disc" } : null) }}
+            placeholder={placeholder} aria-invalid={error ? true : undefined}
+            autoComplete="off" spellCheck={false} data-1p-ignore="" data-lpignore="true" data-bwignore="" />
           <button type="button" onClick={() => setShow((v) => !v)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", display: "flex" }}>
             {show ? <EyeOff size={15} /> : <Eye size={15} />}
           </button>
@@ -321,7 +360,6 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
   const [challenge, setChallenge] = useState(null);
   const [code, setCode] = useState("");
   const [resendIn, setResendIn] = useState(0);
-  const [smsConsent, setSmsConsent] = useState(false);
 
   useEffect(() => {
     api.cvPersonalLockStatus()
@@ -333,6 +371,9 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
     const t = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(t);
   }, [resendIn]);
+  useEffect(() => {
+    if (step === "forgot-choose" && !targets) api.cvOtpTargets().then(setTargets).catch(() => {});
+  }, [step, targets]);
 
   const msaTag = (
     <div style={{ display: "flex", alignItems: "center", gap: 6, borderRadius: 12, background: "var(--cv-blue-bg)", border: "1px solid var(--cv-blue-line)", padding: "8px 12px", marginBottom: 16 }}>
@@ -431,25 +472,7 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
   if (step === "forgot-choose") return (
     <Modal center onClose={onClose}>
       <ModalHeader icon={<KeyRound size={19} />} tint="indigo" title="Reset Personal Vault Password" subtitle="Verify it's you via SMS or Email, then choose a new password." />
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <button onClick={() => sendForgotCode("email")} disabled={busy} className="cv-btn" style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12 }}>
-          <Mail size={19} style={{ color: "var(--cv-sky)", flexShrink: 0 }} />
-          <span style={{ textAlign: "left" }}>
-            <span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>Authenticate via Email</span>
-            <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>Send a code to {targets?.email?.masked || userEmail}</span>
-          </span>
-        </button>
-        <button onClick={() => (!targets || targets.sms.available) && smsConsent && sendForgotCode("sms")} disabled={busy || (targets && !targets.sms.available) || !smsConsent} className="cv-btn"
-          style={{ width: "100%", justifyContent: "flex-start", padding: 14, borderRadius: 12, gap: 12, opacity: targets && !targets.sms.available ? 0.5 : 1 }}>
-          <MessageCircle size={19} style={{ color: "var(--cv-emerald)", flexShrink: 0 }} />
-          <span style={{ textAlign: "left" }}>
-            <span style={{ display: "block", fontWeight: 600, fontSize: 13 }}>Authenticate via SMS</span>
-            <span style={{ display: "block", fontSize: 12, color: "var(--text-secondary)" }}>{targets && !targets.sms.available ? "No phone number on file" : `Send a code to ${targets?.sms?.masked || "your phone"}`}</span>
-          </span>
-        </button>
-        {(!targets || targets.sms.available) && <SmsConsent checked={smsConsent} onChange={setSmsConsent} />}
-      </div>
-      {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginTop: 10 }}>{error}</div>}
+      <ChannelPicker targets={targets} busy={busy} error={error} onGetCode={sendForgotCode} emailFallback={userEmail} />
       <div style={rowBetween}>
         <button onClick={() => { setStep("enter"); setError(""); }} className="cv-btn">← Back</button>
         <button onClick={onClose} className="cv-btn">Cancel</button>
@@ -478,7 +501,7 @@ export function PersonalLockGate({ userEmail, onClose, onUnlocked }) {
       <div style={rowSplit}>
         <button onClick={() => { setStep("forgot-choose"); setChallenge(null); setCode(""); setError(""); }} className="cv-btn">← Back</button>
         <button onClick={() => resendIn === 0 && sendForgotCode(channel)} disabled={resendIn > 0 || busy} className="cv-btn" style={{ fontSize: 12 }}>{resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}</button>
-        <button onClick={() => setStep("new-password")} disabled={code.length !== 6} className="cv-btn-dark cv-btn-indigo">Continue</button>
+        <button onClick={() => setStep("new-password")} disabled={code.length !== 6} className="cv-btn-dark cv-btn-indigo">Authenticate</button>
       </div>
     </Modal>
   );

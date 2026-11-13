@@ -4423,6 +4423,7 @@ class VaultCredential(Base):
     prev_rotated_at    = Column(String, default="")
     totp_enc           = Column(String, default="")           # authenticator key, Fernet (vault_totp.py, Oct 29 2026)
     company_id         = Column(String, default="")           # home company (HrEntity id, Oct 29 2026) - grouping and the Overview filter; the wall follows the owner
+    site_id            = Column(String, default="")           # the work site (HrWorkSite id) a site-specific login belongs to, "" = none (11/13/2026)
 
 
 class VaultPersonalCredential(Base):
@@ -10433,3 +10434,28 @@ class NexusMeetingTranscript(Base):
     rev         = Column(Integer, default=1)
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+
+
+class VaultExternalShare(Base):
+    """A company login shared with someone OUTSIDE Nexus (Pranshu, 11/13/2026,
+    vault_external.py): they get an email link to a page with no Nexus login,
+    and see the username, link and password only after a one-time code sent to
+    that email (or by SMS to `phone`), until `expires_at` (7 days at most) or
+    until the owner ends it. Only a SHA-256 of the link's token is stored.
+    When it ends, the owner, backup owner and department head are told to
+    change the password (change_alerted_at, claimed once). RLS on dev and prod."""
+    __tablename__ = "vault_external_shares"
+    id                = Column(String, primary_key=True)
+    cred_id           = Column(String, index=True, default="")
+    email             = Column(String, default="")
+    phone             = Column(String, default="")
+    token_hash        = Column(String, index=True, default="")
+    shared_by         = Column(String, default="")
+    created_at        = Column(String, default="")
+    expires_at        = Column(String, index=True, default="")
+    first_opened_at   = Column(String, default="")
+    last_viewed_at    = Column(String, default="")
+    views             = Column(Integer, default=0)
+    ended_at          = Column(String, default="")
+    ended_by          = Column(String, default="")
+    change_alerted_at = Column(String, default="")

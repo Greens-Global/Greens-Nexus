@@ -20,6 +20,14 @@ export async function exportAudit(rows, nameOf) {
 }
 
 const Num = ({ n, tone = "bad" }) => <td className={`num ${n ? `tone-${tone}` : "tone-zero"}`}>{n}</td>;
+// The health table (11/13/2026: "a table where each row and column is distinct,
+// no horizontal scroll", then "sit on the same row as By Department and Rotates
+// Next, small, no blank space"): compact fixed columns that always fit beside
+// the other two cards, a light green header, lines between columns, banded
+// rows and a total.
+const COLS = [["critical", "Critical", "warn"], ["breached", "Breached", "bad"], ["weak", "Weak", "bad"], ["reused", "Reused", "warn"],
+  ["overdue", "Overdue", "bad"], ["expiring", "Expiring", "warn"], ["noBackup", "No Backup", "warn"]];
+const SHORT = { Logins: "Logins", Critical: "Crit.", Breached: "Breach", Weak: "Weak", Reused: "Reused", Overdue: "Overdue", Expiring: "Expiring", "No Backup": "No Backup" };
 
 export default function Overview({ rows, depts, attention, sharedWithMe, requests, fDept, onPickDept, onPickCollection, onOpen, onApprovals, nameOf, canExport = true, everyone = false }) {
   const noBackup = rows.filter((c) => !c.backupOwner).length;
@@ -33,23 +41,27 @@ export default function Overview({ rows, depts, attention, sharedWithMe, request
         <KpiTile label="Shared With Me" value={sharedWithMe} sub={sharedWithMe ? "timed access, ends by itself" : "no shared access right now"} onGo={() => onPickCollection("shared")} goTitle="Show what was shared with me" />
         <KpiTile label="Awaiting Approval" value={requests} tone={requests ? "warn" : undefined} sub={requests ? "requests for you to decide" : "no requests waiting"} onGo={onApprovals} goTitle="Open Approvals" />
       </div>
-      <div className="cv-stats" style={{ gridTemplateColumns: "minmax(0, 1.6fr) minmax(280px, 1fr) minmax(280px, 1fr)" }}>
+      <div className="cv-stats is-health">
         <StatCard Icon={ShieldCheck} title={everyone ? "Health by Department" : "Health of Your Logins"} meta={canExport ? (
           <button type="button" className="cv-btn" style={{ padding: "3px 9px", fontSize: 12 }} onClick={() => exportAudit(rows, nameOf)} title="Who can open what, and the health per department - no passwords"><Download size={13} /> Export to Excel</button>
         ) : null}>
           {health.length === 0 ? <p className="cv-hint">No logins yet.</p> : (
-            <div style={{ overflowX: "auto" }}>
-              <table className="cv-health">
-                <thead><tr><th>Department</th><th className="num">Logins</th><th className="num">Critical</th><th className="num">Breached</th><th className="num">Weak</th><th className="num">Reused</th><th className="num">Overdue</th><th className="num">Expiring</th><th className="num">No Backup</th></tr></thead>
-                <tbody>
-                  {health.map((h) => (
-                    <tr key={h.dept} className={`is-link${fDept === h.dept ? " is-active" : ""}`} onClick={() => onPickDept(h.dept)} title={`Show ${h.dept}`}>
-                      <td style={{ fontWeight: 600 }}>{h.dept}</td><td className="num">{h.total}</td><Num n={h.critical} tone="warn" /><Num n={h.breached} /><Num n={h.weak} /><Num n={h.reused} tone="warn" /><Num n={h.overdue} /><Num n={h.expiring} tone="warn" /><Num n={h.noBackup} tone="warn" />
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <table className="cv-health" data-health-table="">
+              <colgroup><col className="cv-health-dept" /><col />{COLS.map(([k]) => <col key={k} />)}</colgroup>
+              <thead><tr><th>Department</th><th className="num">Logins</th>{COLS.map(([k, label]) => <th key={k} className="num" title={label}>{SHORT[label]}</th>)}</tr></thead>
+              <tbody>
+                {health.map((h) => (
+                  <tr key={h.dept} className={`is-link${fDept === h.dept ? " is-active" : ""}`} onClick={() => onPickDept(h.dept)} title={`Show ${h.dept}`}>
+                    <td className="cv-health-name">{h.dept}</td><td className="num">{h.total}</td>
+                    {COLS.map(([k, , tone]) => <Num key={k} n={h[k]} tone={tone} />)}
+                  </tr>
+                ))}
+              </tbody>
+              {health.length > 1 && (
+                <tfoot><tr><td>Total</td><td className="num">{health.reduce((n, h) => n + h.total, 0)}</td>
+                  {COLS.map(([k, , tone]) => <Num key={k} n={health.reduce((n, h) => n + h[k], 0)} tone={tone} />)}</tr></tfoot>
+              )}
+            </table>
           )}
         </StatCard>
         <StatCard Icon={Building2} title="By Department" meta={`${depts.length} total`}>

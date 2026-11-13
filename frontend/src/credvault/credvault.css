@@ -53,6 +53,8 @@
 
 /* ── stat strip (People grammar) ────────────────────────────────────────── */
 .cv-stats { display: grid; grid-template-columns: minmax(320px, 1.1fr) 1.2fr 1fr; gap: 14px; align-items: stretch; }
+/* Overview (11/13/2026): Health by Department, By Department and Rotates Next on one row. */
+.cv-stats.is-health { grid-template-columns: minmax(0, 1.7fr) minmax(240px, 1fr) minmax(240px, 1fr); }
 .cv-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .cv-kpi { position: relative; border-radius: 16px; padding: 16px 18px; min-width: 0; background: var(--card); border: 1px solid var(--wk-line2); box-shadow: var(--wk-shadow); font-family: var(--wk-font); display: flex; flex-direction: column; gap: 7px; justify-content: center; }
 .cv-kpi.is-solid { background: var(--wk-brand); border-color: transparent; }
@@ -232,6 +234,8 @@
 }
 .cv-ipt:focus { border-color: var(--focus-ring); box-shadow: 0 0 0 3px rgba(29,78,216,.12); }
 .cv-ipt.cv-ipt-error { border-color: var(--cv-bad); }
+.cv-field-error { display: block; margin-top: 4px; font-size: 12px; color: var(--cv-bad); }
+.cv-pick-box.is-error { border-radius: 10px; box-shadow: 0 0 0 1px var(--cv-bad); padding: 6px; }
 textarea.cv-ipt { resize: vertical; min-height: 72px; }
 select.cv-ipt { appearance: auto; }
 .cv-label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 5px; }
@@ -255,6 +259,15 @@ select.cv-ipt { appearance: auto; }
 .cv-modal-backdrop { position: absolute; inset: 0; background: rgba(15,23,42,.45); }
 .cv-modal { position: relative; width: 100%; max-width: 430px; max-height: 88vh; overflow-y: auto; background: var(--bg-card); border-radius: 16px; box-shadow: var(--shadow-lg); padding: 24px; }
 .cv-modal.cv-modal-wide { max-width: 660px; }
+/* A centered question (unlock, verify, set a password) fits what it asks
+   (11/13/2026: "utilize the space" - the 60vh floor of .nx-popup left the
+   Unlock Personal Vault card half empty under its buttons). */
+.cv-modal.nx-popup.nx-center { min-height: 0; }
+/* A code channel to pick (ChannelPicker): a radio card. */
+.cv-channel { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-card); cursor: pointer; }
+.cv-channel input { margin: 0; flex-shrink: 0; cursor: pointer; }
+.cv-channel.is-on { border-color: var(--focus-ring); box-shadow: 0 0 0 3px rgba(29,78,216,.12); }
+.cv-channel.is-off { opacity: .5; cursor: not-allowed; }
 .cv-modal-close { position: absolute; right: 14px; top: 14px; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px; }
 .cv-modal-close:hover { color: var(--text-primary); }
 
@@ -280,6 +293,9 @@ select.cv-ipt { appearance: auto; }
 @media (max-width: 1180px) {
   .cv-stats { grid-template-columns: 1fr 1fr; }
   .cv-stats > .wkc:last-child { grid-column: span 2; }
+  .cv-stats.is-health { grid-template-columns: 1fr 1fr; }
+  .cv-stats.is-health > .wkc:first-child { grid-column: span 2; }
+  .cv-stats.is-health > .wkc:last-child { grid-column: auto; }
 }
 @media (max-width: 900px) {
   .cv-master { grid-template-columns: minmax(0, 1fr); }
@@ -293,6 +309,8 @@ select.cv-ipt { appearance: auto; }
 @media (max-width: 767px) {
   .cv-stats { grid-template-columns: 1fr; }
   .cv-stats > .wkc:last-child { grid-column: auto; }
+  .cv-stats.is-health { grid-template-columns: 1fr; }
+  .cv-stats.is-health > .wkc:first-child { grid-column: auto; }
   .cv-kpis { grid-template-columns: 1fr 1fr; }
   .cv-header-actions { width: 100%; }
   .cv-header-actions .primary-btn { margin-left: auto; }
@@ -330,11 +348,17 @@ select.cv-ipt { appearance: auto; }
 @media (max-width: 900px) { .cv-login { grid-template-columns: 34px minmax(0, 1fr); } .cv-login-actions { grid-column: 1 / -1; justify-content: flex-end; } }
 
 /* ── Overview (Oct 29 2026): the audit table ─────────────────────────────── */
-.cv-health { width: 100%; border-collapse: collapse; font-size: 13px; }
-.cv-health th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-.cv-health th.num, .cv-health td.num { text-align: right; }
-.cv-health td { padding: 9px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
-.cv-health tr:last-child td { border-bottom: none; }
+.cv-health { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 13px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.cv-health col.cv-health-dept { width: 26%; }
+.cv-health th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--cv-ok); padding: 7px 6px; background: var(--cv-ok-bg); border-bottom: 1px solid var(--line); overflow-wrap: anywhere; line-height: 1.25; }
+.cv-health th:first-child, .cv-health td:first-child { padding-left: 10px; }
+.cv-health th.num, .cv-health td.num { text-align: center; }
+.cv-health td { padding: 7px 6px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-health th + th, .cv-health td + td { border-left: 1px solid var(--line); }
+.cv-health tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg-secondary) 55%, transparent); }
+.cv-health .cv-health-name { font-weight: 600; }
+.cv-health tbody tr:last-child td { border-bottom: none; }
+.cv-health tfoot td { font-weight: 700; background: var(--bg-secondary); border-top: 1px solid var(--line); border-bottom: none; }
 .cv-health tr.is-link { cursor: pointer; }
 .cv-health tr.is-link:hover td, .cv-health tr.is-active td { background: var(--wk-hover); }
 .cv-health .tone-bad { color: var(--cv-bad); font-weight: 700; }
