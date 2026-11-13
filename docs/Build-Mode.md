@@ -1030,7 +1030,54 @@ Windows), PowerShell for a command line, `taskkill /T` then `/F` to stop a
 tree. `WindowsStackTest` pins the shapes with Windows simulated - a real run
 of `preview.py` and `run_e2e.py` on a Windows laptop is still owed.
 
-### 8.11 Not built yet
+### 8.11 Hosted previews (11/13/2026)
 
-A preview anyone can open (a deployed branch preview) - the plan:
-https://claude.ai/artifact/WqEqnaipxNoFveELkctpPB .
+Cloudflare Pages already builds every pushed branch of the dev project at
+its own address: `https://<8 characters>.greens-nexus-dev.pages.dev` for one
+commit (the "Preview URL" of the PR's **Cloudflare Pages** check) and
+`https://<branch>.greens-nexus-dev.pages.dev` for the branch. A pin can now
+carry that address, so the author opens the fix from any computer or phone.
+
+- **The pin.** `POST /dev-notes/cli/preview/{id}` (and `cli.py preview
+  --url`) also takes a hosted preview (`build_preview.preview_url_ok`: https,
+  one label, our suffix, no port or user). The pin keeps `hosted: true`, names
+  no computer, and says "Ready To Check - open the preview from any computer
+  or phone"; the screen shows Open Preview and that it uses the dev site's
+  data. The commit rules are the local preview's: a new commit's address
+  replaces the old one and an Accept given on the old commit no longer counts.
+- **Who records it.** A cloud session (the skill's section 14, step 10), after
+  `complete`, for a PR that changes only `frontend/` - it reads the commit's
+  Preview URL off the Cloudflare Pages check. A PR that changes `backend/`
+  gets no hosted preview (the dev API would not have the change); its
+  pictures and clip stay the check.
+- **The backend it talks to.** `functions/api` sends every
+  `*.greens-nexus-dev.pages.dev` host (and the bare project address) to the
+  DEV API, whatever `API_ORIGIN` says - a preview runs code nobody has
+  reviewed yet and never reaches production.
+- **Signing in** (`build_preview.py`, `routers/build_preview_auth.py`,
+  `frontend/src/lib/previewSignIn.js`). Microsoft returns only to registered
+  addresses, so a preview borrows the dev site's sign-in, OAuth-with-PKCE
+  style: the preview keeps a random verifier in its tab and goes to
+  `dev.nexus.greensglobal.com/api/auth/preview-handoff?to=&next=&challenge=`;
+  the dev site (signing in first when needed) checks the Build Mode grant and
+  that `to` is one of our preview addresses, keeps a single-use 60-second code
+  (`external_login_codes`, purpose `preview`, hashed with the challenge,
+  `channel` = the preview origin) and returns to `<preview><next>#nx_preview=<code>`
+  - in the fragment, so no server log sees it. The preview POSTs the code and
+  verifier to its own `/api/auth/preview-claim`; the grant is checked again,
+  the code is spent, and an ordinary session cookie is set on the preview's
+  address. The session has no Microsoft tokens behind it (a preview cannot
+  post to Teams as you) and is otherwise the person's dev session. Both
+  routes are in `SENSITIVE_PREFIXES` and audited (`build_preview_handoff`,
+  `build_preview_sign_in`).
+- **On only on the dev API**: `NEXUS_APP_URL` is the dev site, or
+  `NEXUS_PREVIEW_HOST_SUFFIX` names a suffix; `off` turns it off anywhere.
+  Production answers the handoff with 404.
+- **On the page**: a preview is cookie mode (`bffAuth.js`), starts the sign-in
+  by itself once a minute at most (`autoPreviewSignIn`), never primes MSAL,
+  and shows a quiet "Preview - what you save here saves to the dev site" mark.
+- **Not proven yet**: a real sign-in round on a real preview (the cloud
+  session that built this could not reach either site), and that the dev
+  Pages project's Preview environment carries the same build variables as
+  dev (Supabase URL and key for uploads; `NEXUS_EDGE_SECRET` for visitor
+  addresses). Pages > greens-nexus-dev > Settings > Variables, Preview tab.

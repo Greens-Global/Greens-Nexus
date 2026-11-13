@@ -1810,6 +1810,14 @@ class PreviewTest(_ServerTestBase):
         self.assertEqual(cli.preview_url(None, {"route": "myhr", "sub": "timesheet"}), "http://localhost:5174/workday/timesheet")
         with self.assertRaises(common.ConfigError):
             cli.post_preview(None, NOTE_ID, base="https://example.com")
+        # A hosted preview (11/13/2026): our Cloudflare build only.
+        self.assertTrue(cli.is_hosted_preview("https://0d332dc0.greens-nexus-dev.pages.dev"))
+        self.assertTrue(cli.is_hosted_preview("https://0d332dc0.greens-nexus-dev.pages.dev/tasks/home"))
+        for bad in ("http://0d332dc0.greens-nexus-dev.pages.dev", "https://a.b.greens-nexus-dev.pages.dev",
+                    "https://x.greens-nexus-dev.pages.dev.evil.example", "https://evil.example"):
+            self.assertFalse(cli.is_hosted_preview(bad), bad)
+        self.assertEqual(cli.preview_url("https://0d332dc0.greens-nexus-dev.pages.dev", pin),
+                         "https://0d332dc0.greens-nexus-dev.pages.dev/tasks/home")
         self.assertEqual(cli.pr_arg("https://github.com/o/r/pull/812"), 812)
         self.assertEqual(cli.pr_arg("#77"), 77)
 
@@ -1844,6 +1852,11 @@ class PreviewTest(_ServerTestBase):
         self.assertEqual(code, 0, err)
         self.assertNotIn("commit", self.server.posts("/dev-notes/cli/preview/" + NOTE_ID)[-1][2])
         self.assertIn("pass --commit", err)
+        # A hosted preview posts no computer name.
+        code, out, err = run_cli(["--api", self.server.base, "preview", NOTE_ID, "--branch", "b", "--commit", "deadbeef",
+                                  "--url", "https://0d332dc0.greens-nexus-dev.pages.dev"])
+        sent = self.server.posts("/dev-notes/cli/preview/" + NOTE_ID)[-1][2]
+        self.assertEqual((sent["url"], sent["host"]), ("https://0d332dc0.greens-nexus-dev.pages.dev/tasks/home", ""))
 
 
 def pw_report(*results, extra_tests=0, errors=None):

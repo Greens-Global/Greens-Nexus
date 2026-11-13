@@ -90,6 +90,23 @@ export function isLocalPreview(url) {
   } catch { return false; }
 }
 
+// A hosted preview (11/13/2026, backend build_preview.py): the branch's own
+// Cloudflare Pages build, opened from any computer or phone; it signs in
+// through the dev site. Same shape as the server's preview_url_ok.
+export function isHostedPreview(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(String(url));
+    const suffix = '.greens-nexus-dev.pages.dev';
+    const host = u.hostname.toLowerCase();
+    return u.protocol === 'https:' && !u.port && !u.username && !u.password && host.endsWith(suffix)
+      && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(host.slice(0, -suffix.length));
+  } catch { return false; }
+}
+
+/** A preview link the screen may open: local (on that computer) or hosted. */
+export const isOpenablePreview = (url) => isLocalPreview(url) || isHostedPreview(url);
+
 export const SESSION_STATUS = {
   collecting: { label: 'Collecting',     color: '#64748b' },
   sent:       { label: 'Sent',           color: '#2563eb' },

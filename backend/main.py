@@ -6088,3 +6088,5 @@ from routers import investor_books as investor_books_router  # noqa: E402 - no n
 app.include_router(investor_books_router.router)  # Investor Relations live from Intacct: deal = entity, investor = partner equity accounts (Neil, 11/11/2026)
 from routers import meetings as meetings_router  # noqa: E402
 app.include_router(meetings_router.router)  # Meeting Notes: a Notes note for a Teams meeting - transcript and recording stay in Teams, linked (Neil, 11/12/2026)
+from routers import build_preview_auth  # noqa: E402
+app.include_router(build_preview_auth.router)  # Build Mode hosted previews: a preview borrows the dev site's sign-in (build_preview.py, 11/13/2026)

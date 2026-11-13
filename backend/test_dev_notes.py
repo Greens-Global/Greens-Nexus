@@ -1163,6 +1163,25 @@ def test_preview_post_rules():
     assert len([e for e in again["thread"] if e["text"].startswith("Ready To Check")]) == 1
 
 
+def test_hosted_preview_opens_anywhere():
+    """A cloud session records the PR's Cloudflare Pages build (11/13/2026,
+    build_preview.py): any computer or phone opens it, so it names no
+    computer, and only our own preview addresses are taken."""
+    token = _token()["token"]
+    p = _to_pr_open(token)
+    for bad in ("https://evil.example/tasks", "https://a.b.greens-nexus-dev.pages.dev/x",
+                "https://x.greens-nexus-dev.pages.dev.evil.example/", "http://x.greens-nexus-dev.pages.dev/",
+                "https://x.greens-nexus-dev.pages.dev:444/"):
+        assert _preview(p, token, url=bad).status_code == 400, bad
+    url = "https://0d332dc0.greens-nexus-dev.pages.dev/tasks/home"
+    r = _preview(p, token, url=url, commit="abc1234")
+    assert r.status_code == 200, r.text
+    got = r.json()
+    assert got["readyToCheck"] is True
+    assert got["preview"]["url"] == url and got["preview"]["host"] == "" and got["preview"]["hosted"] is True
+    assert got["thread"][-1]["text"] == "Ready To Check - open the preview from any computer or phone"
+
+
 def test_preview_accept_then_merge_goes_straight_to_done():
     token = _token()["token"]
     p = _to_pr_open(token)
