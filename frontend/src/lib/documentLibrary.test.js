@@ -102,3 +102,20 @@ describe('Library shape', async () => {
     expect(lib.initials('')).toBe('?');
   });
 });
+
+describe('Templates board', async () => {
+  const lib = await import('./documentLibrary');
+  const cats = [['hr', 'HR'], ['legal', 'Legal'], ['finance', 'Finance']];
+  it('makes a card per category with a template, none for an empty one, pending counted', () => {
+    const cards = lib.templateCards([
+      { id: 'a', name: 'Relieving Letter', category: 'hr', state: 'published' },
+      { id: 'b', name: 'Joining Letter', category: 'hr', state: 'changes' },
+      { id: 'c', name: 'NDA', category: 'legal', state: 'draft' },
+    ], cats);
+    expect(cards.map((c) => c.key)).toEqual(['hr', 'legal']);
+    expect(cards[0].rows.map((t) => t.name)).toEqual(['Joining Letter', 'Relieving Letter']);
+    expect(cards[0].pending).toBe(1);
+    expect(cards[1].pending).toBe(1);
+  });
+  it('is empty with no templates', () => { expect(lib.templateCards([], cats)).toEqual([]); });
+});

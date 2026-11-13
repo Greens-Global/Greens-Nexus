@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, FileText, Award, Star, FileUp, Sparkles } from 'lucide-react';
+import { Search, Plus, FileText, Award, Star, FileUp, Sparkles, ArrowLeft, ChevronRight, Users, Scale, Receipt, Wrench, Handshake, Cpu, Briefcase, Mail } from 'lucide-react';
 import NewButton from './NewButton';
 import { TEMPLATE_CATEGORIES } from '../lib/templateCategories';
 import { UNTITLED_TEMPLATE } from '../lib/untitled';
@@ -9,7 +9,7 @@ import DocumentBuilder from './DocumentBuilder';
 import { setPendingOpen, takePendingOpen } from '../lib/pendingOpen';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
-import { TEMPLATE_STATES, templateStatus, templateUsable } from '../lib/documentLibrary';
+import { TEMPLATE_STATES, templateStatus, templateUsable, templateCards } from '../lib/documentLibrary';
 import { PanelShell, PdfPreview, StatusWord } from './DocumentSidePanel';
 import { CreateDocModal } from './DocumentsBrowser';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
@@ -193,6 +193,49 @@ function DepartmentModal({ template, onClose, onSaved, toastErr }) {
 
 const categoryLabel = (key) => CATEGORIES.find(([v]) => v === key)?.[1] || key;
 
+// The board (Pranshu, 11/13/2026, canvas https://claude.ai/artifact/TapZUK47Diz1k3jgFh5TNW):
+// one card per category that has a template; a category with none has no card.
+const CATEGORY_META = {
+  hr: { blurb: 'Letters, joining and relieving, probation', Icon: Users },
+  legal: { blurb: 'Agreements and notices', Icon: Scale },
+  finance: { blurb: 'Invoices and statements', Icon: Receipt },
+  operations: { blurb: 'SOPs and site paperwork', Icon: Wrench },
+  sales: { blurb: 'Proposals and quotes', Icon: Handshake },
+  engineering: { blurb: 'Specifications and drawings', Icon: Cpu },
+  general: { blurb: 'Everything else', Icon: FileText },
+  job_description: { blurb: 'One per role, picked by the hiring packet', Icon: Briefcase },
+  offer_letter: { blurb: 'The one document an offer is, per kind of hire', Icon: Mail },
+  letterhead: { blurb: 'The header and footer letters print with', Icon: Award },
+};
+
+function CategoryCards({ templates, onOpen }) {
+  const cards = templateCards(templates, CATEGORIES);
+  return (
+    <div className="nx-tc-grid">
+      {cards.map((c) => {
+        const { blurb, Icon } = CATEGORY_META[c.key] || CATEGORY_META.general;
+        return (
+          <button key={c.key} type="button" className="nx-tc" onClick={() => onOpen(c.key)} aria-label={`${c.label}, ${c.rows.length} template${c.rows.length === 1 ? '' : 's'}`}>
+            <span className="nx-tc-top">
+              <span className="nx-tc-ico"><Icon size={18} aria-hidden="true" /></span>
+              <span className="nx-tc-head"><strong>{c.label}</strong><span>{blurb}</span></span>
+              <span className="nx-tc-n">{c.rows.length}</span>
+            </span>
+            <span className="nx-tc-names">
+              {c.rows.slice(0, 3).map((t) => <span key={t.id}><span>{t.name}</span><StatusWord status={templateStatus(t)} /></span>)}
+              {c.rows.length > 3 && <span className="nx-dl-muted">+ {c.rows.length - 3} more</span>}
+            </span>
+            <span className="nx-tc-foot">
+              <span className={`nx-tc-pill ${c.pending ? 'warn' : 'ok'}`}>{c.pending ? `${c.pending} need${c.pending === 1 ? 's' : ''} publishing` : 'All published'}</span>
+              <span className="nx-tc-open">Open <ChevronRight size={14} aria-hidden="true" /></span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // The row a template opens beside the list: its page, one status and every action by name.
 function TemplatePanel({ template: t, onClose, onEdit, onUse, onDepartment, onChanged, toastOk, toastErr }) {
   const [busy, setBusy] = useState('');
@@ -307,7 +350,7 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
     if (makingTpl) return;
     setMakingTpl(true);
     try {
-      const t = await api.createDocTemplate({ name: UNTITLED_TEMPLATE, category: 'general', status: 'draft' });
+      const t = await api.createDocTemplate({ name: UNTITLED_TEMPLATE, category: category && category !== 'letterhead' ? category : 'general', status: 'draft' });
       setEditingId(t.id);
     } catch (e) {
       toastErr?.(e?.message || 'Could not start the template.');
@@ -321,16 +364,18 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
   useEffect(() => { load(); }, []);
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
 
-  const visible = useMemo(() => {
+  // `current` is what the board's cards group; `visible` is one category's list.
+  const current = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return (templates || []).filter(t => {
       if (t.docType === 'form') return false;   // Documents > Forms (Neil, 11/02/2026)
       if (statusFilter === 'current' ? t.state === 'archived' : t.state !== statusFilter) return false;
-      if (category && t.category !== category) return false;
       return !needle || [t.name, categoryLabel(t.category), t.department, ...(t.tags || [])]
         .some(x => String(x || '').toLowerCase().includes(needle));
     }).sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  }, [templates, search, statusFilter, category]);
+  }, [templates, search, statusFilter]);
+  const visible = useMemo(() => (category ? current.filter(t => t.category === category) : current), [current, category]);
+  const onBoard = !category && !search.trim();
   const selected = selectedId ? (templates || []).find(t => t.id === selectedId) : null;
 
   const seedStarters = () => {
@@ -363,15 +408,23 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
     <div className={`nx-dl nx-dl-norail${selected ? ' nx-dl-open' : ''}`}>
       <div className="nx-dl-main">
         <div className="nx-dl-tools">
+          {category ? (
+            <div className="nx-dl-title nx-tc-crumb">
+              <button type="button" className="nx-tc-back" onClick={() => { setCategory(''); setSelectedId(''); }}><ArrowLeft size={14} aria-hidden="true" /> Templates</button>
+              <h2>{categoryLabel(category)}</h2>
+              <span>{visible.length} template{visible.length === 1 ? '' : 's'}{visible.some(t => t.state !== 'published' && t.state !== 'archived') ? ` · ${visible.filter(t => t.state !== 'published' && t.state !== 'archived').length} to publish` : ''}</span>
+            </div>
+          ) : (
+            <div className="nx-dl-title">
+              <h2>Templates</h2>
+              <span>The wording every document starts from, kept by category</span>
+            </div>
+          )}
           <div className="nx-dl-search">
             <Search size={14} aria-hidden="true" />
             <input className="form-input" placeholder="Search templates" aria-label="Search templates" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <select className="form-input" aria-label="Category" style={{ flex: '0 1 170px' }} value={category} onChange={e => setCategory(e.target.value)}>
-            <option value="">All Categories</option>
-            {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-          <select className="form-input" aria-label="Template status" style={{ flex: '0 1 190px' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select className="form-input nx-dl-chip" aria-label="Template status" style={{ flex: '0 1 190px' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="current">Current Templates</option>
             <option value="published">{TEMPLATE_STATES.published.label}</option>
             <option value="changes">{TEMPLATE_STATES.changes.label}</option>
@@ -409,6 +462,8 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
               <button className="primary-btn" disabled={seeding} onClick={seedStarters}>{seeding ? 'Adding…' : 'Add Starter Templates'}</button>
             )}
           </div>
+        ) : onBoard ? (
+          <CategoryCards templates={current} onOpen={(k) => { setCategory(k); setSelectedId(''); }} />
         ) : isMobile ? (
           <div className="nx-dl-cards">
             {visible.map(t => (
@@ -422,13 +477,13 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
         ) : (
           <div className="nx-dl-table">
             <table>
-              <thead><tr><th>Template</th><th>Category</th><th>Status</th><th>Maintained By</th><th>Updated</th><th aria-label="Actions" /></tr></thead>
+              <thead><tr><th>Template</th>{!category && <th>Category</th>}<th>Status</th><th>Maintained By</th><th>Updated</th><th aria-label="Actions" /></tr></thead>
               <tbody>
                 {visible.map(t => (
                   <tr key={t.id} data-row={t.id} tabIndex={0} className={selectedId === t.id ? 'sel' : ''} aria-selected={selectedId === t.id}
                     onClick={() => setSelectedId(t.id)} onKeyDown={e => onRowKey(e, t)}>
                     <td className="nx-dl-name">{t.name}</td>
-                    <td>{categoryLabel(t.category)}</td>
+                    {!category && <td>{categoryLabel(t.category)}</td>}
                     <td><StatusWord status={templateStatus(t)} /></td>
                     <td>{t.department || 'Company-Wide'}</td>
                     <td className="nx-dl-date">{formatDate(t.updatedAt)}</td>

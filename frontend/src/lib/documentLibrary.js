@@ -163,3 +163,13 @@ export const TEMPLATE_STATES = {
 export const templateStatus = (t) => TEMPLATE_STATES[t.state] || TEMPLATE_STATES[t.status] || TEMPLATE_STATES.draft;
 /** Anything published makes documents, in its published wording. */
 export const templateUsable = (t) => t.state === 'published' || t.state === 'changes';
+
+/** The Templates board's cards: one per category that has a template, in the categories' order. */
+export function templateCards(templates, categories) {
+  return categories
+    .map(([key, label]) => {
+      const rows = (templates || []).filter((t) => t.category === key).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      return { key, label, rows, pending: rows.filter((t) => t.state !== 'published').length };
+    })
+    .filter((c) => c.rows.length > 0);
+}
