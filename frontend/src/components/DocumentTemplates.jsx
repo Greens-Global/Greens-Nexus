@@ -226,7 +226,7 @@ function CategoryCards({ templates, onOpen }) {
               {c.rows.length > 3 && <span className="nx-dl-muted">+ {c.rows.length - 3} more</span>}
             </span>
             <span className="nx-tc-foot">
-              <span className={`nx-tc-pill ${c.pending ? 'warn' : 'ok'}`}>{c.pending ? `${c.pending} need${c.pending === 1 ? 's' : ''} publishing` : 'All published'}</span>
+              <span className={`nx-tc-pill ${c.pending ? 'warn' : 'ok'}`}>{c.pending ? `${c.pending} Need${c.pending === 1 ? 's' : ''} Publishing` : 'All Published'}</span>
               <span className="nx-tc-open">Open <ChevronRight size={14} aria-hidden="true" /></span>
             </span>
           </button>

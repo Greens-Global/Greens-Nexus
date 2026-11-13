@@ -121,21 +121,21 @@ export const startView = (rows) => (rows.some((r) => r.myTurn) ? 'needs' : 'all'
 // grouped by when they changed, each with a kind line under its name.
 export const PAGE_SIZE = 12;
 
-/** "This week" / "Earlier this month" / "Older", by the row's updatedAt. */
+/** "This Week" / "Earlier This Month" / "Older", by the row's updatedAt. */
 export function groupLabel(row, now = new Date()) {
   const t = Date.parse(row.updatedAt || '');
   if (!Number.isFinite(t)) return 'Older';
   const d = new Date(t);
   const dayMs = 86400000;
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  if (t >= startOfToday - 6 * dayMs) return 'This week';
-  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) return 'Earlier this month';
+  if (t >= startOfToday - 6 * dayMs) return 'This Week';
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) return 'Earlier This Month';
   return 'Older';
 }
 
 /** The second line under a name: kind, folder, how many sign. */
 export function rowSubline(row, folders = []) {
-  const kind = row.kind === 'hr' ? 'Packet' : row.kind === 'form_entry' ? 'Form entry' : row.docKind === 'sheet' ? 'Sheet' : 'Document';
+  const kind = row.kind === 'hr' ? 'Packet' : row.kind === 'form_entry' ? 'Form Entry' : row.docKind === 'sheet' ? 'Sheet' : 'Document';
   const folder = folders.find((f) => f.id === row.folderId)?.name || (row.kind === 'hr' ? 'HR' : '');
   const signers = row.signers > 1 ? `${row.signers} signers` : '';
   return [kind, folder, signers].filter(Boolean).join(' · ');

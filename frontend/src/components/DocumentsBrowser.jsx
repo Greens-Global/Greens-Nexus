@@ -452,7 +452,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
 
   const all = useMemo(() => rows || [], [rows]);
-  const typeOf = (r) => (r.kind === 'hr' ? 'Packet' : r.kind === 'form_entry' ? 'Form entry' : r.docKind === 'sheet' ? 'Sheet' : 'Document');
+  const typeOf = (r) => (r.kind === 'hr' ? 'Packet' : r.kind === 'form_entry' ? 'Form Entry' : r.docKind === 'sheet' ? 'Sheet' : 'Document');
   const visible = useMemo(() => sortRows(searchRows(rowsInView(all, view), search, folders), sort.key, sort.dir)
     .filter((r) => (!filters.company || r.company === filters.company) && (!filters.status || rowStatus(r).label === filters.status) && (!filters.type || typeOf(r) === filters.type)),
     [all, view, search, folders, sort, filters]);
@@ -565,8 +565,8 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
                 <span><FolderIcon size={13} aria-hidden="true" /> {f.name}</span><span className="nx-dl-count">{n}</span>
               </button>
             ))}
-            {hidden > 0 && <button type="button" className="nx-dl-rail-more" onClick={() => setShowEmptyFolders(true)}>Show {hidden} empty folder{hidden === 1 ? '' : 's'}</button>}
-            {showEmptyFolders && withCount.some(([, n]) => !n) && <button type="button" className="nx-dl-rail-more" onClick={() => setShowEmptyFolders(false)}>Hide empty folders</button>}
+            {hidden > 0 && <button type="button" className="nx-dl-rail-more" onClick={() => setShowEmptyFolders(true)}>Show {hidden} Empty Folder{hidden === 1 ? '' : 's'}</button>}
+            {showEmptyFolders && withCount.some(([, n]) => !n) && <button type="button" className="nx-dl-rail-more" onClick={() => setShowEmptyFolders(false)}>Hide Empty Folders</button>}
           </>);
         })()}
       </nav>
@@ -660,10 +660,12 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
                       <tr data-row={r.id} tabIndex={0} className={selectedId === r.id ? 'sel' : ''} aria-selected={selectedId === r.id}
                         onClick={() => setSelectedId(r.id)} onKeyDown={(e) => onRowKey(e, r)}>
                         <td className="nx-dl-name">
-                          <span className={`nx-dl-kind ${kindClass}`}><Kind size={14} aria-hidden="true" /></span>
-                          <span className="nx-dl-name-text"><span>{r.title}</span><small>{rowSubline(r, folders)}</small></span>
+                          <span className="nx-dl-cellrow">
+                            <span className={`nx-dl-kind ${kindClass}`}><Kind size={14} aria-hidden="true" /></span>
+                            <span className="nx-dl-name-text"><span>{r.title}</span><small>{rowSubline(r, folders)}</small></span>
+                          </span>
                         </td>
-                        <td className="nx-dl-for">{who ? <><span className="nx-dl-av" aria-hidden="true">{initials(who)}</span>{who}</> : <span className="nx-dl-muted">-</span>}</td>
+                        <td className="nx-dl-for">{who ? <span className="nx-dl-cellrow"><span className="nx-dl-av" aria-hidden="true">{initials(who)}</span>{who}</span> : <span className="nx-dl-muted">-</span>}</td>
                         <td><StatusWord status={rowStatus(r)} /></td>
                         <td className="nx-dl-co">{r.company || <span className="nx-dl-muted">-</span>}</td>
                         <td className="nx-dl-date">{formatDate(r.updatedAt)}</td>

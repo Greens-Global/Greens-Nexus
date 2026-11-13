@@ -10842,13 +10842,18 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .nx-dl-title h2 { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--ink); }
 .nx-dl-title span { font-size: 12px; color: var(--muted); }
 .nx-dl-search { flex: 1 1 280px; max-width: 520px; }
-.nx-dl-chip { height: 32px; padding: 0 28px 0 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); font: 500 13px Inter, sans-serif; color: var(--ink); cursor: pointer; }
+/* With the side panel open the list is narrower: the title takes its own row and the chips shrink. */
+.nx-dl-open .nx-dl-title { flex-basis: 100%; margin-right: 0; }
+.nx-dl-chip { flex: 0 1 auto; min-width: 110px; max-width: 180px; text-overflow: ellipsis;
+  height: 32px; padding: 0 28px 0 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); font: 500 13px Inter, sans-serif; color: var(--ink); cursor: pointer; }
 .nx-dl-table { border-top: none; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
 .nx-dl-table th { padding: 9px 14px; font: 500 12px Inter, sans-serif; background: var(--mist); }
 .nx-dl-table td { padding: 9px 14px; }
 .nx-dl-table tbody tr.sel { background: var(--mist); box-shadow: inset 3px 0 0 var(--pine); }
 .nx-dl-table tr.nx-dl-group td { padding: 6px 16px; font: 600 11px Inter, sans-serif; color: var(--muted); background: var(--card); cursor: default; }
-.nx-dl-name { display: flex; align-items: center; gap: 10px; }
+/* A <td> stays a table cell; the row of icon + text is an inner wrapper. */
+.nx-dl-cellrow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.nx-dl-for .nx-dl-cellrow { gap: 7px; }
 .nx-dl-kind { flex: none; width: 28px; height: 28px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; background: var(--mist); color: var(--muted); }
 .nx-dl-kind.is-doc { background: hsl(var(--color-blue) / .14); color: hsl(var(--color-blue)); }
 .nx-dl-kind.is-sheet { background: hsl(var(--color-green) / .14); color: hsl(var(--color-green)); }
@@ -10857,7 +10862,6 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .nx-dl-name-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .nx-dl-name-text > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nx-dl-name-text small { font-size: 11px; font-weight: 400; color: var(--muted); }
-.nx-dl-for { display: flex; align-items: center; gap: 7px; }
 .nx-dl-av { flex: none; width: 22px; height: 22px; border-radius: 50%; background: hsl(var(--color-blue) / .14); color: hsl(var(--color-blue)); font: 700 11px Inter, sans-serif; display: inline-flex; align-items: center; justify-content: center; }
 .nx-dl-quick { opacity: 0; transition: opacity .15s; }
 .nx-dl-table tbody tr:hover .nx-dl-quick, .nx-dl-table tbody tr.sel .nx-dl-quick, .nx-dl-table tbody tr:focus-within .nx-dl-quick { opacity: 1; }

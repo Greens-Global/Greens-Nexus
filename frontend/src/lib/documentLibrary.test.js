@@ -84,8 +84,8 @@ describe('Library shape', async () => {
   const lib = await import('./documentLibrary');
   it('groups rows by when they changed', () => {
     const now = new Date(2026, 10, 13, 12);
-    expect(lib.groupLabel({ updatedAt: '2026-11-12T10:00:00Z' }, now)).toBe('This week');
-    expect(lib.groupLabel({ updatedAt: '2026-11-03T10:00:00Z' }, now)).toBe('Earlier this month');
+    expect(lib.groupLabel({ updatedAt: '2026-11-12T10:00:00Z' }, now)).toBe('This Week');
+    expect(lib.groupLabel({ updatedAt: '2026-11-03T10:00:00Z' }, now)).toBe('Earlier This Month');
     expect(lib.groupLabel({ updatedAt: '2026-09-22T10:00:00Z' }, now)).toBe('Older');
     expect(lib.groupLabel({ updatedAt: '' }, now)).toBe('Older');
   });
