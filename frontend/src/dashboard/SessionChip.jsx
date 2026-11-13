@@ -1,3 +1,4 @@
+import { ChevronRight } from 'lucide-react';
 import { fmtHM } from '../lib/timeclockStore';
 import ShiftTrack from '../components/ShiftTrack';
 import { formatTime } from '../lib/datetime';
@@ -33,6 +34,9 @@ export function SessionChip({ mine, onOpen }) {
       {mine.state === 'break' ? <>On Break · <b>{fmtHM(mine.todayMin)}</b></>
         : on ? <>Clocked In · <b>{fmtHM(mine.todayMin)}</b></>
           : <>Clocked Out<span className="dk-session-long"> · Open Time Clock</span></>}
+      {/* Phones only: the chip leads the toolbar row there, and the chevron
+          says a tap opens the Time Clock (style.css hides it elsewhere). */}
+      <ChevronRight size={15} className="dk-session-go" aria-hidden="true" />
       {mine.track && <ShiftTrack track={mine.track} size="sm" ends={false} note={false} marker={false} className="dk-session-track" />}
     </button>
   );

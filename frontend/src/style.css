@@ -5109,6 +5109,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 .dk-session-chip b { font-variant-numeric: tabular-nums; font-weight: 700; }
 [data-theme="dark"] .dk-session-chip { background: var(--card); border-color: var(--line); color: var(--muted); box-shadow: none; }
 [data-theme="dark"] .dk-session-chip--on { color: #4ade80; }
+.dk-session-go { display: none; }
 .dk-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }   /* bigger (Neil, Oct 14 2026): seen from across the room */
 .dk-dot--up { background: #00c875; }
 .dk-dot--off { background: #b91c1c; opacity: .75; }   /* red = off the clock (Neil, Oct 14 2026: green working, amber break, red not) */
@@ -5478,16 +5479,31 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
      taller squares. Pushed right with an auto margin rather than
      justify-content, so a row that ever overflows still scrolls from its
      start. Customize and "..." are 40px squares. */
-  .dk-toolbar > :first-child { margin-left: auto; }
+  /* The row spans the page (11/13/2026): the clock chip leads at the left
+     edge, under the date line it belongs with, and Customize keeps the right
+     - two controls of one height, one radius and one border instead of two
+     mismatched pills huddled at the right with half the row empty. With no
+     chip (not time-tracked) Customize still sits right. */
+  .dk-toolbar { padding-top: 10px; }
+  .dk-toolbar .dk-session-chip { order: -1; }
+  .dk-toolbar .dk-controls { margin-left: auto; }
   .dk-toolbar select.form-input, .dk-toolbar .secondary-btn, .dk-toolbar .dk-session-chip {
     height: 40px; min-height: 40px; box-sizing: border-box;
   }
+  .dk-toolbar .secondary-btn, .dk-toolbar .dk-session-chip {
+    border: 1px solid var(--wk-line2); border-radius: 10px; background: var(--wk-card, var(--card));
+    box-shadow: 0 1px 2px rgba(29, 33, 57, .04); font-size: 13px; font-weight: 600;
+  }
+  .dk-toolbar .dk-session-chip { gap: 8px; padding: 0 8px 0 12px; color: var(--ink); }
+  .dk-toolbar .dk-session-chip--on { color: var(--wk-green); }
+  .dk-toolbar .dk-session-chip:hover { transform: none; }
+  .dk-toolbar .dk-dot { width: 10px; height: 10px; }
+  .dk-session-go { display: inline-block; margin-left: -2px; color: var(--muted); }
   .dk-toolbar select.form-input {
     width: auto !important; max-width: 60vw !important; border: 1px solid var(--wk-line); border-radius: 8px;
     background-color: var(--wk-card, var(--card)); box-shadow: 0 1px 2px rgba(29,33,57,.04); font-size: 13px !important;
   }
   .dk-toolbar .dk-icon-btn { width: 40px; padding: 0 !important; justify-content: center; }
-  .dk-toolbar .dk-session-chip { border-radius: 8px; }
   .dk-zones { display: none; }
   .dk-sub-local { display: inline; white-space: nowrap; }  /* "California 6:21 PM PDT" never splits */
 }
