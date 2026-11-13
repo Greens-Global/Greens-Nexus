@@ -24,14 +24,16 @@ export function SessionChip({ mine, onOpen }) {
     : on ? `Clocked In · ${fmtHM(mine.todayMin)}` : 'Clocked Out · Open Time Clock';
   return (
     <button
-      className={`dk-session-chip${on ? ' dk-session-chip--on' : ''}${mine.track ? ' has-track' : ''}`}
+      // A break wears amber, as on the left menu's clock (Neil, 11/03/2026:
+      // green clocked in, amber on a break, red off the clock).
+      className={`dk-session-chip${on ? ' dk-session-chip--on' : ''}${mine.state === 'break' ? ' dk-session-chip--break' : ''}${mine.track ? ' has-track' : ''}`}
       onClick={onOpen}
       // Always named in full: a phone shows "In · 6h 12m" (style.css).
       aria-label={trackText ? `${said} - ${trackText}` : said}
       title={trackText ? `Open Time Clock - ${trackText}` : 'Open Time Clock'}
       style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
     >
-      <span className={`dk-dot ${on ? 'dk-dot--up' : 'dk-dot--off'}`} />
+      <span className={`dk-dot ${mine.state === 'break' ? 'dk-dot--break' : on ? 'dk-dot--up' : 'dk-dot--off'}`} />
       {mine.state === 'break' ? <>On Break · <b>{fmtHM(mine.todayMin)}</b></>
         : on ? <><span className="dk-session-word">Clocked </span>In · <b>{fmtHM(mine.todayMin)}</b></>
           : <>Clocked Out<span className="dk-session-long"> · Open Time Clock</span></>}

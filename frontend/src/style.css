@@ -5112,6 +5112,9 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 .dk-session-go { display: none; }
 .dk-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }   /* bigger (Neil, Oct 14 2026): seen from across the room */
 .dk-dot--up { background: #00c875; }
+.dk-dot--break { background: #eab308; }   /* amber on a break, as the left menu's clock (sbring--break) */
+.dk-session-chip--on.dk-session-chip--break { color: #b45309; border-color: rgba(180,83,9,.3); }
+[data-theme="dark"] .dk-session-chip--on.dk-session-chip--break { color: #fbbf24; }
 .dk-dot--off { background: #b91c1c; opacity: .75; }   /* red = off the clock (Neil, Oct 14 2026: green working, amber break, red not) */
 
 /* stat cards */
@@ -5514,6 +5517,12 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dk-customize svg { width: 17px; height: 17px; }
   .dk-toolbar .dk-session-chip { gap: 7px; padding: 0 6px 0 11px; color: var(--ink); white-space: nowrap; }
   .dk-toolbar .dk-session-chip--on { color: var(--wk-green); }
+  .dk-toolbar .dk-session-chip--break { color: #b45309; }
+  [data-theme="dark"] .dk-toolbar .dk-session-chip--break { color: #fbbf24; }
+  /* 36px to the eye, 44px to the thumb: the hit area reaches past the edge. */
+  .dk-toolbar .dk-customize, .dk-toolbar .dk-session-chip { position: relative; }
+  .dk-toolbar .dk-customize::before, .dk-toolbar .dk-session-chip::before { content: ''; position: absolute; inset: -4px -3px; }
+  .dk-toolbar .dk-customize:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
   .dk-toolbar .dk-session-chip:hover { transform: none; }
   .dk-toolbar .dk-dot { width: 9px; height: 9px; }
   .dk-session-long, .dk-session-word { display: none; }
