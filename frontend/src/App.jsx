@@ -45,6 +45,8 @@ import { hasUnsavedWork, askToLeave, guardPopstate, rememberEntry, runPopGuard }
 // signal state that hides the "reconnecting" bar while there is no signal.
 import OfflineBar from "./components/offline/OfflineBar";
 import { useOffline } from "./lib/offline/useOffline";
+// The installed app: icon shortcuts, the icon's count and Share to Nexus.
+import InstalledApp from "./components/InstalledApp";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -929,6 +931,7 @@ function MainApp() {
         <WidgetBoundary name="pull-to-refresh" resetKey={widgetKey}><PullToRefresh /></WidgetBoundary>
         <WidgetBoundary name="task-prefetch" resetKey={widgetKey}><TaskPrefetch /></WidgetBoundary>
         <WidgetBoundary name="build-mode" resetKey={widgetKey}><BuildMode view={activeView} sub={activeSub} /></WidgetBoundary>
+        <WidgetBoundary name="installed-app" resetKey={widgetKey}><InstalledApp /></WidgetBoundary>
         {activeView === 'sso' && activeSub === 'accounting' && (
           <Suspense fallback={<ViewLoading />}>
             <AccountingHandoff next={new URLSearchParams(window.location.search).get('next') || undefined} />

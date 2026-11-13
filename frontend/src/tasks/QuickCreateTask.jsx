@@ -23,6 +23,8 @@ import { STOP_VOICE_FIRST } from '../lib/voice';
 import SayIt from './SayIt';
 import AddSeveralModal from './AddSeveralModal';
 import { pastedTaskList } from './batchPaste';
+import { useTypedTask } from './useTypedTask';
+import TypedTaskChips from './TypedTaskChips';
 
 const fieldLabel = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 };
 
@@ -43,6 +45,17 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const [several, setSeveral] = useState('');   // a pasted list (Oct 31 2026) - Add Several over the sheet
   const [photoMenu, setPhotoMenu] = useState(false);
   const photoBtnRef = useRef(null);
+  // The name box reads the sentence Say It reads (11/13/2026, useTypedTask.js).
+  // What it understood shows as chips under the name and in the fields below,
+  // and is what Create and Full Details use. A date or assignee the person
+  // picked in its own field is theirs: the sentence is not read for it.
+  const [dueSet, setDueSet] = useState(false);
+  const [assigneeSet, setAssigneeSet] = useState(false);
+  const typedTask = useTypedTask(title, { people, myEmail, locked: { date: dueSet, assignee: assigneeSet } });
+  const taskName = typedTask.title;
+  const taskDue = typedTask.dueOn || dueOn;
+  const taskWho = typedTask.assigneeIds.length ? typedTask.assigneeIds : assigneeIds;
+  const taskPriority = typedTask.priority || priority;
 
   const camRef = useRef(null);
   const libRef = useRef(null);
@@ -87,19 +100,19 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const reqFields = requiredFieldsFor(store.customFields, projectId);
   const reqMissing = reqFields.filter((f) => isBlankValue(cfValues[f.id]));
   // Full Details carries the picked files too - a voice note must not vanish.
-  const draft = () => ({ title: title.trim(), dueOn, assigneeIds, priority, customFieldValues: cfValues, files: files.map((it) => it.file) });
+  const draft = () => ({ title: taskName, dueOn: taskDue, assigneeIds: taskWho, priority: taskPriority, customFieldValues: cfValues, files: files.map((it) => it.file) });
   // A voice note still recording: Create and Full Details wait for Stop, or
   // the clip is lost.
   const [voiceRec, setVoiceRec] = useState(false);
-  const canCreate = !!(title.trim() && assigneeIds.length && dueOn) && reqMissing.length === 0 && !busy && !voiceRec;
+  const canCreate = !!(taskName && taskWho.length && taskDue) && reqMissing.length === 0 && !busy && !voiceRec;
 
   const submit = async () => {
     if (!canCreate) return;
     setBusy(true);
     try {
       const t = await createTask({
-        title: title.trim(), type: 'task', status: defaults.status || 'not_started',
-        priority, assigneeIds, ownerId: defaults.ownerId ?? myEmail ?? '', projectId, teamId: defaults.teamId || '', dueOn: dueOn || '',
+        title: taskName, type: 'task', status: defaults.status || 'not_started',
+        priority: taskPriority, assigneeIds: taskWho, ownerId: defaults.ownerId ?? myEmail ?? '', projectId, teamId: defaults.teamId || '', dueOn: taskDue || '',
         customFieldValues: cfValues,
       });
       const notAttached = await uploadFilesToTask(t.id, files.map((it) => it.file));
@@ -127,19 +140,21 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
             placeholder="Task name *" style={{ ...inputStyle, flex: 1, minWidth: 0, fontSize: 18, fontWeight: 600, padding: '10px 12px' }} />
           <DictateButton target={titleRef} title="Dictate the Task Name" />
         </div>
+        <TypedTaskChips typed={typedTask} people={people} myEmail={myEmail} inputRef={titleRef} style={{ marginTop: -6 }} />
 
+        {/* Say It starts from the form as it shows, and reads the entry itself from there on. */}
         <SayIt people={people} myEmail={myEmail}
-          snapshot={() => ({ title, dueOn, priority, assigneeIds })}
-          onFill={(v) => { setTitle(v.title); setDueOn(v.dueOn); setPriority(v.priority); setAssigneeIds(v.assigneeIds); }} />
+          snapshot={() => ({ title: taskName, dueOn: taskDue, priority: taskPriority, assigneeIds: taskWho })}
+          onFill={(v) => { typedTask.standDown(); setTitle(v.title); setDueOn(v.dueOn); setPriority(v.priority); setAssigneeIds(v.assigneeIds); }} />
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <span style={fieldLabel}><CalendarDays size={13} /> Due date <span style={{ color: NX.red }}>*</span></span>
-            <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} noPast placeholder="Pick a date" style={sel} />
+            <DateField value={taskDue} onChange={(v) => { setDueOn(v || ''); setDueSet(!!v); if (!v && typedTask.dueOn) typedTask.remove('date'); }} noPast placeholder="Pick a date" style={sel} />
           </div>
           <div>
             <span style={fieldLabel}><User size={13} /> Assignee <span style={{ color: NX.red }}>*</span></span>
-            <PersonMultiSelect value={assigneeIds} onChange={setAssigneeIds} people={people} placeholder="Assign to…" addTitle="Add assignee" />
+            <PersonMultiSelect value={taskWho} onChange={(v) => { setAssigneeIds(v); setAssigneeSet(true); }} people={people} placeholder="Assign to…" addTitle="Add assignee" />
           </div>
         </div>
 

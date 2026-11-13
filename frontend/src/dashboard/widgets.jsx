@@ -62,7 +62,6 @@ const PendingPurchasesWidget = lazyTeam('PendingPurchasesWidget');
 
 // Essentials (Oct 7) - one file per tile so each is its own chunk and loads
 // only when that tile is on the board.
-const MyDayWidget         = lazy(() => import('./essentials/MyDay.jsx'));
 const MyWorkWidget        = lazy(() => import('./essentials/MyWork.jsx'));
 const MyTimeWidget        = lazy(() => import('./essentials/MyTime.jsx'));
 const AnnouncementsWidget = lazy(() => import('./essentials/Announcements.jsx'));
@@ -1148,9 +1147,14 @@ export const WIDGETS = {
   // Project-Wise Tasks, Team Calendar) were removed the same day; a saved
   // layout that still carries one of those keys renders CustomDashboard's
   // "Unknown widget" card, never a crash.
-  // Shown as "Action Required" since Oct 23 2026 (Neil): Tasks has its own
-  // My Day list now. The key stays 'my-day' - saved boards point at it.
-  'my-day':        { title: 'Action Required', aka: ['My Day'], cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyDayWidget, fit: true },
+  // Action Required (the old My Day tile), retired (Neil, 11/13/2026): My
+  // Work is the one list of what is mine, and a decision on someone else's
+  // request is in Dashboard > Approvals. Gone from every board and the
+  // gallery via widgetHidden; the key stays so saved layouts that carry it
+  // load cleanly, and a board that had it without My Work gets My Work in
+  // its place on load (useDashboards.swapRetired). Never drawn - `render`
+  // is My Work's only so the entry has one.
+  'my-day':        { title: 'Action Required', aka: ['My Day'], cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget, fit: true, hidden: true, retired: true },
   'my-work':       { title: 'My Work',       cat: 'Workday', icon: Briefcase,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget, fit: true },
   // My Time (Oct 8, Neil): the simple punch tile - status, Punch In / Out /
   // Start Break / End Break, today's hours; the card opens Workday for the

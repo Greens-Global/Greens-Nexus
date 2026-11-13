@@ -20,7 +20,10 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import DictateButton from '../components/DictateButton';
 import AddSeveralModal from './AddSeveralModal';
 import { pastedTaskList } from './batchPaste';
+import { useTypedTask } from './useTypedTask';
+import TypedTaskChips from './TypedTaskChips';
 import ProgressTrack from '../ui/ProgressTrack';
+import { formatDate } from '../lib/datetime';
 
 const card = { background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12 };
 
@@ -37,23 +40,31 @@ function Progress({ done, total, isMobile }) {
   );
 }
 
+// What the add row reads from the sentence typed into it (11/13/2026,
+// useTypedTask.js): a due date and a priority. Not an assignee - My Day is
+// the person's own list, so "for Bob" stays in the name.
+const TYPED_KINDS = ['date', 'priority'];
+
 function QuickAdd({ onAdd, onSeveral }) {
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
+  const typedTask = useTypedTask(title, { kinds: TYPED_KINDS });
   const submit = async () => {
-    const v = title.trim();
+    // The name as typed, or without the words a chip stands for.
+    const v = typedTask.title;
     if (!v || busy) return;
     setBusy(true);
     try {
-      await onAdd(v);
+      await onAdd(v, { dueOn: typedTask.dueOn, priority: typedTask.priority });
       setTitle('');
     } catch { /* onAdd said what went wrong; the text stays to try again */ }
     setBusy(false);
     ref.current?.focus();
   };
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: `1px solid ${NX.border}` }}>
+    <div style={{ borderBottom: `1px solid ${NX.border}` }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
       <Plus size={16} style={{ color: NX.blue, flexShrink: 0 }} aria-hidden="true" />
       <input ref={ref} type="text" value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
@@ -68,6 +79,9 @@ function QuickAdd({ onAdd, onSeveral }) {
         </button>
       )}
     </div>
+      {/* Under the box, in line with the name. */}
+      <TypedTaskChips typed={typedTask} inputRef={ref} style={{ padding: '0 12px 8px 36px' }} />
+    </div>
   );
 }
 
@@ -77,6 +91,34 @@ const dueShown = (t, day) => {
   const due = String(t.dueOn || '').slice(0, 10);
   return !!due && due !== day;
 };
+// Left From Last Time (Neil, 11/13/2026): My Day still starts empty - the
+// picks made last time that are STILL OPEN are offered once, never moved by
+// themselves. Add to Today puts them under what is already planned; Not
+// Today ends the offer (the tasks stay where they are, under Suggestions if
+// they are overdue or in progress).
+function LeftFromLastTime({ offer, isMobile, onAnswer }) {
+  const n = offer.count;
+  const names = offer.tasks.slice(0, 3).map((t) => t.title);
+  const more = n - names.length;
+  return (
+    <div role="region" aria-label="Left from last time"
+      style={{ display: 'flex', alignItems: isMobile ? 'stretch' : 'center', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 8 : 12, padding: '10px 12px', borderBottom: `1px solid ${NX.border2}`, background: 'var(--mist)' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>
+          {n} {n === 1 ? 'task is' : 'tasks are'} still open from {formatDate(offer.day)}
+        </div>
+        <div style={{ fontSize: 12, color: NX.dim, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {names.join(', ')}{more > 0 ? ` and ${more} more` : ''}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+        <button type="button" onClick={() => onAnswer(true)} style={{ ...btn('primary'), fontSize: 13, padding: '6px 12px', minHeight: isMobile ? 44 : 0, flex: isMobile ? 1 : 'none', justifyContent: 'center' }}>Add to Today</button>
+        <button type="button" onClick={() => onAnswer(false)} style={{ ...btn('outline'), fontSize: 13, padding: '6px 12px', minHeight: isMobile ? 44 : 0, flex: isMobile ? 1 : 'none', justifyContent: 'center' }}>Not Today</button>
+      </div>
+    </div>
+  );
+}
+
 function DueLabel({ t, day, hideToday = false, short = false }) {
   const due = String(t.dueOn || '').slice(0, 10);
   if (!due || (hideToday && due === day)) return null;
@@ -294,7 +336,7 @@ export default function MyDayView({ onOpen }) {
   const canEditTask = useCanEditTask(store);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [announce, setAnnounce] = useState('');
-  const { day, status, open, done, rows, total, suggestions, me } = myDay;
+  const { day, status, open, done, rows, total, suggestions, me, carryOver } = myDay;
   const suggestCount = suggestions.reduce((n, g) => n + g.rows.length, 0);
   // The date and priority slots are kept only when some row fills them.
   const slots = {
@@ -349,13 +391,15 @@ export default function MyDayView({ onOpen }) {
   const noteTimer = useRef(null);
   const noteAdded = (msg) => { clearTimeout(noteTimer.current); setSeveralNote(msg); noteTimer.current = setTimeout(() => setSeveralNote(''), 4000); };
   useEffect(() => () => clearTimeout(noteTimer.current), []);
-  const quickAdd = async (title) => {
+  // `read`: the due date and priority the add row showed as chips, if any.
+  // The task is still a pick for today whatever day it is due.
+  const quickAdd = async (title, read = {}) => {
     let created;
     try {
       created = await store.createTask({
-        title, type: 'task', status: 'not_started', priority: 'medium',
+        title, type: 'task', status: 'not_started', priority: read.priority || 'medium',
         assigneeIds: [store.myEmail], ownerId: store.myEmail || '', projectId: '', teamId: '',
-        dueOn: day || todayISO(),
+        dueOn: read.dueOn || day || todayISO(),
       });
     } catch (e) {
       store.notify?.(`Could not add that task: ${e?.message || 'please try again'}`);
@@ -417,6 +461,10 @@ export default function MyDayView({ onOpen }) {
         {header}
         <div className={isMobile ? 'nx-edge-card' : undefined} style={{ ...card, overflow: 'hidden' }}>
           <QuickAdd onAdd={quickAdd} onSeveral={(text) => setSeveral(text)} />
+          {carryOver && <LeftFromLastTime offer={carryOver} isMobile={isMobile} onAnswer={(yes) => {
+            myDay.carry(yes);
+            setAnnounce(yes ? `Added ${carryOver.count} ${carryOver.count === 1 ? 'task' : 'tasks'} to My Day.` : 'Left off today\'s list.');
+          }} />}
           {severalNote && <div role="status" style={{ padding: '4px 12px', fontSize: 13, color: NX.green, fontWeight: 600 }}>{severalNote}</div>}
           {several && (
             <AddSeveralModal defaults={{ text: several, dueOn: day || todayISO(), assigneeIds: store.myEmail ? [store.myEmail] : [], source: 'paste' }}

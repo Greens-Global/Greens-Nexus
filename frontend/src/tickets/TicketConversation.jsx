@@ -1,6 +1,6 @@
 // TicketConversation - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, MessageSquare, MessageSquareText, Lock } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
@@ -89,8 +89,17 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
   // drawer (and every list/board cell showing this ticket) picks up the new
   // value.
   const { reloadTickets } = useTasks();
-  const reload = () => api.getTicketComments(ticketId).then(setRows).catch(() => setRows([]));
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId, reloadKey]);
+  // A failed re-read of the SAME ticket keeps the thread on screen (it
+  // re-reads on its own now); a first read that fails still shows it empty.
+  const shownFor = useRef(null);
+  const reload = () => api.getTicketComments(ticketId)
+    .then((list) => { shownFor.current = ticketId; setRows(list); })
+    .catch(() => setRows((r) => (r && shownFor.current === ticketId ? r : [])));
+  // ticket.lastCommentAt: the ticket list is live (11/13/2026 - a ticket ping
+  // refetches it, TasksContext), so a reply from someone else moves this stamp
+  // on the row within a second and the open thread re-reads itself, instead
+  // of the list showing a comment the conversation does not.
+  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId, reloadKey, ticket?.lastCommentAt]);
 
   const del = async (c) => {
     const ok = await appDialog.confirm(`Delete this ${c.internal ? 'internal note' : 'comment'}? It cannot be brought back. Pictures it showed are kept with the ticket's records.`,

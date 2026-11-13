@@ -15,6 +15,8 @@ import {
   chainUp, directReports, byLastName, localTimeLabel, offsetFromViewer, vCardOf, downloadText, safeFileName,
 } from './lib';
 import UiCopyButton from '../ui/CopyButton';
+import LocalTimeHint from '../components/LocalTimeHint';
+import { formatHHMM } from '../lib/datetime';
 
 export function Avatar({ p, size = 40, radius }) {
   const r = radius ?? Math.round(size * 0.28);
@@ -251,6 +253,14 @@ export default function ProfilePanel({
           <Row icon={Clock} label="Local Time">
             <span>{clock}</span>
             {offset && <span style={{ color: NX.faint, fontSize: 12 }}>({offset} from you)</span>}
+            {/* Outside their working hours (else 9:00 PM to 7:00 AM there) - the clock is right here, so no time in it. */}
+            <LocalTimeHint rows={[p]} me={me} brief style={{ marginTop: 0, marginLeft: 4 }} />
+          </Row>
+        )}
+        {/* The hours they set for themselves under My Profile > Date & Time (11/13/2026). */}
+        {p.workStart && p.workEnd && (
+          <Row icon={Clock} label="Working Hours">
+            <span>{formatHHMM(p.workStart)} - {formatHHMM(p.workEnd)}</span>
           </Row>
         )}
         {p.companyName && <Row icon={Building2} label="Company"><span>{p.companyName}</span></Row>}

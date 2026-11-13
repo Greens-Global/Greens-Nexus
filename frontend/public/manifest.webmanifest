@@ -15,5 +15,62 @@
     { "src": "/icons/nexus-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icons/nexus-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
-  ]
+  ],
+  "shortcuts": [
+    {
+      "name": "New Task",
+      "short_name": "New Task",
+      "description": "Start a task",
+      "url": "/?do=new-task",
+      "icons": [{ "src": "/icons/nexus-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "New Ticket",
+      "short_name": "New Ticket",
+      "description": "Create a ticket",
+      "url": "/?do=new-ticket",
+      "icons": [{ "src": "/icons/nexus-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Time Clock",
+      "short_name": "Time Clock",
+      "description": "Punch in or out on Workday",
+      "url": "/workday/overview",
+      "icons": [{ "src": "/icons/nexus-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Approvals",
+      "short_name": "Approvals",
+      "description": "What is waiting on your decision",
+      "url": "/dashboard/approvals",
+      "icons": [{ "src": "/icons/nexus-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "share_target": {
+    "action": "/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "files",
+          "accept": [
+            "image/*",
+            "application/pdf", ".pdf",
+            "text/plain", ".txt",
+            "text/csv", ".csv",
+            "application/msword", ".doc",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx",
+            "application/vnd.ms-excel", ".xls",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx",
+            "application/vnd.ms-powerpoint", ".ppt",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx"
+          ]
+        }
+      ]
+    }
+  }
 }

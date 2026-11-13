@@ -43,6 +43,7 @@
 //             to"... are dropped from the name.
 // Every phrase it used is reported in `matched`, so the screen can show it
 // as a chip and undo it (parse again with that kind in `ignore`).
+// The typed task name boxes read these same rules (useTypedTask.js, 11/13/2026).
 
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];

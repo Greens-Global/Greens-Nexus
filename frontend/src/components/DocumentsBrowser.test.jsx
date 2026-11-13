@@ -334,3 +334,15 @@ describe('Empty and failing', () => {
     await waitFor(() => expect(document.body.textContent).toContain('The server said no'));
   });
 });
+
+describe('Opened from the header search (11/13/2026)', () => {
+  it('a library already on screen opens the named row beside the list, an archived one too', async () => {
+    render(<DocumentsBrowser />);
+    await screen.findByText('Lease');                       // loaded, on Needs Me
+    expect(screen.queryByRole('complementary')).toBeNull();
+    fireEvent(window, new CustomEvent('nexus:open-document', { detail: { id: 'd1' } }));
+    expect(await screen.findByRole('complementary', { name: 'Vendor Agreement' })).toBeTruthy();
+    fireEvent(window, new CustomEvent('nexus:open-document', { detail: { id: 'd4' } }));
+    expect(await screen.findByRole('complementary', { name: 'Old Note' })).toBeTruthy();
+  });
+});

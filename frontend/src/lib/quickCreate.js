@@ -71,7 +71,7 @@ export const ACTIONS = [
   { key: 'task', group: 'new', label: 'New Task', short: 'Task', Icon: CheckSquare, module: 'tasks', compose: 'task', keys: 'C T' },
   { key: 'ticket', group: 'new', label: 'New Ticket', short: 'Ticket', Icon: TicketToken, module: 'support', compose: 'ticket' },
   { key: 'note', group: 'new', label: 'New Note', short: 'Note', Icon: NotebookPen, module: 'dashboard',
-    run: () => window.dispatchEvent(new CustomEvent('nexus:quick-note')) },
+    run: (seed) => window.dispatchEvent(new CustomEvent('nexus:quick-note', { detail: { seed: seed?.html || '' } })) },
   // New Board (Neil, 11/02/2026): a whiteboard note, made and opened on
   // Dashboard > Notes. Loaded on click so the header stays light.
   { key: 'board', group: 'new', label: 'New Board', short: 'Board', Icon: BoardIcon, module: 'dashboard',
@@ -130,4 +130,53 @@ export function layoutActions(items) {
     else rows.push({ kind: 'group', ...g, items: mine, hint: mine.map((it) => it.short).join(', ') });
   });
   return { tiles, rows };
+}
+
+// A start asked for from OUTSIDE the menu (the installed app's shortcuts and
+// Share to Nexus - lib/appLaunch.js, components/InstalledApp.jsx). It runs the
+// same action the bolt runs, through the bolt (components/QuickCreate.jsx
+// takes it), so there is still one menu and one way each form opens; an
+// action this person cannot use is dropped without a word. `seed` is what
+// that action's own form starts with (lib/shareTarget.js shareSeed): New
+// Task - CreateTaskModal's `defaults`; New Ticket - CreateTicketModal's
+// `initial`; New Note - { html } written into the Quick Note.
+export const QUICK_ACTION_EVENT = 'nexus:quick-action';
+const ASK_MAX_AGE_MS = 30000;   // asked before the bolt was on screen: it takes it when it mounts
+let asked = null;
+
+export function runQuickAction(key, seed = null) {
+  asked = { key, seed, at: Date.now() };
+  window.dispatchEvent(new CustomEvent(QUICK_ACTION_EVENT));
+}
+
+/** The start waiting for the bolt - handed over once: { key, seed } or null. */
+export function takeQuickAction() {
+  const ask = asked;
+  asked = null;
+  return ask && Date.now() - ask.at <= ASK_MAX_AGE_MS ? { key: ask.key, seed: ask.seed } : null;
+}
+
+// The header search answers with these same actions (11/13/2026): typing
+// "time off" offers Request Time Off, "new ticket" New Ticket - from the list
+// a person already has (visibleActions), never a second one, and a pick runs
+// through the bolt (runQuickAction). The match is by name and deliberately
+// plain: every typed word must start a word of the action's name or of its
+// short name; "a", "an" and "the" never count. `starts` says the typed text
+// begins the name itself and has gone past its first word ("new ti",
+// "request t") - the search puts those above everything else; the rest keep
+// the menu's own order.
+const SMALL_WORDS = new Set(['a', 'an', 'the']);
+const wordsOf = (text) => String(text || '').toLowerCase().split(/[^a-z0-9]+/).filter((w) => w && !SMALL_WORDS.has(w));
+
+export function findActions(items, query, max = 3) {
+  const typed = String(query || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const words = wordsOf(typed);
+  if (typed.length < 2 || !words.length) return [];
+  const hits = [];
+  (items || []).forEach((it) => {
+    const parts = wordsOf(`${it.label} ${it.short}`);
+    if (!words.every((w) => parts.some((p) => p.startsWith(w)))) return;
+    hits.push({ item: it, starts: typed.includes(' ') && it.label.toLowerCase().startsWith(typed) });
+  });
+  return hits.sort((a, b) => Number(b.starts) - Number(a.starts)).slice(0, max);
 }

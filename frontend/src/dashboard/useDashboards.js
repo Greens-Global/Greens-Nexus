@@ -52,6 +52,25 @@ const ROLE_EXTRAS = {
 
 export const defaultLayoutFor = (widgetTier) => [...DEFAULT_PERSONAL, ...(ROLE_EXTRAS[widgetTier] || [])];
 
+// A retired tile's stand-in (Neil, 11/13/2026): Action Required ('my-day')
+// is retired and My Work is the one list of what is mine, so a saved board
+// that carried Action Required WITHOUT My Work shows My Work in the same
+// place, the same size - nobody opens their board to a hole where "what
+// needs me" used to be. A board that already has My Work keeps one: the
+// retired tile just stays hidden (widgetHidden). Applied on load like
+// clampToLimits; the board's next save keeps it.
+const RETIRED_STAND_IN = { 'my-day': 'my-work' };
+export function swapRetired(items) {
+  const list = Array.isArray(items) ? items : [];
+  const have = new Set(list.map((w) => w?.type));
+  return list.map((w) => {
+    const to = RETIRED_STAND_IN[w?.type];
+    if (!to || have.has(to)) return w;
+    have.add(to);                 // two retired tiles on one board become one stand-in
+    return { ...w, type: to, config: undefined };
+  });
+}
+
 const rid = () => `w${Math.random().toString(36).slice(2, 8)}`;
 
 const COLS = 12;
@@ -218,7 +237,7 @@ export function useDashboards(widgetTier) {
     savedLayoutRef.current = (view && Array.isArray(view.layout) && view.layout.length) ? view.layout : null;
     // Clamping can grow a tile into its neighbor, and boards saved before
     // collisions were settled may already overlap - settle on load.
-    setLayoutState(resolveCollisions(items.map(clampToLimits)));
+    setLayoutState(resolveCollisions(swapRetired(items).map(clampToLimits)));
     setDirty(false);
   }, [widgetTier]);
 

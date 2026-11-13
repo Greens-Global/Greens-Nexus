@@ -3,6 +3,9 @@
 // on a phone with no signal, or after a read that got no answer - so the
 // shell's first paint carries none of it. Online, the answer is saved in the
 // background for next time.
+import { clearAppBadge } from '../appBadge';
+import { clearShare } from '../shareTarget';
+
 const store = () => import('./store');
 
 export async function offlineRead(name, fetcher) {
@@ -26,12 +29,15 @@ export async function offlineRead(name, fetcher) {
  *  IndexedDB never holds up a sign out). Called before every sign-out
  *  navigation - BFF (bffLogout) and MSAL (TopHeader / MobileMenu) - and on a
  *  person change (bffAuth's purge). The outbox is left alone: unsent changes
- *  are the person's work and only ever send as them. */
+ *  are the person's work and only ever send as them. What was shared into
+ *  Nexus and not used yet (lib/shareTarget.js) and the count on the app's
+ *  icon (lib/appBadge.js) are this person's too, and go with the cache. */
 export async function clearOfflineReadCache(maxMs = 1500) {
   let timer;
+  clearAppBadge();
   try {
     await Promise.race([
-      store().then((m) => m.clearReadCache()),
+      Promise.all([store().then((m) => m.clearReadCache()), clearShare()]),
       new Promise((resolve) => { timer = setTimeout(resolve, maxMs); }),
     ]);
   } catch { /* nothing kept, or no IndexedDB here */ } finally { clearTimeout(timer); }

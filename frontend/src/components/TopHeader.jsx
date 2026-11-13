@@ -54,6 +54,7 @@ import { useBuildModeMenu, BuildModeChip } from '../devnotes/BuildModeChip';   /
 import { ToolsSection, ActAsFinder } from './ToolsMenu';   // profile menu Tools (Oct 25 2026)
 import { useActionCounts } from '../lib/useActionCounts';
 import { clearOfflineReadCache } from '../lib/offline/read';
+import { useAccountAppearance } from '../lib/appearancePrefs';
 
 
 export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, pageNameRef, prevView }) {
@@ -167,6 +168,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     else delete document.documentElement.dataset.wktheme;
     localStorage.setItem('wk-theme', wkTheme);
   }, [wkTheme]);
+  // Dark Mode and the Theme follow the account (11/13/2026, lib/appearancePrefs.js):
+  // this device's copy paints first, the account's choice settles it once loaded.
+  useAccountAppearance({ theme, onThemeToggle, wkTheme, setWkTheme });
 
   // Page zoom and fullscreen controls were REMOVED from the header (Visesh,
   // Jul 30). The zoom applied a CSS `zoom` to <html>, and its default was 110%

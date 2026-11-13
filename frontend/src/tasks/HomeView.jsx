@@ -25,6 +25,8 @@ import { api } from '../api';
 import UpdatesCard from './HomeUpdates';
 import AddSeveralModal from './AddSeveralModal';
 import { pastedTaskList } from './batchPaste';
+import { useTypedTask, useTypedTaskPeople } from './useTypedTask';
+import TypedTaskChips from './TypedTaskChips';
 import ProjectIcon from './ProjectIcon';
 import { projectLook } from './projectLook';
 import { useMyDay } from './myDay';
@@ -166,6 +168,11 @@ export default function HomeView({ onNavigate, actions }) {
   useEffect(() => () => clearTimeout(noteTimer.current), []);
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
+  // The add row reads the sentence Say It reads (11/13/2026, useTypedTask.js):
+  // what it understood shows as chips under the name and only those are
+  // applied. A date picked in the row's own calendar is never read over.
+  const typedPeople = useTypedTaskPeople(creating);
+  const typedTask = useTypedTask(newTitle, { people: typedPeople, myEmail, locked: { date: !!newDue } });
   // The quick-add row saves when you leave it - Enter, Tab away, or a click
   // anywhere outside the row and its calendar - and never while its date is
   // being picked (the calendar takes focus; a picked date hands it back).
@@ -421,16 +428,20 @@ export default function HomeView({ onNavigate, actions }) {
 
   const cancelCreate = () => { setCreating(false); setNewTitle(''); setNewDue(null); };
   const commitCreate = async (openDetails) => {
-    const title = newTitle.trim();
+    // The name as typed, or without the words a chip stands for.
+    const title = typedTask.title;
     if (!title) { if (!openDetails) cancelCreate(); return; }
     // One save per title: cleared before the request, so Enter then a
     // click-away cannot make it twice.
     if (creatingTask.current) return;
     creatingTask.current = true;
-    const dueOn = newDue || '';
+    const dueOn = newDue || typedTask.dueOn || '';
+    const assigneeIds = typedTask.assigneeIds.length ? typedTask.assigneeIds : (myEmail ? [myEmail] : []);
     setNewTitle(''); setNewDue(null);
-    const t = await createTask({ title, assigneeIds: myEmail ? [myEmail] : [], dueOn, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => null);
+    const t = await createTask({ title, assigneeIds, dueOn, status: 'not_started', priority: typedTask.priority || 'medium', type: 'task' }).catch(() => null);
     creatingTask.current = false;
+    // A task for someone else is not in this card (it lists mine) - say where it went.
+    if (t && myEmail && !assigneeIds.includes(myEmail)) noteAdded(`Task added for ${assigneeIds.map((e) => nameOf(e) || e).join(', ')}`);
     if (openDetails && t) { setCreating(false); setOpenId(t.id); }
   };
   // The click-away listener always calls the latest commitCreate.
@@ -598,7 +609,7 @@ export default function HomeView({ onNavigate, actions }) {
           </div>
         )}
         {creating ? (
-          <div ref={createRowRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NX.blue}`, padding: '6px 0', marginBottom: 4 }}>
+          <div ref={createRowRef} style={{ position: 'relative', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NX.blue}`, padding: '6px 0', marginBottom: 4 }}>
             <Circle size={16} style={{ color: NX.faint, flexShrink: 0 }} />
             <input ref={titleRef} autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} aria-label="Task Name"
               onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }}
@@ -625,6 +636,8 @@ export default function HomeView({ onNavigate, actions }) {
             <DateField compact noPast value={newDue || ''} title="Set Due Date" color={newDue ? dueColor(newDue, false) : undefined}
               onChange={(v) => { setNewDue(notPast(v) || null); setTimeout(() => titleRef.current?.focus(), 0); }} />
             <button onMouseDown={(e) => { e.preventDefault(); commitCreate(true); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Details" aria-label="Details"><ChevronRight size={16} /></button>
+            {/* Inside the row, so a chip's X is not a click-away. */}
+            <TypedTaskChips typed={typedTask} people={typedPeople} myEmail={myEmail} inputRef={titleRef} style={{ flexBasis: '100%', paddingLeft: 24 }} />
           </div>
         ) : (
           <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>

@@ -16,6 +16,7 @@ import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import NoteEditor from './NoteEditor';
 import { useNoteSync } from './useNoteSync';
 import { createTaskFrom, openTask } from './notesTasks';
+import { EDITED } from './noteMedia';
 import { localDay, lastNoteId, noteTitle, writeDraft, editedLabel, quickNoteKeys } from './notesModel';
 import { newBoardFromAnywhere } from './newBoard';
 import './notes.css';
@@ -42,7 +43,7 @@ function Status({ status, note }) {
 // arrives; after that, edits go through useNoteSync like any note.
 export const hasContent = (html) => /<(audio|video|img)\b/i.test(html) || !!html.replace(/<[^>]+>/g, '').trim();
 
-function FirstWrite({ day, people, onMade, onNote, onMakeTask }) {
+function FirstWrite({ day, people, onMade, onNote, onMakeTask, onEditor }) {
   const latest = useRef('');
   const making = useRef(false);
   const made = useRef(null);     // { id, rev, title } once the note exists
@@ -73,13 +74,13 @@ function FirstWrite({ day, people, onMade, onNote, onMakeTask }) {
     {error && <ErrorBanner message={error} />}
     {/* `value` stays '' until the note has loaded; then it is the note's body,
         which is what this editor already shows, so nothing is replaced. */}
-    <NoteEditor value={loaded ? sync.note.body || '' : ''} onChange={onChange} people={people} compact autoFocus
+    <NoteEditor value={loaded ? sync.note.body || '' : ''} onChange={onChange} people={people} compact autoFocus onEditor={onEditor}
       onMakeTask={loaded ? (line) => onMakeTask(line, sync.note) : undefined}
       placeholder="Today's scratchpad. Type / for blocks, [ ] for a checklist." />
   </>);
 }
 
-function SyncedNote({ id, people, onNote, onMakeTask }) {
+function SyncedNote({ id, people, onNote, onMakeTask, onEditor }) {
   const sync = useNoteSync(id);
   const { note, status } = sync;
   useEffect(() => { onNote({ note, status }); }, [note, status, onNote]);
@@ -91,13 +92,15 @@ function SyncedNote({ id, people, onNote, onMakeTask }) {
       <input className="nt-title" style={{ fontSize: 18, marginTop: 12 }} value={note.title || ''} readOnly={readOnly}
         placeholder="Untitled Note" aria-label="Note title" onChange={(e) => sync.edit({ title: e.target.value })} />
     )}
-    <NoteEditor value={note.body || ''} readOnly={readOnly} people={people} compact autoFocus
+    <NoteEditor value={note.body || ''} readOnly={readOnly} people={people} compact autoFocus onEditor={readOnly ? undefined : onEditor}
       onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : (line) => onMakeTask(line, note)}
       placeholder="Today's scratchpad. Type / for blocks, [ ] for a checklist." />
   </>);
 }
 
-export default function QuickNotePanel({ onClose }) {
+// `seed` (HTML): words handed over with the open (Share to Nexus,
+// lib/shareTarget.js) - written at the end of today's note, once, as if typed.
+export default function QuickNotePanel({ onClose, seed = '' }) {
   const day = localDay();
   const people = usePeople();
   const panelRef = useRef(null);
@@ -129,6 +132,18 @@ export default function QuickNotePanel({ onClose }) {
     } catch (e) { say(e.message || 'Could not create the task'); return null; }
   };
   useDialogFocus(panelRef);
+  // The editor arrives through NoteEditor's onEditor; the words go in on the
+  // next pass, after the editor has settled on the note's own text (written
+  // any sooner, its load would replace them).
+  const [seedEditor, setSeedEditor] = useState(null);
+  const seedLeft = useRef(seed);
+  useEffect(() => {
+    if (!seedEditor || seedEditor.isDestroyed || !seedEditor.isEditable || !seedLeft.current) return;
+    const html = seedLeft.current;
+    seedLeft.current = '';
+    seedEditor.chain().focus('end').setMeta(EDITED, true).insertContent(html).run();
+  }, [seedEditor]);
+  const onSeedEditor = seed ? setSeedEditor : undefined;
 
   useEffect(() => {
     let alive = true;
@@ -169,10 +184,10 @@ export default function QuickNotePanel({ onClose }) {
           {error && <div style={{ paddingTop: 12 }}><ErrorBanner message={error} /></div>}
           {dailyId === null && mode === 'today' && <div style={{ paddingTop: 14 }}><SkeletonBlocks count={3} height={56} /></div>}
           {(dailyId === '' || (madeHere && dailyId === madeHere)) && mode === 'today' && !error && (
-            <FirstWrite day={day} people={people} onNote={setShown} onMakeTask={makeTask}
+            <FirstWrite day={day} people={people} onNote={setShown} onMakeTask={makeTask} onEditor={onSeedEditor}
               onMade={(madeId) => { setMadeHere(madeId); setDailyId(madeId); }} />
           )}
-          {id && !(mode === 'today' && id === madeHere) && <SyncedNote key={id} id={id} people={people} onNote={setShown} onMakeTask={makeTask} />}
+          {id && !(mode === 'today' && id === madeHere) && <SyncedNote key={id} id={id} people={people} onNote={setShown} onMakeTask={makeTask} onEditor={onSeedEditor} />}
         </div>
         <div className="nt-qn-foot" aria-live="polite">
           {said ? (

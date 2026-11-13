@@ -2,7 +2,10 @@
 when it is due, for the My Work dashboard tile.
 
 GET /me/work?tz_offset_min=<minutes> answers "what am I responsible for, and
-what is due?" in ONE place, so the tile never re-derives the rule:
+what is due?" in ONE place, so the tile never re-derives the rule. Since
+11/13/2026 it is every kind of work that is the caller's - the registry is
+my_work_sources.py; this module still owns the two original sources and the
+grouping:
 
   tasks    open (not completed, not in the trash) tasks the caller is an
            assignee of - task_util.task_assignees, the same answer /tasks
@@ -313,9 +316,15 @@ def group_items(items: list, today: str) -> dict:
 
 @router.get("/me/work")
 def my_work(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Everything that is the caller's to do, in one list (Neil, 11/13/2026):
+    tasks and tickets as before, plus Yours To Do, the Time Sheet to submit,
+    courses assigned and policies to sign - each from its module's own rule
+    (my_work_sources). `sources` feeds the filter chips; `errors` names a
+    source that could not load, so the tile says so instead of looking empty."""
+    import my_work_sources
     me = (user.get("email") or "").strip().lower()
     today = local_today(tz_offset_min)
     if not me:
-        return group_items([], today)
-    items = _my_open_tasks(db, user, me) + _my_open_tickets(db, user, me, tz_offset_min)
-    return group_items(items, today)
+        return {**group_items([], today), "sources": [], "errors": []}
+    got = my_work_sources.collect(db, user, me, tz_offset_min, today)
+    return {**group_items(got["items"], today), "sources": got["sources"], "errors": got["errors"]}
