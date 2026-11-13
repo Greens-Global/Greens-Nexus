@@ -2,9 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { X, ChevronRight, ChevronLeft, ChevronDown, LogOut, Moon, Sun, CircleHelp, Scale } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
-import { useRole, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
-import TierMark from './TierMark';
-import { usePersonPhoto } from '../lib/peoplePhotos';
+import { useRole } from '../contexts/RoleContext';
 import { NAV } from './Sidebar';
 import { orderNav, railSections, KICKERS } from './navOrder';
 import { useTimeclock, openTimeClock } from '../lib/timeclockStore';
@@ -144,21 +142,9 @@ function saveOpenGroups(list) {
 export default function MobileMenu({ open, onClose, onNavigate, activeView, theme, onThemeToggle }) {
   const { instance, accounts } = useMsal();
   const role = useRole();
-  const { can, myGrantedModules, isExternal, myTier, myTitle } = role;
+  const { can, myGrantedModules, isExternal } = role;
   const counts = useActionCounts();
-  const account  = accounts[0];
-  const name     = account?.name ?? 'User';
-  const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  // The person's own photo from the Nexus People directory (Sep 22) - the
-  // same picture the header pill shows, so the menu's card matches it. ''
-  // while it loads and for anyone HR hasn't given a photo; initials remain
-  // the fallback.
-  const photo    = usePersonPhoto(account?.username ?? '');
-  // Under the name: the person's JOB TITLE, never the Nexus tier (Neil,
-  // 11/02/2026 - "it should not say global admin here under my name"); no
-  // title = nothing there. External guests with no title still read
-  // "External" (Visesh, Aug 18). The tier is the small mark after the name.
-  const subtitle = myTitle || (isExternal ? EXTERNAL_ROLE_META.label : '');
+  const account  = accounts[0];   // signing out names the account
 
   const [subPanel,   setSubPanel]   = useState(null); // { view, label }
   const [subClosing, setSubClosing] = useState(false);
@@ -170,7 +156,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   // Above the early return: hooks run on every render.
   const menuRef = useRef(null);
   const [offscreen, reveal] = useOffscreenCounts(menuRef, [counts, open]);
-  const clock = useTimeclock();   // the time clock chip under the person (nothing for an exempt person)
+  const clock = useTimeclock();   // the time clock chip at the top (nothing for an exempt person)
   if (!open) return null;
 
   // X slides the whole menu back out to the left before unmounting
@@ -273,23 +259,15 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         backdrop darker) - a tap there closes the menu like the X does. */}
     <div className={`mobile-menu-scrim${closing ? ' closing' : ''}`} onClick={requestClose} aria-hidden="true" />
     <div ref={menuRef} className={`mobile-menu${closing ? ' closing' : ''}`} role="dialog" aria-modal="true" aria-label="Menu">
+      {/* No brand, no photo, name or title (Neil, 11/13/2026: "Not adding
+          any value just adding bloat"): the menu opens on the time clock
+          and the close button, then the modules. The header's own photo
+          is still the way to your profile. */}
       <div className="mobile-menu-head">
-        <div className="mobile-menu-brand"><span className="dk-mark" aria-hidden="true">N</span>Nexus</div>
+        <div className="mobile-menu-clock">
+          <SessionChip mine={clock} onOpen={() => { onClose(); openTimeClock(); }} />
+        </div>
         <button className="mobile-menu-close" onClick={requestClose} aria-label="Close menu"><X size={22} /></button>
-      </div>
-      <div className="mobile-menu-user">
-        <div className="mobile-menu-avatar">
-          {photo
-            ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-            : initials}
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="mobile-menu-name">{name}<TierMark tier={myTier} /></div>
-          {subtitle && <div className="mobile-menu-role">{subtitle}</div>}
-        </div>
-      </div>
-      <div className="mobile-menu-clock">
-        <SessionChip mine={clock} onOpen={() => { onClose(); openTimeClock(); }} />
       </div>
       <div className="mobile-menu-rows">
         {shownGroups.map(renderGroup)}

@@ -2592,25 +2592,19 @@ html { overflow-x: hidden; }
 @keyframes menuIn { from { transform: translateX(-100%); } to { transform: none; } }
 @keyframes menuOut { from { transform: none; } to { transform: translateX(-100%); } }
 
-.mobile-menu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
-/* The drawer wears the rail's brand (Neil, 11/07/2026): the N tile and the
-   wordmark as written, the green avatar, the rail's groups in order, the
-   time clock chip under the person, and no chevron on a row that simply
-   goes somewhere (only a row that opens a list keeps one). */
-.mobile-menu-brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 18px; letter-spacing: 0; }
-.mobile-menu-brand .dk-mark { width: 30px; height: 30px; font-size: 15px; }
+/* The drawer's top (Neil, 11/13/2026: no brand, no name or title - "reduce
+   bloat"): ONE row, the time clock chip and the close button, then the
+   rail's groups in order, and no chevron on a row that simply goes
+   somewhere (only a row that opens a list keeps one). Someone with no time
+   clock gets the close button alone at the right. */
+.mobile-menu-head { display: flex; align-items: center; gap: 6px; padding: 12px 6px 6px 16px; border-bottom: 1px solid var(--line); }
 .mm-kicker { font-family: var(--wk-font); font-size: 12px; font-weight: 500; color: var(--wk-dim); padding: 12px 20px 2px; }
-.mobile-menu-clock { padding: 10px 16px 0; }
-.mobile-menu-clock:empty { display: none; }
+.mobile-menu-clock { flex: 1; min-width: 0; padding: 0 0 6px; }
+.mobile-menu-clock:empty { padding: 0; }
 .mobile-menu-clock .dk-session-chip { width: 100%; justify-content: flex-start; }
 .mobile-menu-clock .dk-session-long { display: inline; }
 .mobile-menu-clock .dk-dot--off { background: var(--wk-faint); opacity: 1; }
-.mobile-menu-close { position: absolute; right: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
-
-.mobile-menu-user { display: flex; gap: 12px; align-items: center; padding: 8px 20px 16px; border-bottom: 1px solid var(--line); }
-.mobile-menu-avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--wk-brand); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; overflow: hidden; }
-.mobile-menu-name { font-weight: 700; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mobile-menu-role { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.mobile-menu-close { flex-shrink: 0; margin-bottom: 6px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
 
 .mobile-menu-rows { display: flex; flex-direction: column; padding: 8px 8px; }
 .mobile-menu-row {
@@ -3572,6 +3566,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 
 .mobile-submenu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
 .mobile-submenu-back { position: absolute; left: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
+.mobile-submenu-head .mobile-menu-close { position: absolute; right: 10px; top: 12px; margin: 0; }
 .mobile-submenu-title { font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── HR org chart - top-down tree with connector lines (Busacta-style) ───────

@@ -449,6 +449,10 @@ keep the diff minimal.
   shows ONE scroll bar: while it is open the page's own bar and html's
   stable gutter are taken off and the body is padded by the same width, so
   nothing behind it moves.
+  The phone menu (`MobileMenu.jsx`) opens on ONE row - the time clock chip
+  and the close button - then the modules: no N tile or wordmark, no photo,
+  name, job title or tier mark (Neil, 11/13/2026: "Not adding any value just
+  adding bloat"); the header's photo is the way to the profile.
 - **Quick Actions is the bolt (Neil, 11/12/2026, mock
   https://claude.ai/artifact/KKVpfc4ZqEjyaTUF3DDoDj):** the green bolt in
   the top header (where the "+" Create menu was, Oct 29 2026) starts things
