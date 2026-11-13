@@ -142,11 +142,13 @@ export default function GuidedTour({ steps, onClose }) {
       const above = rect.top - EDGE - h;
       // Neither fits (a tall target such as a whole list): the top edge, as
       // the original placement did - the bottom is where the floating bars sit.
-      // Except when the target starts in the top half of the screen: there
-      // the top edge covers exactly what the step is about (Help Center's
-      // four shortcuts, phone review 11/13/2026), so the card goes low.
-      const startsHigh = rect.top >= vTop && rect.top < vTop + vh / 2;
-      top = below <= hi ? below : above >= lo ? above : startsHigh ? hi : lo;
+      // Except when the top edge would hide more of the target than the
+      // bottom would: Help Center's four shortcuts start high, and the card
+      // on top covered the very cards the step is about (phone review,
+      // 11/13/2026). A list that starts lower keeps the top edge.
+      const coverTop = Math.max(0, lo + h - rect.top);
+      const coverLow = Math.max(0, Math.min(rect.top + rect.height, vTop + vh) - hi);
+      top = below <= hi ? below : above >= lo ? above : coverTop > coverLow ? hi : lo;
     } else {
       top = vTop + (vh - h) / 2;
     }

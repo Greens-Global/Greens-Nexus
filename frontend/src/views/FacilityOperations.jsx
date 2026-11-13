@@ -40,7 +40,7 @@ const CustomerMap = lazy(() => import('../operations/CustomerMap'));
 
 const SYNC_POLL_MS = 3000;
 const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.";
-// Everyone else reads it without the server setting's name (phone review, 11/13/2026).
+// Below Manager it reads without the server setting's name (phone review, 11/13/2026).
 const NOT_CONNECTED_PLAIN = 'Cubby is not connected yet - ask IT to connect it.';
 
 // The bar is five dropdowns, like Accounting's (Visesh, Oct 21): every screen
@@ -189,8 +189,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   // Only managers and above are told about the missing key; everyone sees the delayed chip.
   const role = useRole();
   const [full, toggleFull] = useFullScreen('operations');
-  // The server setting's name is for the people who can act on it.
-  const canSeeKeyHint = role?.can?.('administrator') ?? false;
+  const canSeeKeyHint = role?.can?.('manager') ?? false;
   const canRevenue = role?.canAccessModule ? role.canAccessModule('operations', 'manager', 'full') : (role?.can?.('manager') ?? false);
   const tabs = canRevenue ? TABS : STAFF_TABS;
   // A menu's own key opens its first item; the old mock tab ids (fms,
