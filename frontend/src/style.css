@@ -10763,3 +10763,4 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .fh-empty strong { display: block; color: var(--ink); font-size: 14px; margin-bottom: 2px; }
 /* Every box in Add Person one height - the inputs sat 4px shorter than the selects. */
 .ap-form input.form-input, .ap-form select.form-input { height: 38px; box-sizing: border-box; }
+.nx-new-item:disabled { opacity: .5; cursor: default; background: none; }

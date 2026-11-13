@@ -281,9 +281,15 @@ keep the diff minimal.
   create button says "+ New" - never "+ Create", "Add <Thing>" or "New
   <Thing>" - through `components/NewButton.jsx`: one thing to start = it
   starts it (aria "New <Thing>"); several = its menu (icon, name, one short
-  line). Tasks, Tickets, Notes, People (Person / From Hiring...), Hiring,
-  Asset Management, Credentials and Training use it. "Add Field" / "Add
-  Condition" rows inside a form are not create buttons and keep their words.
+  line). Tasks, Tickets, Notes, People (Person / From Hiring...), Hiring
+  (Candidate, Opening), Asset Management, Credentials, Training (Course),
+  the Knowledge Base (Page), Forms, Construction (Job), Investor Relations
+  (Deal, Investor), Workflows, Google Posts and Links use it. Documents
+  keeps its split button (Document / Template in ONE click, Neil 11/11/2026)
+  labeled "+ New" (aria "New Document" / "New Template"). An empty state's
+  button may name the thing ("New Job"); "Add Field" / "Add Condition" rows
+  inside a form and a form's own confirm button are not create buttons and
+  keep their words. Item Management's "Add Item" is Visesh's (ask him).
   People > New > From Hiring (`people/FromHiringSheet.jsx`) never hires
   anyone itself: it lists the candidates at Offer and Decision and opens
   the candidate's card in Hiring (`hr-hiring-<id>`), where Send Hiring

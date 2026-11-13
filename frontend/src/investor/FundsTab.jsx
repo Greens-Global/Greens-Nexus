@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Briefcase, Download, ExternalLink, Info, Plus, X } from 'lucide-react';
+import { Briefcase, Download, ExternalLink, Info, X } from 'lucide-react';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import { useNameResolver } from '../lib/useNameResolver';
 import { usePeopleDirectory } from '../lib/queries';
 import { formatCurrency, formatMultiple, formatPercent, numOrNull } from './lib/format';
@@ -246,9 +247,8 @@ export default function FundsTab() {
           <button className="secondary-btn" onClick={() => setImporting(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Download size={14} /> Import From Intacct
           </button>
-          <button className="primary-btn" onClick={openAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Plus size={14} /> Add Deal
-          </button>
+          {/* "+ New", the one create button across Nexus (Neil, 11/13/2026). */}
+          <NewButton items={[{ key: 'deal', label: 'Deal' }]} onPick={openAdd} />
         </div>
       </div>
       {importing && <ImportFromBooks onClose={() => setImporting(false)} onDone={refresh} />}

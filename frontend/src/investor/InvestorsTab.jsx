@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Plus, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import { useNameResolver } from '../lib/useNameResolver';
 import { usePeopleDirectory } from '../lib/queries';
 import { formatCurrency, statusLabel } from './lib/format';
@@ -97,9 +98,8 @@ export default function InvestorsTab() {
           <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Investors</h3>
           <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Investors - contact, accreditation, KYC, and total capital committed</p>
         </div>
-        <button className="primary-btn" onClick={openAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} /> Add Investor
-        </button>
+        {/* "+ New", the one create button across Nexus (Neil, 11/13/2026). */}
+        <NewButton items={[{ key: 'investor', label: 'Investor' }]} onPick={openAdd} />
       </div>
 
       {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={reload} /> : rows.length === 0 ? (

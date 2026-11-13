@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Search, Sparkles, Plus, FileText, Upload, FolderOpen, ChevronRight } from 'lucide-react';
 import { api } from '../../api';
+import NewButton from '../../components/NewButton';
 import AsyncSection from '../../components/AsyncState';
 import { Chip, SectionHead, Av } from '../components/Chips';
 import PageRow from '../components/PageCard';
@@ -101,7 +102,7 @@ export default function Home({ me }) {
         <SearchBox autoFocus large={false} onSearch={(q) => goKb('search', q)} onAsk={(q) => goKb('search', `?${q}`)} />
         {me?.can_author && (
           <div style={{ display: 'flex', gap: 8, flex: '0 0 auto' }}>
-            <button type="button" className="kb-btn pri" onClick={() => goKb('editor', 'new')}><Plus />New Page</button>
+            <NewButton className="kb-btn pri" items={[{ key: 'page', label: 'Page' }]} onPick={() => goKb('editor', 'new')} />
             <button type="button" className="kb-btn" onClick={() => goKb('editor', 'import')}><Upload />Import</button>
           </div>
         )}

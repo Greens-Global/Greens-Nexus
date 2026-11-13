@@ -8,12 +8,14 @@
 // The menu is AnchoredMenu (a portal: outside click, Escape, never clipped);
 // it opens with the first row focused and arrow keys, Home and End move
 // through it. `className` goes on the button (e.g. a module's own button
-// class); `testId` lands as data-testid.
+// class); `testId` lands as data-testid; `busy` (a word such as
+// "Opening...") stands in for "New" and holds the button while something
+// starts; a row may carry `disabled` and a `title`.
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { ChevronDown, Plus } from 'lucide-react';
 import AnchoredMenu from './AnchoredMenu';
 
-export default function NewButton({ items = [], onPick, className = 'primary-btn', compact = false, testId, title = '', menuLabel = 'New', style }) {
+export default function NewButton({ items = [], onPick, className = 'primary-btn', compact = false, testId, title = '', menuLabel = 'New', style, busy = '', dataTour }) {
   const [open, setOpen] = useState(false);
   const btn = useRef(null);
   const panel = useRef(null);
@@ -41,18 +43,18 @@ export default function NewButton({ items = [], onPick, className = 'primary-btn
       <button ref={btn} type="button" className={`${className} nx-new-btn${compact ? ' is-compact' : ''}`} data-testid={testId}
         aria-haspopup={single ? undefined : 'menu'} aria-expanded={single ? undefined : open}
         aria-label={single ? `New ${single.label}` : 'New'} title={title || (single ? `New ${single.label}` : 'Start something new')}
-        style={style}
+        style={style} disabled={!!busy} data-tour={dataTour}
         onClick={() => (single ? pick(single.key) : setOpen((o) => !o))}
         onKeyDown={(e) => { if (!single && e.key === 'ArrowDown' && !open) { e.preventDefault(); setOpen(true); } }}>
-        <Plus size={15} aria-hidden="true" /> New{!single && <ChevronDown size={14} className="nx-new-caret" aria-hidden="true" />}
+        <Plus size={15} aria-hidden="true" /> {busy || 'New'}{!single && <ChevronDown size={14} className="nx-new-caret" aria-hidden="true" />}
       </button>
       {!single && (
         <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" className="nx-new-menu" aria-label={menuLabel}>
           <div ref={panel} role="none" onKeyDown={onKeyDown}>
-            {items.map(({ key, label, hint, Icon, sep }) => (
+            {items.map(({ key, label, hint, Icon, sep, disabled, title: rowTitle }) => (
               <Fragment key={key}>
                 {sep && <div className="nx-new-sep" role="separator" />}
-                <button type="button" role="menuitem" className="nx-new-item" onClick={() => pick(key)}>
+                <button type="button" role="menuitem" className="nx-new-item" disabled={disabled} title={rowTitle} onClick={() => pick(key)}>
                   {Icon && <Icon size={16} aria-hidden="true" />}
                   <span className="nx-new-words"><span className="nx-new-label">{label}</span>{hint && <span className="nx-new-hint">{hint}</span>}</span>
                 </button>

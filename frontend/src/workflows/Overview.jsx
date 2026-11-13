@@ -4,8 +4,9 @@
 // workflow. The data is GET /workflows/overview, loaded by WorkflowsApp
 // (it also feeds the paused-all banner on every tab) and handed down.
 import { useState } from 'react';
-import { AlertTriangle, LayoutTemplate, Plus, RefreshCw } from 'lucide-react';
+import { AlertTriangle, LayoutTemplate, RefreshCw } from 'lucide-react';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { formatDateTime } from '../lib/datetime';
@@ -50,10 +51,8 @@ export default function Overview({ overview, loading, error, reload, go }) {
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <LayoutTemplate size={14} /> Start From A Template
         </button>
-        <button type="button" className="primary-btn" onClick={newWorkflow} disabled={creating}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} /> {creating ? 'Creating...' : 'New Workflow'}
-        </button>
+        {/* "+ New", the one create button across Nexus (Neil, 11/13/2026). */}
+        <NewButton items={[{ key: 'workflow', label: 'Workflow' }]} onPick={newWorkflow} busy={creating ? 'Creating...' : ''} />
       </div>
       {notice && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{notice}</div>}
 

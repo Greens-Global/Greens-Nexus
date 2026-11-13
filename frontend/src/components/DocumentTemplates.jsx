@@ -381,8 +381,11 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
             <option value="archived">{TEMPLATE_STATES.archived.label}</option>
           </select>
           <span className="nx-dl-split" role="group" aria-label="New Template">
-            <button className="primary-btn" data-tour="documents-new-template" disabled={makingTpl} onClick={newTemplate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Plus size={14} /> {makingTpl ? 'Opening...' : 'New Template'}
+            {/* Says "+ New" like every create button (Neil, 11/13/2026) and still
+                opens a blank template in one click (Neil, 11/11/2026). */}
+            <button className="primary-btn" data-tour="documents-new-template" disabled={makingTpl} onClick={newTemplate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              aria-label="New Template" title="A blank template, named when you close it">
+              <Plus size={14} /> {makingTpl ? 'Opening...' : 'New'}
             </button>
             <button ref={tplMenuRef} type="button" className="primary-btn nx-dl-split-arrow" aria-label="More ways to start a template" title="More ways to start a template"
               aria-haspopup="menu" aria-expanded={tplMenuOpen} onClick={() => setTplMenuOpen((o) => !o)}>

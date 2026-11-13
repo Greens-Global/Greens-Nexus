@@ -5,8 +5,9 @@
 // actions Pause / Resume / Duplicate / Archive / Delete, and a click opens the
 // builder (wf:<id>).
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, Copy, Pause, Play, Plus, Search, Workflow as WorkflowIcon } from 'lucide-react';
+import { Archive, Copy, Pause, Play, Search, Workflow as WorkflowIcon } from 'lucide-react';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { useRole } from '../contexts/RoleContext';
@@ -118,9 +119,8 @@ export default function WorkflowList({ go }) {
           <input type="search" value={q} onChange={(e) => setQ(e.target.value)} data-slash-search="" placeholder="Search workflows" aria-label="Search workflows"
             style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', font: 'inherit', fontSize: 13 }} />
         </label>
-        <button type="button" className="primary-btn" onClick={create} disabled={busy === 'new'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} /> New Workflow
-        </button>
+        {/* "+ New", the one create button across Nexus (Neil, 11/13/2026). */}
+        <NewButton items={[{ key: 'workflow', label: 'Workflow' }]} onPick={create} busy={busy === 'new' ? 'Creating...' : ''} />
       </div>
       {notice && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 10 }}>{notice}</div>}
 

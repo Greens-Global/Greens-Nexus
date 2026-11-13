@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import AnchoredMenu from './AnchoredMenu';
 import { UNTITLED_DOCUMENT, UNTITLED_SHEET } from '../lib/untitled';
 import { generateJSON } from '@tiptap/core';
-import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon, LayoutTemplate } from 'lucide-react';
+import { Search, Plus, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon, LayoutTemplate } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -547,8 +547,11 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
           {/* New Document opens a blank draft at once (named on Close); its arrow
               holds a blank sheet, a template and a file (Word, PDF, Excel...). */}
           <span className="nx-dl-split" role="group" aria-label="New Document">
-            <button type="button" className="primary-btn" data-tour="documents-new-document" disabled={makingDoc} onClick={newDocument}>
-              <FilePlus2 size={14} /> {makingDoc ? 'Opening...' : 'New Document'}
+            {/* Says "+ New" like every create button (Neil, 11/13/2026) and still
+                opens a blank document in one click (Neil, 11/11/2026). */}
+            <button type="button" className="primary-btn" data-tour="documents-new-document" disabled={makingDoc} onClick={newDocument}
+              aria-label="New Document" title="A blank document, named when you close it">
+              <Plus size={14} /> {makingDoc ? 'Opening...' : 'New'}
             </button>
             <button ref={newMenuRef} type="button" className="primary-btn nx-dl-split-arrow" aria-label="More ways to start a document" title="More ways to start a document"
               aria-haspopup="menu" aria-expanded={newMenuOpen} onClick={() => setNewMenuOpen((o) => !o)}>

@@ -19,6 +19,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useRole } from '../contexts/RoleContext';
 import { Folder, MapPin, Users, Calendar, ChevronRight, ArrowLeft, Plus, ExternalLink } from 'lucide-react';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import { readThrough } from '../lib/offline/store';
 // Shared rather than local copies: AsyncState is the codebase's one loading /
 // error idiom, and a fourth hand-rolled banner is a fourth thing to restyle.
@@ -390,7 +391,7 @@ export default function ConstructionDashboard({ projectId = '', jobTab = 'overvi
             <ChoicePills label="Jobs view" options={['Cards', 'Table']} value={jobsView === 'Table' ? 'Table' : 'Cards'} onChange={setJobsView} />
           )}
           {/* An empty list offers New Job in its own empty state. */}
-          {!(data && projects.length === 0) && <button className="primary-btn" onClick={() => setShowNew(true)}><Plus size={16} />New Job</button>}
+          {!(data && projects.length === 0) && <NewButton items={[{ key: 'job', label: 'Job' }]} onPick={() => setShowNew(true)} />}
         </div>
       </div>
       {data === null ? (
