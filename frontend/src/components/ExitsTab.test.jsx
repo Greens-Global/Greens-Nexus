@@ -56,7 +56,9 @@ describe('ExitsTab', () => {
     render(<ExitsTab />);
     fireEvent.click(await screen.findByText('Erin Test'));
     expect(await screen.findByText('Final Settlement - Erin Test')).toBeTruthy();
-    expect(screen.getByText(/16h 00m x \$20\.00 per hour = \$320\.00/)).toBeTruthy();
+    // The sheet's title shows before its statement loads (skeletons): wait
+    // for the figures, not just the title - a slow CI runner caught the gap.
+    expect(await screen.findByText(/16h 00m x \$20\.00 per hour = \$320\.00/)).toBeTruthy();
     expect(screen.getAllByText('Required By California Law').length).toBeGreaterThan(0);
     expect(screen.getByText('Not Paid Out (Company Policy)')).toBeTruthy();
     expect(screen.getByText('Laptop')).toBeTruthy();
