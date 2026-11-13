@@ -5139,7 +5139,16 @@ def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
         "hourlyRate": float(getattr(row, "hourly_rate", 0) or 0) if row else 0.0,
         "monthlySalary": float(getattr(row, "monthly_salary", 0) or 0) if row else 0.0,
         "isSet": row is not None,
+        # Their own country, else their company's: the screen offers the India-only
+        # GSTIN and PAN only to people in India (Neil, 11/12/2026).
+        "country": _person_country(db, emp),
     }
+
+
+def _person_country(db: Session, emp: NexusEmployee) -> str:
+    from holiday_policies import company_countries, person_country
+    company = (getattr(emp, "company", "") or "") if emp is not None else ""
+    return person_country(emp, company_countries(db, [company]).get(company, ""))
 
 
 def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:

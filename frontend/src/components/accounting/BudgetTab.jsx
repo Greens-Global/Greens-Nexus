@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Copy, Download, Save } from 'lucide-react';
 import { api, withFreshReads } from '../../api';
-import Amount, { Figure, parseAmountInput } from './Amount';
+import Amount, { Figure, formatAmount, parseAmountInput } from './Amount';
+import { setInlineDirty } from '../../lib/dialogGuard';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { BarMore, BarSummary, ColumnResizer, ControlBar, EntityPicker, SyncButton, control, entityOptions } from './reportControls';
 import { useColumnWidths, useFitHeight } from './tableHooks';
@@ -40,7 +41,10 @@ import { intacctBudgetFile } from './budgetExport';
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const th = { textAlign: 'right', padding: '6px 8px', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, background: 'var(--bg-card)' };
 const td = { padding: '2px 4px', borderBottom: '1px solid var(--border-color)', fontVariantNumeric: 'tabular-nums' };
-const cellInput = { ...control, width: 92, textAlign: 'right', padding: '3px 6px', height: 26, fontSize: 13 };
+const cellInput = { ...control, width: 104, textAlign: 'right', padding: '3px 6px', height: 26, fontSize: 13 };
+// A cell reads 12,345.00 at rest and the plain number while it is being typed in.
+const shown = (v) => (v ? formatAmount(v) : '');
+const typed = (v) => (v ? v.toFixed(2) : '');
 const SOURCE = { nexus: 'Saved in Nexus', intacct: 'As pulled from Intacct', none: 'Nothing saved yet - zeros' };
 
 export default function BudgetTab({ canEdit = false }) {
@@ -94,6 +98,15 @@ export default function BudgetTab({ canEdit = false }) {
     });
   }, []);
   useEffect(() => { load(location, year); }, [location, year, load]);
+
+  // Unsaved edits: another entity or year asks first, and leaving the module
+  // asks through the app-wide guard (lib/dialogGuard.js).
+  useEffect(() => { setInlineDirty('budget', dirty, { labels: ['Budget'] }); return () => setInlineDirty('budget', false); }, [dirty]);
+  const unlessDirty = (go) => {
+    if (!dirty) { go(); return; }
+    dialog.confirm('Your budget changes are not saved. Discard them?', { title: 'Unsaved Budget', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true })
+      .then((ok) => { if (ok) go(); });
+  };
 
   // Actuals for the year (Budget vs Actual) - read once per entity and year.
   // A Sync (actualsTick) reads them again with the table left on screen.
@@ -229,12 +242,12 @@ export default function BudgetTab({ canEdit = false }) {
     <AsyncSection loading={entities === null} skeleton={<SkeletonBlocks count={2} />}>
       <div style={{ display: 'grid', gap: 10 }}>
         <ControlBar style={{ ...card, padding: '8px 10px' }}>
-          <EntityPicker entities={entities || []} value={location} onChange={setLocation} showHistorical={!!prefs.showHistoricalEntities}
+          <EntityPicker entities={entities || []} value={location} onChange={(code) => { if (code !== location) unlessDirty(() => setLocation(code)); }} showHistorical={!!prefs.showHistoricalEntities}
             placeholder={entities?.length ? 'Pick an Entity' : 'No Entities'} disabled={!entities?.length} active={false} />
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-            <button type="button" aria-label="Previous year" onClick={() => setYear((y) => y - 1)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronLeft size={16} /></button>
+            <button type="button" aria-label="Previous year" onClick={() => unlessDirty(() => setYear((y) => y - 1))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronLeft size={16} /></button>
             <strong style={{ fontSize: 14, minWidth: 40, textAlign: 'center' }}>{year}</strong>
-            <button type="button" aria-label="Next year" onClick={() => setYear((y) => y + 1)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronRight size={16} /></button>
+            <button type="button" aria-label="Next year" onClick={() => unlessDirty(() => setYear((y) => y + 1))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronRight size={16} /></button>
           </div>
           <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
             {[['grid', 'Budget'], ['bva', 'Budget vs Actual']].map(([k, label]) => (
@@ -331,8 +344,9 @@ export default function BudgetTab({ canEdit = false }) {
                         {r.months.map((v, m) => (
                           <td key={m} style={{ ...td, textAlign: 'right' }}>
                             {canEdit
-                              ? <input type="text" inputMode="decimal" className="num" aria-label={`${r.accountNo} ${MONTHS[m]}`} defaultValue={v ? v.toFixed(2) : ''} key={`${r.accountNo}-${m}-${v}`} placeholder="0.00"
-                                  onBlur={(e) => { if (e.target.value.trim() !== (v ? v.toFixed(2) : '')) setCell(i, m, e.target.value); }}
+                              ? <input type="text" inputMode="decimal" className="num" aria-label={`${r.accountNo} ${MONTHS[m]}`} defaultValue={shown(v)} key={`${r.accountNo}-${m}-${v}`} placeholder="0.00"
+                                  onFocus={(e) => { e.target.value = typed(v); e.target.select(); }}
+                                  onBlur={(e) => { if (Math.round(((parseAmountInput(e.target.value) ?? 0) - (v || 0)) * 100) !== 0) setCell(i, m, e.target.value); else e.target.value = shown(v); }}
                                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }} style={cellInput} />
                               : <Amount value={v} zero="dash" />}
                           </td>

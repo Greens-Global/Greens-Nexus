@@ -4,7 +4,9 @@ import { api } from '../../api';
 import Amount, { AmountInput } from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
-import { ExportMenu, control } from './reportControls';
+import { ColumnResizer, ExportMenu, control } from './reportControls';
+import { useColumnWidths } from './tableHooks';
+import { headStyle } from './columnStyles';
 import { downloadBlob } from './reportModel';
 import { uploadToSupabase, safeFileName } from '../../investor/lib/upload';
 import {
@@ -191,6 +193,8 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
 }
 
 export function ScheduleTable({ rows, highlight, maxHeight = 460 }) {
+  const cw = useColumnWidths('loan-amortization', {}, { min: 50 });
+  const th = (key, label, style = null, text = label) => <th aria-label={label} style={headStyle(cw.width(key), style)}>{text}<ColumnResizer {...cw.resizer(key, label)} /></th>;
   const hasBalloon = rows.some((r) => r.balloon);
   const t = scheduleTotals(rows);
   const ref = useRef(null);
@@ -204,7 +208,7 @@ export function ScheduleTable({ rows, highlight, maxHeight = 460 }) {
       <div ref={ref} className="req-table-wrapper" style={{ overflow: 'auto', maxHeight, position: 'relative' }}>
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-card)' }}>
-            <tr><th style={{ width: 48 }}>#</th><th>Date</th><th style={num}>Payment</th><th style={num}>Interest</th><th style={num}>Principal</th>{hasBalloon && <th style={num}>Balloon</th>}<th style={num}>Balance</th></tr>
+            <tr>{th('n', 'Payment Number', { width: 48 }, '#')}{th('date', 'Date')}{th('payment', 'Payment', num)}{th('interest', 'Interest', num)}{th('principal', 'Principal', num)}{hasBalloon && th('balloon', 'Balloon', num)}{th('balance', 'Balance', num)}</tr>
           </thead>
           <tbody>
             {rows.map((r, i) => {

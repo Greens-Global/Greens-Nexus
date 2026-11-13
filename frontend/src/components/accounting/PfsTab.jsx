@@ -16,8 +16,10 @@ import { US_STATES, normalizePfsDetails, zipError } from './pfsAddress';
 import { PfsAccessLog, PfsLockIcon, PfsLockNow, PfsUnlockPanel, isLockedError, usePfsLocks } from './PfsLock';
 import { PersonSelect, DateField } from '../../tasks/components';
 import { CompletenessButton, CompletenessPanel, PFS_STALE_DAYS, flashRow, gapCount, pfsGaps, rowSelector } from './completeness';
-import HoldButton from '../../ui/HoldButton';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 import { pill } from './dashboard/Bits';
+import { dialog } from '../../ui/dialog';
+import { setInlineDirty } from '../../lib/dialogGuard';
 
 // Accounting -> PFS: personal financial statements (Neil, Sep 25).
 //
@@ -162,6 +164,26 @@ export default function PfsTab({ canEdit = false }) {
   const { markLocked } = locks;
   const fileOpen = locks.isOpen(openId);
   const [showLog, setShowLog] = useState(false);
+  // Borrower, History and Executive Profiles keep their edits only while
+  // shown: each says here what is unsaved (and how to save it), so a section,
+  // a guarantor or leaving the module asks first, and the lock warns before
+  // it closes the file under them.
+  const forms = useRef({});                    // key -> save function while dirty
+  const [dirtyForms, setDirtyForms] = useState(0);
+  const onFormDirty = useCallback((key, save) => {
+    if (save) forms.current[key] = save; else delete forms.current[key];
+    setDirtyForms(Object.keys(forms.current).length);
+  }, []);
+  useEffect(() => { setInlineDirty('pfs-forms', dirtyForms > 0); }, [dirtyForms]);
+  useEffect(() => () => setInlineDirty('pfs-forms', false), []);
+  // Runs `go` at once when nothing is unsaved, else after the person agrees to drop it.
+  const leaveForms = (go) => {
+    if (!Object.keys(forms.current).length) { go(); return; }
+    dialog.confirm('This statement has unsaved changes. Discard them?', { title: 'Unsaved Changes', confirmText: 'Discard Edits', cancelText: 'Keep Editing', danger: true })
+      .then((ok) => { if (!ok) return; forms.current = {}; setDirtyForms(0); go(); });
+  };
+  const goSection = (key) => { if (key === section) return; leaveForms(() => setSection(key)); };
+  const saveForms = () => Object.values(forms.current).forEach((save) => save());
 
   const loadProfiles = useCallback(() => api.getPfsProfiles()
     .then((list) => { setProfiles(list || []); return list || []; })
@@ -331,20 +353,24 @@ export default function PfsTab({ canEdit = false }) {
       return refresh(profile.id, asOf);
     })
     .catch((e) => setError(e?.message || 'Could not change the lines.'));
-  const pickFile = (id) => { setOpenId(id); setSection('statement'); };
+  const pickFile = (id) => leaveForms(() => { setOpenId(id); setSection('statement'); });
   // 10/27 (Neil, item 07): the completeness check - figures kept by hand not
   // updated in 90 days before the statement date; a click opens the line's tab
   // and shows the line.
   const [completeOpen, setCompleteOpen] = useState(false);
   const [focus, setFocus] = useState(null);
   const gaps = useMemo(() => (profile && fileOpen ? pfsGaps(profile.lines, asOf, SECTION_LABEL) : []), [profile, fileOpen, asOf]);
-  const pickGap = (g) => { setSection(g.section); setFocus((f) => ({ id: g.id, n: (f?.n || 0) + 1 })); };
+  const pickGap = (g) => { const go = () => { setSection(g.section); setFocus((f) => ({ id: g.id, n: (f?.n || 0) + 1 })); }; if (g.section === section) go(); else leaveForms(go); };
   useEffect(() => {
     if (!focus) return undefined;
     const raf = requestAnimationFrame(() => flashRow(rowSelector(focus.id, 'data-line')));
     return () => cancelAnimationFrame(raf);
   }, [focus, section]);
   const current = (profiles || []).find((p) => p.id === openId) || null;
+  // The 90 minutes are nearly up and something is unsaved: say so while it can still be saved.
+  const lockLeft = fileOpen && dirtyForms > 0 && locks.untilOf(openId) ? Date.parse(locks.untilOf(openId)) - locks.now : Infinity;
+  const lockSoon = lockLeft > 0 && lockLeft <= LOCK_WARN_MS;
+  const lockMin = Math.max(1, Math.ceil(lockLeft / 60_000));
 
   return (
     <AsyncSection loading={profiles === null} skeleton={<SkeletonBlocks count={3} />}>
@@ -398,7 +424,7 @@ export default function PfsTab({ canEdit = false }) {
               {profile && fileOpen ? (
                 <div className="scroll-tabs" style={{ display: 'flex', gap: 4, flex: 1, minWidth: 0 }}>
                   {SECTIONS.map((s) => (
-                    <button key={s.key} type="button" onClick={() => setSection(s.key)} aria-pressed={section === s.key}
+                    <button key={s.key} type="button" onClick={() => goSection(s.key)} aria-pressed={section === s.key}
                       style={pill(section === s.key)}>
                       {s.label}
                     </button>
@@ -410,8 +436,21 @@ export default function PfsTab({ canEdit = false }) {
         </div>
         {asking && <PdfPassword next={asking} onCancel={() => setAsking('')} onGo={afterPassword} />}
         {error && <div style={bad}>{error}</div>}
+        {lockSoon && (
+          <div role="alert" style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', background: 'var(--warn-bg)', color: 'var(--warn-fg)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
+            <AlertTriangle size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+            <span style={{ flex: 1 }}>Your session locks in {lockMin} {lockMin === 1 ? 'minute' : 'minutes'} - save your changes.</span>
+            {canEdit && <button type="button" className="primary-btn" onClick={saveForms} style={{ fontSize: 13 }}>Save Changes</button>}
+          </div>
+        )}
         {openId && !fileOpen && <PfsUnlockPanel key={openId} file={current || { id: openId }} onUnlocked={locks.markOpen} />}
-        {(!openId || fileOpen) && !profile && !working && <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>{canEdit ? 'Nobody is set up yet. Start with New Guarantor: a person, a couple filing jointly, or a trust.' : 'No guarantor has been set up yet.'}</div>}
+        {/* Never beside a failed read; every file archived is not "nobody". */}
+        {!openId && !profile && !working && !error && (
+          <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>
+            {(profiles || []).length ? 'Every statement is archived - pick one from the guarantor list to open it.'
+              : canEdit ? 'Nobody is set up yet. Start with New Guarantor: a person, a couple filing jointly, or a trust.' : 'No guarantor has been set up yet.'}
+          </div>
+        )}
         {fileOpen && !profile && working && <SkeletonBlocks count={3} />}
         {profile && fileOpen && (
           <>
@@ -434,7 +473,7 @@ export default function PfsTab({ canEdit = false }) {
                 </div>
               )}
               {section === 'statement' && statement && !working && <Summary statement={statement} past={past} nameOf={nameOf} onReprint={reprint} />}
-              {section === 'borrower' && <Borrower profile={profile} canEdit={canEdit} onSave={saveProfile} />}
+              {section === 'borrower' && <Borrower profile={profile} canEdit={canEdit} onSave={saveProfile} onDirty={onFormDirty} />}
               {['asset', 'liability', 'real_estate'].includes(section) && (
                 <Lines section={section} profile={profile} categories={categories[section]} allCategories={allCategories} figures={figures} asOf={asOf} canEdit={canEdit}
                   investments={section === 'asset' ? statement?.investments || null : null} retired={section === 'liability' ? meta?.retiredCategories || [] : []}
@@ -446,8 +485,8 @@ export default function PfsTab({ canEdit = false }) {
               )}
               {section === 'history' && (
                 <div style={{ display: 'grid', gap: 10 }}>
-                  <History profile={profile} canEdit={canEdit} onSave={saveProfile} />
-                  <PfsExecutiveProfiles key={profile.id} profile={profile} canEdit={canEdit} onLocked={locks.markLocked} />
+                  <History profile={profile} canEdit={canEdit} onSave={saveProfile} onDirty={onFormDirty} />
+                  <PfsExecutiveProfiles key={profile.id} profile={profile} canEdit={canEdit} onLocked={locks.markLocked} onDirty={onFormDirty} />
                 </div>
               )}
               {section === 'affiliated' && <PfsAffiliated key={profile.id} profile={profile} canEdit={canEdit} onLocked={locks.markLocked} />}
@@ -823,7 +862,16 @@ const canon = (v) => {
 };
 const same = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 
-function Borrower({ profile, canEdit, onSave }) {
+const LOCK_WARN_MS = 5 * 60_000;
+/** Tells PfsTab this form has unsaved edits (and how to save them); cleared when it goes. */
+function useFormDirty(key, dirty, save, onDirty) {
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  useEffect(() => { onDirty?.(key, dirty ? () => saveRef.current() : null); }, [key, dirty, onDirty]);
+  useEffect(() => () => onDirty?.(key, null), [key, onDirty]);
+}
+
+function Borrower({ profile, canEdit, onSave, onDirty }) {
   const [name, setName] = useState(profile.name);
   // The details as the Oct 7 form reads them (pfsAddress.js): an old combined
   // City, State, ZIP is split and an old spouse name is the co-borrower's; it
@@ -877,6 +925,7 @@ function Borrower({ profile, canEdit, onSave }) {
   };
   const coName = details.coBorrower?.name || 'the co-borrower';
   const zipBad = Boolean(zipError(details.zip) || zipError(details.coBorrower?.zip));
+  useFormDirty('borrower', canEdit && dirty, () => { if (!busy && name.trim() && !zipBad) save(); }, onDirty);
   // One field of either block: State is a list of the US states, ZIP is
   // checked as it is typed, the last four of the SSN are digits only.
   const field = (k, text, type, value, onValue, prefix) => {
@@ -956,18 +1005,27 @@ function Borrower({ profile, canEdit, onSave }) {
 
 // The financial history questions. The executive profiles are their own
 // section below (PfsExecutiveProfiles, one per borrower - Oct 7, item 15).
-function History({ profile, canEdit, onSave }) {
+function History({ profile, canEdit, onSave, onDirty }) {
   const [history, setHistory] = useState(profile.history || []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { setHistory(profile.history || []); }, [profile]);
   const dirty = !same(history, profile.history || []);
+  // Like Borrower: a statement refresh behind the form never resets what is being typed.
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
+  const shownId = useRef(profile.id);
+  useEffect(() => {
+    if (shownId.current === profile.id && dirtyRef.current) return;
+    shownId.current = profile.id;
+    setHistory(profile.history || []);
+  }, [profile]);
   const set = (i, patch) => setHistory((h) => h.map((x, k) => (k === i ? { ...x, ...patch } : x)));
   const save = () => {
     setBusy(true);
     setError('');
-    onSave({ history }).catch((e) => setError(e?.message || 'Could not save.')).finally(() => setBusy(false));
+    onSave({ history }).then(() => { dirtyRef.current = false; }).catch((e) => setError(e?.message || 'Could not save.')).finally(() => setBusy(false));
   };
+  useFormDirty('history', canEdit && dirty, () => { if (!busy) save(); }, onDirty);
   return (
     <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }}>
       <div>
@@ -977,7 +1035,7 @@ function History({ profile, canEdit, onSave }) {
             <div key={h.question} style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 2fr) 110px minmax(180px, 2fr)', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 13 }}>{h.question}</span>
               <select value={h.answer || ''} disabled={!canEdit} aria-label={`Answer: ${h.question}`} onChange={(e) => set(i, { answer: e.target.value })} style={control}>
-                <option value="">Not answered</option><option value="No">No</option><option value="Yes">Yes</option>
+                <option value="">Not Answered</option><option value="No">No</option><option value="Yes">Yes</option>
               </select>
               <input type="text" value={h.note || ''} disabled={!canEdit} maxLength={400} placeholder={h.answer === 'Yes' ? 'Explain' : 'Note, if any'} aria-label={`Note: ${h.question}`} onChange={(e) => set(i, { note: e.target.value })} style={control} />
             </div>
@@ -1005,7 +1063,6 @@ function History({ profile, canEdit, onSave }) {
 // Investments group with real estate at equity; Liabilities lists lines of a
 // retired section (Contingent) read-only.
 function Lines({ section, profile, categories, allCategories = [], figures, asOf, canEdit, onAdd, onEdit, onDelete, onBulk, onMove, onReorder, investments = null, retired = [], onOpenRealEstate }) {
-  const [confirm, setConfirm] = useState('');
   const [moving, setMoving] = useState('');     // the line whose "Move to..." is open
   const [dragging, setDragging] = useState(null);   // { id, category } of the row being dragged
   const [over, setOver] = useState('');
@@ -1070,8 +1127,8 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                   <td>
                     {real ? (l.details?.legal_owner || '')
                       : missing ? (editable
-                        ? <button type="button" className="acct-drill" onClick={() => onEdit(l, 'institution')} style={{ color: 'var(--text-muted)', fontSize: 13 }} title="No bank record or bank name was found for this account">Not found - Set It</button>
-                        : <span style={{ color: 'var(--text-muted)' }}>Not found</span>)
+                        ? <button type="button" className="acct-drill" onClick={() => onEdit(l, 'institution')} style={{ color: 'var(--text-muted)', fontSize: 13 }} title="No bank record or bank name was found for this account">Not Found - Set It</button>
+                        : <span style={{ color: 'var(--text-muted)' }}>Not Found</span>)
                         : (f ? f.institution : l.institution)}
                   </td>
                   <td style={{ color: 'var(--text-secondary)' }} title={from}>{from}</td>
@@ -1082,12 +1139,7 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                   {real ? <><td className="acct-num"><Amount value={f?.valueAdjusted} /></td><td className="acct-num"><Amount value={f?.loanAdjusted} /></td><td className="acct-num"><Amount value={f?.equity} /></td></>
                     : <><td className="acct-num"><Amount value={f?.balance} /></td><td className="acct-num"><Amount value={f?.adjusted} /></td></>}
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {editable && (confirm === l.id ? (
-                      <>
-                        <HoldButton size="sm" label="Remove" doneLabel="Removed" style={{ marginRight: 10 }} onConfirm={() => onDelete(l)} onDone={() => setConfirm('')} />
-                        <button type="button" className="acct-drill" onClick={() => setConfirm('')}>Keep</button>
-                      </>
-                    ) : moving === l.id ? (
+                    {editable && (moving === l.id ? (
                       <select autoFocus value={`${l.section}:${l.category}`} aria-label={`Move ${l.label} to`} style={{ ...control, height: 26, fontSize: 12 }}
                         onBlur={() => setMoving('')}
                         onChange={(e) => { const [s, k] = e.target.value.split(':'); setMoving(''); if (s !== l.section || k !== l.category) onMove(l, s, k); }}>
@@ -1107,7 +1159,8 @@ function Lines({ section, profile, categories, allCategories = [], figures, asOf
                         )}
                         <button type="button" style={icon} aria-label={`Move ${l.label}`} title="Move to..." onClick={() => setMoving(l.id)}><ArrowRightLeft size={14} /></button>
                         <button type="button" style={icon} aria-label={`Change ${l.label}`} onClick={() => onEdit(l)}><Pencil size={14} /></button>
-                        <button type="button" style={icon} aria-label={`Remove ${l.label}`} onClick={() => setConfirm(l.id)}><Trash2 size={14} /></button>
+                        <HoldButton size="sm" label="Remove" doneLabel="Removed" holdMs={HOLD_RECORD_MS} ariaLabel={`Remove ${l.label}`}
+                          fallbackMessage={`Remove ${l.label} from the statement?`} onConfirm={() => onDelete(l)} />
                       </>
                     ))}
                   </td>
@@ -1430,12 +1483,16 @@ function LedgerBulkAdd({ section, profileId, categories, asOf, onClose, onSave }
   };
   const catLabel = (k) => categories.find((c) => c.key === k)?.label || k;
   const flip = () => setFull((v) => { writeFull(!v); return !v; });
+  // A sheet from the right like every popup (style.css .nx-popup), wide for
+  // the account table; Fill Screen still takes the whole window.
   const size = full
     ? { maxWidth: '100vw', width: '100vw', height: '100vh', maxHeight: '100vh', borderRadius: 0 }
-    : { maxWidth: '96vw', width: 'min(1400px, 96vw)', height: '92vh', maxHeight: '92vh' };
+    : { maxWidth: '100%', width: 'max(60vw, min(1400px, 96vw))' };
+  // Anything picked or typed: the app's popup guard asks before a click outside or Escape drops it.
+  const dirty = !!entity || typed || Object.keys(rows).length > 0;
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation" style={full ? { padding: 0 } : undefined}>
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Add from the ledger" onClick={(e) => e.stopPropagation()}
+    <div className="modal-overlay" onClick={onClose} role="presentation" style={full ? { padding: 0 } : undefined} data-nx-dirty={dirty ? '1' : undefined}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Add from the ledger" onClick={(e) => e.stopPropagation()}
         style={{ ...size, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div className="modal-header" style={{ flexShrink: 0 }}>
           <div style={{ minWidth: 0 }}>
@@ -1597,7 +1654,7 @@ function LineEditor({ line, profileId, categories, asOf, onClose, onSave }) {
     }).catch((e) => { setError(e?.message || 'Could not save.'); setBusy(false); });
   };
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={onClose} role="presentation" data-nx-dirty={l !== line ? '1' : undefined}>
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={line.id ? `Change ${line.label}` : 'Add a line'} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{line.id ? 'Change Line' : `Add to ${categories.find((c) => c.key === l.category)?.label || 'the Statement'}`}</h3>
@@ -1642,7 +1699,7 @@ function LineEditor({ line, profileId, categories, asOf, onClose, onSave }) {
               ))}
             </div>
           )}
-          <div style={{ maxWidth: 420 }}>
+          <div>
             <label style={label} htmlFor="pfs-l-pct">Share Owned (%)</label>
             <input id="pfs-l-pct" type="number" min="0" max="100" step="0.01" value={pctValue} onChange={(e) => set({ ownershipPct: e.target.value, shareFrom: 'manual' })} style={{ ...control, width: '100%', maxWidth: 220 }} />
             {affShare ? (
@@ -1659,16 +1716,16 @@ function LineEditor({ line, profileId, categories, asOf, onClose, onSave }) {
               onChange={(f) => set({ source: f.source, ledgerEntity: f.entity || '', ledgerAccounts: f.accounts || [], manualValue: f.value, manualAsOf: f.asOf })} />
           </div>
           {jewelry && (
-            <div style={{ maxWidth: 320 }}>
+            <div>
               <label style={label} htmlFor="pfs-l-appraiser">Appraised By</label>
-              <input id="pfs-l-appraiser" type="text" value={l.details?.appraiser || ''} maxLength={160} onChange={(e) => set({ details: { ...l.details, appraiser: e.target.value } })} style={{ ...control, width: '100%' }} />
+              <input id="pfs-l-appraiser" type="text" value={l.details?.appraiser || ''} maxLength={160} onChange={(e) => set({ details: { ...l.details, appraiser: e.target.value } })} style={{ ...control, width: '100%', maxWidth: 320 }} />
             </div>
           )}
           {scheduled && (
-            <div style={{ maxWidth: 420 }}>
+            <div>
               <span style={label}>{real ? 'Entity for Schedule E' : 'Entity for Schedule C'}</span>
-              <EntityPick ariaLabel={real ? 'Entity for Schedule E' : 'Entity for Schedule C'} value={l.details?.schedule_entity || ''} onChange={(v) => set({ details: { ...l.details, schedule_entity: v } })}
-                blank={l.source === 'ledger' && l.ledgerEntity ? `Same as the figure (${l.ledgerEntity})` : 'No Schedule'} />
+              <div style={{ maxWidth: 420 }}><EntityPick ariaLabel={real ? 'Entity for Schedule E' : 'Entity for Schedule C'} value={l.details?.schedule_entity || ''} onChange={(v) => set({ details: { ...l.details, schedule_entity: v } })}
+                blank={l.source === 'ledger' && l.ledgerEntity ? `Same as the figure (${l.ledgerEntity})` : 'No Schedule'} /></div>
               <div style={hint}>The entity whose ledger carries this {real ? "property's rents and expenses" : "business's receipts and expenses"}; its P&L for the calendar year becomes the schedule.</div>
             </div>
           )}

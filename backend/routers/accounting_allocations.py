@@ -318,7 +318,16 @@ def save_run(body: RunBody, user: dict = Depends(get_current_user), _su: dict = 
         raise HTTPException(status_code=400, detail="The entry does not balance.")
     if len(json.dumps(pv)) > 4_000_000:
         raise HTTPException(status_code=400, detail="That run is too large to keep.")
-    row = models.AccountingAllocationRun(id=str(uuid.uuid4()), month=month, entity=(body.entity or "").strip()[:40],
+    entity = (body.entity or "").strip()[:40]
+    # The same month kept again with the same lines (Keep Run then an export,
+    # or two exports) answers with the run already kept - a second identical
+    # run is a second file that could be imported into Intacct twice.
+    same = json.dumps(entries, sort_keys=True, default=str)
+    for old in db.query(models.AccountingAllocationRun).filter(models.AccountingAllocationRun.month == month,
+                                                               models.AccountingAllocationRun.entity == entity).all():
+        if json.dumps((old.lines or {}).get("entries"), sort_keys=True, default=str) == same:
+            return {**_run_out(old, db, full=True), "reused": True}
+    row = models.AccountingAllocationRun(id=str(uuid.uuid4()), month=month, entity=entity,
                                          run_by=user["email"], run_at=_now(), lines=pv)
     db.add(row)
     db.commit()

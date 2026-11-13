@@ -5,8 +5,8 @@ import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
-import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, fitSelect } from './reportControls';
-import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
+import { BarMore, BarSearch, ColumnResizer, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, fitSelect } from './reportControls';
+import { useColumnWidths, useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
@@ -19,10 +19,11 @@ import { ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, useLedgerSc
 import AddMenu from './AddMenu';
 import AnchoredMenu from '../AnchoredMenu';
 import { EgnyteField } from './LoanDialogs';
-import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
+import { CUSTOM_MAX_MONTHS, FREQUENCY, LeaveConfirm, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, StillNeeded, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
 import { CompletenessButton, CompletenessPanel, gapCount, mreGaps, useJumpToRow } from './completeness';
 import { DateField } from '../../tasks/components';
 import HoldButton from '../../ui/HoldButton';
+import { isBypassing } from '../../lib/dialogGuard';
 
 export { CUSTOM_MAX_MONTHS, frequencyLabel, stepMonths };
 
@@ -1001,20 +1002,31 @@ function VendorCombobox({ id, vendors, text, onText, onPick }) {
 
 function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
   const [l, setL] = useState(() => ({ ...line, accountsText: (line.expenseAccounts || []).join(', ') }));
+  const [initial] = useState(() => JSON.stringify(l));
   const [vendors, setVendors] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (p) => setL((x) => ({ ...x, ...p }));
+  // The MRI editors' rule (Neil, 10/14): a click off or Escape with unsaved
+  // changes asks Keep Editing / Discard Edits instead of losing the form.
+  const dirty = JSON.stringify(l) !== initial;
+  const [leaving, setLeaving] = useState(false);
+  const live = useRef({ unsaved: false, leaving: false });
+  useEffect(() => { live.current = { unsaved: dirty, leaving }; }, [dirty, leaving]);
+  // isBypassing: the app-wide guard (lib/dialogGuard.js) already asked and this is its Discard.
+  const tryClose = useCallback(() => { if (live.current.unsaved && !isBypassing()) setLeaving(true); else onClose(); }, [onClose]);
   useEffect(() => {
     api.getAccountingDimensionValues('vendor').then((d) => setVendors(d?.values || [])).catch(() => setVendors([]));
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key !== 'Escape') return; if (live.current.leaving) setLeaving(false); else tryClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  const accounts =
- String(l.accountsText || '').split(',').map((x) => x.trim()).filter(Boolean);
+  }, [tryClose]);
+  const accounts = String(l.accountsText || '').split(',').map((x) => x.trim()).filter(Boolean);
   const customOk = l.frequency !== 'custom' || (Number(l.frequencyMonths) >= 1 && Number(l.frequencyMonths) <= CUSTOM_MAX_MONTHS);
-  const ready = l.entityCode && l.vendorId.trim() && accounts.length && customOk;
+  const missing = [!l.entityCode && 'Entity', !l.vendorId.trim() && 'Vendor', !accounts.length && 'Expense Accounts', !customOk && 'Every (Months)'].filter(Boolean);
+  const ready = !missing.length;
   const body = () => ({
     entityCode: l.entityCode, entityName: entities.find((e) => e.code === l.entityCode)?.name || l.entityName || '', vendorId: l.vendorId.trim(), vendorName: l.vendorName.trim(),
     expenseAccounts: accounts, category: l.category, frequency: l.frequency, expectedAmount: Number(l.expectedAmount) || 0,
@@ -1052,13 +1064,13 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
   const thisYear = Number((l.startDate || '').slice(0, 4)) > new Date().getFullYear() ? Number(l.startDate.slice(0, 4)) : new Date().getFullYear();
   const dueMonths = MONTHS.filter((_m, i) => dueInMonth({ ...l, status: 'active' }, thisYear, i + 1));
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={l.id ? 'Edit recurring expense' : 'Add recurring expense'} onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={tryClose} role="presentation">
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={l.id ? 'Edit recurring expense' : 'Add recurring expense'} onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{l.id ? 'Edit Recurring Expense' : 'Add Recurring Expense'}</h3>
-          <button type="button" onClick={onClose} aria-label="Close" style={icon}><X size={18} /></button>
+          <button type="button" onClick={tryClose} aria-label="Close" style={icon}><X size={18} /></button>
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '72vh', overflowY: 'auto' }}>
+        <div className="nx-fill" style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, alignContent: 'start', overflowY: 'auto' }}>
           {error && <div style={bad}>{error}</div>}
           <div style={grid}>
             <div>
@@ -1177,7 +1189,8 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
             <textarea id="mre-notes" value={l.notes} onChange={(e) => set({ notes: e.target.value })} rows={2} maxLength={1000} style={{ ...control, width: '100%', height: 'auto', padding: 8 }} />
           </div>
         </div>
-        <div className="modal-footer" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 24px 16px' }}>
+        {leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
+        <div className="modal-footer" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '10px 24px 16px' }}>
           {/* Press and hold (11/11/2026 Accounting pass, picture 10): one record, no second click. */}
           {l.id && canDelete && (
             <HoldButton size="sm" label="Delete" doneLabel="Deleted" disabled={busy} fallbackMessage="Delete this expense for good? A bill that stopped should be ended instead."
@@ -1185,9 +1198,11 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
           )}
           {l.id && l.status !== 'ended' && <button type="button" className="secondary-btn" disabled={busy} onClick={() => run(api.endMreLine(l.id, iso(new Date())))}>End Today</button>}
           <span style={{ flex: 1 }} />
+          <StillNeeded missing={missing} />
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="primary-btn" disabled={!ready || busy} onClick={save}>{busy ? 'Saving...' : 'Save'}</button>
         </div>
+        )}
       </div>
     </div>
   );
@@ -1223,6 +1238,8 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
   const [done, setDone] = useState(null);
   const shown = error || scan.error;
   const rows = data?.proposals || [];
+  const cw = useColumnWidths('mre-from-ledger', {}, { min: 50 });
+  const th = (key, label, style = null) => <th aria-label={label} style={headStyle(cw.width(key), style)}>{label}<ColumnResizer {...cw.resizer(key, label)} /></th>;
   const fresh = rows.filter((p) => p.status === 'new');
   const keyOf = (p) => `${p.entityCode}|${p.vendorId}`;
   const count = fresh.filter((p) => !unticked.has(keyOf(p))).length;
@@ -1238,7 +1255,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
   };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Add recurring expenses from the ledger" onClick={(e) => e.stopPropagation()} style={{ width: 'max(60vw, min(100%, 1080px))' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Add recurring expenses from the ledger" onClick={(e) => e.stopPropagation()} style={{ width: 'max(60vw, min(100%, 1080px))', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Add From the Ledger</h3>
@@ -1248,7 +1265,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={icon}><X size={18} /></button>
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '72vh', overflowY: 'auto' }}>
+        <div className="nx-fill" style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, alignContent: 'start', overflowY: 'auto' }}>
           {!done && (
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
               At least
@@ -1288,7 +1305,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
           ) : (
             <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
               <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <thead><tr><th style={{ width: 30 }} /><th>Vendor</th><th>Entity</th><th>Expense Accounts</th><th>Category</th><th>Frequency</th><th style={num}>Expected</th><th style={num}>Months Posted</th><th style={num}>Paid (12 Mo)</th><th>Status</th></tr></thead>
+                <thead><tr><th style={{ width: 30 }} />{th('vendor', 'Vendor')}{th('entity', 'Entity')}{th('accounts', 'Expense Accounts')}{th('category', 'Category')}{th('frequency', 'Frequency')}{th('expected', 'Expected', num)}{th('months', 'Months Posted', num)}{th('paid', 'Paid (12 Mo)', num)}{th('status', 'Status')}</tr></thead>
                 <tbody>
                   {rows.map((p) => {
                     const k = keyOf(p);

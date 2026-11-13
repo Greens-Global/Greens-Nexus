@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronDown, ChevronRight, Eye, EyeOff, Funnel, MoveHorizontal, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import AnchoredMenu from '../../AnchoredMenu';
+import HoldButton, { HOLD_RECORD_MS } from '../../../ui/HoldButton';
 import { DateField } from '../../../tasks/components';
 import { MAX_RULES, MAX_WIDTH, MIN_WIDTH, kindOf, opOf, opsFor, ruleText } from './model';
 
@@ -367,7 +368,9 @@ function ViewsMenu({ view, saving = false, ...menu }) {
       )}
       {mine && renaming !== id && (confirm === id ? (
         <span style={{ display: 'inline-flex', gap: 8, paddingRight: 8 }}>
-          <button type="button" style={{ ...link, color: 'var(--bad-fg, #dc2626)' }} onClick={() => { view.remove(id); setConfirm(''); }}>Delete</button>
+          {/* Hold to confirm (Neil, 10/30/2026): one record, held right on its row. */}
+          <HoldButton size="sm" label="Delete" doneLabel="Deleted" holdMs={HOLD_RECORD_MS} fallbackMessage={`Delete the view "${label}"?`}
+            onConfirm={() => { view.remove(id); setConfirm(''); }} />
           <button type="button" style={link} onClick={() => setConfirm('')}>Keep</button>
         </span>
       ) : (

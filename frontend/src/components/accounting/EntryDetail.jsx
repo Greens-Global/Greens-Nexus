@@ -8,6 +8,8 @@ import { useAccountingPrefs } from './prefs';
 import Amount, { formatAmount } from './Amount';
 import AskAccountantDialog, { AskButton, lineFromEntry } from './AskAccountantDialog';
 import SidePanel from './SidePanel';
+import { ColumnResizer } from './reportControls';
+import { useColumnWidths } from './tableHooks';
 
 // One journal entry, opened from the entry number on a search result or a
 // report drill-down (Charmi, Sep 24: "we should be able to click on the entry
@@ -42,7 +44,7 @@ const COLUMNS = [
   { key: 'debit', label: 'Debit', num: true, width: '7%' },
   { key: 'credit', label: 'Credit', num: true, width: '7%' },
   { key: 'department', label: 'Department', width: '9%' },
-  { key: 'location', label: 'Location', width: '11%' },
+  { key: 'location', label: 'Entity', width: '11%' },
   { key: 'memo', label: 'Memo', width: '13%' },
   { key: 'vendor', label: 'Vendor', width: '9%' },
   { key: 'project', label: 'Project-Job', width: '8%' },
@@ -62,6 +64,8 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
   // Oct 15 (Neil): "Ask My Accountant" on any line of the entry.
   const [asking, setAsking] = useState(null);
   const [asked, setAsked] = useState(null);
+  // Each column drags wider or narrower, kept per person (the Accounting report rule).
+  const cw = useColumnWidths('acct-entry-lines', {}, { min: 50 });
 
   useEffect(() => {
     let alive = true;
@@ -174,9 +178,9 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
         <>
           {!isPhone && <div className="acct-lines-wrap acct-entry-box" data-testid="entry-lines-box" style={{ maxHeight: 'none' }}>
             <table className="acct-lines acct-entry-lines acct-sticky-head" style={{ width: '100%', minWidth: 1180 }}>
-              <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}<col style={{ width: 34 }} /></colgroup>
+              <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: cw.width(c.key) || c.width }} />)}<col style={{ width: 34 }} /></colgroup>
               <thead>
-                <tr>{COLUMNS.map((c) => <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined}>{c.label}</th>)}<th scope="col" aria-label="Ask My Accountant" /></tr>
+                <tr>{COLUMNS.map((c) => <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined}>{c.label}<ColumnResizer {...cw.resizer(c.key, c.label)} /></th>)}<th scope="col" aria-label="Ask My Accountant" /></tr>
               </thead>
               <tbody>
                 {lines.map((l) => {

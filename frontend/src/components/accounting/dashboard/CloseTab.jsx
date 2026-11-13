@@ -3,13 +3,17 @@ import { useIsMobile as useMedia } from '../../../lib/useIsMobile';
 import { TARGET_CLOSE_DAY } from '../../../accounting/dashboard/model/close';
 import { fmtMDY, monthLabel, monthLong, mShort, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
-import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Panel, SectionTabs, Tile, input, mono, num, toneColor } from './Bits';
+import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Panel, RTh, SectionTabs, Tile, WARN, input, mono, num, toneColor, useDashCols } from './Bits';
 import { ColoredBars, Lines } from './Charts';
 import { useDash } from './DashContext';
 import { Toolbar } from './Filters';
 import { useCloseState, useFlux, useNotes } from './hooks';
 import { WidgetPanel, useDashNav } from './registry';
 import { TaskViewSwitch, useCloseViews } from './closeViews';
+import { fluxSpan } from './CloseWidgets';
+import { DrillFigure, useLineDrill } from './LineDrill';
+import { WarnMark } from '../warnMark';
+import { dialog } from '../../../ui/dialog';
 
 // Close tab: pace against the target day, the shared checklist, account
 // reconciliations, balance-sheet flux with explanations, intercompany, bank
@@ -22,25 +26,35 @@ const md = (iso) => fmtMDY(iso).slice(0, 5);
 export default function CloseTab({ canEdit, meName = '' }) {
   const { period, act, m, loading } = useDash();
   const nav = useDashNav();
-  const { state, history, isLoading } = useCloseState();
+  const { state, history, isLoading, failed } = useCloseState();
   const { view, setView, pickedRole, setRole, owners, showRow } = useCloseViews(state?.rows ?? [], meName);
   const { rows: flux, hasPrior } = useFlux();
   const { flux: fluxNotes } = useNotes();
+  const [drill, lines] = useLineDrill();
+  const fluxCols = useDashCols('flux-tab');
   const [busy, setBusy] = useState(null);
+  // Typed explanations by month AND account (11/12/2026): a draft never follows the account into another month.
   const [drafts, setDrafts] = useState({});
+  const draftKey = (r) => `${period}|${r.gl}`;
   const [section, setSection] = useState('checklist');
 
+  // A write the server refused says why; nothing reverts silently (11/12/2026).
+  const tell = (title) => (e) => dialog.alert(e?.message || 'That could not be saved. Try again.', { title });
   const toggle = async (r) => {
     setBusy(r.id);
-    try { await act('close-task', { period, task_id: r.id, done: !r.done, detail: `${r.title} · ${monthLong(period)}` }); } finally { setBusy(null); }
+    try { await act('close-task', { period, task_id: r.id, done: !r.done, detail: `${r.title} · ${monthLong(period)}` }); }
+    catch (e) { await tell('Close Checklist')(e); }
+    finally { setBusy(null); }
   };
   const explain = async (r) => {
-    const text = (drafts[r.gl] ?? '').trim() || r.suggestion;
+    const text = (drafts[draftKey(r)] ?? '').trim() || r.suggestion;
     if (!text) return;
     setBusy(`flux:${r.gl}`);
-    try { await act('note', { period, kind: 'flux', key: r.gl, body: text, detail: `${r.gl} ${r.name} · ${monthLong(period)}` }); } finally { setBusy(null); }
+    try { await act('note', { period, kind: 'flux', key: r.gl, body: text, detail: `${r.gl} ${r.name} · ${monthLong(period)}` }); }
+    catch (e) { await tell('Balance Sheet Flux')(e); }
+    finally { setBusy(null); }
   };
-  const recordDay = () => state && act('close-day', { period, day: state.dayN });
+  const recordDay = () => state && act('close-day', { period, day: state.dayN }).catch(tell('Record Close Day'));
 
   const prevKey = shiftKey(period, 1);
   const prevClosed = history.find((h) => h.period === prevKey)?.closed_day;
@@ -63,7 +77,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
     <div style={{ display: 'grid', gap: 14 }}>
       <Toolbar right={state ? <Chip tone={state.status === 'Behind' ? 'bad' : state.status === 'Closed' ? 'ok' : 'neutral'}>{state.status}{state.late.length ? ` · ${state.late.length} Past Due` : ''}</Chip> : null} />
       <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Close · {monthLong(period)}{state ? ` · Business Day ${state.dayN} · Target Close Day ${TARGET_CLOSE_DAY} (${md(state.targetDate)})` : ''}</div>
-      {isLoading || !state ? <LoadingBox height={84} /> : state.n ? (
+      {isLoading || !state ? <LoadingBox height={84} failed={failed} /> : state.n ? (
         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
           <Tile label="Tasks Complete" value={`${state.nDone}/${state.n}`} sub={pctTxt(state.nDone / state.n, 0)} />
           <Tile label="Past Due" value={<span style={{ color: state.late.length ? BAD : undefined }}>{state.late.length}</span>} sub={state.late.length ? state.late.slice(0, 2).map((t) => t.title).join('; ') : 'nothing overdue'} />
@@ -77,7 +91,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
         <div style={grid}>
           <Panel title="Close Pace" sub={state ? `${state.nDone} of ${state.n} tasks complete · ${state.expected} expected by today` : undefined} style={col(5)}
             right={canEdit && state?.status === 'Closed' && !history.some((h) => h.period === period) ? <button type="button" className="secondary-btn" style={{ fontSize: 11, padding: '2px 8px' }} onClick={recordDay}>Record Close Day {state.dayN}</button> : null}>
-            {isLoading || !state ? <LoadingBox /> : !state.n ? <EmptyBox title="No close plan yet" body="Add the checklist under the Data tab. A default plan is seeded for new companies." /> : (
+            {isLoading || !state ? <LoadingBox failed={failed} /> : !state.n ? <EmptyBox title="No close plan yet" body="Add the checklist under Tools > Reference Data, Close Checklist. A default plan is seeded for new companies." setUp={['data', 'Tools > Reference Data']} /> : (
               <>
                 <Lines data={paceData} xKey="label" height={170} count series={[{ key: 'planned', label: 'Planned Pace', color: '#0998c3', dashed: true }, { key: 'actual', label: 'Completed', color: 'var(--wk-brand, #2b45e1)' }]} />
                 <Footnote>Business day since period end (0 to 12). Target day {TARGET_CLOSE_DAY}.</Footnote>
@@ -94,7 +108,7 @@ export default function CloseTab({ canEdit, meName = '' }) {
                 <TaskViewSwitch view={view} onChange={setView} late={state.late.length} />
               </span>
             ) : null}>
-            {isLoading || !state ? <LoadingBox /> : !state.n ? <EmptyBox title="No tasks" style={{ margin: 16 }} /> : !state.rows.some(showRow) ? (
+            {isLoading || !state ? <LoadingBox failed={failed} /> : !state.n ? <EmptyBox title="No tasks" style={{ margin: 16 }} /> :!state.rows.some(showRow) ? (
               <EmptyBox style={{ margin: 16 }} title={view === 'overdue' ? 'Nothing overdue' : view === 'mine' && !pickedRole ? 'Pick who you are' : 'No tasks for you this month'} body={view === 'mine' && !pickedRole ? 'Choose your role (Bookkeeper, Controller...) in the box above and My Tasks lists what is yours.' : undefined} />
             ) : (
               <div className="req-table-wrapper"><table className="req-table">
@@ -123,24 +137,24 @@ export default function CloseTab({ canEdit, meName = '' }) {
       {section === 'recon' ? <WidgetPanel id="recon" compact={false} /> : null}
 
       {section === 'flux' ? (
-        <Panel title="Balance Sheet Flux - Explain Changes Over $25K or 10%" sub={loading ? 'Loading...' : hasPrior ? `${explained} of ${flux.length} explained` : 'No prior month to compare'} bodyStyle={{ padding: 0 }} onOpenReport={() => nav('reports')}>
+        <Panel title="Balance Sheet Flux - Explain Changes Over $25K or 10%" sub={loading ? 'Loading...' : hasPrior ? `${explained} of ${flux.length} explained` : 'No prior month to compare'} bodyStyle={{ padding: 0 }} onOpenReport={() => nav('rpt-balance-sheet')}>
           {loading ? <div style={{ padding: 16 }}><LoadingBox /></div> : !hasPrior ? <EmptyBox title="No prior month to compare." style={{ margin: 16 }} /> : !flux.length ? <EmptyBox title="No material balance changes" style={{ margin: 16 }} /> : (
-            <div className="req-table-wrapper"><table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-              <thead><tr><th>Account</th><th style={num}>{mShort(prevKey)}</th><th style={num}>{mShort(period)}</th><th style={num}>Change</th><th style={{ width: '38%' }}>Explanation</th></tr></thead>
+            <div className="req-table-wrapper">{lines}<table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              <thead><tr><RTh cols={fluxCols} id="account" label="Account" /><RTh cols={fluxCols} id="prior" label={mShort(prevKey)} style={num} /><RTh cols={fluxCols} id="balance" label={mShort(period)} style={num} /><RTh cols={fluxCols} id="change" label="Change" style={num} /><RTh cols={fluxCols} id="note" label="Explanation" style={{ width: '38%' }} /></tr></thead>
               <tbody>
                 {flux.map((r) => {
                   const note = fluxNotes.get(r.gl);
                   return (
                     <tr key={r.id}>
                       <td><span style={mono}>{r.gl}</span>{r.name}</td>
-                      <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.prior, { report: true })}</td>
-                      <td style={num}>{m(r.balance, { report: true })}</td>
-                      <td style={{ ...num, color: toneColor(r.change >= 0) }}>{m(r.change, { report: true })}<div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</div></td>
+                      <td style={{ ...num, color: 'var(--text-muted)' }}><DrillFigure onOpen={() => drill(r, fluxSpan(prevKey, true))}>{m(r.prior, { report: true })}</DrillFigure></td>
+                      <td style={num}><DrillFigure onOpen={() => drill(r, fluxSpan(period, true))}>{m(r.balance, { report: true })}</DrillFigure></td>
+                      <td style={{ ...num, color: toneColor(r.change >= 0) }}><DrillFigure onOpen={() => drill(r, fluxSpan(period))}>{m(r.change, { report: true })}</DrillFigure><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</div></td>
                       <td>
                         {note ? <div style={{ fontSize: 13 }}>{note.body}<div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{note.written_by} · {whenTxt(note.written_at)}</div></div> : canEdit ? (
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <input value={drafts[r.gl] ?? ''} onChange={(e) => setDrafts((d) => ({ ...d, [r.gl]: e.target.value }))} placeholder={r.suggestion ? `Suggested: ${r.suggestion}` : 'Why did this move?'} style={{ ...input, flex: 1 }} />
-                            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} disabled={busy === `flux:${r.gl}` || (!(drafts[r.gl] ?? '').trim() && !r.suggestion)} onClick={() => explain(r)}>Save</button>
+                            <input value={drafts[draftKey(r)] ?? ''} onChange={(e) => setDrafts((d) => ({ ...d, [draftKey(r)]: e.target.value }))} placeholder={r.suggestion ? `Suggested: ${r.suggestion}` : 'Why did this move?'} style={{ ...input, flex: 1 }} />
+                            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} disabled={busy === `flux:${r.gl}` || (!(drafts[draftKey(r)] ?? '').trim() && !r.suggestion)} onClick={() => explain(r)}>Save</button>
                           </div>
                         ) : <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Not explained yet</span>}
                       </td>
@@ -161,8 +175,8 @@ export default function CloseTab({ canEdit, meName = '' }) {
           <Panel title="Days to Close · Last Six Months" style={col(6)}>
             {!last6.length ? <EmptyBox title="No close history yet" body="When a month reaches Closed, record its close day and it charts here." /> : (
               <>
-                <ColoredBars data={last6.map((h) => ({ label: monthLabel(h.period), value: h.closed_day, color: h.closed_day <= 7 ? 'var(--wk-brand, #2b45e1)' : '#d97706' }))} height={150} valueLabel={(v) => `Day ${v}`} />
-                <Footnote>Target is business day {TARGET_CLOSE_DAY}. Months in the brand color closed in seven days or fewer.</Footnote>
+                <ColoredBars data={last6.map((h) => ({ label: monthLabel(h.period), value: h.closed_day, color: h.closed_day <= TARGET_CLOSE_DAY ? 'var(--wk-brand, #2b45e1)' : WARN }))} height={150} valueLabel={(v) => `Day ${v}`} />
+                <Footnote>Target is business day {TARGET_CLOSE_DAY}. Months in the brand color closed by the target{last6.some((h) => h.closed_day > TARGET_CLOSE_DAY) ? <>; <span style={{ color: WARN }}><WarnMark size={11} />the others closed late</span></> : null}.</Footnote>
               </>
             )}
           </Panel>

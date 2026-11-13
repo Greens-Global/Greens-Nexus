@@ -11,19 +11,25 @@ import { useDash } from './DashContext';
 // to the General Ledger. Loaded on the first click, so the dashboard stays light.
 const LinesPanel = lazy(() => import('../LinesPanel'));
 
-/** [open(line, { yearsAgo }), panel]: `line` is one dashboard ledger line ({ gl, name }). */
+/**
+ * [open(line, opts), panel]: `line` is one dashboard ledger line ({ gl, name }).
+ * opts: `yearsAgo` / `monthsAgo` shift the dashboard's window back; `from` / `to`
+ * (ISO dates) replace it - `from: ''` is a balance, every line from the start.
+ */
 export function useLineDrill() {
   const { ix, entities, scope, fromKey, period, book } = useDash();
   const [open, setOpen] = useState(null);
-  const show = (line, { yearsAgo = 0 } = {}) => {
-    const from = mStart(shiftKey(fromKey, 12 * yearsAgo));
-    const to = mEnd(shiftKey(period, 12 * yearsAgo));
+  const show = (line, { yearsAgo = 0, monthsAgo = 0, ...span } = {}) => {
+    const back = 12 * yearsAgo + monthsAgo;
+    const from = span.from ?? mStart(shiftKey(fromKey, back));
+    const to = span.to ?? mEnd(shiftKey(period, back));
+    const my = (iso) => `${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
     const ents = scope === 'ALL' ? [] : entities.filter((e) => inScope(ix, e.code, scope)).map((e) => e.code);
     const both = book === 'all' ? 'both' : book;
     setOpen({
       key: `${line.gl}|${from}|${to}|${scope}|${book}`,
       title: `${line.gl} ${line.name}`,
-      caption: `${from.slice(5, 7)}/${from.slice(0, 4)} - ${to.slice(5, 7)}/${to.slice(0, 4)}`,
+      caption: from ? `${my(from)} - ${my(to)}` : `Balance through ${my(to)}`,
       queries: [lineQuery({ account: line.gl, drill: { from, to, book: both }, entities: ents })],
       report: { account: line.gl, accountName: line.name, from, to, book: both, entities: ents },
     });
@@ -36,13 +42,23 @@ export function useLineDrill() {
   return [show, panel];
 }
 
-/** open(): the Income Statement on Reports for this year to the dashboard's month, in its scope and book. */
+/**
+ * open(span?): the Income Statement on Reports in the dashboard's scope and book -
+ * for this year to the dashboard's month, or for `span` ({ from, to } ISO dates).
+ * Safe as an onClick (an event is not a span).
+ */
 export function useStatementOpen() {
   const { ix, entities, scope, period, book } = useDash();
-  return () => requestStatement({
+  return (span) => requestStatement({
     entities: scope === 'ALL' ? [] : entities.filter((e) => inScope(ix, e.code, scope)).map((e) => e.code),
-    from: `${period.slice(0, 4)}-01-01`, to: mEnd(period), book: book === 'all' ? '' : book,
+    from: span?.from || `${period.slice(0, 4)}-01-01`, to: span?.to || mEnd(period), book: book === 'all' ? '' : book,
   });
+}
+
+/** The dashboard's own window ({ from, to } ISO dates), `monthsAgo` months back. */
+export function useWindow() {
+  const { fromKey, period } = useDash();
+  return (monthsAgo = 0) => ({ from: mStart(shiftKey(fromKey, monthsAgo)), to: mEnd(shiftKey(period, monthsAgo)) });
 }
 
 /** A table figure that opens its lines: looks like the figure until hovered. */

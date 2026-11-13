@@ -65,7 +65,7 @@ export default function ModuleSearch({ value, onChange, onSubmit, waiting = fals
     const lit = !!value;
     return (
       <button ref={icon} type="button" onClick={openBox} aria-label="Search the Ledger" aria-expanded={false}
-        title={lit ? `Search: ${value} (Ctrl+F)` : 'Search vendor, customer, invoice, amount, memo (Ctrl+F)'}
+        title={lit ? `Search the Ledger: ${value} (Ctrl+F)` : 'Search the Ledger - vendor, customer, invoice, amount, memo (Ctrl+F)'}
         style={{ ...control, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, padding: 0, position: 'relative',
           color: lit ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', ...(lit ? { borderColor: 'var(--wk-brand, #2b45e1)', background: 'var(--wk-brand-tint, #e8ecfd)' } : null) }}>
         {waiting ? <Loader2 size={14} className="spin" aria-label="Searching" /> : <Search size={14} />}

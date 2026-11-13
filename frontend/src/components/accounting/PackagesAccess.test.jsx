@@ -157,9 +157,9 @@ describe('AccessTab', () => {
     await waitFor(() => expect(api.setAccountingAccess).toHaveBeenCalled());
     expect(api.setAccountingAccess.mock.calls[0][1]).not.toContain('90000');
     expect(api.setAccountingAccess.mock.calls[0][1].length).toBeGreaterThan(0);
-    // The Last Opened column: a time for whoever has been in, "Not yet" for the rest.
+    // The Last Opened column: a time for whoever has been in, "Not Yet" for the rest.
     expect(within(screen.getByText('Urmi Gor').closest('tr')).getByText(/09\/29\/2026/)).toBeTruthy();
-    expect(within(row).getByText('Not yet')).toBeTruthy();
+    expect(within(row).getByText('Not Yet')).toBeTruthy();
   });
 
   it('lifts a limit', async () => {

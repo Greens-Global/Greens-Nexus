@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { SkeletonBlocks } from '../../AsyncState';
-import { SectionTabs, card, input } from './Bits';
+import { EmptyBox, SectionTabs, card, input } from './Bits';
 import { useDash } from './DashContext';
 import { EntityPicker } from '../reportControls';
 import { DateField } from '../../../tasks/components';
+import HoldButton, { HOLD_RECORD_MS } from '../../../ui/HoldButton';
 
 // Accounting -> Data. The figures the ledger does not carry: loans and
 // covenants, intercompany balances, brokerage holdings, partner capital, cap
@@ -18,8 +19,8 @@ import { DateField } from '../../../tasks/components';
 // typed, and the rate is fixed or variable.
 //
 // Oct 7: no browser dialogs - a row that cannot save says why in a line under
-// it (a schedule that is not JSON, or the server's answer), and Delete asks
-// in place (Remove / Keep). Headers and buttons in Title Case.
+// it (a schedule that is not JSON, or the server's answer), and Delete is a
+// press and hold on the row (11/12/2026). Headers and buttons in Title Case.
 
 const GRIDS = [
   { id: 'loans', title: 'Loans', table: 'fin_loans', key: 'loans', desc: 'Every loan - external, intercompany, and loans given - set up once: loan number, lender, entity, and the GL account the principal sits on. With Balance from set to Ledger, the balance is read from Intacct as of the month shown; rate, fixed or variable, maturity, monthly principal and interest, DSCR and the covenant minimum are typed.',
@@ -53,26 +54,35 @@ const GRIDS = [
 // Investments - those two open from the Loans & Financing menu, one grid each
 // (`only`). `exclude` drops grids from the full Data screen.
 export default function DataTab({ only = null, exclude = null }) {
-  const { tables, tablesLoading, act, ix } = useDash();
+  const { tables, tablesLoading, tablesDown, act, ix } = useDash();
   const grids = GRIDS.filter((g) => (!only || only.includes(g.id)) && !(exclude || []).includes(g.id));
   const [tab, setTab] = useState(grids[0]?.id);
+  const [seeding, setSeeding] = useState(false);
+  const [seedProblem, setSeedProblem] = useState('');
   const def = grids.find((g) => g.id === tab) || grids[0];
   if (!def) return null;
+  const seed = async () => {
+    setSeeding(true);
+    setSeedProblem('');
+    try { await act('seed'); } catch (e) { setSeedProblem(e?.message || 'Could not seed the defaults.'); } finally { setSeeding(false); }
+  };
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
         {grids.length > 1 && <SectionTabs tabs={grids.map((g) => ({ id: g.id, label: g.title }))} value={def.id} onChange={setTab} />}
-        {!only && <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 10px' }} onClick={() => act('seed')}>Seed Defaults</button>}
+        {!only && <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 10px' }} disabled={seeding || !tables} onClick={seed}>{seeding ? 'Seeding...' : 'Seed Defaults'}</button>}
       </div>
+      {seedProblem ? <div role="alert" style={{ fontSize: 12, color: 'var(--bad-fg, #dc2626)' }}>{seedProblem}</div> : null}
       <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>{def.desc} Edits save when you leave a field.</p>
-      {tablesLoading ? <SkeletonBlocks count={1} height={200} /> : <Grid key={def.id} def={def} rows={tables?.[def.key] ?? []} act={act} ix={ix} />}
+      {/* A failed read is never an empty grid to fill in (11/12/2026). */}
+      {tablesLoading ? <SkeletonBlocks count={1} height={200} /> : tablesDown ? <EmptyBox title="Could not load" body="The reference data could not be read. Refresh to try again." /> : <Grid key={def.id} def={def} rows={tables?.[def.key] ?? []} act={act} ix={ix} />}
     </div>
   );
 }
 
 function Grid({ def, rows, act, ix }) {
   const [adding, setAdding] = useState(null);
-  // Confirmed in place by the row (Remove / Keep) - never a browser dialog.
+  // Confirmed by holding the row's Delete (11/12/2026, Hold to confirm) - never a browser dialog.
   const remove = (r) => act('row-delete', { table: def.table, match: def.match ? def.match(r) : { id: r.id } });
   return (
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
@@ -99,8 +109,6 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
   const [draft, setDraft] = useState(row);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState('');     // why the row did not save, shown under it
-  const [asking, setAsking] = useState(false);    // Delete, confirmed in place
-  const [removing, setRemoving] = useState(false);
   const last = useRef(JSON.stringify(row));
   useEffect(() => { setDraft(row); last.current = JSON.stringify(row); }, [row]);
   // Top-level entities only (the dashboard rolls figures up to roots), in the
@@ -123,13 +131,6 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
     try { await act('row-save', { table: def.table, row: payload }); last.current = JSON.stringify(next); onSaved?.(); }
     catch (e) { setProblem(e?.message || 'Could not save the row.'); }
     finally { setSaving(false); }
-  };
-  const confirmRemove = async () => {
-    setRemoving(true);
-    setProblem('');
-    try { await onDelete(); }
-    catch (e) { setProblem(e?.message || 'Could not delete the row.'); setAsking(false); }
-    finally { setRemoving(false); }
   };
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const setAndSave = (k, v) => { const next = { ...draft, [k]: v }; setDraft(next); save(next); };
@@ -166,14 +167,11 @@ function EditRow({ def, row, isNew, act, ix, onSaved, onDelete }) {
       <tr style={isNew ? { background: 'var(--wk-brand-tint, #e8ecfd)' } : undefined}>
         {def.cols.map((c) => <td key={c[0]} style={{ padding: '4px 6px' }}>{field(c)}</td>)}
         <td style={{ padding: '4px 6px', whiteSpace: 'nowrap' }}>
-          {asking ? (
-            <span role="group" aria-label="Delete this row?" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <button type="button" className="primary-btn" disabled={removing} onClick={confirmRemove}
-                style={{ fontSize: 12, height: 24, padding: '0 8px', background: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)' }}>{removing ? 'Removing...' : 'Remove'}</button>
-              <button type="button" className="secondary-btn" disabled={removing} onClick={() => setAsking(false)} style={{ fontSize: 12, height: 24, padding: '0 8px' }}>Keep</button>
-            </span>
+          {isNew ? (
+            <button type="button" className="icon-btn" aria-label="Delete row" onClick={onDelete} style={{ padding: 4, color: 'var(--text-muted)' }}><Trash2 size={13} /></button>
           ) : (
-            <button type="button" className="icon-btn" aria-label="Delete row" onClick={() => (isNew ? onDelete() : setAsking(true))} style={{ padding: 4, color: 'var(--text-muted)' }}><Trash2 size={13} /></button>
+            // A saved row is deleted for everyone: press and hold (HoldButton says why a refusal failed).
+            <HoldButton label="Delete" ariaLabel="Delete row" doneLabel="Deleted" size="sm" holdMs={HOLD_RECORD_MS} onConfirm={onDelete} fallbackMessage="Delete this row? This cannot be undone." />
           )}
         </td>
       </tr>

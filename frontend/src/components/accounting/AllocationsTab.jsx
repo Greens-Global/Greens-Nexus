@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Save, Settings2, Trash2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, Save, Settings2 } from 'lucide-react';
 import { api } from '../../api';
 import Amount from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
@@ -12,6 +12,8 @@ import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../../stepup/StepUp';
 import { StatusLabel } from '../StatusLabel';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
+import { WarnMark } from './warnMark';
 
 // Accounting > Allocations (Neil, 10/01: "allocations journal entry from
 // people and done monthly"). Pick a month; the basis is each person's hours
@@ -33,8 +35,9 @@ const th = { textAlign: 'left', padding: '6px 8px', fontSize: 12, fontWeight: 70
 const thNum = { ...th, textAlign: 'right' };
 const td = { padding: '4px 8px', borderBottom: '1px solid var(--border-color)', fontSize: 13, verticalAlign: 'top' };
 const tdNum = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
-// The house status label, amber (11/11/2026 Accounting pass, picture 12).
-const Warn = ({ children }) => <StatusLabel size="sm" color="#d97706" label={children} />;
+// The house status label in the warning color, never color alone (11/11/2026
+// Accounting pass, pictures 8 and 12; orange is only for live).
+const Warn = ({ children }) => <StatusLabel size="sm" color="var(--warn-fg)" label={<><WarnMark size={11} />{children}</>} />;
 // Hours read as H:MM (Neil, 11/04/2026) - the exports keep their numbers.
 const hours = (min) => formatHM(min);
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -50,13 +53,15 @@ export default function AllocationsTab({ canEdit = false }) {
   const [draft, setDraft] = useState(null);         // the mapping as edited
   const [runs, setRuns] = useState(null);
   const [busy, setBusy] = useState('');
+  const [mapError, setMapError] = useState('');
+  const [kept, setKept] = useState('');            // "Kept" / "Already Kept", a few seconds
   // Item 05 (fix 10/24): the screen is as tall as the window; the mapping,
   // the basis, the entry preview and the runs kept share what the bar leaves,
   // each scrolling in its own card (style.css .acct-fit-stack).
   const [box, setBox] = useState(null);
   const fit = useFitHeight(box);
 
-  const loadMap = useCallback(() => api.getAllocationsMap().then((d) => { setMapData(d); setDraft(d.map); }).catch(() => setMapData({ map: { journal: 'GJ', sites: {}, companies: {}, offsite: {} }, sites: [], companies: [] })), []);
+  const loadMap = useCallback(() => api.getAllocationsMap().then((d) => { setMapError(''); setMapData(d); setDraft(d.map); }).catch((e) => setMapError(e?.message || 'Could not load the account mapping.')), []);
   const loadRuns = useCallback(() => api.getAllocationRuns().then((d) => setRuns(d?.runs || [])).catch(() => setRuns([])), []);
   useEffect(() => { loadMap(); loadRuns(); }, [loadMap, loadRuns]);
 
@@ -97,8 +102,12 @@ export default function AllocationsTab({ canEdit = false }) {
     try {
       // The server rebuilds the run itself; the preview sent is only what the
       // person looked at, and it is refused (409) when the figures moved.
+      // The server answers with the run already kept when its lines are the
+      // same, so Keep Run and both exports leave ONE run, never a duplicate.
       const r = await api.saveAllocationRun({ month: preview?.month || month, entity: '', preview });
       loadRuns();
+      setKept(r?.reused ? 'Already Kept' : 'Kept');
+      setTimeout(() => setKept(''), 4000);
       return r;
     } catch (e) {
       if (isStepUpRequired(e)) { const up = await ensureStepUp(); if (up.ok) return keepRun(); }
@@ -117,10 +126,8 @@ export default function AllocationsTab({ canEdit = false }) {
     const r = await keepRun();
     if (r?.id) exportRun(r.id, kind);
   }
-  async function removeRun(r) {
-    if (!await dialog.confirm(`Remove the ${monthLabel(r.month)} run kept by ${r.byName}? Nothing was posted, so Intacct is untouched.`, { title: 'Remove Run', confirmText: 'Remove' })) return;
-    try { await api.deleteAllocationRun(r.id); loadRuns(); } catch (e) { await dialog.alert(e?.message || 'Could not remove it.', { title: 'Remove Run' }); }
-  }
+  // Held right on the row (Hold to confirm); a refusal shows under the button.
+  const removeRun = (r) => api.deleteAllocationRun(r.id);
 
   return (
     <div ref={setBox} className="acct-fit-stack" data-testid="allocations-stack" style={fit}>
@@ -146,6 +153,7 @@ export default function AllocationsTab({ canEdit = false }) {
           <BarMore level={4}>
           <SyncButton onSync={previewSync.sync} busy={state.loading && !!preview} syncedAt={previewSync.syncedAt} what="Preview" />
           </BarMore>
+          {kept && <span role="status" style={{ fontSize: 13, color: 'var(--ok-fg, #15803d)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={13} aria-hidden="true" />{kept}</span>}
           {canEdit && <BarMore level={1} active={mapOpen ? 1 : 0}><button type="button" className="secondary-btn" onClick={() => setMapOpen((v) => !v)} aria-expanded={mapOpen} title="Account Mapping" style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Settings2 size={13} /> <span className="acct-bar-label">Account Mapping</span></button></BarMore>}
           {canEdit && (
             <BarMore level={2}>
@@ -157,7 +165,12 @@ export default function AllocationsTab({ canEdit = false }) {
         </div>
       </ControlBar>
 
-      {mapOpen && draft && (
+      {mapOpen && mapError && (
+        <div className="acct-stack-card" style={{ ...card, padding: 14 }}>
+          <AsyncSection error errorMessage={mapError} onRetry={loadMap} />
+        </div>
+      )}
+      {mapOpen && !mapError && draft && (
         <div className="acct-stack-card" style={{ ...card, padding: 14 }}>
           <h3 style={{ margin: '0 0 4px', fontSize: 15 }}>Account Mapping</h3>
           <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--text-secondary)' }}>Each work site is an Intacct entity and the wage expense account its hours are charged to. Each company pays through an entity: its allocation clearing account takes the credit, and its wage account carries anyone with no site hours that month.</p>
@@ -292,7 +305,9 @@ export default function AllocationsTab({ canEdit = false }) {
                     <td style={{ ...td, whiteSpace: 'nowrap', textAlign: 'right' }}>
                       <button type="button" className="secondary-btn" disabled={busy === `x-${r.id}`} onClick={() => exportRun(r.id, 'csv')} style={{ fontSize: 12, marginRight: 6 }}>Intacct CSV</button>
                       <button type="button" className="secondary-btn" disabled={busy === `x-${r.id}`} onClick={() => exportRun(r.id, 'xlsx')} style={{ fontSize: 12, marginRight: 6 }}>Excel</button>
-                      {canEdit && <button type="button" aria-label={`Remove run ${monthLabel(r.month)}`} onClick={() => removeRun(r)} style={{ border: 'none', background: 'none', padding: 4, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)', verticalAlign: 'middle' }}><Trash2 size={14} /></button>}
+                      {canEdit && <HoldButton size="sm" label="Remove" doneLabel="Removed" holdMs={HOLD_RECORD_MS} ariaLabel={`Remove run ${monthLabel(r.month)}`}
+                        fallbackMessage={`Remove the ${monthLabel(r.month)} run kept by ${r.byName}? Nothing was posted, so Intacct is untouched.`}
+                        onConfirm={() => removeRun(r)} onDone={loadRuns} />}
                     </td>
                   </tr>
                 ))}

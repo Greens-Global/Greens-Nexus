@@ -1,6 +1,7 @@
 import { change, pctTxt } from '../../../accounting/dashboard/model/money';
-import { fmtMD, mEnd } from '../../../accounting/dashboard/model/months';
-import { sumLines } from '../../../accounting/dashboard/model/ledger';
+import { mEnd, monthLong } from '../../../accounting/dashboard/model/months';
+import { incomeStatement, sumLines } from '../../../accounting/dashboard/model/ledger';
+import { formatDate } from '../../../lib/datetime';
 import { Chip, Delta, LoadingBox } from './Bits';
 import { Sparkline } from './Charts';
 import { RUNWAY_TARGET_MONTHS, useDash } from './DashContext';
@@ -27,9 +28,10 @@ function Kpi({ value, note, delta, spark, sparkColor }) {
 }
 
 export function KpiCashWidget() {
-  const { cashSplit, m, loading } = useDash();
+  const { cashSplit, m, loading, cashLoading, cashDown } = useDash();
   const trend = useTrend();
-  if (loading) return <LoadingBox height={80} />;
+  // A failed cash read is "Could not load", never "$0 · 0 entities" (11/12/2026).
+  if (loading || cashLoading) return <LoadingBox height={80} failed={cashDown} />;
   // Oct 7 (Neil, comment 7): under Partner Entities Only (or one partner
   // entity) the controllable figure is zero by definition - show the partner
   // entities' own cash instead.
@@ -43,19 +45,22 @@ export function KpiCashWidget() {
 }
 
 export function KpiCashNcWidget() {
-  const { cashSplit, m, loading } = useDash();
-  if (loading) return <LoadingBox height={80} />;
+  const { cashSplit, m, loading, cashLoading, cashDown } = useDash();
+  if (loading || cashLoading) return <LoadingBox height={80} failed={cashDown} />;
   const k = cashSplit.ncEntities.length;
   return <Kpi value={m(cashSplit.nc, { compact: true })} note={k ? `${k} partner ${k > 1 ? 'entities' : 'entity'}` : 'None in this scope'} delta={<Chip tone="fyi">Not available</Chip>} />;
 }
 
+// Month to date is the last month of the range (11/12/2026: with Year to Date
+// picked it showed the whole range, the same figure as the YTD card).
 export function KpiNiWidget() {
-  const { lines, m, loading, isRange, periodLabel } = useDash();
+  const { lines, ledger, period, m, loading, isRange } = useDash();
   const trend = useTrend();
-  if (loading) return <LoadingBox height={80} />;
-  const a = sumLines(lines);
-  const p = sumLines(lines, () => true, 'prior');
-  return <Kpi value={m(a, { compact: true })} note={isRange ? `${periodLabel} · vs prior period` : 'vs prior month'} delta={<Delta v={p ? (a - p) / Math.abs(p) : null} />} spark={trend.map((t) => t.net)} sparkColor="#0998c3" />;
+  if (loading || !ledger) return <LoadingBox height={80} />;
+  const month = isRange ? incomeStatement(ledger, period) : lines;
+  const a = sumLines(month);
+  const p = sumLines(month, () => true, 'prior');
+  return <Kpi value={m(a, { compact: true })} note={isRange ? `${monthLong(period)} · vs prior month` : 'vs prior month'} delta={<Delta v={p ? (a - p) / Math.abs(p) : null} />} spark={trend.map((t) => t.net)} sparkColor="#0998c3" />;
 }
 
 export function KpiMarginWidget() {
@@ -74,24 +79,25 @@ export function KpiMarginWidget() {
 
 export function KpiInvestWidget() {
   const { m } = useDash();
-  const { holdings, mv, cost, prior, isLoading } = useHoldings();
-  if (isLoading) return <LoadingBox height={80} />;
+  const { holdings, mv, cost, prior, isLoading, failed } = useHoldings();
+  if (isLoading) return <LoadingBox height={80} failed={failed} />;
   if (!holdings.length) return <Kpi value="-" note="No investment accounts in this scope" />;
   return <Kpi value={m(mv, { compact: true })} note={`Unrealized ${mv >= cost ? '+' : '-'}${m(Math.abs(mv - cost), { compact: true })}`} delta={<Delta v={prior ? (mv - prior) / prior : null} suffix="this month" />} />;
 }
 
 export function KpiReconWidget() {
   const { period } = useDash();
-  const { rows, reconciled, remaining, behind, isLoading } = useRecon();
-  if (isLoading) return <LoadingBox height={80} />;
+  const { rows, reconciled, remaining, behind, isLoading, failed } = useRecon();
+  if (isLoading) return <LoadingBox height={80} failed={failed} />;
   // "Reconciliations: 3/5 completed | 2 remaining" (Priyanka, Sep 24).
-  return <Kpi value={`${reconciled}/${rows.length} completed`} note={rows.length ? `| ${remaining} remaining · through ${fmtMD(mEnd(period))}` : `through ${fmtMD(mEnd(period))}`} delta={behind ? <Chip tone="bad">{behind} behind</Chip> : rows.length ? <Chip tone="ok">On track</Chip> : null} />;
+  const thru = formatDate(mEnd(period));
+  return <Kpi value={`${reconciled}/${rows.length} completed`} note={rows.length ? `| ${remaining} remaining · through ${thru}` : `through ${thru}`} delta={behind ? <Chip tone="bad">{behind} behind</Chip> : rows.length ? <Chip tone="ok">On track</Chip> : null} />;
 }
 
 export function KpiRunwayWidget() {
-  const { m, loading } = useDash();
+  const { m, loading, cashLoading, cashDown } = useDash();
   const { fixed, liquid, months } = useRunway();
-  if (loading) return <LoadingBox height={80} />;
+  if (loading || cashLoading) return <LoadingBox height={80} failed={cashDown} />;
   const gap = months - RUNWAY_TARGET_MONTHS;
   return (
     <Kpi value={fixed ? `${months.toFixed(1)} mo` : '-'} note={`target ${RUNWAY_TARGET_MONTHS} months · ${m(liquid, { compact: true })} liquid vs ${m(fixed, { compact: true })}/mo fixed`}

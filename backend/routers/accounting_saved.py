@@ -311,6 +311,10 @@ def save_report(body: SavedReportBody, user: dict = Depends(get_current_user), d
     row = (db.query(models.AccountingSavedReport)
            .filter(models.AccountingSavedReport.owner_email == me, models.AccountingSavedReport.name == name).first())
     now = _now()
+    if row and isinstance(row.config, dict) and (row.config.get("kind") == "builder") != (config.get("kind") == "builder"):
+        # A statement view never quietly replaces a Report Builder report of the same name, nor the other way round.
+        kind = "Report Builder report" if row.config.get("kind") == "builder" else "memorized statement"
+        raise HTTPException(status_code=409, detail=f'You already have a {kind} named "{name}". Pick another name.')
     if row:
         row.config, row.shared, row.updated_at = config, bool(body.shared), now
     else:

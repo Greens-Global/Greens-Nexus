@@ -160,6 +160,9 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
   const bank = d?.bank || [];
   const setBank = (list) => t.patch({ bank: list });
   const gstinBad = !!d?.gstin && !GSTIN_RE.test(d.gstin);
+  // GSTIN and PAN are Indian tax IDs: shown for people in India (or paid in INR),
+  // and wherever one is already on file so nothing saved is hidden (Neil, 11/12/2026).
+  const india = data?.payroll?.country === 'IN' || comp.currency === 'INR' || !!data?.gstin || !!data?.pan;
   const wcNow = (wc.rates || []).find(r => r.year <= thisYear);
   const payroll = data?.payroll || {};
   const locked = !!data?.ownPayLocked;
@@ -353,7 +356,7 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
                     );
                   })}
                   <button type="button" className="secondary-btn" onClick={() => setBank([...bank, { holder: '', bankName: '', number: '', routingOrIfsc: '', type: 'checking' }])} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8 }}><Plus size={13} /> Add Bank Account</button>
-                  <div style={GRID}>
+                  {india && <div style={GRID}>
                     <Field label="GSTIN" htmlFor="comp-gstin">
                       <input id="comp-gstin" className="form-input" style={{ ...BOX, textTransform: 'uppercase', borderColor: gstinBad ? 'hsl(var(--color-red))' : undefined }} value={d.gstin} maxLength={15}
                         onChange={ev => t.patch({ gstin: ev.target.value.toUpperCase().replace(/\s/g, '') })} placeholder="e.g. 27ABCDE1234F1Z5" aria-invalid={gstinBad} />
@@ -361,7 +364,7 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
                         {gstinBad ? 'Not a valid GSTIN - 15 characters, like 27ABCDE1234F1Z5.' : "Printed on the person's invoices when set."}
                       </div>
                     </Field>
-                  </div>
+                  </div>}
                 </>
               ) : (
                 <>
@@ -372,13 +375,13 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
                 </>
               )}
               {/* PAN: one editable home - Compliance (11/03/2026). */}
-              <div data-testid="pay-pan" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+              {india && <div data-testid="pay-pan" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 130, flexShrink: 0 }}>PAN</span>
                 <span style={{ fontSize: 13, color: data.pan ? 'var(--ink)' : 'var(--muted)', flex: 1 }}>{data.pan ? maskId(data.pan) : '-'}</span>
                 {onGoCompliance && (
                   <button type="button" className="secondary-btn" onClick={onGoCompliance} style={{ fontSize: 12 }}>Edit in Compliance</button>
                 )}
-              </div>
+              </div>}
             </>
           )}
 

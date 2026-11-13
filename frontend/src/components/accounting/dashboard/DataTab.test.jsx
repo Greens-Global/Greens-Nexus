@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act as rtlAct } from '@testing-library/react';
+import { HOLD_RECORD_MS } from '../../../ui/HoldButton';
 
 // Accounting -> Data (Oct 7): no browser dialogs. A schedule that is not
 // JSON and a save the server refuses say so in a line under the row (no
-// window.alert); Delete asks in place (Remove / Keep, no window.confirm);
+// window.alert); Delete is a press and hold on the row (no window.confirm);
 // the entity cells are the module's entity picker, found by number.
 
 const act = vi.fn(async () => ({ ok: true }));
@@ -49,16 +50,27 @@ describe('DataTab', () => {
     expect(alertSpy).not.toHaveBeenCalled();
   });
 
-  it('asks in place before deleting a row', async () => {
+  it('deletes a saved row only after a press and hold', async () => {
     render(<DataTab />);
-    fireEvent.click(screen.getByRole('button', { name: 'Delete row' }));
+    const del = screen.getByRole('button', { name: 'Delete row, press and hold' });
+    vi.useFakeTimers();
+    try {
+      // A quick tap does nothing.
+      fireEvent.pointerDown(del, { button: 0, pointerId: 1 });
+      fireEvent.pointerUp(del, { pointerId: 1 });
+      expect(act).not.toHaveBeenCalled();
+      fireEvent.pointerDown(del, { button: 0, pointerId: 1 });
+      await rtlAct(async () => { vi.advanceTimersByTime(HOLD_RECORD_MS); });
+    } finally { vi.useRealTimers(); }
     expect(confirmSpy).not.toHaveBeenCalled();
-    const ask = screen.getByRole('group', { name: 'Delete this row?' });
-    fireEvent.click(within(ask).getByRole('button', { name: 'Keep' }));
-    expect(act).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete row' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
-    await waitFor(() => expect(act).toHaveBeenCalledWith('row-delete', { table: 'fin_loans', match: { id: 'FL1' } }));
+    expect(act).toHaveBeenCalledWith('row-delete', { table: 'fin_loans', match: { id: 'FL1' } });
+  });
+
+  it('says why when Seed Defaults is refused', async () => {
+    act.mockImplementation(async () => { throw new Error('Seeding is off'); });
+    render(<DataTab />);
+    fireEvent.click(screen.getByRole('button', { name: 'Seed Defaults' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('Seeding is off');
   });
 
   it('picks the entity with the module picker, by number', async () => {

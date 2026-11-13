@@ -14,6 +14,7 @@ import {
   readPayrollSheets, savePayrollPrefs, totalsFromHoursFile, unmappedItems,
 } from './payrollConvert';
 import { WarnMark } from './warnMark';
+import { dialog } from '../../ui/dialog';
 
 // Import Hub payroll cards (Neil, 10/15: "Payroll export to QB is not there";
 // "HR export and import into QB, as well as the export from QB to Intacct").
@@ -84,14 +85,20 @@ function useEntities() {
   return entities;
 }
 
-function UploadZone({ title, hint, onFile, ariaLabel }) {
+// The input is visually hidden, not display:none, so Tab reaches it and
+// Enter / Space open the picker; the zone shows the keyboard focus ring.
+export function UploadZone({ title, hint, onFile, ariaLabel }) {
+  const [ring, setRing] = useState(false);
+  const visible = (el) => { try { return el.matches(':focus-visible'); } catch { return true; } };
   return (
-    <label style={{ ...card, padding: 24, display: 'grid', justifyItems: 'center', gap: 8, cursor: 'pointer', borderStyle: 'dashed', textAlign: 'center' }}
+    <label style={{ ...card, padding: 24, display: 'grid', justifyItems: 'center', gap: 8, cursor: 'pointer', borderStyle: 'dashed', textAlign: 'center',
+      ...(ring ? { outline: '2px solid var(--wk-brand, #2b45e1)', outlineOffset: 2 } : null) }}
       onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onFile(e.dataTransfer.files?.[0]); }}>
       <span style={{ display: 'inline-flex', padding: 10, borderRadius: 10, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}><Upload size={20} /></span>
       <span style={{ fontWeight: 700, fontSize: 15 }}>{title}</span>
       <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{hint}</span>
-      <input type="file" accept=".csv,.xlsx,.xls,text/csv" aria-label={ariaLabel} style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
+      <input type="file" accept=".csv,.xlsx,.xls,text/csv" aria-label={ariaLabel} className="nx-sr" onFocus={(e) => setRing(visible(e.target))} onBlur={() => setRing(false)}
+        onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
     </label>
   );
 }
@@ -482,7 +489,12 @@ export function QbPayrollToIntacct() {
   const setRule = (i, patch) => setPrefs((p) => ({ ...p, mapping: p.mapping.map((m, j) => (j === i ? { ...m, ...patch } : m)) }));
   const removeRule = (i) => setPrefs((p) => ({ ...p, mapping: p.mapping.filter((_, j) => j !== i) }));
   const addRule = (item, amount) => setPrefs((p) => ({ ...p, mapping: [...p.mapping, { item, kind: amount < 0 ? 'withholding' : 'earning', debit: '', credit: '', memo: item, hours: '' }] }));
-  const resetRules = () => setPrefs((p) => ({ ...p, mapping: DEFAULT_PAYROLL_MAPPING.map((m) => ({ ...m })) }));
+  // Undo for a few seconds: the mapping is typed by hand and kept only here.
+  const resetRules = () => {
+    const before = prefs.mapping;
+    setPrefs((p) => ({ ...p, mapping: DEFAULT_PAYROLL_MAPPING.map((m) => ({ ...m })) }));
+    dialog.undo('The mapping is back to the defaults.', () => setPrefs((p) => ({ ...p, mapping: before })));
+  };
 
   const unmapped = useMemo(() => unmappedItems(employees, mapping), [employees, mapping]);
   const built = useMemo(() => buildPayrollEntries(employees, mapping, s, prefs.employees), [employees, mapping, s, prefs.employees]);

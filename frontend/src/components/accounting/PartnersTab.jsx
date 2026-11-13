@@ -101,10 +101,10 @@ const PANEL_TABS = [{ key: 'details', label: 'Details' }, { key: 'lines', label:
 const VENDOR_TABS = [...PANEL_TABS, { key: 'compliance', label: 'Compliance' }];
 const DEFAULT_PAGE_SIZE = 100;
 const STATUS = {
-  pending: { label: 'Pending Approval', color: '#d97706' },
+  pending: { label: 'Pending Approval', color: 'var(--info-fg)' },      // waiting, not live: never orange
   approved: { label: 'Approved - Awaiting Intacct', color: '#16a34a' },
   in_intacct: { label: 'In Intacct', color: '#64748b' },
-  intacct_changed: { label: 'Changed In Intacct', color: '#d97706' },
+  intacct_changed: { label: 'Changed In Intacct', color: 'var(--warn-fg)', warn: true },
   declined: { label: 'Declined', color: '#dc2626' },
 };
 /** What a request found in Intacct when it closed (item 15), one line per field Intacct changed since. */
@@ -118,7 +118,7 @@ const th = { textAlign: 'left', padding: '6px 8px', fontSize: 12, fontWeight: 70
 const td = { padding: '5px 8px', borderBottom: '1px solid var(--border-color)', fontSize: 13, verticalAlign: 'top' };
 const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 // The house status label (11/11/2026 Accounting pass, picture 12).
-const Chip = ({ s, label, title, style }) => <StatusLabel size="sm" color={s.color} label={label ?? s.label} title={title} style={style} />;
+const Chip = ({ s, label, title, style }) => <StatusLabel size="sm" color={s.color} label={s.warn ? <><WarnMark size={11} />{label ?? s.label}</> : (label ?? s.label)} title={title} style={style} />;
 /** Inactive in Intacct ("inactive", "Inactive - do not use"). */
 export const isInactive = (r) => /^\s*inactive/i.test(String(r?.status || ''));
 const getField = (rec, f) => (f.startsWith('address.') ? rec.address?.[f.slice(8)] || '' : rec[f] || '');
@@ -201,6 +201,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
   const [asOf, setAsOf] = useState('');              // when the accounting app's copy last caught up with Intacct
   const [recState, setRecState] = useState({ loading: false, error: '', notReady: false });
   const [requests, setRequests] = useState(null);
+  const [reqError, setReqError] = useState('');
   const [reqStatus, setReqStatus] = useState('pending');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
@@ -253,7 +254,8 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
     });
   }, []);
   const loadRequests = useCallback((status, k) => (
-    api.getAccountingPartnerChanges(status, k).then((d) => { setRequests(d?.changes || []); if (d?.intacctAsOf) setAsOf(d.intacctAsOf); }).catch(() => setRequests([]))
+    api.getAccountingPartnerChanges(status, k).then((d) => { setReqError(''); setRequests(d?.changes || []); if (d?.intacctAsOf) setAsOf(d.intacctAsOf); })
+      .catch((e) => { setRequests([]); setReqError(e?.message || 'Could not load the requests.'); })
   ), []);
   useEffect(() => { loadRecords(kind, ''); }, [kind, loadRecords]);
   useEffect(() => { loadRequests(reqStatus, kind); }, [reqStatus, kind, loadRequests]);
@@ -535,7 +537,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
       ))}
 
       {section === 'requests' && (
-        <AsyncSection loading={requests === null} skeleton={<SkeletonBlocks count={2} />}>
+        <AsyncSection loading={requests === null} error={!!reqError} errorMessage={reqError} onRetry={() => loadRequests(reqStatus, kind)} skeleton={<SkeletonBlocks count={2} />}>
           <div className="acct-partners-box" style={card}>
             {!requests?.length ? (
               <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center' }}>No {reqStatus ? STATUS[reqStatus]?.label.toLowerCase() : ''} requests for {kindLabel}s.</p>
@@ -558,7 +560,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
                       <td style={td}><AvatarName email={r.requestedBy} name={r.requestedByName} size={20} /><div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{formatDateTime(r.requestedAt)}</div></td>
                       <td style={td}><Chip s={STATUS[r.status] || STATUS.pending} label={STATUS[r.status]?.label || r.status} />{r.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><AvatarName email={r.decidedBy} name={r.decidedByName} size={16} /> · {formatDateTime(r.decidedAt)}</div>}
                         {r.intacctSeenAt && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Seen in Intacct {formatDateTime(r.intacctSeenAt)}</div>}</td>
-                      <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 260 }}>{[r.note, ...seenNote(r)].filter(Boolean).join('\n')}</td>
+                      <td style={{ ...td, whiteSpace: 'pre-wrap' }}>{[r.note, ...seenNote(r)].filter(Boolean).join('\n')}</td>
                       {canApprove && (
                         <td style={{ ...td, whiteSpace: 'nowrap', textAlign: 'right' }}>
                           {r.status === 'pending' && (
@@ -740,7 +742,7 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
                           <td style={{ ...td, whiteSpace: 'nowrap' }}>{l.entryNo}</td>
                           <td style={{ ...td, whiteSpace: 'nowrap' }}>{l.entity}</td>
                           <td style={td}>{l.account} {l.accountName}</td>
-                          <td style={{ ...td, maxWidth: 280 }}>{l.memo}</td>
+                          <td style={td}>{l.memo}</td>
                           <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}><Amount value={l.debit} zero="blank" /></td>
                           <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}><Amount value={l.credit} zero="blank" /></td>
                         </tr>
@@ -780,7 +782,7 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
                       </td>
                       <td style={td}><Chip s={STATUS[h.status] || STATUS.pending} label={STATUS[h.status]?.label || h.status} />{h.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><AvatarName email={h.decidedBy} name={h.decidedByName} size={16} /> · {formatDateTime(h.decidedAt)}</div>}
                         {h.intacctSeenAt && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Seen in Intacct {formatDateTime(h.intacctSeenAt)}</div>}</td>
-                      <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 240 }}>{[h.note, ...seenNote(h)].filter(Boolean).join('\n')}</td>
+                      <td style={{ ...td, whiteSpace: 'pre-wrap' }}>{[h.note, ...seenNote(h)].filter(Boolean).join('\n')}</td>
                     </tr>
                   ))}
                 </tbody>

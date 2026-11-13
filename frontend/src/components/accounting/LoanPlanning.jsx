@@ -4,8 +4,9 @@ import { api } from '../../api';
 import Amount, { AmountInput, Figure, formatAmount } from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
-import { EntityPicker, ExportMenu, Pager, control } from './reportControls';
-import { usePaged } from './tableHooks';
+import { ColumnResizer, EntityPicker, ExportMenu, Pager, control } from './reportControls';
+import { useColumnWidths, usePaged } from './tableHooks';
+import { headStyle } from './columnStyles';
 import { downloadBlob } from './reportModel';
 import { FREQUENCIES, PLAN_KINDS, RATE_INDEXES, existingDebt, mortgagePlan, normalizeLoan, planImpact, planKind, scheduleTotals, t12From, yearlySchedule } from './loanMath';
 import { NOI_BASES, entityNois } from './LoanStress';
@@ -54,6 +55,11 @@ const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, 
 const hint = { fontSize: 13, color: 'var(--text-secondary)' };
 const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+// A heading the person can drag wider or narrower (kept per person, useColumnWidths).
+// aria-label keeps the heading's name its words, not the drag handle's too.
+const rth = (cw, key, label, style = null, text = label) => (
+  <th key={key} aria-label={text ? label : undefined} style={headStyle(cw.width(key), style)}>{text}<ColumnResizer {...cw.resizer(key, label)} /></th>
+);
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 };
 const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' };
 const input = { ...control, width: '100%' };
@@ -176,6 +182,7 @@ function Schedule({ plan, name }) {
   const paged = usePaged(rows, kind === 'year' ? 0 : plan.frequency.perYear * 2, [kind, plan.rows.length, plan.payment]);
   const t = scheduleTotals(plan.rows);
   const hasBalloon = plan.balloon > 0;
+  const cw = useColumnWidths('loan-planning-schedule', {}, { min: 50 });
   const doExport = async (format) => {
     setExporting(format);
     setError('');
@@ -213,8 +220,8 @@ function Schedule({ plan, name }) {
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-card)' }}>
             {kind === 'year'
-              ? <tr><th>Year</th><th style={num}>Payments</th><th style={num}>Payment</th><th style={num}>Interest</th><th style={num}>Principal</th>{hasBalloon && <th style={num}>Balloon</th>}<th style={num}>Year-End Balance</th></tr>
-              : <tr><th style={{ width: 48 }}>#</th><th>Date</th><th style={num}>Payment</th><th style={num}>Interest</th><th style={num}>Principal</th>{hasBalloon && <th style={num}>Balloon</th>}<th style={num}>Balance</th></tr>}
+              ? <tr>{rth(cw, 'year', 'Year')}{rth(cw, 'payments', 'Payments', num)}{rth(cw, 'payment', 'Payment', num)}{rth(cw, 'interest', 'Interest', num)}{rth(cw, 'principal', 'Principal', num)}{hasBalloon && rth(cw, 'balloon', 'Balloon', num)}{rth(cw, 'balance', 'Year-End Balance', num)}</tr>
+              : <tr>{rth(cw, 'n', 'Payment Number', { width: 48 }, '#')}{rth(cw, 'date', 'Date')}{rth(cw, 'payment', 'Payment', num)}{rth(cw, 'interest', 'Interest', num)}{rth(cw, 'principal', 'Principal', num)}{hasBalloon && rth(cw, 'balloon', 'Balloon', num)}{rth(cw, 'balance', 'Balance', num)}</tr>}
           </thead>
           <tbody>
             {paged.rows.map((r, i) => (
@@ -270,6 +277,7 @@ function DscrCheck({ code, entityName, ev, noiInfo, noiLoading, target }) {
 }
 
 function PlannedList({ planned, evals, entityName, selected, onToggle, onOpen, onDelete, canEdit, openId }) {
+  const cw = useColumnWidths('loan-planning-planned', {}, { min: 50 });
   if (!planned.length) {
     return <div style={{ ...card, padding: '10px 12px', ...hint }}>No planned loans yet.{canEdit ? ' Work one out in the calculator below and Save it to compare it with others.' : ' An editor on Accounting can save them here.'}</div>;
   }
@@ -279,8 +287,8 @@ function PlannedList({ planned, evals, entityName, selected, onToggle, onOpen, o
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <thead>
             <tr>
-              <th title={`Compare up to ${MAX_COMPARE}`}>Compare</th><th>Name</th><th>Entity</th><th>Lender</th><th style={num}>Loan Amount</th><th style={num}>Rate</th>
-              <th>Amortization / Term</th><th style={num}>Monthly Payment</th><th style={num}>Annual Debt Service</th><th style={num}>DSCR After</th><th>Result</th><th>Expected Close</th>
+              <th title={`Compare up to ${MAX_COMPARE}`}>Compare</th>{rth(cw, 'name', 'Name')}{rth(cw, 'entity', 'Entity')}{rth(cw, 'lender', 'Lender')}{rth(cw, 'amount', 'Loan Amount', num)}{rth(cw, 'rate', 'Rate', num)}
+              {rth(cw, 'term', 'Amortization / Term')}{rth(cw, 'monthly', 'Monthly Payment', num)}{rth(cw, 'annual', 'Annual Debt Service', num)}{rth(cw, 'dscr', 'DSCR After', num)}{rth(cw, 'result', 'Result')}{rth(cw, 'close', 'Expected Close')}
               {canEdit && <th style={{ width: 36 }} />}
             </tr>
           </thead>
@@ -293,7 +301,11 @@ function PlannedList({ planned, evals, entityName, selected, onToggle, onOpen, o
                   <td onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" aria-label={`Compare ${p.name}`} checked={on} disabled={!on && selected.length >= MAX_COMPARE} onChange={() => onToggle(p.id)} />
                   </td>
-                  <td><strong>{p.name}</strong>{p.params?.notes ? <div style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={p.params.notes}>{p.params.notes}</div> : null}</td>
+                  <td>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(p); }} aria-label={`Open ${p.name}`} aria-current={openId === p.id || undefined}
+                      style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textAlign: 'left' }}>{p.name}</button>
+                    {p.params?.notes ? <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={p.params.notes}>{p.params.notes}</div> : null}
+                  </td>
                   <td>{entityName(p.entityCode)}</td>
                   <td>{p.params?.lender || '-'}</td>
                   <td style={num}><Amount value={ev.plan.amount} zero="dash" /></td>
@@ -320,6 +332,7 @@ function PlannedList({ planned, evals, entityName, selected, onToggle, onOpen, o
 }
 
 function Compare({ items, entityName, onClear }) {
+  const cw = useColumnWidths('loan-planning-compare', {}, { min: 80 });
   const line = (title, render) => ({ title, render });
   const lines = [
     line('Entity', (p) => entityName(p.entityCode)),
@@ -367,7 +380,7 @@ function Compare({ items, entityName, onClear }) {
       </div>
       <div className="req-table-wrapper" style={{ overflow: 'auto' }}>
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th style={{ minWidth: 170 }} />{items.map(({ p }) => <th key={p.id} style={{ ...num, minWidth: 160 }}>{p.name}</th>)}</tr></thead>
+          <thead><tr>{rth(cw, 'line', 'Line', { minWidth: 170 }, '')}{items.map(({ p }) => rth(cw, `p-${p.id}`, p.name, { ...num, minWidth: cw.width(`p-${p.id}`) ? undefined : 160 }))}</tr></thead>
           <tbody>
             {lines.map((l) => (
               <tr key={l.title}>
@@ -383,6 +396,7 @@ function Compare({ items, entityName, onClear }) {
 }
 
 const fromSaved = (p) => ({ ...EMPTY_PLAN, ...(p.params || {}), kind: planKind(p.params || {}) });
+const calcSnap = (form, meta) => JSON.stringify([form, meta.name, meta.entityCode]);
 
 // A list of rows of numbers (Other's one-time extra payments and rate
 // periods): one line each, Add and Remove.
@@ -391,6 +405,11 @@ function RowsEditor({ id, title, rows = [], fields, addLabel, onChange, note }) 
   return (
     <div style={{ display: 'grid', gap: 6 }}>
       <span style={label} id={`${id}-label`}>{title}</span>
+      {rows.length > 0 && (
+        <div aria-hidden="true" style={{ display: 'flex', gap: 6, fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+          {fields.map((f) => <span key={f.key} style={{ width: f.amount ? 150 : 130 }}>{f.label}</span>)}
+        </div>
+      )}
       {rows.map((r, i) => (
         <div key={i} role="group" aria-label={`${title} ${i + 1}`} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           {fields.map((f) => (f.amount
@@ -462,8 +481,25 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
   const ok = !plan.errors.length;
   const dirtyName = meta.name.trim();
 
-  const startNew = () => { setLive(null); setForm((f) => ({ ...EMPTY_PLAN, kind: f.kind, ...(SECTION_DEFAULTS[f.kind] || {}), startDate: todayIso() })); setMeta({ id: null, name: '', entityCode: picked.length === 1 ? picked[0] : '' }); setMsg(null); };
-  const open = (p) => { setLive(null); setForm(fromSaved(p)); setMeta({ id: p.id, name: p.name, entityCode: p.entityCode }); setMsg(null); };
+  // What the calculator held when it was last opened, started or saved: typed
+  // inputs since then are asked about before another loan replaces them.
+  const [clean, setClean] = useState(() => calcSnap(form, meta));
+  const calcDirty = calcSnap(form, meta) !== clean;
+  const unlessKept = (go) => {
+    if (!calcDirty) { go(); return; }
+    dialog.confirm('The calculator has changes that are not saved. Discard them?', { title: 'Unsaved Changes', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true })
+      .then((ok) => { if (ok) go(); });
+  };
+  const startNew = () => unlessKept(() => {
+    const f2 = { ...EMPTY_PLAN, kind: form.kind, ...(SECTION_DEFAULTS[form.kind] || {}), startDate: todayIso() };
+    const m2 = { id: null, name: '', entityCode: picked.length === 1 ? picked[0] : '' };
+    setLive(null); setForm(f2); setMeta(m2); setClean(calcSnap(f2, m2)); setMsg(null);
+  });
+  const open = (p) => unlessKept(() => {
+    const f2 = fromSaved(p);
+    const m2 = { id: p.id, name: p.name, entityCode: p.entityCode };
+    setLive(null); setForm(f2); setMeta(m2); setClean(calcSnap(f2, m2)); setMsg(null);
+  });
   const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((v) => v !== id) : s.length >= MAX_COMPARE ? s : [...s, id]));
   // Half-typed rows of Other's lists are not kept (the API takes numbers only).
   const filled = (v) => v !== '' && v != null && !Number.isNaN(Number(v));
@@ -484,7 +520,9 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
       const p = d?.planned;
       if (!p) return;
       setPlanned((list) => [p, ...(list || []).filter((y) => y.id !== p.id)]);
-      setMeta({ id: p.id, name: p.name, entityCode: p.entityCode });
+      const m2 = { id: p.id, name: p.name, entityCode: p.entityCode };
+      setMeta(m2);
+      setClean(calcSnap(form, m2));
       setMsg({ text: `Saved ${p.name}.` });
     }).catch((e) => setMsg({ text: e?.message || 'Could not save the planned loan.', bad: true })).finally(() => setBusy(''));
   };

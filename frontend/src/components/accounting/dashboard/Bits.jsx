@@ -1,7 +1,11 @@
-import { ArrowDownRight, ArrowUpRight, ExternalLink, Info } from 'lucide-react';
+import { AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, Info } from 'lucide-react';
 import { SkeletonBlocks } from '../../AsyncState';
 import { pct } from '../../../accounting/dashboard/model/money';
+import { ColumnResizer } from '../reportControls';
+import { useColumnWidths } from '../tableHooks';
+import { headStyle } from '../columnStyles';
 import { useBooksDown } from './DashContext';
+import { useDashNav } from './nav';
 
 // Small pieces every dashboard tab shares, in the Nexus idiom: inline styles
 // on the app's CSS variables, Inter, the same card and pill shapes the rest
@@ -33,6 +37,8 @@ const CHIP = {
 export function Chip({ tone = 'neutral', children, title, style }) {
   return (
     <span title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 20, padding: '0 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', ...CHIP[tone], ...style }}>
+      {/* A warning is never color alone (DESIGN.md "Live accent"): the yellow chip carries the icon. */}
+      {tone === 'wait' ? <AlertTriangle size={11} aria-hidden="true" style={{ flexShrink: 0 }} /> : null}
       {children}
     </span>
   );
@@ -60,7 +66,7 @@ export function Eyebrow({ children, style }) {
 /** The framed card every widget and page panel renders inside. */
 // Oct 6: its paddings follow the person's Dashboard density (--dash-* on the
 // .acct-dash wrapper Accounting.jsx draws; the fallbacks are Comfortable).
-export function Panel({ title, sub, right, children, style, bodyStyle, flash, onOpenReport, reportLabel = 'Open report' }) {
+export function Panel({ title, sub, right, children, style, bodyStyle, flash, onOpenReport, reportLabel = 'Open Report' }) {
   return (
     <div style={{ ...card, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden', outline: flash ? `2px solid ${BRAND}` : 'none', ...style }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: 'var(--dash-head-pad, 12px 16px)', borderBottom: '1px solid var(--border-color)' }}>
@@ -72,7 +78,7 @@ export function Panel({ title, sub, right, children, style, bodyStyle, flash, on
           {right}
           {onOpenReport ? (
             <button type="button" onClick={onOpenReport} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: BRAND, fontFamily: 'inherit' }}>
-              {reportLabel} <ExternalLink size={12} />
+              {reportLabel} <ArrowRight size={12} aria-hidden="true" />
             </button>
           ) : null}
         </div>
@@ -82,19 +88,24 @@ export function Panel({ title, sub, right, children, style, bodyStyle, flash, on
   );
 }
 
-export function EmptyBox({ title, body, style }) {
+/** `setUp`: [sub key, where] - a "Set Up in <where>" link to the screen that holds the missing data. */
+export function EmptyBox({ title, body, style, setUp }) {
+  const nav = useDashNav();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 96, height: '100%', padding: '24px 16px', textAlign: 'center', border: '1px dashed var(--border-color)', borderRadius: 10, ...style }}>
       <Info size={16} style={{ color: 'var(--text-muted)' }} />
       <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
-      {body ? <div style={{ maxWidth: 360, fontSize: 12, color: 'var(--text-muted)' }}>{body}</div> : null}
+      {body ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{body}</div> : null}
+      {setUp && (nav.can?.(setUp[0]) ?? true) ? <button type="button" onClick={() => nav(setUp[0])} style={{ marginTop: 4, border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 600, color: BRAND }}>Set Up in {setUp[1]}</button> : null}
     </div>
   );
 }
 
-export function LoadingBox({ height = 120 }) {
+/** `failed`: this widget's own read failed - "Could not load" instead of a skeleton that never ends. */
+export function LoadingBox({ height = 120, failed = false }) {
   // The books could not be read: say so rather than wait forever (11/11/2026).
-  if (useBooksDown()) return <EmptyBox title="Could not load" style={{ minHeight: Math.min(height, 96) }} />;
+  const down = useBooksDown();
+  if (failed || down) return <EmptyBox title="Could not load" body={failed && !down ? 'Retry above to read it again.' : undefined} style={{ minHeight: Math.min(height, 96) }} />;
   return <SkeletonBlocks count={1} height={height} borderRadius={10} />;
 }
 
@@ -150,7 +161,18 @@ export function GroupRow({ title, cols }) {
   );
 }
 
-export const SERIES = [BRAND, '#0998c3', '#d97706', '#dc2626', '#15803d', '#7b4ea0', '#6b8fd6', '#8a9a9f'];
+// No orange: orange means "in progress / now" only (DESIGN.md "Live accent").
+export const SERIES = [BRAND, '#0998c3', '#7b4ea0', '#dc2626', '#15803d', '#6b8fd6', '#8a9a9f'];
+/** The second series color of a two-series chart (expense, net income). */
+export const SERIES_2 = '#7b4ea0';
 export const seriesColor = (i) => SERIES[i % SERIES.length];
 export const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
 export const mono = { fontFamily: 'monospace', fontSize: 12, color: 'var(--text-muted)', marginRight: 6 };
+
+/** Column widths for one dashboard table, kept per person (Charmi, 10/27 item 17: every report column resizes). */
+export const useDashCols = (key) => useColumnWidths(`dash-${key}`, {}, { min: 50 });
+
+/** A header cell the person can resize: <RTh cols={cols} id="actual" label="Actual" style={num} />. */
+export function RTh({ cols, id, label, style, children }) {
+  return <th style={headStyle(cols.width(id), style)}>{children ?? label}<ColumnResizer {...cols.resizer(id, label)} /></th>;
+}

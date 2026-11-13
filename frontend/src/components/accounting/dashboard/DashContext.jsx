@@ -222,9 +222,17 @@ export function DashProvider({ children }) {
   // The ledger or the entity list failed and nothing was ever read (11/11/2026,
   // Neil approved picture 13): every figure would be a zero, so each one stays
   // in its loading state, which then reads "Could not load", never "$0".
-  const down = !!((monthlyQ.error && !monthlyQ.data) || (entitiesQ.error && !entitiesQ.data));
+  const failed = (q) => !!(q.error && !q.data);
+  const down = failed(monthlyQ) || failed(entitiesQ);
   const loading = monthlyQ.isLoading || entitiesQ.isLoading || down;
-  const error = monthlyQ.error || entitiesQ.error || tablesQ.error || null;
+  // The side reads (11/12/2026 UX pass): a failed one is "Could not load" on
+  // the widgets that read it, never $0, "0 entities" or "all done".
+  const cashDown = failed(cashEntitiesQ);
+  const cashLoading = cashEntitiesQ.isLoading || cashDown;
+  const noiDown = failed(noiMonthQ);
+  const noiLoading = noiMonthQ.isLoading || noiDown;
+  const tablesDown = failed(tablesQ);
+  const error = monthlyQ.error || entitiesQ.error || tablesQ.error || cashEntitiesQ.error || noiMonthQ.error || null;
   const monthly = monthlyQ.data;
   const value = useMemo(() => ({
     scope, hasPartners, period, fromKey, isRange, periodLabel, book, scenarioId, view, setScope, setPeriod, setRange, setBook, setScenario, setView, lastClosed, periodOptions,
@@ -232,7 +240,8 @@ export function DashProvider({ children }) {
     monthly, ledger, ledgerNc, lines, budgetAhead, cashEntities, cashSplit, noiRows, noiT12ByType,
     reconAccounts, reconAccountsLoading,
     liabilityRecons,
-    tables, tablesLoading,
+    tables, tablesLoading, tablesDown,
+    cashLoading, cashDown, noiLoading, noiDown,
     down,
     loading,
     error,
@@ -240,7 +249,7 @@ export function DashProvider({ children }) {
     refetchAll, fetching, updatedAt, ledgerSyncedAt, invalidate, act,
   }), [scope, hasPartners, period, fromKey, isRange, periodLabel, book, scenarioId, view, setScope, setPeriod, setRange, setBook, setScenario, setView, lastClosed, periodOptions,
     ix, entities, currency, m, monthly, ledger, ledgerNc, lines, budgetAhead, cashEntities, cashSplit, noiRows, noiT12ByType,
-    reconAccounts, reconAccountsLoading, liabilityRecons, tables, tablesLoading, down, loading, error, refetch,
+    reconAccounts, reconAccountsLoading, liabilityRecons, tables, tablesLoading, tablesDown, cashLoading, cashDown, noiLoading, noiDown, down, loading, error, refetch,
     refetchAll, fetching, updatedAt, ledgerSyncedAt, invalidate, act]);
   return (
     <Ctx.Provider value={value}>

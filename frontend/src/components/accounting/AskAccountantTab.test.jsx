@@ -304,24 +304,25 @@ describe('AskAccountantTab', () => {
   });
 
   // Item 05 (Urmi): Amount, Question and Asked By next to Date and
-  // Description; Full Width hides the side menu, per person.
-  it('puts Amount, Question and Asked By first and has Full Width', async () => {
+  // Description; the house Full Screen hides the side menu (11/12/2026: it
+  // replaced the tab's own Full Width).
+  it('puts Amount, Question and Asked By first and has the house Full Screen', async () => {
+    localStorage.removeItem('nexus.fullScreen.accounting');
     const { unmount } = render(<AskAccountantTab />);
     await screen.findByText('Which property is this for?');
     const heads = screen.getAllByRole('columnheader').map((h) => h.getAttribute('aria-label') || h.textContent);
     expect(heads.slice(0, 5)).toEqual(['Date', 'Description', 'Amount', 'Question', 'Asked By']);
-    expect(screen.queryByTestId('ama-full-width')).toBeNull();
-    const btn = screen.getByRole('button', { name: /Full Width/ });
+    const btn = screen.getByRole('button', { name: /Full Screen/ });
     expect(btn.getAttribute('aria-pressed')).toBe('false');
     fireEvent.click(btn);
-    expect(screen.getByTestId('ama-full-width').textContent).toMatch(/\.sidebar \{ display: none/);
-    expect(screen.getByRole('button', { name: /Exit Full Width/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(document.documentElement.classList.contains('nx-fullscreen')).toBe(true);
+    expect(screen.getByRole('button', { name: /Exit Full Screen/ }).getAttribute('aria-pressed')).toBe('true');
     unmount();
-    expect(screen.queryByTestId('ama-full-width')).toBeNull();          // the side menu comes back off the screen
-    resetAccountingPrefs();
+    expect(document.documentElement.classList.contains('nx-fullscreen')).toBe(false);   // the side menu comes back off the screen
     render(<AskAccountantTab />);
     await screen.findByText('Which property is this for?');
-    expect(screen.getByTestId('ama-full-width')).toBeTruthy();          // remembered
+    expect(document.documentElement.classList.contains('nx-fullscreen')).toBe(true);    // remembered
+    localStorage.removeItem('nexus.fullScreen.accounting');
   });
 
   // Item 06 (Urmi, Vinod): one line per card charge; a question asked on the

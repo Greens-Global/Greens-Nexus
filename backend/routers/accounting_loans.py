@@ -1518,6 +1518,9 @@ class LoanEdit(BaseModel):
     vendorName: Optional[str] = None
 
 
+# Typed terms a person may clear: an explicit null stores what reads back as
+# "not set" (a rate or payment of 0 reads as None; no covenant = the default).
+_CLEARABLE = {"ratePct": 0, "monthlyPi": 0, "monthlyPayment": 0, "covenantMin": None}
 _EDIT_MAP = {"lender": "lender", "loanNo": "loan_no", "ratePct": "rate_pct", "rateType": "rate_type", "maturity": "maturity", "monthlyPi": "monthly_pi",
              "monthlyPayment": "monthly_pi", "covenantMin": "covenant_min", "notes": "notes", "isActive": "is_active", "balance": "balance"}
 
@@ -1581,6 +1584,10 @@ async def edit_loan(loan_id: str, body: LoanEdit, month: Optional[str] = None, u
         changed = False
         for field, col in _EDIT_MAP.items():
             v = getattr(body, field, None)
+            if v is None and field in sent and field in _CLEARABLE:
+                row[col] = _CLEARABLE[field]   # sent as null = cleared in Change Loan: "not set"
+                changed = True
+                continue
             if v is None:
                 continue
             if field == "balance" and (row.get("balance_source") or "manual") == "ledger" and not ("glAccount" in sent and not gl):

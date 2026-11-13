@@ -193,7 +193,7 @@ describe('CompensationReport', () => {
     const table = await within(p).findByRole('table', { name: /Ledger lines/ });
     // Intacct's General Ledger columns, each with its drag handle (widths kept per person).
     const heads = within(table).getAllByRole('columnheader');
-    expect(heads.map((h) => h.firstChild.textContent)).toEqual(['Posted Date', 'Entry', 'Doc', 'Account', 'Memo', 'Location', 'Vendor', 'Customer', 'Item', 'Employee', 'Department', 'Debit', 'Credit', 'Balance']);
+    expect(heads.map((h) => h.firstChild.textContent)).toEqual(['Date', 'Entry', 'Doc', 'Account', 'Memo', 'Entity', 'Vendor', 'Customer', 'Item', 'Employee', 'Department', 'Debit', 'Credit', 'Balance']);
     expect(within(table).getByRole('separator', { name: 'Resize the Memo column' })).toBeTruthy();
     const line = within(table).getByText('03/15/2026').closest('tr');
     for (const t of ['PYRJ-12', '70376e43', 'Q1 bonus', '(AM) GS -Valley center', 'Valinda Cranfill', 'Storage']) expect(line.textContent).toContain(t);

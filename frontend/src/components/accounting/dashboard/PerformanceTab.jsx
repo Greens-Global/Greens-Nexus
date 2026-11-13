@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useIsMobile as useMedia } from '../../../lib/useIsMobile';
 import { monthLabel, monthLong, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pct, pctTxt } from '../../../accounting/dashboard/model/money';
-import { Chip, Dot, EmptyBox, Footnote, GroupRow, LoadingBox, Panel, SectionTabs, Tile, mono, num, toneColor } from './Bits';
+import { Chip, Dot, EmptyBox, Footnote, GroupRow, LoadingBox, Panel, RTh, SERIES_2, SectionTabs, Tile, WARN, mono, num, toneColor, useDashCols } from './Bits';
 import { Lines } from './Charts';
 import { useDash } from './DashContext';
 import { Toolbar } from './Filters';
-import { useNotes, usePerf, useTrend } from './hooks';
-import { DrillFigure, useLineDrill } from './LineDrill';
-import { WidgetPanel, useDashNav } from './registry';
+import { useNotes, usePerf, usePeriodDraft, useTrend } from './hooks';
+import { DrillFigure, useLineDrill, useStatementOpen, useWindow } from './LineDrill';
+import { WidgetPanel } from './registry';
+import { WarnMark } from '../warnMark';
+import { dialog } from '../../../ui/dialog';
 
 // Performance tab: actuals against budget and prior year, ranked by what
 // matters, with the month's commentary shared with everyone. One section at
@@ -23,18 +25,25 @@ const SECTIONS = [
 
 export default function PerformanceTab({ canEdit }) {
   const { m, period, periodLabel, loading, act } = useDash();
-  const nav = useDashNav();
+  const openStatement = useStatementOpen();
+  const win = useWindow();
   const perf = usePerf();
   const trend = useTrend();
   const { commentary } = useNotes();
-  const [note, setNote] = useState('');
+  // What is typed is kept per month until saved or discarded (11/12/2026): a month
+  // change or a newer save by someone else no longer overwrites it.
+  const draft = usePeriodDraft(period, commentary?.body, commentary?.written_at);
   const [saving, setSaving] = useState(false);
   const [section, setSection] = useState('summary');
-  useEffect(() => setNote(commentary?.body ?? ''), [commentary, period]);
 
   const save = async () => {
     setSaving(true);
-    try { await act('note', { period, kind: 'commentary', key: '', body: note.trim(), detail: monthLong(period) }); } finally { setSaving(false); }
+    try { await act('note', { period, kind: 'commentary', key: '', body: draft.value.trim(), detail: monthLong(period) }); draft.discard(); }
+    catch (e) { await dialog.alert(e?.message || 'The commentary could not be saved. Your draft is kept.', { title: 'Month Commentary' }); }
+    finally { setSaving(false); }
+  };
+  const discard = async () => {
+    if (await dialog.confirm('Discard your draft and show the saved commentary?', { title: 'Discard Draft', confirmText: 'Discard', danger: true })) draft.discard();
   };
   const last12 = trend.slice(-12).map((t) => ({ label: monthLabel(t.month), revenue: Math.round(t.revenue), revenueBudget: t.budgetRevenue ? Math.round(t.budgetRevenue) : null, net: Math.round(t.net), netBudget: t.budgetRevenue || t.budgetExpense ? Math.round(t.budgetRevenue - t.budgetExpense) : null }));
   const material = perf?.variances.filter((v) => v.material && v.budget).slice(0, 6) ?? [];
@@ -45,7 +54,7 @@ export default function PerformanceTab({ canEdit }) {
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      <Toolbar right={<button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => nav('reports')}>Open Income Statement</button>} />
+      <Toolbar right={<button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => openStatement(win())}>Open Income Statement</button>} />
       {loading || !perf ? <LoadingBox height={84} /> : (
         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
           {perf.tiles.map((t) => (
@@ -58,20 +67,20 @@ export default function PerformanceTab({ canEdit }) {
 
       {section === 'summary' ? (
         <div style={grid}>
-          <Panel title="Revenue and net income · 12 months" style={halfWide}>
+          <Panel title="Revenue and Net Income · 12 Months" style={halfWide}>
             {loading ? <LoadingBox /> : last12.length < 2 ? <EmptyBox title="Not enough history" /> : (
               <>
                 <Lines data={last12} height={200} zero={false} series={[
-                  { key: 'revenueBudget', label: 'Revenue budget', color: '#0998c3', dashed: true },
+                  { key: 'revenueBudget', label: 'Revenue Budget', color: '#0998c3', dashed: true },
                   { key: 'revenue', label: 'Revenue', color: 'var(--wk-brand, #2b45e1)' },
-                  { key: 'netBudget', label: 'Net Income Budget', color: '#d97706', dashed: true },
-                  { key: 'net', label: 'Net Income', color: '#d97706' },
+                  { key: 'netBudget', label: 'Net Income Budget', color: SERIES_2, dashed: true },
+                  { key: 'net', label: 'Net Income', color: SERIES_2 },
                 ]} />
-                <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Revenue</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Net Income</span><span>Dashed = budget</span></div>
+                <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Revenue</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color={SERIES_2} />Net Income</span><span>Dashed = budget</span></div>
               </>
             )}
           </Panel>
-          <Panel title="What moved - material variances" sub="≥ $5K or ≥ 5% of budget" style={halfWide}>
+          <Panel title="What Moved - Material Variances" sub="≥ $5K or ≥ 5% of budget" style={halfWide}>
             {loading || !perf ? <LoadingBox /> : !hasBudget ? <EmptyBox title="No budget for this month" body="Post a budget journal in Nexus Accounting covering this month to rank variances." /> : !material.length ? <EmptyBox title="Nothing material" body="Every line is within threshold this month." /> : (
               <div>
                 {material.map((v, i) => (
@@ -87,7 +96,7 @@ export default function PerformanceTab({ canEdit }) {
       ) : null}
 
       {section === 'bva' ? (
-        <Panel title={`Budget vs actual vs prior year · ${periodLabel}`} bodyStyle={{ padding: 0 }} onOpenReport={() => nav('reports')}>
+        <Panel title={`Budget vs Actual vs Prior Year · ${periodLabel}`} bodyStyle={{ padding: 0 }} onOpenReport={() => openStatement(win())}>
           {loading || !perf ? <LoadingBox /> : <BvaTable rows={perf.variances} />}
         </Panel>
       ) : null}
@@ -100,9 +109,19 @@ export default function PerformanceTab({ canEdit }) {
       ) : null}
 
       {section === 'commentary' ? (
-        <Panel title="Month commentary" sub={commentary ? `Shared with everyone · ${commentary.written_by} · ${whenTxt(commentary.written_at)}` : 'Shared with everyone · nothing written yet'}>
-          <textarea className="form-input" value={note} onChange={(e) => setNote(e.target.value)} rows={5} disabled={!canEdit} style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: 14 }} placeholder="Explain the month for the Principals: what drove the variances, what is timing, what needs a decision." />
-          {canEdit ? <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}><button type="button" className="primary-btn" style={{ fontSize: 13 }} onClick={save} disabled={saving || !note.trim()}>Save commentary</button></div> : null}
+        <Panel title="Month Commentary" sub={commentary ? `Shared with everyone · ${commentary.written_by} · ${whenTxt(commentary.written_at)}` : 'Shared with everyone · nothing written yet'}>
+          <textarea className="form-input" value={draft.value} onChange={(e) => draft.set(e.target.value)} rows={5} disabled={!canEdit} style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'inherit', fontSize: 14 }} placeholder="Explain the month for the Principals: what drove the variances, what is timing, what needs a decision." />
+          {draft.stale ? (
+            <div role="status" style={{ marginTop: 8, fontSize: 13, color: WARN }}>
+              <WarnMark />{commentary ? `${commentary.written_by} saved a newer commentary ${whenTxt(commentary.written_at)}.` : 'The saved commentary changed.'} <span style={{ color: 'var(--text-secondary)' }}>Your draft is kept until you save or discard it.</span>
+            </div>
+          ) : null}
+          {canEdit ? (
+            <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              {draft.dirty ? <button type="button" className="secondary-btn" style={{ fontSize: 13 }} onClick={discard} disabled={saving}>Discard Draft</button> : null}
+              <button type="button" className="primary-btn" style={{ fontSize: 13 }} onClick={save} disabled={saving || !draft.dirty || !draft.value.trim()}>Save Commentary</button>
+            </div>
+          ) : null}
         </Panel>
       ) : null}
     </div>
@@ -112,6 +131,9 @@ export default function PerformanceTab({ canEdit }) {
 function BvaTable({ rows }) {
   const { m } = useDash();
   const [drill, lines] = useLineDrill();
+  const openStatement = useStatementOpen();
+  const win = useWindow();
+  const cols = useDashCols('bva');
   if (!rows.length) return <EmptyBox title="No activity this month" style={{ margin: 16 }} />;
   const sections = [['Revenue', 'Revenue'], ['Cost of Revenue', 'Cost of Revenue'], ['Operating Expenses', 'Operating Expenses'], ['Other', 'Interest and Depreciation']];
   const sum = (ls, k) => ls.reduce((t, l) => t + l[k], 0);
@@ -123,15 +145,16 @@ function BvaTable({ rows }) {
     const a = sum(ls, 'actual'), b = sum(ls, 'budget'), p = py(ls), v = a - b;
     return (
       <tr style={{ fontWeight: 700, borderTop: strong ? '2px solid var(--border-color)' : '1px solid var(--border-color)' }}>
-        <td>{label}</td>{cell(a, strong ? toneColor(a >= 0) : undefined)}{cell(b || null)}{cell(b ? v : null, b ? toneColor(v >= 0) : undefined)}
+        {/* A total is many accounts: it opens the Income Statement for the same months (and last year's). */}
+        <td>{label}</td>{cell(a, strong ? toneColor(a >= 0) : undefined, () => openStatement(win()))}{cell(b || null)}{cell(b ? v : null, b ? toneColor(v >= 0) : undefined)}
         <td style={{ ...num, fontSize: 12, color: b ? toneColor(v >= 0) : undefined }}>{b ? pctTxt(v / Math.abs(b)) : '-'}</td>
-        {cell(hasPy ? p : null)}<td style={{ ...num, fontSize: 12, color: hasPy && p ? toneColor(a - p >= 0) : undefined }}>{hasPy && p ? pct((a - p) / Math.abs(p)) : '-'}</td>
+        {cell(hasPy ? p : null, undefined, () => openStatement(win(12)))}<td style={{ ...num, fontSize: 12, color: hasPy && p ? toneColor(a - p >= 0) : undefined }}>{hasPy && p ? pct((a - p) / Math.abs(p)) : '-'}</td>
       </tr>
     );
   };
   return (
     <div className="req-table-wrapper">{lines}<table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-      <thead><tr><th>Line</th><th style={num}>Actual</th><th style={num}>Budget</th><th style={num}>Var $</th><th style={num}>Var %</th><th style={num}>Last Year</th><th style={num}>YoY</th></tr></thead>
+      <thead><tr>{[['line', 'Line'], ['actual', 'Actual'], ['budget', 'Budget'], ['var', 'Var $'], ['varPct', 'Var %'], ['py', 'Last Year'], ['yoy', 'YoY']].map(([id, label], i) => <RTh key={id} cols={cols} id={id} label={label} style={i ? num : undefined} />)}</tr></thead>
       <tbody>
         {sections.map(([g, label]) => {
           const ls = rows.filter((r) => r.group === g).sort((a, b) => a.gl.localeCompare(b.gl, 'en-US', { numeric: true }));
@@ -140,7 +163,7 @@ function BvaTable({ rows }) {
             <GroupBlock key={g} title={label}>
               {ls.map((r) => (
                 <tr key={r.id} style={!r.material ? { color: 'var(--text-muted)' } : undefined}>
-                  <td><span style={mono}>{r.gl}</span>{r.name}{r.material && r.budget ? <Chip tone={r.good ? 'ok' : 'bad'} style={{ marginLeft: 8 }}>material</Chip> : null}</td>
+                  <td><span style={mono}>{r.gl}</span>{r.name}{r.material && r.budget ? <Chip tone={r.good ? 'ok' : 'bad'} style={{ marginLeft: 8 }}>Material</Chip> : null}</td>
                   {cell(r.actual, undefined, () => drill(r))}{cell(r.budget || null)}{cell(r.budget ? r.v : null, r.budget ? toneColor(r.good) : undefined)}
                   <td style={{ ...num, fontSize: 12, color: r.budget ? toneColor(r.good) : undefined }}>{r.budget ? pctTxt(r.p) : '-'}</td>
                   {cell(hasPy ? r.py : null, undefined, r.py ? () => drill(r, { yearsAgo: 1 }) : undefined)}<td style={{ ...num, fontSize: 12, color: r.py != null ? toneColor(r.actual - r.py >= 0) : undefined }}>{r.py ? pct((r.actual - r.py) / Math.abs(r.py)) : '-'}</td>

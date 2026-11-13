@@ -8,6 +8,9 @@ import { formatDate } from '../../lib/datetime';
 import { folderName } from './LoanDialogs';
 import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 import { WarnMark } from './warnMark';
+import { ColumnResizer } from './reportControls';
+import { useColumnWidths } from './tableHooks';
+import { headStyle } from './columnStyles';
 
 // Accounting -> Loans & Financing, one loan opened under its row (Charmi and
 // Neil, 10/03-10/04):
@@ -83,6 +86,7 @@ export function paymentRows(history, { given = false, owedAtEnd = null, interest
 }
 
 function PaymentsTable({ rows, showBalance, showDraws = true, shareNote = '', onOpenEntry, empty }) {
+  const cw = useColumnWidths('loan-payments', {}, { min: 50 });
   if (!rows.length) return <div style={{ fontSize: 13, ...muted, padding: '6px 0' }}>{empty}</div>;
   const total = rows.reduce((t, r) => ({ principal: t.principal + r.principal, interest: t.interest + r.interest, draw: t.draw + r.draw }), { principal: 0, interest: 0, draw: 0 });
   return (
@@ -91,7 +95,7 @@ function PaymentsTable({ rows, showBalance, showDraws = true, shareNote = '', on
         <thead>
           <tr style={{ background: 'var(--bg-secondary)' }}>
             {['Date', 'Entry', 'Description', 'Principal Paid', shareNote ? 'Interest Paid (Share)' : 'Interest Paid', 'Total Payment', ...(showDraws ? ['Draws'] : []), ...(showBalance ? ['Balance After'] : [])].map((h, i) => (
-              <th key={h} title={h.startsWith('Interest') && shareNote ? shareNote : undefined} style={{ padding: '6px 10px', textAlign: i >= 3 ? 'right' : 'left', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{h}</th>
+              <th key={h} aria-label={h} title={h.startsWith('Interest') && shareNote ? shareNote : undefined} style={headStyle(cw.width(h), { padding: '6px 10px', textAlign: i >= 3 ? 'right' : 'left', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap' })}>{h}<ColumnResizer {...cw.resizer(h, h)} /></th>
             ))}
           </tr>
         </thead>
@@ -100,7 +104,7 @@ function PaymentsTable({ rows, showBalance, showDraws = true, shareNote = '', on
             <tr key={r.key}>
               <td>{formatDate(r.date)}</td>
               <td>{r.entryId ? <button type="button" className="acct-drill" onClick={() => onOpenEntry(r)} title="Open the whole entry">{r.entryNo || 'Entry'}</button> : (r.entryNo || '-')}</td>
-              <td style={{ maxWidth: 320 }} title={r.description}>{r.description || <span style={muted}>-</span>}</td>
+              <td style={{ whiteSpace: 'normal' }} title={r.description}>{r.description || <span style={muted}>-</span>}</td>
               <td style={num}><Amount value={r.principal} zero="dash" /></td>
               <td style={num}><Amount value={r.interest} zero="dash" /></td>
               <td style={num}><Amount value={r.principal + r.interest} zero="dash" /></td>

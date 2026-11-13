@@ -122,6 +122,18 @@ describe('PartnersTab', () => {
     api.getAccountingPartnerChanges.mockImplementation(async () => ({ changes }));
   });
 
+  // UX pass 11/12/2026: a failed read is an error with Retry, never "No pending approval requests".
+  it('says the requests could not be read, and reads them again on Retry', async () => {
+    api.getAccountingPartnerChanges.mockRejectedValueOnce(new Error('Server error'));
+    render(<PartnersTab />);
+    await screen.findByText('Acme Plumbing');
+    fireEvent.click(screen.getByRole('button', { name: /Requests/ }));
+    expect(await screen.findByText('Server error')).toBeTruthy();
+    expect(screen.queryByText(/No pending approval requests/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('760-555-0199')).toBeTruthy();
+  });
+
   it('hides the decision buttons from someone who cannot approve', async () => {
     render(<PartnersTab />);
     await screen.findByText('Acme Plumbing');

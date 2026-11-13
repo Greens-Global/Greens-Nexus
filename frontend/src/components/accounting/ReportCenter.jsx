@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FileStack, Hammer, Search, Users } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
@@ -17,7 +17,7 @@ import { StatusLabel } from '../StatusLabel';
 // One list of every report this person can open, grouped the way the Reports
 // menu groups them: each standard report and screen (from the menu itself,
 // already narrowed to what the person may open), the statements the menu does
-// not name (the plain Income Statement, Actual vs Budget), every memorized
+// not name (the plain Income Statement), every memorized
 // report they can see (theirs and the team's) marked Memorized under its
 // statement's group, and every Report Builder report marked Saved (a draft)
 // or Published. Sharing says who sees it: only the owner, or everyone with
@@ -27,10 +27,10 @@ import { StatusLabel } from '../StatusLabel';
 // A person limited to certain entities sees a memorized report only when
 // every entity it names is one of theirs - anything else would open empty.
 
+// The mark a memorized or Report Builder report carries; a standard report carries none.
 const TYPES = {
-  standard: { label: 'Standard', color: '#64748b' },
   memorized: { label: 'Memorized', color: '#2563eb' },
-  saved: { label: 'Saved', color: '#d97706' },
+  saved: { label: 'Saved', color: '#64748b' },
   published: { label: 'Published', color: '#16a34a' },
 };
 const FILTERS = [{ key: 'all', label: 'All Reports' }, { key: 'standard', label: 'Standard' }, { key: 'memorized', label: 'Memorized and Saved' }];
@@ -42,6 +42,20 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
   const [entities, setEntities] = useState([]);
   const [q, setQ] = useState('');
   const [show, setShow] = useState('all');
+  // Ctrl+F finds a report here, not in the ledger: the screen's own find
+  // comes first (ModuleSearch takes the key only when no screen did).
+  const filterBox = useRef(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key).toLowerCase() === 'f')) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      e.preventDefault();
+      filterBox.current?.focus();
+      filterBox.current?.select();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   useEffect(() => {
     let alive = true;
     api.getAccountingSavedReports()
@@ -76,7 +90,7 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
       <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <div style={{ position: 'relative', flex: '1 1 240px', maxWidth: 420 }}>
           <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />
-          <input type="text" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search reports" placeholder="Search reports by name, group or owner"
+          <input ref={filterBox} type="text" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search reports" placeholder="Find a report by name, group or owner (Ctrl+F)"
             style={{ ...control, width: '100%', paddingLeft: 28 }} />
         </div>
         <div role="group" aria-label="Show" style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
@@ -96,7 +110,7 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
           )}
           {leafKeys.has('report-builder') && (
             <button type="button" className="primary-btn" onClick={() => onOpen?.('report-builder')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}>
-              <Hammer size={14} /> New Custom Report
+              <Hammer size={14} /> New Report
             </button>
           )}
           <BarSearchSlot />
@@ -106,13 +120,16 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
       {error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)', fontSize: 13 }}>{error}</div>}
       {saved === null && <div style={{ ...card, padding: 12 }}><SkeletonBlocks count={4} /></div>}
 
-      {saved !== null && byGroup.map(([key, g]) => (
+      {saved !== null && byGroup.map(([key, g]) => {
+        // Owner, Sharing and Updated only where a group holds a memorized or Report Builder report.
+        const own = g.rows.some((r) => r.saved);
+        return (
         <section key={key} aria-label={g.label} style={{ ...card, padding: 10 }}>
           <h3 style={{ fontSize: 15, margin: '0 2px 8px' }}>{g.label}</h3>
           <div className="acct-lines-wrap">
             <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
               <thead>
-                <tr><th scope="col">Report</th><th scope="col">Type</th><th scope="col">Details</th><th scope="col">Owner</th><th scope="col">Sharing</th><th scope="col">Updated</th><th scope="col" aria-label="Open" /></tr>
+                <tr><th scope="col">Report</th><th scope="col">Details</th>{own && <><th scope="col">Type</th><th scope="col">Owner</th><th scope="col">Sharing</th><th scope="col">Updated</th></>}</tr>
               </thead>
               <tbody>
                 {g.rows.map((r) => (
@@ -120,23 +137,25 @@ export default function ReportCenter({ groups = [], limited = false, onOpen }) {
                     <td style={{ whiteSpace: 'normal', minWidth: 220 }}>
                       <button type="button" className="acct-drill" onClick={() => open(r)} title="Open this report">{r.label}</button>
                     </td>
-                    <td><StatusLabel size="sm" color={TYPES[r.type].color} label={TYPES[r.type].label} /></td>
                     <td style={{ color: 'var(--text-secondary)', whiteSpace: 'normal' }}>{r.about || ''}</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{r.saved ? (r.saved.mine ? 'You' : nameOf(r.saved.owner) || r.saved.owner) : ''}</td>
-                    <td style={{ color: 'var(--text-secondary)' }}>
-                      {r.saved ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Users size={12} /> {r.saved.shared ? 'Everyone' : 'Only the owner'}</span> : ''}
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{r.saved?.updatedAt ? formatDate(r.saved.updatedAt) : ''}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => open(r)} aria-label={`Open ${r.label}`}>Open</button>
-                    </td>
+                    {own && (
+                      <>
+                        <td>{TYPES[r.type] ? <StatusLabel size="sm" color={TYPES[r.type].color} label={TYPES[r.type].label} /> : ''}</td>
+                        <td style={{ color: 'var(--text-secondary)' }}>{r.saved ? (r.saved.mine ? 'You' : nameOf(r.saved.owner) || r.saved.owner) : ''}</td>
+                        <td style={{ color: 'var(--text-secondary)' }}>
+                          {r.saved ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Users size={12} /> {r.saved.shared ? 'Everyone' : 'Only the owner'}</span> : ''}
+                        </td>
+                        <td style={{ color: 'var(--text-secondary)' }}>{r.saved?.updatedAt ? formatDate(r.saved.updatedAt) : ''}</td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </section>
-      ))}
+        );
+      })}
       {saved !== null && !byGroup.length && (
         <div style={{ ...card, padding: 22, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 14 }}>No report matches that search.</div>
       )}

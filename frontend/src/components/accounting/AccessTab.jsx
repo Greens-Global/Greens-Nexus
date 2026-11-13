@@ -45,6 +45,8 @@ import { WarnMark } from './warnMark';
 const LEVELS = { viewer: 'Viewer', editor: 'Editor', full: 'Full', owner: 'Owner', administrator: 'Administrator' };
 const PFS_LEVELS = [['none', 'None'], ['viewer', 'Viewer'], ['editor', 'Editor']];
 const CHIP_LIMIT = 5;
+// Same members, any order (the popups' unsaved-change check).
+const sameSet = (set, list) => set.size === list.length && list.every((x) => set.has(x));
 
 // A face beside every name: the Nexus People photo, initials without one.
 function Face({ email, name, size = 26 }) {
@@ -54,7 +56,7 @@ function Face({ email, name, size = 26 }) {
   const parts = (name || '').trim().split(/\s+/).filter(Boolean);
   const initials = parts.length ? (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase() : '?';
   return (
-    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(size * 0.38), fontWeight: 700, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}>
+    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.max(11, Math.round(size * 0.38)), fontWeight: 700, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}>
       {initials}
     </span>
   );
@@ -98,7 +100,7 @@ export default function AccessTab() {
   const owner = myRole === 'owner';
   const [pfs, setPfs] = useState(null);            // owners: everyone's PFS access, by email
   const [pfsFiles, setPfsFiles] = useState([]);    // owners: every PFS file, for "which PFS"
-  const [pfsError, setPfsError] = useState('');
+  const [pfsLoadError, setPfsLoadError] = useState('');
   const [pfsExtra, setPfsExtra] = useState([]);    // people added to the PFS-only list on this visit
   const [pickingFiles, setPickingFiles] = useState(null);   // { email, name, row }
   const nameOf = useNameResolver();
@@ -116,20 +118,19 @@ export default function AccessTab() {
     load();
     api.getAccountingLocations().then((d) => setEntities(d?.entities || [])).catch(() => setEntities([]));
   }, [load]);
+  // A failed read says so (with Retry) instead of the PFS column and section quietly vanishing.
+  const loadPfs = useCallback((alive = { current: true }) => api.getPfsAccessPeople()
+      .then((d) => { if (alive.current) { setPfsLoadError(''); setPfs(new Map((d?.people || []).map((p) => [p.email, p]))); setPfsFiles(d?.files || []); } })
+      .catch((e) => { if (alive.current) { setPfs(null); setPfsLoadError(e?.message || 'Could not load who has PFS access.'); } }), []);
   useEffect(() => {
     if (!owner) return undefined;
-    let alive = true;
-    api.getPfsAccessPeople()
-      .then((d) => { if (alive) { setPfs(new Map((d?.people || []).map((p) => [p.email, p]))); setPfsFiles(d?.files || []); } })
-      .catch(() => { if (alive) setPfs(null); });
-    return () => { alive = false; };
-  }, [owner]);
-  const setPfsLevel = (email, level, files) => {
-    setPfsError('');
-    return (files ? api.setPfsAccessLevel(email, level, files) : api.setPfsAccessLevel(email, level))
-      .then((row) => setPfs((m) => { const n = new Map(m); n.set(email, { ...(m.get(email) || {}), ...row }); return n; }))
-      .catch((e) => { setPfsError(e?.message || 'Could not change the PFS access.'); throw e; });
-  };
+    const alive = { current: true };
+    loadPfs(alive);
+    return () => { alive.current = false; };
+  }, [owner, loadPfs]);
+  // A refusal is shown on the row that asked (PfsLevel) or in the file picker.
+  const setPfsLevel = (email, level, files) => (files ? api.setPfsAccessLevel(email, level, files) : api.setPfsAccessLevel(email, level))
+    .then((row) => setPfs((m) => { const n = new Map(m); n.set(email, { ...(m.get(email) || {}), ...row }); return n; }));
   const pickFiles = (row, email, name) => setPickingFiles({ email, name, row });
   // PFS access for people outside the Accounting list.
   const listed = useMemo(() => new Set((people || []).map((p) => p.email)), [people]);
@@ -197,7 +198,7 @@ export default function AccessTab() {
                   </td>
                   {pfs && <td style={cell}><PfsLevel row={pfs.get(p.email)} email={p.email} name={p.name} files={pfsFiles} onSet={setPfsLevel} onPickFiles={pickFiles} /></td>}
                   <td style={{ ...cell, color: p.lastOpened ? undefined : 'var(--text-muted)', whiteSpace: 'normal' }} title={p.opens ? `${p.opens.toLocaleString('en-US')} ${p.opens === 1 ? 'visit' : 'visits'}` : undefined}>
-                    {p.lastOpened ? `${formatDateTime(p.lastOpened)}${p.opens > 1 ? ` · ${p.opens.toLocaleString('en-US')} visits` : ''}` : 'Not yet'}
+                    {p.lastOpened ? `${formatDateTime(p.lastOpened)}${p.opens > 1 ? ` · ${p.opens.toLocaleString('en-US')} visits` : ''}` : 'Not Yet'}
                   </td>
                   <td style={{ ...cell, textAlign: 'right' }}>
                     {p.admin
@@ -216,7 +217,7 @@ export default function AccessTab() {
             </tbody>
           </table>
         </div>
-        {pfsError && <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginTop: 10 }}>{pfsError}</div>}
+        {owner && pfsLoadError && <div style={{ marginTop: 10 }}><AsyncSection error errorMessage={`PFS access: ${pfsLoadError}`} onRetry={() => loadPfs()} /></div>}
         {pfs && (
           <section aria-label="PFS Access Without Accounting" style={{ marginTop: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
@@ -270,6 +271,14 @@ export default function AccessTab() {
 // here still limit it.
 function PfsLevel({ row, email, name, files, onSet, onPickFiles }) {
   const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState(null);     // { ok, text } - the save's answer, on this row
+  const change = (level) => {
+    setBusy(true); setSaid(null);
+    Promise.resolve(onSet(email, level))
+      .then(() => { setSaid({ ok: true, text: 'Saved' }); setTimeout(() => setSaid((x) => (x?.ok ? null : x)), 2500); })
+      .catch((e) => setSaid({ ok: false, text: e?.message || 'Could not change the PFS access.' }))
+      .finally(() => setBusy(false));
+  };
   const r = row || { email, level: 'none', managedLevel: 'none', otherGroups: [], files: [], canChange: true };
   if (r.isOwner || r.level === 'owner') return <span style={{ fontWeight: 600 }}>Owner <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-muted)' }}>· All PFS</span></span>;
   const other = (r.otherGroups || []).filter((g) => g.level && g.level !== 'none');
@@ -278,7 +287,7 @@ function PfsLevel({ row, email, name, files, onSet, onPickFiles }) {
   return (
     <div style={{ display: 'grid', gap: 3 }}>
       <select value={r.managedLevel || 'none'} disabled={busy || r.canChange === false} aria-label={`PFS access for ${name}`}
-        onChange={(e) => { setBusy(true); Promise.resolve(onSet(email, e.target.value)).catch(() => {}).finally(() => setBusy(false)); }}
+        onChange={(e) => change(e.target.value)}
         style={{ ...control, height: 26, fontSize: 12, width: 130 }}>
         {PFS_LEVELS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}
       </select>
@@ -289,6 +298,9 @@ function PfsLevel({ row, email, name, files, onSet, onPickFiles }) {
           <FileText size={11} /> {picked.length ? `${picked.length} of ${files.length || picked.length} PFS` : 'All PFS'}
         </button>
       )}
+      {said && (said.ok
+        ? <span role="status" style={{ fontSize: 11, color: 'var(--ok-fg, #15803d)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Check size={11} aria-hidden="true" />{said.text}</span>
+        : <span role="alert" style={{ fontSize: 11, color: 'var(--bad-fg, #dc2626)', whiteSpace: 'normal' }}>{said.text}</span>)}
       {other.length > 0 && (
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           Also {other.map((g) => `${LEVELS[g.level] || g.level} through ${g.name}`).join(', ')}
@@ -305,6 +317,7 @@ function PfsFilePicker({ person, files, onClose, onSave }) {
   const start = person.row?.files || [];
   const [mode, setMode] = useState(start.length ? 'some' : 'all');
   const [picked, setPicked] = useState(() => new Set(start));
+  const dirty = (mode === 'all') !== !start.length || (mode === 'some' && !sameSet(picked, start));
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -327,7 +340,7 @@ function PfsFilePicker({ person, files, onClose, onSave }) {
   };
   const choice = (on) => ({ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' });
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={onClose} role="presentation" data-nx-dirty={dirty ? '1' : undefined}>
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={`Which PFS ${person.name} can see`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -454,13 +467,13 @@ function IntacctImport({ names, onClose, onApplied }) {
                         <td>{p.matched && !p.unknown ? <input type="checkbox" aria-label={`Bring ${p.name || p.intacctName}`} checked={picked.has(p.email)} onChange={() => toggle(p.email)} /> : null}</td>
                         <td title={p.email || undefined}>{p.intacctName || p.login}{p.login && p.intacctName ? <span className="acct-code" style={{ marginLeft: 8 }}>{p.login}</span> : null}{p.status && !/active/i.test(p.status) ? <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-muted)' }}>{p.status}</span> : null}</td>
                         <td>{p.matched ? <>{p.name}{!p.hasGrant && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> · no Accounting access yet</span>}</> : <span style={{ color: 'var(--text-muted)' }}>{p.email ? 'Not in Nexus People' : 'No email in Intacct'}</span>}</td>
-                        <td style={{ whiteSpace: 'normal', maxWidth: 360, fontWeight: p.differs ? 600 : 400 }}>
+                        <td style={{ whiteSpace: 'normal', fontWeight: p.differs ? 600 : 400 }}>
                           {p.unknown
                             ? <span style={{ color: 'var(--bad-fg, #dc2626)', fontWeight: 600 }} title="Intacct says this user is restricted, but the connection's login may not read which entities. Grant it the User Restrictions permission in Intacct and open this again.">Restricted - entities not readable</span>
                             : list(p.entities)}
                           {p.departments?.length ? <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>Departments in Intacct: {p.departments.join(', ')} (not carried over)</span> : null}
                         </td>
-                        <td style={{ whiteSpace: 'normal', maxWidth: 360, color: p.matched ? undefined : 'var(--text-muted)' }}>{p.matched ? list(p.current) : '-'}{p.matched && !p.differs ? <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--ok-fg, #15803d)' }}>Same</span> : null}</td>
+                        <td style={{ whiteSpace: 'normal', color: p.matched ? undefined : 'var(--text-muted)' }}>{p.matched ? list(p.current) : '-'}{p.matched && !p.differs ? <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--ok-fg, #15803d)' }}>Same</span> : null}</td>
                       </tr>
                     ))}
                     {!people.length && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '18px 10px' }}>Intacct returned no users.</td></tr>}
@@ -483,6 +496,7 @@ function IntacctImport({ names, onClose, onApplied }) {
 function EntityLimit({ person, entities, onClose, onSaved }) {
   const [mode, setMode] = useState(person.entities.length ? 'some' : 'all');
   const [picked, setPicked] = useState(() => new Set(person.entities));
+  const dirty = (mode === 'all') !== !person.entities.length || (mode === 'some' && !sameSet(picked, person.entities));
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -511,7 +525,7 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
   };
   const choice = (on) => ({ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' });
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={onClose} role="presentation" data-nx-dirty={dirty ? '1' : undefined}>
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={`Entities ${person.name} can read`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>

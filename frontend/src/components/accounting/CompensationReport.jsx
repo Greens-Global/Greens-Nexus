@@ -441,6 +441,7 @@ function StatementPanel({ panel, curLabel, priorLabel, onClose, onLines, exportI
   const rows = useMemo(() => statementRows(subject), [subject]);
   const [folded, setFolded] = useState(() => new Set());
   const [printing, setPrinting] = useState(false);
+  const [printError, setPrintError] = useState('');
   const foldId = (r) => (r.kind === 'section' ? r.section : r.group);
   const toggle = (id) => setFolded((f) => { const n = new Set(f); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const allIds = useMemo(() => rows.filter((r) => FOLDING.has(r.kind)).map(foldId), [rows]);
@@ -450,7 +451,8 @@ function StatementPanel({ panel, curLabel, priorLabel, onClose, onLines, exportI
   const table = () => statementTable(subject, { name: heading, curLabel, priorLabel });
   const print = async () => {
     setPrinting(true);
-    try { printFile(await linesFile(table(), 'pdf')); } finally { setPrinting(false); }
+    setPrintError('');
+    try { printFile(await linesFile(table(), 'pdf')); } catch (e) { setPrintError(e?.message || 'Could not build the page to print.'); } finally { setPrinting(false); }
   };
   const caption = [subject.companyName, subject.department, subject.title].filter(Boolean).join(' · ') || (subject.people > 1 ? `${subject.people} employees` : '');
   const cell = (r, period) => {
@@ -496,6 +498,7 @@ function StatementPanel({ panel, curLabel, priorLabel, onClose, onLines, exportI
         </button>
         <ExportMenu items={exportItems(table)} />
       </div>
+      {printError && <ErrorBanner message={printError} />}
       <div style={{ ...card, overflowX: 'auto' }}>
         <table aria-label={`Employee Compensation Report - ${name}`} style={{ borderCollapse: 'collapse', width: '100%' }}>
           <thead>
@@ -600,12 +603,12 @@ const NO_LINES = { lines: [], total: 0 };
 // Valinda's Fuel) plus the entry and account, with a running balance. Each
 // drags to its width, kept per person (useColumnWidths).
 const GL_COLUMNS = [
-  { key: 'date', label: 'Posted Date', width: 92, text: (l) => formatDate(l.entry_date) },
+  { key: 'date', label: 'Date', width: 92, text: (l) => formatDate(l.entry_date) },
   { key: 'entry', label: 'Entry', width: 86 },
   { key: 'doc', label: 'Doc', width: 64, text: (l) => l.doc },
   { key: 'account', label: 'Account', width: 140 },
   { key: 'memo', label: 'Memo', width: 150, text: (l) => l.memo || l.description },
-  { key: 'location', label: 'Location', width: 112, text: (l) => l.location_name || l.location },
+  { key: 'location', label: 'Entity', width: 112, text: (l) => l.location_name || l.location },
   { key: 'vendor', label: 'Vendor', width: 110, text: (l) => l.vendor_name || l.vendor_id },
   { key: 'customer', label: 'Customer', width: 90, text: (l) => l.customer_name || l.customer_id },
   { key: 'item', label: 'Item', width: 80, text: (l) => l.item_name || l.item_id },

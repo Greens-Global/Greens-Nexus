@@ -178,8 +178,9 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
 
   return createPortal(
     <div className="modal-overlay" role="presentation" {...backdrop}>
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Add loans from the ledger"
-        style={{ maxWidth: 'min(1480px, 96vw)', width: '96vw', height: '92vh', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* A sheet from the right (the house popup); the wide table keeps a wider-than-60% sheet. */}
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Add loans from the ledger"
+        style={{ width: 'min(1480px, 96vw)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Add Loans From the Ledger</h3>
@@ -189,7 +190,7 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ padding: '12px 24px 6px', display: 'grid', gap: 10, alignContent: 'start', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <div className="nx-fill" style={{ padding: '12px 24px 6px', display: 'grid', gap: 10, alignContent: 'start', minHeight: 0, overflowY: 'auto' }}>
           {error && <div style={bad}>{error}</div>}
           {scanError && (
             <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

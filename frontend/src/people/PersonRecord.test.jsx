@@ -24,6 +24,8 @@ vi.mock('../contexts/RoleContext', async (importOriginal) => ({
     : { hrTeam: false, hrScope: null, can: () => true, canAccessModule: () => true, myEmail: 'hr@x.com',
       myRole: 'administrator', myGrantedModules: new Map([['hr', 'owner']]), isExternal: false }),
 }));
+// The person's PAN and country on Pay (GSTIN / PAN are India-only, 11/12/2026).
+const pay = vi.hoisted(() => ({ pan: 'ABCDE1234F', country: '' }));
 const confirm = vi.fn(() => Promise.resolve(true));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a), alert: () => Promise.resolve(), prompt: () => Promise.resolve(null), undo: () => {} } }));
 
@@ -32,8 +34,10 @@ const setOnSchedule = vi.fn((email, on) => Promise.resolve({ email, on, openedSh
 vi.mock('../api', () => {
   const data = {
     getEmployees: [LEO, MIA], getEntities: [{ id: 'co1', name: 'Greens Co' }],
-    getCompensation: { compensation: { base: 5200, currency: 'USD', payBasis: 'salary', frequency: 'monthly', benefits: [] },
-      bank: [], payroll: {}, rateHistory: [], gstin: '', pan: 'ABCDE1234F' },
+    get getCompensation() {
+      return { compensation: { base: 5200, currency: 'USD', payBasis: 'salary', frequency: 'monthly', benefits: [] },
+        bank: [], payroll: { country: pay.country }, rateHistory: [], gstin: '', pan: pay.pan };
+    },
     getWorkersCompRates: { rates: [], history: [] },
     getGeofence: { geofence: { mode: 'onsite' }, lastPunchLocation: null, workSites: [] },
     timeSchedule: { usual: {}, shifts: [], groups: [] },
@@ -48,7 +52,7 @@ vi.mock('../api', () => {
   return { api, default: api };
 });
 
-beforeEach(() => { role.team = false; });
+beforeEach(() => { role.team = false; pay.pan = 'ABCDE1234F'; pay.country = ''; });
 afterEach(() => { cleanup(); updateEmployee.mockClear(); setOnSchedule.mockClear(); confirm.mockClear(); confirm.mockImplementation(() => Promise.resolve(true)); });
 
 async function openLeo() {
@@ -134,6 +138,25 @@ describe('Person record - HR', () => {
     // Untouched edit: no question, straight to Compliance.
     fireEvent.click(await screen.findByRole('button', { name: /^Edit$/ }));
     expect(screen.getByLabelText('PAN (India)').value).toBe('ABCDE1234F');
+  }, 30000);
+
+  it('Pay offers no GSTIN or PAN to a person in the US with none on file', async () => {
+    pay.pan = ''; pay.country = 'US';
+    await openLeo();
+    tab('Pay');
+    await screen.findByText('Bank Accounts');
+    expect(screen.queryByTestId('pay-pan')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Edit$/ }));
+    expect(screen.queryByLabelText('GSTIN')).toBeNull();
+  }, 30000);
+
+  it('Pay offers the GSTIN to a person in India', async () => {
+    pay.pan = ''; pay.country = 'IN';
+    await openLeo();
+    tab('Pay');
+    expect(await screen.findByTestId('pay-pan')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Edit$/ }));
+    expect(screen.getByLabelText('GSTIN')).toBeTruthy();
   }, 30000);
 
   it('Actions opens for a person not yet provisioned (no M365 id), with one divider before the red items', async () => {

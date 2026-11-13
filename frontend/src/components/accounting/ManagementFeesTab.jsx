@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ExternalLink, Pencil } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
 import { formatDate } from '../../lib/datetime';
@@ -14,11 +14,13 @@ import { linesFile } from './linesExport';
 import { useTableSync } from './tableSync';
 import { ColumnFilterRow, useColumnFilters } from './columnFilters';
 import { cellStyle, headStyle } from './columnStyles';
-import { requestReportDrill } from './drill';
+import { requestReportDrill, requestStatement } from './drill';
+import AddMenu from './AddMenu';
 import { Chip } from './LoanSetupDialog';
 import { Dialog } from './LoanDialogs';
 import { notAvailable } from './LoansTab';
 import { DateField } from '../../tasks/components';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // Accounting -> Reporting -> Management Fees, the Asset Management Agreements
 // (Priyanka, Oct 7: "We still need to build AMA"). Oct 15 (Neil): AMA means
@@ -143,24 +145,12 @@ function SkeletonRows({ rows = 5, cols = 10 }) {
   ));
 }
 
-// Pencil and trash: the trash is confirmed in place, never a browser dialog.
+// Pencil, then Remove held right on the row (Hold to confirm, Neil 10/30/2026).
 function RowActions({ row, name, onEdit, onRemove }) {
-  const [asking, setAsking] = useState(false);
-  const [busy, setBusy] = useState(false);
-  if (asking) {
-    return (
-      <span role="group" aria-label={`Remove the agreement of ${name}?`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Remove?</span>
-        <button type="button" className="primary-btn" disabled={busy} onClick={() => { setBusy(true); onRemove(row).finally(() => { setBusy(false); setAsking(false); }); }}
-          style={{ fontSize: 12, height: 24, padding: '0 8px', background: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)' }}>{busy ? 'Removing...' : 'Remove'}</button>
-        <button type="button" className="secondary-btn" disabled={busy} onClick={() => setAsking(false)} style={{ fontSize: 12, height: 24, padding: '0 8px' }}>Keep</button>
-      </span>
-    );
-  }
   return (
-    <span style={{ display: 'inline-flex', gap: 2 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
       <button type="button" className="icon-btn" aria-label={`Edit the agreement of ${name}`} onClick={onEdit} style={{ padding: 4, color: 'var(--text-muted)' }}><Pencil size={13} /></button>
-      <button type="button" className="icon-btn" aria-label={`Remove the agreement of ${name}`} title="Remove this agreement" onClick={() => setAsking(true)} style={{ padding: 4, color: 'var(--text-muted)' }}><Trash2 size={13} /></button>
+      <HoldButton size="sm" label="Remove" doneLabel="Removed" holdMs={HOLD_RECORD_MS} ariaLabel={`Remove the agreement of ${name}`} fallbackMessage={`Remove the agreement of ${name}?`} onConfirm={() => onRemove(row)} />
     </span>
   );
 }
@@ -494,10 +484,7 @@ ${FILTER_CSS}`}</style>
           ]} />
           </BarMore>
           {canEdit && !unavailable && (
-            <button type="button" className="primary-btn" onClick={() => setDialog('add')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}>
-              <Plus size={14} /> Add Agreement
-            </button>
+            <AddMenu ariaLabel="Add an agreement" items={[{ key: 'agreement', label: 'Agreement', hint: 'Add an asset management agreement', onPick: () => setDialog('add') }]} />
           )}
         </div>
       </ControlBar>
@@ -521,9 +508,9 @@ ${FILTER_CSS}`}</style>
       ))}
 
       {!error && !loading && !all.length && (
-        <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)', display: 'grid', gap: 6, maxWidth: 760 }}>
+        <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
           <strong style={{ color: 'var(--text-primary)' }}>No asset management agreements yet.</strong>
-          <span>{canEdit ? 'Add one with + Add Agreement: the managed entity, the fee and how often it is billed.' : 'An editor on Accounting can add them here.'}</span>
+          <span>{canEdit ? 'Add one with + Add: the managed entity, the fee and how often it is billed.' : 'An editor on Accounting can add them here.'}</span>
         </div>
       )}
       {!error && !loading && all.length > 0 && !rows.length && !boxes.filtering && (
@@ -569,7 +556,11 @@ ${FILTER_CSS}`}</style>
                       fee: <td style={cellStyle(w('fee'), { whiteSpace: 'nowrap' })} title={feeText(r)}>{feeText(r)}</td>,
                       gross: <td style={cellStyle(w('gross'), num)}
                         title={failed ? r.error : r.grossError || (r.periodFrom ? `${entityText(entities, r.entityCode)} gross revenue, ${formatDate(r.periodFrom)} - ${formatDate(r.periodTo)}` : undefined)}>
-                        {r.grossRevenue == null ? dash : <Amount value={r.grossRevenue} />}
+                        {/* Gross is many revenue accounts: it opens the Income Statement for the entity and period, each line drilling to its ledger lines. */}
+                        {r.grossRevenue == null ? dash : r.periodFrom ? (
+                          <button type="button" className="acct-drill" aria-label={`Income Statement behind the gross revenue of ${name}`}
+                            onClick={() => requestStatement({ entities: [r.entityCode], from: r.periodFrom, to: r.periodTo })}><Amount value={r.grossRevenue} /></button>
+                        ) : <Amount value={r.grossRevenue} />}
                       </td>,
                       calculated: <td style={cellStyle(w('calculated'), { ...num, fontWeight: 600 })} title={calcTitle(r)}>
                         {r.calculatedFee == null ? dash : <Amount value={r.calculatedFee} />}

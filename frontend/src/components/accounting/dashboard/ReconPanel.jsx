@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, FileUp, Paperclip } from 'lucide-react';
+import { CheckCircle2, ExternalLink, FileUp, Paperclip } from 'lucide-react';
 import { api } from '../../../api';
 import { fmtMDY, mEnd, monthLong, mStart } from '../../../accounting/dashboard/model/months';
 import { formatDateTime } from '../../../lib/datetime';
@@ -12,6 +12,7 @@ import { BAD, Chip, OK, input, num } from './Bits';
 import { useDash } from './DashContext';
 import { loanIdOf } from './liabilityRecon';
 import { dialog } from '../../../ui/dialog';
+import HoldButton, { HOLD_RECORD_MS } from '../../../ui/HoldButton';
 
 // One account of the reconciliation list opened on the right (Charmi, 10/25,
 // item 08: "Need to have the ability to drill down"), the list still beside
@@ -29,7 +30,12 @@ import { dialog } from '../../../ui/dialog';
 // Intacct.
 
 const LINES = 500;
-const money2 = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? '-' : Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+// Negatives in parentheses, like every Accounting table (11/12/2026).
+const money2 = (v) => {
+  if (v == null || v === '' || Number.isNaN(Number(v))) return '-';
+  const s = Math.abs(Number(v)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return Number(v) <= -0.005 ? `(${s})` : s;
+};
 const parseAmount = (s) => {
   const t = String(s ?? '').replace(/[$,\s]/g, '');
   if (!t) return null;
@@ -225,6 +231,7 @@ function LiabilityRecon({ loanId, period, canEdit, canManage, onDirty, onSaved }
       onDirty(false);
       onSaved?.();
     } catch (e) {
+      if (reconcile) throw e;   // the hold button rewinds and says why
       setError(e?.message || 'Could not save.');
     } finally {
       setBusy('');
@@ -307,8 +314,9 @@ function LiabilityRecon({ loanId, period, canEdit, canManage, onDirty, onSaved }
         ) : canEdit && !noGl ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" disabled={!!busy || stmt == null} onClick={() => save(false)}>{busy === 'save' ? 'Saving...' : 'Save'}</button>
-            <button type="button" className="primary-btn" disabled={!!busy || !zero} onClick={() => save(true)}
-              title={zero ? 'Mark this month reconciled' : 'The difference must be 0.00 first'}>{busy === 'reconcile' ? 'Saving...' : 'Mark Reconciled'}</button>
+            {/* It locks the month (only an admin reopens it): press and hold (11/12/2026). */}
+            <HoldButton label="Mark Reconciled" doneLabel="Reconciled" icon={CheckCircle2} size="sm" holdMs={HOLD_RECORD_MS}
+              disabled={!!busy || !zero} onConfirm={() => save(true)} fallbackMessage={`Mark ${monthLong(period)} reconciled? Only an Accounting admin can reopen it.`} />
             {!zero && diff != null ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Mark Reconciled opens at a 0.00 difference.</span> : null}
           </div>
         ) : !canEdit ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Read only: reconciling needs the Accounting editor level.</div> : null}

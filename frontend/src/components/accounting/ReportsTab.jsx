@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, FolderUp, Loader2, Mail, Maximize2, Minimize2, Pencil, RotateCcw, Search, Share2, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react';
+import { Check, FolderUp, Info, Loader2, Mail, Maximize2, Minimize2, Pencil, RotateCcw, Search, Share2, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
@@ -24,7 +24,7 @@ import {
 import { useTableSync } from './tableSync';
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
-  reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
+  reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, STATEMENT_KEYS, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
   viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity, needsEntityList, countDims,
 } from './reportModel';
 
@@ -464,9 +464,8 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     try {
       const file = await linesFile(await linesExport.build(), format);
       downloadBlob(file.name, file);
-    } catch (e) {
-      setError(e?.message || 'Could not export the lines.');
     } finally {
+      // A failure goes up to the Export menu, which says why (the report's error box is hidden while lines show).
       setLinesBusy('');
     }
   };
@@ -647,7 +646,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     if (r.kind !== 'section' && r.kind !== 'group' && r.section && collapsed.has(r.section)) return false;
     return true;
   }), [sortedRows, collapsed, filterOn]);
-  const paged = useMemo(() => reportPages(openRows, custom.pageSize), [openRows, custom.pageSize]);
+  // The financial statements are never split over pages - a Balance Sheet reads top to bottom; ledger-line reports keep paging.
+  const unpaged = STATEMENT_KEYS.has(config.report);
+  const paged = useMemo(() => reportPages(openRows, unpaged ? 0 : custom.pageSize), [openRows, custom.pageSize, unpaged]);
   const pageKey = `${key}|${custom.pageSize}|${JSON.stringify(colFilters)}|${config.report}|${sort.key}${sort.dir}`;
   const [pageState, setPageState] = useState({ page: 1, key: pageKey });
   let page = pageState.page;
@@ -804,11 +805,11 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           <BarMore level={1}>
           <SavedReportsMenu reports={saved} loading={savedState.loading} error={savedState.error} activeId={activeSaved?.id}
             onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} onManage={() => setManaging(true)} nameOf={nameOf} />
-          <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${periodOf(config) === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
+          <MemorizeButton onSave={memorize} mine={saved.filter((r) => r.mine)} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${periodOf(config) === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
           <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} showZero={config.showZero} onShowZero={(v) => patch({ showZero: v })}
             showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })}
             showHistoricalAccounts={!!prefs.showHistoricalAccounts} onShowHistoricalAccounts={(v) => setPrefs({ showHistoricalAccounts: v })}
-            pageSize={custom.pageSize} onPageSize={custom.onPageSize}
+            {...(unpaged ? {} : { pageSize: custom.pageSize, onPageSize: custom.onPageSize })}
             {...(shown?.activeKnown ? { showInactiveAccounts: custom.showInactiveAccounts, onShowInactiveAccounts: custom.onShowInactiveAccounts } : {})}
             flux={config.report === 'flux' ? { fluxPct: config.fluxPct, fluxAmount: config.fluxAmount } : null} onFlux={(p) => patch(p)} />
           </BarMore>
@@ -935,7 +936,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
               {chips.length > 1 && (
                 <button type="button" onClick={() => patch({ entities: [], dims: { ...EMPTY_DIMS }, accounts: [], fluxStatus: 'all', fluxFilter: { ...config.fluxFilter, a: '', b: '' } })}
                   style={{ border: 'none', background: 'none', font: 'inherit', fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
-                  Clear all filters
+                  Clear All Filters
                 </button>
               )}
             </div>
@@ -951,6 +952,12 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             </div>
           )}
 
+          {/* Notes about what is NOT on screen (a General Ledger over 25 accounts shows balances only) sit above the table, not under the pager. */}
+          {(shown.notes || []).length > 0 && (
+            <div role="note" style={{ display: 'grid', gap: 4, margin: '0 2px 8px', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--warn-bg, #fefce8)', fontSize: 12, color: 'var(--text-primary)' }}>
+              {shown.notes.map((n) => <div key={n} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}><Info size={13} style={{ flexShrink: 0, marginTop: 1, color: 'var(--warn-fg, #a16207)' }} aria-hidden="true" />{n}</div>)}
+            </div>
+          )}
           <div className={`acct-report-wrap${full ? '' : ' acct-scroll-box'}`} data-testid="report-box" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }} onCopy={copyRaw}>
             {/* Oct 23 (Viral, item 10): the whole heading block - names and filter
                 boxes - pins to the top of the box (acct-sticky-head, style.css). */}
@@ -1026,10 +1033,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           {filterOn && (
             <div role="status" style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <span>Filtered to {matchedCount.toLocaleString('en-US')} {matchedCount === 1 ? 'row' : 'rows'}. Section and grand totals are for the whole report.</span>
-              <button type="button" onClick={() => setColFilters({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear column filters</button>
+              <button type="button" onClick={() => setColFilters({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
             </div>
           )}
-          {(shown.notes || []).map((n) => <div key={n} style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>{n}</div>)}
           <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
             Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Click any underlined amount for the lines behind it{shown.glLabel ? ', an entry number for the whole entry' : ''}; click a section to fold it; drag the edge of a column heading to change its width (double-click fits it).
           </div>

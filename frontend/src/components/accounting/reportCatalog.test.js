@@ -28,10 +28,13 @@ describe('Report Center catalogue', () => {
     const rows = standardEntries(GROUPS);
     const keys = rows.map((r) => r.key);
     expect(keys).not.toContain('reports');
-    expect(keys).toEqual(expect.arrayContaining(['report-builder', 'packages', 'rpt-balance-sheet', 'rpt-pnl-t12', 'budget', 'mri', 'rpt-pnl', 'rpt-budget', 'rpt-general-ledger', 'rpt-card-activity']));
+    expect(keys).toEqual(expect.arrayContaining(['report-builder', 'packages', 'rpt-balance-sheet', 'rpt-pnl-t12', 'budget', 'mri', 'rpt-pnl', 'rpt-general-ledger', 'rpt-card-activity']));
     expect(rows.find((r) => r.key === 'rpt-pnl-t12').label).toBe('Income Statement, T12');
     expect(rows.find((r) => r.key === 'rpt-pnl')).toMatchObject({ label: 'Income Statement', groupKey: 'grp-financial' });
-    expect(rows.find((r) => r.key === 'rpt-budget')).toMatchObject({ label: 'Actual vs Budget', groupKey: 'grp-budget' });
+    // The plain Budget vs. Actual is the menu's Year to Date / Month to Date - never a second row.
+    expect(keys).not.toContain('rpt-budget');
+    // Every standard row says what it is.
+    expect(rows.filter((r) => !r.about).map((r) => r.key)).toEqual([]);
   });
 
   it('marks memorized and builder reports apart from the standard ones, under their groups', () => {

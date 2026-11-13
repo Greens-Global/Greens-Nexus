@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { closeState } from '../../../accounting/dashboard/model/close';
 import { holdingsInScope, intercompanyRows, loansInScope, partnerSummary, upcomingDeadlines, valuation } from '../../../accounting/dashboard/model/capital';
 import { balancesAt, cashTrend, monthTotals } from '../../../accounting/dashboard/model/ledger';
@@ -23,60 +23,75 @@ const useTable = (key) => {
   return tables?.[key] ?? EMPTY;
 };
 
+// A shared-tables read that failed (11/12/2026 UX pass) stays "loading" for
+// the widgets, with `failed` set so LoadingBox says "Could not load" - never an
+// empty list read as "nothing to do".
+const useTableState = () => {
+  const { tablesLoading, tablesDown } = useDash();
+  return { isLoading: !!(tablesLoading || tablesDown), failed: !!tablesDown };
+};
+
 export function useLoans() {
-  const { ix, scope, tablesLoading } = useDash();
+  const { ix, scope } = useDash();
+  const st = useTableState();
   const raw = useTable('loans');
   const all = useMemo(() => raw.map((r) => ({ ...r, balance: n(r.balance), rate_pct: n(r.rate_pct), monthly_pi: n(r.monthly_pi), dscr: nn(r.dscr), covenant_min: nn(r.covenant_min), is_active: r.is_active !== false, notes: r.notes || '' })), [raw]);
-  return { loans: useMemo(() => loansInScope(all, ix, scope), [all, ix, scope]), all, isLoading: tablesLoading };
+  return { loans: useMemo(() => loansInScope(all, ix, scope), [all, ix, scope]), all, ...st };
 }
 
 export function useHoldings() {
-  const { ix, scope, tablesLoading } = useDash();
+  const { ix, scope } = useDash();
+  const st = useTableState();
   const raw = useTable('holdings');
   const holdings = useMemo(() => holdingsInScope(raw.map((h) => ({ ...h, market_value: n(h.market_value), cost: n(h.cost), prior_value: n(h.prior_value), quantity: n(h.quantity) })), ix, scope), [raw, ix, scope]);
-  return { holdings, mv: holdings.reduce((t, h) => t + h.market_value, 0), cost: holdings.reduce((t, h) => t + h.cost, 0), prior: holdings.reduce((t, h) => t + h.prior_value, 0), isLoading: tablesLoading };
+  return { holdings, mv: holdings.reduce((t, h) => t + h.market_value, 0), cost: holdings.reduce((t, h) => t + h.cost, 0), prior: holdings.reduce((t, h) => t + h.prior_value, 0), ...st };
 }
 
 export function useIntercompany() {
-  const { ix, scope, tablesLoading } = useDash();
+  const { ix, scope } = useDash();
+  const st = useTableState();
   const raw = useTable('intercompany');
-  return { rows: useMemo(() => intercompanyRows(raw.map((r) => ({ ...r, due_from: n(r.due_from), due_to: n(r.due_to) })), ix, scope), [raw, ix, scope]), isLoading: tablesLoading };
+  return { rows: useMemo(() => intercompanyRows(raw.map((r) => ({ ...r, due_from: n(r.due_from), due_to: n(r.due_to) })), ix, scope), [raw, ix, scope]), ...st };
 }
 
 export function useDeadlines(limit = 6) {
-  const { tablesLoading } = useDash();
+  const st = useTableState();
   const raw = useTable('deadlines');
-  return { items: useMemo(() => upcomingDeadlines(raw.map((d) => ({ ...d, sort: n(d.sort), is_active: d.is_active !== false, schedule: Array.isArray(d.schedule) ? d.schedule : [] })), new Date(), limit), [raw, limit]), isLoading: tablesLoading };
+  return { items: useMemo(() => upcomingDeadlines(raw.map((d) => ({ ...d, sort: n(d.sort), is_active: d.is_active !== false, schedule: Array.isArray(d.schedule) ? d.schedule : [] })), new Date(), limit), [raw, limit]), ...st };
 }
 
 export function usePartners() {
-  const { ix, scope, period, tablesLoading } = useDash();
+  const { ix, scope, period } = useDash();
+  const st = useTableState();
   const raw = useTable('partnerCapital');
   const rows = useMemo(() => raw.map((c) => ({ ...c, capital: n(c.capital), ownership: n(c.ownership), distribution: n(c.distribution), sort: n(c.sort) })).filter((c) => inScope(ix, c.entity_code, scope)), [raw, ix, scope]);
-  return { summary: useMemo(() => partnerSummary(rows, period), [rows, period]), isLoading: tablesLoading };
+  return { summary: useMemo(() => partnerSummary(rows, period), [rows, period]), ...st };
 }
 
 export function useValuation() {
-  const { noiT12ByType, tablesLoading } = useDash();
+  const { noiT12ByType } = useDash();
+  const st = useTableState();
   const { loans } = useLoans();
   const raw = useTable('capRates');
   const debt = loans.reduce((t, l) => t + l.balance, 0);
-  return { v: useMemo(() => valuation(noiT12ByType, raw.map((c) => ({ asset_type: c.asset_type, cap_rate: n(c.cap_rate) })), debt), [noiT12ByType, raw, debt]), isLoading: tablesLoading };
+  return { v: useMemo(() => valuation(noiT12ByType, raw.map((c) => ({ asset_type: c.asset_type, cap_rate: n(c.cap_rate) })), debt), [noiT12ByType, raw, debt]), ...st };
 }
 
 export function useCloseState() {
-  const { period, tables, tablesLoading } = useDash();
+  const { period, tables } = useDash();
+  const st = useTableState();
   const tasks = useTable('closeTasks');
   const done = useTable('closeCompletions');
   const history = useTable('closeHistory');
   const state = useMemo(() => (tables ? closeState(tasks.map((t) => ({ ...t, day_offset: n(t.day_offset), sort: n(t.sort), is_active: t.is_active !== false })), done, period) : null), [tables, tasks, done, period]);
-  return { state, history: useMemo(() => history.map((h) => ({ period: h.period, closed_day: n(h.closed_day) })), [history]), isLoading: tablesLoading };
+  return { state, history: useMemo(() => history.map((h) => ({ period: h.period, closed_day: n(h.closed_day) })), [history]), ...st };
 }
 
 const markRow = (m) => ({ ...m, thru_date: m.thru_date ? String(m.thru_date).slice(0, 10) : null, stmt_balance: m.stmt_balance == null || m.stmt_balance === '' ? null : Number(m.stmt_balance) });
 
 export function useRecon() {
-  const { period, scope, ix, ledger, tablesLoading, reconAccounts, reconAccountsLoading, liabilityRecons } = useDash();
+  const { period, scope, ix, ledger, reconAccounts, reconAccountsLoading, liabilityRecons } = useDash();
+  const st = useTableState();
   const banks = useTable('banks');
   const recons = useTable('recons');
   const marksRaw = useTable('reconMarks');
@@ -99,7 +114,7 @@ export function useRecon() {
     return applyLiabilityRecons(list, { period, status: liabilityRecons, loans });
   }, [period, scope, ix, ledger, banks, recons, loans, holdingsRaw, marksRaw, latestRaw, reconAccounts, liabilityRecons]);
   const reconciled = rows.filter((r) => r.status === 'Reconciled').length;
-  return { rows, reconciled, remaining: rows.length - reconciled, behind: rows.filter((r) => r.status === 'Behind' || r.status === 'Difference').length, isLoading: tablesLoading || reconAccountsLoading };
+  return { rows, reconciled, remaining: rows.length - reconciled, behind: rows.filter((r) => r.status === 'Behind' || r.status === 'Difference').length, isLoading: st.isLoading || reconAccountsLoading, failed: st.failed };
 }
 
 export function useNotes() {
@@ -110,20 +125,37 @@ export function useNotes() {
   };
 }
 
+/**
+ * A typed draft over a saved text, kept per period (11/12/2026): switching
+ * months or a newer save arriving never overwrites what was typed. `stale`:
+ * the saved text changed after the draft began (someone else saved).
+ */
+export function usePeriodDraft(period, saved, savedAt) {
+  const [drafts, setDrafts] = useState({});
+  const d = drafts[period];
+  const base = saved ?? '';
+  const at = savedAt ?? null;
+  const set = (text) => setDrafts((all) => ({ ...all, [period]: { text, at: all[period] ? all[period].at : at } }));
+  const discard = () => setDrafts((all) => { const next = { ...all }; delete next[period]; return next; });
+  return { value: d ? d.text : base, dirty: !!d && d.text !== base, stale: !!d && d.at !== at, set, discard };
+}
+
 export function useActivity(limit = 10) {
-  const { tablesLoading } = useDash();
-  return { rows: useTable('activity').slice(0, limit), isLoading: tablesLoading };
+  const st = useTableState();
+  return { rows: useTable('activity').slice(0, limit), ...st };
 }
 
+/** `feed` null = not known (no tables, or the accounting app sent none), never "nothing to code". */
 export function useFeed() {
-  const { tables, tablesLoading } = useDash();
-  return { feed: tables?.feed ?? null, isLoading: tablesLoading };
+  const { tables } = useDash();
+  return { feed: tables?.feed ?? null, ...useTableState() };
 }
 
+/** Views stay usable when the shared tables failed (`failed`): the role views fall back to their defaults, read only. */
 export function useViews() {
-  const { tablesLoading } = useDash();
+  const { tablesLoading, tablesDown } = useDash();
   const raw = useTable('views');
-  return { views: useMemo(() => raw.map((v) => ({ ...v, sort: n(v.sort), widgets: Array.isArray(v.widgets) ? v.widgets : [] })), [raw]), isLoading: tablesLoading };
+  return { views: useMemo(() => raw.map((v) => ({ ...v, sort: n(v.sort), widgets: Array.isArray(v.widgets) ? v.widgets : [] })), [raw]), isLoading: tablesLoading, failed: !!tablesDown };
 }
 
 /** Month-by-month totals for the loaded window with the partner-entity cash split. */

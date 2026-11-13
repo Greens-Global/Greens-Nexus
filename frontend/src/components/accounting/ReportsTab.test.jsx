@@ -160,7 +160,7 @@ describe('ReportsTab statement table', () => {
     expect(screen.getByText('Repairs')).toBeTruthy();
     expect(screen.queryByText('Rental Income')).toBeNull();
     expect(screen.getByText(/Filtered to 1 row\./)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Clear column filters' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Column Filters' }));
     expect(screen.getByText('Rental Income')).toBeTruthy();
   });
 
@@ -257,7 +257,7 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Credit Card Activity', 'Bank Activity', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Actual vs Budget', 'Spend by Vendor', 'Schedule C (Draft)']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Credit Card Activity', 'Bank Activity', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Budget vs. Actual', 'Spend by Vendor', 'Schedule C (Draft)']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
@@ -795,7 +795,7 @@ describe('ReportsTab controls', () => {
   it('opens Actual vs Budget as its own report: Actual, Budget, Variance $ and Variance % (Charmi, 10/15)', async () => {
     render(<ReportsTab report="budget" />);
     await screen.findByRole('columnheader', { name: 'Variance $' });
-    expect(screen.getByRole('heading', { level: 3 }).textContent).toContain('Actual vs Budget');
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toContain('Budget vs. Actual');
     expect(screen.getAllByRole('columnheader').map((h) => h.textContent).slice(1)).toEqual(['Actual', 'Budget', 'Variance $', 'Variance %']);
     const repairs = screen.getByText('Repairs').closest('tr');
     expect([...repairs.querySelectorAll('td.acct-num')].map((c) => c.textContent)).toEqual(['400.00', '300.00', '100.00', '33.3%']);
