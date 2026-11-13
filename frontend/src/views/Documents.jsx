@@ -65,23 +65,12 @@ const TABS = [
 const HIRING_TAB = { key: 'documents-hiring', label: 'Hiring Documents', Icon: Briefcase };
 const PacketsModal = lazy(() => import('../components/HiringPacket').then(m => ({ default: m.PacketsModal })));
 
+// A page, not a popup (Pranshu, 11/13/2026): the same PacketsModal drawn inline.
 function HiringDocsTab({ toastOk, toastErr }) {
-  const [open, setOpen] = useState(true);
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '20px 22px', background: 'var(--card)', marginTop: 12 }}>
-      <div style={{ fontSize: 15, fontWeight: 800 }}>Hiring Documents</div>
-      <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: '6px 0 14px', maxWidth: '70ch' }}>
-        Offer letters, hiring packets, promotion letters and separation packages: which documents each company sends, for which
-        roles and kind of hire, who signs, and Ready To Send. This is the same setup as Settings &gt; Hiring &amp; Onboarding &gt;
-        Hiring Documents - a change made here is there too, and the other way round.
-      </p>
-      <button type="button" className="primary-btn" onClick={() => setOpen(true)} style={{ fontSize: 13 }}>Open Hiring Documents</button>
-      {open && (
-        <Suspense fallback={<SkeletonBlocks count={4} height={44} />}>
-          <PacketsModal onClose={() => setOpen(false)} toastOk={toastOk} toastErr={toastErr} />
-        </Suspense>
-      )}
-    </div>
+    <Suspense fallback={<SkeletonBlocks count={4} height={44} />}>
+      <PacketsModal inline onClose={() => {}} toastOk={toastOk} toastErr={toastErr} />
+    </Suspense>
   );
 }
 // Old links, bells and emails keep landing: these tabs live in the library now.

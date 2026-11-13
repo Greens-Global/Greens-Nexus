@@ -40,3 +40,28 @@ describe('New Template', () => {
     await waitFor(() => expect(screen.getByText('word wizard')).toBeTruthy());
   });
 });
+
+// The board is category cards (Pranshu, 11/13/2026): a card per category
+// that has a template, none for an empty one; Open shows that category's list.
+describe('The board', () => {
+  it('shows a card per category with templates, opens one, and a new template there takes its category', async () => {
+    calls.getDocTemplates.mockResolvedValue([
+      { id: 't1', name: 'Offer Letter', category: 'hr', status: 'active', state: 'published', department: '' },
+      { id: 't2', name: 'NDA', category: 'legal', status: 'active', state: 'draft', department: '' },
+    ]);
+    render(<DocumentTemplates toastOk={vi.fn()} toastErr={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: 'HR, 1 template' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Legal, 1 template' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Finance/ })).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Legal, 1 template' }));
+    // No page heading (Pranshu, 11/13/2026): one line back to the cards, naming the category.
+    expect(await screen.findByRole('button', { name: 'All Templates' })).toBeTruthy();
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect(screen.getByRole('table')).toBeTruthy();
+    expect(screen.queryByText('Offer Letter')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'New' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Template/ }));
+    await waitFor(() => expect(calls.createDocTemplate).toHaveBeenCalledWith({ name: 'Untitled Template', category: 'legal', status: 'draft' }));
+  });
+});
