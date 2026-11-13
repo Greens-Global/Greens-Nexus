@@ -573,10 +573,6 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
 
       <div className="nx-dl-main">
         <div className="nx-dl-tools">
-          <div className="nx-dl-title">
-            <h2>Documents</h2>
-            <span>Every document and envelope you may see, in one place</span>
-          </div>
           <div className="nx-dl-search">
             <Search size={14} aria-hidden="true" />
             <input className="form-input" placeholder="Search by title, person, signer or tag" aria-label="Search documents"
@@ -590,7 +586,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
           ))}
           <input ref={importRef} type="file" accept=".docx,.doc,.pdf,.txt,.xlsx,.xls,.csv" style={{ display: 'none' }} aria-label="Import a file"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) { if (SHEET_FILE.test(f.name)) newSheet(f); else setCreateOpen({ file: f }); } e.target.value = ''; }} />
-          <button type="button" className="secondary-btn" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
+          <button type="button" className="secondary-btn nx-dl-push" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
             Send For Signature
           </button>
           {/* "+ New", the one create button across Nexus (Neil, 11/13/2026:

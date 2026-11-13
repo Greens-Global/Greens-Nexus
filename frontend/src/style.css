@@ -10837,15 +10837,26 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .nx-dl-rail-head + .nx-dl-rail-head, .nx-dl-rail button + .nx-dl-rail-head { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
 .nx-dl-rail .nx-dl-rail-new { width: auto; padding: 2px 4px; font: 600 11px Inter, sans-serif; color: var(--pine); border-radius: 5px; }
 .nx-dl-rail .nx-dl-rail-more { font: 500 11px Inter, sans-serif; color: var(--pine); padding: 6px 12px; }
-.nx-dl-tools { gap: 10px; }
-.nx-dl-title { display: flex; flex-direction: column; gap: 2px; margin-right: 6px; }
-.nx-dl-title h2 { margin: 0; font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--ink); }
-.nx-dl-title span { font-size: 12px; color: var(--muted); }
-.nx-dl-search { flex: 1 1 280px; max-width: 520px; }
-/* With the side panel open the list is narrower: the title takes its own row and the chips shrink. */
-.nx-dl-open .nx-dl-title { flex-basis: 100%; margin-right: 0; }
-.nx-dl-chip { flex: 0 1 auto; min-width: 110px; max-width: 180px; text-overflow: ellipsis;
-  height: 32px; padding: 0 28px 0 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); font: 500 13px Inter, sans-serif; color: var(--ink); cursor: pointer; }
+/* The toolbar is a card like the rail and the list: padded, so nothing
+   touches its edge, and every control in it one height (34px), one radius. */
+.nx-dl-tools { gap: 8px; padding: 10px 12px; margin: 0 0 12px; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
+.nx-dl-search { flex: 1 1 220px; min-width: 180px; max-width: 520px; }
+.nx-dl-tools .nx-dl-search input { height: 34px; padding-top: 0; padding-bottom: 0; border-radius: 8px; }
+.nx-dl-tools .primary-btn, .nx-dl-tools .secondary-btn { height: 34px; padding-top: 0; padding-bottom: 0; border-radius: 8px; display: inline-flex; align-items: center; white-space: nowrap; }
+/* One select look for every filter here: the house chevron, the text centered. */
+select.nx-dl-chip { flex: 0 1 auto; min-width: 116px; max-width: 200px; height: 34px; margin: 0; padding: 0 30px 0 12px; line-height: 32px;
+  border: 1px solid var(--wk-line2, var(--line)); border-radius: 8px; background-color: var(--card); font: 500 13px Inter, sans-serif; color: var(--ink);
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden; cursor: pointer; outline: none;
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 11px center;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast); }
+/* Filters on the left, actions at the right end of the bar. */
+.nx-dl-tools .nx-dl-push { margin-left: auto; }
+select.nx-dl-chip:hover:not(:focus) { border-color: var(--wk-faint, var(--muted)); }
+select.nx-dl-chip:focus { border-color: var(--wk-brand, var(--pine)); background-color: var(--card); box-shadow: 0 0 0 3px var(--wk-brand-tint, transparent); }
+[data-theme="dark"] select.nx-dl-chip { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b97b0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E"); }
 .nx-dl-table { border-top: none; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
 .nx-dl-table th { padding: 9px 14px; font: 500 12px Inter, sans-serif; background: var(--mist); }
 .nx-dl-table td { padding: 9px 14px; }
@@ -10876,12 +10887,12 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .nx-dl-panel > :last-child { padding-bottom: 16px; }
 .nx-dl-panel .nx-dl-page { width: auto; height: 220px; margin: 0 16px; border-radius: 8px; }
 @media (max-width: 900px) {
-  .nx-dl-title h2 { font-size: 18px; }
   .nx-dl-quick { opacity: 1; }
+  select.nx-dl-chip { flex: 1 1 140px; max-width: none; }
 }
 
 /* Templates board - category cards (Pranshu, 11/13/2026, canvas https://claude.ai/artifact/TapZUK47Diz1k3jgFh5TNW) */
-.nx-tc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.nx-tc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
 .nx-tc { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 14px; text-align: left; font: inherit; color: inherit; cursor: pointer;
   background: var(--card); border: 1px solid #e6e9f2; border-radius: 10px; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05);
   transition: box-shadow .15s var(--ease-out), transform .15s var(--ease-out); }
@@ -10891,7 +10902,7 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .nx-tc-ico { width: 38px; height: 38px; border-radius: 10px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: #e6f7ee; color: var(--primary); }
 .nx-tc-head { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .nx-tc-head strong { font-size: 15px; font-weight: 700; color: var(--ink); }
-.nx-tc-head span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nx-tc-head span { font-size: 12px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .nx-tc-n { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
 .nx-tc-names { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .nx-tc-names > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -10902,11 +10913,14 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .nx-tc-pill.ok { background: #e6f7ee; color: #0b7a42; }
 .nx-tc-pill.warn { background: #fff4e0; color: #8a5a00; }
 .nx-tc-open { display: inline-flex; align-items: center; gap: 2px; font-size: 13px; font-weight: 600; color: var(--primary); }
-.nx-tc-back { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: 12px; font-weight: 600; color: var(--primary); cursor: pointer; }
-.nx-tc-back:hover { text-decoration: underline; }
+/* Inside a category: one line, the same height as the toolbar's controls. */
+.nx-tc-crumb { display: inline-flex; align-items: center; height: 34px; border: 1px solid var(--wk-line2, var(--line)); border-radius: 8px; overflow: hidden; flex: none; }
+.nx-tc-back { display: inline-flex; align-items: center; gap: 5px; height: 100%; padding: 0 10px; border: 0; border-right: 1px solid var(--line); background: var(--card); font: 500 13px Inter, sans-serif; color: var(--muted); cursor: pointer; }
+.nx-tc-back:hover { color: var(--ink); background: var(--mist); }
+.nx-tc-here { display: inline-flex; align-items: center; gap: 8px; height: 100%; padding: 0 12px; background: var(--mist); font: 600 13px Inter, sans-serif; color: var(--ink); }
 @media (max-width: 640px) { .nx-tc-grid { grid-template-columns: 1fr; } }
 
 /* Hiring Documents as a page (Pranshu, 11/13/2026) */
-.nx-hd { margin-top: 12px; font-family: Inter, sans-serif; }
+.nx-hd { margin-top: 4px; font-family: Inter, sans-serif; }
 .nx-hd-body { background: var(--card); border: 1px solid #e6e9f2; border-radius: 10px; padding: 16px 20px 20px; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
 @media (max-width: 640px) { .nx-hd-body { padding: 12px; } }

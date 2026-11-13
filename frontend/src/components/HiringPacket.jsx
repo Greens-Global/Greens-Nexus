@@ -259,35 +259,32 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
   const countFor = (key) => (data?.settings || []).filter(s => mine(s) && s.event === key).length;
 
   const Shell = inline ? ({ children }) => <div className="nx-hd">{children}</div> : Overlay;
+  const companyPicker = lockCompany ? (
+    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{company}</span>
+  ) : (
+    <select className={inline ? 'nx-dl-chip' : 'form-input'} style={inline ? undefined : { width: 240, maxWidth: '100%' }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
+      <option value="">All Companies</option>
+      {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+    </select>
+  );
   return (
     <Shell onClose={onClose} wide>
-      <div style={inline ? { display: 'flex', alignItems: 'center', gap: '8px 14px', flexWrap: 'wrap', marginBottom: 14 }
-        : { padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: '8px 14px', flexShrink: 0, flexWrap: 'wrap' }}>
-        {inline ? (
-          <div className="nx-dl-title" style={{ flex: '1 1 220px', minWidth: 0 }}>
-            <h2>Hiring Documents</h2>
-            <span>What goes out through Nexus Sign when someone is hired, promoted or leaves - the same setup as Settings &gt; Hiring &amp; Onboarding</span>
-          </div>
-        ) : (
+      {/* The page under Documents has no heading (Pranshu, 11/13/2026): the tab
+          says where you are; the company picker sits in the tab row. */}
+      {!inline && (
+        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: '8px 14px', flexShrink: 0, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 220px', minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 15 }}>Hiring Documents</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>What goes out through Nexus Sign when someone is hired, promoted or leaves</div>
           </div>
-        )}
-        {lockCompany ? (
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{company}</span>
-        ) : (
-          <select className="form-input" style={{ width: 240, maxWidth: '100%' }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
-            <option value="">All Companies</option>
-            {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-        )}
-        {!inline && <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>}
-      </div>
+          {companyPicker}
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+      )}
       <div className={inline ? 'nx-hd-body' : undefined} style={inline ? undefined : { overflowY: 'auto', flex: 1, padding: '14px 22px 22px' }}>
         {!data ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="section" /></div> : (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: inline ? 'wrap' : undefined }}>
               <div className="scroll-tabs" style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3, maxWidth: '100%' }}>
                 <button type="button" onClick={() => setTab('overview')}
                   style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
@@ -303,6 +300,7 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
                 ))}
               </div>
               <span style={{ flex: 1 }} />
+              {inline && companyPicker}
               {ev && (
                 <button type="button" className="primary-btn" onClick={() => setEditing({ event: ev, row: null })}
                   style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>

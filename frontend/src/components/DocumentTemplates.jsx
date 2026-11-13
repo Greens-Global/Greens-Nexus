@@ -408,23 +408,21 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
     <div className={`nx-dl nx-dl-norail${selected ? ' nx-dl-open' : ''}`}>
       <div className="nx-dl-main">
         <div className="nx-dl-tools">
-          {category ? (
-            <div className="nx-dl-title nx-tc-crumb">
-              <button type="button" className="nx-tc-back" onClick={() => { setCategory(''); setSelectedId(''); }}><ArrowLeft size={14} aria-hidden="true" /> Templates</button>
-              <h2>{categoryLabel(category)}</h2>
-              <span>{visible.length} template{visible.length === 1 ? '' : 's'}{visible.some(t => t.state !== 'published' && t.state !== 'archived') ? ` · ${visible.filter(t => t.state !== 'published' && t.state !== 'archived').length} to publish` : ''}</span>
-            </div>
-          ) : (
-            <div className="nx-dl-title">
-              <h2>Templates</h2>
-              <span>The wording every document starts from, kept by category</span>
-            </div>
+          {/* No page heading (Pranshu, 11/13/2026); inside a category the one
+              line back to the cards, with the category it is in. */}
+          {category && (
+            <span className="nx-tc-crumb">
+              <button type="button" className="nx-tc-back" onClick={() => { setCategory(''); setSelectedId(''); }}>
+                <ArrowLeft size={14} aria-hidden="true" /> All Templates
+              </button>
+              <span className="nx-tc-here">{categoryLabel(category)}<span className="nx-dl-count">{visible.length}</span></span>
+            </span>
           )}
           <div className="nx-dl-search">
             <Search size={14} aria-hidden="true" />
             <input className="form-input" placeholder="Search templates" aria-label="Search templates" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <select className="form-input nx-dl-chip" aria-label="Template status" style={{ flex: '0 1 190px' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select className="nx-dl-chip" aria-label="Template status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="current">Current Templates</option>
             <option value="published">{TEMPLATE_STATES.published.label}</option>
             <option value="changes">{TEMPLATE_STATES.changes.label}</option>
@@ -434,7 +432,7 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
           {/* "+ New", the one create button across Nexus (Neil, 11/13/2026) -
               its menu replaces the New Template split. Template still opens
               a blank draft at once (Neil, 11/11/2026). */}
-          <NewButton dataTour="documents-new-template" busy={makingTpl ? 'Opening...' : seeding ? 'Adding...' : ''}
+          <NewButton className="primary-btn nx-dl-push" dataTour="documents-new-template" busy={makingTpl ? 'Opening...' : seeding ? 'Adding...' : ''}
             items={[
               { key: 'blank', label: 'Template', hint: 'A blank template, named on Close', Icon: FileText },
               { key: 'word', label: 'From a Word File...', hint: 'Nexus finds every blank and signature line', Icon: FileUp },

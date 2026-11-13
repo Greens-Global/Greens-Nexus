@@ -55,7 +55,9 @@ describe('The board', () => {
     expect(screen.queryByRole('button', { name: /^Finance/ })).toBeNull();
     expect(screen.queryByRole('table')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Legal, 1 template' }));
-    expect(await screen.findByRole('heading', { name: 'Legal' })).toBeTruthy();
+    // No page heading (Pranshu, 11/13/2026): one line back to the cards, naming the category.
+    expect(await screen.findByRole('button', { name: 'All Templates' })).toBeTruthy();
+    expect(screen.queryByRole('heading')).toBeNull();
     expect(screen.getByRole('table')).toBeTruthy();
     expect(screen.queryByText('Offer Letter')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'New' }));
