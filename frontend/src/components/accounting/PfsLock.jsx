@@ -46,7 +46,7 @@ export function usePfsLocks() {
   const markOpen = useCallback((id, until) => setState((x) => ({ ...x, unlocked: { ...x.unlocked, [id]: until } })), []);
   const markLocked = useCallback((id) => setState((x) => ({ ...x, unlocked: { ...x.unlocked, [id]: 'locked' } })), []);
   const untilOf = useCallback((id) => { const u = state.unlocked[id]; return u && u !== 'locked' ? u : ''; }, [state]);
-  return { ready: true, enabled: state.enabled, isOpen, markOpen, markLocked, untilOf };
+  return { ready: true, enabled: state.enabled, isOpen, markOpen, markLocked, untilOf, now };
 }
 
 /** True for the server's "this file is locked" answer. */
@@ -123,13 +123,25 @@ export function PfsUnlockPanel({ file, onUnlocked }) {
 /** "Lock Now": closes the open file in this tab before its 90 minutes are up. */
 export function PfsLockNow({ fileId, until, onLocked }) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   if (!fileId) return null;
+  // Closed here only once the server closed it (or says it already is): a
+  // refusal leaves the file open, so the screen must not claim it is locked.
+  const lock = () => {
+    setBusy(true); setError('');
+    api.lockPfsFile(fileId)
+      .then(() => onLocked(fileId))
+      .catch((e) => { if (isLockedError(e)) onLocked(fileId); else setError(e?.message || 'Could not lock the file - it is still open.'); })
+      .finally(() => setBusy(false));
+  };
   return (
-    <button type="button" className="secondary-btn" disabled={busy} title={until ? `Open until ${formatTime(until)}` : undefined}
-      onClick={() => { setBusy(true); api.lockPfsFile(fileId).catch(() => {}).finally(() => { setBusy(false); onLocked(fileId); }); }}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}>
-      <Lock size={14} /> Lock Now
-    </button>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <button type="button" className="secondary-btn" disabled={busy} title={until ? `Open until ${formatTime(until)}` : undefined} onClick={lock}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}>
+        <Lock size={14} /> Lock Now
+      </button>
+      {error && <span role="alert" style={{ fontSize: 12, color: 'var(--bad-fg, #dc2626)' }}>{error}</span>}
+    </span>
   );
 }
 

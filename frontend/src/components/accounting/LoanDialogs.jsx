@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ExternalLink, Folder, X } from 'lucide-react';
 import { api } from '../../api';
@@ -8,6 +8,8 @@ import { formatDate } from '../../lib/datetime';
 import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 import { WarnMark } from './warnMark';
 import { DateField } from '../../tasks/components';
+import { dialog as appDialog } from '../../ui/dialog';
+import { isBypassing } from '../../lib/dialogGuard';
 
 // Accounting -> Loans & Financing: Change Loan and + Add > Manual (Charmi and
 // Neil, 10/03-10/04).
@@ -74,13 +76,35 @@ export function useBackdropClose(onClose, graceMs = 400) {
   };
 }
 
-export function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error, children, width = 720, footer = null }) {
-  const backdrop = useBackdropClose(onClose);
+/** A rate typed as a fraction (0.065 for 6.5%): the hint under a Rate % box, or ''. */
+export function rateHint(v) {
+  const n = Number(v);
+  return v !== '' && v != null && n > 0 && n < 1 ? `Did you mean ${+(n * 100).toFixed(3)}% rather than ${n}%?` : '';
+}
+
+// `dirty`: something typed would be lost - Escape, the backdrop and the X ask
+// first (Discard / Keep Editing); Cancel is the deliberate way out.
+export function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error, children, width = 720, footer = null, dirty = false }) {
+  const live = useRef({ dirty, asking: false });
+  useEffect(() => { live.current.dirty = dirty; }, [dirty]);
+  const tryClose = useCallback(() => {
+    const l = live.current;
+    if (l.asking) return;
+    // isBypassing: the app-wide guard (lib/dialogGuard.js) already asked; this is its Discard.
+    if (!l.dirty || isBypassing()) { onClose(); return; }
+    l.asking = true;
+    appDialog.confirm('You have unsaved changes. Discard them?', { title: 'Unsaved Changes', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true })
+      .then((ok) => { l.asking = false; if (ok) onClose(); });
+  }, [onClose]);
+  const backdrop = useBackdropClose(tryClose);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') tryClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [tryClose]);
+  // A banner at the top of a long form is out of sight after Save: bring it in.
+  const errRef = useRef(null);
+  useEffect(() => { if (error) errRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); }, [error]);
   const body = (
     <div className="modal-overlay" role="presentation" {...backdrop}>
       <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={title} onSubmit={onSubmit} style={{ width: `max(60vw, ${width}px)` }}>
@@ -89,10 +113,10 @@ export function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error
             <h3 style={{ margin: 0 }}>{title}</h3>
             {sub && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{sub}</div>}
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button type="button" onClick={tryClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, alignContent: 'start', flex: 1, minHeight: 0, overflowY: 'auto' }}>
-          {error && <div style={bad}>{error}</div>}
+          {error && <div ref={errRef} role="alert" style={bad}>{error}</div>}
           {children}
         </div>
         <div className="modal-footer" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '10px 24px 16px' }}>
@@ -199,11 +223,12 @@ export function editBody(loan, start, d) {
     const stored = String(loan.loanNoStored || '').trim();
     if (!body.loanNumber && stored && stored !== (loan.glAccount || '')) body.loanNo = '';
   }
-  if (changed('ratePct')) body.ratePct = numOr(d.ratePct, 0);
+  // Cleared = null: the server stores "not set", never a typed 0.
+  if (changed('ratePct')) body.ratePct = numOr(d.ratePct, null);
   if (changed('rateType')) body.rateType = d.rateType;
   if (changed('maturity')) body.maturity = d.maturity || '';
-  if (changed('monthlyPayment')) body.monthlyPayment = numOr(d.monthlyPayment, 0);
-  if (changed('covenantMin')) body.covenantMin = numOr(d.covenantMin, 0);
+  if (changed('monthlyPayment')) body.monthlyPayment = numOr(d.monthlyPayment, null);
+  if (changed('covenantMin')) body.covenantMin = numOr(d.covenantMin, null);
   if (changed('notes')) body.notes = d.notes;
   if (changed('isActive')) body.isActive = d.isActive;
   if (changed('interestAccount')) body.interestAccount = d.interestAccount || null;
@@ -267,9 +292,11 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
   const ledgerOriginal = loan.originalPrincipalLedger;
   const autoType = loan.loanTypeGuessed === false ? 'Automatic (from the GL title)' : `Automatic (now ${loanTypeLabel(loan.loanType)})`;
 
+  const [fieldErr, setFieldErr] = useState({});
   const save = (e) => {
     e.preventDefault();
-    if (!d.lender.trim()) { setError('The loan needs a name.'); return; }
+    if (!d.lender.trim()) { setFieldErr({ lender: 'The loan needs a name.' }); document.getElementById('loan-lender')?.focus(); return; }
+    setFieldErr({});
     const body = editBody(loan, start, d);
     if (!Object.keys(body).length) { onClose(); return; }
     setBusy(true);
@@ -279,10 +306,14 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
   };
 
   return (
-    <Dialog title="Change Loan" onClose={onClose} onSubmit={save} busy={busy} submitLabel="Save" error={error}
+    <Dialog title="Change Loan" onClose={onClose} onSubmit={save} busy={busy} submitLabel="Save" error={error} dirty={Object.keys(editBody(loan, start, d)).length > 0}
       sub={<>{loan.entityName} ({loan.entityCode}) · balance <Amount value={loan.balance} /> as of {formatDate(to)}. The same loan as Accounting &gt; Data &gt; Loans.</>}>
       <div style={grid}>
-        <div><label style={label} htmlFor="loan-lender">Loan Name (Lender)</label><input id="loan-lender" type="text" value={d.lender} maxLength={120} onChange={(e) => set({ lender: e.target.value })} style={full} /></div>
+        <div>
+          <label style={label} htmlFor="loan-lender">Loan Name (Lender)</label>
+          <input id="loan-lender" type="text" value={d.lender} maxLength={120} onChange={(e) => { set({ lender: e.target.value }); setFieldErr({}); }} aria-invalid={!!fieldErr.lender} aria-describedby={fieldErr.lender ? 'loan-lender-err' : undefined} style={full} />
+          <FieldError id="loan-lender-err" text={fieldErr.lender} />
+        </div>
         <div>
           <label style={label} htmlFor="loan-no">Loan #</label>
           <input id="loan-no" type="text" value={d.loanNumber} maxLength={60} placeholder="The lender's loan number" onChange={(e) => set({ loanNumber: e.target.value })} style={full} />
@@ -344,7 +375,7 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
 
       <div style={section}>Terms</div>
       <div style={grid}>
-        <div><label style={label} htmlFor="loan-rate">Rate %</label><input id="loan-rate" type="number" step="0.001" min="0" value={d.ratePct} onChange={(e) => set({ ratePct: e.target.value })} style={full} /></div>
+        <div><label style={label} htmlFor="loan-rate">Rate %</label><input id="loan-rate" type="number" step="0.001" min="0" value={d.ratePct} onChange={(e) => set({ ratePct: e.target.value })} style={full} /><RateHint value={d.ratePct} /></div>
         <div><label style={label} htmlFor="loan-rate-type">Fixed or Variable</label><select id="loan-rate-type" value={d.rateType} onChange={(e) => set({ rateType: e.target.value })} style={full}><option value="fixed">Fixed</option><option value="variable">Variable</option></select></div>
         <div><label style={label} htmlFor="loan-maturity">Maturity</label><span id="loan-maturity" style={{ ...full, display: 'flex', alignItems: 'center' }}><DateField value={d.maturity} onChange={(picked) => { const v = picked || ''; return set({ maturity: v }); }} placeholder="MM/DD/YYYY" title="Maturity" style={{ width: '100%' }} /></span></div>
         <div><label style={label} htmlFor="loan-payment">Monthly Payment</label><AmountInput id="loan-payment" value={d.monthlyPayment} onChange={(v) => set({ monthlyPayment: v })} style={full} /></div>
@@ -363,15 +394,31 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
   );
 }
 
+const MANUAL_BLANK = { lender: '', entityCode: '', loanNo: '', originalPrincipal: null, balance: null, ratePct: '', rateType: 'fixed', maturity: '', monthlyPayment: null, type: 'external', loanType: 'term', docsPath: '', statementsPath: '' };
+const MANUAL_START = JSON.stringify(MANUAL_BLANK);
+
+// The error a check names for one field, right under it.
+function FieldError({ id, text }) {
+  return text ? <div id={id} role="alert" style={{ ...hint, color: 'var(--bad-fg, #dc2626)' }}>{text}</div> : null;
+}
+// 0 < rate < 1 is almost always a fraction typed for a percent.
+function RateHint({ value }) {
+  const t = rateHint(value);
+  return t ? <div role="status" style={{ ...hint, color: 'var(--warn-fg)' }}><WarnMark />{t}</div> : null;
+}
+
 export function ManualLoanDialog({ entities, showHistorical = false, onClose, onSaved }) {
-  const [d, setD] = useState({ lender: '', entityCode: '', loanNo: '', originalPrincipal: null, balance: null, ratePct: '', rateType: 'fixed', maturity: '', monthlyPayment: null, type: 'external', loanType: 'term', docsPath: '', statementsPath: '' });
+  const [d, setD] = useState(MANUAL_BLANK);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (patch) => setD((x) => ({ ...x, ...patch }));
+  const [fieldErr, setFieldErr] = useState({});
   const save = (e) => {
     e.preventDefault();
-    if (!d.lender.trim()) { setError('Give the loan a lender.'); return; }
-    if (!d.entityCode) { setError('Pick the entity that owes the loan.'); return; }
+    const errs = { ...(!d.lender.trim() && { lender: 'Give the loan a lender.' }), ...(!d.entityCode && { entity: 'Pick the entity that owes the loan.' }) };
+    setFieldErr(errs);
+    if (errs.lender) { document.getElementById('manual-lender')?.focus(); return; }
+    if (errs.entity) return;
     setBusy(true);
     setError('');
     api.createManualLoan({
@@ -381,20 +428,24 @@ export function ManualLoanDialog({ entities, showHistorical = false, onClose, on
     }).then(onSaved).catch((err) => { setError(err?.message || 'Could not add the loan.'); setBusy(false); });
   };
   return (
-    <Dialog title="Add a Loan by Hand" onClose={onClose} onSubmit={save} busy={busy} submitLabel="Add Loan" error={error} width={680}
+    <Dialog title="Add a Loan by Hand" onClose={onClose} onSubmit={save} busy={busy} submitLabel="Add Loan" error={error} width={680} dirty={JSON.stringify(d) !== MANUAL_START}
       sub="A loan that is not in Intacct. Its balance is kept by hand here; wire a principal account later under Change Loan to read it from the ledger.">
       <div style={grid}>
-        <div><label style={label} htmlFor="manual-lender">Lender</label><input id="manual-lender" type="text" value={d.lender} maxLength={120} onChange={(e) => set({ lender: e.target.value })} style={full} autoFocus /></div>
+        <div>
+          <label style={label} htmlFor="manual-lender">Lender</label>
+          <input id="manual-lender" type="text" value={d.lender} maxLength={120} onChange={(e) => { set({ lender: e.target.value }); setFieldErr((f) => ({ ...f, lender: '' })); }} aria-invalid={!!fieldErr.lender} aria-describedby={fieldErr.lender ? 'manual-lender-err' : undefined} style={full} autoFocus />
+          <FieldError id="manual-lender-err" text={fieldErr.lender} />
+        </div>
         <div>
           <span style={label} id="manual-entity-label">Entity</span>
-          <EntityPicker entities={entities} value={d.entityCode} onChange={(code) => set({ entityCode: code })} showHistorical={showHistorical}
+          <EntityPicker entities={entities} value={d.entityCode} onChange={(code) => { set({ entityCode: code }); setFieldErr((f) => ({ ...f, entity: '' })); }} showHistorical={showHistorical}
             placeholder="Pick an Entity" active={false} style={{ ...full, maxWidth: 'none' }} />
-
+          <FieldError text={fieldErr.entity} />
         </div>
         <div><label style={label} htmlFor="manual-no">Loan #</label><input id="manual-no" type="text" value={d.loanNo} maxLength={40} onChange={(e) => set({ loanNo: e.target.value })} style={full} /></div>
         <div><label style={label} htmlFor="manual-original">Original Principal</label><AmountInput id="manual-original" value={d.originalPrincipal} onChange={(v) => set({ originalPrincipal: v })} style={full} /></div>
         <div><label style={label} htmlFor="manual-balance">Balance</label><AmountInput id="manual-balance" value={d.balance} onChange={(v) => set({ balance: v })} style={full} /></div>
-        <div><label style={label} htmlFor="manual-rate">Rate %</label><input id="manual-rate" type="number" step="0.001" min="0" value={d.ratePct} onChange={(e) => set({ ratePct: e.target.value })} style={full} /></div>
+        <div><label style={label} htmlFor="manual-rate">Rate %</label><input id="manual-rate" type="number" step="0.001" min="0" value={d.ratePct} onChange={(e) => set({ ratePct: e.target.value })} style={full} /><RateHint value={d.ratePct} /></div>
         <div><label style={label} htmlFor="manual-rate-type">Fixed or Variable</label><select id="manual-rate-type" value={d.rateType} onChange={(e) => set({ rateType: e.target.value })} style={full}><option value="fixed">Fixed</option><option value="variable">Variable</option></select></div>
         <div><label style={label} htmlFor="manual-maturity">Maturity</label><span id="manual-maturity" style={{ ...full, display: 'flex', alignItems: 'center' }}><DateField value={d.maturity} onChange={(picked) => { const v = picked || ''; return set({ maturity: v }); }} placeholder="MM/DD/YYYY" title="Maturity" style={{ width: '100%' }} /></span></div>
         <div><label style={label} htmlFor="manual-payment">Monthly Payment</label><AmountInput id="manual-payment" value={d.monthlyPayment} onChange={(v) => set({ monthlyPayment: v })} style={full} /></div>

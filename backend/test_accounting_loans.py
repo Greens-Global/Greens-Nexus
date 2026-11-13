@@ -648,6 +648,21 @@ class EndpointTests(unittest.TestCase):
         [row] = self._review()["loans"]
         self.assertEqual((row["glAccount"], row["balance"], row["principalPaid"]), ("27200", 249000.0, 1000.0))
 
+    def test_edit_clears_rate_payment_and_covenant_with_null(self):
+        """Change Loan sends null for a Rate %, Monthly Payment or Covenant
+        Minimum that was cleared: each reads back as not set."""
+        _as(EDITOR)
+        self.assertEqual(self.client.put("/accounting/loans/FL1", json={"ratePct": 6.25, "monthlyPayment": 11000, "covenantMin": 1.5}).status_code, 200)
+        r = self.client.put("/accounting/loans/FL1", json={"ratePct": None, "monthlyPayment": None, "covenantMin": None})
+        self.assertEqual(r.status_code, 200, r.text)
+        [row] = self._review()["loans"]
+        self.assertEqual((row["ratePct"], row["monthlyPayment"], row["covenantTyped"], row["covenantMin"]), (None, None, False, 1.35))
+        # A field not sent is left alone.
+        self.client.put("/accounting/loans/FL1", json={"ratePct": 5})
+        self.client.put("/accounting/loans/FL1", json={"lender": "F&M Bank"})
+        [row] = self._review()["loans"]
+        self.assertEqual(row["ratePct"], 5.0)
+
     def test_two_edits_to_different_fields_both_survive(self):
         """Neil's review (Oct 20): Change Loan re-saved the whole fin_loans row
         from a tables read cached for seconds, so a second edit served from a

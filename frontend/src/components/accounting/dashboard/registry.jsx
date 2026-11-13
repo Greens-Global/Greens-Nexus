@@ -1,6 +1,7 @@
 import { Component } from 'react';
 import { useDashNav } from './nav';
 import { EmptyBox, Panel } from './Bits';
+import { useDash } from './DashContext';
 import { KpiCashNcWidget, KpiCashWidget, KpiInvestWidget, KpiMarginWidget, KpiNiWidget, KpiReconWidget, KpiRunwayWidget, KpiYtdWidget } from './Kpis';
 import { CashForecastWidget, CashTrendWidget, EntityCashWidget, InvestWidget, UncatWidget } from './CashWidgets';
 import { ExpensesWidget, IncomeWidget, NoiPropWidget, RevExpWidget, VarianceWidget, YtdVarianceWidget } from './PerfWidgets';
@@ -21,7 +22,7 @@ export { DashNav, useDashNav } from './nav';
 const def = (id, title, cat, size, desc, Component, extra = {}) => ({ id, title, cat, size, desc, Component, ...extra });
 
 export const WIDGET_LIST = [
-  def('kpiCash', 'Cash on Hand', 'Headline Numbers', 'xs', 'Cash available for general purposes, with partner-entity cash noted beside it.', KpiCashWidget, { report: 'reports' }),
+  def('kpiCash', 'Cash on Hand', 'Headline Numbers', 'xs', 'Cash available for general purposes, with partner-entity cash noted beside it.', KpiCashWidget, { report: 'rpt-balance-sheet' }),
   def('kpiCashNC', 'Non-Controllable Cash · FYI', 'Headline Numbers', 'xs', 'Cash held in entities with outside investors or partners. Shown for reference only.', KpiCashNcWidget),
   def('kpiNI', 'Net Income · MTD', 'Headline Numbers', 'xs', 'Month-to-date net income with change from last month.', KpiNiWidget, { report: 'reports' }),
   def('kpiMargin', 'Operating Margin', 'Headline Numbers', 'xs', 'Operating income as a share of revenue.', KpiMarginWidget),
@@ -30,7 +31,7 @@ export const WIDGET_LIST = [
   def('kpiRunway', 'Liquidity Runway', 'Headline Numbers', 'xs', 'Months of controllable cash plus investments against fixed monthly obligations (debt service, payroll, taxes, insurance).', KpiRunwayWidget, { page: 'cash' }),
   def('kpiYtd', 'Net Income · YTD', 'Headline Numbers', 'xs', 'Year-to-date net income against the year-to-date budget.', KpiYtdWidget, { report: 'reports' }),
   def('invest', 'Investment Portfolio', 'Cash & Banking', 'md', 'Investments split between stocks and bonds, with market value, gain and month change.', InvestWidget),
-  def('cashTrend', 'Cash on Hand · 12 months', 'Cash & Banking', 'md', 'Month-end cash balance trend.', CashTrendWidget, { report: 'reports' }),
+  def('cashTrend', 'Cash on Hand · 12 months', 'Cash & Banking', 'md', 'Month-end cash balance trend.', CashTrendWidget, { report: 'rpt-balance-sheet' }),
   def('revExp', 'Revenue vs Expense', 'Performance', 'md', 'Monthly revenue and expense bars.', RevExpWidget, { report: 'reports' }),
   def('noiProp', 'NOI by Entity', 'Performance', 'md', 'Net operating income for each operating entity this month.', NoiPropWidget, { page: 'performance' }),
   def('entityCash', 'Cash by Entity', 'Cash & Banking', 'sm', 'Controllable cash by entity, with partner-entity cash listed separately.', EntityCashWidget, { page: 'cash' }),
@@ -43,8 +44,9 @@ export const WIDGET_LIST = [
   def('flux', 'Balance Sheet Changes to Explain', 'Close & Controls', 'md', 'Month-over-month balance changes over $25,000 or 10%, for flux review.', FluxWidget, { page: 'close' }),
   def('debt', 'Debt and Covenants', 'Close & Controls', 'md', 'Loan balances, rates, maturities and debt service coverage against each covenant.', DebtWidget, { page: 'cash' }),
   def('deadlines', 'Filing and Payment Calendar', 'Close & Controls', 'sm', 'Upcoming tax filings, loan payments and covenant deadlines.', DeadlinesWidget),
-  def('income', 'Income This Month', 'Performance', 'lg', 'Every income source for the selected month, by account and by entity, with a chart, a six-month trend and the change from last month.', IncomeWidget, { report: 'reports' }),
-  def('expenses', 'Expenses This Month', 'Performance', 'lg', 'Every expense for the selected month by account, with a chart and the change from last month.', ExpensesWidget, { report: 'reports' }),
+  // Titled for what they show (11/12/2026): the selected month or range, named in the subtitle.
+  def('income', 'Income', 'Performance', 'lg', 'Every income source for the selected month or range, by account and by entity, with a chart, a six-month trend and the change from last month.', IncomeWidget, { report: 'reports', periodSub: true }),
+  def('expenses', 'Expenses', 'Performance', 'lg', 'Every expense for the selected month or range by account, with a chart and the change from last month.', ExpensesWidget, { report: 'reports', periodSub: true }),
   def('cashForecast', 'Monthly Cash Forecast', 'Cash & Banking', 'lg', 'Receipts, disbursements and ending controllable cash for the next six months from the posted budget, with the minimum cash line.', CashForecastWidget, { page: 'cash' }),
   def('ytdVariance', 'Budget vs Actual · Year to Date', 'Performance', 'md', 'Revenue, expense and net income against budget for the year so far, with the largest variances.', YtdVarianceWidget, { page: 'performance' }),
   def('partners', 'Partner Capital & Distributions', 'Debt & Capital', 'md', 'Capital by investor class, distributions paid year to date, and what is scheduled next.', PartnersWidget),
@@ -69,13 +71,14 @@ class WidgetBoundary extends Component {
 /** Frame + body for one widget. `right` adds controls to the header (the Overview's menu). */
 export function WidgetPanel({ id, right, flash, style, sub, compact }) {
   const nav = useDashNav();
+  const { periodLabel } = useDash();
   const w = WIDGETS[id];
   if (!w) return <Panel title={id} style={style}><EmptyBox title="Unknown widget" body={`"${id}" is not in the library any more. Remove it from this view.`} /></Panel>;
   const Body = w.Component;
-  const link = w.report ? { label: 'Open report', to: w.report } : w.page ? { label: `Open ${w.page[0].toUpperCase()}${w.page.slice(1)}`, to: w.page } : null;
+  const link = w.report ? { label: 'Open Report', to: w.report } : w.page ? { label: `Open ${w.page[0].toUpperCase()}${w.page.slice(1)}`, to: w.page } : null;
   return (
-    <Panel title={w.title} sub={sub} right={right} flash={flash} style={style} onOpenReport={link && !compact ? () => nav(link.to) : undefined} reportLabel={link?.label}>
-      <WidgetBoundary><Body onOpenClose={() => nav('close')} onOpenBanks={() => nav('reports')} onNavigate={nav} compact={compact} /></WidgetBoundary>
+    <Panel title={w.title} sub={sub ?? (w.periodSub ? periodLabel : undefined)} right={right} flash={flash} style={style} onOpenReport={link && !compact ? () => nav(link.to) : undefined} reportLabel={link?.label}>
+      <WidgetBoundary><Body onOpenClose={() => nav('close')} onOpenBanks={() => nav('rpt-bank-activity')} onNavigate={nav} compact={compact} /></WidgetBoundary>
     </Panel>
   );
 }

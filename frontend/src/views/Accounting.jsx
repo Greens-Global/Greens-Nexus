@@ -124,10 +124,11 @@ const BASE_TABS = [
   // each group is one flyout with no flyout inside it. Keys never change, so
   // every saved link, bell and bookmark still lands.
   { key: 'reporting', label: 'Reports', Icon: FileText, items: [
-    { key: 'reports', label: 'All Reports', Icon: FileText },
+    { key: 'reports', label: 'Report Center', Icon: FileText },
     { key: 'report-builder', label: 'Report Builder', Icon: Hammer },
     { key: 'packages', label: 'Packages', Icon: FileStack },
     { key: 'grp-financial', label: 'Financial Statements', Icon: Scale, items: [
+      rpt('pnl', 'Income Statement', TrendingUp),
       rpt('balance-sheet', 'Balance Sheet', Scale),
       rpt('trial-balance', 'Trial Balance', ListChecks),
       rpt('pnl-t12', 'Income Statement - Last 12 Months', TrendingUp),
@@ -470,7 +471,7 @@ export default function Accounting({ activeSub, onSubChange }) {
   const withDash = (body) => (DASH_PROVIDER_SUBS.includes(sub) ? (
     <DashProvider>
       {/* The dashboard's "open the report" links mean the statements (they predate the Report Center). */}
-      <DashNav.Provider value={(to) => onSubChange?.(to === 'reports' ? STATEMENTS_SUB : to)}>{body}</DashNav.Provider>
+      <DashNav.Provider value={Object.assign((to) => onSubChange?.(to === 'reports' ? STATEMENTS_SUB : to), { can: (to) => reachable(ALIAS[to] || to) })}>{body}</DashNav.Provider>
     </DashProvider>
   ) : body);
 

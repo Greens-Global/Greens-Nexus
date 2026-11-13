@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 // Render-smoke for Accounting -> Loans & Financing (Neil and Charmi, 10/02;
@@ -87,7 +87,8 @@ vi.mock('../../api', () => ({
   },
 }));
 
-import LoansTab, { SetupDialog, _test } from './LoansTab';
+import LoansTab, { SetupDialog, _test, dscrCovenantText } from './LoansTab';
+import { rateHint } from './LoanDialogs';
 import { resetAccountingPrefs } from './prefs';
 import { api } from '../../api';
 
@@ -517,15 +518,18 @@ describe('LoansTab', () => {
     expect(screen.queryByRole('dialog', { name: 'Change Loan' })).toBeNull();
   });
 
-  it('removes a loan after Remove / Keep in place', async () => {
+  it('removes a loan with a press and hold on its row; a tap does nothing', async () => {
     render(<LoansTab canEdit />);
     const fm = await rowOf('F&M Bank');
-    fireEvent.click(within(fm).getByRole('button', { name: 'Remove F&M Bank' }));
-    expect(within(fm).getByText('Remove?')).toBeTruthy();
-    fireEvent.click(within(fm).getByRole('button', { name: 'Keep' }));
+    const hold = within(fm).getByRole('button', { name: 'Remove F&M Bank, press and hold' });
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(hold, { button: 0, pointerId: 1 });
     expect(api.deleteLoan).not.toHaveBeenCalled();
-    fireEvent.click(within(fm).getByRole('button', { name: 'Remove F&M Bank' }));
-    fireEvent.click(within(fm).getByRole('button', { name: 'Remove' }));
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(1200); });
+    } finally { vi.useRealTimers(); }
     await waitFor(() => expect(api.deleteLoan).toHaveBeenCalledWith('FL1'));
     await screen.findByText(/Removed F&M Bank \(Greens Escondido, LLC\.\)\. \+ Add > From the Ledger will not offer it again/);
     await waitFor(() => expect(api.getLoansReview).toHaveBeenCalledTimes(2));
@@ -768,7 +772,8 @@ describe('LoansTab - Oct 14 feedback', () => {
   it('termBody: unchanged is nothing, blank clears, bad input is refused', () => {
     const l = loan();
     expect(_test.termBody('ratePct', '6.1', l)).toBeNull();
-    expect(_test.termBody('ratePct', '', l)).toEqual({ ratePct: 0 });
+    expect(_test.termBody('ratePct', '', l)).toEqual({ ratePct: null });
+    expect(_test.termBody('monthlyPayment', '', l)).toEqual({ monthlyPayment: null });
     expect(_test.termBody('ratePct', 'abc', l).error).toBeTruthy();
     expect(_test.termBody('maturity', '', l)).toEqual({ maturity: '' });
     expect(_test.termBody('monthlyPayment', '10,000.00', l)).toBeNull();
@@ -815,6 +820,10 @@ describe('LoansTab, Oct 22 feedback', () => {
     const l = loan({ vendorId: '', vendorName: '' });
     const start = editStart(l);
     expect(editBody(l, start, start)).toEqual({});
+    // Cleared terms go as null (not set), never a typed 0.
+    const typed = loan({ ratePct: 6.1, monthlyPayment: 10000, covenantTyped: true, covenantMin: 1.5 });
+    const was = editStart(typed);
+    expect(editBody(typed, was, { ...was, ratePct: '', monthlyPayment: null, covenantMin: '' })).toEqual({ ratePct: null, monthlyPayment: null, covenantMin: null });
     expect(editBody(l, start, { ...start, docsPath: ' /Shared/Loans/New ' })).toEqual({ docsPath: '/Shared/Loans/New' });
     expect(editBody(l, start, { ...start, vendorId: 'V-FM', vendorName: 'F&M Bank' })).toEqual({ vendorId: 'V-FM', vendorName: 'F&M Bank' });
     // Clearing a number the loan row itself carried clears it there too.
@@ -888,5 +897,17 @@ describe('paymentRows with a vendor', () => {
     const rows = paymentRows(h, { vendorId: 'V-FM', owedAtEnd: 100000 });
     expect(rows.map((r) => [r.entryNo, r.principal, r.interest])).toEqual([['AP-1', 4000, 6000]]);
     expect(paymentRows(h, {}).length).toBe(2);
+  });
+});
+describe('loan wording helpers (UX pass)', () => {
+  it('asks about a rate typed as a fraction, never about a real percent', () => {
+    expect(rateHint('0.065')).toBe('Did you mean 6.5% rather than 0.065%?');
+    expect(rateHint('6.5')).toBe('');
+    expect(rateHint('')).toBe('');
+  });
+  it('says a covenant breach in words beside the color', () => {
+    expect(dscrCovenantText({ dscr: 1.12, belowCovenant: true, covenantMin: 1.25 })).toBe('1.12x - Below 1.25x');
+    expect(dscrCovenantText({ dscr: 1.5, belowCovenant: false, covenantMin: 1.25 })).toBe('1.50x');
+    expect(dscrCovenantText({ dscr: null })).toBe('-');
   });
 });

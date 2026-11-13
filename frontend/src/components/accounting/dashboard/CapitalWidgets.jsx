@@ -1,7 +1,8 @@
-import { covenantState, maturingSoon, maturitySummary } from '../../../accounting/dashboard/model/capital';
+import { covenantState, MATURITY_SOON_MONTHS, maturingSoon, maturitySummary } from '../../../accounting/dashboard/model/capital';
 import { fmtLong, MONTH_SHORT } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
-import { Chip, Dot, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, num, Tile, toneColor } from './Bits';
+import { WarnMark } from '../warnMark';
+import { BAD, Chip, Dot, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, num, Tile, toneColor, WARN } from './Bits';
 import { ColoredBars } from './Charts';
 import { useDash } from './DashContext';
 import { useLoans, usePartners, useValuation } from './hooks';
@@ -14,9 +15,9 @@ const tiles = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(1
 
 export function DebtWidget() {
   const { m, ix, period } = useDash();
-  const { loans, isLoading } = useLoans();
-  if (isLoading) return <LoadingBox />;
-  if (!loans.length) return <EmptyBox title="No loans for this scope" body="Record mortgages and credit lines under the Data tab." />;
+  const { loans, isLoading, failed } = useLoans();
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!loans.length) return <EmptyBox title="No loans for this scope" body="Record mortgages and credit lines under Financing > Loans." setUp={['loans', 'Financing > Loans']} />;
   return (
     <div className="req-table-wrapper">
       <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -28,8 +29,8 @@ export function DebtWidget() {
               <tr key={l.id} style={ix.isPartner(l.entity_code) ? { color: 'var(--text-muted)' } : undefined}>
                 <td><div>{l.lender}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{ix.byCode.get(l.entity_code)?.name || l.entity_code}</div></td>
                 <td style={num}>{m(l.balance, { compact: true })}</td>
-                <td style={num}>{l.rate_pct.toFixed(2)}%</td>
-                <td style={{ fontSize: 13 }}>{matLabel(l.maturity)}{maturingSoon(l, period) ? <Chip tone="wait" style={{ marginLeft: 8 }}>Within 18 mo</Chip> : null}</td>
+                <td style={num}>{l.rate_pct ? `${l.rate_pct.toFixed(2)}%` : <span style={{ color: 'var(--text-muted)' }}>Not Set</span>}</td>
+                <td style={{ fontSize: 13 }}>{matLabel(l.maturity)}{maturingSoon(l, period) ? <Chip tone="wait" style={{ marginLeft: 8 }}>Within {MATURITY_SOON_MONTHS} Mo</Chip> : null}</td>
                 <td>{cov === 'n/a' ? <span style={{ color: 'var(--text-muted)' }}>-</span> : <Chip tone={cov === 'Below' ? 'bad' : cov === 'Near' ? 'wait' : 'ok'}>{l.dscr?.toFixed(2)}x / {l.covenant_min?.toFixed(2)}x min</Chip>}</td>
               </tr>
             );
@@ -42,9 +43,9 @@ export function DebtWidget() {
 
 export function PartnersWidget() {
   const { m, ix } = useDash();
-  const { summary: s, isLoading } = usePartners();
-  if (isLoading) return <LoadingBox />;
-  if (!s.rows.length) return <EmptyBox title="No partner capital in this scope" body="Record investor classes and distributions under the Data tab." />;
+  const { summary: s, isLoading, failed } = usePartners();
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!s.rows.length) return <EmptyBox title="No partner capital in this scope" body="Record investor classes and distributions under Tools > Reference Data, Partner Capital." setUp={['data', 'Tools > Reference Data']} />;
   const byEntity = [...new Set(s.rows.map((r) => r.entity_code))];
   return (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -79,9 +80,9 @@ function GroupBlock({ title, children }) {
 
 export function ValuationWidget() {
   const { m } = useDash();
-  const { v, isLoading } = useValuation();
-  if (isLoading) return <LoadingBox />;
-  if (!v.rows.length) return <EmptyBox title="No properties in this scope" body="Give each property entity an asset type and a cap rate under the Data tab." />;
+  const { v, isLoading, failed } = useValuation();
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!v.rows.length) return <EmptyBox title="No properties in this scope" body="Give each property entity an asset type, and each asset type a cap rate under Tools > Reference Data, Cap Rates." setUp={['data', 'Tools > Reference Data']} />;
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={tiles}>
@@ -90,10 +91,10 @@ export function ValuationWidget() {
         <Tile label="Equity" value={m(v.equity, { compact: true })} subColor={toneColor(v.equity >= 0)} />
         <Tile label="Loan to value" value={pctTxt(v.ltv, 0)} sub={<Chip tone={v.ltvTone === 'High' ? 'bad' : v.ltvTone === 'Moderate' ? 'wait' : 'ok'}>{v.ltvTone}</Chip>} />
       </div>
-      <Meter segments={[{ share: v.ltv, color: v.ltv > 0.7 ? '#dc2626' : v.ltv > 0.6 ? '#d97706' : 'var(--wk-brand, #2b45e1)' }]} />
+      <Meter segments={[{ share: v.ltv, color: v.ltv > 0.7 ? BAD : v.ltv > 0.6 ? WARN :'var(--wk-brand, #2b45e1)' }]} />
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th>Asset class</th><th style={num}>T12 NOI</th><th style={num}>Cap rate</th><th style={num}>Value</th></tr></thead>
+          <thead><tr><th>Asset Class</th><th style={num}>T12 NOI</th><th style={num}>Cap Rate</th><th style={num}>Value</th></tr></thead>
           <tbody>{v.rows.map((r) => <tr key={r.assetType}><td>{r.assetType}</td><td style={num}>{m(r.noi, { report: true })}</td><td style={num}>{r.capRate != null ? pctTxt(r.capRate, 2) : <span style={{ color: 'var(--text-muted)' }}>not set</span>}</td><td style={num}>{r.value ? m(r.value, { compact: true }) : '-'}</td></tr>)}</tbody>
         </table>
       </div>
@@ -104,20 +105,28 @@ export function ValuationWidget() {
 
 export function MaturityWidget() {
   const { m, period } = useDash();
-  const { loans, isLoading } = useLoans();
-  if (isLoading) return <LoadingBox />;
-  if (!loans.length) return <EmptyBox title="No loans for this scope" />;
+  const { loans, isLoading, failed } = useLoans();
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!loans.length) return <EmptyBox title="No loans for this scope" setUp={['loans', 'Financing > Loans']} />;
   const s = maturitySummary(loans, period);
+  // A loan with no rate is "not set", not 0% (11/12/2026: $3.40M of debt read 0.00%).
+  const rated = loans.filter((l) => l.rate_pct > 0);
+  const ratedBal = rated.reduce((t, l) => t + l.balance, 0);
+  const rate = ratedBal ? rated.reduce((t, l) => t + l.balance * l.rate_pct, 0) / ratedBal : null;
+  const unrated = loans.length - rated.length;
+  // One horizon everywhere: the model's MATURITY_SOON_MONTHS (18).
+  const soon = loans.filter((l) => maturingSoon(l, period)).reduce((t, l) => t + l.balance, 0);
+  const compact = (v) => m(v, { compact: true });
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={tiles}>
-        <Tile label="Total debt" value={m(s.total, { compact: true })} />
-        <Tile label="Weighted rate" value={`${s.weightedRate.toFixed(2)}%`} />
-        <Tile label="Annual debt service" value={m(s.annualService, { compact: true })} />
-        <Tile label="Maturing within 24 mo" value={m(s.withinTwoYears, { compact: true })} />
+        <Tile label="Total debt" value={compact(s.total)} />
+        <Tile label="Weighted rate" value={rate == null ? '-' : `${rate.toFixed(2)}%`} sub={unrated ? `Rate not set on ${unrated} loan${unrated === 1 ? '' : 's'}` : undefined} />
+        <Tile label="Annual debt service" value={compact(s.annualService)} />
+        <Tile label={`Maturing within ${MATURITY_SOON_MONTHS} mo`} value={compact(soon)} />
       </div>
-      {s.byYear.length ? <ColoredBars data={s.byYear.map((y) => ({ label: String(y.year), value: y.balance, color: y.soon ? '#d97706' : '#0998c3' }))} height={150} /> : null}
-      <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Maturing within 18 months</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#0998c3" />Later maturities</span></div>
+      {s.byYear.length ? <ColoredBars data={s.byYear.map((y) => ({ label: String(y.year), value: y.balance, color: y.soon ? WARN : '#0998c3' }))} height={150} valueLabel={compact} /> : null}
+      <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: WARN }}><WarnMark size={11} />Maturing within {MATURITY_SOON_MONTHS} months</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#0998c3" />Later maturities</span></div>
       <Footnote>Refinance conversations typically start 12 to 18 months before maturity.</Footnote>
     </div>
   );

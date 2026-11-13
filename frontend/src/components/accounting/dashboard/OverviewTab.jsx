@@ -58,9 +58,12 @@ function useColumns() {
   };
 }
 
-export default function OverviewTab({ canEdit }) {
+export default function OverviewTab({ canEdit: mayEdit }) {
   const { view, setView, act, loading, down } = useDash();
-  const { views: savedViews, isLoading } = useViews();
+  const { views: savedViews, isLoading, failed: viewsFailed } = useViews();
+  // The shared views could not be read (11/12/2026): show the role views' defaults, change nothing -
+  // a write now would overwrite the real views with the defaults.
+  const canEdit = mayEdit && !viewsFailed;
   const views = useMemo(() => withRoleViews(savedViews), [savedViews]);
   const nav = useDashNav();
   const attention = useAttention();
@@ -88,11 +91,11 @@ export default function OverviewTab({ canEdit }) {
   // A role view missing from the shared table is put back, once, when opened.
   const rebuilt = useRef(new Set());
   useEffect(() => {
-    if (isLoading || !current?.missing || rebuilt.current.has(current.id)) return;
+    if (isLoading || viewsFailed || !current?.missing || rebuilt.current.has(current.id)) return;
     rebuilt.current.add(current.id);
     const { id, name, role, widgets: w, sort } = current;
     act('view-save', { view: { id, name, role, widgets: w, sort } }).catch(() => { rebuilt.current.delete(id); });
-  }, [current, isLoading, act]);
+  }, [current, isLoading, viewsFailed, act]);
 
   const persist = async (next) => {
     if (!current) return;
@@ -101,7 +104,15 @@ export default function OverviewTab({ canEdit }) {
   };
   const move = (i, j) => { if (j < 0 || j >= widgets.length || i === j) return; const next = [...widgets]; const [w] = next.splice(i, 1); next.splice(j, 0, w); persist(next); };
   const resize = (i) => { const next = [...widgets]; next[i] = { ...next[i], size: SIZES[(SIZES.indexOf(next[i].size) + 1) % SIZES.length] }; persist(next); };
-  const remove = (i) => persist(widgets.filter((_, k) => k !== i));
+  // Instant, with an Undo (11/12/2026): the view is shared, so a slip changes it for everyone.
+  const remove = (i) => {
+    const before = widgets;
+    const cur = current;
+    persist(widgets.filter((_, k) => k !== i));
+    dialog.undo(`${WIDGETS[widgets[i].type]?.title || 'Widget'} removed from ${cur?.name || 'this view'}.`, () => {
+      act('view-save', { view: { ...cur, widgets: before } }).catch((e) => setNote(e?.message || 'Could not put the widget back.'));
+    });
+  };
   const add = (type) => persist([...widgets, { type, size: WIDGETS[type].size }]);
 
   const goFor = (target) => {
@@ -137,15 +148,20 @@ export default function OverviewTab({ canEdit }) {
     e.preventDefault();
     const name = form.name.trim();
     if (!name) return;
-    if (form.mode === 'new') {
-      const id = `${slug(name)}-${Date.now().toString(36)}`;
-      const base = form.copy ? (views.find((v) => v.id === form.copy)?.widgets ?? []) : [];
-      await act('view-save', { view: { id, name, role: form.role.trim() || 'Custom', widgets: base, sort: views.length + 1 } });
-      setView(id); setEditing(true);
-    } else if (current) {
-      await act('view-save', { view: { ...current, name, role: form.role.trim() || 'Custom', widgets } });
+    // A refusal keeps the form open and says why (11/12/2026), never a silent revert.
+    try {
+      if (form.mode === 'new') {
+        const id = `${slug(name)}-${Date.now().toString(36)}`;
+        const base = form.copy ? (views.find((v) => v.id === form.copy)?.widgets ?? []) : [];
+        await act('view-save', { view: { id, name, role: form.role.trim() || 'Custom', widgets: base, sort: views.length + 1 } });
+        setView(id); setEditing(true);
+      } else if (current) {
+        await act('view-save', { view: { ...current, name, role: form.role.trim() || 'Custom', widgets } });
+      }
+      setForm(null);
+    } catch (err) {
+      setNote(err?.message || 'Could not save the view.');
     }
-    setForm(null);
   };
 
   // Where a folded card is set up: a budget on Trackers > Budgets, the rest on Reference Data.
@@ -165,9 +181,9 @@ export default function OverviewTab({ canEdit }) {
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <LayoutGrid size={14} style={{ color: 'var(--text-muted)' }} />
             <select value={current?.id ?? ''} disabled={editing} aria-label="Overview view" style={{ ...input, fontWeight: 600 }} onChange={(e) => { const v = e.target.value; if (v === '__new') setForm({ mode: 'new', name: '', role: 'Custom', copy: '' }); else { setView(v); setEditing(false); } }}>
-              <optgroup label="Role views">{roleViews.map((v) => <option key={v.id} value={v.id}>{viewLabel(v)}</option>)}</optgroup>
-              {customViews.length ? <optgroup label="Custom views">{customViews.map((v) => <option key={v.id} value={v.id}>{viewLabel(v)}</option>)}</optgroup> : null}
-              {canEdit ? <option value="__new">+ New view…</option> : null}
+              <optgroup label="Role Views">{roleViews.map((v) => <option key={v.id} value={v.id}>{viewLabel(v)}</option>)}</optgroup>
+              {customViews.length ? <optgroup label="Custom Views">{customViews.map((v) => <option key={v.id} value={v.id}>{viewLabel(v)}</option>)}</optgroup> : null}
+              {canEdit ? <option value="__new">+ New View…</option> : null}
             </select>
           </span>
           {/* Oct 7 (Neil): the module's one Customize - density, and for an
@@ -206,7 +222,7 @@ export default function OverviewTab({ canEdit }) {
 
       {form ? (
         <form onSubmit={submitForm} style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>{form.mode === 'new' ? 'New view' : 'Rename view'}</span>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{form.mode === 'new' ? 'New View' : 'Rename View'}</span>
           <input autoFocus required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="View name" style={{ ...input, width: 200 }} />
           <input value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} placeholder="Role label" style={{ ...input, width: 140 }} />
           {form.mode === 'new' ? (
@@ -220,7 +236,7 @@ export default function OverviewTab({ canEdit }) {
       {!editing ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 13 }}>
           {/* Books not reached: the notice above says so - never "Nothing needs attention". */}
-          {down ? null : loading || isLoading ? (
+          {down || viewsFailed ? null : loading || isLoading ? (
             <div style={{ width: 320, maxWidth: '100%' }}><SkeletonBlocks count={1} height={20} borderRadius={999} /></div>
           ) : attention.length === 0 ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--ok-fg, #15803d)' }}><CheckCircle2 size={14} /> Nothing needs attention</span>
@@ -229,7 +245,7 @@ export default function OverviewTab({ canEdit }) {
               <AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />
               {shown.map((a, i) => (
                 <button key={i} type="button" onClick={() => goFor(a.target)} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer' }}>
-                  <Chip tone={a.severity === 0 ? 'bad' : a.severity === 1 ? 'wait' : 'ok'}>{a.text}</Chip>
+                  <Chip tone={a.severity === 0 ? 'bad' : 'wait'}>{a.text}</Chip>
                 </button>
               ))}
               {attention.length > 4 ? <button type="button" onClick={() => setAttnAll((v) => !v)} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: 12, color: 'var(--wk-brand, #2b45e1)' }}>{attnAll ? 'Show less' : `+${attention.length - 4} more`}</button> : null}
@@ -240,7 +256,7 @@ export default function OverviewTab({ canEdit }) {
 
       {addOpen && editing ? (
         <div style={{ ...card, padding: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}><b style={{ fontSize: 14 }}>Widget library</b><button type="button" className="icon-btn" aria-label="Close" onClick={() => setAddOpen(false)}><X size={14} /></button></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}><b style={{ fontSize: 14 }}>Widget Library</b><button type="button" className="icon-btn" aria-label="Close" onClick={() => setAddOpen(false)}><X size={14} /></button></div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 8 }}>
             {WIDGET_CATS.map((cat) => (
               <div key={cat}>
@@ -266,7 +282,7 @@ export default function OverviewTab({ canEdit }) {
               <div key="folded" role="note" style={{ ...card, gridColumn: 'span 12', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 14px', fontSize: 13, color: 'var(--text-secondary)' }}>
                 <Info size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}><b style={{ color: 'var(--text-primary)' }}>Nothing to show yet:</b> {folded.map((x) => `${WIDGETS[x.type].title} (${empty[x.type]})`).join(' · ')}</span>
-                {[...new Map(folded.map((x) => SETUP_AT[x.type] || SETUP_AT.default).map((at) => [at[0], at])).values()].map(([to, where]) => (
+                {[...new Map(folded.map((x) => SETUP_AT[x.type] || SETUP_AT.default).map((at) => [at[0], at])).values()].filter(([to]) => nav.can?.(to) ?? true).map(([to, where]) => (
                   <button key={to} type="button" onClick={() => nav(to)} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Set Up in {where}</button>
                 ))}
               </div>
@@ -289,10 +305,10 @@ export default function OverviewTab({ canEdit }) {
                       <AnchoredMenu anchorRef={menuBtn} open={menuFor === i} onClose={() => setMenuFor(null)} align="end" minWidth={190}
                         style={{ ...card, padding: 4, display: 'grid' }}>
                         {[
-                          ['Move up', <ChevronUp size={13} />, () => move(i, i - 1), i === 0],
-                          ['Move down', <ChevronDown size={13} />, () => move(i, i + 1), i === widgets.length - 1],
-                          [`Change width (${SIZE_LABEL[SIZES[(SIZES.indexOf(w.size) + 1) % SIZES.length]]})`, null, () => resize(i), false],
-                          ['Remove from this view', <Trash2 size={13} />, () => remove(i), false, true],
+                          ['Move Up', <ChevronUp size={13} />, () => move(i, i - 1), i === 0],
+                          ['Move Down', <ChevronDown size={13} />, () => move(i, i + 1), i === widgets.length - 1],
+                          [`Change Width (${SIZE_LABEL[SIZES[(SIZES.indexOf(w.size) + 1) % SIZES.length]]})`, null, () => resize(i), false],
+                          ['Remove From This View', <Trash2 size={13} />, () => remove(i), false, true],
                         ].map(([label, icon, fn, disabled, danger]) => (
                           <button key={label} type="button" role="menuitem" disabled={disabled} onClick={() => { fn(); setMenuFor(null); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', border: 'none', background: 'none', textAlign: 'left', font: 'inherit', fontSize: 13, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.4 : 1, color: danger ? 'var(--bad-fg, #dc2626)' : 'inherit', borderRadius: 6 }}>{icon}{label}</button>
                         ))}

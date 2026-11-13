@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Pencil, Search, Trash2, Users, X } from 'lucide-react';
+import { Check, Pencil, Search, Users, X } from 'lucide-react';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 import { formatDate } from '../../lib/datetime';
 import { control } from './reportControls';
 import { columnModes, entityText, periodOf, presetLabel, reportDef, resolveConfig } from './reportModel';
@@ -34,7 +35,6 @@ const summarize = (config) => {
 export default function SavedReportsManager({ reports, activeId, nameOf, onOpen, onRename, onShare, onDelete, onClose }) {
   const [q, setQ] = useState('');
   const [renaming, setRenaming] = useState(null);   // { id, name }
-  const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   useEffect(() => {
@@ -63,7 +63,7 @@ export default function SavedReportsManager({ reports, activeId, nameOf, onOpen,
   const mine = reports.filter((r) => r.mine).length;
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Saved Reports" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'min(1180px, 96vw)', minHeight: '60vh', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Saved Reports" onClick={(e) => e.stopPropagation()} style={{ width: 'max(60vw, min(1180px, 100vw))', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Saved Reports</h3>
@@ -124,14 +124,10 @@ export default function SavedReportsManager({ reports, activeId, nameOf, onOpen,
                     <td style={{ color: 'var(--text-secondary)' }}>{r.updatedAt ? formatDate(r.updatedAt) : ''}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => { onOpen(r); onClose(); }}>Open</button>
-                      {r.mine && (confirm === r.id ? (
-                        <span style={{ marginLeft: 8, display: 'inline-flex', gap: 8 }}>
-                          <button type="button" className="acct-drill" style={{ color: 'var(--bad-fg, #dc2626)' }} onClick={() => { setConfirm(''); run(r.id, () => onDelete(r)); }}>Delete</button>
-                          <button type="button" className="acct-drill" onClick={() => setConfirm('')}>Keep</button>
-                        </span>
-                      ) : (
-                        <button type="button" aria-label={`Delete ${r.name}`} title="Delete" onClick={() => setConfirm(r.id)} style={{ ...ICON, marginLeft: 4 }}><Trash2 size={14} /></button>
-                      ))}
+                      {r.mine && (
+                        <HoldButton size="sm" label="Delete" doneLabel="Deleted" holdMs={HOLD_RECORD_MS} ariaLabel={`Delete ${r.name}`} style={{ marginLeft: 8 }}
+                          fallbackMessage={`Delete the saved report ${r.name}?`} onConfirm={() => onDelete(r)} />
+                      )}
                     </td>
                   </tr>
                 ))}

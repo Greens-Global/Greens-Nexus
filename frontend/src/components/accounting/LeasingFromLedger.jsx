@@ -3,7 +3,9 @@ import { Check, ChevronDown, ListFilter, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
-import { PopoverPanel, control, usePopover } from './reportControls';
+import { ColumnResizer, PopoverPanel, control, usePopover } from './reportControls';
+import { useColumnWidths } from './tableHooks';
+import { headStyle } from './columnStyles';
 import { POLL_MS, ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, useLedgerScan, useScanRetry } from './LedgerScan';
 
 // MRI -> + Add -> Set Up From the Ledger (Neil and Charmi, 10/02: "Did you
@@ -68,6 +70,8 @@ export default function LeasingFromLedger({ onClose, onCreated, pollMs = POLL_MS
       .catch((e) => { setError(e); setBusy(false); });
   };
   const read = data ? (data.entitiesRead ?? (data.entitiesScanned ?? 0) - failed.length) : 0;
+  const cw = useColumnWidths('mri-from-ledger', {}, { min: 50 });
+  const th = (key, label, style = null) => <th aria-label={label} style={headStyle(cw.width(key), style)}>{label}<ColumnResizer {...cw.resizer(key, label)} /></th>;
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Set up leases from the ledger" onClick={(e) => e.stopPropagation()}>
@@ -115,7 +119,7 @@ export default function LeasingFromLedger({ onClose, onCreated, pollMs = POLL_MS
           ) : (
             <div className="acct-lines-wrap">
               <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
-                <thead><tr><th style={{ width: 30 }} /><th>Property (Entity)</th><th>Tenant (Customer)</th><th>Income Accounts</th><th style={num}>Monthly Rent</th><th>First Posted</th><th style={num}>Months Posted</th><th style={num}>Received (12 Mo)</th><th>Status</th></tr></thead>
+                <thead><tr><th style={{ width: 30 }} />{th('property', 'Property (Entity)')}{th('tenant', 'Tenant (Customer)')}{th('accounts', 'Income Accounts')}{th('rent', 'Monthly Rent', num)}{th('first', 'First Posted')}{th('months', 'Months Posted', num)}{th('received', 'Received (12 Mo)', num)}{th('status', 'Status')}</tr></thead>
                 <tbody>
                   {rows.map((p) => {
                     const k = keyOf(p);

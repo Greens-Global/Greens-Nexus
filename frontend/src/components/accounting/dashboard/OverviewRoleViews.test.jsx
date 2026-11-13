@@ -58,7 +58,7 @@ describe('Overview role views', () => {
   it('always lists Bookkeeper with the other role views', () => {
     render(<OverviewTab canEdit />);
     const select = screen.getByRole('combobox', { name: 'Overview view' });
-    const roleGroup = select.querySelector('optgroup[label="Role views"]');
+    const roleGroup = select.querySelector('optgroup[label="Role Views"]');
     const names = [...roleGroup.querySelectorAll('option')].map((o) => o.value);
     expect(names).toEqual(['principal', 'cfo', 'controller', 'bookkeeper']);
     expect(within(select).getByRole('option', { name: 'Bookkeeper' })).toBeTruthy();

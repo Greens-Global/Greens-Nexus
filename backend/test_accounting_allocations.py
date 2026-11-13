@@ -241,6 +241,28 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(self.client.delete(f"/accounting/allocations/runs/{rid}").status_code, 204)
         self.assertEqual(self.client.get("/accounting/allocations/runs").json()["runs"], [])
 
+    def test_keeping_the_same_run_twice_reuses_it(self):
+        """Keep Run then Export (or both exports) must leave ONE run - two
+        identical runs are two files that could be imported twice."""
+        _as(FULL)
+        for p in self._server_builds():
+            p.start()
+            self.addCleanup(p.stop)
+        pv = build_preview(None, "2026-09", MAPPING, CARDS, PEOPLE)
+        first = self.client.post("/accounting/allocations/runs", json={"month": "2026-09", "entity": "", "preview": pv}).json()
+        again = self.client.post("/accounting/allocations/runs", json={"month": "2026-09", "entity": "", "preview": pv}).json()
+        self.assertEqual(again["id"], first["id"])
+        self.assertTrue(again["reused"])
+        self.assertEqual(len(self.client.get("/accounting/allocations/runs").json()["runs"]), 1)
+        # A mapping change moves the lines: that is a new run.
+        moved = {**MAPPING, "journal": "ALLOC"}
+        with mock.patch("routers.accounting_allocations._read_map", return_value=moved):
+            third = self.client.post("/accounting/allocations/runs", json={"month": "2026-09", "preview": build_preview(None, "2026-09", moved, CARDS, PEOPLE)}).json()
+        self.assertNotEqual(third["id"], first["id"])
+        self.assertNotIn("reused", third)
+        for rid in (first["id"], third["id"]):
+            self.client.delete(f"/accounting/allocations/runs/{rid}")
+
     def test_delete_run_takes_the_step_up_like_its_siblings(self):
         """Neil's review (Oct 20): every other run route carries require_stepup;
         delete_run did not. Without a step-up the delete is refused and the

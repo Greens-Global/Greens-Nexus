@@ -10,9 +10,9 @@ import { cellStyle, headStyle } from './columnStyles';
 import LinesPanel from './LinesPanel';
 import { useTableSync } from './tableSync';
 import { downloadBlob, iso, presetRange } from './reportModel';
-import { requestReportDrill } from './drill';
 import { linesFile } from './linesExport';
-import { breakdown, canDrill, COMPARE_ON, orderedRows, pctText, periodLine, priorLine, PROFIT_COLUMNS, profitTable } from './profitabilityModel';
+import { breakdown, canDrill, COMPARE_ON, orderedRows, pctText, periodLine, priorLine, PROFIT_COLUMNS, profitTable, TOTAL_CODE, totalRow } from './profitabilityModel';
+import { formatDate } from '../../lib/datetime';
 
 // Accounting > Reporting > Profitability (Charmi, 10/15: "a major end of year
 // report"; Neil: "we still need to make ... profitability"). One row per
@@ -41,6 +41,8 @@ const cellBtn = { border: 'none', background: 'none', padding: 0, font: 'inherit
 // 10/23 meeting, item 02 (fix 10/24): the words sit beside the controls, not above them, so the bar is one line.
 const inline = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' };
 
+const BREAKDOWN_COLUMNS = [['line', 'Line'], ['account', 'Account'], ['title', 'Title'], ['amount', 'Amount']];
+
 const rangeOf = (key) => { const [f, t] = presetRange(key); return [iso(f), iso(t)]; };
 
 export default function ProfitabilityReport({ limited = false }) {
@@ -53,13 +55,14 @@ export default function ProfitabilityReport({ limited = false }) {
   const [entities, setEntities] = useState([]);
   const [data, setData] = useState(null);
   const [state, setState] = useState({ loading: true, error: '' });
-  const [open, setOpen] = useState(null);     // { code, key }
+  const [open, setOpen] = useState(null);     // { code, key, period } - code TOTAL_CODE for the Total row
   // Call of 10/27 with Charmi, item 17: an account's amount under a figure
   // opens its ledger lines in the side panel; every column drags wider or
   // narrower, kept per person.
-  const [linesOf, setLinesOf] = useState(null);    // { account, title, entity, name }
+  const [linesOf, setLinesOf] = useState(null);    // { account, title, entity | entities, name, from, to }
   const closeLines = useCallback(() => setLinesOf(null), []);
   const widths = useColumnWidths('profitability', {}, { min: 60 });
+  const bw = useColumnWidths('profitability-breakdown', {}, { min: 60 });
   const W = (key, base) => ({ ...base, ...headStyle(widths.width(key)), ...(base === thLeft ? { position: 'sticky' } : {}) });
   const C = (key, base) => ({ ...base, ...cellStyle(widths.width(key)) });
   const [busy, setBusy] = useState('');
@@ -90,9 +93,15 @@ export default function ProfitabilityReport({ limited = false }) {
   const cmp = COMPARE_ON.find((c) => c.key === compareOn) || COMPARE_ON[0];
   const entityLabel = !picked.length ? (limited ? 'All My Entities' : 'All Entities') : picked.length === 1 ? (entities.find((e) => e.code === picked[0])?.name || picked[0]) : `${picked.length} entities`;
 
-  const openRow = open && rows.find((r) => r.code === open.code);
+  // The Total row and the Prior Year column open into accounts like any figure.
+  const prior = open?.period === 'prior';
+  const openBase = open && (open.code === TOTAL_CODE ? totalRow(rows, data?.totals, open.period, entityLabel) : rows.find((r) => r.code === open.code));
+  const openRow = openBase && (prior && open.code !== TOTAL_CODE ? { ...openBase, current: openBase.prior } : openBase);
   const openCol = open && PROFIT_COLUMNS.find((c) => c.key === open.key);
   const lines = openRow && openCol ? breakdown(openRow, openCol) : [];
+  const openFrom = prior ? data?.priorFrom : data?.from;
+  const openTo = prior ? data?.priorTo : data?.to;
+  const openWhere = openRow?.code === TOTAL_CODE ? { entities: openRow.entities } : { entity: openRow?.code };
 
   const exportAs = async (format) => {
     if (!data) return;
@@ -103,17 +112,22 @@ export default function ProfitabilityReport({ limited = false }) {
     } finally { setBusy(''); }
   };
 
-  const figure = (row, c) => {
-    const v = row.current?.[c.key];
+  // A figure that opens into its accounts: an entity's or the Total's, this period's or the prior year's.
+  const hasAccounts = (row, period) => (row.code === TOTAL_CODE ? rows.some((r) => r[period]?.accounts) : !!row[period]?.accounts);
+  const figure = (row, c, period = 'current', strong = c.strong) => {
+    const v = row[period]?.[c.key];
     if (c.kind === 'pct') return <Figure text={pctText(v) || '-'} />;
     if (v == null) return <span style={{ color: 'var(--text-muted)' }}>-</span>;
-    const amt = <Amount value={v} zero="dash" style={c.strong ? { fontWeight: 700 } : undefined} />;
-    if (!canDrill(c) || Math.abs(v) < 0.005) return amt;
+    const amt = <Amount value={v} zero="dash" style={strong ? { fontWeight: 700 } : undefined} />;
+    if (!canDrill(c) || Math.abs(v) < 0.005 || !hasAccounts(row, period)) return amt;
     return (
-      <button type="button" style={cellBtn} onClick={() => setOpen({ code: row.code, key: c.key })} title={`Show the accounts behind ${c.label}`}
-        aria-label={`${c.label} for ${row.name}`}>{amt}</button>
+      <button type="button" style={cellBtn} onClick={() => setOpen({ code: row.code, key: c.key, period })} title={`Show the accounts behind ${c.label}`}
+        aria-label={`${period === 'prior' ? 'Prior Year ' : ''}${c.label} for ${row.name}`}>{amt}</button>
     );
   };
+  const lit = (code, key, period = 'current') => (open?.code === code && open?.key === key && (open.period || 'current') === period ? 'var(--wk-brand-tint, #e8ecfd)' : undefined);
+  const cmpCol = PROFIT_COLUMNS.find((c) => c.key === compareOn);
+  const total = data ? { code: TOTAL_CODE, name: 'Total', current: data.totals?.current, prior: data.totals?.prior } : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -189,10 +203,10 @@ export default function ProfitabilityReport({ limited = false }) {
                       <td style={{ ...C('entity', tdLeft), paddingLeft: 8 + r.depth * 18 }}>
                         <span style={{ fontWeight: r.depth ? 400 : 600 }}>{r.name}</span> <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{r.code}</span>
                       </td>
-                      {PROFIT_COLUMNS.map((c) => <td key={c.key} style={{ ...C(c.key, td), background: open?.code === r.code && open?.key === c.key ? 'var(--wk-brand-tint, #e8ecfd)' : undefined }}>{figure(r, c)}</td>)}
+                      {PROFIT_COLUMNS.map((c) => <td key={c.key} style={{ ...C(c.key, td), background: lit(r.code, c.key) }}>{figure(r, c)}</td>)}
                       {withPrior && (
                         <>
-                          <td style={C('prior', td)}>{r.prior?.[compareOn] == null ? '-' : <Amount value={r.prior[compareOn]} zero="dash" />}</td>
+                          <td style={{ ...C('prior', td), background: lit(r.code, compareOn, 'prior') }}>{r.prior?.[compareOn] == null ? '-' : figure(r, cmpCol, 'prior', false)}</td>
                           <td style={C('change', td)}>{ch.amount == null ? '-' : <Amount value={ch.amount} zero="dash" />}</td>
                           <td style={C('changePct', td)}><Figure text={pctText(ch.pct) || '-'} /></td>
                         </>
@@ -204,13 +218,10 @@ export default function ProfitabilityReport({ limited = false }) {
               <tfoot>
                 <tr>
                   <td style={{ ...tdLeft, fontWeight: 700 }}>Total</td>
-                  {PROFIT_COLUMNS.map((c) => {
-                    const v = data.totals?.current?.[c.key];
-                    return <td key={c.key} style={{ ...td, fontWeight: 700 }}>{c.kind === 'pct' ? <Figure text={pctText(v) || '-'} /> : v == null ? '-' : <Amount value={v} zero="dash" />}</td>;
-                  })}
+                  {PROFIT_COLUMNS.map((c) => <td key={c.key} style={{ ...td, fontWeight: 700, background: lit(TOTAL_CODE, c.key) }}>{figure(total, c, 'current', true)}</td>)}
                   {withPrior && (
                     <>
-                      <td style={{ ...td, fontWeight: 700 }}>{data.totals.prior?.[compareOn] == null ? '-' : <Amount value={data.totals.prior[compareOn]} zero="dash" />}</td>
+                      <td style={{ ...td, fontWeight: 700, background: lit(TOTAL_CODE, compareOn, 'prior') }}>{data.totals.prior?.[compareOn] == null ? '-' : figure(total, cmpCol, 'prior', true)}</td>
                       <td style={{ ...td, fontWeight: 700 }}>{data.totals.change?.[compareOn]?.amount == null ? '-' : <Amount value={data.totals.change[compareOn].amount} zero="dash" />}</td>
                       <td style={{ ...td, fontWeight: 700 }}><Figure text={pctText(data.totals.change?.[compareOn]?.pct) || '-'} /></td>
                     </>
@@ -231,37 +242,44 @@ export default function ProfitabilityReport({ limited = false }) {
       {openRow && openCol && (
         <div style={{ ...card, overflow: 'auto' }} role="region" aria-label="Accounts Behind the Figure">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 4px' }}>
-            <h3 style={{ margin: 0, fontSize: 15, flex: 1 }}>{openCol.label} - {openRow.name}</h3>
+            <h3 style={{ margin: 0, fontSize: 15, flex: 1 }}>{prior ? 'Prior Year ' : ''}{openCol.label} - {openRow.name}</h3>
             <button type="button" onClick={() => setOpen(null)} aria-label="Close the accounts" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 4 }}><X size={15} /></button>
           </div>
-          <p style={{ margin: 0, padding: '0 12px 6px', fontSize: 12, color: 'var(--text-muted)' }}>Click an account to open its ledger lines on Reports.</p>
+          <p style={{ margin: 0, padding: '0 12px 6px', fontSize: 12, color: 'var(--text-muted)' }}>Click an account or its amount for the ledger lines; Open in Reports there has every filter and the export.</p>
           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-            <thead><tr><th style={{ ...th, textAlign: 'left', minWidth: 0 }}>Line</th><th style={{ ...th, textAlign: 'left', minWidth: 0 }}>Account</th><th style={{ ...th, textAlign: 'left', minWidth: 0 }}>Title</th><th style={th}>Amount</th></tr></thead>
-            <tbody>
-              {lines.map((l) => (
-                <tr key={`${l.group}-${l.account}`}>
-                  <td style={{ ...td, textAlign: 'left' }}>{l.label}</td>
-                  <td style={{ ...td, textAlign: 'left' }}>
-                    <button type="button" style={cellBtn} onClick={() => requestReportDrill({ account: l.account, accountName: l.title, from: data.from, to: data.to, entity: openRow.code, book })}>{l.account}</button>
-                  </td>
-                  <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>{l.title}</td>
-                  <td style={td}>
-                    {Math.abs(Number(l.amount) || 0) >= 0.005
-                      ? <button type="button" style={cellBtn} onClick={() => setLinesOf({ account: l.account, title: l.title, entity: openRow.code, name: openRow.name })} aria-label={`Lines behind ${l.account} ${l.title}`} title="See the ledger lines behind this amount"><Amount value={l.signed} zero="dash" /></button>
-                      : <Amount value={l.signed} zero="dash" />}
-                  </td>
-                </tr>
+            <thead><tr>
+              {BREAKDOWN_COLUMNS.map(([k, label]) => (
+                <th key={k} style={{ ...th, ...(k === 'amount' ? null : { textAlign: 'left' }), minWidth: 0, ...headStyle(bw.width(k)) }}>{label}<ColumnResizer {...bw.resizer(k, label)} /></th>
               ))}
+            </tr></thead>
+            <tbody>
+              {lines.map((l) => {
+                const openLines = () => setLinesOf({ account: l.account, title: l.title, ...openWhere, name: openRow.name, from: openFrom, to: openTo });
+                return (
+                  <tr key={`${l.group}-${l.account}`}>
+                    <td style={{ ...td, textAlign: 'left', ...cellStyle(bw.width('line')) }}>{l.label}</td>
+                    <td style={{ ...td, textAlign: 'left', ...cellStyle(bw.width('account')) }}>
+                      <button type="button" style={cellBtn} onClick={openLines} title="See the ledger lines behind this account">{l.account}</button>
+                    </td>
+                    <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal', ...cellStyle(bw.width('title')) }}>{l.title}</td>
+                    <td style={{ ...td, ...cellStyle(bw.width('amount')) }}>
+                      {Math.abs(Number(l.amount) || 0) >= 0.005
+                        ? <button type="button" style={cellBtn} onClick={openLines} aria-label={`Lines behind ${l.account} ${l.title}`} title="See the ledger lines behind this amount"><Amount value={l.signed} zero="dash" /></button>
+                        : <Amount value={l.signed} zero="dash" />}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot><tr><td style={{ ...td, textAlign: 'left', fontWeight: 700 }} colSpan={3}>{openCol.label}</td><td style={{ ...td, fontWeight: 700 }}><Amount value={openRow.current[openCol.key]} zero="dash" /></td></tr></tfoot>
           </table>
         </div>
       )}
       {linesOf && data && (
-        <LinesPanel key={`${linesOf.entity}|${linesOf.account}`} label={`${linesOf.account} ${linesOf.title}, ${linesOf.name}`} title={`${linesOf.account} ${linesOf.title}`} widthsKey="profitability" onClose={closeLines}
-          caption={`${linesOf.name} (${linesOf.entity}), ${periodLine(data)}, ${book === 'cash' ? 'Cash' : 'Accrual'}`}
-          queries={[{ account: linesOf.account, location: linesOf.entity, from: data.from, to: data.to, book }]}
-          report={{ account: linesOf.account, accountName: linesOf.title, from: data.from, to: data.to, entity: linesOf.entity, book }} />
+        <LinesPanel key={`${linesOf.entity || linesOf.entities.join(',')}|${linesOf.account}|${linesOf.from}`} label={`${linesOf.account} ${linesOf.title}, ${linesOf.name}`} title={`${linesOf.account} ${linesOf.title}`} widthsKey="profitability" onClose={closeLines}
+          caption={`${linesOf.name}${linesOf.entity ? ` (${linesOf.entity})` : ''}, ${formatDate(linesOf.from)} - ${formatDate(linesOf.to)}, ${book === 'cash' ? 'Cash' : 'Accrual'}`}
+          queries={[{ account: linesOf.account, ...(linesOf.entity ? { location: linesOf.entity } : { locations: linesOf.entities.join(',') }), from: linesOf.from, to: linesOf.to, book }]}
+          report={{ account: linesOf.account, accountName: linesOf.title, from: linesOf.from, to: linesOf.to, ...(linesOf.entity ? { entity: linesOf.entity } : { entities: linesOf.entities }), book }} />
       )}
     </div>
   );

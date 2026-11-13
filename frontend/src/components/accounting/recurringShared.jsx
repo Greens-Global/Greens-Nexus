@@ -214,13 +214,13 @@ function RecurringSettingsDialog({ onClose, recheck }) {
   const last = recheck.status === 'done' && recheck.last ? recheck.last : s?.lastCheck;
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="MRI and MRE settings" onClick={(e) => e.stopPropagation()}
-        style={{ width: '60vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', minHeight: '60vh', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="MRI and MRE settings" onClick={(e) => e.stopPropagation()}
+        style={{ display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>MRI and MRE Settings</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={arrow}><X size={18} /></button>
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 16, overflowY: 'auto', flex: 1, alignContent: 'start' }}>
+        <div className="nx-fill" style={{ padding: '14px 24px 6px', display: 'grid', gap: 16, overflowY: 'auto', alignContent: 'start' }}>
           {!s ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading...</div> : (
             <>
               <div>
@@ -249,4 +249,27 @@ function RecurringSettingsDialog({ onClose, recheck }) {
       </div>
     </div>
   );
+}
+
+// The inline question a dialog with unsaved changes asks when it is clicked
+// off or Escaped (Neil, 10/14) - never window.confirm. MRI's lease and month
+// editors and MRE's line editor share it.
+export function LeaveConfirm({ onKeep, onDiscard }) {
+  const keep = useRef(null);
+  useEffect(() => { keep.current?.focus(); }, []);
+  return (
+    <div className="modal-footer" role="alertdialog" aria-label="Unsaved changes" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />You have unsaved changes.</span>
+      <span style={{ display: 'inline-flex', gap: 8 }}>
+        <button type="button" className="secondary-btn" onClick={onDiscard} style={{ color: 'var(--bad-fg, #dc2626)' }}>Discard Edits</button>
+        <button type="button" ref={keep} className="primary-btn" onClick={onKeep}>Keep Editing</button>
+      </span>
+    </div>
+  );
+}
+
+// Beside a greyed-out Save: what is still missing, so the button says why.
+export function StillNeeded({ missing }) {
+  if (!missing.length) return null;
+  return <span role="status" style={{ fontSize: 12, color: 'var(--text-muted)' }}>Still needed: {missing.join(', ')}</span>;
 }

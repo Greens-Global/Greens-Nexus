@@ -23,7 +23,7 @@ const SHOW = [
   { key: 'suggested', label: 'Suggested' },
   { key: 'saved', label: 'Mapped' },
 ];
-const SOURCE = { entity: 'This entity', all: 'Every entity', suggested: 'Suggested', '': 'Not mapped' };
+const SOURCE = { entity: 'This Entity', all: 'Every Entity', suggested: 'Suggested', '': 'Not Mapped' };
 const SECTION = { revenue: 'Revenue', cogs: 'Cost of Sales', expense: 'Operating Expenses', other_income: 'Other Income', other_expense: 'Other Expenses' };
 // 10/27: a filter box under every heading (columnFilters.jsx, as on MRE). The
 // Line box reads what the row's Line box shows, a change not yet saved included.
@@ -31,7 +31,7 @@ const COLUMNS = (shownLine) => [
   { key: 'account', label: 'Account', text: (r) => `${r.code || ''} ${r.title || ''}` },
   { key: 'section', label: 'Section', text: (r) => SECTION[r.section] || r.section || '' },
   { key: 'amount', label: 'Amount', num: true, value: (r) => Number(r.amount) || 0 },
-  { key: 'today', label: 'Adds Into Today', text: (r) => (r.line ? `${lineText(r.line)} ${SOURCE[r.source] || ''}` : 'Not mapped') },
+  { key: 'today', label: 'Adds Into Today', text: (r) => (r.line ? `${lineText(r.line)} ${SOURCE[r.source] || ''}` : 'Not Mapped') },
   { key: 'line', label: 'Line', text: shownLine },
 ];
 const filterCell = filterCellOf();
@@ -128,10 +128,10 @@ export default function ScheduleCMapping({ rows = [], entity = '', entityLabel =
               {listed.map((r) => (
                 <tr key={r.code || r.title}>
                   <td style={{ whiteSpace: 'normal', minWidth: 150 }}><span className="acct-code">{r.code}</span> {r.title}</td>
-                  <td style={{ color: 'var(--text-secondary)', whiteSpace: 'normal', maxWidth: 110 }}>{SECTION[r.section] || r.section}</td>
+                  <td style={{ color: 'var(--text-secondary)', whiteSpace: 'normal' }}>{SECTION[r.section] || r.section}</td>
                   <td className="acct-num"><Amount value={r.amount} /></td>
                   <td style={{ whiteSpace: 'normal', minWidth: 130 }}>
-                    <span style={{ color: r.line ? undefined : 'var(--bad-fg, #dc2626)' }}>{r.line ? lineText(r.line) : 'Not mapped'}</span>
+                    <span style={{ color: r.line ? undefined : 'var(--bad-fg, #dc2626)' }}>{r.line ? lineText(r.line) : 'Not Mapped'}</span>
                     {r.line && <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>{SOURCE[r.source]}</span>}
                   </td>
                   <td>

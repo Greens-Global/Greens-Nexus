@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, Pencil, Plus, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { EntityPicker, control } from './reportControls';
 import { pctText, rolesOf } from './pfsAffiliatedExport';
 import { isLockedError } from './PfsLock';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // Accounting -> PFS -> Affiliated Entities (Charmi, 10/04): "list all entities
 // that are joint and several between the 2 borrowers - the banker wants
@@ -46,7 +47,6 @@ export default function PfsAffiliated({ profile, canEdit = false, onLocked }) {
   const [meta, setMeta] = useState(FALLBACK_META);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
-  const [confirm, setConfirm] = useState('');
   const fail = useCallback((e, fallback) => {
     if (isLockedError(e)) { onLocked?.(profile.id); return; }
     setError(e?.message || fallback);
@@ -67,7 +67,8 @@ export default function PfsAffiliated({ profile, canEdit = false, onLocked }) {
     setData((d) => ({ ...d, rows: ids.map((id) => rows.find((r) => r.id === id)) }));
     api.reorderPfsAffiliates(profile.id, ids).then((r) => setData((d) => ({ ...d, rows: r?.rows || d.rows }))).catch((e) => { fail(e, 'Could not move the entity.'); load(); });
   };
-  const remove = (r) => api.deletePfsAffiliate(profile.id, r.id).then(load).catch((e) => fail(e, 'Could not remove the entity.'));
+  // Held right on the row; a refusal shows under the button, a lock closes the file.
+  const remove = (r) => api.deletePfsAffiliate(profile.id, r.id).catch((e) => { if (isLockedError(e)) { onLocked?.(profile.id); return; } throw e; });
 
   if (!data) return <SkeletonBlocks count={2} />;
   return (
@@ -114,22 +115,14 @@ export default function PfsAffiliated({ profile, canEdit = false, onLocked }) {
                         <td key={`${b.key}-role`}>{roles[b.key] || <span style={{ color: 'var(--text-muted)' }}>-</span>}</td>,
                       ])}
                       <td className="acct-num">{pctText(r.beneficialPct)}</td>
-                      <td style={{ color: 'var(--text-secondary)', maxWidth: 260 }}>{r.notes}</td>
+                      <td style={{ color: 'var(--text-secondary)' }}>{r.notes}</td>
                       {canEdit && (
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          {confirm === r.id ? (
-                            <>
-                              <button type="button" className="acct-drill" style={{ color: 'var(--bad-fg, #dc2626)', marginRight: 10 }} onClick={() => { setConfirm(''); remove(r); }}>Remove</button>
-                              <button type="button" className="acct-drill" onClick={() => setConfirm('')}>Keep</button>
-                            </>
-                          ) : (
-                            <>
-                              <button type="button" style={icon} aria-label={`Move ${r.name} up`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={14} /></button>
-                              <button type="button" style={icon} aria-label={`Move ${r.name} down`} disabled={i === rows.length - 1} onClick={() => move(i, 1)}><ArrowDown size={14} /></button>
-                              <button type="button" style={icon} aria-label={`Change ${r.name}`} onClick={() => setEditing({ ...EMPTY, ...r, roles: roles, beneficialPct: r.beneficialPct ?? '' })}><Pencil size={14} /></button>
-                              <button type="button" style={icon} aria-label={`Remove ${r.name}`} onClick={() => setConfirm(r.id)}><Trash2 size={14} /></button>
-                            </>
-                          )}
+                          <button type="button" style={icon} aria-label={`Move ${r.name} up`} disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={14} /></button>
+                          <button type="button" style={icon} aria-label={`Move ${r.name} down`} disabled={i === rows.length - 1} onClick={() => move(i, 1)}><ArrowDown size={14} /></button>
+                          <button type="button" style={icon} aria-label={`Change ${r.name}`} onClick={() => setEditing({ ...EMPTY, ...r, roles: roles, beneficialPct: r.beneficialPct ?? '' })}><Pencil size={14} /></button>
+                          <HoldButton size="sm" label="Remove" doneLabel="Removed" holdMs={HOLD_RECORD_MS} ariaLabel={`Remove ${r.name}`}
+                            fallbackMessage={`Remove ${r.name} from the affiliated entities?`} onConfirm={() => remove(r)} onDone={load} />
                         </td>
                       )}
                     </tr>
@@ -191,7 +184,7 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
   };
   const field = (id, text, input) => (<div><label style={label} htmlFor={id}>{text}</label>{input}</div>);
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={onClose} role="presentation" data-nx-dirty={r !== row ? '1' : undefined}>
       <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={row.id ? `Change ${row.name}` : 'Add an affiliated entity'} onClick={(e) => e.stopPropagation()} onSubmit={save}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{row.id ? 'Change Entity' : 'Add Entity'}</h3>
@@ -238,9 +231,9 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
               </fieldset>
             );
           })}
-          <div style={{ maxWidth: 220 }}>
+          <div>
             <label style={label} htmlFor="pfs-aff-ben">Beneficial Ownership %</label>
-            <input id="pfs-aff-ben" type="number" min="0" max="100" step="0.01" value={r.beneficialPct ?? ''} onChange={(e) => set({ beneficialPct: e.target.value })} style={{ ...control, width: '100%' }} />
+            <input id="pfs-aff-ben" type="number" min="0" max="100" step="0.01" value={r.beneficialPct ?? ''} onChange={(e) => set({ beneficialPct: e.target.value })} style={{ ...control, width: '100%', maxWidth: 220 }} />
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>When set, it is the statement's share of this entity; otherwise the borrowers' percents add up.</div>
           </div>
           {field('pfs-aff-notes', 'Notes', <input id="pfs-aff-notes" type="text" value={r.notes || ''} maxLength={400} onChange={(e) => set({ notes: e.target.value })} style={{ ...control, width: '100%' }} />)}
@@ -260,7 +253,7 @@ function AffiliateEditor({ row, borrowers, meta, onClose, onSave }) {
  * with the person's name - side by side on a wide screen, stacked on a narrow
  * one - and one Save Changes for the section. Both are kept through the
  * executive-profiles endpoint (key primary | co) and print after each other. */
-export function PfsExecutiveProfiles({ profile, canEdit = false, onLocked, onSaved }) {
+export function PfsExecutiveProfiles({ profile, canEdit = false, onLocked, onSaved, onDirty }) {
   const [saved, setSaved] = useState(null);      // [{ key, name, text }] from the server
   const [texts, setTexts] = useState({});
   const [busy, setBusy] = useState(false);
@@ -283,8 +276,12 @@ export function PfsExecutiveProfiles({ profile, canEdit = false, onLocked, onSav
       });
     return () => { alive = false; };
   }, [profile.id, profile.name, profile.executiveProfile, onLocked]);
+  const changed = (saved || []).filter((p) => (texts[p.key] ?? '') !== (p.text || ''));
+  // PfsTab asks before a section or guarantor change drops these edits, and saves them on the lock warning.
+  const saveRef = useRef(null);
+  useEffect(() => { onDirty?.('exec', canEdit && changed.length ? () => saveRef.current?.() : null); }, [canEdit, changed.length, onDirty]);
+  useEffect(() => () => onDirty?.('exec', null), [onDirty]);
   if (!saved) return <SkeletonBlocks count={1} height={120} />;
-  const changed = saved.filter((p) => (texts[p.key] ?? '') !== (p.text || ''));
   const save = async () => {
     if (!changed.length || busy) return;
     setBusy(true);
@@ -303,6 +300,7 @@ export function PfsExecutiveProfiles({ profile, canEdit = false, onLocked, onSav
       setBusy(false);
     }
   };
+  saveRef.current = save;
   return (
     <section aria-label="Executive Profiles" style={{ ...card, padding: 14, display: 'grid', gap: 10 }}>
       <div>

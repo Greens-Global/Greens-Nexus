@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, FileDown, Loader2, MessageSquareText, Plus, Search, Trash2, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput } from './Amount';
@@ -8,6 +8,8 @@ import { useNameResolver } from '../../lib/useNameResolver';
 import { control } from './reportControls';
 import { bookLabel, downloadBlob, entityText, periodText, reportDef, resolveConfig, runReport, withAdjustments } from './reportModel';
 import { isBuilderConfig } from './builderModel';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
+import { dialog } from '../../ui/dialog';
 
 // Accounting -> Packages (Neil, Sep 25). A lender asks for the same set of
 // statements every quarter, for every property with a loan. A package is that
@@ -38,7 +40,6 @@ export default function PackagesTab() {
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState('');
   const [build, setBuild] = useState(null);       // { done, of, title } while a PDF is being made
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [adjusting, setAdjusting] = useState(null);   // index of the statement whose adjustments are open
 
   const load = useCallback(() => Promise.all([api.getAccountingPackages(), api.getAccountingSavedReports()])
@@ -84,15 +85,11 @@ export default function PackagesTab() {
     }
   };
 
+  // Held on the button; a refusal rewinds it and shows the reason under it.
   const remove = async () => {
-    setConfirmDelete(false);
-    try {
-      await api.deleteAccountingPackage(draft.id);
-      const p = await load();
-      setDraft(p[0] ? { ...p[0] } : null);
-    } catch (e) {
-      setError(e?.message || 'Could not delete the package.');
-    }
+    await api.deleteAccountingPackage(draft.id);
+    const p = await load();
+    setDraft(p[0] ? { ...p[0] } : null);
   };
 
   // Every statement is read from the ledger now, one after another, then set
@@ -148,7 +145,7 @@ export default function PackagesTab() {
             {(packages || []).map((p) => {
               const on = draft?.id === p.id;
               return (
-                <button key={p.id} type="button" onClick={() => { setDraft({ ...p }); setNote(''); setError(''); setConfirmDelete(false); }} aria-pressed={on}
+                <button key={p.id} type="button" onClick={() => { setDraft({ ...p }); setNote(''); setError(''); }} aria-pressed={on}
                   style={{ textAlign: 'left', border: 'none', borderRadius: 8, padding: '7px 9px', cursor: 'pointer', font: 'inherit', background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', color: 'var(--text-primary)' }}>
                   <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
@@ -245,15 +242,8 @@ export default function PackagesTab() {
                 {!build && missing > 0 && <span style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{missing} {missing === 1 ? 'statement is' : 'statements are'} no longer available</span>}
                 {canEdit && draft.id && (
                   <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                    {confirmDelete ? (
-                      <>
-                        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Delete this package?</span>
-                        <button type="button" className="secondary-btn" style={{ fontSize: 12, color: 'var(--bad-fg, #dc2626)' }} onClick={remove}>Delete</button>
-                        <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setConfirmDelete(false)}>Keep</button>
-                      </>
-                    ) : (
-                      <button type="button" style={{ ...icon, fontSize: 12, gap: 5, alignItems: 'center' }} onClick={() => setConfirmDelete(true)}><Trash2 size={13} /> Delete Package</button>
-                    )}
+                    <HoldButton key={draft.id} size="sm" label="Delete Package" doneLabel="Deleted" holdMs={HOLD_RECORD_MS}
+                      fallbackMessage="Delete this package?" onConfirm={remove} />
                   </span>
                 )}
               </div>
@@ -276,6 +266,7 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [rows, setRows] = useState(() => Object.fromEntries((item.adjustments || []).map((a) => [a.account, { amount: a.amount || '', note: a.note || '' }])));
+  const [initial] = useState(() => JSON.stringify(adjustmentList(rows)));
   const [q, setQ] = useState('');
   const [onlyAdjusted, setOnlyAdjusted] = useState(false);
   useEffect(() => {
@@ -283,11 +274,27 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
     runReport(api, resolveConfig(report.config), entities).then((r) => { if (alive) setResult(r); }).catch((e) => { if (alive) setError(e?.message || 'Could not read the statement.'); });
     return () => { alive = false; };
   }, [report, entities]);
+  const list = adjustmentList(rows);
+  // A click outside, Escape, Close or Cancel asks before typed adjustments are lost.
+  const dirty = canEdit && JSON.stringify(list) !== initial;
+  const asking = useRef(false);
+  const tryClose = async () => {
+    if (asking.current) return;
+    if (dirty) {
+      asking.current = true;
+      const ok = await dialog.confirm('Discard the adjustments you typed?', { title: 'Discard Changes?', confirmText: 'Discard', danger: true });
+      asking.current = false;
+      if (!ok) return;
+    }
+    onClose();
+  };
+  const closeRef = useRef(tryClose);
+  closeRef.current = tryClose;
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') closeRef.current(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, []);
   const accounts = (result?.rows || []).filter((r) => r.kind === 'account' && r.code);
   const at = result ? result.columns.findIndex((c) => c.type === 'amount') : 0;
   const shown = accounts.filter((a) => {
@@ -296,12 +303,11 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
     return (!onlyAdjusted || has) && (!s || a.code.toLowerCase().includes(s) || (a.title || '').toLowerCase().includes(s));
   });
   const set = (code, p) => setRows((r) => ({ ...r, [code]: { amount: '', note: '', ...(r[code] || {}), ...p } }));
-  const list = Object.entries(rows).map(([account, v]) => ({ account, amount: Number(v.amount) || 0, note: (v.note || '').trim() })).filter((a) => a.amount || a.note);
   const total = list.reduce((s, a) => s + a.amount, 0);
   const single = result && result.columns.filter((c) => c.type === 'amount').length === 1 && result.mode === 'single' && ['pnl', 'balance-sheet'].includes(result.config.report);
   const ctl = { ...control, height: 26, fontSize: 12 };
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={tryClose} role="presentation">
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Adjustments" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'max(60vw, min(1040px, 96vw))' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
@@ -310,7 +316,7 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
               An add-back in the statement's own sign (a negative amount on an expense takes it out), and a note the lender reads beside the line. {single ? 'The PDF prints As Reported, Adjustment, Adjusted and Note.' : 'This layout prints the notes only; amounts need a Total Only income statement or balance sheet.'}
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button type="button" onClick={tryClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '6px 18px 10px', display: 'grid', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -350,10 +356,13 @@ function AdjustmentsEditor({ item, report, entities, canEdit, onClose, onSave })
           )}
         </div>
         <div className="modal-footer">
-          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="secondary-btn" onClick={tryClose}>Cancel</button>
           {canEdit && <button type="button" className="primary-btn" onClick={() => onSave(list)} disabled={!result}>Keep Adjustments</button>}
         </div>
       </div>
     </div>
   );
 }
+
+// The adjustments worth keeping: a line with an amount or a note.
+const adjustmentList = (rows) => Object.entries(rows).map(([account, v]) => ({ account, amount: Number(v.amount) || 0, note: (v.note || '').trim() })).filter((a) => a.amount || a.note);

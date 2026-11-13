@@ -1,4 +1,4 @@
-import { fmtNumMD, monthLabel, mShort } from '../../../accounting/dashboard/model/months';
+import { fmtMDY, monthLabel, mShort } from '../../../accounting/dashboard/model/months';
 import { holdingClass } from '../../../accounting/dashboard/model/capital';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { BAD, Chip, Delta, Dot, EmptyBox, Eyebrow, Footnote, LoadingBox, Meter, mono, num, seriesColor, toneColor } from './Bits';
@@ -10,10 +10,10 @@ import { useFeed, useForecastMonthly, useHoldings, useTrend } from './hooks';
 // entity, bank lines to code, and the monthly cash forecast.
 
 export function InvestWidget() {
-  const { m, cashSplit } = useDash();
-  const { holdings, mv, cost, prior, isLoading } = useHoldings();
-  if (isLoading) return <LoadingBox />;
-  if (!holdings.length) return <EmptyBox title="No investment accounts in this scope" body="Add brokerage and money-market holdings under the Data tab." />;
+  const { m, cashSplit, cashLoading, cashDown } = useDash();
+  const { holdings, mv, cost, prior, isLoading, failed } = useHoldings();
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!holdings.length) return <EmptyBox title="No investment accounts in this scope" body="Add brokerage and money-market holdings under Financing > Investments." setUp={['investments', 'Financing > Investments']} />;
   const groups = ['Stocks', 'Bonds'].map((g, i) => {
     const hs = holdings.filter((h) => holdingClass(h.asset_class) === g);
     const gmv = hs.reduce((t, h) => t + h.market_value, 0);
@@ -26,7 +26,7 @@ export function InvestWidget() {
         {stat('Total market value', m(mv))}
         {stat('Month', <Delta v={prior ? (mv - prior) / prior : null} style={{ fontSize: 15 }} />)}
         {stat('Unrealized gain', m(mv - cost, { paren: true }), toneColor(mv - cost >= 0))}
-        {stat(cashSplit.ncOnly ? 'Non-controllable cash + investments' : 'Controllable cash + investments', m(cashSplit.onHand + mv, { compact: true }))}
+        {stat(cashSplit.ncOnly ? 'Non-controllable cash + investments' : 'Controllable cash + investments', cashLoading ? (cashDown ? 'Could not load' : '...') : m(cashSplit.onHand + mv, { compact: true }))}
       </div>
       <Meter segments={groups.map((g) => ({ share: g.share, color: g.color, title: `${g.g}: ${m(g.mv)}` }))} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
@@ -69,8 +69,8 @@ export function CashTrendWidget() {
 }
 
 export function EntityCashWidget() {
-  const { cashSplit, m, loading, ix } = useDash();
-  if (loading) return <LoadingBox />;
+  const { cashSplit, m, loading, cashLoading, cashDown, ix } = useDash();
+  if (loading || cashLoading) return <LoadingBox failed={cashDown} />;
   const { ctl, nc, ctlEntities, ncEntities } = cashSplit;
   if (!ctlEntities.length && !ncEntities.length) return <EmptyBox title="No cash accounts in this scope" />;
   const row = (e, i, base, muted) => (
@@ -108,18 +108,20 @@ export function EntityCashWidget() {
 
 export function UncatWidget({ onOpenBanks }) {
   const { m } = useDash();
-  const { feed, isLoading } = useFeed();
-  if (isLoading) return <LoadingBox />;
-  if (!feed || !feed.lines?.length) return <EmptyBox title="Every imported bank line has a GL account" body="New feed lines that need coding show up here with the matcher's suggestion." />;
+  const { feed, isLoading, failed } = useFeed();
+  if (isLoading) return <LoadingBox failed={failed} />;
+  // No feed is "not known", never "all coded" (11/12/2026).
+  if (!feed) return <EmptyBox title="Bank lines to code are not available" body="The accounting app did not send the bank feed. Refresh to try again." />;
+  if (!feed.lines?.length) return <EmptyBox title="Every imported bank line has a GL account" body="New feed lines that need coding show up here with the matcher's suggestion." />;
   return (
     <div>
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th>Date</th><th>Description</th><th style={num}>Amount</th><th>Suggested account</th></tr></thead>
+          <thead><tr><th>Date</th><th>Description</th><th style={num}>Amount</th><th>Suggested Account</th></tr></thead>
           <tbody>
             {feed.lines.map((l) => (
               <tr key={l.id}>
-                <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{fmtNumMD(l.txn_date)}</td>
+                <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{fmtMDY(l.txn_date)}</td>
                 <td style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.description}>{l.description}</td>
                 <td style={{ ...num, color: l.amount > 0 ? toneColor(true) : undefined }}>{m(l.amount, { report: true })}</td>
                 <td>{l.suggested ? <Chip><span style={{ fontFamily: 'monospace' }}>{l.suggested.gl_code}</span>&nbsp;{l.suggested.account_name}</Chip> : <Chip tone="bad">Needs review</Chip>}</td>
@@ -130,7 +132,7 @@ export function UncatWidget({ onOpenBanks }) {
       </div>
       <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
         <span>{feed.total} line{feed.total === 1 ? '' : 's'} waiting</span>
-        {onOpenBanks ? <button type="button" onClick={onOpenBanks} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Code them in Nexus Accounting →</button> : null}
+        {onOpenBanks ? <button type="button" onClick={onOpenBanks} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Open Bank Activity →</button> : null}
       </div>
     </div>
   );
@@ -141,9 +143,9 @@ export function UncatWidget({ onOpenBanks }) {
 // nothing to show). A month without budget lines is marked; with no budget at
 // all the panel says so instead of inventing numbers.
 export function CashForecastWidget() {
-  const { m, cashSplit, loading } = useDash();
+  const { m, cashSplit, loading, cashLoading, cashDown } = useDash();
   const f = useForecastMonthly();
-  if (loading || !f) return <LoadingBox />;
+  if (loading || cashLoading || !f) return <LoadingBox failed={cashDown} />;
   if (!cashSplit.onHandEntities.length) return <EmptyBox title="No cash accounts in this scope" body="Choose All Entities, Controllable Entities Only, or one of your companies." />;
   if (!f.hasBudget) {
     return <EmptyBox title={`No budget posted for the next ${FORECAST_MONTHS} months`} body={`The forecast takes each month's receipts and costs from the posted budget in Nexus Accounting (Financials, Budgets), debt service from the loan schedule and distributions from partner capital. Post a budget for ${mShort(f.months[0])} onward and it fills in.`} />;

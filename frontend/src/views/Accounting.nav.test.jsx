@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 // The Accounting bar (Oct 22, Neil's spec with Charmi; Reports and Trackers
 // redrawn 11/11/2026, picture 2): Dashboard (Overview / Cash / Performance /
-// Close), Reports (All Reports, Report Builder, Packages, then one flyout per
+// Close), Reports (Report Center, Report Builder, Packages, then one flyout per
 // group - Financial Statements, Ledger & Banking, Budget vs. Actual, Review,
 // Payroll, Tax - never a flyout inside a flyout), Trackers (the working
 // tools), Financing, Records and Tools. The picked page never widens the bar.
@@ -176,10 +176,10 @@ describe('Accounting navigation', () => {
   it('draws Reports two levels deep, the lead pages first, and the working tools under Trackers (11/11/2026)', async () => {
     render(<Harness start="overview" />);
     fireEvent.click(await screen.findByRole('button', { name: /^Reports/ }));
-    expect(menuLabels('Reports')).toEqual(['All Reports', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Payroll', 'Tax']);
+    expect(menuLabels('Reports')).toEqual(['Report Center', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Payroll', 'Tax']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial Statements' }));
     expect(menuLabels('Financial Statements')).toEqual([
-      'Balance Sheet', 'Trial Balance', 'Income Statement - Last 12 Months', 'Income Statement - Year to Date vs. Prior Year',
+      'Income Statement', 'Balance Sheet', 'Trial Balance', 'Income Statement - Last 12 Months', 'Income Statement - Year to Date vs. Prior Year',
       'Income Statement - This Month vs. Last Month', 'Income Statement by Customer', 'Income Statement by Job',
       'Income Statement by Department', 'Statement of Cash Flows', 'Cash Position', 'Personal Financial Statements',
     ]);
@@ -381,9 +381,9 @@ describe('Accounting navigation', () => {
     }
   });
 
-  it('opens All Reports and the Report Builder from the top of Reports (Oct 23, item 05)', async () => {
+  it('opens the Report Center and the Report Builder from the top of Reports (Oct 23, item 05)', async () => {
     render(<Harness start="overview" />);
-    await choose(/^Reports/, 'All Reports');
+    await choose(/^Reports/, 'Report Center');
     expect(screen.getByTestId('sub').textContent).toBe('reports');
     const center = await screen.findByTestId('tab-report-center');
     expect(screen.queryByTestId('tab-reports')).toBeNull();
@@ -397,12 +397,12 @@ describe('Accounting navigation', () => {
     expect((await screen.findByTestId('tab-report-builder')).getAttribute('data-edit')).toBe('yes');
   });
 
-  it('gives a limited person All Reports and the Report Builder', async () => {
+  it('gives a limited person the Report Center and the Report Builder', async () => {
     role.limited = true;
     render(<Harness start="report-builder" />);
     expect(await screen.findByTestId('tab-report-builder')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
-    expect(menuLabels('Reports')).toEqual(['All Reports', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Tax']);
+    expect(menuLabels('Reports')).toEqual(['Report Center', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Tax']);
   });
 
   // Picture 1 (11/11/2026, Neil: "Page Line is OK"): one grey line names the
@@ -423,7 +423,7 @@ describe('Accounting navigation', () => {
   });
 
   it('draws no page line for a link that no menu holds', async () => {
-    render(<Harness start="rpt-pnl" />);
+    render(<Harness start="rpt-budget" />);   // the plain Income Statement (rpt-pnl) is in the menu since 11/12/2026
     await screen.findByTestId('tab-reports');
     expect(screen.queryByRole('navigation', { name: 'This page' })).toBeNull();
   });

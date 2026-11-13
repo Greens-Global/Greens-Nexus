@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Pencil, Plus, X } from 'lucide-react';
 import { api } from '../../api';
 import { control } from './reportControls';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // Import Hub > Bank Statement to Intacct > Rules (Charmi, 10/27 call item 01:
 // "We were able to create rules for each and every transaction"). The
@@ -24,11 +25,11 @@ function ruleTarget(r) {
   return [r.account && `${r.account}${r.accountName ? ` ${r.accountName}` : ''}`, r.vendorId && `Vendor ${r.vendorName || r.vendorId}`, r.customerId && `Customer ${r.customerName || r.customerId}`].filter(Boolean).join(' - ');
 }
 
-function RuleForm({ start, accounts, vendors, customers, onCancel, onSaved }) {
+function RuleForm({ start, accounts, vendors, customers, onCancel, onSaved, onDirty }) {
   const [d, setD] = useState({ ...EMPTY_RULE, ...start, amount: start.amount ?? '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const set = (p) => setD((x) => ({ ...x, ...p }));
+  const set = (p) => { onDirty?.(); setD((x) => ({ ...x, ...p })); };
   const save = async (e) => {
     e.preventDefault();
     if (!d.matchText.trim() || !d.account.trim()) { setError('Give the description text and the GL account.'); return; }
@@ -83,7 +84,7 @@ export default function StatementRules({ rules, draft = null, accounts = [], ven
   const [editing, setEditing] = useState(draft);   // a rule (or a new one) in the form; null = the list
   const [q, setQ] = useState('');
   const [note, setNote] = useState('');
-  const [confirm, setConfirm] = useState('');
+  const [dirty, setDirty] = useState(false);       // the rule form was changed; the app's popup guard asks before it closes
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -93,12 +94,12 @@ export default function StatementRules({ rules, draft = null, accounts = [], ven
     const s = q.trim().toLowerCase();
     return s ? rules.filter((r) => JSON.stringify(r).toLowerCase().includes(s)) : rules;
   }, [rules, q]);
-  const saved = (msg) => { setEditing(null); setNote(msg); onChanged(); };
-  const remove = async (r) => {
-    try { await api.deleteStatementRule(r.id); setConfirm(''); setNote('Rule deleted.'); onChanged(); } catch (e) { setNote(e?.message || 'Could not delete the rule.'); }
-  };
+  const edit = (r) => { setDirty(false); setEditing(r); };
+  const saved = (msg) => { edit(null); setNote(msg); onChanged(); };
+  // Held right on the row; a refusal shows under the button.
+  const remove = (r) => api.deleteStatementRule(r.id);
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={onClose} role="presentation" data-nx-dirty={editing && dirty ? '1' : undefined}>
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Statement Rules" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <div>
@@ -109,13 +110,13 @@ export default function StatementRules({ rules, draft = null, accounts = [], ven
         </div>
         <div className="nx-fill" style={{ padding: '12px 24px 18px', overflowY: 'auto', gap: 10 }}>
           {editing ? (
-            <RuleForm start={editing} accounts={accounts} vendors={vendors} customers={customers} onCancel={() => setEditing(null)} onSaved={saved} />
+            <RuleForm start={editing} accounts={accounts} vendors={vendors} customers={customers} onCancel={() => edit(null)} onSaved={saved} onDirty={() => setDirty(true)} />
           ) : (
             <>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search rules" aria-label="Search rules" style={{ ...control, width: 240 }} />
                 {note && <span role="status" style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{note}</span>}
-                <button type="button" className="primary-btn" onClick={() => { setNote(''); setEditing({ ...EMPTY_RULE }); }} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New Rule</button>
+                <button type="button" className="primary-btn" onClick={() => { setNote(''); edit({ ...EMPTY_RULE }); }} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New Rule</button>
               </div>
               <div className="req-table-wrapper nx-fill" style={{ overflow: 'auto' }}>
                 <table className="req-table" aria-label="Rules">
@@ -130,18 +131,10 @@ export default function StatementRules({ rules, draft = null, accounts = [], ven
                         <td>{ruleTarget(r)}</td>
                         <td>{r.active ? 'Active' : 'Off'}</td>
                         <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                          {confirm === r.id ? (
-                            <>
-                              <span style={{ fontSize: 12, marginRight: 6 }}>Delete this rule?</span>
-                              <button type="button" className="secondary-btn" onClick={() => remove(r)} style={{ padding: '3px 8px', color: 'var(--danger, #dc2626)' }}>Delete</button>{' '}
-                              <button type="button" className="secondary-btn" onClick={() => setConfirm('')} style={{ padding: '3px 8px' }}>Keep</button>
-                            </>
-                          ) : (
-                            <>
-                              <button type="button" className="secondary-btn" onClick={() => { setNote(''); setEditing(r); }} aria-label={`Edit rule ${r.matchText}`} style={{ padding: '3px 8px' }}><Pencil size={13} /></button>{' '}
-                              <button type="button" className="secondary-btn" onClick={() => setConfirm(r.id)} aria-label={`Delete rule ${r.matchText}`} style={{ padding: '3px 8px' }}><Trash2 size={13} /></button>
-                            </>
-                          )}
+                          <button type="button" className="secondary-btn" onClick={() => { setNote(''); edit(r); }} aria-label={`Edit rule ${r.matchText}`} style={{ padding: '3px 8px' }}><Pencil size={13} /></button>{' '}
+                          <HoldButton size="sm" label="Delete" doneLabel="Deleted" holdMs={HOLD_RECORD_MS} ariaLabel={`Delete rule ${r.matchText}`}
+                            fallbackMessage={`Delete the rule "${r.matchText}"? Lines it classified go back to unclassified.`}
+                            onConfirm={() => remove(r)} onDone={() => { setNote('Rule deleted.'); onChanged(); }} />
                         </td>
                       </tr>
                     ))}

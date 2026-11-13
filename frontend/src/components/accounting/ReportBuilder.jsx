@@ -14,6 +14,7 @@ import {
 } from './builderModel';
 import { BUILDER_COMPARE_OPTIONS, BUILDER_PUBLISH_SHARES } from './assumptions';
 import { useAccountingPrefs } from './prefs';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 import { clearParkedReport, peekParkedReport } from './drill';
 
 // Accounting -> Reports -> Report Center -> Report Builder (Neil, 10/22 call,
@@ -132,16 +133,15 @@ export default function ReportBuilder({ canPublish = true }) {
       .catch((e) => setError(e?.message || 'Could not save the report.'))
       .finally(() => setSaving(''));
   };
-  const startNew = () => { setConfig(defaultBuilder()); setName(''); setOpened(null); setResult(null); setSaveNote(''); setError(''); setConfirmDelete(false); };
-  // Only the author deletes a saved report (the backend checks the same).
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const startNew = () => { setConfig(defaultBuilder()); setName(''); setOpened(null); setResult(null); setSaveNote(''); setError(''); };
+  // Only the author deletes a saved report (the backend checks the same). Held
+  // on the button (HoldButton); a refusal rewinds it and shows the reason under it.
   const remove = () => {
-    if (!opened?.mine || saving) return;
+    if (!opened?.mine || saving) return undefined;
     setSaving('delete');
-    Promise.resolve(api.deleteAccountingSavedReport(opened.id))
+    return Promise.resolve(api.deleteAccountingSavedReport(opened.id))
       .then(() => { startNew(); setSaveNote('Deleted.'); })
-      .catch((e) => setError(e?.message || 'Could not delete the report.'))
-      .finally(() => { setSaving(''); setConfirmDelete(false); });
+      .finally(() => setSaving(''));
   };
 
   // Exports: the same Excel, CSV and PDF writers as every statement.
@@ -237,7 +237,7 @@ export default function ReportBuilder({ canPublish = true }) {
         <AccountsPicker accounts={chart || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts}
           allLabel={groups.some((g) => g.accounts.length) ? 'No Other Accounts' : 'All Accounts'} ariaLabel="GL Accounts" />
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
-          <input type="checkbox" checked={config.showZero} onChange={(e) => patch({ showZero: e.target.checked })} /> Show zero balances
+          <input type="checkbox" checked={config.showZero} onChange={(e) => patch({ showZero: e.target.checked })} /> Show Zero Balances
         </label>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           <button type="button" className="primary-btn" onClick={() => run()} disabled={running} style={small}>
@@ -290,12 +290,12 @@ export default function ReportBuilder({ canPublish = true }) {
           {saving === 'save' ? 'Saving...' : opened?.mine ? 'Save Changes' : 'Save'}
         </button>
         {canPublish && !(opened?.mine && opened.published) && (
-          <button type="button" className="primary-btn" onClick={() => save('publish')} disabled={!name.trim() || !!saving} style={small}>
+          <button type="button" className="secondary-btn" onClick={() => save('publish')} disabled={!name.trim() || !!saving} style={small}>
             <Send size={14} /> {saving === 'publish' ? 'Publishing...' : 'Publish'}
           </button>
         )}
         {canPublish && opened?.mine && opened.published && !opened.shared && (
-          <button type="button" className="primary-btn" onClick={() => save('share')} disabled={!name.trim() || !!saving} style={small}>
+          <button type="button" className="secondary-btn" onClick={() => save('share')} disabled={!name.trim() || !!saving} style={small}>
             <Users size={14} /> {saving === 'share' ? 'Sharing...' : 'Share With Everyone'}
           </button>
         )}
@@ -306,15 +306,10 @@ export default function ReportBuilder({ canPublish = true }) {
           <button type="button" className="secondary-btn" onClick={() => save('unpublish')} disabled={!name.trim() || !!saving} style={small}>Unpublish</button>
         )}
         <button type="button" className="secondary-btn" onClick={startNew} style={small}><FilePlus2 size={14} /> New</button>
-        {opened?.mine && (confirmDelete ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-            Delete {opened.name}?
-            <button type="button" className="secondary-btn" onClick={remove} disabled={!!saving} style={{ ...small, color: 'var(--bad-fg, #dc2626)' }}>Delete</button>
-            <button type="button" className="secondary-btn" onClick={() => setConfirmDelete(false)} style={small}>Keep</button>
-          </span>
-        ) : (
-          <button type="button" style={iconBtn} onClick={() => setConfirmDelete(true)} aria-label={`Delete ${opened.name}`} title="Delete this saved report"><Trash2 size={14} /></button>
-        ))}
+        {opened?.mine && (
+          <HoldButton size="sm" label="Delete" doneLabel="Deleted" holdMs={HOLD_RECORD_MS} ariaLabel={`Delete ${opened.name}`} disabled={!!saving && saving !== 'delete'}
+            fallbackMessage={`Delete the saved report ${opened.name}?`} onConfirm={remove} />
+        )}
         <span role="status" style={{ fontSize: 12, color: saveNote ? 'var(--ok-fg, #15803d)' : 'var(--text-muted)' }}>
           {saveNote || (opened
             ? `${opened.mine ? '' : 'Shared by a teammate - Save keeps your own copy. '}${opened.shared ? 'Published and shared with everyone.' : opened.published ? 'Published - only you see it.' : 'Draft - only you see it.'}`

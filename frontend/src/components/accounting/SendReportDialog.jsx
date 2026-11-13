@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Folder, FolderPlus, X } from 'lucide-react';
 import { api } from '../../api';
@@ -7,6 +7,7 @@ import { control } from './reportControls';
 import { csvRows, reportFileName } from './reportModel';
 import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 import { PersonSelect } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
 
 // Export -> Email / Save to Egnyte / Share (Charmi, call of 09/29). The
 // statement on screen becomes a file here (PDF or Excel, exactly what the
@@ -74,6 +75,22 @@ export default function SendReportDialog({ mode, result, entities, title, config
   const [offerCreate, setOfferCreate] = useState(false);   // the save failed because the folder is not there
   // The file's name without its extension, editable (Charmi: "give us the option to rename").
   const [base, setBase] = useState(() => baseName || reportFileName(result, entities, 'pdf').replace(/\.pdf$/, ''));
+  const [firstBase] = useState(base);
+  // A click outside or Escape asks before what was typed is lost.
+  const dirty = !!(to.trim() || message.trim() || recipient) || subject !== title || name !== title || base !== firstBase;
+  const asking = useRef(false);
+  const tryClose = async () => {
+    if (asking.current) return;
+    if (dirty && !busy) {
+      asking.current = true;
+      const ok = await dialog.confirm('Discard what you typed?', { title: 'Discard Changes?', confirmText: 'Discard', danger: true });
+      asking.current = false;
+      if (!ok) return;
+    }
+    onClose();
+  };
+  const closeRef = useRef(tryClose);
+  closeRef.current = tryClose;
   const fileName = `${safeName(base) || 'Report'}.${EXTS[format]}`;
   const buildFile = async () => {
     const f = makeFile ? await makeFile(format, fileName) : await statementFile(result, entities, title, format);
@@ -82,10 +99,10 @@ export default function SendReportDialog({ mode, result, entities, title, config
   const dest = cleanFolder(folder || DEFAULT_FOLDER);
   useEffect(() => {
     // Escape closes the folder picker first, then the dialog.
-    const onKey = (e) => { if (e.key === 'Escape') { if (browsing) setBrowsing(false); else onClose(); } };
+    const onKey = (e) => { if (e.key === 'Escape') { if (browsing) setBrowsing(false); else closeRef.current(); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, browsing]);
+  }, [browsing]);
   useEffect(() => {
     if (mode !== 'share') return;
     // The curated Nexus People list, never M365.
@@ -156,7 +173,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
     </div>
   );
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={tryClose} role="presentation">
       <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={TITLES[mode]} onClick={(e) => e.stopPropagation()} onSubmit={send}>
         <div className="modal-header">
           <div>

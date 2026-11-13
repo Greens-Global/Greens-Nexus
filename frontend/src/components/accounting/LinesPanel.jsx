@@ -16,8 +16,8 @@ import { requestReportDrill } from './drill';
 // option"; "make sure this is also all resizable"). One panel for every
 // Accounting report that is not a statement (the statements open their lines
 // on the Reports screen itself): the ledger lines the figure adds up - date,
-// entry, account, vendor / customer / employee, description and amount, with
-// their total - in the module's side panel (SidePanel: Open Full, the list
+// entry, doc, account, vendor / customer / employee, description, entity,
+// department, debit / credit and the running balance, with their totals - in the module's side panel (SidePanel: Open Full, the list
 // still beside it). Each entry number opens the whole entry; Open in Reports
 // takes the same search to the General Ledger lines (drill.js), with every
 // filter and the export. The columns drag wider or narrower, the widths kept
@@ -38,14 +38,23 @@ import { requestReportDrill } from './drill';
 
 export const LINES_LIMIT = 500;
 
+// The house ledger columns (CLAUDE.md, Accounting drill-down rule): Doc,
+// Description (the memo when there is none), Entity, Department, Debit /
+// Credit and the running Balance, oldest line first.
 export const LINE_COLUMNS = [
   { key: 'date', label: 'Date', width: 92 },
   { key: 'entry', label: 'Entry', width: 108 },
+  { key: 'doc', label: 'Doc', width: 100 },
   { key: 'account', label: 'Account', width: 210 },
   { key: 'name', label: 'Name', width: 190 },
-  { key: 'description', label: 'Description', width: 260 },
-  { key: 'amount', label: 'Amount', width: 112, num: true },
+  { key: 'description', label: 'Description', width: 240 },
+  { key: 'entity', label: 'Entity', width: 170 },
+  { key: 'department', label: 'Department', width: 140 },
+  { key: 'debit', label: 'Debit', width: 104, num: true },
+  { key: 'credit', label: 'Credit', width: 104, num: true },
+  { key: 'balance', label: 'Balance', width: 112, num: true },
 ];
+const named = (name, id) => name || id || '';
 
 const numbered = (name, id) => (id && name && name !== id ? `${id} ${name}` : name || id || '');
 /** The vendor, customer or employee on a line ("V00412 Home Depot"), as the ledger lines read it. */
@@ -113,6 +122,12 @@ export default function LinesPanel({ title, caption = '', queries, report = null
   }, [onClose]);
   const lines = state.key === key ? state.lines : null;
   const total = useMemo(() => (lines || []).reduce((s, l) => s + lineAmount(l), 0), [lines]);
+  // Oldest first, each with the running balance carried down the page (Intacct's General Ledger).
+  const ordered = useMemo(() => {
+    let run = 0;
+    return [...(lines || [])].reverse().map((l) => { run = Math.round((run + lineAmount(l)) * 100) / 100; return { l, balance: run }; });
+  }, [lines]);
+  const sum = (k) => (lines || []).reduce((s, l) => s + (Number(l[k]) || 0), 0);
   const toReports = report ? () => { requestReportDrill(report); onClose(); } : null;
   const head = (c) => (
     <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined} style={headStyle(cols.width(c.key))}>
@@ -137,20 +152,27 @@ export default function LinesPanel({ title, caption = '', queries, report = null
             <table className="acct-report" aria-label={`${title} - ledger lines`}>
               <thead><tr>{LINE_COLUMNS.map(head)}</tr></thead>
               <tbody>
-                {lines.map((l, i) => (
+                {ordered.map(({ l, balance }, i) => (
                   <tr key={`${l.line_id || l.entry_id || l.entry_no || 'x'}-${i}`}>
                     <td style={cellStyle(cols.width('date'))}>{l.entry_date ? formatDate(l.entry_date) : '-'}</td>
                     <td style={cellStyle(cols.width('entry'))}>
                       {l.entry_id ? <button type="button" className="acct-drill" onClick={() => setEntry({ id: l.entry_id, no: l.entry_no })} title="Open this journal entry">{l.entry_no || 'Open'}</button> : (l.entry_no || '-')}
                     </td>
+                    <td style={cellStyle(cols.width('doc'))} title={l.doc || ''}>{l.doc || '-'}</td>
                     <td style={cellStyle(cols.width('account'))} title={lineAccount(l)}>{lineAccount(l) || '-'}</td>
                     <td style={cellStyle(cols.width('name'))} title={lineName(l)}>{lineName(l) || '-'}</td>
                     <td style={cellStyle(cols.width('description'))} title={l.description || l.memo || ''}>{l.description || l.memo || '-'}</td>
-                    <td className="acct-num" style={cellStyle(cols.width('amount'))}><Amount value={lineAmount(l)} /></td>
+                    <td style={cellStyle(cols.width('entity'))} title={named(l.location_name, l.location)}>{named(l.location_name, l.location) || '-'}</td>
+                    <td style={cellStyle(cols.width('department'))} title={named(l.department_name, l.department)}>{named(l.department_name, l.department) || '-'}</td>
+                    <td className="acct-num" style={cellStyle(cols.width('debit'))}><Amount value={Number(l.debit) || 0} zero="dash" /></td>
+                    <td className="acct-num" style={cellStyle(cols.width('credit'))}><Amount value={Number(l.credit) || 0} zero="dash" /></td>
+                    <td className="acct-num" style={cellStyle(cols.width('balance'))}><Amount value={balance} /></td>
                   </tr>
                 ))}
                 <tr className="acct-grand">
-                  <td colSpan={LINE_COLUMNS.length - 1} className="acct-label">Total - {lines.length} {lines.length === 1 ? 'line' : 'lines'}{state.more ? ' shown' : ''}</td>
+                  <td colSpan={LINE_COLUMNS.length - 3} className="acct-label">Total - {lines.length} {lines.length === 1 ? 'line' : 'lines'}{state.more ? ' shown' : ''}</td>
+                  <td className="acct-num"><Amount value={sum('debit')} zero="dash" /></td>
+                  <td className="acct-num"><Amount value={sum('credit')} zero="dash" /></td>
                   <td className="acct-num"><Amount value={total} /></td>
                 </tr>
               </tbody>

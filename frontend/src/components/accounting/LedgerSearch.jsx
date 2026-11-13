@@ -6,7 +6,7 @@ import { formatDate } from '../../lib/datetime';
 import { useIsMobile } from '../../lib/useIsMobile';
 import EntryDetail from './EntryDetail';
 import AskAccountantDialog, { AskButton, lineFromSearch } from './AskAccountantDialog';
-import Amount from './Amount';
+import Amount, { formatAmount } from './Amount';
 import { useAccountingPrefs } from './prefs';
 import { ColumnFilterRow, columnFiltersActive, filterRowsByColumns } from './columnFilters';
 import { linesBaseName } from './linesExport';
@@ -93,7 +93,7 @@ export const LINE_COLUMNS = [
   { key: 'debit', label: 'Debit', width: 118, num: true, filter: true, text: (r) => money(r.debit) },
   { key: 'credit', label: 'Credit', width: 118, num: true, filter: true, text: (r) => money(r.credit) },
   // A drill-down only (item 17): the lines' running total, oldest first.
-  { key: 'balance', label: 'Balance', width: 124, num: true, drillOnly: true, text: (r) => (r.balance == null ? '' : money(r.balance)) },
+  { key: 'balance', label: 'Balance', width: 124, num: true, drillOnly: true, text: (r) => (r.balance == null ? '' : formatAmount(r.balance)) },   // a balance keeps its sign: (1,234.00)
 ];
 /**
  * The lines oldest first - by date, then entry and line - whatever order they

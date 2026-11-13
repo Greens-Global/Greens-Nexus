@@ -4,8 +4,8 @@ import { api, withFreshReads } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
-import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PickText, PopoverPanel, SyncButton, control, usePopover } from './reportControls';
-import { spaceBelow, useCustomizePrefs, usePaged } from './tableHooks';
+import { BarMore, BarSearch, ColumnResizer, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PickText, PopoverPanel, SyncButton, control, usePopover } from './reportControls';
+import { spaceBelow, useColumnWidths, useCustomizePrefs, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { cellStyle, headStyle } from './columnStyles';
 import { requestReportDrill } from './drill';
@@ -19,7 +19,7 @@ import { EgnyteField } from './LoanDialogs';
 import { DateField } from '../../tasks/components';
 import { dialog } from '../../ui/dialog';
 import SidePanel, { PanelSection } from './SidePanel';
-import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
+import { CUSTOM_MAX_MONTHS, FREQUENCY, LeaveConfirm, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, StillNeeded, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
 import { CompletenessButton, CompletenessPanel, gapCount, mriGaps, useJumpToRow } from './completeness';
 import { ColumnFilterRow, ColumnFiltersEmpty, useColumnFilters } from './columnFilters';
 import { filterCellOf, filterColumnsOf } from './viewFilterColumns';
@@ -1216,6 +1216,8 @@ export function monthEntriesQuery(row, monthKey) {
 
 function MonthEntries({ row, month, onOpen }) {
   const queries = useMemo(() => monthEntriesQuery(row, month.month), [row, month.month]);
+  const cw = useColumnWidths('mri-month-lines', {}, { min: 50 });
+  const th = (key, label, cls) => <th key={key} scope="col" aria-label={label} className={cls} style={headStyle(cw.width(key))}>{label}<ColumnResizer {...cw.resizer(key, label)} /></th>;
   const [state, setState] = useState({ lines: null, error: '' });
   useEffect(() => {
     let alive = true;
@@ -1243,13 +1245,13 @@ function MonthEntries({ row, month, onOpen }) {
       {!state.lines.length ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Nothing posted this month.</div> : (
         <div className="acct-lines-wrap" style={{ maxHeight: 220 }}>
           <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
-            <thead><tr><th scope="col">Date</th><th scope="col">Entry</th><th scope="col">Description</th><th scope="col" className="acct-num">Amount</th></tr></thead>
+            <thead><tr>{th('date', 'Date')}{th('entry', 'Entry')}{th('description', 'Description')}{th('amount', 'Amount', 'acct-num')}</tr></thead>
             <tbody>
               {state.lines.map((l, i) => (
                 <tr key={`${l.entry_id || l.entry_no || 'x'}-${i}`}>
                   <td>{l.entry_date ? formatDate(l.entry_date) : '-'}</td>
                   <td>{l.entry_id ? <button type="button" className="acct-drill" onClick={() => onOpen({ id: l.entry_id, no: l.entry_no })} title="Open this journal entry">{l.entry_no || 'Open'}</button> : (l.entry_no || '-')}</td>
-                  <td style={{ whiteSpace: 'normal', maxWidth: 220 }} title={l.description || ''}>{l.description || l.memo || '-'}</td>
+                  <td style={{ whiteSpace: 'normal' }} title={l.description || ''}>{l.description || l.memo || '-'}</td>
                   <td className="acct-num"><Amount value={(l.credit || 0) - (l.debit || 0)} /></td>
                 </tr>
               ))}
@@ -1350,22 +1352,6 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
   );
 }
 
-// The inline question a dialog with unsaved changes asks when it is clicked
-// off or Escaped (Neil, 10/14) - never window.confirm.
-function LeaveConfirm({ onKeep, onDiscard }) {
-  const keep = useRef(null);
-  useEffect(() => { keep.current?.focus(); }, []);
-  return (
-    <div className="modal-footer" role="alertdialog" aria-label="Unsaved changes" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />You have unsaved changes.</span>
-      <span style={{ display: 'inline-flex', gap: 8 }}>
-        <button type="button" className="secondary-btn" onClick={onDiscard} style={{ color: 'var(--bad-fg, #dc2626)' }}>Discard Edits</button>
-        <button type="button" ref={keep} className="primary-btn" onClick={onKeep}>Keep Editing</button>
-      </span>
-    </div>
-  );
-}
-
 function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty }) {
   const [l, setL] = useState(() => { const t = termOf(lease); return { incomeType: 'lease', ...lease, termType: t.termType, termMonths: t.termMonths, termLegacy: t.termLegacy, rates: (lease.rates || []).map((r) => ({ ...r })) }; });
   const [initial] = useState(() => JSON.stringify(l));
@@ -1402,7 +1388,14 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
   const customMonths = Number(l.termMonths);
   const termOk = l.termType !== 'custom' || (Number.isInteger(customMonths) && customMonths >= 1 && customMonths <= TERM_MAX_MONTHS);
   const freqOk = l.frequency !== 'custom' || (Number(l.frequencyMonths) >= 1 && Number(l.frequencyMonths) <= CUSTOM_MAX_MONTHS);
-  const ready = l.propertyName.trim() && (vacant || l.tenantName.trim()) && l.rates.every((r) => r.startDate) && termOk && freqOk;
+  const missing = [
+    !l.propertyName.trim() && (isLease ? 'Property or Space' : 'Source'),
+    !vacant && !l.tenantName.trim() && (isLease ? 'Tenant Name' : 'Payer Name'),
+    !l.rates.every((r) => r.startDate) && 'a Start Date on Every Rent Change',
+    !termOk && 'Lease Term Months',
+    !freqOk && 'Every (Months)',
+  ].filter(Boolean);
+  const ready = !missing.length;
   const pickTerm = (v) => set({ termType: v, termMonths: v === 'annual' ? 12 : v === 'custom' ? (l.termType === 'custom' ? l.termMonths : '') : null });
   const body = () => ({ ...l, termLegacy: undefined, termType: l.termType || '', termMonths: l.termType === 'annual' ? 12 : l.termType === 'custom' ? customMonths : null,
     frequency: l.frequency || 'monthly', frequencyMonths: l.frequency === 'custom' ? Math.floor(Number(l.frequencyMonths) || 0) : 0,
@@ -1459,7 +1452,8 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved, onDirty })
                 onConfirm={() => api.deleteLeasingLease(l.id).then(onSaved)} />
             )}
           </span>
-          <span style={{ display: 'inline-flex', gap: 8 }}>
+          <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <StillNeeded missing={missing} />
             <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
             <button type="button" className="primary-btn" onClick={save} disabled={!ready || busy}>{busy ? 'Saving...' : 'Save'}</button>
           </span>

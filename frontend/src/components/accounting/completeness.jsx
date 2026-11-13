@@ -136,8 +136,10 @@ export function CompletenessButton({ count, onClick, open = false }) {
       title={clean ? 'Completeness: nothing missing in what is shown' : `Completeness: ${count} ${count === 1 ? 'gap' : 'gaps'} - click for the list`}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 10px', whiteSpace: 'nowrap' }}>
       <ListChecks size={14} /> <span className="acct-bar-label">Completeness</span>
-      <span data-testid="completeness-count" style={{ fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '0 7px', lineHeight: '18px',
-        color: clean ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)', background: clean ? 'rgba(21,128,61,0.10)' : 'rgba(220,38,38,0.10)' }}>{count}</span>
+      {/* "404 Gaps" in the warning tone with its icon: a bare red number read like an HTTP error. */}
+      <span data-testid="completeness-count" style={{ fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', color: clean ? 'var(--ok-fg, #15803d)' : 'var(--warn-fg)' }}>
+        {clean ? 'No Gaps' : <><WarnMark size={12} />{count.toLocaleString('en-US')} {count === 1 ? 'Gap' : 'Gaps'}</>}
+      </span>
     </button>
   );
 }

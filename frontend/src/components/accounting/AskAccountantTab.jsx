@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { crisisCheck } from '../../lib/crisisSupport';
-import { Maximize2, MessageCircleQuestion, Minimize2, Plus, Send, Settings, Trash2, X } from 'lucide-react';
+import { MessageCircleQuestion, Plus, Send, Settings, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import Amount, { formatAmount } from './Amount';
@@ -22,6 +22,9 @@ import { AWAITING, NoteCell, OtherSideCell, PushBatchDialog, ReclassCell, Reclas
 import { AMA_PUSH_BATCH_LIMIT_DEFAULT, AMA_RECLASS_MODE_DEFAULT, AMA_SHOW_ACCOUNT_COLUMN } from './assumptions';
 import { DateField } from '../../tasks/components';
 import { pill } from './dashboard/Bits';
+import FullScreenButton, { useFullScreen } from '../FullScreenButton';
+import { dialog } from '../../ui/dialog';
+import { isBypassing } from '../../lib/dialogGuard';
 
 // Accounting -> Reporting -> AMA, Ask My Accountant (Neil, 10/15: "AMA means
 // Ask My Accountant"; the agreements screen first built under the name is
@@ -85,9 +88,9 @@ export function periodRange(saved, today = new Date()) {
 }
 
 // Item 05 (Urmi: "we have to go to other side to find amount, question,
-// asked by"): those three sit right after Date and Description; Full Width
-// hides the side menu while it is on, kept per person (`amaFullWidth`).
-const FULL_WIDTH_CSS = '@media (min-width: 901px) { .sidebar { display: none !important; } .main-content, .main-content.main-collapsed { margin-left: 0 !important; } }';
+// asked by"): those three sit right after Date and Description. The side menu
+// goes away with the house Full Screen (useFullScreen('accounting')), which
+// replaced this tab's own "Full Width" (11/12/2026).
 
 const person = (name, email) => name || email || '';
 const statusText = (r) => (r.reclassed && r.status !== 'Resolved' ? `${r.status} (Reclassed)` : r.status || '');
@@ -234,11 +237,23 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
     api.getAskThread(row.id).then((t) => { if (alive) setThread(t); }).catch((e) => { if (alive) setError(e?.message || 'Could not open the question.'); });
     return () => { alive = false; };
   }, [row.id, isThread]);
+  // A typed reply is asked about before the panel goes (click off, Escape, X);
+  // isBypassing = the app-wide guard (lib/dialogGuard.js) already asked.
+  const [asking, setAsking] = useState(false);
+  const tryClose = () => {
+    if (asking) return;
+    if (!reply.trim() || isBypassing()) { onClose(); return; }
+    setAsking(true);
+    dialog.confirm('Your reply has not been sent. Discard it?', { title: 'Unsent Reply', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true })
+      .then((ok) => { setAsking(false); if (ok) onClose(); });
+  };
+  const closeRef = useRef(tryClose);
+  useEffect(() => { closeRef.current = tryClose; });
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !entry) onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape' && !entry) closeRef.current(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, entry]);
+  }, [entry]);
 
   const t = thread || row;
   const canClose = canEdit || me === t.askedBy || me === t.accountant;
@@ -258,16 +273,16 @@ export function ThreadPanel({ row, me, canEdit, onClose, onChanged, onAsk, onRec
   const resolve = (movedTo = moved) => act('resolve', () => api.resolveAskThread(t.id, { movedToAccount: movedTo.trim() })).then((next) => { if (next) setResolving(false); });
 
   return (
-    <div className="modal-overlay" role="presentation" onClick={onClose} style={{ justifyContent: 'flex-end', alignItems: 'stretch', padding: 0 }}>
-      <aside role="dialog" aria-modal="true" aria-label="Ask My Accountant Question" onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(480px, 100vw)', height: '100vh', background: 'var(--bg-card)', borderLeft: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg, 0 8px 32px rgba(0,0,0,0.18))' }}>
+    <div className="modal-overlay" role="presentation" onClick={tryClose}>
+      <aside className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Ask My Accountant Question" onClick={(e) => e.stopPropagation()}
+        style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-color)' }}>
           <MessageCircleQuestion size={16} style={{ color: 'var(--wk-brand, #2b45e1)' }} />
           <h3 style={{ margin: 0, fontSize: 15, flex: 1 }}>{isThread ? 'Question' : 'Ask My Accountant Line'}</h3>
           <StatusChips r={t} />
-          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button type="button" onClick={tryClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', display: 'grid', gap: 12, alignContent: 'start' }}>
+        <div className="nx-fill" style={{ overflowY: 'auto', padding: '12px 16px', display: 'grid', gap: 12, alignContent: 'start' }}>
           {error && <div role="alert" style={bad}>{error}</div>}
           <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '8px 10px', background: 'var(--bg-secondary)' }}>
             <LineFacts line={{ ...t, entityName: t.entityName || '' }} />
@@ -528,7 +543,8 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
   const { from, to } = period;
   const setPeriod = (next) => setPrefs({ amaPeriod: next });
   const pickPeriod = (key) => setPeriod(key === 'custom' ? { key, from, to } : { key });
-  const fullWidth = !!prefs.amaFullWidth;
+  // Full Screen is the house mode (components/FullScreenButton.jsx), never a second one.
+  const [fullScreen, toggleFullScreen] = useFullScreen('accounting');
   const [status, setStatus] = useState('Open');
   const [mine, setMine] = useState('all');
   const [text, setText] = useState('');
@@ -627,13 +643,17 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
       const about = exportTable([], { from, to });
       const file = await linesFile(viewTable(sided, view.columns, { title: about.title, period: about.period, subtitle: `${sided.length} ${sided.length === 1 ? 'line' : 'lines'} · ${formatDate(from)} - ${formatDate(to)}`, totals: false }), format);
       downloadBlob(file.name, file);
+    } catch (e) {
+      dialog.alert(e?.message || 'Could not export the lines.', { title: 'Export Failed' });
     } finally {
       setBusy('');
     }
   };
   const importFile = () => {
     setBusy('intacct');
-    api.exportAskReclasses().then((blob) => downloadBlob('ama-reclasses-intacct-gl.csv', blob)).catch(() => {}).finally(() => setBusy(''));
+    api.exportAskReclasses().then((blob) => downloadBlob('ama-reclasses-intacct-gl.csv', blob))
+      .catch((e) => dialog.alert(e?.message || 'Could not make the Intacct import file.', { title: 'Export Failed' }))
+      .finally(() => setBusy(''));
   };
   const noteSaved = (r, rv) => setSaved((s) => ({ ...s, notes: { ...s.notes, [r.id]: rv?.note ?? '' } }));
   const reclassSaved = (r, rv) => {
@@ -645,7 +665,6 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <style>{GRID_CSS}</style>
-      {fullWidth && <style data-testid="ama-full-width">{FULL_WIDTH_CSS}</style>}
       {/* No heading of its own (11/11/2026, picture 1): the page line names the page. */}
       <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
         Lines parked on the Ask My Accountant account, and questions asked on any ledger line, until the accountant says where they belong.
@@ -692,11 +711,7 @@ export default function AskAccountantTab({ canEdit = false, limited = false }) {
         <TableViewBar view={view} />
         <div className="acct-bar-end">
           {/* Item 05 (chat triage 10/27): the side menu out of the way, kept per person. */}
-          <button type="button" className={fullWidth ? 'primary-btn' : 'secondary-btn'} aria-pressed={fullWidth} onClick={() => setPrefs({ amaFullWidth: !fullWidth })}
-            title={fullWidth ? 'Exit Full Width - show the side menu again' : 'Full Width - hide the side menu and widen the grid'}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 10px' }}>
-            {fullWidth ? <Minimize2 size={14} /> : <Maximize2 size={14} />} <span className="acct-bar-label">{fullWidth ? 'Exit Full Width' : 'Full Width'}</span>
-          </button>
+          <FullScreenButton on={fullScreen} onToggle={toggleFullScreen} className="secondary-btn" style={{ fontSize: 13, height: 30, padding: '0 10px' }} />
           <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           </BarMore>

@@ -1,12 +1,13 @@
 import { Fragment, createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, Funnel, ListFilter, Loader2, MoreHorizontal, RefreshCw, Search, SlidersHorizontal, Trash2, Users, X } from 'lucide-react';
+import { Bookmark, BookmarkPlus, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, Download, FileDown, FileSpreadsheet, Funnel, ListFilter, Loader2, MoreHorizontal, RefreshCw, Search, SlidersHorizontal, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import AnchoredMenu from '../AnchoredMenu';
 import { formatDate, formatTime } from '../../lib/datetime';
 import { EMPTY_DIMS, JOURNAL_KINDS, NUM_OPS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
 import { DateField } from '../../tasks/components';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // The Reports toolbar's controls (Neil and Charmi, Sep 25): everything is a
 // dropdown on ONE slim row, so the statement starts high on the page - no
@@ -661,7 +662,7 @@ export function CustomizeButton({ density, onDensity, pageSize = 0, onPageSize, 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(on)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} title="Customize">
-        <SlidersHorizontal size={14} style={{ flexShrink: 0, color: on ? 'inherit' : 'var(--text-muted)' }} /> <span className="acct-bar-label">Customize</span>
+        <SlidersHorizontal size={14} style={{ flexShrink: 0, color: on ? 'inherit' : 'var(--text-muted)' }} /> <span className="acct-bar-label acct-bar-label-keep">Customize</span>
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Customize" style={{ ...panel(340), display: 'grid', gap: 12 }}>
         {onDensity && (
@@ -780,20 +781,36 @@ export function ColumnResizer({ label = 'Resize the column', onStart, onDrag, on
 // is drawn before the first item whose `group` is 'send'.
 export function ExportMenu({ items, disabled = false, align = 'right' }) {
   const [open, setOpen, ref] = usePopover();
+  const [error, setError] = useState('');
   const busy = items.some((i) => i.busy);
+  // One catch for every screen's export: a failed file says why instead of nothing.
+  const pick = (it) => {
+    setOpen(false);
+    setError('');
+    try {
+      Promise.resolve(it.onPick()).catch((err) => setError(err?.message || 'Could not export the report.'));
+    } catch (err) { setError(err?.message || 'Could not export the report.'); }
+  };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} disabled={disabled} aria-haspopup="menu" aria-expanded={open} title="Export"
+      <button type="button" className="secondary-btn" onClick={() => setOpen((v) => !v)} disabled={disabled} aria-haspopup="menu" aria-expanded={open} title="Export"
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}>
-        {busy ? <Loader2 size={14} className="spin" /> : <Download size={14} />} <span className="acct-bar-label">Export</span> <ChevronDown size={13} />
+        {busy ? <Loader2 size={14} className="spin" /> : <Download size={14} style={{ color: 'var(--wk-brand, #16a34a)' }} />} <span className="acct-bar-label">Export</span> <ChevronDown size={13} />
       </button>
+      {error && (
+        <div role="alert" style={{ position: 'absolute', top: 'calc(100% + 4px)', right: align === 'right' ? 0 : undefined, left: align === 'right' ? undefined : 0, zIndex: 5, width: 280,
+          padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: 12, color: 'var(--bad-fg, #dc2626)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <span style={{ flex: 1 }}>{error}</span>
+          <button type="button" onClick={() => setError('')} aria-label="Dismiss" style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex' }}><X size={13} /></button>
+        </div>
+      )}
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="menu" aria-label="Export" style={{ ...panel(270), padding: 6 }}>
         {items.map((it, i) => {
           const Icon = it.Icon || (it.key === 'pdf' ? FileDown : it.key === 'excel' ? FileSpreadsheet : Download);
           return (
             <Fragment key={it.key}>
               {it.group === 'send' && items[i - 1]?.group !== 'send' && <div style={{ borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />}
-              <button type="button" role="menuitem" disabled={it.disabled || it.busy} onClick={() => { setOpen(false); it.onPick(); }}
+              <button type="button" role="menuitem" disabled={it.disabled || it.busy} onClick={() => pick(it)}
                 style={{ ...row(false), opacity: it.disabled ? 0.5 : 1, cursor: it.disabled ? 'default' : 'pointer', padding: '7px 8px' }}>
                 {it.busy ? <Loader2 size={14} className="spin" style={{ color: 'var(--text-muted)' }} /> : <Icon size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />}
                 <span style={{ flex: 1, minWidth: 0 }}>
@@ -811,13 +828,18 @@ export function ExportMenu({ items, disabled = false, align = 'right' }) {
 
 // "Memorize": name the view on screen and keep it (Neil, Sep 25: "she's going
 // to pull the same report 50 times").
-export function MemorizeButton({ onSave, suggestion, align = 'right' }) {
+// `mine`: the caller's own saved reports - a name already in use starts the
+// share box from that report, so re-saving a shared report keeps it shared.
+export function MemorizeButton({ onSave, suggestion, mine = [], align = 'right' }) {
   const [open, setOpen, ref] = usePopover();
   const [name, setName] = useState('');
   const [shared, setShared] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { if (open) { setName(suggestion || ''); setShared(false); setError(''); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const match = (n) => mine.find((r) => r.name === n.trim());
+  const replaces = match(name);
+  const pickName = (n) => { setName(n); const m = match(n); if (m) setShared(!!m.shared); };
+  useEffect(() => { if (open) { setName(suggestion || ''); setShared(!!match(suggestion || '')?.shared); setError(''); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = (e) => {
     e.preventDefault();
     if (!name.trim() || busy) return;
@@ -831,17 +853,19 @@ export function MemorizeButton({ onSave, suggestion, align = 'right' }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" style={button(false)} onClick={() => setOpen((v) => !v)} aria-haspopup="dialog" aria-expanded={open} title="Memorize">
-        <BookmarkPlus size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> <span className="acct-bar-label">Memorize</span>
+        <BookmarkPlus size={14} style={{ flexShrink: 0, color: 'var(--text-muted)' }} /> <span className="acct-bar-label acct-bar-label-keep">Memorize</span>
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="dialog" aria-label="Memorize this report" style={panel(330)}>
         <form onSubmit={save} style={{ display: 'grid', gap: 8 }}>
           <label style={{ fontSize: 13, fontWeight: 600 }} htmlFor="acct-memorize-name">What would you like to name it?</label>
-          <input id="acct-memorize-name" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoFocus
+          <input id="acct-memorize-name" type="text" value={name} onChange={(e) => pickName(e.target.value)} maxLength={120} autoFocus
             placeholder="Income Statement - GG Inc - YTD" style={{ ...control, width: '100%' }} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
             <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} /> Share with the accounting team
           </label>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Saves the report, period, columns, book, entities and filters - not the figures. A name you already use is replaced.</div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            Saves the report, period, columns, book, entities and filters - not the figures. {replaces ? <strong style={{ color: 'var(--text-secondary)' }}>Replaces your saved report {replaces.name}.</strong> : 'A name you already use is replaced.'}
+          </div>
           {error && <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button type="button" className="secondary-btn" style={{ fontSize: '0.75rem', padding: '4px 12px' }} onClick={() => setOpen(false)}>Cancel</button>
@@ -858,7 +882,6 @@ export function MemorizeButton({ onSave, suggestion, align = 'right' }) {
 export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, onDelete, onShare, onManage, nameOf, align = 'right' }) {
   const [open, setOpen, ref] = usePopover();
   const [q, setQ] = useState('');
-  const [confirm, setConfirm] = useState('');
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
     return s ? reports.filter((r) => r.name.toLowerCase().includes(s)) : reports;
@@ -866,9 +889,9 @@ export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, on
   const active = reports.find((r) => r.id === activeId);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" style={button(!!active)} onClick={() => { setOpen((v) => !v); setConfirm(''); }} aria-haspopup="menu" aria-expanded={open} title={active ? active.name : 'Saved Reports'}>
+      <button type="button" style={button(!!active)} onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} title={active ? active.name : 'Saved Reports'}>
         <Bookmark size={14} style={{ flexShrink: 0, color: active ? 'inherit' : 'var(--text-muted)' }} />
-        <span className={active ? undefined : 'acct-bar-label'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{active ? active.name : 'Saved Reports'}</span>
+        <span className={active ? undefined : 'acct-bar-label acct-bar-label-keep'} style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{active ? active.name : 'Saved Reports'}</span>
         {!active && reports.length > 0 && <span style={{ ...count, background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>{reports.length}</span>}
         <ChevronDown size={13} style={{ flexShrink: 0, color: 'var(--text-muted)' }} />
       </button>
@@ -891,24 +914,17 @@ export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, on
                   {r.mine ? (r.shared ? 'Shared with the team' : 'Only you') : `Shared by ${nameOf ? nameOf(r.owner) : 'a teammate'}`}
                 </div>
               </button>
-              {r.mine && (confirm === r.id ? (
-                <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', paddingRight: 8 }}>
-                  <button type="button" style={{ ...link, color: 'var(--bad-fg, #dc2626)' }} onClick={() => { onDelete(r); setConfirm(''); }}>Delete</button>
-                  <button type="button" style={link} onClick={() => setConfirm('')}>Keep</button>
-                </span>
-              ) : (
-                <span style={{ display: 'inline-flex', gap: 2, paddingRight: 4 }}>
+              {r.mine && (
+                <span style={{ display: 'inline-flex', gap: 2, alignItems: 'center', paddingRight: 4 }}>
                   <button type="button" onClick={() => onShare(r, !r.shared)} aria-pressed={r.shared} aria-label={r.shared ? `Stop sharing ${r.name}` : `Share ${r.name} with the team`}
                     title={r.shared ? 'Shared with the team - click to make it yours only' : 'Share with the accounting team'}
                     style={{ border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: r.shared ? 'var(--wk-brand, #2b45e1)' : 'var(--text-muted)' }}>
                     <Users size={14} />
                   </button>
-                  <button type="button" onClick={() => setConfirm(r.id)} aria-label={`Delete ${r.name}`} title="Delete"
-                    style={{ border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}>
-                    <Trash2 size={14} />
-                  </button>
+                  <HoldButton size="sm" label="Delete" doneLabel="Deleted" holdMs={HOLD_RECORD_MS} ariaLabel={`Delete ${r.name}`}
+                    fallbackMessage={`Delete the saved report ${r.name}?`} onConfirm={() => onDelete(r)} />
                 </span>
-              ))}
+              )}
             </div>
           ))}
           {!loading && reports.length > 0 && !shown.length && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 6 }}>No saved report matches.</div>}
@@ -986,7 +1002,8 @@ export function ClearButton({ onClick, label }) {
 //      as many as fit, when it widens again.
 // While a menu opened from the bar is open nothing moves (a panel never loses
 // the button it hangs from); the bar fits itself again once it closes.
-const FOLDS = ['', '1', '2'];
+// '0' folds every action word but the kept ones (.acct-bar-label-keep: Saved Reports, Memorize, Customize).
+const FOLDS = ['', '0', '1', '2'];
 const SUMMARY_MIN = 120;   // px a summary keeps before a control moves into More
 const SLACK = 12;          // room a level needs beyond its own width to come back
 const LINE = 46;           // a box taller than this has wrapped inside itself (a control is 30 px)
@@ -1138,6 +1155,7 @@ export function ControlBar({ children, className = '', style = null, ...rest }) 
     }
     // 2. Fold the words.
     for (const f of FOLDS) {
+      if (f === '0' && !el.querySelector('.acct-bar-label-keep')) continue;
       if (f) el.dataset.fold = f; else delete el.dataset.fold;
       if (!barWraps(el)) return;
     }

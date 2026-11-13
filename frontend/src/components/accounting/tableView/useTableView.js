@@ -106,6 +106,7 @@ export function useTableViewWith(store, tableKey, baseColumns, rows, { sort = nu
   // A column being dragged wider: drawn live, saved on release.
   const [live, setLive] = useState(null);
   const liveRef = useRef(null);
+  const startRef = useRef(null);
 
   const arranged = useMemo(() => arrange(columns, state), [columns, state]);
   const shown = useMemo(
@@ -166,12 +167,16 @@ export function useTableViewWith(store, tableKey, baseColumns, rows, { sort = nu
     /** For <ColumnResizer />: drag live, save on release, double-click fits. */
     resizer: (key, name) => ({
       label: `Resize the ${name || key} column`,
+      onStart: (w) => { startRef.current = clamp(w); },
       onDrag: (w) => { liveRef.current = { key, w: clamp(w) }; setLive(liveRef.current); },
       onEnd: () => {
         const l = liveRef.current;
         liveRef.current = null;
         setLive(null);
-        if (l) actions.setWidth(l.key, l.w);
+        // A press on the edge that did not move it (a click, a zero-distance
+        // pointermove) is not a change: writing the width it already had made
+        // a fresh view read Unsaved with Update showing (MRE, production).
+        if (l && l.w !== startRef.current) actions.setWidth(l.key, l.w);
       },
       onFit: (w) => actions.setWidth(key, w > 0 ? w : null),
     }),

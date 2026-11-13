@@ -290,6 +290,10 @@ class BuilderPublishTests(ReportsProxyTests):
         os.environ["NEXUS_DEV_EMAIL"] = VIEWER
         r = self.client.post("/accounting/saved-reports", json={"name": "Shared draft", "config": {"kind": "builder", "version": 1}, "shared": True})
         self.assertTrue(r.json()["config"]["published"])
+        # A statement view saved under that name is refused, not swapped in.
+        r = self.client.post("/accounting/saved-reports", json={"name": "Shared draft", "config": {"report": "pnl"}, "shared": False})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("Report Builder", r.json()["detail"])
 
 
 if __name__ == "__main__":

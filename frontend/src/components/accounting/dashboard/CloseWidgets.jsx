@@ -1,14 +1,17 @@
 import { useState } from 'react';
-import { fmtMD, fmtMDY, mEnd, monthLong, MONTH_SHORT, mShort, mStart, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
+import { fmtMDY, mEnd, monthLong, MONTH_SHORT, mShort, mStart, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { RECON_TYPES } from '../../../accounting/dashboard/model/recon';
-import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, mono, num, toneColor } from './Bits';
+import { TARGET_CLOSE_DAY } from '../../../accounting/dashboard/model/close';
+import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, RTh, mono, num, toneColor, useDashCols } from './Bits';
+import { DrillFigure, useLineDrill } from './LineDrill';
+import { dialog } from '../../../ui/dialog';
 import { useDash } from './DashContext';
 import { useActivity, useCloseState, useDeadlines, useFlux, useIntercompany, useRecon } from './hooks';
 import { TaskViewSwitch, useCloseViews } from './closeViews';
 import { requestReportDrill } from '../drill';
 import { activityReportOf, activitySub } from '../reportModel';
-import { formatDateTime } from '../../../lib/datetime';
+import { formatDate, formatDateTime } from '../../../lib/datetime';
 import { useRole } from '../../../contexts/RoleContext';
 import ReconPanel from './ReconPanel';
 
@@ -17,24 +20,26 @@ import ReconPanel from './ReconPanel';
 
 export function CloseWidget({ onOpenClose }) {
   const { period, act } = useDash();
-  const { state, isLoading } = useCloseState();
+  const { state, isLoading, failed } = useCloseState();
   const [busy, setBusy] = useState(null);
   // My Tasks / All Tasks / Overdue on the card itself (Priyanka, Sep 24); the
   // Bookkeeper view opens on My Tasks with no setup.
   const { view, setView, role, showRow } = useCloseViews(state?.rows ?? []);
-  if (isLoading || !state) return <LoadingBox />;
-  if (!state.n) return <EmptyBox title="No close plan yet" body="Add the close checklist under the Data tab." />;
+  if (isLoading || !state) return <LoadingBox failed={failed} />;
+  if (!state.n) return <EmptyBox title="No close plan yet" body="Add the close checklist under Tools > Reference Data, Close Checklist." setUp={['data', 'Tools > Reference Data']} />;
   const open = state.rows.filter((r) => !r.done && showRow(r));
   const shownTotal = state.rows.filter(showRow).length;
   const shownDone = state.rows.filter((r) => r.done && showRow(r)).length;
   const complete = async (r) => {
     setBusy(r.id);
-    try { await act('close-task', { period, task_id: r.id, done: true, detail: `${r.title} · ${monthLong(period)}` }); } finally { setBusy(null); }
+    try { await act('close-task', { period, task_id: r.id, done: true, detail: `${r.title} · ${monthLong(period)}` }); }
+    catch (e) { await dialog.alert(e?.message || 'The task could not be saved. Try again.', { title: 'Close Checklist' }); }
+    finally { setBusy(null); }
   };
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 13 }}>
-        <span>{monthLong(period)} · target day 10</span>
+        <span>{monthLong(period)} · target day {TARGET_CLOSE_DAY}</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <TaskViewSwitch view={view} onChange={setView} late={state.late.length} size="xs" />
           <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{view === 'all' ? `${state.nDone}/${state.n}` : `${shownDone}/${shownTotal}`}</span>
@@ -87,13 +92,14 @@ export function CloseWidget({ onOpenClose }) {
 // bank record says so instead of "Never".
 export function ReconWidget({ compact, onNavigate }) {
   const { period, fromKey, book, scope, reconAccounts, m, ix, invalidate } = useDash();
-  const { rows, reconciled, remaining, isLoading } = useRecon();
+  const { rows, reconciled, remaining, isLoading, failed } = useRecon();
   const role = useRole();
   const can = (lvl) => !!role?.canAccessModule?.('accounting', 'administrator', lvl);
   const [openKey, setOpenKey] = useState(null);
+  const cw = useDashCols('recon');
   const linkOf = (r) => (onNavigate ? activityLink(r, { period, fromKey, book, scope, reconAccounts }) : null);
-  if (isLoading) return <LoadingBox />;
-  if (!rows.length) return <EmptyBox title="No accounts to reconcile" body="Bank and credit card accounts with activity in this scope appear here, plus loans and brokerage accounts from the Data tab." />;
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!rows.length) return <EmptyBox title="No accounts to reconcile" body="Bank and credit card accounts with activity in this scope appear here, plus loans and brokerage accounts from Financing > Loans and Financing > Investments." setUp={['loans', 'Financing > Loans']} />;
   const byType = RECON_TYPES.map((t) => ({ t, rows: rows.filter((r) => r.type === t) })).filter((g) => g.rows.length);
   const cols = compact ? 6 : 7;
   const entityOf = (r) => (r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : r.ref || '');
@@ -107,7 +113,7 @@ export function ReconWidget({ compact, onNavigate }) {
       <Meter segments={[{ share: rows.length ? reconciled / rows.length : 0, color: 'var(--wk-brand, #2b45e1)' }]} />
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th>Account</th>{!compact ? <th>Entity</th> : null}<th>Last Reconciled</th><th style={num}>Reconciled Balance</th><th style={num}>Current Balance</th><th style={num}>Difference</th><th>Status</th></tr></thead>
+          <thead><tr><RTh cols={cw} id="account" label="Account" />{!compact ? <RTh cols={cw} id="entity" label="Entity" /> : null}<RTh cols={cw} id="last" label="Last Reconciled" /><RTh cols={cw} id="stmt" label="Reconciled Balance" style={num} /><RTh cols={cw} id="book" label="Current Balance" style={num} /><RTh cols={cw} id="diff" label="Difference" style={num} /><RTh cols={cw} id="status" label="Status" /></tr></thead>
           <tbody>
             {byType.map((g) => (
               <GroupRows key={g.t} title={`${g.t} Accounts`} cols={cols}>
@@ -204,8 +210,8 @@ function GroupRows({ title, cols, children }) {
 }
 
 export function ActivityWidget() {
-  const { rows, isLoading } = useActivity(10);
-  if (isLoading) return <LoadingBox />;
+  const { rows, isLoading, failed } = useActivity(10);
+  if (isLoading) return <LoadingBox failed={failed} />;
   if (!rows.length) return <EmptyBox title="No activity yet" body="Tick a close step or leave a note and it shows up here for the team." />;
   return (
     <div>
@@ -221,9 +227,9 @@ export function ActivityWidget() {
 
 export function IcWidget() {
   const { m, ix } = useDash();
-  const { rows, isLoading } = useIntercompany();
-  if (isLoading) return <LoadingBox />;
-  if (!rows.length) return <EmptyBox title="No intercompany balances for this scope" body="Record due-to and due-from pairs under the Data tab." />;
+  const { rows, isLoading, failed } = useIntercompany();
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!rows.length) return <EmptyBox title="No intercompany balances for this scope" body="Record due-to and due-from pairs under Financing > Intercompany." setUp={['intercompany', 'Financing > Intercompany']} />;
   const off = rows.filter((r) => !r.matched).length;
   const name = (c) => ix.byCode.get(c)?.name || c;
   return (
@@ -241,9 +247,14 @@ export function IcWidget() {
   );
 }
 
+/** The lines behind a flux figure: a balance (`bal`) is every line through the month end, a change the month's own lines. */
+export const fluxSpan = (k, bal = false) => ({ from: bal ? '' : mStart(k), to: mEnd(k) });
+
 export function FluxWidget() {
   const { m, period, loading } = useDash();
   const { rows, hasPrior } = useFlux();
+  const [drill, lines] = useLineDrill();
+  const cw = useDashCols('flux');
   // Oct 6 (Neil: a loading animation everywhere): not "No prior month" while the ledger is still on its way.
   if (loading) return <LoadingBox />;
   if (!hasPrior) return <EmptyBox title="No prior month to compare." />;
@@ -251,15 +262,16 @@ export function FluxWidget() {
   const pk = shiftKey(period, 1);
   return (
     <div className="req-table-wrapper">
+      {lines}
       <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        <thead><tr><th>Account</th><th style={num}>{mShort(pk)}</th><th style={num}>{mShort(period)}</th><th style={num}>Change</th><th style={num}>%</th></tr></thead>
+        <thead><tr><RTh cols={cw} id="account" label="Account" /><RTh cols={cw} id="prior" label={mShort(pk)} style={num} /><RTh cols={cw} id="balance" label={mShort(period)} style={num} /><RTh cols={cw} id="change" label="Change" style={num} /><RTh cols={cw} id="pct" label="%" style={num} /></tr></thead>
         <tbody>
           {rows.slice(0, 10).map((r) => (
             <tr key={r.id}>
               <td><span style={mono}>{r.gl}</span>{r.name}</td>
-              <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.prior, { report: true })}</td>
-              <td style={num}>{m(r.balance, { report: true })}</td>
-              <td style={{ ...num, fontWeight: 600, color: toneColor(r.change >= 0) }}>{m(r.change, { report: true })}</td>
+              <td style={{ ...num, color: 'var(--text-muted)' }}><DrillFigure onOpen={() => drill(r, fluxSpan(pk, true))}>{m(r.prior, { report: true })}</DrillFigure></td>
+              <td style={num}><DrillFigure onOpen={() => drill(r, fluxSpan(period, true))}>{m(r.balance, { report: true })}</DrillFigure></td>
+              <td style={{ ...num, fontWeight: 600, color: toneColor(r.change >= 0) }}><DrillFigure onOpen={() => drill(r, fluxSpan(period))}>{m(r.change, { report: true })}</DrillFigure></td>
               <td style={{ ...num, fontSize: 12, color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</td>
             </tr>
           ))}
@@ -270,9 +282,9 @@ export function FluxWidget() {
 }
 
 export function DeadlinesWidget() {
-  const { items, isLoading } = useDeadlines(6);
-  if (isLoading) return <LoadingBox />;
-  if (!items.length) return <EmptyBox title="No deadlines on the calendar" body="Add filings and payment dates under the Data tab." />;
+  const { items, isLoading, failed } = useDeadlines(6);
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!items.length) return <EmptyBox title="No deadlines on the calendar" body="Add filings and payment dates under Tools > Reference Data, Filing Calendar." setUp={['data', 'Tools > Reference Data']} />;
   return (
     <div>
       {items.map(({ deadline, date, days }, i) => (
@@ -282,7 +294,7 @@ export function DeadlinesWidget() {
           <Chip tone={days <= 7 ? 'bad' : days <= 30 ? 'wait' : 'neutral'}>{days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `In ${days} days`}</Chip>
         </div>
       ))}
-      <Footnote>Standard due dates. Confirm entity-specific deadlines with your CPA. Next: {fmtMD(items[0].date)}.</Footnote>
+      <Footnote>Standard due dates. Confirm entity-specific deadlines with your CPA. Next: {formatDate(items[0].date)}.</Footnote>
     </div>
   );
 }

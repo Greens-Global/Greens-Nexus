@@ -10805,3 +10805,7 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 /* Every box in Add Person one height - the inputs sat 4px shorter than the selects. */
 .ap-form input.form-input, .ap-form select.form-input { height: 38px; box-sizing: border-box; }
 .nx-new-item:disabled { opacity: .5; cursor: default; background: none; }
+/* Accounting UX pass - reports */
+/* Fold step "0" (ControlBar): the words of Saved Reports, Memorize and Customize
+   (.acct-bar-label-keep) stay while the other action words fold; at "1" they fold too. */
+.acct-controlbar[data-fold="0"] .acct-bar-label-keep { display: inline; }

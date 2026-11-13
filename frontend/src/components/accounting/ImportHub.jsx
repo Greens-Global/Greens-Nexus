@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowRightLeft, Clock, Download, FileSpreadsheet, Landmark, ListChecks, Upload, X } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, Clock, Download, FileSpreadsheet, Landmark, ListChecks, X } from 'lucide-react';
 import { api } from '../../api';
 import { EntityPicker, control } from './reportControls';
 import { buildIntacctRows, classifyLines, findHeaderRow, guessColumns, readSheetFile, readTransactions, ruleFromLine, toCsv, usDate } from './statementImport';
-import { PayrollHoursToQb, QbPayrollToIntacct } from './PayrollImport';
+import { PayrollHoursToQb, QbPayrollToIntacct, UploadZone } from './PayrollImport';
 import StatementRules from './StatementRules';
 import { downloadBlob } from './reportModel';
 
@@ -68,6 +68,7 @@ function StatementToIntacct() {
   const [lists, setLists] = useState({ accounts: [], vendors: [], customers: [] });
   const [filter, setFilter] = useState({ vendor: '', customer: '', show: 'all' });
   const [useDefault, setUseDefault] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   const loadRules = useCallback(() => api.getStatementRules()
     .then((d) => { setRules(listOf(d, 'rules')); setRulesError(''); })
@@ -101,7 +102,7 @@ function StatementToIntacct() {
       setError(e?.message || 'Could not read that file.');
     }
   };
-  const reset = () => { setFile(null); setMap(null); setError(''); setPicks({}); };
+  const reset = () => { setFile(null); setMap(null); setError(''); setPicks({}); setShowAll(false); };
   const changeHeader = (h) => { setHeaderRow(h); setMap(guessColumns(file.rows[h])); setPicks({}); };
 
   const header = file ? file.rows[headerRow] || [] : [];
@@ -133,6 +134,8 @@ function StatementToIntacct() {
     (!filter.vendor || (filter.vendor === NONE ? !l.vendorId : l.vendorId === filter.vendor))
     && (!filter.customer || (filter.customer === NONE ? !l.customerId : l.customerId === filter.customer))
     && (filter.show === 'all' || (filter.show === 'open' ? !l.classified : l.how === filter.show))));
+  // Every unclassified line is always reachable (Show Them); the full list past PREVIEW on Show All.
+  const all = showAll || filter.show === 'open';
 
   const download = () => {
     const rows = buildIntacctRows(lines, {
@@ -160,13 +163,7 @@ function StatementToIntacct() {
       </div>
 
       {!file ? (
-        <label style={{ ...card, padding: 28, display: 'grid', justifyItems: 'center', gap: 8, cursor: 'pointer', borderStyle: 'dashed', textAlign: 'center' }}
-          onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onFile(e.dataTransfer.files?.[0]); }}>
-          <span style={{ display: 'inline-flex', padding: 10, borderRadius: 10, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}><Upload size={20} /></span>
-          <span style={{ fontWeight: 700, fontSize: 15 }}>Upload a Statement</span>
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>CSV, XLSX or XLS - drop it here or click to choose</span>
-          <input type="file" accept=".csv,.xlsx,.xls,text/csv" aria-label="Statement file" style={{ display: 'none' }} onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
-        </label>
+        <UploadZone title="Upload a Statement" hint="CSV, XLSX or XLS - drop it here or click to choose" ariaLabel="Statement file" onFile={onFile} />
       ) : (
         <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -280,7 +277,7 @@ function StatementToIntacct() {
             <table className="req-table" aria-label="Preview">
               <thead><tr><th>Date</th><th>Description</th><th style={{ textAlign: 'right' }}>Money In</th><th style={{ textAlign: 'right' }}>Money Out</th><th>Account</th><th>Vendor</th><th>Customer</th><th>Classified By</th><th aria-label="Save as Rule" /></tr></thead>
               <tbody>
-                {shown.slice(0, PREVIEW).map((l) => (
+                {(all ? shown : shown.slice(0, PREVIEW)).map((l) => (
                   <tr key={l.index} data-unclassified={l.classified ? undefined : '1'} style={l.classified ? undefined : { background: 'var(--warn-bg, #fff7e6)' }}>
                     <td style={{ whiteSpace: 'nowrap' }}>{usDate(l.date)}</td>
                     <td style={{ minWidth: 200 }}>{l.description}{(l.memo || l.reference) && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{[l.memo, l.reference].filter(Boolean).join(' - ')}</div>}</td>
@@ -303,7 +300,12 @@ function StatementToIntacct() {
               </tbody>
             </table>
           </div>
-          {shown.length > PREVIEW && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Showing the first {PREVIEW} of {shown.length}; the download has them all.</div>}
+          {!all && shown.length > PREVIEW && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              Showing the first {PREVIEW} of {shown.length}; the download has them all.
+              <button type="button" className="secondary-btn" onClick={() => setShowAll(true)} style={{ fontSize: 12, padding: '3px 10px' }}>Show All</button>
+            </div>
+          )}
         </div>
       )}
       {error && <div role="alert" style={{ fontSize: 13, color: 'var(--danger, #dc2626)' }}>{error}</div>}
@@ -322,7 +324,8 @@ export default function ImportHub() {
   const [tool, setTool] = useState(() => {
     try { const t = localStorage.getItem(TOOL_KEY); return TOOLS.some((x) => x.key === t) ? t : 'statement'; } catch { return 'statement'; }
   });
-  const pick = (t) => { setTool(t); try { localStorage.setItem(TOOL_KEY, t); } catch { /* per-browser convenience */ } };
+  const [seen, setSeen] = useState(() => [tool]);    // a tool mounts when first opened, then stays
+  const pick = (t) => { setTool(t); setSeen((s) => (s.includes(t) ? s : [...s, t])); try { localStorage.setItem(TOOL_KEY, t); } catch { /* per-browser convenience */ } };
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <div className="scroll-tabs" role="tablist" aria-label="Import Tools" style={{ display: 'grid', gridAutoFlow: 'column', gridAutoColumns: 'minmax(220px, 1fr)', gap: 10 }}>
@@ -341,9 +344,11 @@ export default function ImportHub() {
           );
         })}
       </div>
-      {tool === 'statement' && <StatementToIntacct />}
-      {tool === 'hours' && <PayrollHoursToQb />}
-      {tool === 'qb-payroll' && <QbPayrollToIntacct />}
+      {/* All three stay mounted, the others hidden, so switching cards never
+          throws away an uploaded file, its mapping or the picks. */}
+      {seen.includes('statement') && <div hidden={tool !== 'statement'}><StatementToIntacct /></div>}
+      {seen.includes('hours') && <div hidden={tool !== 'hours'}><PayrollHoursToQb /></div>}
+      {seen.includes('qb-payroll') && <div hidden={tool !== 'qb-payroll'}><QbPayrollToIntacct /></div>}
     </div>
   );
 }

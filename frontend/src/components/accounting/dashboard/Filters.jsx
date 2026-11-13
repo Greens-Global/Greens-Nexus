@@ -38,13 +38,13 @@ export function ScopeSelect() {
 
 /** Range presets, all ending at the chosen month. `months` is how many to include; null = custom start. */
 const RANGES = [
-  { id: 'month', label: 'Single month', months: 1 },
-  { id: 'quarter', label: 'Quarter to date', months: null, quarter: true },
-  { id: 'ytd', label: 'Year to date', months: null, ytd: true },
-  { id: 'l3', label: 'Last 3 months', months: 3 },
-  { id: 'l6', label: 'Last 6 months', months: 6 },
-  { id: 't12', label: 'Trailing 12 months', months: 12 },
-  { id: 'custom', label: 'Custom start…', months: null },
+  { id: 'month', label: 'Single Month', months: 1 },
+  { id: 'quarter', label: 'Quarter to Date', months: null, quarter: true },
+  { id: 'ytd', label: 'Year to Date', months: null, ytd: true },
+  { id: 'l3', label: 'Last 3 Months', months: 3 },
+  { id: 'l6', label: 'Last 6 Months', months: 6 },
+  { id: 't12', label: 'Trailing 12 Months', months: 12 },
+  { id: 'custom', label: 'Custom Start…', months: null },
 ];
 const quarterStart = (k) => `${k.slice(0, 4)}-${String(Math.floor((Number(k.slice(5, 7)) - 1) / 3) * 3 + 1).padStart(2, '0')}`;
 const rangeStart = (preset, to) => {
