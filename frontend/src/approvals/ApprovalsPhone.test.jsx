@@ -490,7 +490,7 @@ describe('Approvals on a phone', () => {
     expect(titles()).toEqual([LETTER, ITEM]);                   // waiting applies to what you decide
     fireEvent.change(within(sheet()).getByRole('searchbox'), { target: { value: 'nobody' } });
     fireEvent.click(within(sheet()).getByRole('button', { name: 'Done' }));
-    expect(screen.getByText('No approvals match your filters')).toBeTruthy();
+    expect(screen.getByText('No Approvals Match Your Filters')).toBeTruthy();
     // A neutral mark for an empty filter; the green check is for All caught up.
     expect(document.querySelector('.apv-ph-empty-ic').className).toContain('is-filtered');
     expect(document.querySelector('.apv-ph-empty-ic svg').getAttribute('class')).toContain('search-x');
@@ -533,7 +533,7 @@ describe('Approvals on a phone', () => {
   it('says All caught up when nothing waits', async () => {
     approvalsInbox.mockResolvedValue({ ...INBOX, rows: [], total: 0, who: { canApprove: true } });
     render(<Approvals activeSub="" onSubChange={() => {}} />);
-    expect(await screen.findByText('All caught up')).toBeTruthy();
+    expect(await screen.findByText('All Caught Up')).toBeTruthy();
     expect(document.querySelector('.apv-ph-empty-ic').className).not.toContain('is-filtered');
     expect(document.querySelector('.apv-ph-empty-ic svg').getAttribute('class')).toMatch(/circle-check|check-circle/);
     expect(screen.getByText('Nothing waiting on you.')).toBeTruthy();

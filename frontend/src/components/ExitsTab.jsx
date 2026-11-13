@@ -219,7 +219,7 @@ export default function ExitsTab({ toastOk, toastErr }) {
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Exits In Progress</div>
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>Everyone leaving, and the final settlement statement payroll needs for each.</div>
         </div>
-        <label style={{ fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <label className="exits-closed-toggle" style={{ fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} /> Show Closed
         </label>
       </div>

@@ -7501,6 +7501,11 @@ body.sched-stretching, body.sched-stretching * { cursor: ew-resize !important; u
 /* Never sideways (Neil, 10/28/2026: a scrollbar under every card): the rows
    reach 8px into the card's padding for their hover, so the body makes the
    same 8px of room on each side and clips anything wider. */
+/* People > Analytics: its cards grow with what they hold - the fixed 384px
+   rows let the Headcount split and the Attrition legend spill under the next
+   card (phone review, 11/13/2026). */
+.bi-grid.hra-grid { grid-auto-rows: auto; }
+.bi-grid.hra-grid > .bi-card { height: auto; }
 .bi-card-body { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; margin: 0 -8px; padding: 0 8px; }
 .bi-card-head { margin-bottom: 12px; align-items: flex-start; }
 .bi-card-id { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
@@ -8867,7 +8872,6 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .apv-own .apv-section-h { background: color-mix(in srgb, #7c3aed 6%, var(--card)); }
 .apv-row { display: grid; grid-template-columns: 20px minmax(150px, 210px) minmax(0, 1fr) 88px 70px auto; grid-template-areas: "pick who what prio age act"; gap: 6px 12px; align-items: center; padding: 11px 16px; border-top: 1px solid var(--line); background: var(--card); position: relative; }
 .apv-row.is-focused { background: var(--wk-brand-tint); box-shadow: inset 3px 0 0 var(--wk-brand); }
-.apv-row[data-priority="urgent"]:not(.is-focused) { box-shadow: inset 3px 0 0 #dc2626; }
 .apv-pick { grid-area: pick; display: flex; align-items: center; }
 .apv-who { grid-area: who; min-width: 0; display: flex; align-items: center; gap: 10px; }
 .apv-who-t { min-width: 0; display: grid; }
@@ -8997,8 +9001,8 @@ body:has(.apv-phone) { overflow-x: clip; }
 /* Only a card that swipes keeps the horizontal drag for itself; scrolling
    and pinch zoom stay the browser's. Every other card is left alone. */
 .apv-ph-card[data-swipe] { touch-action: pan-y pinch-zoom; }
-.apv-ph-card[data-priority="urgent"] { box-shadow: inset 4px 0 0 #dc2626; }
-.apv-ph-card[data-priority="high"] { box-shadow: inset 4px 0 0 #d97706; }
+/* No colored bar down a card's side for its priority (Neil, 11/13/2026): the
+   card's own Urgent / High label already says it. */
 .apv-ph-top { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: start; }
 .apv-ph-who { min-width: 0; }
 .apv-ph-name { font-size: 15px; font-weight: 700; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -9568,8 +9572,11 @@ body:has(.apv-phone) { overflow-x: clip; }
 }
 @media (max-width: 640px) {
   .it-page { gap: 12px; }
-  .it-title { font-size: 18px; }
-  .it-sub { display: none; }
+  /* The bottom bar already names the tab (phone review, 11/13/2026): no
+     18px title repeating it - the one-line description says what it is for. */
+  .it-title { display: none; }
+  .it-sub { margin-top: 0; }
+  .it-head { align-items: center; }
   .it-search { flex-basis: 100%; }
   .it-select { flex: 1 1 140px; min-width: 0; font-size: 16px; } /* type-ok: iOS zooms a field under 16px */
   .it-toolbar-meta { margin-left: 0; }
@@ -9711,6 +9718,17 @@ body:has(.apv-phone) { overflow-x: clip; }
   .page-trail button { padding: 8px 0; margin: -8px 0; }
   .page-trail--standalone { margin-bottom: 8px; }
   .viewport-flush > .page-trail--standalone, .page-trail--flush { padding: 10px 14px 2px; }
+  /* Phone review (11/13/2026): the module's name in Title Case as written -
+     the same as the computer's bar and the Knowledge Base - not an 11px
+     uppercase eyebrow. */
+  .page-trail--standalone { text-transform: none; letter-spacing: normal; font-size: 13px; color: var(--ink); }
+  .page-trail--standalone li + li button, .page-trail--standalone li + li::before { color: var(--muted); }
+  /* ...and the module's buttons share that row instead of a row of their own
+     above the tabs (it cost ~80px and pushed the tabs down). The name floats
+     left only when there are buttons; the page below starts clear of both. */
+  .page-trail--standalone:has(+ .module-actions-row:not(:empty)) { float: left; max-width: 45%; margin: 0; padding-top: 9px; padding-bottom: 0; padding-right: 8px; }
+  .page-trail--standalone + .module-actions-row:not(:empty) { margin-bottom: 10px; }
+  .page-trail--standalone + .module-actions-row:not(:empty) + * { clear: both; }
 }
 /* Tasks and Tickets have no title row: the trail rides their tab bar, left
    of the tabs, with a hairline between (phones keep the bar for the tabs). */
@@ -10816,6 +10834,70 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 /* Fold step "0" (ControlBar): the words of Saved Reports, Memorize and Customize
    (.acct-bar-label-keep) stay while the other action words fold; at "1" they fold too. */
 .acct-controlbar[data-fold="0"] .acct-bar-label-keep { display: inline; }
+
+/* ── Phone tap sizes (phone review, 11/13/2026) ──────────────────────────────
+   A thumb needs ~40px. These controls drew 16-30px tall on a 390px phone. */
+.wf-job-every-inline { display: none; }
+@media (max-width: 640px) {
+  .ts-note-btn { min-height: 36px; }
+  .worklog-btn { min-width: 36px; min-height: 36px; }
+  .acct-step { min-width: 36px; min-height: 36px; justify-content: center; }
+  .pp-stat { min-height: 40px; align-items: center; }
+  .exits-closed-toggle { min-height: 40px; padding: 0 4px; }
+  .exits-closed-toggle input { width: 18px; height: 18px; }
+  /* Workflows > Automations: how often it runs under the title, the
+     Settings link as its icon, and every switch in one column on the right. */
+  .wf-job-row { flex-wrap: nowrap !important; }
+  .wf-job-row > div:nth-child(2) { min-width: 0 !important; }
+  .wf-job-every { display: none; }
+  .wf-job-every-inline { display: block; margin-top: 2px; }
+  .wf-job-settings { min-width: 36px; min-height: 36px; justify-content: center; }
+  .wf-job-settings-word { display: none; }
+  .wf-job-switch { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 40px; flex-shrink: 0; cursor: pointer; }
+}
+
+/* Marketing on a phone (phone review, 11/13/2026): the AI Analyst menu is a
+   sheet along the bottom (384px anchored to a button mid-row ran off the
+   left edge), and the page heading that repeats the tab steps aside. */
+@media (max-width: 640px) {
+  .mktg-ai-pop { position: fixed !important; left: 12px !important; right: 12px !important; top: auto !important; bottom: 12px; width: auto !important; max-height: 70vh; overflow-y: auto; margin-top: 0 !important; z-index: 1000 !important; }
+  .mktg-page-h { display: none; }
+}
+
+/* ── Count tiles on a phone (phone review, 11/13/2026) ─────────────────────────
+   A grid of big count tiles filled the first screen (Credentials, Item
+   Management, Hiring, Checklists) before the list it counts. On a phone they
+   become ONE row of compact pills - label and number - that scrolls sideways
+   and keeps each tile's tap (a filter or a jump). The description line under
+   the number steps aside. */
+@media (max-width: 640px) {
+  .nx-stat-strip, .it-kpis, .cv-kpis.is-five {
+    display: flex !important; flex-wrap: nowrap; gap: 8px; overflow-x: auto; scrollbar-width: none;
+    margin-bottom: 12px !important; padding: 2px 1px 4px;
+  }
+  .nx-stat-strip::-webkit-scrollbar, .it-kpis::-webkit-scrollbar, .cv-kpis.is-five::-webkit-scrollbar { display: none; }
+  .nx-stat-strip > *, .it-kpis > .it-kpi, .cv-kpis.is-five > .cv-kpi {
+    flex: 0 0 auto; display: flex !important; flex-direction: row-reverse !important; align-items: center !important;
+    justify-content: flex-end; gap: 8px !important; min-height: 40px; padding: 6px 14px !important;
+    border-radius: 999px !important; box-shadow: none !important;
+  }
+  /* number first, then the label: "3 Overdue" */
+  .nx-stat-strip .kpi-value, .it-kpi-value, .cv-kpi-value, .nx-stat-value { font-size: 15px !important; line-height: 1.2 !important; }
+  .nx-stat-strip .kpi-label, .it-kpi-label, .cv-kpi-label { font-size: 13px; padding-right: 0 !important; white-space: nowrap; }
+  .nx-stat-strip .kpi-delta, .it-kpi-sub, .cv-kpi-sub, .nx-stat-sub, .nx-stat-icon { display: none !important; }
+  .nx-stat .nx-stat-body { display: flex !important; align-items: center; gap: 8px !important; white-space: nowrap; }
+  .cv-kpi-go { border-radius: 999px; padding: 0; }
+  .cv-kpi-go svg { display: none; }
+  .cv-kpi.is-solid .cv-kpi-label { color: rgba(255,255,255,.9); }
+}
+
+/* Reputation on a phone (phone review, 11/13/2026): the reviews feed is part
+   of the page - a box that scrolls inside the page trapped the thumb - and a
+   review's buttons keep their words on one line, wrapping as whole buttons. */
+@media (max-width: 640px) {
+  .mktg-reviews-feed { max-height: none !important; overflow: visible !important; padding-right: 0 !important; }
+  .mktg-review-actions button { white-space: nowrap; min-height: 36px; }
+}
 
 /* ── Documents library redesign (Pranshu, 11/13/2026, canvas
    https://claude.ai/artifact/TapZUK47Diz1k3jgFh5TNW): the rail and the list

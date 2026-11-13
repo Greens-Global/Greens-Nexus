@@ -35,6 +35,9 @@ export default function Automations({ go }) {
   const [error, setError] = useState(false);
   const [notice, setNotice] = useState('');
   const [runsFor, setRunsFor] = useState(null);   // the task rule whose Runs popup is open
+  // Find one of the built-in automations by its name or what it does (phone
+  // review, 11/13/2026: 66 rows and no way to find one but scrolling).
+  const [jobQ, setJobQ] = useState('');
 
   // The fetch sets state only from the responses; Retry shows the skeleton
   // again through `load`.
@@ -49,7 +52,9 @@ export default function Automations({ go }) {
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const rules = data?.taskRules || [];
-  const jobs = data?.jobs || [];
+  const allJobs = data?.jobs || [];
+  const q = jobQ.trim().toLowerCase();
+  const jobs = q ? allJobs.filter((j) => `${j.label} ${j.what || ''}`.toLowerCase().includes(q)) : allJobs;
 
   // Optimistic: the switch moves at once and comes back if the server refuses.
   const toggle = async (rule, enabled) => {
@@ -131,26 +136,35 @@ export default function Automations({ go }) {
         </section>
 
         <section>
-          <SectionTitle count={jobs.length || null}>Built-In Automations</SectionTitle>
+          <SectionTitle count={allJobs.length || null}>Built-In Automations</SectionTitle>
+          {allJobs.length > 8 && (
+            <input type="search" className="form-input wf-job-search" value={jobQ} onChange={(e) => setJobQ(e.target.value)}
+              placeholder="Find an automation" aria-label="Find an automation"
+              style={{ width: '100%', maxWidth: 360, margin: '0 0 10px', fontFamily: FONT }} />
+          )}
           <Card>
             {jobs.length === 0 ? (
-              <div style={{ padding: '18px 16px', fontSize: 13, color: 'var(--muted)' }}>Nothing listed.</div>
+              <div style={{ padding: '18px 16px', fontSize: 13, color: 'var(--muted)' }}>{q ? 'No automation matches that.' : 'Nothing listed.'}</div>
             ) : jobs.map((j) => (
-              <div key={j.key} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
+              <div key={j.key} className="wf-job-row" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
                 <Zap size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div style={{ fontSize: 14, fontWeight: 700 }}>{j.label}</div>
                   <Muted>{j.what}</Muted>
+                  {/* Phones: how often it runs sits under the title (phone review, 11/13/2026) */}
+                  {j.every && <Muted className="wf-job-every-inline">{j.every}</Muted>}
                   {j.lastRun?.at && <LastRun run={j.lastRun} />}
                 </div>
-                <Muted style={{ whiteSpace: 'nowrap' }}>{j.every}</Muted>
+                <Muted className="wf-job-every" style={{ whiteSpace: 'nowrap' }}>{j.every}</Muted>
                 {j.settingLink?.view && (
-                  <LinkButton onClick={() => navigate(j.settingLink.view, j.settingLink.sub)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
-                    <SettingsIcon size={13} /> Settings
+                  <LinkButton className="wf-job-settings" aria-label={`${j.label} Settings`} onClick={() => navigate(j.settingLink.view, j.settingLink.sub)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13 }}>
+                    <SettingsIcon size={13} /> <span className="wf-job-settings-word">Settings</span>
                   </LinkButton>
                 )}
                 {j.switch === false ? null : isGlobalAdmin ? (
-                  <Switch checked={!j.off} onChange={(on) => toggleJob(j, !on)} label={`${j.label} on`} />
+                  <label className="wf-job-switch">
+                    <Switch checked={!j.off} onChange={(on) => toggleJob(j, !on)} label={`${j.label} on`} />
+                  </label>
                 ) : j.off ? <StatusLabel label="Off" color="#64748b" size="sm" /> : null}
               </div>
             ))}

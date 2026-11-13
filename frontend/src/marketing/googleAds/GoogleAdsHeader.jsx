@@ -39,7 +39,7 @@ export default function GoogleAdsHeader({
 
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginTop: 16, gap: 16, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 576 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, color: C.gray900 }}>Google Ads</h2>
+          <h2 className="mktg-page-h" style={{ fontSize: 15, fontWeight: 600, color: C.gray900 }}>Google Ads</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <ScopeBadge label={property === ALL_PROPERTIES ? 'All Properties' : property} />
             <span

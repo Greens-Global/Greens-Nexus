@@ -91,7 +91,7 @@ export default function ReviewsFeedCard({
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', maxHeight: 720, display: 'flex', flexDirection: 'column', gap: 12, paddingRight: 4 }}>
+      <div className="mktg-reviews-feed" style={{ flex: 1, overflowY: 'auto', maxHeight: 720, display: 'flex', flexDirection: 'column', gap: 12, paddingRight: 4 }}>
         {filtered.length === 0 && (
           <div style={{ textAlign: 'center', color: C.gray400, fontSize: 13, padding: '40px 0' }}>No reviews match this filter.</div>
         )}

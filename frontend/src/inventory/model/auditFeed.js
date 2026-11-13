@@ -8,7 +8,7 @@ export function formatAuditDetails(action, rawDetails) {
   let d = {};
   try { d = JSON.parse(rawDetails || '{}'); } catch { return rawDetails || '-'; }
   const a = (action || '').toLowerCase();
-  const skip = new Set(['path', 'status']);
+  const skip = new Set(['path', 'status', 'method']);   // never the HTTP method (phone review, 11/13/2026)
 
   // Everything important is **bold** (rendered via the notification bold parser)
   const money = v => '$' + Math.round(Number(v) || 0).toLocaleString('en-US');

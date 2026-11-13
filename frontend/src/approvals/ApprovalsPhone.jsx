@@ -134,7 +134,8 @@ export default function ApprovalsPhone({
   const head = (
     <div className="apv-ph-head">
       <div className="apv-ph-title">
-        <h2>Approvals</h2>
+        {/* No "Approvals" heading: the tab above already says it (phone
+            review, 11/13/2026). The count stays. */}
         {/* Not while the list loads - never "0 Waiting" before it is known. */}
         {counts && !loading && <b key={bump} className={`apv-ph-pill${bump ? ' is-bump' : ''}`} aria-live="polite">{waiting} Waiting</b>}
       </div>
@@ -176,7 +177,7 @@ export default function ApprovalsPhone({
           <div className="apv-ph-empty">
             {/* The green check is earned: only "All caught up" gets it. */}
             <span className={`apv-ph-empty-ic${filtering ? ' is-filtered' : ''}`}>{filtering ? <SearchX size={32} /> : <CheckCircle2 size={34} />}</span>
-            <div className="apv-empty-t">{filtering ? 'No approvals match your filters' : 'All caught up'}</div>
+            <div className="apv-empty-t">{filtering ? 'No Approvals Match Your Filters' : 'All Caught Up'}</div>
             <div className="apv-empty-d">{filtering ? 'Clear the search or the filters to see everything waiting on you.'
               : kind !== 'all' ? `Nothing in ${labelOf(kind)} waiting on you.`
                 : canApprove ? 'Nothing waiting on you.' : 'Anything that needs your signature or acceptance will show up here.'}</div>

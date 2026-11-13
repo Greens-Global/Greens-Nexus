@@ -461,13 +461,13 @@ export default function CredentialVaultApp({ activeSub }) {
               </select>
             )}
             <select className="form-input cv-dir-select" value={fType} onChange={(e) => setFType(e.target.value)} aria-label="Type">
-              <option value="All">All types</option>{TYPES.map((t) => <option key={t}>{t}</option>)}
+              <option value="All">All Types</option>{TYPES.map((t) => <option key={t}>{t}</option>)}
             </select>
             <select className="form-input cv-dir-select" value={fTier} onChange={(e) => setFTier(e.target.value)} aria-label="Tier">
-              <option value="All">All tiers</option>{TIERS.map((t) => <option key={t}>{t}</option>)}
+              <option value="All">All Tiers</option>{TIERS.map((t) => <option key={t}>{t}</option>)}
             </select>
             <select className="form-input cv-dir-select" value={sort.col} onChange={(e) => setSort({ col: e.target.value, dir: "asc" })} aria-label="Sort by">
-              <option value="name">Name A-Z</option><option value="dept">Department</option><option value="owner">Owner</option><option value="rotated">Oldest rotation</option><option value="health">Needs attention first</option>
+              <option value="name">Name A-Z</option><option value="dept">Department</option><option value="owner">Owner</option><option value="rotated">Oldest Rotation</option><option value="health">Needs Attention First</option>
             </select>
           </div>
           <div className="cv-dir-tabs scroll-tabs" role="tablist" aria-label="Collections">

@@ -90,11 +90,13 @@
 .ops-bar span { display: block; height: 100%; }
 
 /* Everything that shows a figure is a way in to the list behind it. */
-.ops-kpi { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+.ops-kpi { display: flex; flex-direction: column; justify-content: flex-start; align-items: stretch; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
 .ops-kpi:hover { transform: translateY(-1px); box-shadow: var(--shadow-md), 0 0 0 1px var(--ops-s1); }
 .ops-kpi:focus-visible, .ops-cell:focus-visible, .ops-name:focus-visible, .ops-chip:focus-visible { outline: 2px solid var(--ops-s1); outline-offset: 2px; }
-.ops-kpi .kpi-label { justify-content: space-between; }
-.ops-kpi-go { color: var(--muted); opacity: .55; flex-shrink: 0; }
+/* The label reads from the left, the arrow sits at the right (phone review,
+   11/13/2026: space-between floated the words to the middle). */
+.ops-kpi .kpi-label { justify-content: flex-start; }
+.ops-kpi-go { color: var(--muted); opacity: .55; flex-shrink: 0; margin-left: auto; }
 .ops-kpi:hover .ops-kpi-go { color: var(--ops-s1); opacity: 1; }
 
 .ops-cell { background: none; border: none; padding: 0; font: inherit; font-variant-numeric: tabular-nums; color: var(--ops-s1); font-weight: 600; cursor: pointer; }
@@ -502,3 +504,17 @@
 .rm-detail-btn:hover{background:var(--bg-secondary,#f4f3ee)}
 .rm-detail-btn-warn{border-color:#f0c58a;background:#fff8ec;color:#8a4b00}
 .rm-detail-btn-warn:hover{background:#fdeed4}
+
+/* Phones (phone review, 11/13/2026): the filters before the first figure
+   took ~400px. The Facility word steps aside (the picker says "All
+   Facilities"), the search and the period share a row, and the period's
+   explanation stays one quiet line. */
+@media (max-width: 640px) {
+  .ops-facility-label { display: none; }
+  .ops-bar-top { gap: 8px; }
+  .ops-bar-right { width: 100%; flex-wrap: nowrap; gap: 8px; }
+  .ops-bar-right .ops-lookup { flex: 1 1 auto; min-width: 0; }
+  .ops-period > span { display: none; }
+  .ops-period select { padding: 9px 10px; }
+  .ops-root > .ops-note { font-size: 12px; margin-top: 6px; }
+}

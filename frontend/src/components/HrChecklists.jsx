@@ -739,14 +739,14 @@ export function ChecklistChip({ p, onClick, compact = false }) {
 
 function BoardTile({ Icon, chip, label, value, sub, active, onClick }) {
   return (
-    <button type="button" onClick={onClick} aria-pressed={active}
+    <button type="button" className="nx-stat" onClick={onClick} aria-pressed={active}
       style={{ ...card, display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer', textAlign: 'left', fontFamily: FONT,
         borderColor: active ? 'var(--wk-brand)' : 'var(--wk-line2)', boxShadow: active ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)' }}>
-      <span className={`dk-chip ${chip}`}><Icon /></span>
-      <span style={{ display: 'grid', gap: 1, minWidth: 0 }}>
-        <span style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.1, color: 'var(--wk-ink)', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+      <span className={`dk-chip ${chip} nx-stat-icon`}><Icon /></span>
+      <span className="nx-stat-body" style={{ display: 'grid', gap: 1, minWidth: 0 }}>
+        <span className="nx-stat-value" style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.1, color: 'var(--wk-ink)', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)' }}>{label}</span>
-        {sub && <span style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{sub}</span>}
+        {sub && <span className="nx-stat-sub" style={{ fontSize: 12, color: 'var(--wk-dim)' }}>{sub}</span>}
       </span>
     </button>
   );
@@ -793,7 +793,7 @@ export function ChecklistBoard({ entities = [], onOpen }) {
 
   return (
     <div style={{ fontFamily: FONT }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
+      <div className="nx-stat-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
         <BoardTile Icon={UserPlus} chip="dk-chip--green" label="Onboarding" value={count('onboarding')} sub="people joining" active={kind === 'onboarding'} onClick={() => pickKind('onboarding')} />
         <BoardTile Icon={TrendingUp} chip="dk-chip--blue" label="Promotion" value={count('promotion')} sub="people moving up" active={kind === 'promotion'} onClick={() => pickKind('promotion')} />
         <BoardTile Icon={UserMinus} chip="dk-chip--orange" label="Offboarding" value={count('offboarding')} sub="people leaving" active={kind === 'offboarding'} onClick={() => pickKind('offboarding')} />

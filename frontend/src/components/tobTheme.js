@@ -85,4 +85,25 @@ export const TOB_CSS = `
 @media (max-width: 900px) { .tob-shell { grid-template-columns: 1fr; }
   .tob-rail { flex-direction:row; overflow-x:auto; position:static; }
   .tob-rail button[aria-selected="true"]::before { display:none; } }
+/* Phones (phone review, 11/13/2026): the section rail is one row that
+   scrolls sideways, the filter chips are thumb-sized, and the register is a
+   list of small cards - no 760px table squeezed into 358px, no box that
+   scrolls inside the page. Each row's six cells keep their order:
+   who, type, period, days, approver, status. */
+@media (max-width: 640px) {
+  .tob-rail { gap:4px; scrollbar-width:none; margin:0 -2px; }
+  .tob-rail::-webkit-scrollbar { display:none; }
+  .tob-rail button { width:auto; flex:0 0 auto; white-space:nowrap; min-height:40px; }
+  .tob-chip { min-height:36px; }
+  .tob-ledger { overflow:visible; max-height:none; }
+  .tob-lhead { display:none !important; }
+  .tob-grid { min-width:0; grid-template-columns:minmax(0,1fr) auto; gap:4px 10px; padding:12px 14px; }
+  .tob-grid > :nth-child(1) { grid-column:1; grid-row:1; }
+  .tob-grid > :nth-child(2) { grid-column:1; grid-row:2; }
+  .tob-grid > :nth-child(3) { grid-column:1 / -1; grid-row:3; }
+  .tob-grid > :nth-child(4) { grid-column:2; grid-row:2; text-align:right; }
+  .tob-grid > :nth-child(5) { grid-column:1 / -1; grid-row:4; }
+  .tob-grid > :nth-child(6) { grid-column:2; grid-row:1; }
+  .tob-grid > span[aria-hidden="true"]:first-child { display:none; }
+}
 `;

@@ -58,6 +58,7 @@ export default function AiAnalystButton({ insights, onNavigate }) {
 
       {open && (
         <div
+          className="mktg-ai-pop"
           style={{
             position: 'absolute',
             right: 0,

@@ -448,7 +448,7 @@ export default function HrAnalytics({ onOpenPerson }) {
                 </span>
               </div>
             )}
-            <div className="bi-grid">
+            <div className="bi-grid hra-grid">
               {d.headcount && <HeadcountCard hc={d.headcount} onDrill={setDrill} />}
               {d.flow && <FlowCard flow={d.flow} onDrill={setDrill} />}
               {d.attrition && <AttritionCard at={d.attrition} onDrill={setDrill} />}

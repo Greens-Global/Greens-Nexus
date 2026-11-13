@@ -36,7 +36,9 @@ function Tip({ active, payload, title, rows }) {
 
 // Empty and near-empty charts say so instead of drawing an axis around nothing.
 function Frame({ height, empty, children }) {
-  if (empty) return <div className="ops-empty" style={{ height, display: 'grid', placeItems: 'center' }}>{empty}</div>;
+  // An empty chart is one short line, not the chart's full height of blank
+  // card (phone review, 11/13/2026: ~1,200px of white on an empty Overview).
+  if (empty) return <div className="ops-empty" style={{ minHeight: 72, display: 'grid', placeItems: 'center' }}>{empty}</div>;
   return <div style={{ width: '100%', height }}><ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer></div>;
 }
 

@@ -147,7 +147,9 @@ const MKTG_STYLES = `
 .mktg-root { animation: mktgFadeIn .28s ease both; }
 @keyframes mktgFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-.mktg-root button {
+/* The shared Nexus buttons keep their own look (phone review, 11/13/2026:
+   the reset was turning the green Manage button into plain text). */
+.mktg-root button:not(.primary-btn):not(.secondary-btn) {
   background: transparent;
   border: 0;
   margin: 0;

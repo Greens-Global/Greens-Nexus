@@ -129,7 +129,7 @@ export default function TimeOffDesk({ rows, err, onRetry, onDecide, onRequestOnB
             <>
               <div className="tob-head" style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
                 <div style={{ marginRight: 'auto' }}>
-                  <h2>Time Off</h2>
+                  {/* No "Time Off" heading under the Time Off tab (11/13/2026). */}
                   <p>
                     {waiting.length === 0 ? 'Nothing is waiting on you.' : waiting.length === 1 ? 'One request is waiting on you.' : `${waiting.length} requests are waiting on you.`}
                     {offToday.length > 0 && (

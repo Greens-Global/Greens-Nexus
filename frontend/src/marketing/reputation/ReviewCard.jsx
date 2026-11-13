@@ -121,7 +121,7 @@ export default function ReviewCard({ review, onApprove, onRegenerate, highlightW
             {review.wasEdited && <span style={{ color: C.gray400, fontWeight: 400 }}>(edited before posting)</span>}
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="mktg-review-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {editing ? (
               <>
                 <button

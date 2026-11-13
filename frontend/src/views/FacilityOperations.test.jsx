@@ -585,8 +585,17 @@ describe('No Cubby key on the server', () => {
   it('says Cubby is not connected instead of a blank screen when nothing was ever synced', async () => {
     getFacilityOps.mockResolvedValue({ organization: '', fetchedAt: '', facilities: [], trend: [], syncedAt: '',
       syncStatus: 'not_configured', syncRunning: false, cubbyConfigured: false });
-    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-    expect(await screen.findByText("Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.")).toBeTruthy();
+    // Below Manager: the plain sentence, no server setting's name (11/13/2026).
+    const { unmount } = render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    expect(await screen.findByText('Cubby is not connected yet - ask IT to connect it.')).toBeTruthy();
+    unmount();
+    isManager = true;
+    try {
+      render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+      expect(await screen.findByText("Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.")).toBeTruthy();
+    } finally {
+      isManager = false;
+    }
   });
 
   it('still shows the synced figures with the delayed chip, and the key hint to managers only', async () => {

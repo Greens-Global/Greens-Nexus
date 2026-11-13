@@ -40,6 +40,8 @@ const CustomerMap = lazy(() => import('../operations/CustomerMap'));
 
 const SYNC_POLL_MS = 3000;
 const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.";
+// Below Manager it reads without the server setting's name (phone review, 11/13/2026).
+const NOT_CONNECTED_PLAIN = 'Cubby is not connected yet - ask IT to connect it.';
 
 // The bar is five dropdowns, like Accounting's (Visesh, Oct 21): every screen
 // and every view inside one is a menu item, so nothing is picked from a row of
@@ -188,7 +190,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   const role = useRole();
   const [full, toggleFull] = useFullScreen('operations');
   const canSeeKeyHint = role?.can?.('manager') ?? false;
-  const canRevenue = role?.canAccessModule ? role.canAccessModule('operations', 'manager', 'full') : canSeeKeyHint;
+  const canRevenue = role?.canAccessModule ? role.canAccessModule('operations', 'manager', 'full') : (role?.can?.('manager') ?? false);
   const tabs = canRevenue ? TABS : STAFF_TABS;
   // A menu's own key opens its first item; the old mock tab ids (fms,
   // reputation, site-staff) and anything else unknown open the Overview.
@@ -302,7 +304,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
       </ModuleActions>
       <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>
         {state.data
-          ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
+          ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically. `}<SyncStatus data={state.data} syncing={refreshing} /></>
           : 'Storage facility figures from Cubby'}
       </p>
       {notice && <p className="ops-note" role="status" style={{ margin: '0 0 12px' }}>{notice}</p>}
@@ -323,7 +325,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
 
       {screen !== 'budget' && state.status === 'ready' && !everyFacility.length && (
         <div className="dash-card"><div className="ops-empty">
-          {state.data?.syncStatus === 'not_configured' ? NOT_CONNECTED : 'Cubby returned no facilities for this account.'}
+          {state.data?.syncStatus === 'not_configured' ? (canSeeKeyHint ? NOT_CONNECTED : NOT_CONNECTED_PLAIN) : 'Cubby returned no facilities for this account.'}
         </div></div>
       )}
 

@@ -319,7 +319,8 @@ export function PlansAdmin({ company, toastOk, toastErr }) {
   const [pick, setPick] = useState('');
   const [open, setOpen] = useState('');
   const load = useCallback(() => {
-    if (!company) return;
+    // No company to manage: an empty list, never skeletons forever (phone review, 11/13/2026).
+    if (!company) { setPlans([]); return; }
     api.perfPlans({ company }).then(r => { setErr(''); setPlans(Array.isArray(r) ? r : []); }).catch(e => setErr(e?.message || 'Could not load the plans.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);

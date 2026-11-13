@@ -1509,10 +1509,10 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       </div>
 
       {/* Pipeline stats */}
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 18 }}>
-        {[['card-blue', 'In pipeline', open.length, 'Applied → Offer'],
-          ['card-orange', 'Interviews booked', candidates.filter(c => c.interview && ['scheduled', 'live'].includes(c.interview.status) && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
-          ['card-purple', 'Offers out', byStage('offer').length, 'Awaiting decision'],
+      <div className="kpi-grid nx-stat-strip" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 18 }}>
+        {[['card-blue', 'In Pipeline', open.length, 'Applied → Offer'],
+          ['card-orange', 'Interviews Booked', candidates.filter(c => c.interview && ['scheduled', 'live'].includes(c.interview.status) && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
+          ['card-purple', 'Offers Out', byStage('offer').length, 'Awaiting decision'],
           ['card-green', 'Hired', byStage('hired').length, 'Became employees']].map(([cls, label, value, sub]) => (
           <div key={label} className={`kpi-card ${cls}`}>
             <div className="kpi-label">{label}</div>
@@ -2992,12 +2992,14 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
 
   return (
     <div>
-      {companyWide && <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Wraps on a narrow screen: the picker drops under the words instead
+          of squeezing them to one word a line (phone review, 11/13/2026). */}
+      {companyWide && <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
+        <div style={{ flex: '1 1 200px', minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>Group Manager</div>
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>Oversees every company - the escalation step above each company's manager.</div>
         </div>
-        <div style={{ width: 220, flexShrink: 0 }}>
+        <div style={{ width: 220, maxWidth: '100%', flexShrink: 0 }}>
           <PersonSelect disabled={groupMgrBusy} value={(groupMgr || '').toLowerCase() || null}
             onChange={v => { if ((v || '') !== (groupMgr || '').toLowerCase()) saveGroupMgr(v || ''); }}
             people={dirPickRows(people)} placeholder="Not Set" noneLabel="Not Set"

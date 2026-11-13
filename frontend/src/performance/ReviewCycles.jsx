@@ -204,7 +204,8 @@ export default function ReviewCycles({ company, companies, toastOk, toastErr }) 
   const [form, setForm] = useState(false);
   const [open, setOpen] = useState('');
   const load = useCallback(() => {
-    if (!company) return;
+    // No company to manage: an empty list, never skeletons forever (phone review, 11/13/2026).
+    if (!company) { setCycles([]); return; }
     api.perfCycles(company).then(r => { setErr(''); setCycles(r); }).catch(e => setErr(e?.message || 'Could not load the review cycles.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);
