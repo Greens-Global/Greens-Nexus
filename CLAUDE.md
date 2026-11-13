@@ -41,20 +41,16 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 
 ## File ownership
 
-| Area | Owner | Files |
-|---|---|---|
-| Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/inventory/`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/property_assets.py`, property models/tables |
-
-Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
-the build-notes skill refuses commits by it) - change both together.
-
-**Do not modify the other developer's files** — ask them instead.
-**Neil has the final say** (Oct 28 2026): he is head of the company and
-Visesh's lead. A change Neil made or a decision he gave (the "(Neil, <date>)"
-notes in this file and in code comments) is never changed or undone without
-discussing it with him first - the same guardrail as another developer's
-files. Neil may green-light work on anyone's files himself.
+**Nobody owns any files** (Neil, 11/13/2026: "It doesn't matter that it is
+Visesh's module or that asset management is Neil's module. Remove those
+limitations permanently"). Every file is open to whoever is doing the work -
+Item Management, the bell, Asset Management and the rest included.
+`backend/code_owners.py` keeps its mechanism with an EMPTY `OWNERS` list, so
+Build Mode holds no pin for anyone and the build-notes skill refuses no
+commit; add an owner back only if Neil asks.
+**Neil has the final say** (Oct 28 2026): he is head of the company. A
+decision he gave (the "(Neil, <date>)" notes in this file and in code
+comments) is never changed or undone without discussing it with him first.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
 `frontend/src/api.js`, `App.jsx`/`Sidebar`): **append only, never reorder**,
 keep the diff minimal.
@@ -185,6 +181,14 @@ keep the diff minimal.
   routing: the company's HR contact, administrators and Full HR inside their
   reach). A new ticket reader, count, export or code generator must know
   this - a missing opt-in silently drops the row, a blanket opt-in leaks it.
+- **Home time zone (Neil, 11/13/2026):** `/roles/me` carries `home_zone`
+  (`item_due.zone_for`: the shift preset's zone, else the company's / the
+  tenant's team zone, else California). The Dashboard clock
+  (`worldClockZones.headerClocks`) shows it, with a green house, UNDER the
+  big clock whenever the device reads differently; California, the
+  company's clock (Neil, Sep 28), still shows when it differs from both.
+  The Dashboard's header right is ONE Customize menu (Edit Layout, the
+  views, the view's own actions) - never a view picker or a "..." beside it.
 - **Approval badge counts come from one place**: `approvals_inbox.collect`,
   read by `routers/action_counts.py`. A new approval kind registers an
   `@source` in `approvals_inbox.py` - never a separate count query, or the
@@ -316,6 +320,33 @@ keep the diff minimal.
   you came from (a tab, or a record's "Portfolio") - phones keep their arrow.
   `scripts/check-module-headers.mjs` (in `npm run lint`) fails a new
   `view-title-group`; record pages that name the record are on its list.
+  The module's TABS come first in the header (Neil, 11/12/2026, navigation
+  review): below 1600px the account pill is the photo alone and the search
+  starts at 200px (140px below 1181px, where the tabs sit closer) on EVERY
+  screen - by window width, never by whether the module has tabs, so the
+  search stands in the same place on every module; it still widens to 440px
+  on focus (`--hdr-search-w`). The Back line may widen the name column up
+  to 220px (Neil, 11/12/2026: short names like Team cropped it), never
+  more; a longer place ends in "...".
+- **"+ New" is the one create button (Neil, 11/13/2026: "let's stick with
+  that instead of + Create ... consistent across Nexus"):** a module's main
+  create button says "+ New" - never "+ Create", "Add <Thing>" or "New
+  <Thing>" - through `components/NewButton.jsx`: one thing to start = it
+  starts it (aria "New <Thing>"); several = its menu (icon, name, one short
+  line). Tasks, Tickets, Notes, People (Person / From Hiring...), Hiring
+  (Candidate, Opening), Asset Management, Credentials, Training (Course),
+  the Knowledge Base (Page), Forms, Construction (Job), Investor Relations
+  (Deal, Investor), Workflows, Google Posts and Links use it. An empty state's
+  button may name the thing ("New Job"); "Add Field" / "Add Condition" rows
+  inside a form and a form's own confirm button are not create buttons and
+  keep their words. Item Management (Item / Import From a CSV...) and
+  Documents (Document / Sheet / From a Template... / Open a File...; Template
+  / From a Word File... / Add Starter Templates / Letterheads) use it too -
+  Neil, 11/13/2026: the Documents split button is retired.
+  People > New > From Hiring (`people/FromHiringSheet.jsx`) never hires
+  anyone itself: it lists the candidates at Offer and Decision and opens
+  the candidate's card in Hiring (`hr-hiring-<id>`), where Send Hiring
+  Packet and Mark Hired By Hand live.
 - **Popups are sheets from the right** (Neil, 11/01/2026): on a desktop,
   every popup that is a record, a form or a workspace is a SHEET - docked to
   the right edge, the full height, rounded only where it meets the page -
@@ -408,6 +439,16 @@ keep the diff minimal.
   Bold capped at 1.26, cascade 14ms a row,
   nothing loops, nothing on touch, the phone drawer untouched, the folded
   rail never peeks. The sidebar tooltip (`NavTip`) is the light flyout card.
+  It folds when you click outside it - except in the top header (a header
+  click folding it re-measured the tabs and ate the first click on More) -
+  unless the person keeps it open: the pin at the end of the open rail's top
+  row, the same setting as My Profile > Appearance > Sidebar (Neil,
+  11/12/2026: "keep auto-fold, but fix it"). Keyboard users get Skip to
+  Content (`.nx-skip-link` -> `#nx-main`) as the first Tab stop, and the
+  bell's closed panel is `inert` (`NotificationBell.jsx`). The bell's panel is 620px (Neil, 11/13/2026) and
+  shows ONE scroll bar: while it is open the page's own bar and html's
+  stable gutter are taken off and the body is padded by the same width, so
+  nothing behind it moves.
 - **Quick Actions is the bolt (Neil, 11/12/2026, mock
   https://claude.ai/artifact/KKVpfc4ZqEjyaTUF3DDoDj):** the green bolt in
   the top header (where the "+" Create menu was, Oct 29 2026) starts things
@@ -424,7 +465,17 @@ keep the diff minimal.
   menu are `components/QuickCreate.jsx`. A new action = one `ACTIONS` row
   whose `go` / `compose` / `run` opens the module's own form - never a form
   in the header, never a third step, never a second quick menu. The bolt is
-  green, never yellow or orange (Live accent). On a phone the menu is a
+  green, never yellow or orange (Live accent): the GRADIENT IS ON THE BOLT
+  (`icons/BoltIcon.jsx`: the two-block shape FITTED to the pixels of Neil's
+  reference - corners and each corner's rounding solved until the outlines
+  overlap 97.5%: its tight waist, its lean, its soft corners - never redrawn
+  by eye; a
+  THIN 3D OBJECT - stacked slices make solid side walls joined to the face at
+  every corner, never a flat copy behind it like a shadow - bright green to
+  brand green) and the tile
+  behind it is calm - a quiet light tile with a hairline edge, tinted green
+  on hover, dark charcoal in dark mode (Neil, 11/13/2026: "the gradient on
+  the bolt and the background to look less flashy"). On a phone the menu is a
   sheet measured from the header itself, never `position: fixed` (the
   production CSS drops the header's unprefixed backdrop-filter, so "fixed"
   lands below the screen in Chrome). Still off on purpose (Neil, Oct 29
@@ -542,7 +593,13 @@ keep the diff minimal.
   Only Needs Reply, Unassigned, Mine and All Open stand as tabs (Neil,
   11/06/2026: the bar was "too cluttered"); the rest, in the order above,
   sit in ONE "Other Queues" dropdown, and Save View is in the ... menu (no
-  "+ View" tab). Create is the last control in the toolbar. The
+  "+ View" tab). Create is the last control in the toolbar.
+  The bar, calmer (Neil, 11/13/2026): Reports is the header's LAST tab (a
+  place, not a way to show the queue; a queue tab returns to List or Board,
+  whichever was on screen); the toolbar is search and Filters on the left,
+  then View (List / Board, the side pane, Group By, columns), ... (saved
+  views, Export) and Create on the right - no List / Board / Reports
+  switch. On Reports only Filters and Create stand. Phones unchanged. The
   server's `needsReply` flag on every `GET /task-tickets` row (`_needs_reply`
   in routers/tickets.py) decides Needs Reply; the client copy in queues.js
   is only a fallback for a row that arrived without the flag and must stay
@@ -747,6 +804,13 @@ keep the diff minimal.
   `teams_subscriptions`) and polling (`kudos_teams_loop`) call the same
   `sync_one`. Reading needs the delegated read scopes
   (`bff_session.GRAPH_KUDOS_*_READ_SCOPES`); without them it waits.
+  Kudos from a closed ticket (Neil, 11/12/2026: "shouldn't be too obvious
+  or people will always do it"): `tickets/TicketKudos.jsx` is ONE quiet line
+  under the satisfaction stars - only for the requester, only on a resolved
+  or closed ticket, only after a 4-5 star rating, only when another Nexus
+  person (not an outside guest) worked it, never on an Ask HR ticket
+  (`kudosOffered` is the rule). It opens the ordinary `GiveKudosModal` with
+  the assignee picked; no prompt, no bell, no second kudos path.
 - **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
   `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
   Direct Deposit Authorization are filled and signed in Nexus Sign - from
@@ -1076,6 +1140,11 @@ keep the diff minimal.
   recognition (no AI, no key); a browser without it shows no microphone.
   Make a Task works on the page and in Quick Note. A new editor feature goes
   in BOTH the web toolbar and the phone bar (`NoteEditor.jsx`).
+  The page starts things from ONE "+ New" (Neil, 11/12/2026,
+  `notes/NewMenu.jsx`: Note, Board, Note From a Template..., Import a
+  File...) - never a second create button in the bar. Today's day in the
+  list carries a gentle green wash and keeps its place in the current month
+  even before anything is written in it; every other day is plain.
 
 - **Meeting Notes (Neil, 11/12/2026, `routers/meetings.py`,
   `frontend/src/notes/meetings/`, `docs/Meeting-Notes.md`).** A Teams
@@ -1136,9 +1205,10 @@ keep the diff minimal.
   name (and a template's category) is asked on Close in
   `docRibbon/NameOnClose.jsx`, filled in with the first line or
   "Document - MM/DD/YYYY" (`lib/untitled.js`), and a blank, unnamed draft
-  that is the caller's own (`mine` on the GET) is not kept. The rest of the
-  ways in (a sheet, a template, a file, Word, starters, Letterheads) sit under
-  the split button's arrow - one primary button per toolbar.
+  that is the caller's own (`mine` on the GET) is not kept. Every way in
+  (a document, a sheet, a template, a file, Word, starters, Letterheads) is a
+  row of the toolbar's ONE "+ New" (Neil, 11/13/2026; the split button is
+  retired).
 
 - **Sheets and live editing (Neil, 11/05/2026, `routers/documents.py`
   "Working together", `frontend/src/sheets/`, `frontend/src/docLive/`).** A
@@ -1338,7 +1408,7 @@ lists every one and counts the archived rows. The custom-status merge that
 used to live in the sync is `backend/task_status_dedupe.py`; the API's
 public-URL helper is `app_url.public_base`.
 
-## Asset Management module (Neil's)
+## Asset Management module
 
 `frontend/src/asset/` (the module, mounted by `views/AssetModule.jsx`) and
 `backend/routers/property_assets.py`. The data is real: 24+ properties,

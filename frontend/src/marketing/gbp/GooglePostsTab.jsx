@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Megaphone, Pencil, Trash2, ExternalLink, Check } from 'lucide-react'
+import { Pencil, Trash2, ExternalLink, Check } from 'lucide-react'
 import { api } from '../../api'
+import NewButton from '../../components/NewButton'
 import AsyncSection, { SkeletonBlocks } from '../../components/AsyncState'
 import { formatDate } from '../../lib/datetime'
 import { C } from '../theme'
@@ -163,7 +164,7 @@ export default function GooglePostsTab({ location, canEdit }) {
         <span style={{ fontSize: 12, color: C.gray500 }}>
           {posts.length} post{posts.length === 1 ? '' : 's'}{posts[0] && <> &middot; latest {formatDate(posts[0].createdAt)}</>}
         </span>
-        {canEdit && editing !== 'new' && <button onClick={() => setEditing('new')} style={primaryBtn}><Megaphone size={12} />New Post</button>}
+        {canEdit && editing !== 'new' && <NewButton className="" style={primaryBtn} items={[{ key: 'post', label: 'Post' }]} onPick={() => setEditing('new')} />}
       </div>
       {editing === 'new' && (
         <PostForm location={location} onCancel={() => setEditing(null)}

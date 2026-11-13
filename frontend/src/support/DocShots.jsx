@@ -183,10 +183,10 @@ const SHOTS = {
     ),
   },
   tasks: {
-    legend: ['Tasks tab - everything assigned to you', 'One-line box - type a task name', 'Press Enter to add it', 'Create - the full task form'],
+    legend: ['Tasks tab - everything assigned to you', 'One-line box - type a task name', 'Press Enter to add it', 'New - the full task form'],
     render: () => (
       <Frame title="Tasks" tabs={['Home', 'Tasks', 'Projects', 'Portfolios', 'Teams']} active="Tasks" activeRail={2} tabMark={1}
-        headerMark={<Mark n={4}><Btn primary icon={Plus}>Create</Btn></Mark>}>
+        headerMark={<Mark n={4}><Btn primary icon={Plus}>New</Btn></Mark>}>
         <Col gap={0}>
           <Mark n={2} block style={{ marginBottom: 8 }}>
             <div style={{ border: `1.5px dashed ${BRAND}`, borderRadius: 7, padding: '6px 9px', fontSize: 10.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -209,7 +209,7 @@ const SHOTS = {
     legend: ['Unassigned tile - filters to tickets nobody owns yet', 'Click a row to open the full thread', 'Change the state right from the list'],
     render: () => (
       <Frame title="Tickets" tabs={['All', 'My Requests', 'Assigned to Me']} active="All" activeRail={-1}
-        headerMark={<Btn primary icon={Plus}>Create</Btn>}>
+        headerMark={<Btn primary icon={Plus}>New</Btn>}>
         <Col gap={10}>
           <Row gap={6}>
             <Stat label="Open" value="14" color="blue" />
@@ -308,10 +308,10 @@ const SHOTS = {
     ),
   },
   people: {
-    legend: ['People tab - the employee directory', 'Add Person', 'Fill in their details and manager', 'Choose a Job Role - it decides their Nexus access'],
+    legend: ['People tab - the employee directory', 'New - then Person', 'Fill in their details and manager', 'Choose a Job Role - it decides their Nexus access'],
     render: () => (
       <Frame title="People" tabs={['People', 'Hiring', 'Time', 'Checklists', 'Analytics']} active="People" activeRail={-1} tabMark={1}
-        headerMark={<Mark n={2}><Btn primary icon={Plus}>Add Person</Btn></Mark>}>
+        headerMark={<Mark n={2}><Btn primary icon={Plus}>New</Btn></Mark>}>
         <Row style={{ alignItems: 'stretch' }} gap={12}>
           <Card style={{ flex: 1, minWidth: 0, padding: 0 }}>
             {['Jordan Lee', 'Sam Patel', 'Riley Chen'].map((n, i) => (

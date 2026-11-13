@@ -76,7 +76,8 @@ describe('PacketsModal', () => {
     expect(screen.getByText('No promotion letter for Every company yet')).toBeTruthy();
     fireEvent.click(screen.getAllByText('Add Packet')[0]);
     await waitFor(() => expect(screen.getByLabelText('Works In')).toBeTruthy());
-    expect(screen.getByLabelText('Only for this role')).toBeTruthy();
+    // The role list loads after the form (a spinner first) - under CI load it can land a beat later.
+    expect(await screen.findByLabelText('Only for this role', {}, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByLabelText('Name')).toBeTruthy();
   });
 

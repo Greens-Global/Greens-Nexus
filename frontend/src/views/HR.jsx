@@ -63,6 +63,8 @@ import PersonSearchSelect from '../components/PersonSearchSelect';
 import { PersonSelect, Avatar as EmailAvatar, Modal, DateField, ChipMultiSelect } from '../tasks/components';
 import StatusChangeSheet from '../people/StatusChangeSheet';
 import AddPersonSheet from '../people/AddPersonSheet';
+import FromHiringSheet from '../people/FromHiringSheet';
+import NewButton from '../components/NewButton';
 import AccessTab from '../people/AccessTab';
 import { US_STATE_NAMES } from '../lib/usStates';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
@@ -1258,10 +1260,18 @@ function ActionsMenu({ items }) {
 // ── Hiring pipeline (Phase 2) ─────────────────────────────────────────────────
 const daysSince = iso => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
 
-function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSignature }) {
+function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSignature, openId = '', onOpened }) {
   const [candidates, setCandidates] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [detail, setDetail] = useState(null);
+  // People > New > From Hiring (11/13/2026) lands here with the candidate picked:
+  // their card opens once the board has loaded.
+  useEffect(() => {
+    if (!openId || !candidates) return;
+    const c = candidates.find(x => x.id === openId);
+    if (c) setDetail(c);
+    onOpened?.();
+  }, [openId, candidates]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [showInactive, setShowInactive] = useState(false);   // rejected ones taken off the board
   const [dragOver, setDragOver] = useState('');              // the lane a card is being dragged over
@@ -1493,9 +1503,8 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
               {showInactive ? 'Hide' : 'Show'} Inactive ({inactive.length})
             </button>
           )}
-          <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }} onClick={() => setAddOpen(true)}>
-            <Plus size={14} /> Add Candidate
-          </button>
+          {/* "+ New", the one create button across Nexus (Neil, 11/13/2026). */}
+          <NewButton items={[{ key: 'candidate', label: 'Candidate' }]} onPick={() => setAddOpen(true)} />
         </div>
       </div>
 
@@ -3750,6 +3759,14 @@ export default function HR({ activeSub, onSubChange }) {
   // Bell / email "Review Request" on a role change (Pranshu, Oct 13) lands on
   // hr-role-change-<id>: open the decision right away, then People.
   const [roleDecisionId, setRoleDecisionId] = useState(null);
+  // New > From Hiring (Neil, 11/13/2026): the picker sheet, and the candidate
+  // whose card Hiring opens (also a link: hr-hiring-<candidate id>).
+  const [fromHiringOpen, setFromHiringOpen] = useState(false);
+  const [hiringOpenId, setHiringOpenId] = useState('');
+  useEffect(() => {
+    const m = String(activeSub || '').match(/^hr-hiring-(.+)$/);
+    if (m) { setHiringOpenId(m[1]); onSubChange?.('hr-hiring'); }
+  }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [pendingRoles, setPendingRoles] = useState({});   // employeeId -> waiting role change
   useEffect(() => {
     const m = String(activeSub || '').match(/^hr-role-change-(.+)$/);
@@ -4043,14 +4060,18 @@ export default function HR({ activeSub, onSubChange }) {
                 <RefreshCw size={14} /> Sync Employee Codes From Intacct
               </button>
             )}
-            {/* One Add Person (Neil, 11/03/2026): one sheet asks who you are
-                adding - Employee, Independent Contractor, External (admins
-                only, as before) or Guest - all into the same master list. */}
+            {/* "+ New" (Neil, 11/13/2026, the one create button across Nexus):
+                Person opens the one Add Person sheet (Employee, Independent
+                Contractor, External - admins only - or Guest, Neil 11/03/2026);
+                From Hiring lists the candidates closest to joining and opens
+                one's card in Hiring, where hiring happens. */}
             {!hrTeam && (
-              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-                onClick={() => { setEditing(null); setFormOpen(true); }}>
-                <Plus size={15} /> Add Person
-              </button>
+              <NewButton testId="hr-new" menuLabel="New" title="Add someone to People"
+                items={[
+                  { key: 'person', label: 'Person', hint: 'Employee, contractor, external or guest', Icon: UserPlus },
+                  { key: 'hiring', label: 'From Hiring...', hint: 'Someone at Offer or Decision in Hiring', Icon: Briefcase },
+                ]}
+                onPick={(k) => { if (k === 'person') { setEditing(null); setFormOpen(true); } else setFromHiringOpen(true); }} />
             )}
           </div>
           </ModuleActions>
@@ -4060,6 +4081,12 @@ export default function HR({ activeSub, onSubChange }) {
           in-page strip (ModuleTabs handles both) */}
       <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} overflow syncTitle />
 
+      {fromHiringOpen && (
+        <FromHiringSheet onClose={() => setFromHiringOpen(false)}
+          onOpenHiring={() => { setFromHiringOpen(false); onSubChange?.('hr-hiring'); }}
+          onOpenCandidate={(id) => { setFromHiringOpen(false); setHiringOpenId(id); onSubChange?.('hr-hiring'); }} />
+      )}
+
       {codesOpen && (
         <Suspense fallback={<ModalLoading />}>
           <IntacctEmployeeCodes onClose={() => setCodesOpen(false)} onApplied={refreshPeople} toastOk={toastOk} toastErr={toastErr} />
@@ -4067,7 +4094,7 @@ export default function HR({ activeSub, onSubChange }) {
       )}
 
       {sub === 'hr-hiring' && (
-        <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
+        <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr} openId={hiringOpenId} onOpened={() => setHiringOpenId('')}
           onEmployeeCreated={emp => { setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b)))); refreshPeople(); }}
           onSendForSignature={c => {
             // E-Sign lives in the Documents module now - stash the offer and jump

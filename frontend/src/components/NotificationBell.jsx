@@ -217,9 +217,28 @@ export default function NotificationBell({ onNavigate }) {
     return () => document.removeEventListener('keydown', handler);
   }, [open]);
 
+  // One scroll bar while the panel is open (Neil, 11/13/2026: "weird ...
+  // two scroll bars and not just one"). On a computer the whole page is what
+  // scrolls, and html keeps a stable scrollbar gutter, so the panel's own bar
+  // stood beside the page's. Open: the page's bar and gutter go, the body is
+  // padded by the same width so nothing behind the scrim moves, and the panel
+  // reaches the right edge. Closed: all of it is put back.
   useEffect(() => {
-    document.body.style.overflow = open ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
+    if (!open) return undefined;
+    const html = document.documentElement;
+    const body = document.body;
+    const bar = Math.max(0, window.innerWidth - html.clientWidth);
+    const prev = { hOverflow: html.style.overflow, gutter: html.style.scrollbarGutter, bOverflow: body.style.overflow, pad: body.style.paddingRight };
+    html.style.overflow = 'hidden';
+    html.style.scrollbarGutter = 'auto';
+    body.style.overflow = 'hidden';
+    if (bar) body.style.paddingRight = `${bar}px`;
+    return () => {
+      html.style.overflow = prev.hOverflow;
+      html.style.scrollbarGutter = prev.gutter;
+      body.style.overflow = prev.bOverflow;
+      body.style.paddingRight = prev.pad;
+    };
   }, [open]);
 
   // Who an approval can be handed off to - needed here too since approving an
@@ -612,6 +631,8 @@ export default function NotificationBell({ onNavigate }) {
           transition: 'background var(--transition-fast)',
         }}
         aria-label="Notifications"
+        aria-haspopup="dialog"
+        aria-expanded={open}
       >
         <Bell style={{ width: 16, height: 16 }} />
         {myUnread > 0 && (
@@ -636,10 +657,14 @@ export default function NotificationBell({ onNavigate }) {
         transition: 'opacity 0.25s ease',
       }} />
 
-      {/* Drawer - mirrors My Requests / Access Manager so the panel slides in from the side */}
-      <div className="notif-drawer" style={{
+      {/* Drawer - mirrors My Requests / Access Manager so the panel slides in from the side.
+          Closed, it is out of reach (Neil, 11/12/2026, navigation review): inert
+          takes it out of the Tab order, so focus can no longer land on its
+          off-screen buttons and scroll the whole shell sideways to show them. */}
+      <div className="notif-drawer" role="dialog" aria-label="Notifications Panel" inert={!open} style={{
         position: 'fixed', top: 0, right: 0, height: '100vh',
-        width: 'min(560px, 94vw)',
+        // A little wider (Neil, 11/13/2026): 620px, from 560.
+        width: 'min(620px, 94vw)',
         background: 'var(--card)',
         boxShadow: open ? '-12px 0 48px rgba(0,0,0,0.22)' : 'none',
         zIndex: 1201,
@@ -650,7 +675,7 @@ export default function NotificationBell({ onNavigate }) {
         {/* Header */}
         {/* flexWrap + flex:1 on the title block: on narrow drawers the action
             buttons drop to their own line instead of overlapping the title */}
-        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', padding: '18px 16px 16px 22px', borderBottom: '1px solid var(--line)', gap: 14, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', padding: '18px 16px 16px 30px', borderBottom: '1px solid var(--line)', gap: 14, flexShrink: 0 }}>
           <div style={{ minWidth: 0, flex: '1 1 120px' }}>
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Notifications</div>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 1 }}>
@@ -691,7 +716,7 @@ export default function NotificationBell({ onNavigate }) {
         </div>
 
         {/* Body */}
-        <div style={{ overflowY: 'auto', flex: 1 }}>
+        <div style={{ overflowY: 'auto', flex: 1, overscrollBehavior: 'contain' }}>
           {isEmpty && (
             <div style={{ padding: '64px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
               <Bell size={36} style={{ opacity: 0.22, marginBottom: 14, display: 'block', margin: '0 auto 14px' }} />
@@ -964,7 +989,7 @@ export default function NotificationBell({ onNavigate }) {
                 const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
                 const Icon = n.priority === 1 ? AlertTriangle : meta.icon;
                 return (
-                  <div key={n.id} style={{ padding: '11px 16px 11px 22px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 12, alignItems: 'flex-start', opacity: 0.75 }}>
+                  <div key={n.id} style={{ padding: '11px 16px 11px 30px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 12, alignItems: 'flex-start', opacity: 0.75 }}>
                     <Icon size={15} color={`hsl(${n.priority === 1 ? 'var(--color-gold)' : meta.color})`} className="nx-ntf-icon" aria-hidden="true" />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>

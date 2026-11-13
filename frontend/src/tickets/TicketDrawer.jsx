@@ -58,6 +58,7 @@ import { STOP_VOICE_FIRST } from '../lib/voice';
 import { TicketAttachments } from './TicketAttachments';
 import { TicketActivity } from './TicketActivity';
 import TicketJobAction from './TicketJobAction';
+import TicketKudos, { kudosOffered } from './TicketKudos';
 import TicketBuildAction from './TicketBuildAction';
 import TicketPhoneCard from './TicketPhoneCard';
 import MentionedIn from '../components/MentionedIn';
@@ -670,6 +671,13 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const overviewBody = (onPhone) => (<>
       {onPhone && <TicketMapSpotCard ticketId={t.id} propertyId={t.propertyAssetId} onOpenMap={onClose} />}
       {(t.csatRating || 0) > 0 && <SatisfactionCard ticket={t} nameOf={nameOf} />}
+      {/* Kudos for whoever worked it (11/12/2026): the requester's own quiet line after a 4-5 star rating. */}
+      {kudosOffered({ ticket: t, rating: t.csatRating, myEmail, assigneeExternal: !!personById.get((t.assigneeId || '').toLowerCase())?.external }) && (
+        <div style={{ marginTop: -8, marginBottom: 14 }}>
+          <TicketKudos ticket={t} rating={t.csatRating} myEmail={myEmail} nameOf={nameOf}
+            assigneeExternal={!!personById.get((t.assigneeId || '').toLowerCase())?.external} />
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
         {/* Type, Status, Priority, Requester and Assign To are the phone
@@ -971,6 +979,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           <label style={label}>Satisfaction</label>
           <CsatWidget ticket={v} canRate={!t.requesterId || t.requesterId === myEmail} onRate={(rating) => stage({ csatRating: rating })}
             onComment={(comment) => stage({ csatComment: comment })} />
+          <TicketKudos ticket={t} rating={v.csatRating} myEmail={myEmail} nameOf={nameOf}
+            assigneeExternal={!!personById.get((t.assigneeId || '').toLowerCase())?.external} />
         </div>
       )}
 

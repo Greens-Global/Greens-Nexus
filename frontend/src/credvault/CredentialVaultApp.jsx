@@ -16,20 +16,19 @@
    links arrive as `activeSub` (vaultModel.parseSub) from the bell and the
    header search; a credential link lands in My Logins with it open. */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  KeyRound, ShieldCheck, Shield, Search, Plus, Upload, Star, Trash2, Users, ChevronRight, ChevronDown, X,
-  CheckCircle2, XCircle, History, Lock, Inbox, LayoutList, LayoutDashboard,
-} from "lucide-react";
+import { KeyRound, ShieldCheck, Shield, Search, Upload, Star, Trash2, Users, ChevronRight, X,
+  CheckCircle2, XCircle, History, Lock, Inbox, LayoutList, LayoutDashboard } from "lucide-react";
 import { api } from "../api";
 import { ensureStepUp, isStepUpRequired } from "../stepup/StepUp";
 import { dialog } from "../ui/dialog";
 import { SkeletonBlocks } from "../components/AsyncState";
 import ModuleTabs, { ModuleActions } from "../components/ModuleTabs";
+import NewButton from "../components/NewButton";
 import { useRole } from "../contexts/RoleContext";
 import { useNameResolver } from "../lib/useNameResolver";
 import { useIsMobile } from "../lib/useIsMobile";
 import { formatDateTime } from "../lib/datetime";
-import { usePeople, useClickOutside } from "../tasks/components";
+import { usePeople } from "../tasks/components";
 import { VaultOtpModal, DEFAULT_DEPTS, TYPES, TIERS, agoLabel, actionStyle } from "./vaultShared";
 import {
   ACCESS_LABEL, ACCESS_TONE, collectionsFor, filterCredentials, sortCredentials, healthFlags, healthTone,
@@ -103,9 +102,6 @@ export default function CredentialVaultApp({ activeSub }) {
   const [revealed, setRevealed] = useState(null);          // { id, secret, previousSecret?, prevRotatedAt? }
   const [form, setForm] = useState(null);                  // { cred | null }
   const [importOpen, setImportOpen] = useState(false);
-  const [addMenu, setAddMenu] = useState(false);
-  const addRef = useRef(null);
-  useClickOutside([addRef], () => setAddMenu(false), addMenu);
   const [shareFor, setShareFor] = useState(null);
   const [requestFor, setRequestFor] = useState(null);
   const [otpGate, setOtpGate] = useState(null);            // { run }
@@ -373,17 +369,11 @@ export default function CredentialVaultApp({ activeSub }) {
             ? <span className="cv-chip tone-ok cv-chip-lg" title="Reveals and approvals inside this window do not ask for another code"><ShieldCheck size={13} /> {verifiedLabel(otp.until, now)}</span>
             : <span className="cv-chip cv-chip-lg" title="The first reveal asks for a code by text or email"><Shield size={13} /> Code on First Reveal</span>}
           {canWrite && (
-            <div ref={addRef} style={{ position: "relative" }}>
-              <button type="button" className="primary-btn" onClick={() => setAddMenu((v) => !v)} aria-haspopup="menu" aria-expanded={addMenu}>
-                <Plus size={15} /> Add Credential <ChevronDown size={14} />
-              </button>
-              {addMenu && (
-                <div className="cv-menu" role="menu">
-                  <button type="button" role="menuitem" className="cv-menu-item" onClick={() => { setAddMenu(false); setForm({ cred: null }); }}><Plus size={14} /> New Credential</button>
-                  <button type="button" role="menuitem" className="cv-menu-item" onClick={() => { setAddMenu(false); setImportOpen(true); }}><Upload size={14} /> Import From a Spreadsheet</button>
-                </div>
-              )}
-            </div>
+            // "+ New", the one create button across Nexus (Neil, 11/13/2026).
+            <NewButton title="Add a credential" items={[
+              { key: 'cred', label: 'Credential', hint: 'One login, key or secret', Icon: KeyRound },
+              { key: 'import', label: 'Import From a Spreadsheet...', hint: 'Many at once, from a CSV or Excel file', Icon: Upload },
+            ]} onPick={(k) => (k === 'cred' ? setForm({ cred: null }) : setImportOpen(true))} />
           )}
         </div>
       </ModuleActions>

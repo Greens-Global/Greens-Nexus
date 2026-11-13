@@ -1,6 +1,6 @@
 import { useState, useRef, Suspense } from 'react';
 import { SkeletonBlocks } from '../components/AsyncState';
-import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal, Check } from 'lucide-react';
+import { LayoutGrid, Plus, Save, Pencil, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal, Check, ChevronDown } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards, resolveCollisions } from './useDashboards';
@@ -57,6 +57,18 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
         <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={guard.saving || busy} />
       )}
     </>
+  );
+}
+
+// One row of the Customize menu: an action (its icon) or a view to switch to
+// (a radio row, ticked when it is the one on screen).
+function CzRow({ icon: Icon, label, hint, on, checked, danger, radio }) {
+  return (
+    <button type="button" role={radio ? 'menuitemradio' : 'menuitem'} aria-checked={radio ? !!checked : undefined}
+      className={`dk-cz-row${danger ? ' is-danger' : ''}${checked ? ' is-on' : ''}`} onClick={on}>
+      <span className="dk-cz-ico" aria-hidden="true">{radio ? (checked ? <Check size={14} /> : null) : <Icon size={14} />}</span>
+      <span className="dk-cz-words"><span className="dk-cz-label">{label}</span>{hint && <span className="dk-cz-hint">{hint}</span>}</span>
+    </button>
   );
 }
 
@@ -231,13 +243,6 @@ export default function CustomDashboard() {
     ],
   ].filter(s => s.length > 0);
 
-  // Menu header caption: what the actions below apply to.
-  const scopeCaption = !d.activeView
-    ? 'Built-in layout'
-    : d.activeView.scope === 'department'
-      ? `${d.activeView.department || 'Department'} · shared view`
-      : `Personal view${d.activeView.isDefault ? ' · default' : ''}`;
-
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {toast && (
@@ -250,42 +255,17 @@ export default function CustomDashboard() {
             margin: 0, zIndex: 395, whiteSpace: 'nowrap', background: 'var(--card)', border: '1px solid var(--wk-line2)', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' } : null) }}>{toast.t}</div>
       )}
 
-      {/* Controls: view picker + Customize + the "…" view menu. Used to sit in
-          their own title band ("Dashboard" / "Viewing X") above the greeting -
-          repeating the tab-strip label as a big h2 plus a whole separate
-          control row wasted vertical space for no new information (Neil,
-          Sep 15). They now live in the greeting's header-right instead, so
-          the page starts at "Good morning" and gets straight to the KPIs. */}
+      {/* Controls: ONE Customize in the greeting's header-right (Neil,
+          11/13/2026: "simplify the Dashboard icons at the top right into
+          just Customize"). The view picker and the "..." view menu that sat
+          beside it are rows of its menu now; editing shows the edit toolbar
+          (Add Widget, Auto-Fit, Save, Done) in its place. */}
       {(() => {
-        // Split so the "…" menu can sit tight against the session chip
-        // (Pranshu, Sep 15) while the view picker/Customize keep their own
-        // group with normal spacing.
         const controls = (
           // On a phone this is one item in the greeting's scrolling toolbar
           // row (.dk-toolbar, see DeskGreeting) rather than a full-width
           // stack of its own - the picker sizes to its name (Sep 23).
           <div className="dk-controls" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: isMobile ? 'nowrap' : 'wrap', justifyContent: isMobile ? 'flex-start' : 'flex-end', flexShrink: 0 }}>
-            <select value={d.activeId || ''}
-              onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
-              className="form-input" title="Switch dashboard view"
-              style={{ fontSize: 13, fontWeight: 600, width: isMobile ? 'auto' : 170, maxWidth: isMobile ? 176 : undefined, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', flexShrink: 0 }}>
-              <option value="">Home</option>
-              {d.views.filter(v => v.scope === 'personal').length > 0 && (
-                <optgroup label="My Views">
-                  {d.views.filter(v => v.scope === 'personal').map(v => (
-                    <option key={v.id} value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>
-                  ))}
-                </optgroup>
-              )}
-              {d.views.filter(v => v.scope === 'department').length > 0 && (
-                <optgroup label="Department Views">
-                  {d.views.filter(v => v.scope === 'department').map(v => (
-                    <option key={v.id} value={v.id}>{v.name} (dept)</option>
-                  ))}
-                </optgroup>
-              )}
-              <option value="__new__">＋ New View…</option>
-            </select>
             {d.editing ? (
               // On a phone these live in the bottom bar (below) instead.
               !isPhone && (
@@ -296,45 +276,49 @@ export default function CustomDashboard() {
                   <button className="secondary-btn" style={btn} onClick={guardedDone}><X size={14} /> Done</button>
                 </>
               )
-            ) : isPhone ? (
-              // Icon only on a phone (Neil, Sep 28) - the word crowded the
-              // toolbar row; the label stays for screen readers and long-press.
-              <button className="secondary-btn dk-icon-btn" style={{ ...btn, padding: '7px 10px' }} onClick={() => d.setEditing(true)} title="Customize" aria-label="Customize"><SlidersHorizontal size={16} /></button>
             ) : (
-              <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
+              // ONE Customize (Neil, 11/13/2026: "merge the functionality of
+              // the '...' button and My View into Customize"): it opens the
+              // menu below - Edit Layout, the views to switch between, and
+              // what can be done to the view on screen.
+              <button ref={menuBtn} type="button" className="secondary-btn dk-customize" style={btn}
+                onClick={() => setMenu(m => !m)} aria-haspopup="menu" aria-expanded={menu} title="Customize your dashboard">
+                <SlidersHorizontal size={14} /> Customize<ChevronDown size={14} className="dk-customize-caret" aria-hidden="true" />
+              </button>
             )}
           </div>
         );
-        // The single home for view-level actions (rename, default, publish,
-        // delete). Lives outside edit mode too - renaming a view shouldn't
-        // require entering Customize - and stays available while editing so
-        // you can fork the on-screen layout with "Save as new view". Kept
-        // separate from `controls` so it renders after the session chip, as
-        // its own distinct button at the row's right corner - not merged
-        // with the chip (Pranshu, Sep 15 2nd follow-up).
+        // The Customize menu: Edit Layout, then the views (Home, yours,
+        // your department's, New View...), then what can be done to the view
+        // on screen (rename, default, save as new, publish, delete). While
+        // editing, the edit toolbar stands in its place.
+        const personalViews = d.views.filter(v => v.scope === 'personal');
+        const deptViews = d.views.filter(v => v.scope === 'department');
+        const pickView = (id) => { setMenu(false); guardedSwitch(id); };
         const viewMenu = (
-          <>
-            <button ref={menuBtn} className="secondary-btn dk-icon-btn" style={{ ...btn, padding: '6px 9px', flexShrink: 0 }} onClick={() => setMenu(m => !m)} title="View options" aria-label="View options" aria-haspopup="menu" aria-expanded={menu}><MoreHorizontal size={15} /></button>
-            {/* Portaled: on a phone the toolbar is a horizontal scroller, which
-                clipped the old in-place menu at its bottom edge. */}
-            <AnchoredMenu anchorRef={menuBtn} open={menu} onClose={() => setMenu(false)} align="end" minWidth={220}
-              style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6 }}>
-              <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
+          // Portaled: on a phone the toolbar is a horizontal scroller, which
+          // clipped an in-place menu at its bottom edge.
+          <AnchoredMenu anchorRef={menuBtn} open={menu && !d.editing} onClose={() => setMenu(false)} align="end" minWidth={264}
+            className="dk-cz-menu" aria-label="Customize">
+            <CzRow icon={LayoutGrid} label="Edit Layout" hint="Add, move and resize widgets" on={() => { setMenu(false); d.setEditing(true); }} />
+            <div className="dk-cz-sep" role="separator" />
+            <div className="dk-cz-head" aria-hidden="true">Views</div>
+            <CzRow radio checked={!d.activeId} label="Home" hint="The standard dashboard" on={() => pickView(null)} />
+            {personalViews.map(v => (
+              <CzRow key={v.id} radio checked={d.activeId === v.id} label={v.name} hint={v.isDefault ? 'Your default' : ''} on={() => pickView(v.id)} />
+            ))}
+            {deptViews.map(v => (
+              <CzRow key={v.id} radio checked={d.activeId === v.id} label={v.name} hint={`${v.department || 'Department'} - shared view`} on={() => pickView(v.id)} />
+            ))}
+            <CzRow icon={Plus} label="New View..." on={() => { setMenu(false); guardedNew(); }} />
+            {menuSections.map((section, si) => (
+              <div key={si} role="none">
+                <div className="dk-cz-sep" role="separator" />
+                {si === 0 && d.activeView && <div className="dk-cz-head" aria-hidden="true">{d.activeView.name}</div>}
+                {section.map((m) => <CzRow key={m.label} icon={m.icon} label={m.label} danger={m.danger} on={() => { setMenu(false); m.on(); }} />)}
               </div>
-              {menuSections.map((section, si) => (
-                <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
-                  {section.map((m, i) => (
-                    <button key={i} role="menuitem" onClick={() => { setMenu(false); m.on(); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                      <m.icon size={14} /> {m.label}
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </AnchoredMenu>
-          </>
+            ))}
+          </AnchoredMenu>
         );
         return d.loading ? (
           <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>

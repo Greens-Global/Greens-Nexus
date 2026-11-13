@@ -168,6 +168,9 @@ export function RoleProvider({ children }) {
   // the tier word. '' = no title on their HR record (nothing is shown).
   const [serverLevel, setServerLevel] = useState(null);
   const [myTitle, setMyTitle] = useState('');
+  // home_zone (Neil, 11/13/2026): the zone the person works in, for the
+  // Dashboard clock's "home" time when the device is somewhere else.
+  const [myHomeZone, setMyHomeZone] = useState('');
 
   // ── Act As (Jul 2026) ──────────────────────────────────────────────────────
   // { sessionId, targetEmail, targetName, expiresAt } while impersonating, else
@@ -208,6 +211,7 @@ export function RoleProvider({ children }) {
     // remembered answer until /roles/me says.
     setTimeTrackingExempt(null);
     setMyTitle('');
+    setMyHomeZone('');
     setServerLevel(null);
     if (!myEmail) {
       // MSAL (and the dev-login bypass) start with an empty accounts[] on the
@@ -242,6 +246,7 @@ export function RoleProvider({ children }) {
             setManageCompanyRows(Array.isArray(data.manage_company_rows) ? data.manage_company_rows : []);
             // shortcut: a format changed on another device shows here from the next render on, not on screens already drawn; this browser remembers it for the next load.
             if (data.date_format) setDateFormat(data.date_format);
+            setMyHomeZone(typeof data.home_zone === 'string' ? data.home_zone : '');
             if (typeof data.time_tracking_exempt === 'boolean') {
               setTimeTrackingExempt(data.time_tracking_exempt);
               rememberTimeExempt(data.email, data.time_tracking_exempt);
@@ -454,7 +459,7 @@ export function RoleProvider({ children }) {
       addGroupMembers, removeGroupMember, assignGroupRole,
       myGrantedModules, canAccessModule,
       actingAs, startActAs, stopActAs,
-      myLevel, myTier, myTitle,
+      myLevel, myTier, myTitle, myHomeZone,
       hrContactFor,
       isGlobalAdmin, manageCompanies, companyWalled, manageCompanyRows,
     }}>

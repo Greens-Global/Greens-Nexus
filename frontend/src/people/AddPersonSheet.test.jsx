@@ -36,8 +36,14 @@ describe('Add Person', () => {
   it('asks who you are adding, with no Account Type select, and On the Schedule on by default', () => {
     renderSheet();
     expect(screen.getByText('Who Are You Adding?')).toBeTruthy();
-    const kinds = screen.getAllByRole('radio').map((r) => r.textContent);
+    const kinds = screen.getAllByRole('radio').map((r) => r.getAttribute('aria-label'));
     expect(kinds).toEqual(['Employee', 'Independent Contractor', 'External', 'Guest']);
+    // The picked kind is lit green (.is-on), never a black block (Neil, 11/13/2026).
+    expect(screen.getByRole('radio', { name: 'Employee' }).className).toContain('is-on');
+    // Office, address and notes fold under one line until asked for.
+    expect(screen.queryByLabelText('Street Address')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Office, Address and Notes/ }));
+    expect(screen.getByLabelText('Street Address')).toBeTruthy();
     expect(screen.queryByText(/Account Type/i)).toBeNull();
     expect(screen.getByRole('switch', { name: 'On the Schedule' }).checked).toBe(true);
     expect(screen.getByText('Employment Type')).toBeTruthy();

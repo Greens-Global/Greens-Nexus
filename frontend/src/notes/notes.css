@@ -494,9 +494,6 @@
 }
 .nt-rail:hover { background: var(--wk-hover); color: var(--ink); }
 .nt-rail > span { writing-mode: vertical-rl; font-size: 12px; font-weight: 650; letter-spacing: .04em; }
-/* New Board: its own strong color beside the green New Note. */
-.nt-text-btn.is-board-btn { background: var(--ink); border-color: var(--ink); color: var(--card); }
-.nt-text-btn.is-board-btn:hover { background: var(--ink); filter: brightness(1.25); }
 /* Full screen: Back on the left, a labeled Exit on the right - never lost. */
 .nt-text-btn.nt-back { flex-shrink: 0; }
 .nt-text-btn.nt-exit-full { background: var(--wk-brand-tint, #e3f3e8); border-color: var(--wk-green); color: var(--wk-green); margin-left: 4px; }
@@ -779,3 +776,21 @@
   .nt-mtg-new { margin-left: 0; }
   .nt-mtg-day { flex-wrap: wrap; }
 }
+
+/* "+ New" is the shared components/NewButton.jsx (style.css .nx-new-*). */
+
+/* Today in the list (Neil, 11/12/2026: "the current day should have a gentle
+   highlight on it and the rest can be as they are"): a faint wash of the brand
+   green behind the day, its heading in ink with the date beside it. Every other
+   day is unchanged. The sticky heading carries the same wash so rows scrolling
+   under it never show through. */
+.nt-daygroup.is-today { --nt-today: color-mix(in srgb, var(--wk-green) 6%, var(--card)); background: var(--nt-today); border-bottom: 1px solid color-mix(in srgb, var(--wk-green) 14%, var(--card)); }
+.nt-daygroup.is-today .nt-day { background: var(--nt-today); color: var(--ink); }
+.nt-daygroup.is-today .nt-day::before {
+  content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%;
+  background: var(--wk-green); vertical-align: 1px;
+}
+.nt-day-date { margin-left: 6px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.nt-daygroup.is-today .nt-row:hover { background: color-mix(in srgb, var(--wk-green) 10%, var(--card)); }
+.nt-daygroup.is-today .nt-row.is-on { background: color-mix(in srgb, var(--wk-green) 13%, var(--card)); }
+.nt-today-empty { padding: 2px 14px 14px 27px; font-size: 13px; color: var(--muted); }

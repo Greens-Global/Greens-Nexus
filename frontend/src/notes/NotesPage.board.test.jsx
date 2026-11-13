@@ -64,6 +64,12 @@ import QuickNotePanel from './QuickNotePanel';
 import { noteTitle, isBoard, writeDraft } from './notesModel';
 import { ACTIONS } from '../lib/quickCreate';
 
+// "+ New" (11/12/2026): the bar's one create button; a row of its menu.
+const pickNew = async (label) => {
+  fireEvent.click(screen.getByRole('button', { name: 'New' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: new RegExp(`^${label}`) }));
+};
+
 beforeEach(() => {
   boardCollabMock.useBoardCollab.mockReset();
   boardCollabMock.useBoardCollab.mockImplementation(({ enabled }) => ({
@@ -88,7 +94,7 @@ describe('Boards in the Notes list and bar', () => {
     const onSubChange = vi.fn();
     render(<NotesPage activeSub="notes" onSubChange={onSubChange} />);
     await screen.findByText('Budget Review');
-    fireEvent.click(screen.getByRole('button', { name: /New Board/ }));
+    await pickNew('Board');
     expect(apiMock.noteCreate).not.toHaveBeenCalled();
     const picker = await screen.findByRole('dialog', { name: 'New Board' });
     expect(within(picker).queryAllByRole('listitem')).toEqual([]);
@@ -108,7 +114,7 @@ describe('Boards in the Notes list and bar', () => {
     apiMock.noteCreate.mockResolvedValue(board({ id: 'board_3', title: '', scene: '', thumbUrl: '' }));
     render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
     await screen.findByText('Budget Review');
-    fireEvent.click(screen.getByRole('button', { name: /New Board/ }));
+    await pickNew('Board');
     fireEvent.click(within(await screen.findByRole('dialog', { name: 'New Board' })).getByRole('button', { name: /^Blank/ }));
     await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledTimes(1));
     const scene = JSON.parse(apiMock.noteCreate.mock.calls[0][0].scene);
@@ -252,7 +258,7 @@ describe('An open board', () => {
       : { notes: [note(), board()], counts: {}, tags: [] }));
     apiMock.noteGet.mockImplementation(async (id) => (id === 'board_t' ? board({ id: 'board_t', title: 'Site Walk' }) : board()));
     apiMock.noteCreate.mockResolvedValue(board({ id: 'board_new', title: 'Site Walk' }));
-    fireEvent.click(screen.getByRole('button', { name: /New Board/ }));
+    await pickNew('Board');
     const picker = await screen.findByRole('dialog', { name: 'New Board' });
     fireEvent.click(await within(picker).findByRole('button', { name: /Site Walk - your template/ }));
     await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'board', title: 'Site Walk', scene: SCENE })));
@@ -391,15 +397,36 @@ describe('A board on a phone', () => {
     expect(within(sheet).getByRole('button', { name: 'Close Board' })).toBeTruthy();
   });
 
-  it('the phone bar offers New Board as an icon button beside Import', async () => {
+  it('the bar has ONE + New, its menu starts a note, a board, a template or an import - on a phone too', async () => {
     window.matchMedia = (q) => ({ matches: q === '(max-width: 768px)', media: q, addEventListener() {}, removeEventListener() {} });
     render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
     await screen.findByText('Budget Review');
-    const btn = screen.getByRole('button', { name: 'New Board' });
-    expect(btn.className).toContain('nt-icon-btn');
-    expect(btn.textContent).toBe('');
+    expect(screen.queryByRole('button', { name: 'New Board' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /From Template/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Import/ })).toBeNull();
+    const btn = screen.getByRole('button', { name: 'New' });
+    expect(btn.getAttribute('aria-haspopup')).toBe('menu');
     fireEvent.click(btn);
+    const rows = (await screen.findAllByRole('menuitem')).map((r) => r.querySelector('.nx-new-label').textContent);
+    expect(rows).toEqual(['Note', 'Board', 'Note From a Template...', 'Import a File...']);
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Board/ }));
     expect(await screen.findByRole('dialog', { name: 'New Board' })).toBeTruthy();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('today is lit gently and keeps its place even before a note is written in it; other days stay as they are', async () => {
+    const d = new Date(); d.setDate(d.getDate() - 3);
+    const earlier = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    apiMock.notesList.mockResolvedValue({ notes: [note({ day: earlier })], counts: { all: 1 }, tags: [] });
+    apiMock.noteCreate.mockResolvedValue(note({ id: 'note_new', title: '' }));
+    render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
+    await screen.findByText('Budget Review');
+    const sections = [...document.querySelectorAll('.nt-list section')];
+    expect(sections.map((x) => x.classList.contains('is-today'))).toEqual([true, false]);
+    expect(sections[0].getAttribute('aria-current')).toBe('date');
+    expect(sections[0].textContent).toContain('Nothing written today yet.');
+    fireEvent.click(within(sections[0]).getByRole('button', { name: 'Start a Note' }));
+    await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledWith(expect.objectContaining({ day: TODAY })));
   });
 
   it('Back closes the sheet and puts the list\'s address in place of the note\'s (no loop back into the note)', async () => {

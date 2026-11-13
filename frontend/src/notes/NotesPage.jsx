@@ -11,16 +11,18 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
+  ChevronLeft, ChevronRight, Search, X, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
   Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
-  RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, PenTool, Image as ImageIcon, FileCode2, Copy, FileJson,
+  RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, Image as ImageIcon, FileCode2, Copy, FileJson,
   Paperclip, ExternalLink, ArrowLeft, Presentation, ListTree, LayoutTemplate, Pencil, FolderOpen, Video,
 } from 'lucide-react';
 import { dialog } from '../ui/dialog';
+import BoardIcon from '../components/icons/BoardIcon';
+import NewMenu from './NewMenu';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
-import { formatDate, formatDateTime, formatTime } from '../lib/datetime';
+import { formatDate, formatDateTime, formatTime, formatWeekday } from '../lib/datetime';
 import { Modal, DateField, usePeople, Avatar, AvatarName, useEscapeLayer } from '../tasks/components';
 import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useScrollLock } from '../lib/useScrollLock';
@@ -739,8 +741,8 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
     setMenu('');
     sync.setMeta({ template: !note.template });
     toast(note.template ? 'No longer a template'
-      : board ? 'Saved as a template - New Board lists it under Your Templates'
-        : 'Saved as a template - New From Template lists it under Your Templates');
+      : board ? 'Saved as a template - + New > Board lists it under Your Templates'
+        : 'Saved as a template - + New > Note From a Template lists it under Your Templates');
   };
   // The outline: the note's headings; a click scrolls the editor to it.
   const headings = board ? [] : noteHeadings(note.body);
@@ -1143,6 +1145,14 @@ export default function NotesPage({ activeSub, onSubChange }) {
     await copyNote(row.id, (n) => n.title || '');
   };
 
+  // "+ New"'s rows, each the flow it always opened.
+  const startNew = (key) => {
+    if (key === 'note') newNote();
+    else if (key === 'board') newBoard();
+    else if (key === 'template') setPickingNoteTpl(true);
+    else if (key === 'import') fileRef.current?.click();
+  };
+
   // The list row's right-click menu.
   const [rowMenu, setRowMenu] = useState(null);   // { n, x, y }
   const closeRowMenu = useCallback(() => setRowMenu(null), []);
@@ -1213,7 +1223,17 @@ export default function NotesPage({ activeSub, onSubChange }) {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   };
 
-  const groups = useMemo(() => groupByDay(data?.notes || []), [data]);
+  // Today keeps its place at the top of this month, lit gently, even before a
+  // note is written in it (Neil, 11/12/2026: "the current day should have a
+  // gentle highlight on it and the rest can be as they are").
+  const groups = useMemo(() => {
+    const g = groupByDay(data?.notes || []);
+    if (byMonth && month === monthOf(today) && g.length && !g.some((x) => x.day === today)) {
+      const at = g.findIndex((x) => !x.day || x.day < today);
+      g.splice(at < 0 ? g.length : at, 0, { day: today, notes: [] });
+    }
+    return g;
+  }, [data, byMonth, month, today]);
   const showList = isPhone || (listOpen && !full);
   const showPane = isPhone ? !!selectedId : true;
   const counts = data?.counts || {};
@@ -1248,19 +1268,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
                 <ShortcutsPop open={showKeys} onClose={() => setShowKeys(false)} />
               </span>
             )}
-            <button type="button" className="nt-icon-btn" aria-label="Import a Markdown or text file" title="Import (.md, .txt)" onClick={() => fileRef.current?.click()}><Upload size={17} /></button>
             <input ref={fileRef} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
               onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ''; }} />
             {meetingsOn && (isPhone
               ? <button type="button" className="nt-icon-btn" aria-label="Meetings" title="Meetings" onClick={() => setMeetingsOpen(true)}><Video size={17} /></button>
               : <button type="button" className="nt-text-btn" onClick={() => setMeetingsOpen(true)} title="Your Teams meetings - take notes beside the transcript"><Video size={15} /> Meetings</button>)}
-            {isPhone
-              ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><PenTool size={17} /></button>
-              : <button type="button" className="nt-text-btn is-board-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
-            {isPhone
-              ? <button type="button" className="nt-icon-btn" aria-label="New From Template" title="New From Template" onClick={() => setPickingNoteTpl(true)}><LayoutTemplate size={17} /></button>
-              : <button type="button" className="nt-text-btn" onClick={() => setPickingNoteTpl(true)} title="Start a note from a layout - meeting notes, a 1:1, a site walk"><LayoutTemplate size={15} /> From Template</button>}
-            <button type="button" className="nt-text-btn is-primary" onClick={() => newNote()}><Plus size={15} /> New Note</button>
+            {/* "+ New" (Neil, 11/12/2026): one button, every way to start (NewMenu.jsx). */}
+            <NewMenu compact={isPhone} onPick={startNew} />
           </div>
         </div>
       )}
@@ -1281,12 +1295,22 @@ export default function NotesPage({ activeSub, onSubChange }) {
               {data && groups.length === 0 && (
                 <div className="nt-empty">
                   <strong>{q ? 'No notes match' : view === 'trash' ? 'The Trash is empty' : view === 'shared' ? 'Nothing shared with you yet' : view === 'pinned' ? 'No pinned notes' : view === 'today' ? 'Nothing for today yet' : view === 'boards' ? 'No boards yet' : `No notes in ${monthLabel(month)}`}</strong>
-                  {q ? 'Try fewer words.' : view === 'boards' ? 'Start one with New Board.' : view === 'all' || view === 'today' ? 'Start one with New Note or New Board, or jot something in Quick Note from the + menu in the top bar.' : ''}
+                  {q ? 'Try fewer words.' : view === 'boards' ? 'Start one with + New, then Board.' : view === 'all' || view === 'today' ? 'Start one with + New, or jot something in Quick Note under the bolt in the top bar.' : ''}
                 </div>
               )}
               {groups.map((g) => (
-                <section key={g.day || 'none'} aria-label={dayHeading(g.day, today)}>
-                  <div className="nt-day">{dayHeading(g.day, today)}</div>
+                <section key={g.day || 'none'} aria-label={dayHeading(g.day, today)} className={g.day === today ? 'nt-daygroup is-today' : 'nt-daygroup'}
+                  aria-current={g.day === today ? 'date' : undefined}>
+                  <div className="nt-day">
+                    {g.day === today
+                      ? <>Today <span className="nt-day-date">{formatWeekday(today)}, {formatDate(today)}</span></>
+                      : dayHeading(g.day, today)}
+                  </div>
+                  {g.notes.length === 0 && (
+                    <div className="nt-today-empty">
+                      Nothing written today yet. <button type="button" className="nt-link-btn" onClick={() => newNote()}>Start a Note</button>
+                    </div>
+                  )}
                   {g.notes.map((n) => (
                     <button key={n.id} type="button" className={`nt-row${n.id === selectedId ? ' is-on' : ''}`} onClick={() => select(n.id)}
                       onContextMenu={(e) => openRowMenu(e, n)} aria-current={n.id === selectedId ? 'true' : undefined}>
@@ -1303,7 +1327,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
                       {isBoard(n)
                         ? (n.thumbUrl
                           ? <img className="nt-row-thumb" src={n.thumbUrl} alt="" loading="lazy" />
-                          : <span className="nt-row-thumb is-empty" aria-hidden="true"><PenTool size={14} /></span>)
+                          : <span className="nt-row-thumb is-empty" aria-hidden="true"><BoardIcon size={14} /></span>)
                         : n.preview && <span className="nt-row-preview">{n.preview}</span>}
                       <span className="nt-row-meta">
                         {isBoard(n) ? 'Board · ' : ''}{view === 'trash' && n.trashedAt ? `Trashed ${formatDate(n.trashedAt)}` : editedLabel(n.updatedAt)}
@@ -1326,7 +1350,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
         {/* Collapsed: a slim rail with the way back, never a lost list (Neil, 11/06/2026). */}
         {!isPhone && !full && !listOpen && (
           <button type="button" className="nt-rail" aria-label="Show the list" aria-expanded="false" title="Show the List" onClick={toggleList}>
-            <ChevronsRight size={16} aria-hidden="true" /><span>Notes</span>
+            <ChevronsRight size={16} aria-hidden="true" /><span>Notes &amp; Boards</span>
           </button>
         )}
         {showPane && (view === 'boards' && !selectedId && !isPhone && groups.length > 0
@@ -1338,7 +1362,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
                   <button key={n.id} type="button" role="listitem" className="nt-board-card" onClick={() => select(n.id)} onContextMenu={(e) => openRowMenu(e, n)}>
                     {n.thumbUrl
                       ? <img className="nt-board-card-pic" src={n.thumbUrl} alt="" loading="lazy" />
-                      : <span className="nt-board-card-pic is-empty" aria-hidden="true"><PenTool size={20} /></span>}
+                      : <span className="nt-board-card-pic is-empty" aria-hidden="true"><BoardIcon size={20} /></span>}
                     <span className="nt-board-card-title">{noteTitle(n)}</span>
                     <span className="nt-board-card-meta">{editedLabel(n.updatedAt)}{!n.mine && <> · <Sharer email={n.owner} people={people} size={16} /></>}</span>
                   </button>

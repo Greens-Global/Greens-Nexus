@@ -295,7 +295,9 @@ are identical in that case, so the cache stays compatible.
 
 ## Ownership
 
-Some files belong to one developer (the File Ownership table in `CLAUDE.md`;
+**Nobody owns any files since 11/13/2026** (Neil) - `backend/code_owners.py`
+lists no owners, so no pin is held and `owners --check` always passes. The
+mechanism, kept for if an owner is ever added back: some files may belong to one developer (the File Ownership table in `CLAUDE.md`;
 its machine-readable copy is `backend/code_owners.py`). Build Mode routes by
 it: a pin whose source stamp is in another developer's area is **held** for
 them (their bell rings) and never reaches Claude Code until they release it -

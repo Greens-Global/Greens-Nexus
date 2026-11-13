@@ -107,7 +107,7 @@ describe('Documents module', () => {
 
   it.each(['documents-dashboard', 'documents-hr-records'])('%s lands on the library', async (sub) => {
     render(<Documents activeSub={sub} onSubChange={() => {}} />);
-    expect(await screen.findByText('New Document')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'New' })).toBeTruthy();
     await waitFor(() => expect(getDocumentLibrary).toHaveBeenCalled());
   });
 
@@ -115,7 +115,7 @@ describe('Documents module', () => {
     roleNow.current = { can: () => false, canAccessModule: (m) => m === 'documents' };
     try {
       render(<Documents activeSub="documents-not-a-real-tab" onSubChange={() => {}} />);
-      expect(await screen.findByText('New Document')).toBeTruthy();
+      expect(await screen.findByRole('button', { name: 'New' })).toBeTruthy();
     } finally { roleNow.current = { can: () => true }; }
   });
 

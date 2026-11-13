@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
 import { LinkIcon } from '../components/LinkIcon.jsx';
@@ -2589,8 +2590,11 @@ function ManageModal({
             <button className="secondary-btn" onClick={() => setByOpened(v => !v)} aria-pressed={byOpened} title="Sort each category by how often its links are opened">
               <ArrowDown size={14} /> {byOpened ? 'Sorted By Opened' : 'Sort By Opened'}
             </button>
-            <button className="secondary-btn" onClick={() => setShowImport(true)}><Upload size={14} /> Import</button>
-            <button className="primary-btn" onClick={onAdd}><Plus size={15} /> Add Link</button>
+            {/* "+ New", the one create button across Nexus (Neil, 11/13/2026): Import rides its menu. */}
+            <NewButton items={[
+              { key: 'link', label: 'Link', hint: 'One app or site', Icon: Plus },
+              { key: 'import', label: 'Import...', hint: 'Many at once from a file', Icon: Upload },
+            ]} onPick={(k) => (k === 'link' ? onAdd() : setShowImport(true))} />
           </div>
         )}
 

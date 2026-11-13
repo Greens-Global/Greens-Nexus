@@ -136,7 +136,7 @@ describe('Notes page on a phone', () => {
     expect(within(sheet).getByText(/Saved/)).toBeTruthy();
     // The list is still there under it.
     expect(screen.getByRole('button', { name: /Budget Review/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /New Note/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'New' })).toBeTruthy();
     fireEvent.click(within(sheet).getByRole('button', { name: 'Close Note' }));
     expect(onSubChange).toHaveBeenLastCalledWith('notes');
   });

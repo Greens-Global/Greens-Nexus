@@ -734,6 +734,10 @@ function MainApp() {
       // (chevron icon swap) before this handler runs - a detached target fails
       // contains() and instantly re-collapsed the nav. Ignore detached nodes.
       if (!document.documentElement.contains(e.target)) return;
+      // The top header never folds it (Neil, 11/12/2026, navigation review):
+      // folding re-measures the module tabs under the pointer, so the first
+      // click on a header menu (Tickets' More) opened nothing.
+      if (e.target.closest?.('.top-header')) return;
       if (sidebarRef.current && !sidebarRef.current.contains(e.target)) {
         setSidebarCollapsed(true);
       }
@@ -945,6 +949,8 @@ function MainApp() {
             Service is reconnecting - data may be delayed. Retrying automatically…
           </div>
         )}
+        {/* Keyboard users skip the left menu and the header (navigation review, 11/12/2026). */}
+        <a href="#nx-main" className="nx-skip-link">Skip to Content</a>
         <div className="app-container" style={serverDown ? { paddingTop: 34 } : undefined}>
           <WidgetBoundary name="sidebar" resetKey={widgetKey}
             fallback={<NavFallback as="aside" className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`} />}>
@@ -957,6 +963,8 @@ function MainApp() {
             onClose={() => setSidebarOpen(false)}
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+            pinned={sidebarPinned}
+            onTogglePin={() => setSidebarPinned(p => !p)}
           />
           </WidgetBoundary>
           {/* App-style mobile chrome - phones only (CSS-gated ≤900px):
@@ -976,7 +984,7 @@ function MainApp() {
           {/* The page trail (Neil, 11/04/2026): the module, then the pages above
               a record, on a line above the page title - components/PageTrail.jsx. */}
           <PageTrailProvider view={activeView} label={viewLabel(activeView)} onNavigate={navigate}>
-          <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
+          <main id="nx-main" tabIndex={-1} className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             {/* The announcement bar - across the top of the page, above the
                 header: the weekly "New in Nexus" news, or "a new version is
                 ready, Reload" (components/FeatureBanner.jsx). */}

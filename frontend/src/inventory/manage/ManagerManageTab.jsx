@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { Package, Plus, Search, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, FileBarChart, ArrowUpDown, Tag, Settings2, ImageOff, QrCode } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { api } from '../../api';
+import NewButton from '../../components/NewButton';
 import { ITEM_TYPES, displayStatus } from '../model/status';
 import { cleanField } from '../model/fields';
 import { useIsMobile } from '../ui/hooks';
@@ -280,12 +281,12 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
       {/* Action bar - one row: primary action first, everyday secondaries next,
           admin extras collected under Manage ▾ so the bar never wraps into soup. */}
       <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
-        <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
-          <Plus size={14} /> Add Item
-        </button>
-        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
-          <UploadCloud size={14} /> Import CSV
-        </button>
+        {/* "+ New", the one create button across Nexus (Neil, 11/13/2026);
+            Import rides its menu, as on Credentials and Links. */}
+        <NewButton title="Add items to the catalog" items={[
+          { key: 'item', label: 'Item', hint: 'One item, with its serial and photo', Icon: Package },
+          { key: 'import', label: 'Import From a CSV...', hint: 'Many items at once', Icon: UploadCloud },
+        ]} onPick={(k) => (k === 'item' ? onAdd() : onImport())} />
         {/* Export ▾ - two choices (Neil): every item unfiltered (CSV or PDF), or a
             custom report honoring the filters currently applied. */}
         <div style={{ position:'relative' }}>

@@ -4,8 +4,9 @@
 // Entries - what people filled (EntriesList), a row opening beside the list
 // (EntryPanel). Nothing here decides anything by itself.
 import { useEffect, useMemo, useState } from 'react';
-import { ClipboardList, Plus, Search } from 'lucide-react';
+import { ClipboardList, Search } from 'lucide-react';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { TEMPLATE_STATES, templateStatus } from '../lib/documentLibrary';
@@ -218,9 +219,8 @@ export default function FormsTab({ toastOk, toastErr, activeSub = '' }) {
               <option value="draft">{TEMPLATE_STATES.draft.label}</option>
               <option value="archived">{TEMPLATE_STATES.archived.label}</option>
             </select>
-            <button type="button" className="primary-btn" onClick={() => setCreating(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Plus size={14} /> New Form
-            </button>
+            {/* "+ New", the one create button across Nexus (Neil, 11/13/2026). */}
+            <NewButton items={[{ key: 'form', label: 'Form' }]} onPick={() => setCreating(true)} />
           </div>
 
           {!templates ? (

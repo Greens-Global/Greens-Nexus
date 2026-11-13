@@ -629,6 +629,10 @@ regressionCaseId`) plus computed fields on every note:
 
 ### 7.2 Ownership routing
 
+**Nobody owns any files since 11/13/2026** (Neil: "Remove those limitations
+permanently") - `OWNERS` is empty, so no pin is held and `owners --check`
+always passes. The mechanism below is kept, and still tested on a sample list.
+
 `backend/code_owners.py` is the machine-readable copy of the CLAUDE.md File
 Ownership table (change both together). Stdlib only, no app imports -
 `tools/build_notes/` loads it by file path. `OWNERS = [{name, email, paths}]`

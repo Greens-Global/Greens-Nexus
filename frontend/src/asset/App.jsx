@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { ArrowLeft, Pencil, Search, Lock, Unlock, Copy, MoreHorizontal, FileText, Download, Plus, History, Trash2, Upload } from 'lucide-react';
+import { ArrowLeft, Pencil, Search, Lock, Unlock, Copy, MoreHorizontal, FileText, Download, History, Trash2, Upload } from 'lucide-react';
 
 import { PT } from './lib/propertyFields.js';
 import { ASSET_SCHEMAS, inferAssetKind } from './lib/vehicleFields.js';
@@ -57,6 +57,7 @@ import PropertyLoans from '../components/PropertyLoans.jsx';
 import PropertyJobs from '../components/PropertyJobs.jsx';
 import PageTrail, { useTrailCrumbs } from '../components/PageTrail';
 import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
+import NewButton from '../components/NewButton';
 
 const cityRegion = (p) => (p.city || '') + (p.state ? ', ' + p.state : '');
 
@@ -832,9 +833,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         <ModuleActions>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span className="module-bar-meta">{loading && !visibleProperties.length ? 'Loading the portfolio…' : `${pulse.assets} ${pulse.assets === 1 ? 'asset' : 'assets'} in the portfolio`}</span>
-            <button className="primary-btn" onClick={() => setModal({ type: 'property', id: null })}>
-              <Plus size={14} /> Add Asset
-            </button>
+            {/* "+ New", the one create button across Nexus (Neil, 11/13/2026). */}
+            <NewButton items={[{ key: 'asset', label: 'Asset' }]} onPick={() => setModal({ type: 'property', id: null })} />
             <button ref={portfolioMoreRef} type="button" className="secondary-btn" aria-label="More" aria-haspopup="menu" aria-expanded={portfolioMoreOpen} onClick={() => setPortfolioMoreOpen((o) => !o)} style={{ padding: 8, position: 'relative' }}>
               <MoreHorizontal size={16} />
               {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}

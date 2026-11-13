@@ -484,6 +484,27 @@ describe('AdminConsole', () => {
     await waitFor(() => expect(screen.getByRole('switch', { name: 'Punch Rounding' })).not.toBeChecked());
   });
 
+  // The race CI caught (11/13/2026): a click the moment the switch appears -
+  // before React's passive effects ran - found no saved rules and saved
+  // nothing. A MutationObserver clicks as soon as the switch is in the DOM.
+  it('Pay Rules: a switch clicked the moment it appears still saves', async () => {
+    payRules();
+    const { dialog } = await import('../ui/dialog');
+    vi.spyOn(dialog, 'undo').mockImplementation(() => {});
+    let clicked = false;
+    const mo = new MutationObserver(() => {
+      if (clicked) return;
+      const sw = document.querySelector('[role="switch"][aria-label="Punch Rounding"]');
+      if (sw) { clicked = true; sw.click(); }
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+    try {
+      render(<AdminConsole activeSub="pay:timeclock-policy" onSubChange={() => {}} />);
+      await waitFor(() => expect(clicked).toBe(true), { timeout: 5000 });
+      await waitFor(() => expect(apiOverrides.timeRoundingSet).toHaveBeenCalledWith({ enabled: true, nearestMin: 5 }, ''));
+    } finally { mo.disconnect(); }
+  });
+
   it('Pay Rules: a failed switch rolls back; a partly failed Save keeps the failed rule\'s edits', async () => {
     payRules({ rounding: { enabled: true } });
     apiOverrides.timeAutoLunchSet = vi.fn(() => Promise.reject(new Error('Auto-lunch is locked.')));

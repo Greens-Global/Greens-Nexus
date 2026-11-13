@@ -70,7 +70,7 @@
 // Act As and the Microsoft 365 sync are actions, not settings, so they sit
 // on the Tools tab (views/SettingsTools.jsx). Every panel is the same
 // component it was before the merge - only the wiring here changed.
-import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronRight, ChevronLeft, Tag, Shield,
   Headset, Bell, Mail, Building2, Timer,
@@ -2655,9 +2655,13 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   const { draft, patch, dirty, reset, begin, settle } = useDraft(cfg, { rebase: true });
   const edit = (key, p) => patch({ [key]: { ...draft[key], ...p } });
   // The latest saved rules and draft, for an Undo that runs after more changes landed.
+  // A LAYOUT effect, so they are current the moment the switches are on screen:
+  // with a passive effect a click right after the panel drew (a quick person, a
+  // busy machine - CI caught it, 11/13/2026) found no saved rules, saved nothing
+  // and rolled the switch back.
   const cfgRef = useRef(cfg);
   const draftRef = useRef(draft);
-  useEffect(() => { cfgRef.current = cfg; draftRef.current = draft; }, [cfg, draft]);
+  useLayoutEffect(() => { cfgRef.current = cfg; draftRef.current = draft; }, [cfg, draft]);
 
   // A switch saves on click (Neil, 11/02/2026), with an Undo toast that
   // writes the previous value back. Only the switch is sent: the rule's

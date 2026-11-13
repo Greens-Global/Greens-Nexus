@@ -276,22 +276,45 @@ export function tzAbbrev(tz, d = new Date()) {
   } catch { return ''; }
 }
 
+// The words for a home zone: "California" for Los Angeles (the company's own
+// name for it since Sep 28), "India" for Kolkata, else the picker's label.
+export function homeLabel(tz) {
+  if (canonicalTz(tz) === CALIFORNIA_TZ) return 'California';
+  return zoneLabel(canonicalTz(tz) || tz) || tz;
+}
+
 /** The clocks the Dashboard greeting shows, in order:
  *  1. the viewer's own time - no label;
- *  2. California time, labeled, with its PDT/PST abbreviation - only when the
- *     viewer's clock reads differently right now. Compared by UTC offset at
- *     this instant, not by zone name: Vancouver or Tijuana (same clock as
+ *  2. HOME - the zone the person works in (`homeTz`, /roles/me home_zone:
+ *     their shift's zone, else their company's), labeled, with its
+ *     abbreviation and `away: true` - only when the device's clock reads
+ *     differently right now (Neil, 11/13/2026: "If we are out of our main
+ *     time zone it should show the original time zone we are from as a
+ *     secondary time zone");
+ *  3. California time, the company's clock (Neil, Sep 28), labeled - only
+ *     when it reads differently from both. Compared by UTC offset at this
+ *     instant, not by zone name: Vancouver or Tijuana (same clock as
  *     California) count as California, and the weeks when the US and another
  *     country have switched DST on different dates show both;
- *  3. the My Profile picks, skipping any that would repeat a time already
+ *  4. the My Profile picks, skipping any that would repeat a time already
  *     shown (a Los Angeles pick adds nothing on top of California).
  *  `home: true` marks the entries the phone's one-line header keeps. */
-export function headerClocks(picks = [], now = new Date(), localTz = LOCAL_TZ) {
+export function headerClocks(picks = [], now = new Date(), localTz = LOCAL_TZ, homeTz = '') {
   const localOff = tzOffsetMinutes(localTz, now);
-  const caOff = tzOffsetMinutes(CALIFORNIA_TZ, now);
   const clocks = [{ tz: localTz, label: '', abbr: '', home: true }];
   const shown = new Set([localOff]);
-  if (caOff !== localOff) {
+  const home = canonicalTz(homeTz || '');
+  if (home) {
+    const homeOff = tzOffsetMinutes(home, now);
+    if (!shown.has(homeOff)) {
+      // "PST" reads; "GMT+5:30" (what en-US gives India) does not, so it goes.
+      const abbr = tzAbbrev(home, now);
+      clocks.push({ tz: home, label: homeLabel(home), abbr: /^(GMT|UTC)/.test(abbr) ? '' : abbr, home: true, away: true });
+      shown.add(homeOff);
+    }
+  }
+  const caOff = tzOffsetMinutes(CALIFORNIA_TZ, now);
+  if (!shown.has(caOff)) {
     clocks.push({ tz: CALIFORNIA_TZ, label: 'California', abbr: tzAbbrev(CALIFORNIA_TZ, now), home: true });
     shown.add(caOff);
   }

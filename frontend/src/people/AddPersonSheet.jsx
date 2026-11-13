@@ -13,7 +13,7 @@
 // Schedule" (default on) is sent as `on_schedule`. A job role picked here sets
 // their access once they have a work email. One Save.
 import { useEffect, useState } from 'react';
-import { UserPlus, RefreshCw } from 'lucide-react';
+import { UserPlus, RefreshCw, UserRound, Briefcase, Building2, Globe, Check, ChevronDown } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from '../components/AsyncState';
 import { Modal, DateField, PersonSelect } from '../tasks/components';
@@ -24,19 +24,23 @@ import { ROLES } from '../contexts/RoleContext';
 import { COUNTRIES } from '../lib/countries';
 import { currencyOptions } from '../asset/lib/currency';
 
+// [key, label, what it means, icon] - the four cards at the top (Neil,
+// 11/13/2026: a green highlight on the one picked, never a black block).
 const PERSON_KINDS = [
-  ['employee', 'Employee', 'On payroll - full profile, provisioning, time tracking.'],
-  ['contractor', 'Independent Contractor', 'Engagement scope, SOW and rate on the same record.'],
-  ['external', 'External', 'A partner-company person - invited by email, signs in with a one-time code.'],
-  ['guest', 'Guest', 'A partner with a Microsoft 365 guest account in our tenant.'],
+  ['employee', 'Employee', 'On payroll, with time tracking', UserRound],
+  ['contractor', 'Independent Contractor', 'Engagement, SOW and rate', Briefcase],
+  ['external', 'External', 'Partner company, signs in with a code', Building2],
+  ['guest', 'Guest', 'Microsoft 365 guest account', Globe],
 ];
 const EMPLOYEE_TYPES = [['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['intern', 'Intern']];
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 };
 const HINT = { fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
 const PICK_BOX = { height: 38, padding: '0 13px', borderRadius: 10, fontSize: 13, fontWeight: 400 };
-const GRID = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 14 };
-const SECTION = { fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '18px 0 10px', paddingTop: 14, borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 };
+const GRID = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: 12 };
+const SECTION = { fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '20px 0 10px', paddingTop: 16, borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 };
+// A date box drawn like the inputs beside it (it read as loose text before).
+const DATE_BOX = { width: '100%', boxSizing: 'border-box', height: 38, padding: '0 13px', border: '1px solid var(--wk-line2)', borderRadius: 10, background: 'var(--card)', fontSize: 13 };
 const fullName = (e) => [e?.firstName, e?.lastName].filter(Boolean).join(' ');
 const pickRows = (list) => {
   const seen = new Set();
@@ -66,6 +70,8 @@ export default function AddPersonSheet({
   const [jobRoles, setJobRoles] = useState([]);
   const [jobRoleId, setJobRoleId] = useState('');
   const [busy, setBusy] = useState(false);
+  // Office, address, designation and notes: optional, folded until asked for.
+  const [more, setMore] = useState(false);
   const ext = useExternalInviteForm(null);
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
   const setC = (k, v) => setF((p) => ({ ...p, contractor: { ...(p.contractor || {}), [k]: v } }));
@@ -169,30 +175,44 @@ export default function AddPersonSheet({
           {busy ? <Spinner size={14} /> : <UserPlus size={14} />} {saveLabel}
         </button>
       </>}>
-      <div style={{ fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }} id="ap-kind-label">Who Are You Adding?</div>
-        <div role="radiogroup" aria-labelledby="ap-kind-label" className="nx-seg"
-          style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, 150px), 1fr))`, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-          {kinds.map(([k, label], i) => (
+      <div className="ap-form" style={{ fontFamily: 'Inter,sans-serif' }}>
+        {/* Who you are adding: four cards, the picked one lit in the brand
+            green with a check (Neil, 11/13/2026: "better highlight colors
+            than black"); each card says what the kind means, so there is no
+            separate hint line under them. */}
+        <div style={{ ...FL, marginBottom: 8 }} id="ap-kind-label">Who Are You Adding?</div>
+        <div role="radiogroup" aria-labelledby="ap-kind-label" className="ap-kinds">
+          {kinds.map(([k, label, desc, Icon]) => (
             <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKind(k)}
-              style={{ padding: '10px 12px', border: 'none', borderLeft: i ? '1px solid var(--line)' : 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: 13, fontWeight: kind === k ? 700 : 500,
-                background: kind === k ? 'var(--ink)' : 'var(--card)', color: kind === k ? 'var(--card)' : 'var(--ink)' }}>
-              {label}
+              aria-label={label} aria-describedby={`ap-kind-${k}`}
+              className={`ap-kind${kind === k ? ' is-on' : ''}`}>
+              <span className="ap-kind-top">
+                <Icon size={16} aria-hidden="true" />
+                {kind === k && <Check size={14} className="ap-kind-check" aria-hidden="true" />}
+              </span>
+              <span className="ap-kind-label">{label}</span>
+              <span className="ap-kind-desc" id={`ap-kind-${k}`}>{desc}</span>
             </button>
           ))}
         </div>
-        <div style={{ ...HINT, marginTop: 8, marginBottom: 16 }}>{kinds.find(([k]) => k === kind)?.[2]}</div>
 
-        {isExternal ? ext.fields : (
+        {isExternal ? <div style={{ marginTop: 20 }}>{ext.fields}</div> : (
           <>
+            {/* Tighter (Neil, 11/13/2026: "tighten and or simplify this
+                screen"): what most people fill - name, job, who they report
+                to, access - in four short groups; the office, address,
+                designation and notes fold under one line at the foot. */}
+            <div style={{ ...SECTION, borderTop: 0, marginTop: 20, paddingTop: 0 }}>Name and Contact</div>
             <div style={GRID}>
               {input('First Name *', 'first_name', { autoFocus: true })}
               {input('Last Name', 'last_name')}
+              {input('Mobile Phone', 'phone', { type: 'tel' })}
               {input(isGuest ? 'Email' : 'Work Email', 'work_email', { type: 'email', placeholder: isGuest ? 'Their own company email' : 'Empty until provisioned' })}
               {!isGuest && input('Personal Email', 'personal_email', { type: 'email' })}
-              {input('Mobile Phone', 'phone')}
-              {input('Job Title', 'job_title')}
-              {!isGuest && input('Designation', 'designation')}
+            </div>
+
+            <div style={SECTION}>{isGuest ? 'Where They Fit' : 'Job'}</div>
+            <div style={GRID}>
               <div>
                 <label style={FL} htmlFor="ap-company">{isGuest ? 'Company They Work With' : 'Company'}</label>
                 <select id="ap-company" className="form-input" style={{ width: '100%' }} value={f.company}
@@ -215,23 +235,20 @@ export default function AddPersonSheet({
                     </div>
                   ) : (
                     <select id="ap-department" className="form-input" style={{ width: '100%' }} value={f.department} disabled={!f.company}
-                      onChange={(e) => set('department', e.target.value)}>
+                      onChange={(e) => { if (e.target.value === '__new__') setAddingDept(true); else set('department', e.target.value); }}>
                       {!f.company
                         ? <option value="">Pick a company first</option>
                         : <>
                           <option value="">{deptLoading ? 'Loading…' : (deptOptions.length ? 'Select…' : 'None yet')}</option>
                           {deptOptions.map((d) => <option key={d}>{d}</option>)}
+                          {/* Adding a department is a choice in the list, not a link under it. */}
+                          {!deptLoading && <option value="__new__">+ Add a Department...</option>}
                         </>}
                     </select>
                   )}
-                  {!!f.company && !deptLoading && !addingDept && (
-                    <button type="button" onClick={() => setAddingDept(true)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 5, fontSize: 12, fontWeight: 600, color: 'var(--pine)' }}>
-                      + Add a Department to This Company
-                    </button>
-                  )}
                 </div>
               )}
+              {input('Job Title', 'job_title')}
               {kind === 'employee' && (
                 <div>
                   <label style={FL} htmlFor="ap-type">Employment Type</label>
@@ -243,45 +260,47 @@ export default function AddPersonSheet({
               {!isGuest && (
                 <div>
                   <label style={FL}>Start Date</label>
-                  <DateField value={f.start_date} onChange={(v) => set('start_date', v || '')} placeholder="MM/DD/YYYY" title="Start date" style={{ width: '100%' }} />
+                  <DateField value={f.start_date} onChange={(v) => set('start_date', v || '')} placeholder="MM/DD/YYYY" title="Start date" style={DATE_BOX} />
                 </div>
               )}
-              <div style={{ gridColumn: '1 / -1' }}>
+            </div>
+
+            <div style={SECTION}>Reporting</div>
+            <div style={GRID}>
+              <div>
                 <label style={FL}>Reports To</label>
                 <PersonSelect value={(f.manager_email || '').toLowerCase() || null} onChange={(v) => set('manager_email', v || '')}
                   people={pickRows(managers)} placeholder="No reporting line" noneLabel="No Reporting Line"
                   ariaLabel="Reports To" style={PICK_BOX} />
               </div>
               {!isGuest && (
-                <div style={{ gridColumn: '1 / -1' }}>
+                <div>
                   <label style={FL}>Backup Manager</label>
                   <PersonSelect value={(f.backup_manager_email || '').toLowerCase() || null} onChange={(v) => set('backup_manager_email', v || '')}
                     people={pickRows(managers.filter((m) => m.workEmail.toLowerCase() !== (f.manager_email || '').toLowerCase()))}
-                    placeholder="Default - their manager's manager, or the company's HR contact" noneLabel="Use the Default"
+                    placeholder="Their manager's manager" noneLabel="Use the Default"
                     ariaLabel="Backup Manager" style={PICK_BOX} />
-                  <div style={HINT}>Has the same rights over this person as their manager - time sheets, punches, time off and approvals.</div>
                 </div>
               )}
             </div>
+            {!isGuest && <div style={HINT}>The backup manager has the same rights over this person as their manager - time sheets, punches, time off and approvals. Left empty: their manager&apos;s manager, else the company&apos;s HR contact.</div>}
 
-            <div style={{ marginTop: 16 }}>
-              <SettingCard>
-                <SwitchRow id="ap-on-schedule" title="On the Schedule" checked={onSchedule} onChange={setOnSchedule}
-                  desc="They show on the shift planner and their shifts count toward Late and No-Show. Turn off for people who never work shifts." />
-              </SettingCard>
-            </div>
-
+            <div style={SECTION}>Access and Schedule</div>
             {isAdmin && (
-              <>
-                <div style={SECTION}>Job Role and Access</div>
-                <select className="form-input" style={{ width: '100%' }} value={jobRoleId} onChange={(e) => setJobRoleId(e.target.value)} aria-label="Job Role">
+              <div style={{ marginBottom: 12 }}>
+                <label style={FL} htmlFor="ap-role">Job Role</label>
+                <select id="ap-role" className="form-input" style={{ width: '100%' }} value={jobRoleId} onChange={(e) => setJobRoleId(e.target.value)}>
                   <option value="">Set later on the Access tab</option>
                   <RoleOptions roles={rolesForCompany(jobRoles, f.company)} companyName={(id) => entities.find((en) => en.id === id)?.name || 'Another company'}
                     label={(r) => `${r.name} · ${ROLES[r.tier]?.label || r.tier}`} />
                 </select>
-                <div style={HINT}>Sets their access and tier from a job role. Needs a work email; otherwise set it later on their Access tab.</div>
-              </>
+                <div style={HINT}>Sets their access and tier. Needs a work email; otherwise set it later on their Access tab.</div>
+              </div>
             )}
+            <SettingCard>
+              <SwitchRow id="ap-on-schedule" title="On the Schedule" checked={onSchedule} onChange={setOnSchedule}
+                desc="They show on the shift planner and count toward Late and No-Show. Off for people who never work shifts." />
+            </SettingCard>
 
             {isContractor && (
               <>
@@ -295,11 +314,11 @@ export default function AddPersonSheet({
                   </div>
                   <div>
                     <label style={FL}>Contract Start</label>
-                    <DateField value={(f.contractor || {}).contract_start || ''} onChange={(v) => setC('contract_start', v || '')} placeholder="MM/DD/YYYY" title="Contract start" style={{ width: '100%' }} />
+                    <DateField value={(f.contractor || {}).contract_start || ''} onChange={(v) => setC('contract_start', v || '')} placeholder="MM/DD/YYYY" title="Contract start" style={DATE_BOX} />
                   </div>
                   <div>
                     <label style={FL}>Contract End</label>
-                    <DateField value={(f.contractor || {}).contract_end || ''} onChange={(v) => setC('contract_end', v || '')} placeholder="MM/DD/YYYY" title="Contract end" style={{ width: '100%' }} />
+                    <DateField value={(f.contractor || {}).contract_end || ''} onChange={(v) => setC('contract_end', v || '')} placeholder="MM/DD/YYYY" title="Contract end" style={DATE_BOX} />
                   </div>
                   {cInput('Rate', 'rate', { placeholder: 'e.g. 85' })}
                   <div>
@@ -327,47 +346,52 @@ export default function AddPersonSheet({
               </>
             )}
 
-            {!isGuest && (
-              <>
-                <div style={SECTION}>
-                  Office and Contact
-                  <span title="Changes here update the person's Microsoft 365 account, and changes made in Microsoft 365 come back here"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 500, color: 'var(--muted)' }}>
-                    <RefreshCw size={11} /> Synced with Microsoft 365
-                  </span>
-                </div>
-                <div style={GRID}>
-                  <div>
-                    {input('Office', 'location', { placeholder: 'e.g. San Clemente', list: 'ap-office-options' })}
-                    <datalist id="ap-office-options">
-                      {[...new Set(employees.map((x) => (x.location || '').trim()).filter(Boolean))].sort().map((o) => <option key={o} value={o} />)}
-                    </datalist>
+
+            {/* Optional details, folded: one line opens them. */}
+            <button type="button" className="ap-more" aria-expanded={more} onClick={() => setMore((m) => !m)}>
+              <ChevronDown size={15} aria-hidden="true" />
+              {isGuest ? 'Notes' : 'Office, Address and Notes'}
+              {!isGuest && (
+                <span className="ap-more-sync" title="Changes here update the person's Microsoft 365 account, and changes made in Microsoft 365 come back here">
+                  <RefreshCw size={11} aria-hidden="true" /> Synced with Microsoft 365
+                </span>
+              )}
+            </button>
+            {more && (
+              <div style={{ marginTop: 10 }}>
+                {!isGuest && (
+                  <div style={{ ...GRID, marginBottom: 14 }}>
+                    {input('Designation', 'designation')}
+                    <div>
+                      {input('Office', 'location', { placeholder: 'e.g. San Clemente', list: 'ap-office-options' })}
+                      <datalist id="ap-office-options">
+                        {[...new Set(employees.map((x) => (x.location || '').trim()).filter(Boolean))].sort().map((o) => <option key={o} value={o} />)}
+                      </datalist>
+                    </div>
+                    {input('Office Phone', 'office_phone', { type: 'tel' })}
+                    <div style={{ gridColumn: '1 / -1' }}>{input('Street Address', 'street_address', { placeholder: 'Work address - shown in Outlook and Teams' })}</div>
+                    {input('City', 'city')}
+                    {input('State or Province', 'state')}
+                    {input('ZIP or Postal Code', 'postal_code')}
+                    <div>
+                      <label style={FL} htmlFor="ap-country">Country or Region</label>
+                      <select id="ap-country" className="form-input" style={{ width: '100%' }} value={f.country} onChange={(e) => set('country', e.target.value)}>
+                        <option value="">Not set</option>
+                        {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
+                      </select>
+                      <div style={HINT}>Where this person actually is - also drives their email signature&apos;s phone country code.</div>
+                    </div>
                   </div>
-                  {input('Office Phone', 'office_phone', { type: 'tel' })}
-                  <div style={{ gridColumn: '1 / -1' }}>{input('Street Address', 'street_address', { placeholder: 'Work address - shown in Outlook and Teams' })}</div>
-                  {input('City', 'city')}
-                  {input('State or Province', 'state')}
-                  {input('ZIP or Postal Code', 'postal_code')}
-                  <div>
-                    <label style={FL} htmlFor="ap-country">Country or Region</label>
-                    <select id="ap-country" className="form-input" style={{ width: '100%' }} value={f.country} onChange={(e) => set('country', e.target.value)}>
-                      <option value="">Not set</option>
-                      {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
-                    </select>
-                    <div style={HINT}>Where this person actually is - also drives their email signature&apos;s phone country code.</div>
-                  </div>
-                </div>
-              </>
+                )}
+                <label style={FL} htmlFor="ap-notes">Notes</label>
+                <textarea id="ap-notes" className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
+                  value={f.notes} onChange={(e) => set('notes', e.target.value)} />
+              </div>
             )}
 
             {canSeeComp && !isContractor && !isGuest && (
               <div style={{ ...HINT, marginTop: 14 }}>Pay, the overtime rule and time tracking are set on their Pay &amp; Benefits tab once they are added.</div>
             )}
-            <div style={{ marginTop: 14 }}>
-              <label style={FL} htmlFor="ap-notes">Notes</label>
-              <textarea id="ap-notes" className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
-                value={f.notes} onChange={(e) => set('notes', e.target.value)} />
-            </div>
           </>
         )}
       </div>

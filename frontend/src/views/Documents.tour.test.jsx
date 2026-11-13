@@ -101,7 +101,8 @@ describe('Documents tour steps', () => {
     const targets = buildDocumentsTourSteps({ go: () => {}, isMobile: false }).map((s) => s.target).filter(Boolean);
     for (const t of targets) {
       const screenHook = t.startsWith('documents-screen-') && code.includes('data-tour={`documents-screen-${sub}`}');
-      expect(code.includes(`data-tour="${t}"`) || screenHook, t).toBe(true);
+      // "+ New" carries its spotlight as NewButton's dataTour (11/13/2026).
+      expect(code.includes(`data-tour="${t}"`) || code.includes(`dataTour="${t}"`) || screenHook, t).toBe(true);
     }
   });
 });

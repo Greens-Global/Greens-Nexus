@@ -925,6 +925,25 @@ DEV2 = {"email": "dev2@greensglobal.com", "role": "employee", "level": 1}
 VISESH_FILE = {"selector": "button", "source": {"file": "src/views/InventoryManagement.jsx", "line": 10, "col": 4}}
 
 
+# Nobody owns files since Neil, 11/13/2026 (code_owners.OWNERS is empty); the
+# hold mechanism is still tested here, on the list as it was.
+SAMPLE_OWNERS = [
+    {"name": "Visesh", "email": "visesh.lodha@greensglobal.com", "paths": [
+        "frontend/src/views/InventoryManagement.jsx", "frontend/src/inventory/",
+        "frontend/src/components/Assignments.jsx", "frontend/src/components/NotificationBell.jsx",
+        "frontend/src/components/NotificationToasts.jsx", "backend/routers/items.py"]},
+    {"name": "Neil", "email": "neil@greensglobal.com", "paths": [
+        "frontend/src/views/PropertyAsset.jsx", "frontend/src/views/AssetModule.jsx",
+        "frontend/src/asset/", "backend/routers/property_assets.py"]},
+]
+
+
+@pytest.fixture
+def sample_owners(monkeypatch):
+    import code_owners
+    monkeypatch.setattr(code_owners, "OWNERS", SAMPLE_OWNERS)
+
+
 def _held_pin(**fields):
     return _create(target=VISESH_FILE, route="inventory", **fields)
 
@@ -938,7 +957,7 @@ def _owner_bodies():
         db.close()
 
 
-def test_enabled_and_owners_list_the_ownership_map():
+def test_enabled_and_owners_list_the_ownership_map(sample_owners):
     owners = client.get("/dev-notes/enabled").json()["owners"]
     assert {o["name"] for o in owners} == {"Visesh", "Neil"}
     assert "frontend/src/views/InventoryManagement.jsx" in next(o for o in owners if o["name"] == "Visesh")["paths"]
@@ -947,7 +966,7 @@ def test_enabled_and_owners_list_the_ownership_map():
     assert client.get("/dev-notes/owners").status_code == 200
 
 
-def test_pin_on_another_developers_file_is_held_and_rings_the_owner():
+def test_pin_on_another_developers_file_is_held_and_rings_the_owner(sample_owners):
     n = _held_pin(ownerEmail="someone@else.com")      # a client value is ignored
     assert n["held"] is True and n["ownerEmail"] == VISESH["email"] and n["ownerName"] == "Visesh"
     assert n["ownerReleasedBy"] == "" and n["preview"] == {} and n["readyToCheck"] is False
@@ -970,7 +989,7 @@ def test_pin_on_another_developers_file_is_held_and_rings_the_owner():
     assert m["ownerEmail"] == "" and m["held"] is False
 
 
-def test_not_held_when_the_author_owns_the_file_and_held_skips_send_instantly():
+def test_not_held_when_the_author_owns_the_file_and_held_skips_send_instantly(sample_owners):
     GRANTS[NEIL["email"]] = {"build-mode": 2}
     try:
         _as(NEIL)
@@ -986,7 +1005,7 @@ def test_not_held_when_the_author_owns_the_file_and_held_skips_send_instantly():
         GRANTS.pop(NEIL["email"], None)
 
 
-def test_dispatch_skips_held_pins_and_names_them():
+def test_dispatch_skips_held_pins_and_names_them(sample_owners):
     a = _create()
     b = _held_pin()
     out = _dispatch()
@@ -1014,7 +1033,7 @@ def test_dispatch_skips_held_pins_and_names_them():
         "No open pins to send - Pin #2 waits for Visesh")
 
 
-def test_release_by_owner_or_global_admin_only():
+def test_release_by_owner_or_global_admin_only(sample_owners):
     b = _held_pin()
     assert client.patch(f"/dev-notes/{b['id']}", json={"release": True}).status_code == 403   # the author
     GRANTS[DEV2["email"]] = {"build-mode": 2}
@@ -1066,7 +1085,7 @@ def test_release_by_owner_or_global_admin_only():
     assert out["notes"][0]["status"] == "dispatched" and out["held"] == []
 
 
-def test_release_moves_a_pin_out_of_a_sent_session_and_follows_the_authors_send_instantly():
+def test_release_moves_a_pin_out_of_a_sent_session_and_follows_the_authors_send_instantly(sample_owners):
     GRANTS[VISESH["email"]] = {"build-mode": 2}
     try:
         # created held under Send Instantly: the next instant pin sends the
@@ -1103,7 +1122,7 @@ def test_release_moves_a_pin_out_of_a_sent_session_and_follows_the_authors_send_
         GRANTS.pop(VISESH["email"], None)
 
 
-def test_claim_skips_held_pins():
+def test_claim_skips_held_pins(sample_owners):
     token = _token()["token"]
     a = _create()
     b = _held_pin()
@@ -1436,7 +1455,7 @@ def test_branch_change_resets_accepted_verdicts():
     assert len([e for e in got_a["thread"] if e["text"].startswith("The branch changed")]) == 2
 
 
-def test_per_caller_flags_and_is_global_admin():
+def test_per_caller_flags_and_is_global_admin(sample_owners):
     token = _token()["token"]
     held = _held_pin()
     p = _to_pr_open(token, pr=21)
@@ -1479,7 +1498,7 @@ def test_per_caller_flags_and_is_global_admin():
     assert len(calls) == 1           # the flags only - access is the grant, not the tier (11/12/2026)
 
 
-def test_owner_of_endpoint():
+def test_owner_of_endpoint(sample_owners):
     r = client.get("/dev-notes/owner-of", params={"path": "src/views/InventoryManagement.jsx"})
     assert r.json() == {"owner": {"name": "Visesh", "email": VISESH["email"]}, "held": True}
     assert client.get("/dev-notes/owner-of", params={"path": "src/tasks/X.jsx"}).json() == {"owner": None, "held": False}
@@ -1494,7 +1513,7 @@ def test_owner_of_endpoint():
     assert client.get("/dev-notes/owner-of", params={"path": "src/x.jsx"}).status_code == 403
 
 
-def test_held_session_title_is_truncated_to_120_and_never_doubled():
+def test_held_session_title_is_truncated_to_120_and_never_doubled(sample_owners):
     _create()
     h = _held_pin()
     _dispatch(title="A" * 150)
@@ -1556,7 +1575,7 @@ def test_a_stopped_preview_keeps_the_verdict_commit_so_a_new_commit_still_resets
     assert got["thread"][-1]["text"] == "The branch changed after you checked it - check it again on the preview"
 
 
-def test_names_come_from_task_notify_and_lookup_errors_are_not_swallowed(monkeypatch):
+def test_names_come_from_task_notify_and_lookup_errors_are_not_swallowed(monkeypatch, sample_owners):
     import task_notify
     monkeypatch.setattr(task_notify, "_name_of", lambda db, email: f"Name Of {email}")
     db = database.SessionLocal()

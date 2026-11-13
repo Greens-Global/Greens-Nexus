@@ -22,20 +22,21 @@ beforeEach(() => {
 describe('New Template', () => {
   it('makes an untitled draft and opens it, with no name step', async () => {
     render(<DocumentTemplates toastOk={vi.fn()} toastErr={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: /New Template/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New' }));      // "+ New" (Neil, 11/13/2026)
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Template/ }));
     expect(await screen.findByText('builder template t9')).toBeTruthy();
     expect(calls.createDocTemplate).toHaveBeenCalledWith({ name: 'Untitled Template', category: 'general', status: 'draft' });
     expect(screen.queryByLabelText(/Template name/i)).toBeNull();
   });
 
-  it('keeps Word, the starters and Letterheads under its arrow', async () => {
+  it('keeps Word, the starters and Letterheads in its + New menu', async () => {
     render(<DocumentTemplates toastOk={vi.fn()} toastErr={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'More ways to start a template' }));
-    for (const n of ['Blank Template', 'From a Word File...', 'Add Starter Templates', 'Letterheads']) {
+    fireEvent.click(await screen.findByRole('button', { name: 'New' }));
+    for (const n of [/^Template/, /^From a Word File\.\.\./, /^Add Starter Templates/, /^Letterheads/]) {
       expect(await screen.findByRole('menuitem', { name: n })).toBeTruthy();
     }
     expect(screen.queryByRole('button', { name: 'From Word File' })).toBeNull();
-    fireEvent.click(screen.getByRole('menuitem', { name: 'From a Word File...' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^From a Word File/ }));
     await waitFor(() => expect(screen.getByText('word wizard')).toBeTruthy());
   });
 });

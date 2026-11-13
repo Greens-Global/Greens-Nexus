@@ -19,8 +19,9 @@
 // (New Opening, `directCompanies` from GET /hiring/headcount/meta); where
 // they are on, an opening still comes only from an approved request.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Briefcase, Copy, ExternalLink, Share2, Megaphone, Save, Plus } from 'lucide-react';
+import { Briefcase, Copy, ExternalLink, Share2, Megaphone, Save } from 'lucide-react';
 import { api } from '../../api';
+import NewButton from '../NewButton';
 import { Modal, DateField, PersonSelect } from '../../tasks/components';
 import { StatusLabel } from '../StatusLabel';
 import { SkeletonBlocks, ErrorBanner, Spinner } from '../AsyncState';
@@ -78,8 +79,7 @@ export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFi
           ))}
         </div>
         {directCompanies.length > 0
-          ? <button type="button" className="primary-btn" onClick={() => setStarting(true)}
-            style={{ marginLeft: 'auto', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> New Opening</button>
+          ? <span style={{ marginLeft: 'auto' }}><NewButton items={[{ key: 'opening', label: 'Opening' }]} onPick={() => setStarting(true)} /></span>
           : <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>New openings come from approved headcount requests.</span>}
       </div>
 

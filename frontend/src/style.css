@@ -4886,12 +4886,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
    screens, an icon-and-popover on others and a compact bar on Tasks; the
    phone sheet (.gs-*) searched different things again. Now the bar and the
    sheet share components/search/useNexusSearch. */
-.hdr-search { position: relative; width: 252px; flex-shrink: 0; transition: width .18s ease-out; }
+.hdr-search { --hdr-search-w: 252px; position: relative; width: var(--hdr-search-w); flex-shrink: 0; transition: width .18s ease-out; }
 /* With room for it, the box grows on focus to the width of its results panel,
    so the panel hangs straight under it (Neil, 11/07/2026). It grows OVER the
    header's center (the negative margin keeps its flex size), so the module
    tabs never refit into More while someone types. */
-@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; margin-left: -188px; z-index: 2; background: var(--card); border-radius: 9px; } }
+@media (min-width: 1440px) { .hdr-search:focus-within { width: 440px; margin-left: calc(var(--hdr-search-w) - 440px); z-index: 2; background: var(--card); border-radius: 9px; } }
 /* ...and it is solid while it does: the bar's own fills are see-through
    (--search-bg-focus, the blue "has text" tint), so without this the module
    tabs it covers read through the typed words. The card color under the same
@@ -4921,7 +4921,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 /* Narrow desktops: the bar gives up a little width and the module tabs drop
    their icons, so a four-tab module and the bar still share the row. */
 @media (max-width: 1180px) {
-  .hdr-search { width: 176px; }
+  .hdr-search { --hdr-search-w: 140px; }
   .hdr-search-kbd { display: none; }
   .hdr-tab { padding: 9px 10px; }
   .hdr-tab svg { display: none; }
@@ -5073,6 +5073,45 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 /* On a computer the rail's clock already says this (Neil, 11/07/2026: one
    clock on Home, not two); the chip stays for phones, which have no rail. */
 @media (min-width: 901px) { .dk-toolbar .dk-session-chip { display: none; } }
+
+/* The clocks under the big one (Neil, 11/13/2026): readable, not decoration -
+   the label dim, the time in ink, the home zone first with a green house. */
+.dk-head-right > .dk-zones { font-size: 13px; color: var(--wk-dim); margin-top: -2px; }
+.dk-head-right > .dk-zones b { color: var(--ink); }
+.dk-zone { white-space: nowrap; }
+.dk-zone-home { display: inline-block; vertical-align: -1px; margin-right: 4px; color: var(--wk-green); }
+.dk-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* No wasted band above the date and the clock (Neil, 11/13/2026): the page
+   starts 18px under the header on a computer, not 36px. */
+@media (min-width: 901px) {
+  .viewport-desk:has(.dk-head) { padding-top: 18px; }
+  .dk-head { padding-top: 0; }
+}
+
+/* ONE Customize (Neil, 11/13/2026): its menu holds Edit Layout, the views and
+   the view's own actions - the view picker and the "..." it replaced. */
+.dk-customize .dk-customize-caret { margin-left: -1px; opacity: .7; transition: transform .16s var(--ease-out, ease-out); }
+.dk-customize[aria-expanded="true"] .dk-customize-caret { transform: rotate(180deg); }
+.dk-cz-menu {
+  width: 272px; padding: 4px; border-radius: 12px; background: var(--card);
+  border: 1px solid var(--wk-line2); box-shadow: 0 18px 50px rgba(17, 24, 39, .18); font-family: var(--wk-font);
+}
+.dk-cz-row {
+  display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px;
+  background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background .12s ease-out;
+}
+.dk-cz-row:hover, .dk-cz-row:focus-visible { background: var(--mist); outline: none; }
+.dk-cz-row.is-danger { color: hsl(var(--color-red)); }
+.dk-cz-ico { flex: 0 0 16px; display: inline-flex; justify-content: center; margin-top: 2px; color: var(--muted); }
+.dk-cz-row.is-on .dk-cz-ico { color: var(--wk-green); }
+.dk-cz-row.is-danger .dk-cz-ico { color: inherit; }
+.dk-cz-words { display: flex; flex-direction: column; min-width: 0; }
+.dk-cz-label { font-size: 13px; font-weight: 600; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-cz-row.is-on .dk-cz-label { color: var(--wk-green); }
+.dk-cz-hint { font-size: 12px; line-height: 1.35; color: var(--muted); }
+.dk-cz-head { padding: 6px 10px 2px 35px; font-size: 12px; font-weight: 600; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-cz-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+@media (max-width: 640px) { .dk-cz-row { padding: 10px; } }
 .dk-session-chip b { font-variant-numeric: tabular-nums; font-weight: 700; }
 [data-theme="dark"] .dk-session-chip { background: var(--card); border-color: var(--line); color: var(--muted); box-shadow: none; }
 [data-theme="dark"] .dk-session-chip--on { color: #4ade80; }
@@ -8568,13 +8607,13 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    dot and a firmer title, the type is a bare 16px line icon, a row's kind
    (Alert, Needs Action) is a small colored word - no tinted cards, colored
    side bars or pill chips. The X shows on hover (always, faintly, on touch). */
-.nx-ntf-sec { display: flex; align-items: center; gap: 6px; padding: 16px 20px 6px 22px; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.nx-ntf-sec { display: flex; align-items: center; gap: 6px; padding: 16px 20px 6px 30px; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
 .nx-ntf-sec-n { font-weight: 600; letter-spacing: 0; color: var(--wk-faint, var(--muted)); font-variant-numeric: tabular-nums; }
 .nx-ntf-row, .nx-ntf-act { position: relative; border-bottom: 1px solid var(--line); transition: background var(--transition-fast); }
-.nx-ntf-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 26px; column-gap: 12px; align-items: start; padding: 12px 12px 12px 22px; cursor: pointer; }
-.nx-ntf-act { padding: 14px 20px 14px 22px; }
+.nx-ntf-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) 26px; column-gap: 12px; align-items: start; padding: 12px 14px 12px 30px; cursor: pointer; }
+.nx-ntf-act { padding: 14px 20px 14px 30px; }
 .nx-ntf-row:hover { background: var(--paper); }
-.nx-ntf-row.is-unread::before, .nx-ntf-act.is-unread::before { content: ''; position: absolute; left: 9px; top: 19px; width: 6px; height: 6px; border-radius: 50%; background: var(--wk-brand); }
+.nx-ntf-row.is-unread::before, .nx-ntf-act.is-unread::before { content: ''; position: absolute; left: 13px; top: 19px; width: 6px; height: 6px; border-radius: 50%; background: var(--wk-brand); }
 .nx-ntf-act.is-unread::before { top: 21px; }
 .nx-ntf-icon { flex-shrink: 0; margin-top: 2px; }
 .nx-ntf-head { display: flex; align-items: baseline; gap: 10px; }
@@ -8664,10 +8703,32 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 /* An action button, not another grey icon (Neil, Oct 30 2026): Nexus green
    with a white bolt, the same green as Notes' New Note, in both themes -
    never yellow or orange (orange means "in progress", DESIGN.md "Live accent"). */
-.icon-btn.qc-btn { background: #00a25b; color: #fff; }
-.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] { background: #008a4c; }
-.icon-btn.qc-btn:active { background: #007a43; }
+/* The bolt (Neil, 11/13/2026): the gradient is on the BOLT (icons/BoltIcon.jsx)
+   and the tile is calm - "the background to look less flashy". A quiet light
+   tile with a hairline edge and a faint lift; hover tints it green and lifts
+   it a pixel, a press settles it. */
+.icon-btn.qc-btn {
+  border-radius: 12px; color: var(--wk-green);
+  background: linear-gradient(180deg, #ffffff 0%, #f2f5f3 100%);
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08), inset 0 1px 0 #fff, 0 1px 2px rgba(15, 23, 42, .06);
+  transition: transform .16s var(--ease-out, ease-out), background .16s ease-out, box-shadow .16s ease-out;
+}
+.icon-btn.qc-btn .qc-bolt { filter: drop-shadow(0 1px 1.5px rgba(0, 70, 38, .18)); }
+.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] {
+  background: linear-gradient(180deg, #f6fdf9 0%, #e7f6ee 100%); transform: translateY(-1px);
+  box-shadow: inset 0 0 0 1px rgba(0, 162, 91, .28), inset 0 1px 0 #fff, 0 3px 8px -2px rgba(0, 122, 67, .22);
+}
+.icon-btn.qc-btn:active { transform: translateY(0); }
 .icon-btn.qc-btn:focus-visible { outline-offset: 2px; }
+[data-theme="dark"] .icon-btn.qc-btn {
+  background: linear-gradient(180deg, #232a26 0%, #1a201c 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 2px rgba(0, 0, 0, .4);
+}
+[data-theme="dark"] .icon-btn.qc-btn:hover, [data-theme="dark"] .icon-btn.qc-btn[aria-expanded="true"] {
+  background: linear-gradient(180deg, #26332c 0%, #1c2620 100%);
+  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, .3), 0 3px 8px -2px rgba(0, 0, 0, .5);
+}
+@media (prefers-reduced-motion: reduce) { .icon-btn.qc-btn, .icon-btn.qc-btn:hover { transform: none; } }
 .qc-btn:focus-visible, .qc-item:focus-visible, .qc-tile:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
 .qc-item:focus { background: var(--sidebar-hover-bg); }
 .header-user-dropdown.qc-menu { width: 320px; max-height: calc(100dvh - 88px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
@@ -10013,17 +10074,39 @@ body:has(.apv-phone) { overflow-x: clip; }
      what the module's name gives it, and a longer label ends in "..." (its
      title says the whole place). Before, "<- Monthly Recurring Expenses" over
      "Accounting" widened the column and pushed every tab right. */
-  .module-bar-back { width: 0; min-width: 100%; }
+  /* ...and never cut to the width of a short module name (Neil, 11/12/2026,
+     navigation review: "<- Da..." over Tasks read as nothing; then "it's
+     getting cropped too much on Team"). It may widen the column up to 220px
+     - "<- Asset Management", "<- Investor Relations", "<- Monthly Recurring
+     Ex..." - and only a longer place ends in "...". */
+  .module-bar-back { width: auto; min-width: 0; max-width: 220px; }
   .module-bar-back span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .module-bar-back svg { flex-shrink: 0; }
+  /* Every place you can go back to in the header says so under the pointer
+     the same way (Neil, 11/12/2026: "it changes color so you see you are
+     clicking on a link. Same like ... the main module name"): the brand
+     color AND the underline, on the Back line and on each crumb of the
+     trail, the module's name included. The Back arrow leans the way it goes. */
   .module-bar-back:hover { color: var(--wk-brand); }
+  .module-bar-back:hover span { text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+  .module-bar-back svg { transition: transform .16s var(--ease-out, ease-out); }
+  .module-bar-back:hover svg { transform: translateX(-2px); }
+  .page-trail--bar button:hover { color: var(--wk-brand); }
   .module-bar-back:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; border-radius: 3px; }
 }
-@media (min-width: 901px) and (max-width: 1439px) {
-  .top-header:has(.module-bar--header .hdr-tabs) .header-user-info { display: none; }
+/* The module's tabs come first in the header (Neil, 11/12/2026, navigation
+   review: "header width" first). Below 1600px the account pill is the photo
+   alone and the search starts at 200px - on EVERY screen, never only on one
+   that has tabs, so the search and the pill stand in the same place whatever
+   the module (Oct 14: "the same size in the same place"). At 1440 with the
+   menu open this gives the tabs about 240px more: all four of Tickets'
+   standing tabs and Other Queues fit. The search still widens to 440px on
+   focus, over the tabs, and Ctrl+F opens it. */
+@media (min-width: 901px) and (max-width: 1599px) {
+  .top-header .header-user-info { display: none; }
 }
-@media (min-width: 1181px) and (max-width: 1439px) {
-  .top-header:has(.module-bar--header .hdr-tabs) .hdr-search { width: 200px; }
+@media (min-width: 1181px) and (max-width: 1599px) {
+  .hdr-search { --hdr-search-w: 200px; }
 }
 @media (max-width: 640px) { .module-actions-row { margin-bottom: 12px; } }
 /* Tasks and Tickets: their tabs ride the top header on a computer too. The
@@ -10606,3 +10689,100 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
   --fs-page:    24px;   /* page titles, greetings */
   --fs-figure:  32px;   /* big numbers */
 }
+
+/* ── Navigation review (Neil, 11/12/2026) ─────────────────────────────── */
+/* Skip to Content: the first Tab stop, out of sight until it has focus. */
+.nx-skip-link {
+  position: fixed; left: 12px; top: 8px; z-index: 10000;
+  padding: 8px 14px; border-radius: 8px;
+  background: var(--wk-brand); color: #fff; font: 600 13px var(--wk-font); text-decoration: none;
+  transform: translateY(-160%);
+}
+.nx-skip-link:focus, .nx-skip-link:focus-visible { transform: none; outline: 2px solid var(--wk-ink); outline-offset: 2px; }
+#nx-main:focus { outline: none; }
+/* Small laptops: the module's tabs sit a little closer, so one more fits
+   beside the menu (Tickets' Unassigned at 1024 with the menu open). */
+@media (min-width: 901px) and (max-width: 1180px) {
+  .module-bar .hdr-tab { padding: 0 8px; }
+  .top-header { padding: 0 16px; gap: 8px; }
+}
+/* Keep the Menu Open: a quiet pin at the end of the open rail's top row. */
+.sidebar-pin {
+  flex-shrink: 0; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 7px; background: none; color: var(--wk-dim); cursor: pointer;
+}
+.sidebar-pin:hover { background: var(--wk-hover); color: var(--wk-ink); }
+.sidebar-pin.is-on { color: var(--wk-brand); }
+.sidebar-pin:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 1px; }
+@media (max-width: 900px) { .sidebar-pin { display: none; } }
+
+/* Add Person (Neil, 11/13/2026): who you are adding is four cards; the one
+   picked is lit in the brand green with a check - never a black block. */
+.ap-kinds { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 8px; }
+.ap-kind {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding: 10px 12px 11px;
+  border: 1px solid var(--wk-line2); border-radius: 10px; background: var(--card); color: var(--ink);
+  font: inherit; text-align: left; cursor: pointer; transition: border-color .12s ease-out, background .12s ease-out;
+}
+.ap-kind:hover { border-color: var(--wk-line); background: var(--mist); }
+.ap-kind:focus-visible { outline: 2px solid var(--wk-green); outline-offset: 1px; }
+.ap-kind-top { display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 4px; color: var(--muted); }
+.ap-kind-label { font-size: 13px; font-weight: 600; line-height: 1.3; }
+.ap-kind-desc { font-size: 12px; line-height: 1.35; color: var(--muted); }
+.ap-kind.is-on { border-color: var(--wk-green); background: color-mix(in srgb, var(--wk-green) 7%, var(--card)); box-shadow: 0 0 0 1px var(--wk-green); }
+.ap-kind.is-on .ap-kind-top { color: var(--wk-green); }
+.ap-kind-check { color: var(--wk-green); }
+/* The folded optional details: one quiet line with a chevron. */
+.ap-more {
+  display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 18px; padding: 12px 0 0; border: 0;
+  border-top: 1px solid var(--line); background: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--ink);
+  text-align: left; cursor: pointer;
+}
+.ap-more > svg { transition: transform .16s var(--ease-out, ease-out); transform: rotate(-90deg); color: var(--muted); }
+.ap-more[aria-expanded="true"] > svg { transform: none; }
+.ap-more:hover { color: var(--wk-green); }
+.ap-more-sync { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font-size: 12px; font-weight: 500; color: var(--muted); }
+
+/* "+ New" (components/NewButton.jsx, Neil 11/13/2026): the one create button
+   across Nexus; its caret turns while the menu is open. */
+.nx-new-btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.nx-new-btn .nx-new-caret { margin-left: -1px; opacity: .85; transition: transform .16s var(--ease-out, ease-out); }
+.nx-new-btn[aria-expanded="true"] .nx-new-caret { transform: rotate(180deg); }
+.nx-new-menu {
+  width: 272px; padding: 4px; border-radius: 10px; background: var(--card); font-family: var(--wk-font);
+  border: 1px solid var(--wk-line2); box-shadow: 0 12px 32px rgba(0, 0, 0, .16);
+}
+.nx-new-item {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px;
+  background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background .12s ease-out;
+}
+.nx-new-item > svg { flex-shrink: 0; margin-top: 1px; color: var(--wk-green); }
+.nx-new-item:hover, .nx-new-item:focus-visible { background: var(--wk-hover, var(--mist)); outline: none; }
+.nx-new-words { display: flex; flex-direction: column; min-width: 0; }
+.nx-new-label { font-size: 13px; font-weight: 600; line-height: 1.35; }
+.nx-new-hint { font-size: 12px; line-height: 1.35; color: var(--muted); }
+.nx-new-sep { height: 1px; margin: 4px 6px; background: var(--wk-line2); }
+@media (max-width: 640px) { .nx-new-menu { width: min(280px, calc(100vw - 32px)); } .nx-new-item { padding: 11px 10px; } }
+
+/* New > From Hiring (people/FromHiringSheet.jsx, Neil 11/13/2026). */
+.fh-group + .fh-group { margin-top: 18px; }
+.fh-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--ink); }
+.fh-count { font-size: 12px; font-weight: 600; color: var(--muted); }
+.fh-hint { margin: 2px 0 8px; font-size: 12px; color: var(--muted); }
+.fh-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px; margin-top: 6px;
+  border: 1px solid var(--wk-line2); border-radius: 10px; background: var(--card); color: var(--ink);
+  font: inherit; text-align: left; cursor: pointer; transition: border-color .12s ease-out, background .12s ease-out;
+}
+.fh-row:hover, .fh-row:focus-visible { border-color: var(--wk-green); background: color-mix(in srgb, var(--wk-green) 5%, var(--card)); outline: none; }
+.fh-avatar { flex: 0 0 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--mist); color: var(--ink); text-transform: uppercase; }
+.fh-words { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fh-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fh-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fh-stage { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; color: hsl(var(--fh-hue)); background: hsla(var(--fh-hue), .1); }
+.fh-go { color: var(--muted); flex-shrink: 0; }
+.fh-empty { padding: 28px 12px; text-align: center; font-size: 13px; color: var(--muted); line-height: 1.6; }
+.fh-empty strong { display: block; color: var(--ink); font-size: 14px; margin-bottom: 2px; }
+/* Every box in Add Person one height - the inputs sat 4px shorter than the selects. */
+.ap-form input.form-input, .ap-form select.form-input { height: 38px; box-sizing: border-box; }
+.nx-new-item:disabled { opacity: .5; cursor: default; background: none; }
