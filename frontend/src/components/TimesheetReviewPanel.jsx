@@ -249,14 +249,19 @@ function TimesheetReviewPanel({ review, self, anchor, periodLabel, nameFor, onCh
   );
 
   let body = null;
+  // submit_blocker's "not before the period's last day" wording (timesheet_review.py).
+  const notYet = /^This period runs through /.test(r.submitBlocker || '');
   const corr = r.correction || {};
   const emp = name(r.employeeEmail) || 'the employee';
   if (r.status === 'not_submitted') {
     if (self) {
       body = (
         <>
-          <p style={{ fontSize: 13, margin: '0 0 8px' }}>Your manager reviews your hours after the period ends, then you sign them. Want them to look sooner? Send it now.</p>
-          {actions(
+          <p style={{ fontSize: 13, margin: '0 0 8px' }}>Your manager reviews your hours after the period ends, then you sign them.{r.submitBlocker ? '' : ' Want them to look sooner? Send it now.'}</p>
+          {/* The period has not ended (phone review, 11/13/2026): say when in
+              one line - no empty note box and no button that cannot work
+              yet. A punch to fix keeps its disabled button and reason (Oct 1). */}
+          {!notYet && actions(
             <span key="n" style={{ display: 'contents' }}>{noteBox('Anything your manager should know? (optional)')}</span>,
             <button key="b" className="primary-btn" disabled={busy || !!r.submitBlocker} title={r.submitBlocker || undefined}
               onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Sent to your manager.')}

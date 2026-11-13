@@ -1509,10 +1509,10 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       </div>
 
       {/* Pipeline stats */}
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 18 }}>
-        {[['card-blue', 'In pipeline', open.length, 'Applied → Offer'],
-          ['card-orange', 'Interviews booked', candidates.filter(c => c.interview && ['scheduled', 'live'].includes(c.interview.status) && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
-          ['card-purple', 'Offers out', byStage('offer').length, 'Awaiting decision'],
+      <div className="kpi-grid nx-stat-strip" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 18 }}>
+        {[['card-blue', 'In Pipeline', open.length, 'Applied → Offer'],
+          ['card-orange', 'Interviews Booked', candidates.filter(c => c.interview && ['scheduled', 'live'].includes(c.interview.status) && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
+          ['card-purple', 'Offers Out', byStage('offer').length, 'Awaiting decision'],
           ['card-green', 'Hired', byStage('hired').length, 'Became employees']].map(([cls, label, value, sub]) => (
           <div key={label} className={`kpi-card ${cls}`}>
             <div className="kpi-label">{label}</div>

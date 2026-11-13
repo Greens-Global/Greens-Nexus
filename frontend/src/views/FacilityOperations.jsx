@@ -304,7 +304,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
       </ModuleActions>
       <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>
         {state.data
-          ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
+          ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically. `}<SyncStatus data={state.data} syncing={refreshing} /></>
           : 'Storage facility figures from Cubby'}
       </p>
       {notice && <p className="ops-note" role="status" style={{ margin: '0 0 12px' }}>{notice}</p>}

@@ -16,6 +16,11 @@ import { AGING, LEAD_STATUS, OFF_MARKET_REASON, agingLabel, attentionItems, coll
 import { mailboxOccupancy, rentedAll, storageOccupancy, storageRent } from './occupancy';
 import { AgingChart, CollectionsChart, Legend, MovesChart, PastDueTrendChart, RentedTrendChart, UnitMixChart } from './charts';
 
+// "12.4% of a month's rent" - or nothing when there is no whole to take a
+// share of, never "- of a month's rent" (phone review, 11/13/2026).
+const share = (p, words) => (p === '-' ? '' : `${p} ${words}`);
+const joinSub = (...parts) => parts.filter(Boolean).join(' - ');
+
 // A KPI is a button: it names where it goes ("Past Due, $8,937. Show tenants past due").
 function Kpi({ label, value, sub, to, onClick }) {
   return (
@@ -160,7 +165,7 @@ export function Overview({ data, facilities, scope, many, range, focus, go, onPi
           sub={renters ? `${money(data.rent.rentRoll / renters)} average per rented unit` : ''}
           to="Show rent by unit type" onClick={() => go('units', 'unit-types')} />
         <Kpi label="Past Due" value={money(data.pastDue.total, { compact: true })}
-          sub={`${count(data.pastDue.tenants)} tenants - ${pct(data.pastDue.total, data.rent.rentRoll)} of a month's rent`}
+          sub={joinSub(`${count(data.pastDue.tenants)} tenants`, share(pct(data.pastDue.total, data.rent.rentRoll), "of a month's rent"))}
           to="Show tenants past due" onClick={() => go('collections', 'past-due')} />
         <Kpi label="On Autopay" value={pct(data.autoPay, renters, 0)}
           sub={`${count(data.autoPay)} of ${count(renters)} rented units`}
@@ -240,16 +245,16 @@ export function Collections({ data, scope, trend, many, range, focus, go }) {
     <>
       <div className="kpi-grid">
         <Kpi label="Past Due" value={money(data.pastDue.total, { compact: true })}
-          sub={`${pct(data.pastDue.total, data.rent.rentRoll)} of a month's rent`}
+          sub={share(pct(data.pastDue.total, data.rent.rentRoll), "of a month's rent")}
           to="Show every tenant past due" onClick={() => go('collections', 'past-due')} />
         <Kpi label="Tenants Past Due" value={count(data.pastDue.tenants)}
-          sub={`${pct(data.pastDue.tenants, data.units.rented)} of rented units`}
+          sub={share(pct(data.pastDue.tenants, data.units.rented), 'of rented units')}
           to="Show every tenant past due" onClick={() => go('collections', 'past-due')} />
         <Kpi label="Older Than 30 Days" value={money(older, { compact: true })}
-          sub={`${pct(older, data.pastDue.total, 0)} of the past-due balance`}
+          sub={share(pct(older, data.pastDue.total, 0), 'of the past-due balance')}
           to="Show tenants with a balance older than 30 days" onClick={() => go('collections', 'past-due', 'older')} />
         <Kpi label="Collected" value={money(stats.collected, { compact: true })}
-          sub={oneMonth ? `${range.label} - ${pct(stats.collected, data.rent.rentRoll, 0)} of the monthly rent roll` : range.label}
+          sub={oneMonth ? joinSub(range.label, share(pct(stats.collected, data.rent.rentRoll, 0), 'of the monthly rent roll')) : range.label}
           to="Show money collected per day" onClick={() => go('collections', 'collected')} />
         <Kpi label="Failed Payments" value={count(stats.failed)} sub={range.label}
           to="Show the failed payments" onClick={() => go('collections', 'failed')} />
@@ -313,13 +318,13 @@ export function Units({ data, many, focus, go }) {
     <>
       <div className="kpi-grid">
         <Kpi label="Vacant Units" value={count(data.units.vacant)}
-          sub={`${pct(data.units.vacant, data.units.rented + data.units.vacant)} of rentable units`}
+          sub={share(pct(data.units.vacant, data.units.rented + data.units.vacant), 'of rentable units')}
           to="Show vacant units by type" onClick={() => go('units', 'unit-types')} />
         <Kpi label="Empty Rent per Month" value={money(data.rent.vacantPotential, { compact: true })}
           sub="Vacant units at today's street rate"
           to="Show empty rent by unit type" onClick={() => go('units', 'unit-types')} />
         <Kpi label="Off Market" value={count(data.units.unavailable)}
-          sub={`${pct(data.units.unavailable, data.units.total)} of storage units cannot be rented`}
+          sub={share(pct(data.units.unavailable, data.units.total), 'of storage units cannot be rented')}
           to="Show the off-market units and why" onClick={() => go('units', 'off-market')} />
         <Kpi label="Under Street Rate" value={money(data.rent.belowStreetGap, { compact: true })}
           sub={`Per month, across ${count(data.rent.belowStreetCount)} tenants`}
@@ -400,7 +405,7 @@ export function Worklist({ data, many, focus, go }) {
           to="Show locks waiting to come off" onClick={() => go('worklist', 'locks-remove')} />
         <Kpi label="Open Tasks" value={count(data.tasks.open)} sub={`${count(data.tasks.overdue)} overdue`}
           to="Show the open tasks" onClick={() => go('worklist', 'tasks')} />
-        <Kpi label="Open Leads" value={count(data.leads.open)} sub={`${pct(data.leads.converted, data.leads.total, 0)} of ${count(data.leads.total)} leads became tenants`}
+        <Kpi label="Open Leads" value={count(data.leads.open)} sub={share(pct(data.leads.converted, data.leads.total, 0), `of ${count(data.leads.total)} leads became tenants`)}
           to="Show the open leads" onClick={() => go('worklist', 'leads')} />
         <Kpi label="Scheduled Move-Outs" value={count(data.moves.movingOut.length)} sub={`${count(data.moves.movingIn.length)} move-ins booked`}
           to="Show scheduled move-outs" onClick={() => go('worklist', 'move-outs')} />

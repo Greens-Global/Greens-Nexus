@@ -10863,3 +10863,38 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
   .mktg-ai-pop { position: fixed !important; left: 12px !important; right: 12px !important; top: auto !important; bottom: 12px; width: auto !important; max-height: 70vh; overflow-y: auto; margin-top: 0 !important; z-index: 1000 !important; }
   .mktg-page-h { display: none; }
 }
+
+/* ── Count tiles on a phone (phone review, 11/13/2026) ─────────────────────────
+   A grid of big count tiles filled the first screen (Credentials, Item
+   Management, Hiring, Checklists) before the list it counts. On a phone they
+   become ONE row of compact pills - label and number - that scrolls sideways
+   and keeps each tile's tap (a filter or a jump). The description line under
+   the number steps aside. */
+@media (max-width: 640px) {
+  .nx-stat-strip, .it-kpis, .cv-kpis.is-five {
+    display: flex !important; flex-wrap: nowrap; gap: 8px; overflow-x: auto; scrollbar-width: none;
+    margin-bottom: 12px !important; padding: 2px 1px 4px;
+  }
+  .nx-stat-strip::-webkit-scrollbar, .it-kpis::-webkit-scrollbar, .cv-kpis.is-five::-webkit-scrollbar { display: none; }
+  .nx-stat-strip > *, .it-kpis > .it-kpi, .cv-kpis.is-five > .cv-kpi {
+    flex: 0 0 auto; display: flex !important; flex-direction: row-reverse !important; align-items: center !important;
+    justify-content: flex-end; gap: 8px !important; min-height: 40px; padding: 6px 14px !important;
+    border-radius: 999px !important; box-shadow: none !important;
+  }
+  /* number first, then the label: "3 Overdue" */
+  .nx-stat-strip .kpi-value, .it-kpi-value, .cv-kpi-value, .nx-stat-value { font-size: 15px !important; line-height: 1.2 !important; }
+  .nx-stat-strip .kpi-label, .it-kpi-label, .cv-kpi-label { font-size: 13px; padding-right: 0 !important; white-space: nowrap; }
+  .nx-stat-strip .kpi-delta, .it-kpi-sub, .cv-kpi-sub, .nx-stat-sub, .nx-stat-icon { display: none !important; }
+  .nx-stat .nx-stat-body { display: flex !important; align-items: center; gap: 8px !important; white-space: nowrap; }
+  .cv-kpi-go { border-radius: 999px; padding: 0; }
+  .cv-kpi-go svg { display: none; }
+  .cv-kpi.is-solid .cv-kpi-label { color: rgba(255,255,255,.9); }
+}
+
+/* Reputation on a phone (phone review, 11/13/2026): the reviews feed is part
+   of the page - a box that scrolls inside the page trapped the thumb - and a
+   review's buttons keep their words on one line, wrapping as whole buttons. */
+@media (max-width: 640px) {
+  .mktg-reviews-feed { max-height: none !important; overflow: visible !important; padding-right: 0 !important; }
+  .mktg-review-actions button { white-space: nowrap; min-height: 36px; }
+}
