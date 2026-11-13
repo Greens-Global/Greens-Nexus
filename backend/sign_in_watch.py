@@ -79,6 +79,11 @@ def person_zone(db, email: str):
         from routers.shift_requests import _saved_settings
         from routers.timeclock import _ZONE_KEY_TZ
         email = (email or "").strip().lower()
+        # The zone the person set for themselves wins (person_zone.py, 11/13/2026).
+        import person_zone as _own_zone
+        own = _own_zone.stored(db, email)
+        if own:
+            return ZoneInfo(own)
         p = (db.query(TimePunch.tz_offset_min).filter(TimePunch.employee_email == email)
              .order_by(TimePunch.at.desc()).first())
         if p is not None and p[0] is not None:

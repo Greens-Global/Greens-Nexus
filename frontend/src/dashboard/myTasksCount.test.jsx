@@ -78,8 +78,8 @@ describe('Open Tasks on Home', () => {
 });
 
 describe('Action Required tile', () => {
-  it('is the old My Day widget under its new name, same key', () => {
-    expect(WIDGETS['my-day'].title).toBe('Action Required');
-    expect(WIDGETS['my-day'].aka).toContain('My Day');   // the gallery search still finds it
+  it('is retired: the key stays for saved boards, hidden from every board and the gallery', () => {
+    expect(WIDGETS['my-day'].retired).toBe(true);
+    expect(WIDGETS['my-day'].hidden).toBe(true);
   });
 });

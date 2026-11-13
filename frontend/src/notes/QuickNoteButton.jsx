@@ -7,7 +7,9 @@
 // read as e.key, so an AltGr letter (Ctrl+Alt on many keyboards, e.g. Polish
 // AltGr+N = ń) is typed as usual and never caught here. Anything can also
 // open it with the `nexus:quick-note` window event. The panel and its editor
-// load on first use, not with the header.
+// load on first use, not with the header. The event may carry words to start
+// with (`detail.seed`, HTML - Share to Nexus, lib/shareTarget.js): the panel
+// writes them at the end of today's note, once.
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { ModalLoading } from '../components/AsyncState';
 import WidgetBoundary from '../components/WidgetBoundary';
@@ -17,10 +19,11 @@ const QuickNotePanel = lazy(() => import('./QuickNotePanel'));
 
 export default function QuickNoteButton() {
   const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
+  const [seed, setSeed] = useState('');
+  const close = useCallback(() => { setOpen(false); setSeed(''); }, []);
   useEffect(() => {
-    const onKey = (e) => { if (isQuickNoteKey(e)) { e.preventDefault(); setOpen((o) => !o); } };
-    const onOpen = () => setOpen(true);
+    const onKey = (e) => { if (isQuickNoteKey(e)) { e.preventDefault(); setSeed(''); setOpen((o) => !o); } };
+    const onOpen = (e) => { setSeed(typeof e?.detail?.seed === 'string' ? e.detail.seed : ''); setOpen(true); };
     window.addEventListener('keydown', onKey);
     window.addEventListener('nexus:quick-note', onOpen);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('nexus:quick-note', onOpen); };
@@ -36,7 +39,7 @@ export default function QuickNoteButton() {
     // A crash in the panel closes it, never the header.
     <WidgetBoundary name="quick-note" resetKey={String(open)}>
       <Suspense fallback={<ModalLoading />}>
-        <QuickNotePanel onClose={close} />
+        <QuickNotePanel onClose={close} seed={seed} />
       </Suspense>
     </WidgetBoundary>
   );

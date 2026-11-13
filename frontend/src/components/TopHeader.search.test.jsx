@@ -148,7 +148,7 @@ describe('TopHeader search', () => {
       window.addEventListener('nexus:navigate', nav);
       header();
       fireEvent.focus(bar());
-      expect(screen.getByText('Pages, tasks, projects, people, items and requests.')).toBeTruthy();
+      expect(screen.getByText('Tasks, tickets, notes, documents, people, pages and actions.')).toBeTruthy();
       fireEvent.change(bar(), { target: { value: 'hilti' } });
       expect(screen.getByText('Items', { selector: '.gs-section' })).toBeTruthy();
       expect(screen.getByText('Hilti Drill')).toBeTruthy();

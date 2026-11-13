@@ -1037,6 +1037,13 @@ class NexusEmployee(Base):
     # appears in scheduling (planner, fills, Late, no-shows, scorecard, trading);
     # team memberships are kept. NULL / 1 = on, the default for everyone.
     on_schedule              = Column(Integer, default=1)
+    # The person's own clock and working hours (11/13/2026), set by them under
+    # My Profile > Date & Time. time_zone is an IANA name; '' = not set, the
+    # Contact Directory keeps inferring it (routers/directory._tz_name).
+    # work_start / work_end are "HH:MM" in that zone; '' = not set.
+    time_zone                = Column(String, default="")
+    work_start               = Column(String, default="")
+    work_end                 = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):

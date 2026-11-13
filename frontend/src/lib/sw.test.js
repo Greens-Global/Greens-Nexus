@@ -29,7 +29,10 @@ function res(body = '', { status = 200, type = 'basic', redirected = false, ct =
     json: async () => JSON.parse(body),
   };
 }
-class FakeResponse { constructor(body, init = {}) { Object.assign(this, res(body, { status: init.status || 200, ct: init.headers?.['Content-Type'] || '' })); } }
+class FakeResponse {
+  constructor(body, init = {}) { Object.assign(this, res(body, { status: init.status || 200, ct: init.headers?.['Content-Type'] || '' })); }
+  static redirect(url, status) { return { status, redirectTo: url }; }
+}
 
 function fakeCaches() {
   const store = new Map();   // name -> Map(url -> response)
@@ -351,6 +354,98 @@ describe('public/sw.js - the kill switch (VITE_OFFLINE_SHELL=off)', () => {
     await waitUntil(ctx.handlers.push, { data: { json: () => ({ title: 'Task Assigned' }) } });
     expect(ctx.self.registration.showNotification).toHaveBeenCalledWith('Task Assigned', expect.anything());
     expect(ctx.self.registration.unregister).not.toHaveBeenCalled();
+  });
+});
+
+describe('public/sw.js - Share to Nexus (the share_target POST)', () => {
+  const file = (name, type, size) => ({ name, type, size, lastModified: 1700000000000 });
+  const shareReq = (fields, { path = '/share-target', method = 'POST', origin = ORIGIN } = {}) => ({
+    url: `${origin}${path}`, method, mode: 'navigate',
+    formData: async () => ({
+      get: (k) => (k in fields && k !== 'files' ? fields[k] : null),
+      getAll: (k) => (k === 'files' ? fields.files || [] : []),
+    }),
+  });
+  const kept = async (ctx) => {
+    const c = ctx.caches.store.get('nexus-share');
+    const meta = c?.get(`${ORIGIN}/__nexus-share/meta`);
+    return meta ? { meta: JSON.parse(meta.body), cache: c } : null;
+  };
+
+  it('keeps the words and files in its own cache and sends the app to /?share=1 with a 303', async () => {
+    for (const source of [built, raw]) {      // with the offline shell, and as the source file (no manifest)
+      const ctx = boot(source);
+      const photo = file('gate.jpg', 'image/jpeg', 2048);
+      const out = await fire(ctx, shareReq({ title: 'Gate', text: 'Keypad is dead', url: 'https://example.com/x', files: [photo] }));
+      expect(out).toEqual({ status: 303, redirectTo: `${ORIGIN}/?share=1` });
+      const { meta, cache } = await kept(ctx);
+      expect(meta).toMatchObject({ title: 'Gate', text: 'Keypad is dead', url: 'https://example.com/x', skipped: 0 });
+      expect(meta.files).toEqual([{ key: '/__nexus-share/file/0', name: 'gate.jpg', type: 'image/jpeg', size: 2048, lastModified: 1700000000000 }]);
+      expect(cache.get(`${ORIGIN}/__nexus-share/file/0`).body).toBe(photo);
+      expect(typeof meta.at).toBe('number');
+      // Nothing was fetched, and no shell or API entry was written.
+      expect(ctx.fetch).not.toHaveBeenCalled();
+      expect([...ctx.caches.store.keys()]).toEqual(['nexus-share']);
+    }
+  });
+
+  it('a new share replaces the last one; empty files, an eleventh file and anything over the size are left out and counted', async () => {
+    const ctx = boot();
+    await fire(ctx, shareReq({ text: 'first', files: [file('a.pdf', 'application/pdf', 10)] }));
+    const many = Array.from({ length: 11 }, (_, i) => file(`p${i}.png`, 'image/png', 100));
+    await fire(ctx, shareReq({ text: 'second', files: [file('empty.txt', 'text/plain', 0), ...many] }));
+    let { meta } = await kept(ctx);
+    expect(meta.text).toBe('second');
+    expect(meta.files.map((f) => f.name)).toEqual(many.slice(0, 10).map((f) => f.name));
+    expect(meta.skipped).toBe(1);
+    await fire(ctx, shareReq({ files: [file('big.pdf', 'application/pdf', 101 * 1024 * 1024), file('ok.pdf', 'application/pdf', 5)] }));
+    ({ meta } = await kept(ctx));
+    expect(meta.files.map((f) => f.name)).toEqual(['ok.pdf']);
+    expect(meta.skipped).toBe(1);
+  });
+
+  it('whatever goes wrong, the answer is still the redirect home - never an error', async () => {
+    const ctx = boot();
+    const bad = { url: `${ORIGIN}/share-target`, method: 'POST', mode: 'navigate', formData: async () => { throw new TypeError('not multipart'); } };
+    expect(await fire(ctx, bad)).toEqual({ status: 303, redirectTo: `${ORIGIN}/?share=1` });
+    expect(await kept(ctx)).toBeNull();
+    // No room for one file: it is counted, the rest is kept.
+    const ctx2 = boot();
+    const open = ctx2.caches.api.open;
+    ctx2.caches.api.open = async (name) => {
+      const c = await open(name);
+      const put = c.put;
+      return { ...c, put: async (k, v) => { if (String(k).endsWith('/file/0')) throw new Error('QuotaExceededError'); return put(k, v); } };
+    };
+    expect((await fire(ctx2, shareReq({ text: 'hi', files: [file('a.png', 'image/png', 5)] }))).status).toBe(303);
+    expect((await kept(ctx2)).meta).toMatchObject({ text: 'hi', files: [], skipped: 1 });
+  });
+
+  it('answers only that one POST: other writes, other paths and other origins still pass', async () => {
+    const ctx = boot();
+    expect(await fire(ctx, shareReq({ text: 'x' }, { path: '/api/share-target' }))).toBe('pass');
+    expect(await fire(ctx, shareReq({ text: 'x' }, { path: '/share-target/more' }))).toBe('pass');
+    expect(await fire(ctx, shareReq({ text: 'x' }, { origin: 'https://evil.example' }))).toBe('pass');
+    expect(await fire(ctx, req('/api/forms/t1/entries', { method: 'POST' }))).toBe('pass');
+    expect(ctx.caches.store.has('nexus-share')).toBe(false);
+  });
+
+  it('with the kill switch on, the share goes to the network like everything else and its cache is emptied', async () => {
+    const shared = fakeCaches();
+    await (await shared.api.open('nexus-share')).put('/__nexus-share/meta', new FakeResponse('{"at":1}'));
+    const ctx = boot(killed, shared);
+    await waitUntil(ctx.handlers.activate, {});
+    expect(shared.store.has('nexus-share')).toBe(false);
+    expect(await fire(ctx, shareReq({ text: 'x' }))).toBe('pass');
+    expect(shared.store.has('nexus-share')).toBe(false);
+  });
+
+  it('a deploy keeps a share that is waiting (activate removes shell caches only)', async () => {
+    const shared = fakeCaches();
+    await (await shared.api.open('nexus-share')).put('/__nexus-share/meta', new FakeResponse('{"at":1}'));
+    const ctx = boot(buildOf({ ...MANIFEST, build: 'z9' }), shared);
+    await waitUntil(ctx.handlers.activate, {});
+    expect(shared.store.has('nexus-share')).toBe(true);
   });
 });
 

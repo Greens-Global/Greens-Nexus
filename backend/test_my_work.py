@@ -178,13 +178,15 @@ class EndpointTests(unittest.TestCase):
         row = next(x for x in out["today"] if x["id"] == t.id)
         self.assertEqual(row, {"kind": "task", "id": t.id, "code": "TASK-9", "title": "Ship it", "project": "Rollout",
                                "dueOn": "2026-10-08", "status": "cs1", "statusLabel": "Awaiting Review",
-                               "priority": "high", "unread": False, "view": "tasks", "sub": "", "taskId": t.id})
+                               "priority": "high", "unread": False, "view": "tasks", "sub": "", "taskId": t.id,
+                               "source": "tasks"})
         child = next(x for x in out["today"] if x["id"] == sub.id)
         self.assertEqual((child["project"], child["statusLabel"]), ("Rollout", "In Progress"))
         trow = out["week"][0]
         self.assertEqual(trow, {"kind": "ticket", "id": tk.id, "code": "000027", "title": "VPN down", "project": "IT",
                                 "dueOn": "2026-10-09", "dueAt": "", "slaPaused": False, "status": "open", "statusLabel": "Open", "priority": "urgent",
-                                "unread": False, "view": "support", "sub": "", "ticketId": tk.id})
+                                "unread": False, "view": "support", "sub": "", "ticketId": tk.id,
+                                "source": "tickets"})
 
     def test_desk_agents_open_tickets_on_the_desk(self):
         import auth
@@ -217,7 +219,7 @@ class EndpointTests(unittest.TestCase):
         out = self._call()
         self.assertEqual(out, {"overdue": [], "today": [], "week": [], "later": [],
                                "counts": {"overdue": 0, "today": 0, "week": 0, "later": 0, "total": 0},
-                               "localDate": TODAY})
+                               "localDate": TODAY, "sources": [], "errors": []})
 
 
 if __name__ == "__main__":

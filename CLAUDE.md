@@ -192,6 +192,62 @@ keep the diff minimal.
   On a phone Approvals is `approvals/ApprovalsPhone.jsx`: one card, two
   decisions, the Filter sheet; the desktop list is unchanged; no bulk
   approve on a phone (Neil, 11/02/2026).
+- **My Work is one list** (Neil, 11/13/2026, `my_work_sources.py`,
+  `GET /me/work`, `dashboard/essentials/MyWork.jsx`): everything that is the
+  caller's OWN to do - tasks, tickets, Yours To Do
+  (`approvals_inbox.yours_to_do`), the Time Sheet to submit
+  (`timesheet_due`, worded by the briefing's `_due_row`), courses assigned
+  and policies to sign - each from its module's own rule, never re-derived.
+  A new kind of personal work registers an `@source` there - never a second
+  "mine" query or another personal list. A decision on someone else's
+  request stays in Approvals; a form is not a source until a form can be
+  assigned. A source that fails is named in `errors` ("Couldn't load
+  Training") - a failed load never looks like an empty list. An approvals
+  source that can make a `scope="act"` row carries `acts=True`
+  (`test_my_work_sources.py` fails one that does not). My Day still empties
+  at midnight; last time's open picks are OFFERED once ("Add to Today" /
+  "Not Today", `POST /tasks/my-day/carry`), never moved by themselves.
+  The Dashboard's Action Required tile (`my-day`) is RETIRED (Neil,
+  11/13/2026) - never bring it back or add another "needs me" tile: the key
+  stays in `widgets.jsx` (hidden, retired) so saved boards load, and a board
+  that had it without My Work gets My Work in its place
+  (`useDashboards.swapRetired`). The Daily Briefing email and My Briefing
+  keep their Action Required section.
+- **Header search finds what you can open** (Neil, 11/13/2026,
+  `components/search/useNexusSearch.js`): besides tasks, jobs, KB and pages
+  it reads tickets (`GET /task-tickets/search?header=true`, the list's own
+  `ListScope` - an Ask HR ticket is found only by its requester or filer and
+  is never kept in Favorites or Recent), notes (`GET /notes/search`, own and
+  shared), the Documents library (`GET /documents/library?q=`, no packet
+  envelopes), people from the curated directory for everyone, and Quick
+  Actions (`quickCreate.findActions`, run by the bolt's own `pick`). Each
+  source reuses its module's access rule and fails quietly by itself; a new
+  source never widens what a person could already open.
+- **Live tickets and kept replies** (11/13/2026): a ticket change pings
+  `task_events` with `kind="ticket"` and nothing else (`ticket_events.py`,
+  SessionLocal hooks in `database.py`, after commit, in a thread, one a
+  second per worker); `TasksContext` routes the ping by `kind` - a ticket
+  ping refetches tickets, a task ping never does. The 60 s poll stays as the
+  fallback. An unsent ticket reply is a draft (`tickets/ticketDrafts.js`
+  over the task draft store: per person, words only, 7 days, cleared on
+  send) - closing the drawer keeps it.
+- **A person's time zone and working hours** (11/13/2026, `person_zone.py`):
+  `nexus_employees.time_zone` / `work_start` / `work_end`, set by the person
+  under My Profile > Date & Time (`PUT /myhr/profile`); every "what is this
+  person's zone" reader prefers the stored zone and infers as before when it
+  is blank. `components/LocalTimeHint.jsx` says "It is 9:40 PM for Priya"
+  under an assignee outside their hours - a quiet line, never a warning.
+  Dark Mode and Theme follow the account (`lib/appearancePrefs.js`, profile
+  prefs `appearance`; localStorage still paints first).
+- **The installed app** (11/13/2026): the manifest carries four shortcuts
+  (`?do=new-task` / `?do=new-ticket` run the bolt's own action after
+  sign-in - `lib/appLaunch.js`), the app icon's badge is the bell's Needs
+  Action count (`lib/appBadge.js`, no new request), and Share to Nexus (the
+  manifest's `share_target`): `public/sw.js` answers the one
+  `POST /share-target`, keeps the words and files in the `nexus-share`
+  cache and sends the app to `/?share=1`, where `ShareToNexus.jsx` starts a
+  ticket, a task or a note through the module's own form. Nothing uploads
+  until that form saves; never route a share through the outbox.
 
 - **Tiers (Neil, 11/02/2026, `docs/Roles.md`):** the role KEYS stay
   `employee | supervisor | manager | administrator | owner` (levels 1-5);
@@ -466,6 +522,12 @@ keep the diff minimal.
   (`task_import.run_import`, `source` paste / typed, a project or none) -
   one transaction, one bell and one batched email per person, the same
   dry run first. Never add a second bulk-create path or loop POST /tasks.
+  A single line typed in Home's add row, My Day or the phone quick-add is
+  read by the Say It parser (`tasks/useTypedTask.js` over `sayTask.js`,
+  rules, no AI - 11/13/2026): the due date, priority and assignee it
+  understood show as removable chips BEFORE Enter (`TypedTaskChips.jsx`),
+  and only a chip on screen is applied - nothing is set silently. My Day
+  reads the date and priority only; the Create Task form keeps its own fields.
   Tasks Home: on a wide window the Updates card leads (left column, first
   in the DOM) and Tasks + Bookmarks stack on the right; a feed that loaded
   empty leaves Tasks on the left; phones stay Tasks, Updates, Bookmarks.
@@ -736,7 +798,7 @@ keep the diff minimal.
 - **"Submit Your Time Sheet" reminders (Neil, 11/12/2026,
   `timesheet_due.py`):** ONE rule for a person's own Time Sheets waiting on
   them, read by the Daily Briefing (Action Required; "With <manager> for
-  Review" under Updates), the Weekly Digest, My Briefing / My Day and the
+  Review" under Updates), the Weekly Digest, My Briefing, My Work and the
   bell. Every pay type (hourly, salaried bi-weekly or monthly, contractors
   incl. India), the person's own local date, a period with a punch in it,
   from the period's last day until it is finalized or the next period

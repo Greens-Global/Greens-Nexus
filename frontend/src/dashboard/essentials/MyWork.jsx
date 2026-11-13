@@ -1,23 +1,28 @@
 // My Work (Essentials, Oct 7) - registered as 'my-work' in widgets.jsx, its
 // own lazy chunk so it loads only when the tile is on the board.
 //
-// "What am I responsible for, and what is due?" - the caller's open tasks and
-// tickets from GET /me/work (routers/my_work.py), already bucketed there into
-// Overdue / Today / This Week / Later so the rule lives in one place. The tile
-// shows the first ROW_CAP rows (overdue first), then hands off to My Tasks.
+// "What is mine to do, and what is due?" - ONE list (Neil, 11/13/2026): the
+// caller's open tasks and tickets, and since then their Yours To Do rows
+// (documents and Time Sheets to sign, items to accept...), the Time Sheet to
+// submit, courses assigned and policies to sign - GET /me/work
+// (backend/my_work_sources.py), already bucketed there into Overdue / Today /
+// This Week / Later so the rule lives in one place. The tile shows the first
+// ROW_CAP rows (overdue first); View All opens the whole list beside the
+// page (MyWorkSheet). With more than one kind of work, chips filter by kind.
 //
 // Actions stay in the tile: Complete finishes a task in place (optimistic,
-// then a refetch), a row opens its task or ticket the way the bell does
+// then a refetch), a row opens the screen that owns it the way the bell does
 // (navigate, then nexus:open-task / nexus:open-ticket with the pending note
-// for a module still loading - lib/openTarget.js), and the header's New Task /
-// Submit a Ticket open the same composers Quick Actions and Support use.
+// for a module still loading, or the row's own link - lib/openTarget.js), and
+// the header's New Task / Submit a Ticket open the same composers Quick
+// Actions and Support use. Nothing else is decided from here.
 //
 // DashCard / navigate come from widgets.jsx, noteStyle from workdayWidgets.jsx.
 // The rows are drawn here rather than with workdayWidgets' Row: that one is a
 // single button, and a Complete button cannot sit inside another button.
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckSquare, Ticket as TicketIcon, Check, ArrowRight, Plus } from 'lucide-react';
+import { CheckSquare, Ticket as TicketIcon, Check, ArrowRight, Plus, ClipboardCheck, FileSignature, Clock, GraduationCap } from 'lucide-react';
 
 import { api } from '../../api';
 import { ModalLoading } from '../../components/AsyncState';
@@ -25,10 +30,15 @@ import { WidgetSkeleton } from '../listParts.jsx';
 import { formatDate, formatTime } from '../../lib/datetime';
 import { pollWhileVisible } from '../../lib/pollWhileVisible';
 import { setPendingOpen } from '../../lib/pendingOpen';
+import { openNotificationTarget } from '../../lib/openTarget';
+import { FS } from '../../lib/typeScale';
 import { useIsMobile } from '../../lib/useIsMobile';
 import { ticketNoShort } from '../../tickets/ticketMeta';
 import { DashCard, navigate } from '../widgets.jsx';
 import { noteStyle } from '../workdayWidgets.jsx';
+import { ROW_CAP, GROUPS, rowKey, pickRows, chipsFor, workSub, errorLine } from './myWorkModel';
+
+export { ROW_CAP, pickRows, workSub };
 
 // The Tasks module's create modal (with its provider) - the same chunk Quick
 // Actions' "New task" pulls in.
@@ -44,53 +54,38 @@ const TicketComposer = lazy(async () => {
   return { default: ({ onClose }) => <TasksProvider><CreateTicketModal onClose={onClose} /></TasksProvider> };
 });
 
-export const ROW_CAP = 7;
+// The whole list, beside the page - its own chunk (it brings the shared Modal).
+const MyWorkSheet = lazy(() => import('./MyWorkSheet.jsx'));
+
 export const REFRESH_MS = 60000;
-const GROUPS = [
-  { key: 'overdue', label: 'Overdue' },
-  { key: 'today', label: 'Today' },
-  { key: 'week', label: 'This Week' },
-  { key: 'later', label: 'Later' },
-];
 // Status word tone - a dot and the word, never a pill (workdayWidgets.Row).
 const STATUS_TONE = {
   not_started: 'muted', open: 'orange', in_progress: 'blue', reopened: 'red',
   waiting_user: 'purple', waiting_vendor: 'purple', on_hold: 'muted', recurring: 'blue',
 };
+// The mark beside a row says what kind of work it is (elements, not
+// components: one picked per row would be a component made during render).
+const KIND_MARK = {
+  task: <CheckSquare size={14} />, ticket: <TicketIcon size={14} />, todo: <ClipboardCheck size={14} />,
+  timesheet: <Clock size={14} />, course: <GraduationCap size={14} />, policy: <FileSignature size={14} />,
+  sign: <FileSignature size={14} />,
+};
+// A Yours To Do row's id is its approvals key ("nexus_sign:<id>"): a document
+// or Time Sheet to sign gets the pen. Anchored - "assignment_accept" has
+// "sign" inside it.
+const markFor = (it) => (it.kind === 'todo' && /^(nexus_sign|timesheet_sign):/.test(String(it.id)) ? KIND_MARK.sign : KIND_MARK[it.kind] || KIND_MARK.task);
 const sectionStyle = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', margin: '10px 8px 4px', display: 'flex', justifyContent: 'space-between' };
 const titleCase = (s) => String(s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
-/** The first `cap` rows across the four groups, overdue first, as sections
- *  with their uncapped counts - so a section header always says how much is
- *  really there even when the tile shows a slice. */
-export function pickRows(data, cap = ROW_CAP) {
-  const counts = data?.counts || {};
-  const out = [];
-  let left = cap;
-  for (const g of GROUPS) {
-    const items = Array.isArray(data?.[g.key]) ? data[g.key] : [];
-    const count = counts[g.key] ?? items.length;
-    if (!count || left <= 0) continue;
-    const slice = items.slice(0, left);
-    left -= slice.length;
-    out.push({ ...g, count, items: slice });
-  }
-  return out;
-}
-
-/** The card's line: what the number is made of. */
-export const workSub = (total) => `${total} Open ${total === 1 ? 'Task or Ticket' : 'Tasks and Tickets'}`;
-
-// A task and a ticket can share a numeric id: every row is keyed by both.
-const rowKey = (it) => `${it.kind || 'task'}:${it.id}`;
 // The fallback spinner goes to <body> like the composers it stands in for -
 // rendered inside the card, a fixed overlay is boxed in by the tile.
 const PortalLoading = () => createPortal(<ModalLoading />, document.body);
 
 const fire = (name, detail) => setTimeout(() => window.dispatchEvent(new CustomEvent(name, { detail })), 0);
 
-/** Open a row where it lives: Tasks (My Tasks) or the ticket's own screen,
- *  then the drawer - the pending note serves a module still downloading. */
+/** Open a row where it lives: Tasks (My Tasks), the ticket's own screen, or
+ *  - for every other kind - the link the server gave it, the way Approvals
+ *  opens a row. The pending note serves a module still downloading. */
 export function openItem(it) {
   if (!it) return;
   if (it.kind === 'ticket') {
@@ -100,14 +95,20 @@ export function openItem(it) {
     fire('nexus:open-ticket', { ticketId: id });
     return;
   }
+  if (it.kind && it.kind !== 'task') {
+    const link = it.link && it.link.view ? it.link : { view: it.view, sub: it.sub };
+    if (!link.view) return;
+    navigate(link.view, link.sub || undefined);
+    openNotificationTarget(link);
+    return;
+  }
   const id = it.taskId || it.id;
   setPendingOpen('task', id);
   navigate(it.view || 'tasks', it.sub || 'mine');
   fire('nexus:open-task', { taskId: id });
 }
 
-function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
-  const Icon = it.kind === 'ticket' ? TicketIcon : CheckSquare;
+export function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
   const tone = overdue ? 'red' : (STATUS_TONE[it.status] || 'blue');
   const color = tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
   const where = it.kind === 'ticket' ? (ticketNoShort(it.code) || it.project) : it.project;
@@ -123,7 +124,7 @@ function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
         style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', minHeight: target, border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--wk-font)', color: 'var(--ink)' }}
         onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--mist)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
-        <span className="dk-chip dk-chip--blue" style={{ width: 28, height: 28, borderRadius: 7, flexShrink: 0 }}><Icon size={14} /></span>
+        <span className="dk-chip dk-chip--blue" style={{ width: 28, height: 28, borderRadius: 7, flexShrink: 0 }}>{markFor(it)}</span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}>
             {it.unread && <span role="img" aria-label="Unread reply" title="Unread reply" style={{ width: 7, height: 7, borderRadius: 99, background: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
@@ -147,6 +148,28 @@ function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
   );
 }
 
+/** The kind chips: All, then one per kind of work with rows. Buttons that
+ *  say which is on (aria-pressed), not tabs - they filter the same list.
+ *  They wrap: a chip scrolled out of sight is a kind of work nobody finds
+ *  (and .scroll-tabs is a sticky page bar on a phone, wrong inside a card). */
+export function WorkChips({ chips, value, onChange, mobile }) {
+  if (!chips.length) return null;
+  return (
+    <div role="group" aria-label="Show" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '0 8px 2px', flexShrink: 0 }}>
+      {chips.map((c) => {
+        const on = value === c.key;
+        return (
+          <button key={c.key} type="button" aria-pressed={on} onClick={() => onChange(c.key)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, padding: '0 10px', minHeight: mobile ? 36 : 26, borderRadius: 99, cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: FS.label, fontWeight: 600, whiteSpace: 'nowrap',
+              border: `1px solid ${on ? 'var(--ink)' : 'var(--line)'}`, background: on ? 'var(--ink)' : 'none', color: on ? 'var(--card)' : 'var(--muted)' }}>
+            {c.label} <span style={{ fontWeight: 500, opacity: 0.8, fontVariantNumeric: 'tabular-nums' }}>{c.count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function MyWork({ phone }) {
   // The grid says when the board is a phone stack; outside it, the viewport.
   const isMobileViewport = useIsMobile();
@@ -155,11 +178,15 @@ export default function MyWork({ phone }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(() => new Set());
   const [composer, setComposer] = useState(null);   // 'task' | 'ticket'
+  const [only, setOnly] = useState('all');          // the kind chip: 'all' or a source key
+  const [sheet, setSheet] = useState(false);        // View All: the whole list beside the page
   const alive = useRef(true);
 
   const load = useCallback(() => api.getMyWork().then((d) => {
     if (!alive.current) return;
     setData(d || { overdue: [], today: [], week: [], later: [], counts: {} });
+    // A chip whose kind emptied out (the last ticket closed) falls back to All.
+    setOnly((o) => (o === 'all' || (d?.sources || []).some((x) => x.key === o && x.count > 0) ? o : 'all'));
     setError('');
   }).catch((e) => {
     if (!alive.current) return;
@@ -231,15 +258,22 @@ export default function MyWork({ phone }) {
     </div>
   );
 
-  const sections = pickRows(data);
+  const chips = chipsFor(data);
+  const sections = pickRows(data, ROW_CAP, only);
   const total = data?.counts?.total ?? sections.reduce((n, s) => n + s.count, 0);
+  // A source that could not load is named - a list that failed never looks
+  // like an empty one.
+  const failed = errorLine(data?.errors);
+  const warn = { ...noteStyle, padding: '4px 8px', color: 'hsl(var(--color-red))', textAlign: 'left' };
   let body;
   if (!data && !error) body = <WidgetSkeleton />;
   else if (!data && error) body = <div style={noteStyle}>{error}</div>;
-  else if (!sections.length) body = <div style={noteStyle}>Nothing due this week.</div>;
+  else if (!sections.length && !chips.length) body = <div style={noteStyle}>{failed || 'Nothing due this week.'}</div>;
   else body = (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-      {error && <div style={{ ...noteStyle, padding: '4px 8px', color: 'hsl(var(--color-red))' }}>{error}</div>}
+      <WorkChips chips={chips} value={only} onChange={setOnly} mobile={mobile} />
+      {error && <div style={warn}>{error}</div>}
+      {failed && <div role="status" style={warn}>{failed}</div>}
       {sections.map((s) => (
         <div key={s.key}>
           <div style={sectionStyle}><span>{s.label}</span><span>{s.count}</span></div>
@@ -249,7 +283,7 @@ export default function MyWork({ phone }) {
           ))}
         </div>
       ))}
-      <button type="button" className="secondary-btn" onClick={() => navigate('tasks', 'mine')}
+      <button type="button" className="secondary-btn" onClick={() => setSheet(true)}
         style={{ marginTop: 'auto', alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 8, minHeight: mobile ? 44 : 0 }}>
         View All <ArrowRight size={13} />
       </button>
@@ -257,14 +291,21 @@ export default function MyWork({ phone }) {
   );
 
   return (
-    // Tasks AND tickets, every due date - not the My Open Tasks number (live
-    // tasks only) or Tasks Home's tiles (tasks only), so it says so (Neil,
-    // 11/05/2026: 50 here read against 35 there). View All opens My Tasks,
-    // which holds no tickets, so it carries no count.
-    <DashCard title="My Work" sub={total ? workSub(total) : undefined} action={actions}>
+    // Everything that is mine, every due date - not the My Open Tasks number
+    // (live tasks only) or Tasks Home's tiles (tasks only), so the line says
+    // what the number is made of (Neil, 11/05/2026: 50 here read against 35
+    // there). View All opens the whole list beside the page; it carries no
+    // count of its own.
+    <DashCard title="My Work" sub={total ? workSub(total, data?.sources) : undefined} action={actions}>
       {body}
       {composer === 'task' && <Suspense fallback={<PortalLoading />}><QuickActionModal kind="task" onClose={closeComposer} /></Suspense>}
       {composer === 'ticket' && <Suspense fallback={<PortalLoading />}><TicketComposer onClose={closeComposer} /></Suspense>}
+      {sheet && (
+        <Suspense fallback={<PortalLoading />}>
+          <MyWorkSheet data={data} only={only} onOnly={setOnly} busy={busy} mobile={mobile} onComplete={complete}
+            onOpen={(it) => { setSheet(false); openItem(it); }} onClose={() => setSheet(false)} />
+        </Suspense>
+      )}
     </DashCard>
   );
 }

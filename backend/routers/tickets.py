@@ -965,13 +965,22 @@ class ListScope:
 
 
 @router.get("/task-tickets/search")
-def search_tickets(q: str = "", limit: int = 6, user: dict = Depends(get_current_user),
-                   db: Session = Depends(get_db)):
+def search_tickets(q: str = "", limit: int = 6, header: bool = False,
+                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Tickets whose subject or code holds `q`, for the [[ record link picker
     (Neil, 11/07/2026). Exactly who sees what in the list above: the company
     wall, the confidential rule, and for a caller off the desk only the
     tickets they are part of (ListScope) - so a search never names a ticket
-    the caller could not open."""
+    the caller could not open.
+
+    `header=true` is the header search (11/13/2026): the same ListScope, so
+    it finds what the list shows this caller and nothing else, with three
+    differences. The caller's OWN Ask HR tickets are found - the ones they
+    raised or filed, as Support lists them; never HR's reading of someone
+    else's. A typed number ("#41", "41") matches the ticket's code. And rows
+    are ranked the search's way - that number exactly, then a subject that
+    starts with the words, then alphabetical - each saying where it opens
+    for this caller (`view`: the desk, or Support)."""
     term = (q or "").strip().lower()
     if len(term) < 2:
         return {"tickets": []}
@@ -982,18 +991,57 @@ def search_tickets(q: str = "", limit: int = 6, user: dict = Depends(get_current
     # subject into a task, note or board other people read (the global hook
     # leaves them out of this query; is_confidential below is the backstop).
     qy = scope.apply(db.query(T_), people=False)
+    if header:
+        # The list's own opt-in (the ones this caller may read); _own_ask_hr
+        # below keeps only the caller's own - nothing HR reads by role.
+        qy = scope.confidential(qy)
     if not scope.desk:
         qy = scope.apply(qy)
     like = f"%{term}%"
-    qy = qy.filter(or_(func.lower(T_.subject).like(like), func.lower(func.coalesce(T_.code, "")).like(like)))
-    rows = []
-    for t in qy.order_by(T_.created_at.desc()).limit(200).all():
-        if scope.admits(t) and not ticket_confidential.is_confidential(t) and term in f"{(t.subject or '').lower()} {(t.code or '').lower()}":
-            rows.append(t)
-        if len(rows) >= limit:
-            break
-    return {"tickets": [{"id": t.id, "code": t.code or "", "subject": t.subject or "", "status": t.status or ""}
-                        for t in rows]}
+    conds = [func.lower(T_.subject).like(like), func.lower(func.coalesce(T_.code, "")).like(like)]
+    number = term.lstrip("#").strip() if header else ""
+    if number and number != term:
+        conds.append(func.coalesce(T_.code, "").like(f"%{number}%"))
+    qy = qy.filter(or_(*conds))
+    if not header:
+        rows = []
+        for t in qy.order_by(T_.created_at.desc()).limit(200).all():
+            if scope.admits(t) and not ticket_confidential.is_confidential(t) and term in f"{(t.subject or '').lower()} {(t.code or '').lower()}":
+                rows.append(t)
+            if len(rows) >= limit:
+                break
+        return {"tickets": [{"id": t.id, "code": t.code or "", "subject": t.subject or "", "status": t.status or ""}
+                            for t in rows]}
+
+    def _own_ask_hr(t) -> bool:
+        return scope.me in ((t.requester_email or "").strip().lower(), (t.created_by_email or "").strip().lower())
+
+    def _exact(t) -> bool:
+        return number.isdigit() and (t.code or "").lstrip("0") == number.lstrip("0")
+
+    def _rank(t) -> tuple:
+        subject = (t.subject or "").lower()
+        return (0 if _exact(t) else 1 if subject.startswith(term) else 2, subject, t.code or "")
+
+    hits = []
+    for t in qy.order_by(T_.created_at.desc()).limit(500).all():
+        if not scope.admits(t):
+            continue
+        if ticket_confidential.is_confidential(t) and not _own_ask_hr(t):
+            continue
+        if term in (t.subject or "").lower() or term in (t.code or "").lower() or (number and number in (t.code or "")):
+            hits.append(t)
+    hits.sort(key=_rank)
+    return {"tickets": [{"id": t.id, "code": t.code or "", "subject": t.subject or "", "status": t.status or "",
+                         "exact": _exact(t),
+                         # An Ask HR ticket (the caller's own): the search opens
+                         # it and keeps no copy of its subject (Favorites, Recent).
+                         "confidential": ticket_confidential.is_confidential(t),
+                         # Where it opens (my_work's rule): the desk for an agent,
+                         # Support for everyone else - and for an Ask HR ticket,
+                         # which is the requester's own (MyHR opens it there too).
+                         "view": "tickets" if scope.desk and not ticket_confidential.is_confidential(t) else "support"}
+                        for t in hits[:limit]]}
 
 
 @router.get("/task-tickets")

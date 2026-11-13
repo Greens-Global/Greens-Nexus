@@ -296,7 +296,9 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   const vidRef = useRef(null);
   const attachRef = useRef(null);
   const scanRef = useRef(null);
-  const [attachments, setAttachments] = useState(seed?.attachments || []);
+  // `initial.files` (Share to Nexus, lib/shareTarget.js): files handed over with the words.
+  const handedFiles = (!fromTask && initial?.files) || [];
+  const [attachments, setAttachments] = useState(seed?.attachments || handedFiles);
   const [photoMenu, setPhotoMenu] = useState(false);
   const photoBtnRef = useRef(null);
   const [ocrBusy, setOcrBusy] = useState(false);

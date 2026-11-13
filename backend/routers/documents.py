@@ -474,7 +474,14 @@ _LIBRARY_SIGNING_ROLES = ("signer", "countersigner", "witness")
 
 
 @router.get("/library")
-def document_library(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def document_library(q: str = "", limit: int = 6,
+                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """`q` is the header search (11/13/2026): the SAME rows, built the same
+    way, then narrowed to the titles that hold the words - so a search can
+    never name a document the library would not list. Ranked the search's
+    way (a title that starts with the words, then alphabetical), `limit` at
+    most. HR packet envelopes are left out of a search: their rows are HR
+    Records' (GET /hr/packet-documents)."""
     import auth
     from routers.esign import _its_their_turn
     me = user["email"].lower()
@@ -573,6 +580,14 @@ def document_library(user: dict = Depends(get_current_user), db: Session = Depen
                     "updatedAt": r.completed_at or r.created_at or "",
                     "linkKind": r.link_kind or "", **envelope_part(r)})
     out.sort(key=lambda x: x.get("updatedAt") or "", reverse=True)
+    needle = (q or "").strip().lower()
+    if needle:
+        if len(needle) < 2:
+            return []
+        hits = [r for r in out if needle in (r.get("title") or "").lower() and r.get("linkKind") != "life_event"]
+        hits.sort(key=lambda r: (0 if (r.get("title") or "").lower().startswith(needle) else 1,
+                                 (r.get("title") or "").lower()))
+        return hits[:max(1, min(int(limit or 6), 20))]
     return out
 
 

@@ -1,6 +1,7 @@
 import { createElement, useEffect, useMemo, useState } from 'react';
-import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users, BookOpen, HardHat, Link2 } from 'lucide-react';
+import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users, BookOpen, HardHat, Link2, StickyNote, PenTool, FileText } from 'lucide-react';
 import { LinkIcon } from '../LinkIcon.jsx';
+import TicketToken from '../icons/TicketToken';
 import { useRole } from '../../contexts/RoleContext';
 import { useInventory } from '../../contexts/InventoryContext';
 import { useRequisitions } from '../../contexts/RequisitionContext';
@@ -8,6 +9,9 @@ import { NAV, isNavItemVisible } from '../Sidebar';
 import { visibleSubs } from '../MobileMenu';
 import { openContact } from '../../lib/contactNav';
 import { openPersonTasks } from '../../lib/personTasksNav';
+import { setPendingOpen } from '../../lib/pendingOpen';
+import { formatDate } from '../../lib/datetime';
+import { visibleActions, findActions, runQuickAction } from '../../lib/quickCreate';
 import { api } from '../../api';
 import { useTableValue } from '../../tasks/tableCols';
 
@@ -20,16 +24,32 @@ import { useTableValue } from '../../tasks/tableCols';
 //                content through /tasks search (debounced, 2+ characters).
 //   Jobs       - construction jobs (work orders and projects) through
 //                /construction/search, walled like the module (11/03/2026).
+//   Tickets / Notes / Documents - everything else a person can open
+//                (11/13/2026), each asked of its own module, which answers
+//                with its own list's access rule: tickets by subject or
+//                number (the ticket list's scope; a typed number that is a
+//                ticket's leads the results), notes and boards (own and
+//                shared), the Documents library by title. Asked only of a
+//                module the person can open.
 //   Items / Checkouts / Purchase Requests - from the data the app already
 //                holds in its contexts (local, instant).
 //   Links      - the company links and the person's Personal Links
 //                (11/08/2026), loaded once per session while a search is
 //                typed; a pick opens the site in a new tab and records the
 //                click the way the Links page does.
+//   Quick Actions - the bolt's own actions by name (lib/quickCreate.js: its
+//                list, its visibility rule; a pick runs through the bolt).
+//                "time off" offers Request Time Off. Above Pages - and above
+//                everything once the typed text is plainly an action's name
+//                ("new ti", "request t").
 //   Pages      - the sidebar's screens and their sections, visible exactly
 //                when the sidebar shows them (local, instant). Last, so
 //                Enter on a typed title opens the thing, not the module
 //                whose name happens to contain the same letters.
+//
+// People are for everyone (11/13/2026): the Task module's search needs the
+// Tasks grant, so the People group also reads the curated Nexus People
+// directory (/myhr/directory - never an M365 list), each person once.
 //
 // Favorites and Recents (Neil, 11/07/2026): with nothing typed, the search
 // opens on the person's starred results and the last ones they opened. Each
@@ -41,7 +61,7 @@ import { useTableValue } from '../../tasks/tableCols';
 // name.
 
 export const SEARCH_PLACEHOLDER = 'Search Nexus';
-export const SEARCH_HINT = 'Pages, tasks, projects, people, items and requests.';
+export const SEARCH_HINT = 'Tasks, tickets, notes, documents, people, pages and actions.';
 export const SEARCH_LABEL = 'Search Nexus';
 const MIN_CONTENT_CHARS = 2;
 const CONTENT_GROUPS = [
@@ -54,6 +74,66 @@ const CONTENT_GROUPS = [
 ];
 const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [], jobs: [] };
 const JOB_TYPE_LABEL = { work_order: 'Work Order', project: 'Project' };
+const DEBOUNCE_MS = 180;
+const NONE = [];
+const PEOPLE_MAX = 6;
+
+// One server source (11/13/2026): asked once the typing pauses, its answer
+// kept WITH the term it answers (never shown for other text), and a failure
+// is an empty answer - one source that is down never blanks the others.
+// `ask` may throw; nothing here retries (api.js already does).
+function useSource(term, want, ask) {
+  const [answer, setAnswer] = useState({ term: '', rows: NONE });
+  useEffect(() => {
+    if (!want) return undefined;
+    let live = true;
+    const id = setTimeout(() => {
+      Promise.resolve().then(() => ask(term))
+        .then((rows) => { if (live) setAnswer({ term, rows: Array.isArray(rows) ? rows : NONE }); })
+        .catch(() => { if (live) setAnswer({ term, rows: NONE }); });
+    }, DEBOUNCE_MS);
+    return () => { live = false; clearTimeout(id); };
+  }, [term, want]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ready = !want || answer.term === term;
+  return { rows: want && answer.term === term ? answer.rows : NONE, ready };
+}
+
+// The directory's people a search names - by name or email, a name that
+// starts with the words first, then alphabetical (the Task search's rule).
+function matchPeople(list, term) {
+  const q = term.toLowerCase();
+  const first = (p) => (p.name.toLowerCase().startsWith(q) ? 0 : 1);
+  return (Array.isArray(list) ? list : [])
+    .filter((p) => p?.email && (String(p.name || '').toLowerCase().includes(q) || String(p.email).toLowerCase().includes(q)))
+    .map((p) => ({ email: p.email, name: p.name || p.email }))
+    .sort((a, b) => first(a) - first(b) || a.name.localeCompare(b.name));
+}
+
+// Mirrors of tickets/ticketMeta (ticketNoShort, the status words) and
+// notes/notesModel (noteTitle), kept local so the header never imports
+// those modules.
+const TICKET_STATUS_LABELS = {
+  new: 'Open', open: 'Open', in_progress: 'In Progress', waiting_user: 'Waiting for User', waiting: 'Waiting for User',
+  waiting_vendor: 'Waiting for Vendor', on_hold: 'On Hold', reopened: 'Reopened', resolved: 'Resolved', closed: 'Closed',
+};
+const ticketNo = (code) => { const digits = String(code || '').replace(/\D/g, ''); return digits ? `#${Number(digits)}` : ''; };
+const noteTitle = (n) => (n.title || '').trim() || (n.kind === 'daily' ? 'Daily Scratchpad' : n.kind === 'board' ? 'Untitled Board' : 'Untitled Note');
+
+// A ticket opens the way the bell and My Work open it: the note for a module
+// still loading, the view, then the live event (lib/pendingOpen.js).
+const openTicket = (id, view) => {
+  setPendingOpen('ticket', id);
+  navigate(view);
+  setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId: id } })), 0);
+};
+// A document opens beside the library's list, where the library opens it
+// (components/DocumentsBrowser.jsx drains the note or hears the event).
+const DOCUMENT_OPEN_EVENT = 'nexus:open-document';
+const openDocument = (id) => {
+  setPendingOpen('document', id);
+  navigate('documents', 'documents-browse');
+  setTimeout(() => window.dispatchEvent(new CustomEvent(DOCUMENT_OPEN_EVENT, { detail: { id } })), 0);
+};
 
 // Mirror of InventoryManagement's displayStatus labels, kept local so this
 // never imports the 8k-line view (and the module -> search import cycle).
@@ -89,12 +169,14 @@ function useQaEnabled(enabled) {
 const FAV_MAX = 12;
 const RECENT_MAX = 8;
 const EMPTY_SAVED = { favorites: [], recents: [] };
-const SAVED_ICON = { task: Check, job: HardHat, person: User, item: Package, checkout: ClipboardList, request: ShoppingCart, kb: BookOpen, page: LayoutDashboard, link: Link2 };
+const SAVED_ICON = { task: Check, job: HardHat, person: User, item: Package, checkout: ClipboardList, request: ShoppingCart, kb: BookOpen, page: LayoutDashboard, link: Link2, ticket: TicketToken, note: StickyNote, board: PenTool, document: FileText };
 // What the store hands back is the person's own JSON: only well-formed entries count.
 const cleanTo = (to) => {
   if (!to || typeof to !== 'object') return null;
   if (typeof to.task === 'string' && to.task) return { task: to.task.slice(0, 100) };
   if (typeof to.person === 'string' && to.person.includes('@')) return { person: to.person.slice(0, 200), name: String(to.name || '').slice(0, 200) };
+  if (typeof to.ticket === 'string' && to.ticket) return { ticket: to.ticket.slice(0, 100), view: to.view === 'tickets' ? 'tickets' : 'support' };
+  if (typeof to.doc === 'string' && to.doc) return { doc: to.doc.slice(0, 120) };
   if (typeof to.view === 'string' && /^[a-z0-9-]{1,40}$/i.test(to.view)) return { view: to.view, sub: typeof to.sub === 'string' ? to.sub.slice(0, 300) : undefined };
   if (typeof to.url === 'string' && /^https?:\/\//i.test(to.url)) return { url: to.url.slice(0, 2000), link: typeof to.link === 'string' ? to.link.slice(0, 40) : undefined };
   return null;
@@ -141,7 +223,8 @@ const cleanList = (list, max) => (Array.isArray(list) ? list.map(cleanEntry).fil
 const navigate = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub: sub ?? undefined } }));
 
 export function useNexusSearch(query, { enabled = true } = {}) {
-  const { myRole, isExternal, can, canAccessModule, myGrantedModules, myEmail } = useRole();
+  const role = useRole();
+  const { myRole, isExternal, can, canAccessModule, myGrantedModules, myEmail } = role;
   const { items = [], checkouts = [] } = useInventory() || {};
   const { requisitions = [] } = useRequisitions() || {};
   const q = (query || '').trim().toLowerCase();
@@ -220,7 +303,22 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     return () => { live = false; clearTimeout(id); };
   }, [term, wantContent]);
   const kbRows = wantContent && kbAnswer.term === term ? kbAnswer.rows : [];
-  const searching = wantContent && (answer.term !== term || kbAnswer.term !== term || jobAnswer.term !== term);
+  // Tickets, notes, documents and people (11/13/2026) - each asked only of a
+  // module this person can open, by the rule that opens it: the left menu's
+  // for Tickets / Help Center and the Dashboard, the Documents tabs' own
+  // grant check (views/Documents.jsx), company staff for the directory.
+  const navOk = (view) => { const n = NAV.find((x) => x.view === view); return !!n && isNavItemVisible(n, { isExternal, can, myGrantedModules, qaEnabled }); };
+  const onDesk = navOk('tickets');
+  const tickets = useSource(term, wantContent && (onDesk || navOk('support')),
+    (t) => api.searchTicketsEverywhere(t, 5).then((r) => r?.tickets));
+  const notes = useSource(term, wantContent && navOk('dashboard'),
+    (t) => api.searchNotes(t, 5).then((r) => r?.notes));
+  const docs = useSource(term, wantContent && navOk('documents') && (!canAccessModule || !!canAccessModule('documents', 'administrator')),
+    (t) => api.searchDocumentLibrary(t, 5));
+  const directory = useSource(term, wantContent && !isExternal,
+    (t) => api.getPeopleDirectory().then((r) => matchPeople(r, t)));
+  const searching = wantContent && (answer.term !== term || kbAnswer.term !== term || jobAnswer.term !== term
+    || !tickets.ready || !notes.ready || !docs.ready || !directory.ready);
 
   const groups = useMemo(() => {
     if (!live) return [];
@@ -231,9 +329,16 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     const add = (key, label, rows, note = '') => { if (rows.length) out.push({ key, label, rows, note }); };
 
     const toTasks = (sub) => navigate('tasks', sub);
+    // People: the Task module's answer as it came, then the directory's
+    // matches it did not carry - a person is listed once.
+    const taskPeople = hits.people || [];
+    const named = new Set(taskPeople.map((p) => String(p.email || '').toLowerCase()));
+    const morePeople = directory.rows.filter((p) => !named.has(p.email.toLowerCase()));
+    const people = [...taskPeople, ...morePeople.slice(0, Math.max(0, PEOPLE_MAX - taskPeople.length))];
+    const peopleTotal = Math.max(hits.totals?.people || 0, taskPeople.length) + morePeople.length;
     for (const g of CONTENT_GROUPS) {
-      const list = hits[g.key] || [];
-      const total = hits.totals?.[g.key] || 0;
+      const list = g.key === 'people' ? people : (hits[g.key] || []);
+      const total = g.key === 'people' ? peopleTotal : (hits.totals?.[g.key] || 0);
       const rows = list.map((item) => {
         if (g.key === 'tasks') return {
           key: `task:${item.id}`, Icon: Check, title: item.title, done: !!item.completed,
@@ -271,6 +376,37 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       }
       add(g.key, g.label, rows, note);
     }
+
+    const ticketRows = tickets.rows.map((t) => {
+      // The server says where it opens; the desk only for someone the left menu gives it to.
+      const view = t.view === 'tickets' && onDesk ? 'tickets' : 'support';
+      return {
+        key: `ticket:${t.id}`, Icon: TicketToken, title: t.subject || 'Untitled Ticket',
+        detail: [ticketNo(t.code), TICKET_STATUS_LABELS[t.status] || statusLabel(t.status)].filter(Boolean).join(' · '),
+        // An Ask HR ticket is found and opened, never kept: its subject is
+        // not copied into Favorites or Recent.
+        save: t.confidential ? undefined : { kind: 'ticket', to: { ticket: String(t.id), view } },
+        run: () => openTicket(t.id, view),
+      };
+    });
+    add('tickets', 'Tickets', ticketRows);
+
+    add('notes', 'Notes', notes.rows.map((n) => {
+      const board = n.kind === 'board';
+      return {
+        key: `note:${n.id}`, Icon: board ? PenTool : StickyNote, title: noteTitle(n),
+        detail: [board ? 'Board' : 'Note', n.kind === 'daily' && n.day ? formatDate(n.day) : '', n.mine ? '' : 'Shared With You'].filter(Boolean).join(' · '),
+        save: { kind: board ? 'board' : 'note', to: { view: 'dashboard', sub: `notes:${n.id}` } },
+        run: () => navigate('dashboard', `notes:${n.id}`),
+      };
+    }));
+
+    add('documents', 'Documents', docs.rows.map((d) => ({
+      key: `doc:${d.id}`, Icon: FileText, title: d.title || 'Untitled Document', tag: d.status === 'archived' ? 'Archived' : '',
+      detail: [d.docKind === 'sheet' ? 'Sheet' : d.kind === 'envelope' ? 'Nexus Sign' : 'Document', d.forName, d.company].filter(Boolean).join(' · '),
+      save: { kind: 'document', to: { doc: String(d.id) } },
+      run: () => openDocument(String(d.id)),
+    })));
 
     const itemRows = [];
     for (const i of items) {
@@ -342,13 +478,26 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     }
     add('links', 'Links', linkRows);
 
+    // Quick Actions: the bolt's list for this person, run through the bolt.
+    // Not saved to Favorites or Recent - an action is not a record.
+    const actions = findActions(visibleActions(role), term);
+    add('actions', 'Quick Actions', actions.map(({ item }) => ({
+      key: `action:${item.key}`, Icon: item.Icon, title: item.label,
+      run: () => runQuickAction(item.key),
+    })));
+
     add('pages', 'Pages', screens.filter(s => match(s.label, s.context, s.view)).slice(0, 6).map(s => ({
       key: `page:${s.view}:${s.sub || ''}`, Icon: LayoutDashboard, title: s.label, detail: s.context,
       save: { kind: 'page', to: { view: s.view, sub: s.sub || undefined } },
       run: () => navigate(s.view, s.sub),
     })));
+    // What leads: a typed ticket number that is a ticket's, and an action
+    // whose name is plainly what was typed. Everything else keeps its place.
+    const lead = (key) => { const i = out.findIndex((g) => g.key === key); if (i > 0) out.unshift(...out.splice(i, 1)); };
+    if (tickets.rows[0]?.exact) lead('tickets');
+    if (actions[0]?.starts) lead('actions');
     return out;
-  }, [live, q, query, screens, hits, kbRows, items, checkouts, requisitions, isManager, myEmail, canTasks, links]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live, q, query, term, screens, hits, kbRows, items, checkouts, requisitions, isManager, myEmail, canTasks, links, tickets.rows, notes.rows, docs.rows, directory.rows, onDesk, myRole, isExternal, myGrantedModules]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Favorites and Recents ────────────────────────────────────────────────
   const [savedRaw, setSaved] = useTableValue('search', 'data', EMPTY_SAVED);
@@ -361,6 +510,10 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId: to.task } })), 0);
     } else if (to.person) {
       if (canTasks) openPersonTasks(to.person, to.name); else openContact(to.person);
+    } else if (to.ticket) {
+      openTicket(to.ticket, to.view === 'tickets' && onDesk ? 'tickets' : 'support');
+    } else if (to.doc) {
+      openDocument(to.doc);
     } else if (to.url) {
       openSite(to.url, to.link);
     } else navigate(to.view, to.sub);
@@ -389,7 +542,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     const recent = recents.filter((r) => !favKeys.has(r.key));
     if (recent.length) out.push({ key: 'recents', label: 'Recent', rows: recent.map(toRow), note: '' });
     return out;
-  }, [enabled, live, favorites, recents, favKeys, canTasks]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled, live, favorites, recents, favKeys, canTasks, onDesk]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const shown = live ? groups : savedGroups;
   const rows = useMemo(() => shown.flatMap(g => g.rows), [shown]);
