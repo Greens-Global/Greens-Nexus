@@ -30,12 +30,13 @@ import { numberFootnotes } from '../lib/docFootnote';
 import { useTableValue } from '../tasks/tableCols';
 import NavigationPane from './docRibbon/NavigationPane';
 import RibbonDisplay from './docRibbon/RibbonDisplay';
+import { DocPhoneBar, PhoneMenuSheet } from './docRibbon/PhoneBar';
 import { ParagraphDialog, FontDialog } from './docRibbon/Dialogs';
 import KeyTips from './docRibbon/KeyTips';
 import VariablesPane from './docRibbon/VariablesPane';
 import { WordCountDialog, AccessibilityDialog } from './docRibbon/WordCountDialog';
 import { countWords, accessibilityIssues, headingsOf } from './docRibbon/docStats';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import CommentsPane from './docComments/CommentsPane';
 import { useDocComments } from './docComments/useDocComments';
 import { commentAnchorEl } from '../lib/docCommentMark';
@@ -476,6 +477,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   // 36-button ribbon and a thumbnail rail - none of which fit a 375px screen
   // as authored, so each is given a phone form rather than being hidden.
   const isMobile = useIsMobile();
+  // On a phone (Neil, 11/13/2026) the ribbon waits until it is asked for (All
+  // Formatting, or a menu command that opens one of its boxes) and the menu
+  // bar is the More sheet - docRibbon/PhoneBar.jsx.
+  const [phoneRibbon, setPhoneRibbon] = useState(false);
+  const [phoneMenu, setPhoneMenu] = useState(null);   // null = closed, '' = the menus, 'Insert' = that menu
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
@@ -2830,7 +2836,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const setMarginInches = (side, inches) => {
     updatePageSetup({ margins: 'custom', marginIn: { ...marginsOf(pageSetup), [side]: inches } });
   };
-  const openOnRibbon = (tab, open) => { setRibbonCollapsed(false); setRibbonTab(tab); open?.(); };
+  const openOnRibbon = (tab, open) => { setRibbonCollapsed(false); if (isMobile) setPhoneRibbon(true); setRibbonTab(tab); open?.(); };
   const keyTipTab = keyTipTabRef.current;
   const pageBreak = () => ed?.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run();
   const linkCmd = () => openOnRibbon('insert', toggleLinkPopover);
@@ -3271,7 +3277,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   };
 
   return (
-    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}${fieldShading ? '' : ' doc-fields-plain'}${previewResults ? ' doc-previewing' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
+    <div className={`nx-docb${isMobile ? ' is-phone' : ''}${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}${fieldShading ? '' : ' doc-fields-plain'}${previewResults ? ' doc-previewing' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
       {/* The header, Word / Google Docs style (Neil, 11/10/2026): Close, the
           file's mark, its name (typed in place; "Untitled Document" until it
           has one), the save state, then the actions. */}
@@ -3293,7 +3299,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           {SAVE_LABEL[saveStatus]}
         </span>
         {/* Word's Quick Access: Undo and Redo beside the name (11/11/2026). */}
-        {!preview && activeEditor && (
+        {!preview && activeEditor && !isMobile && (
           <span className="nx-docb-qat" role="group" aria-label="Quick Access">
             <button type="button" className="nx-docb-qbtn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!editing || !activeEditor.can().undo()}
               onMouseDown={(e) => e.preventDefault()} onClick={() => activeEditor.chain().focus().undo().run()}><Undo size={15} /></button>
@@ -3302,7 +3308,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </span>
         )}
         </div>
-        {!preview && activeEditor && <MenuBar menus={docMenus} />}
+        {!preview && activeEditor && !isMobile && <MenuBar menus={docMenus} />}
         </div>
         {live && <LivePeople peers={live.peers} status={live.status} />}
         {!preview && !isMobile && (
@@ -3311,7 +3317,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             <MessageSquare size={14} /> Comments
           </button>
         )}
-        {kind === 'document' && doc?.access && (
+        {kind === 'document' && doc?.access && !isMobile && (
           <button type="button" className="nx-docb-hbtn nx-docb-compact" title="Share" onClick={() => setShareOpen(true)}>
             <Users size={14} /> Share
           </button>
@@ -3352,15 +3358,17 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         {kind === 'document' && !preview && (
           <button onClick={() => { setPreview(true); openPdfPreview(); }} disabled={pdfPreviewLoading}
             className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, opacity: pdfPreviewLoading ? 0.6 : 1 }}>
-            {pdfPreviewLoading ? <Spinner size={14} /> : <Send size={14} />} Preview & Send
+            {pdfPreviewLoading ? <Spinner size={14} /> : <Send size={14} />} {isMobile ? 'Send' : 'Preview & Send'}
           </button>
         )}
         {kind === 'document' && preview && (
           <>
+            {!isMobile && (
             <button onClick={() => window.print()} title="Print"
               className="nx-docb-hbtn">
               <Printer size={14} /> Print
             </button>
+            )}
             <button onClick={saveAsTemplate} disabled={savingTemplate} title="Save as Template"
               className="nx-docb-hbtn" style={{ opacity: savingTemplate ? 0.6 : 1 }}>
               {savingTemplate ? <Spinner size={14} /> : <FileStack size={14} />} Save as Template
@@ -3373,10 +3381,12 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               className="nx-docb-hbtn" style={{ opacity: exporting ? 0.6 : 1 }}>
               <FileDown size={14} /> {exporting === 'docx' ? 'Exporting…' : 'Export DOCX'}
             </button>
+            {!isMobile && (
             <button onClick={openInWord} disabled={!!exporting} title="Open in Word on this computer to keep editing"
               className="nx-docb-hbtn" style={{ opacity: exporting ? 0.6 : 1 }}>
               <PageIcon size={14} /> {exporting === 'word' ? 'Opening…' : 'Open in Word'}
             </button>
+            )}
             <button onClick={doSendForSignature} disabled={!!exporting} title="Send for Signature"
               className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, opacity: exporting ? 0.6 : 1 }}>
               <Send size={14} /> {exporting === 'send' ? 'Preparing…' : 'Send for Signature'}
@@ -3393,10 +3403,20 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             {preview ? <EyeOff size={14} /> : <Eye size={14} />} {preview ? 'Edit' : 'Preview'}
           </button>
         )}
+        {isMobile ? (
+          /* The phone's whole menu bar - Share, Version History and every
+             command - is this one sheet. */
+          !preview && activeEditor && (
+            <button type="button" onClick={() => setPhoneMenu('')} title="File, Edit, Insert and the rest" aria-label="Document Menu" className="nx-docb-hbtn is-icon">
+              <MoreHorizontal size={18} />
+            </button>
+          )
+        ) : (<>
         <button onClick={openHistory} title="Version History" aria-label="Version History" className="nx-docb-hbtn is-icon">
           <History size={16} />
         </button>
         <FullScreenButton on={full} onToggle={toggleFull} className="nx-docb-hbtn nx-docb-compact" />
+        </>)}
       </div>
 
       {kind === 'document' && preview ? (
@@ -3419,6 +3439,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       <>
       {!preview && activeEditor && (
         <div className="doc-ribbon-sticky">
+          {(!isMobile || phoneRibbon) && (
           <div className="doc-ribbon-tabs" role="tablist">
             {/* Word's tabs (11/11/2026). File and Help are the menu bar's: its
                 File and Help menus hold every command those two tabs had. */}
@@ -3440,8 +3461,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               <button type="button" role="tab" data-tab="shape" aria-selected={shownTab === 'shape'} onClick={() => { setRibbonCollapsed(false); setRibbonTab('shape'); }}
                 className={`doc-ribbon-tab is-context${shownTab === 'shape' ? ' is-active' : ''}`}>Shape Format</button>
             )}
-            <RibbonDisplay mode={ribbonMode} onMode={setRibbonMode} onToggle={toggleRibbon} />
+            {isMobile
+              ? <button type="button" className="doc-ribbon-done" onClick={() => setPhoneRibbon(false)}>Done</button>
+              : <RibbonDisplay mode={ribbonMode} onMode={setRibbonMode} onToggle={toggleRibbon} />}
           </div>
+          )}
         {isLocked && (
           /* Requirement 7 made visible. The server refuses the write either
              way; this says WHY the page will not take a keystroke, and offers
@@ -3474,7 +3498,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         )}
         {/* One row, never wrapped (Neil, 11/10/2026): groups that do not fit
             go into More at the end (docRibbon/ui.jsx RibbonBar). */}
-        {!ribbonCollapsed && <RibbonBar tabKey={shownTab} className={ribbonMode === 'simplified' ? 'is-simplified' : ''} role="toolbar" aria-label={`${shownTab} ribbon`} render={() => (<>
+        {(isMobile ? phoneRibbon : !ribbonCollapsed) && <RibbonBar tabKey={shownTab} scroll={isMobile} className={ribbonMode === 'simplified' ? 'is-simplified' : ''} role="toolbar" aria-label={`${shownTab} ribbon`} render={() => (<>
           {shownTab === 'home' && (
           <>
           <Group label="Clipboard">
@@ -4415,7 +4439,12 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         </div>
       )}
 
-      {!preview && (
+      {isMobile && !preview && editing && activeEditor && !phoneRibbon && phoneMenu === null && (
+        <DocPhoneBar ed={activeEditor} editing={editing} onPicture={() => fileInputRef.current?.click()}
+          onLink={linkCmd} onPageBreak={pageBreak} onAllFormatting={() => openOnRibbon('home')} />
+      )}
+      {phoneMenu !== null && <PhoneMenuSheet menus={docMenus} startAt={phoneMenu} onClose={() => setPhoneMenu(null)} />}
+      {!preview && !isMobile && (
         <StatusBar page={(sheetStarts[pages.findIndex(p => p.id === activePageId)] || 0) + 1} pages={totalSheets}
           words={countWords([...editorsRef.current.values()]).words} zoom={zoom} setZoom={setZoom}
           onFit={zoomToFit} onPageWidth={zoomToPageWidth} onWordCount={() => setWordCountOpen(true)}

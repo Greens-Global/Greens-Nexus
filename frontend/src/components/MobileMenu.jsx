@@ -5,8 +5,7 @@ import { BFF_MODE, bffLogout } from '../bffAuth';
 import { useRole } from '../contexts/RoleContext';
 import { NAV } from './Sidebar';
 import { orderNav, railSections, KICKERS } from './navOrder';
-import { useTimeclock, openTimeClock } from '../lib/timeclockStore';
-import { SessionChip } from '../dashboard/SessionChip';
+import SidebarClock from './SidebarClock';
 import { useActionCounts, moduleCount, countText, countDetail } from '../lib/useActionCounts';
 import NavCount from './NavCount';
 import NavMore from './NavMore';
@@ -156,7 +155,6 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   // Above the early return: hooks run on every render.
   const menuRef = useRef(null);
   const [offscreen, reveal] = useOffscreenCounts(menuRef, [counts, open]);
-  const clock = useTimeclock();   // the time clock chip at the top (nothing for an exempt person)
   if (!open) return null;
 
   // X slides the whole menu back out to the left before unmounting
@@ -264,8 +262,13 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
           and the close button, then the modules. The header's own photo
           is still the way to your profile. */}
       <div className="mobile-menu-head">
+        {/* The web's own clock (Neil, 11/13/2026: "use a similar time clock
+            style as the web app with the icons"): the sidebar's ClockChip -
+            the state, the live ring and times, Punch In / Break / Punch Out as
+            icons - the same component, never a phone copy. Nothing for an
+            exempt person. */}
         <div className="mobile-menu-clock">
-          <SessionChip mine={clock} onOpen={() => { onClose(); openTimeClock(); }} />
+          <SidebarClock />
         </div>
         <button className="mobile-menu-close" onClick={requestClose} aria-label="Close menu"><X size={22} /></button>
       </div>
