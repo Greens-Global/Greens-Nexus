@@ -409,7 +409,10 @@ keep the diff minimal.
   menu are `components/QuickCreate.jsx`. A new action = one `ACTIONS` row
   whose `go` / `compose` / `run` opens the module's own form - never a form
   in the header, never a third step, never a second quick menu. The bolt is
-  green, never yellow or orange (Live accent). On a phone the menu is a
+  green, never yellow or orange (Live accent): a glossy rounded tile lit from
+  above (bright to deep green, a soft rim, a gloss on its top half) with the
+  faceted white-and-mint `icons/BoltIcon.jsx` (Neil, 11/13/2026: "a
+  badass button ... keep it our green"). On a phone the menu is a
   sheet measured from the header itself, never `position: fixed` (the
   production CSS drops the header's unprefixed backdrop-filter, so "fixed"
   lands below the screen in Chrome). Still off on purpose (Neil, Oct 29

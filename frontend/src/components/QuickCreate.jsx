@@ -15,9 +15,10 @@
 // 11/07/2026, keyboard triage) - never while typing or over an open dialog.
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Zap, ChevronRight, ArrowLeft } from 'lucide-react';
+import { ChevronRight, ArrowLeft } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { ModalLoading } from './AsyncState';
+import BoltIcon from './icons/BoltIcon';
 import { visibleActions, layoutActions, goTo } from '../lib/quickCreate';
 
 const QuickActionModal = lazy(() => import('../dashboard/QuickActionModals.jsx'));
@@ -131,7 +132,7 @@ export default function QuickCreate() {
         aria-haspopup="menu" aria-expanded={open} aria-controls={open ? 'qc-menu' : undefined}
         onClick={() => (open ? close(false) : setOpen(true))}
         onKeyDown={(e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOpen(true); } }}>
-        <Zap style={{ width: 18, height: 18 }} strokeWidth={1.6} fill="currentColor" aria-hidden="true" />
+        <BoltIcon size={23} className="qc-bolt" />
       </button>
       {open && (
         <div id="qc-menu" ref={menuRef} role="menu" aria-label={group ? group.label : NAME} className="header-user-dropdown qc-menu" onKeyDown={onMenuKey}>

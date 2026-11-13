@@ -8703,10 +8703,40 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 /* An action button, not another grey icon (Neil, Oct 30 2026): Nexus green
    with a white bolt, the same green as Notes' New Note, in both themes -
    never yellow or orange (orange means "in progress", DESIGN.md "Live accent"). */
-.icon-btn.qc-btn { background: #00a25b; color: #fff; }
-.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] { background: #008a4c; }
-.icon-btn.qc-btn:active { background: #007a43; }
+/* The bolt, a "badass button" (Neil, 11/13/2026: a gradient and a shape like
+   the reference, "keep it our green"): a rounded tile lit from above - bright
+   green to deep green - inside a soft glossy rim, a gloss across its top half
+   and a faceted white-and-mint bolt (icons/BoltIcon.jsx) with a small drop
+   shadow. Hover lifts it a pixel and brightens it; a press settles it. */
+.icon-btn.qc-btn {
+  position: relative; isolation: isolate; overflow: hidden; border-radius: 12px; color: #fff;
+  background: linear-gradient(180deg, #3ee391 0%, #00a25b 50%, #006a39 100%);
+  box-shadow:
+    0 0 0 3px rgba(0, 162, 91, .16),
+    inset 0 1px 0 rgba(255, 255, 255, .5),
+    inset 0 -2px 3px rgba(0, 60, 30, .28),
+    0 4px 10px -3px rgba(0, 122, 67, .55);
+  transition: transform .16s var(--ease-out, ease-out), filter .16s ease-out, box-shadow .16s ease-out;
+}
+.icon-btn.qc-btn::before {
+  content: ''; position: absolute; inset: 0 0 50% 0; z-index: -1; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .34), rgba(255, 255, 255, .04));
+  border-radius: 12px 12px 40% 40% / 12px 12px 8px 8px;
+}
+.icon-btn.qc-btn .qc-bolt { filter: drop-shadow(0 1px 1px rgba(0, 55, 28, .45)); }
+.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] {
+  background: linear-gradient(180deg, #3ee391 0%, #00a25b 50%, #006a39 100%);
+  filter: brightness(1.06) saturate(1.05); transform: translateY(-1px);
+  box-shadow:
+    0 0 0 3px rgba(0, 162, 91, .24),
+    inset 0 1px 0 rgba(255, 255, 255, .55),
+    inset 0 -2px 3px rgba(0, 60, 30, .28),
+    0 6px 14px -4px rgba(0, 122, 67, .6);
+}
+.icon-btn.qc-btn:active { transform: translateY(0); filter: brightness(.96); }
 .icon-btn.qc-btn:focus-visible { outline-offset: 2px; }
+[data-theme="dark"] .icon-btn.qc-btn { box-shadow: 0 0 0 3px rgba(74, 222, 128, .18), inset 0 1px 0 rgba(255, 255, 255, .45), inset 0 -2px 3px rgba(0, 0, 0, .35), 0 4px 12px -3px rgba(0, 0, 0, .6); }
+@media (prefers-reduced-motion: reduce) { .icon-btn.qc-btn, .icon-btn.qc-btn:hover { transform: none; } }
 .qc-btn:focus-visible, .qc-item:focus-visible, .qc-tile:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
 .qc-item:focus { background: var(--sidebar-hover-bg); }
 .header-user-dropdown.qc-menu { width: 320px; max-height: calc(100dvh - 88px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
