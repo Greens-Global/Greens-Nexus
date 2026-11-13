@@ -8700,35 +8700,14 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    with a line back. It scrolls when the screen is short. On a phone it is a
    full-width sheet under the header with finger-sized rows. */
 .qc-wrap { position: relative; }
-/* An action button, not another grey icon (Neil, Oct 30 2026): Nexus green
-   with a white bolt, the same green as Notes' New Note, in both themes -
-   never yellow or orange (orange means "in progress", DESIGN.md "Live accent"). */
-/* The bolt (Neil, 11/13/2026): the gradient is on the BOLT (icons/BoltIcon.jsx)
-   and the tile is calm - "the background to look less flashy". A quiet light
-   tile with a hairline edge and a faint lift; hover tints it green and lifts
-   it a pixel, a press settles it. */
-.icon-btn.qc-btn {
-  border-radius: 12px; color: var(--wk-green);
-  background: linear-gradient(180deg, #ffffff 0%, #f2f5f3 100%);
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, .08), inset 0 1px 0 #fff, 0 1px 2px rgba(15, 23, 42, .06);
-  transition: transform .16s var(--ease-out, ease-out), background .16s ease-out, box-shadow .16s ease-out;
-}
-.icon-btn.qc-btn .qc-bolt { filter: drop-shadow(0 1px 1.5px rgba(0, 70, 38, .18)); }
-.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] {
-  background: linear-gradient(180deg, #f6fdf9 0%, #e7f6ee 100%); transform: translateY(-1px);
-  box-shadow: inset 0 0 0 1px rgba(0, 162, 91, .28), inset 0 1px 0 #fff, 0 3px 8px -2px rgba(0, 122, 67, .22);
-}
-.icon-btn.qc-btn:active { transform: translateY(0); }
+/* The bolt (Neil, 11/13/2026: "it feels a bit out of place compared to the
+   other icons"): the SAME plain tile as the bell and Help - .icon-btn's own
+   background, corners and press, no edge, no shadow. Only the bolt
+   (icons/BoltIcon.jsx) and a faint green on hover / open mark it as the
+   action button. */
+.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] { background: #e7f6ee; }
 .icon-btn.qc-btn:focus-visible { outline-offset: 2px; }
-[data-theme="dark"] .icon-btn.qc-btn {
-  background: linear-gradient(180deg, #232a26 0%, #1a201c 100%);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 2px rgba(0, 0, 0, .4);
-}
-[data-theme="dark"] .icon-btn.qc-btn:hover, [data-theme="dark"] .icon-btn.qc-btn[aria-expanded="true"] {
-  background: linear-gradient(180deg, #26332c 0%, #1c2620 100%);
-  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, .3), 0 3px 8px -2px rgba(0, 0, 0, .5);
-}
-@media (prefers-reduced-motion: reduce) { .icon-btn.qc-btn, .icon-btn.qc-btn:hover { transform: none; } }
+[data-theme="dark"] .icon-btn.qc-btn:hover, [data-theme="dark"] .icon-btn.qc-btn[aria-expanded="true"] { background: rgba(74, 222, 128, .12); }
 .qc-btn:focus-visible, .qc-item:focus-visible, .qc-tile:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
 .qc-item:focus { background: var(--sidebar-hover-bg); }
 .header-user-dropdown.qc-menu { width: 320px; max-height: calc(100dvh - 88px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }

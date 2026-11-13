@@ -465,17 +465,17 @@ keep the diff minimal.
   menu are `components/QuickCreate.jsx`. A new action = one `ACTIONS` row
   whose `go` / `compose` / `run` opens the module's own form - never a form
   in the header, never a third step, never a second quick menu. The bolt is
-  green, never yellow or orange (Live accent): the GRADIENT IS ON THE BOLT
-  (`icons/BoltIcon.jsx`: the two-block shape FITTED to the pixels of Neil's
-  reference - corners and each corner's rounding solved until the outlines
-  overlap 97.5%: its tight waist, its lean, its soft corners - never redrawn
-  by eye; a
-  THIN 3D OBJECT - stacked slices make solid side walls joined to the face at
-  every corner, never a flat copy behind it like a shadow - bright green to
-  brand green) and the tile
-  behind it is calm - a quiet light tile with a hairline edge, tinted green
-  on hover, dark charcoal in dark mode (Neil, 11/13/2026: "the gradient on
-  the bolt and the background to look less flashy"). On a phone the menu is a
+  green, never yellow or orange (Live accent): `icons/BoltIcon.jsx`, the
+  two-block shape FITTED to the pixels of Neil's reference - corners and each
+  corner's rounding solved until the outlines overlap 97.5%: its tight waist,
+  its lean - then every corner's rounding halved (Neil, 11/13/2026), never
+  redrawn by eye; a THIN 3D OBJECT - stacked slices make solid side walls
+  joined to the face at every corner, never a flat copy behind it like a
+  shadow - with ONE solid green on the face, no gradient (Neil, 11/13/2026:
+  "remove the gradient and keep the slab styling"). It sits on the SAME
+  plain tile as the bell and Help - no edge, no shadow, no tile of its own
+  ("it feels a bit out of place compared to the other icons") - and only a
+  faint green on hover / open marks it. On a phone the menu is a
   sheet measured from the header itself, never `position: fixed` (the
   production CSS drops the header's unprefixed backdrop-filter, so "fixed"
   lands below the screen in Chrome). Still off on purpose (Neil, Oct 29
