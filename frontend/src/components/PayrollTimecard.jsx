@@ -558,7 +558,7 @@ function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addL
   );
   const who = note?.by ? `\n- ${note.by}${note.at ? `, ${formatDate(note.at)}` : ''}` : '';
   return (
-    <button type="button" onClick={() => !locked && setEditing(true)} disabled={locked}
+    <button type="button" className="ts-note-btn" onClick={() => !locked && setEditing(true)} disabled={locked}
       title={saved ? `${saved}${who}` : (locked ? '' : placeholder)}
       style={{ background: 'none', border: 'none', padding: 0, cursor: locked ? 'default' : 'pointer', textAlign: 'left',
         fontFamily: 'inherit', fontSize: 12, lineHeight: 1.35, color: saved ? 'var(--ink)' : 'var(--muted)', opacity: saved ? 1 : 0.6,

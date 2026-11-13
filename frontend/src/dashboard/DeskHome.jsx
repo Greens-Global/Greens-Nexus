@@ -30,6 +30,7 @@ import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
 import { formatDate, formatDayLong, formatTimeIn, formatWeekday, greetingFor } from '../lib/datetime';
 import { LoadingState, CountSkeleton } from '../components/AsyncState';
 import { useNotifications } from '../contexts/NotificationContext.jsx';
+import { useActionCounts, tabCount } from '../lib/useActionCounts';
 import { MoreRow } from './listParts.jsx';
 import { useFavoriteLinks, openFavorite, FavoriteTileGrid } from './favoriteLinks.jsx';
 // The same composer the customizable dashboard's Quick Actions widget uses -
@@ -243,6 +244,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
   const now = useNow();
   // `|| {}`: null outside NotificationProvider (render tests).
   const { openPanel } = useNotifications() || {};
+  const actionCounts = useActionCounts();
 
   // Live extras: session state (the My-hours strip), pending signatures, team
   // KPIs (managers). All read-only, all existing endpoints, all safe to fail
@@ -263,18 +265,32 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     ? Math.max(0, Math.floor((now.getTime() - new Date(last.at + 'Z').getTime()) / 1000))
     : 0;
 
+  // Approvals waiting on you come from the ONE count (approvals_inbox, the
+  // same number as the Approvals tab's badge) - Home used to say "You're all
+  // caught up" beside "Approvals 2" (phone review, 11/13/2026). An approval
+  // bell is then not counted a second time.
+  const approvalsWaiting = tabCount(actionCounts, 'dashboard', 'approvals');
+  const isApprovalBell = (n) => n.action?.view === 'dashboard' && String(n.action?.sub || '').startsWith('approvals');
   const unread = notifications.filter(n => !n.read && !n.closed);
-  const allActionable = unread.filter(n => n.action && !n.actioned);
+  const allActionable = unread.filter(n => n.action && !n.actioned && !(approvalsWaiting > 0 && isApprovalBell(n)));
   const actionable = allActionable.slice(0, 6);
   const pendingSigs = sigs ? sigs.length : null;
   // Everything that needs you, not just the rows that fit: the count, the
   // summary sentence and the "+N more" row all say the real number.
-  const attentionTotal = (pendingSigs || 0) + allActionable.length;
+  const attentionTotal = (pendingSigs || 0) + allActionable.length + approvalsWaiting;
 
   // "Needs your attention": signatures first (hard blockers), then actionable
   // unread notifications.
   const queue = useMemo(() => {
     const rows = [];
+    if (approvalsWaiting > 0) rows.push({
+      key: 'approvals',
+      pill: 'Approve', tone: 'orange',
+      title: approvalsWaiting === 1 ? '1 Approval Waiting on You' : `${approvalsWaiting} Approvals Waiting on You`,
+      sub: 'Approvals',
+      time: '',
+      go: () => navTo('dashboard', 'approvals'),
+    });
     (sigs || []).slice(0, 3).forEach(s => rows.push({
       key: `sig-${s.id ?? s.packet_id ?? Math.random()}`,
       pill: 'Sign', tone: 'green',
@@ -297,9 +313,10 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
       go: () => { markRead?.(n.id); if (n.action?.view) navTo(n.action.view, n.action.sub); },
     }));
     return rows.slice(0, 7);
-  }, [sigs, actionable, markRead]);
+  }, [sigs, actionable, markRead, approvalsWaiting]);
 
-  const hiddenCount = Math.max(0, attentionTotal - queue.length);
+  // The approvals row stands for every approval it counts.
+  const hiddenCount = Math.max(0, attentionTotal - queue.length - (approvalsWaiting > 1 ? approvalsWaiting - 1 : 0));
   // Where the rest live: the bell holds every notification; signatures are
   // on My HR. Notifications left out first, since there are usually more.
   const hiddenNotifs = allActionable.length - queue.filter(r => r.key.startsWith('ntf-')).length;

@@ -88,7 +88,7 @@
 .cv-dir-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .cv-count-pill { padding: 2px 9px; border-radius: 12px; font-size: 12px; font-weight: 700; background: var(--wk-brand-tint); color: var(--wk-brand); font-variant-numeric: tabular-nums; }
 .cv-dir-search { flex: 1 1 220px; min-width: 180px; max-width: 360px; height: 34px; }
-.cv-dir-select { width: auto; flex: 0 0 auto; font-size: 13px; font-weight: 600; padding: 7px 26px 7px 10px; height: 34px; }
+.cv-dir-select { width: auto; flex: 0 0 auto; font-size: 13px; font-weight: 600; padding: 7px 26px 7px 10px; height: 34px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cv-dir-tabs { display: flex; align-items: center; gap: 2px; padding: 6px 12px 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
 .cv-dir-tab { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; }
 .cv-dir-tab:hover { color: var(--ink); }
@@ -341,6 +341,16 @@ select.cv-ipt { appearance: auto; }
 .cv-health .tone-warn { color: var(--cv-warn); font-weight: 700; }
 .cv-health .tone-zero { color: var(--wk-faint); }
 .cv-kpis.is-five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+/* The Overview's three cards. A class, not an inline style: inline, it beat
+   the phone rule below and squeezed two cards to a sliver (phone review,
+   11/13/2026). */
+.cv-stats.is-overview { grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr) minmax(280px, 1fr); }
+@media (max-width: 767px) {
+  .cv-stats.is-overview { grid-template-columns: 1fr; }
+  /* The whole tile opens its list - not just a 30px arrow in its corner. */
+  .cv-kpi-go { inset: 0; width: auto; height: auto; border-radius: 16px; background: transparent; align-items: flex-start; justify-content: flex-end; padding: 12px; }
+  .cv-kpi-label { padding-right: 22px; }
+}
 @media (max-width: 1180px) { .cv-kpis.is-five { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 767px) { .cv-kpis.is-five { grid-template-columns: 1fr 1fr; } }
 

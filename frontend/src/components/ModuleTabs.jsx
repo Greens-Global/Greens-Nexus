@@ -240,12 +240,29 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
     return () => setEntry(null); // leaving the module empties the header slot
   }, [setEntry]);
 
+  // The tab you are on is always in view (phone review, 11/13/2026): a strip
+  // wider than the screen used to keep its start, so Exits, Runs or a
+  // Workforce Analytics tab sat past the right edge and nothing on screen
+  // said where you were. Only the strip scrolls - never the page.
+  const stripRef = useRef(null);
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip || strip.scrollWidth <= strip.clientWidth) return;
+    const on = strip.querySelector('.active, [aria-current="page"], [aria-selected="true"]');
+    if (!on) return;
+    const pad = 24;
+    const left = on.offsetLeft - strip.offsetLeft;
+    const right = left + on.offsetWidth;
+    if (left - pad < strip.scrollLeft) strip.scrollLeft = Math.max(0, left - pad);
+    else if (right + pad > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = right + pad - strip.clientWidth;
+  }, [active, signature]);
+
   // <=900px fallback - same markup contract as the old in-page strips.
   // No tabs (Asset Management's portfolio publishes only to get the bar), or
   // one that would only repeat the module's name (Help Center): no strip.
   if ((!inline && !mobileInline) || tabs.length < 2) return null;
   return (
-    <div className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
+    <div ref={stripRef} className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
       <TabInk key={signature} active={active} variant="line" />
       {tabs.map(({ key, label, Icon, badge, items, landing, tone }) => (items ? (
         <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={active} onSelect={(k) => onChange?.(k)} className="module-tab-inline-btn" iconSize={16} compact={compactGroups} />

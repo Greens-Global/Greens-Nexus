@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, CalendarDays, Info, 
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { zoneClock, formatHHMM, formatMonthDay, formatDate } from '../lib/datetime';
+import { utcToInputTz } from '../lib/displayTz';
 import { zoneOptionLabel } from '../lib/worldClockZones';
 import { useNameResolver } from '../lib/useNameResolver';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -14,11 +15,16 @@ import ShiftRequestDialog, { PENDING } from './shifts/ShiftRequestDialog';
 import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
 import DateBlock from './shifts/DateBlock';
 import ScheduleMonth from './shifts/ScheduleMonth';
-import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText, actualFor, viewDays } from './shifts/shiftLib';
+import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, dayShort, shortTime, shiftShortText, actualFor, viewDays } from './shifts/shiftLib';
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
 import { formsForShift, jobOfShift } from '../forms/formRules';
 import { ModalLoading } from './AsyncState';
+
+// "Today" is the person's own day - the zone their Time Sheet reads in - not
+// the phone's: with the two apart, Shifts and the Time Sheet named different
+// days today (phone review, 11/13/2026).
+const ownToday = () => utcToInputTz(new Date().toISOString().slice(0, 19)).slice(0, 10);
 // Fill a Form (Forms & Checklists, Neil 11/02/2026): a shift card's "Fill
 // <title>" opens the fill sheet with the shift - loaded on first use.
 const FillForm = lazy(() => import('../forms/FillForm'));
@@ -114,7 +120,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   // until its own answer lands (no state reset inside the effect).
   const [fetched, setFetched] = useState(null);   // { key: 'start|end', data }
   useEffect(() => {
-    if (!data || monthView || start > todayIso()) return undefined;
+    if (!data || monthView || start > ownToday()) return undefined;
     let live = true;
     const key = `${start}|${end}`;
     Promise.resolve().then(() => api.timeSchedActuals(start, end))
@@ -228,7 +234,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
     setBusyOpen('');
   }
 
-  const todayKey = todayIso();
+  const todayKey = ownToday();
   const days = useMemo(() => {
     if (!data) return [];
     const placed = {};

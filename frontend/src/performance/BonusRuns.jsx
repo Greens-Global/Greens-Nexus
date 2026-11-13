@@ -222,7 +222,8 @@ export function BonusRunsAdmin({ company, toastOk, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(null);
   const load = useCallback(() => {
-    if (!company) return;
+    // No company to manage: an empty list, never skeletons forever (phone review, 11/13/2026).
+    if (!company) { setRuns([]); return; }
     api.perfBonusRuns(company).then((r) => { setErr(''); setRuns(Array.isArray(r) ? r : []); }).catch((e) => setErr(e.message || 'Could not load the bonus runs.'));
   }, [company]);
   useEffect(() => { load(); }, [load]);

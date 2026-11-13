@@ -503,11 +503,12 @@ function PersonRow({ p, me, active, focused, onSelect, depth = 0, mobile = false
           {mobile && pills}
         </div>
       </div>
-      <div className="dir-row-actions" style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+      {/* Never on your own row or an outside guest's (CLAUDE.md, PersonActions rule). */}
+      {p.email !== (me || '').toLowerCase() && !p.external && <div className="dir-row-actions" style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
         <a href={teamsChat(p.email)} target="_blank" rel="noreferrer" title="Chat on Teams" aria-label={`Chat with ${p.name} on Teams`} onClick={(e) => e.stopPropagation()} className="dir-mini teams"><MessageSquare size={14} /></a>
         <a href={teamsCall(p.email)} target="_blank" rel="noreferrer" title="Call on Teams" aria-label={`Call ${p.name} on Teams`} onClick={(e) => e.stopPropagation()} className="dir-mini teams"><Phone size={14} /></a>
         {!mobile && <a href={mailto(p.email)} target="_blank" rel="noreferrer" title="Email" aria-label={`Email ${p.name}`} onClick={(e) => e.stopPropagation()} className="dir-mini"><Mail size={14} /></a>}
-      </div>
+      </div>}
     </div>
   );
 }

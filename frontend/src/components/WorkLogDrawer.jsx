@@ -73,8 +73,8 @@ export const punchTime = (iso, tzOffsetMin, workday) => {
 // the Work Log for its day.
 export function WorkLogButton({ onClick, title = 'View work log' }) {
   return (
-    <button onClick={onClick} title={title}
-      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand, var(--pine))', display: 'inline-flex', padding: 2 }}>
+    <button type="button" className="worklog-btn" onClick={onClick} title={title} aria-label={title}
+      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand, var(--pine))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 2 }}>
       <FileText size={15} />
     </button>
   );

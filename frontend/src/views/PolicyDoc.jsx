@@ -24,7 +24,11 @@ export default function PolicyDoc({ title, updated, sections, embedded = false, 
     <div style={wrapStyle}>
       <div style={{ maxWidth: 720, margin: '0 auto', padding: embedded ? '0 0 40px' : '48px 24px 80px' }}>
         {!embedded && <a href="/" style={{ fontSize: 13, fontWeight: 600, color: '#676879', textDecoration: 'none' }}>&larr; Back to Nexus</a>}
-        <h1 style={{ fontSize: 32, fontWeight: 800, letterSpacing: '-.02em', margin: embedded ? '0 0 4px' : '20px 0 4px' }}>{title}</h1>
+        {/* Inside Nexus the Legal tab already names the page (11/13/2026); the
+            public page keeps its title. */}
+        {embedded ? <h1 style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', margin: 0 }}>{title}</h1> : (
+          <h1 style={{ fontSize: 32, fontWeight: 800, letterSpacing: '-.02em', margin: '20px 0 4px' }}>{title}</h1>
+        )}
         {updated ? <p style={{ fontSize: 13, color: mutedColor, margin: '0 0 32px' }}>Last updated: {updated}</p> : <div style={{ height: 24 }} />}
         {before}
         {sections.map(s => (

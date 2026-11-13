@@ -33,7 +33,7 @@ export default function Overview({ rows, depts, attention, sharedWithMe, request
         <KpiTile label="Shared With Me" value={sharedWithMe} sub={sharedWithMe ? "timed access, ends by itself" : "no shared access right now"} onGo={() => onPickCollection("shared")} goTitle="Show what was shared with me" />
         <KpiTile label="Awaiting Approval" value={requests} tone={requests ? "warn" : undefined} sub={requests ? "requests for you to decide" : "no requests waiting"} onGo={onApprovals} goTitle="Open Approvals" />
       </div>
-      <div className="cv-stats" style={{ gridTemplateColumns: "minmax(0, 1.6fr) minmax(280px, 1fr) minmax(280px, 1fr)" }}>
+      <div className="cv-stats is-overview">
         <StatCard Icon={ShieldCheck} title={everyone ? "Health by Department" : "Health of Your Logins"} meta={canExport ? (
           <button type="button" className="cv-btn" style={{ padding: "3px 9px", fontSize: 12 }} onClick={() => exportAudit(rows, nameOf)} title="Who can open what, and the health per department - no passwords"><Download size={13} /> Export to Excel</button>
         ) : null}>
