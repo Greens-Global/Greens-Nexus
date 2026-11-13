@@ -636,13 +636,22 @@ export default function NotificationBell({ onNavigate }) {
       >
         <Bell style={{ width: 16, height: 16 }} />
         {myUnread > 0 && (
-          <span style={{
-            position: 'absolute', top: 4, right: 4,
-            minWidth: 14, height: 14, padding: myUnread > 9 ? '0 3px' : 0, boxSizing: 'border-box',
+          // Room for the number (Neil, 11/13/2026: "the numbers are getting
+          // cropped"): the pill was 14px tall for 11px bold digits, so they
+          // ran into its edges. It is 18px now with 5px either side, grows
+          // with the number ("99+" included), keeps the digits one width
+          // and is ringed in the card color so it reads apart from the bell.
+          // It sits on the tile's top right corner, a little past it, so a
+          // longer number grows over the corner rather than over the bell.
+          <span className="nx-bell-count" style={{
+            position: 'absolute', top: -3, right: -5,
+            minWidth: 18, height: 18, padding: '0 5px', boxSizing: 'border-box',
             background: 'hsl(var(--color-red))', color: '#fff',
             borderRadius: 999, fontSize: 11, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            lineHeight: 1, fontFamily: 'Inter, sans-serif',
+            lineHeight: '18px', fontFamily: 'Inter, sans-serif', whiteSpace: 'nowrap',
+            fontVariantNumeric: 'tabular-nums', boxShadow: '0 0 0 2px var(--card)',
+            pointerEvents: 'none',
           }}>
             {/* The real number up to 99, so it matches the dashboard's count. */}
             {myUnread > 99 ? '99+' : myUnread}
