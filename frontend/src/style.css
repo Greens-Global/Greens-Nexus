@@ -8867,7 +8867,6 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .apv-own .apv-section-h { background: color-mix(in srgb, #7c3aed 6%, var(--card)); }
 .apv-row { display: grid; grid-template-columns: 20px minmax(150px, 210px) minmax(0, 1fr) 88px 70px auto; grid-template-areas: "pick who what prio age act"; gap: 6px 12px; align-items: center; padding: 11px 16px; border-top: 1px solid var(--line); background: var(--card); position: relative; }
 .apv-row.is-focused { background: var(--wk-brand-tint); box-shadow: inset 3px 0 0 var(--wk-brand); }
-.apv-row[data-priority="urgent"]:not(.is-focused) { box-shadow: inset 3px 0 0 #dc2626; }
 .apv-pick { grid-area: pick; display: flex; align-items: center; }
 .apv-who { grid-area: who; min-width: 0; display: flex; align-items: center; gap: 10px; }
 .apv-who-t { min-width: 0; display: grid; }
@@ -8997,8 +8996,8 @@ body:has(.apv-phone) { overflow-x: clip; }
 /* Only a card that swipes keeps the horizontal drag for itself; scrolling
    and pinch zoom stay the browser's. Every other card is left alone. */
 .apv-ph-card[data-swipe] { touch-action: pan-y pinch-zoom; }
-.apv-ph-card[data-priority="urgent"] { box-shadow: inset 4px 0 0 #dc2626; }
-.apv-ph-card[data-priority="high"] { box-shadow: inset 4px 0 0 #d97706; }
+/* No colored bar down a card's side for its priority (Neil, 11/13/2026): the
+   card's own Urgent / High label already says it. */
 .apv-ph-top { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: start; }
 .apv-ph-who { min-width: 0; }
 .apv-ph-name { font-size: 15px; font-weight: 700; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
