@@ -97,6 +97,18 @@ describe('PacketsModal', () => {
   });
 });
 
+describe('PacketsModal inline', () => {
+  it('is the page under Documents > Hiring Documents: the same setup, no Close, nothing fixed over the page', async () => {
+    const onClose = vi.fn();
+    render(<PacketsModal inline onClose={onClose} toastOk={noop} toastErr={noop} />);
+    expect(await screen.findByRole('heading', { name: 'Hiring Documents' })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Hiring Packet/ })).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(document.querySelector('.nx-hd')).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
 describe('SendHiringPacketModal', () => {
   const cand = { id: 'c1', firstName: 'Jane', lastName: 'Doe', email: 'jane@gmail.com', roleTitle: 'Analyst', roleId: 'jr-an', company: 'e1', expectedStart: '2026-11-02' };
 

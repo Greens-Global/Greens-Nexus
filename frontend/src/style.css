@@ -10901,3 +10901,8 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
 .nx-tc-back { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; font: inherit; font-size: 12px; font-weight: 600; color: var(--primary); cursor: pointer; }
 .nx-tc-back:hover { text-decoration: underline; }
 @media (max-width: 640px) { .nx-tc-grid { grid-template-columns: 1fr; } }
+
+/* Hiring Documents as a page (Pranshu, 11/13/2026) */
+.nx-hd { margin-top: 12px; font-family: Inter, sans-serif; }
+.nx-hd-body { background: var(--card); border: 1px solid #e6e9f2; border-radius: 10px; padding: 16px 20px 20px; box-shadow: 0 1px 2px rgba(29,33,57,.04), 0 6px 18px rgba(29,33,57,.05); }
+@media (max-width: 640px) { .nx-hd-body { padding: 12px; } }
