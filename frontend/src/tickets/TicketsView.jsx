@@ -58,6 +58,7 @@ import { TicketDrawer } from './TicketDrawer';
 import { TicketBoard } from './TicketBoard';
 import PreventiveRollup from '../maintenance/PreventiveRollup';
 import PageTrail from '../components/PageTrail';
+import NewButton from '../components/NewButton';
 
 // Re-exported: tests and other modules import these from TicketsView.
 export { TicketActionDialog, CreateTicketModal, TicketDrawer };
@@ -674,7 +675,7 @@ export default function TicketsView() {
   // search narrowed it - or nothing has been raised at all.
   const narrowed = !!searchQ || [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter, assigneeFilter, deskFilter].some((v) => v !== 'all');
   const emptyWords = !tickets.length
-    ? { title: 'No Tickets Yet', hint: `Nothing has been submitted so far. ${isMobile ? 'Tap + below' : 'Choose Create'} to report a problem or ask for help.` }
+    ? { title: 'No Tickets Yet', hint: `Nothing has been submitted so far. ${isMobile ? 'Tap + below' : 'Choose New'} to report a problem or ask for help.` }
     : narrowed ? { title: 'No Tickets', hint: 'No tickets match your filters.' }
       : (QUEUE_EMPTY[queue] || { title: 'No Tickets', hint: 'Nothing here right now.' });
 
@@ -760,11 +761,12 @@ export default function TicketsView() {
                 onExport={() => downloadTicketsCsv(sortedVisible, nameOf, companyName, hrDeptName)}
                 suggestLinks={privileged ? (style) => <SuggestPropertyLinksButton style={style} /> : null} />
             )}
-            {/* "Create", not "New Ticket" - the same word the Task module's bar
-                button uses, and the page it sits on already says Tickets
-                (Sagar, Sept 2 2026). Last in the row, after ... (Neil, 11/06/2026). */}
+            {/* "+ New" - the one create button across Nexus (Neil, 11/13/2026:
+                "let's stick with that instead of + Create"); the page already
+                says Tickets (Sagar, Sept 2 2026). Last in the row, after ...
+                (Neil, 11/06/2026). */}
             <span data-tour="ticket-create" style={{ flexShrink: 0 }}>
-              <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
+              <NewButton items={[{ key: 'ticket', label: 'Ticket' }]} onPick={() => setCreating(true)} style={btn('primary')} className="" />
             </span>
           </div>
         </div>

@@ -46,8 +46,10 @@ describe('DeskHome attention queue', () => {
     await waitFor(() => expect(document.querySelectorAll('.dk-queue-row')).toHaveLength(2));
     expect(screen.queryByRole('button', { name: /View All/ })).toBeNull();
     expect(screen.getByText('2 items')).toBeTruthy();
-    for (const t of ['Needs Your Attention', 'Quick Actions', 'Open Tasks']) expect(screen.getByText(t)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Request an Item/ })).toBeTruthy();
+    for (const t of ['Needs Your Attention', 'Open Tasks']) expect(screen.getByText(t)).toBeTruthy();
+    // The Quick Actions card is gone (Neil, 11/13/2026) - the header's bolt starts things.
+    expect(screen.queryByText('Quick Actions')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Request an Item/ })).toBeNull();
     // The three retired white tiles are count buttons under Open Tasks (Neil, 11/08/2026).
     expect(screen.queryByText('Signatures Needed')).toBeNull();
     for (const t of ['Checked Out 0', 'Equipment 0', 'To Sign 1']) expect(screen.getByRole('button', { name: t })).toBeTruthy();

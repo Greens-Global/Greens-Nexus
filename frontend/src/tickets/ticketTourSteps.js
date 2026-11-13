@@ -41,7 +41,7 @@ export function buildTicketTourSteps({ setQueue, setView, isMobile }) {
       target: 'ticket-create',
       when: () => !isMobile,
       title: 'Raising a ticket',
-      body: 'Create walks you through picking a type, then only the fields that type needs. Some types route to an approver before anyone can be assigned; Facility and IT requests can attach a screen recording of the problem right from the form.',
+      body: 'New walks you through picking a type, then only the fields that type needs. Some types route to an approver before anyone can be assigned; Facility and IT requests can attach a screen recording of the problem right from the form.',
     },
     {
       target: 'ticket-toolbar',

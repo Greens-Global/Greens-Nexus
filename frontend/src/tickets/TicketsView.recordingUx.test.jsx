@@ -49,7 +49,7 @@ describe('The desk bar', () => {
     expect(tabs[1].querySelector('.hdr-tab-badge--alarm')).toBeTruthy();
     expect(tabs[tabs.length - 2].textContent).toContain('Other Queues');   // the rest, in one dropdown (11/06/2026)
     expect(tabs[tabs.length - 1].textContent).toContain('Reports');        // a place, so a tab, last (11/13/2026)
-    expect(screen.getByRole('button', { name: /Create/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'New Ticket' })).toBeTruthy();
   });
 });
 

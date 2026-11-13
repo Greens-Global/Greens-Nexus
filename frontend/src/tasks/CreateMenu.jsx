@@ -23,7 +23,7 @@
 // open, so one control both opens and closes the menu and its current meaning
 // is legible without a label.
 import { useEffect, useRef, useState } from 'react';
-import { Plus, ListChecks, FolderKanban, Briefcase, FilePlus, Users } from 'lucide-react';
+import { Plus, ListChecks, FolderKanban, Briefcase, FilePlus, Users, ChevronDown } from 'lucide-react';
 import { NX, FONT, btn } from './theme';
 import CreateTaskModal from './CreateTaskModal';
 import QuickCreateTask from './QuickCreateTask';
@@ -112,7 +112,7 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
            bar, a stack of shadowed pills would read as detached from the
            button that opened it. Right-aligned: the button sits at the bar's
            right end, so a left-aligned panel would hang off the edge. */
-        <div role="menu" aria-label="Create" style={{
+        <div role="menu" aria-label="New" style={{
           position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 190, zIndex: MENU_Z,
           background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
           boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4,
@@ -140,11 +140,15 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
       ))}
 
       {inline ? (
+        // "+ New", not "+ Create" (Neil, 11/13/2026: "let's stick with that
+        // instead of + Create ... consistent across Nexus"); the caret says
+        // it opens a menu, as on every other "+ New".
         <button onClick={() => setOpen((o) => !o)}
-          aria-expanded={open} aria-haspopup="menu" title="Create"
+          aria-expanded={open} aria-haspopup="menu" aria-label="New" title="Start a task, project, portfolio, template or team"
+          className="nx-new-btn"
           style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap',
                    position: 'relative', zIndex: open ? MENU_Z : undefined }}>
-          <Plus size={15} /> <span className="nx-btn-label">Create</span>
+          <Plus size={15} /> <span className="nx-btn-label">New</span><ChevronDown size={14} className="nx-new-caret" aria-hidden="true" />
         </button>
       ) : (
         <button onClick={() => (single ? pick(single.key) : setOpen((o) => !o))} className="nx-fab"

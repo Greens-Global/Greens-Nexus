@@ -276,6 +276,18 @@ keep the diff minimal.
   on focus (`--hdr-search-w`). The Back line may widen the name column up
   to 220px (Neil, 11/12/2026: short names like Team cropped it), never
   more; a longer place ends in "...".
+- **"+ New" is the one create button (Neil, 11/13/2026: "let's stick with
+  that instead of + Create ... consistent across Nexus"):** a module's main
+  create button says "+ New" - never "+ Create", "Add <Thing>" or "New
+  <Thing>" - through `components/NewButton.jsx`: one thing to start = it
+  starts it (aria "New <Thing>"); several = its menu (icon, name, one short
+  line). Tasks, Tickets, Notes, People (Person / From Hiring...), Hiring,
+  Asset Management, Credentials and Training use it. "Add Field" / "Add
+  Condition" rows inside a form are not create buttons and keep their words.
+  People > New > From Hiring (`people/FromHiringSheet.jsx`) never hires
+  anyone itself: it lists the candidates at Offer and Decision and opens
+  the candidate's card in Hiring (`hr-hiring-<id>`), where Send Hiring
+  Packet and Mark Hired By Hand live.
 - **Popups are sheets from the right** (Neil, 11/01/2026): on a desktop,
   every popup that is a record, a form or a workspace is a SHEET - docked to
   the right edge, the full height, rounded only where it meets the page -
@@ -375,7 +387,10 @@ keep the diff minimal.
   11/12/2026: "keep auto-fold, but fix it"). Keyboard users get Skip to
   Content (`.nx-skip-link` -> `#nx-main`) as the first Tab stop, and the
   bell's closed panel is `inert` (Neil green-lit that change to Visesh's
-  `NotificationBell.jsx`).
+  `NotificationBell.jsx`). The bell's panel is 620px (Neil, 11/13/2026) and
+  shows ONE scroll bar: while it is open the page's own bar and html's
+  stable gutter are taken off and the body is padded by the same width, so
+  nothing behind it moves.
 - **Quick Actions is the bolt (Neil, 11/12/2026, mock
   https://claude.ai/artifact/KKVpfc4ZqEjyaTUF3DDoDj):** the green bolt in
   the top header (where the "+" Create menu was, Oct 29 2026) starts things

@@ -407,7 +407,7 @@ describe('A board on a phone', () => {
     const btn = screen.getByRole('button', { name: 'New' });
     expect(btn.getAttribute('aria-haspopup')).toBe('menu');
     fireEvent.click(btn);
-    const rows = (await screen.findAllByRole('menuitem')).map((r) => r.querySelector('.nt-new-label').textContent);
+    const rows = (await screen.findAllByRole('menuitem')).map((r) => r.querySelector('.nx-new-label').textContent);
     expect(rows).toEqual(['Note', 'Board', 'Note From a Template...', 'Import a File...']);
     fireEvent.click(screen.getByRole('menuitem', { name: /^Board/ }));
     expect(await screen.findByRole('dialog', { name: 'New Board' })).toBeTruthy();

@@ -12,11 +12,10 @@ row.
 FORM: category standard played straight at full fidelity (user's canon call,
 Jul 28); craft bar monday.com.
 */
-import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
   ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight, House,
-  Package, Ticket,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
@@ -29,13 +28,12 @@ import { SessionChip } from './SessionChip';
 import { deriveMyTime } from './essentials/usePunchClock.jsx';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
 import { formatDate, formatDayLong, formatTimeIn, formatWeekday, greetingFor } from '../lib/datetime';
-import { ModalLoading, LoadingState, CountSkeleton } from '../components/AsyncState';
+import { LoadingState, CountSkeleton } from '../components/AsyncState';
 import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { MoreRow } from './listParts.jsx';
 import { useFavoriteLinks, openFavorite, FavoriteTileGrid } from './favoriteLinks.jsx';
 // The same composer the customizable dashboard's Quick Actions widget uses -
 // it brings its own TasksProvider, so the modal works outside the Tasks view.
-const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
 
 const reduceMotion = () =>
   typeof window !== 'undefined' &&
@@ -253,9 +251,6 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
   const { status } = useTimeStatus();
   const [sigs, setSigs] = useState(null);   // null = not read yet
   const [teamKpis, setTeamKpis] = useState(null);
-  // Which quick-action composer is open, if any. Null renders nothing and the
-  // chunk is never fetched.
-  const [composing, setComposing] = useState(null);
   useEffect(() => {
     api.mySignatures().then(r => setSigs(Array.isArray(r) ? r : (r?.requests || r?.items || []))).catch(() => setSigs([]));
     if (can('supervisor')) api.dashKpis('team').then(r => setTeamKpis(r?.kpis || null)).catch(() => {});
@@ -417,40 +412,14 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
             );
           })()}
 
-          <div className="dk-card dk-rise" style={{ '--i': 5 }}>
-            <div className="dk-pane-head">Quick Actions</div>
-            <button className="dk-key" onClick={() => navTo('inventory', 'catalog')}>
-              <span className="dk-chip dk-chip--orange"><Package /></span> Request an Item
-              <ChevronRight size={14} className="dk-key-arrow" />
-            </button>
-            {/* Opens the composer here rather than navigating to the Tasks
-                module: a quick action that dumps you on another screen to find
-                the button yourself is not quick. */}
-            <button className="dk-key" onClick={() => setComposing('task')}>
-              <span className="dk-chip dk-chip--blue"><CheckSquare /></span> New Task
-              <ChevronRight size={14} className="dk-key-arrow" />
-            </button>
-            {/* New ticket replaced Time clock and Knowledge base here (Neil,
-                10/08) - the Ticket module's own form, opened in place. */}
-            <button className="dk-key" onClick={() => setComposing('ticket')}>
-              <span className="dk-chip dk-chip--red"><Ticket /></span> New Ticket
-              <ChevronRight size={14} className="dk-key-arrow" />
-            </button>
-            <div className="dk-hint">Press <kbd>Ctrl</kbd>+<kbd>F</kbd> to search everything</div>
-          </div>
+          {/* The Quick Actions card is gone (Neil, 11/13/2026: "no longer
+              needed") - the green bolt in the top header starts a task, a
+              ticket or a request from every screen. */}
 
           <FavoritesCard myEmail={myEmail} />
         </div>
       </div>
 
-      {/* No fallback: the composer is a modal, and a spinner overlay flashing
-          in front of the dashboard for one frame is worse than it appearing a
-          beat later. */}
-      {composing && (
-        <Suspense fallback={<ModalLoading />}>
-          <QuickActionModal kind={composing} onClose={() => setComposing(null)} />
-        </Suspense>
-      )}
     </div>
   );
 }
