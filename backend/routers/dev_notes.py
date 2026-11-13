@@ -2440,12 +2440,25 @@ def _reset_accepted(db: Session, pr_number: int, exclude=(), commit: str = "") -
     return rows
 
 
+def _hosted_preview(url: str) -> bool:
+    """A hosted preview (11/13/2026, build_preview.py): the branch's own
+    Cloudflare Pages address, which anyone with Build Mode opens from any
+    computer or phone and signs in to through the dev site."""
+    import build_preview
+    return build_preview.preview_url_ok(url)
+
+
 def _check_preview_url(url: str) -> str:
-    """Only a local preview: http://localhost:<port>/... or
-    http://127.0.0.1:<port>/... - never an outside link. Parsed, not just
-    prefix-matched, so "http://localhost:@evil.example" is refused too."""
+    """A local preview: http://localhost:<port>/... or
+    http://127.0.0.1:<port>/... - or, since 11/13/2026, the branch's hosted
+    preview (https://<branch>.greens-nexus-dev.pages.dev/...). Never any other
+    outside link. Parsed, not just prefix-matched, so
+    "http://localhost:@evil.example" is refused too."""
     url = str(url or "").strip()
-    bad = HTTPException(400, "url must be a local preview (http://localhost:<port> or http://127.0.0.1:<port>)")
+    if _hosted_preview(url):
+        return url
+    bad = HTTPException(400, "url must be a local preview (http://localhost:<port> or http://127.0.0.1:<port>) "
+                             "or the branch's hosted preview (https://<branch>.greens-nexus-dev.pages.dev)")
     if not url or len(url) > 1000 or not url.startswith(("http://localhost:", "http://127.0.0.1:")):
         raise bad
     try:
@@ -2481,11 +2494,16 @@ def cli_preview(note_id: str, body: dict, user: dict = Depends(require_build_mod
         raise HTTPException(400, "commit must be a git sha")
     old = dict(n.preview or {})
     first = not old.get("url")
+    hosted = _hosted_preview(url)
     n.preview = {"url": url, "branch": str(_get(body, "branch") or n.branch or "").strip()[:200],
-                 "prNumber": pr_number, "host": host, "commit": commit.lower(), "startedAt": _now()}
+                 "prNumber": pr_number, "host": "" if hosted else host, "commit": commit.lower(),
+                 "startedAt": _now(), "hosted": hosted}
     n.updated_at = _now()
     if first:
-        _append(n, _entry("claude", "system", "Ready To Check" + (f" - runs on {host}" if host else "")))
+        if hosted:
+            _append(n, _entry("claude", "system", "Ready To Check - open the preview from any computer or phone"))
+        else:
+            _append(n, _entry("claude", "system", "Ready To Check" + (f" - runs on {host}" if host else "")))
     commit = commit.lower()
     if "verdictCommit" in old:
         n.preview = {**n.preview, "verdictCommit": old["verdictCommit"]}

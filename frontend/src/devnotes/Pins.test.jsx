@@ -24,7 +24,7 @@ vi.mock('../api', () => ({
 const { PinThread } = await import('./Pins');
 const { api } = await import('../api');
 const { store } = await import('./store');
-const { isLocalPreview, pinReopened } = await import('./meta');
+const { isLocalPreview, isHostedPreview, pinReopened } = await import('./meta');
 const { dialog } = await import('../ui/dialog');
 
 const AUTHOR = 'neil@greensglobal.com';
@@ -99,6 +99,15 @@ describe('PinThread - Ready To Check', () => {
     expect(screen.getByRole('link', { name: /PR #812/ })).toBeTruthy();
   });
 
+  it('a hosted preview opens anywhere: Open Preview, no computer named', () => {
+    const p = readyPin();
+    p.preview = { ...p.preview, url: 'https://0d332dc0.greens-nexus-dev.pages.dev/inventory', host: '', hosted: true };
+    render(<PinThread pin={p} me={{ email: AUTHOR }} detached />);
+    expect(screen.getByRole('link', { name: /Open Preview/ }).getAttribute('href')).toBe('https://0d332dc0.greens-nexus-dev.pages.dev/inventory');
+    expect(screen.getByTestId('bm-hosted-hint').textContent).toContain('any computer or phone');
+    expect(screen.getByTestId('bm-preview').textContent).not.toContain('Runs on');
+  });
+
   it('Reopen is disabled until a note is typed; Accept and Reopen post the preview verdict', async () => {
     render(<PinThread pin={readyPin()} me={{ email: AUTHOR }} detached />);
     const reopen = screen.getByRole('button', { name: /^Reopen/ });
@@ -139,6 +148,16 @@ describe('PinThread - Ready To Check', () => {
     fireEvent.change(box2, { target: { value: 'Still broken' } });
     fireEvent.keyDown(box2, { key: 'Enter', metaKey: true });
     expect(api.devNotesThread).not.toHaveBeenCalled();
+  });
+
+  it('isHostedPreview takes only our Cloudflare preview builds (build_preview.py)', () => {
+    expect(isHostedPreview('https://0d332dc0.greens-nexus-dev.pages.dev/tasks/home')).toBe(true);
+    expect(isHostedPreview('http://0d332dc0.greens-nexus-dev.pages.dev/')).toBe(false);
+    expect(isHostedPreview('https://a.b.greens-nexus-dev.pages.dev/')).toBe(false);
+    expect(isHostedPreview('https://x.greens-nexus-dev.pages.dev.evil.example/')).toBe(false);
+    expect(isHostedPreview('https://x.greens-nexus-dev.pages.dev:444/')).toBe(false);
+    expect(isHostedPreview('https://evil.example/')).toBe(false);
+    expect(isLocalPreview('https://0d332dc0.greens-nexus-dev.pages.dev/')).toBe(false);
   });
 
   it('isLocalPreview follows the server rule', () => {

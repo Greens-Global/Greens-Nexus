@@ -9,6 +9,7 @@
 // See docs/BFF-Migration-Plan.md.
 import { msalInstance } from './msalInstance';
 import { clearOfflineReadCache } from './lib/offline/read';
+import { PREVIEW_HOST, startPreviewSignIn, finishPreviewSignIn } from './lib/previewSignIn';
 
 // Cookie mode is decided at RUNTIME by hostname, not a build-time flag. Prod's
 // bundle is built in GitHub Actions, which never receives VITE_BFF_MODE, so a
@@ -19,8 +20,11 @@ import { clearOfflineReadCache } from './lib/offline/read';
 // VITE_BFF_MODE still overrides either way ('true' to force on, 'false' to force
 // off as a rollback lever). See docs/BFF-Migration-Plan.md.
 const _bffEnv = import.meta.env.VITE_BFF_MODE;
+// A hosted Build Mode preview (<build>.greens-nexus-dev.pages.dev, 11/13/2026)
+// is cookie-mode too: its /api proxy reaches the dev backend and it signs in
+// through the dev site (lib/previewSignIn.js).
 const _bffHosted = typeof location !== 'undefined'
-  && /(^|\.)nexus\.greensglobal\.com$/.test(location.hostname || '');
+  && (/(^|\.)nexus\.greensglobal\.com$/.test(location.hostname || '') || PREVIEW_HOST);
 export const BFF_MODE = _bffEnv === 'false' ? false : (_bffEnv === 'true' || _bffHosted);
 
 // Identity resolved from the session at boot (email/role/level/csrf), or null.
@@ -98,6 +102,7 @@ export function bffLogin() {
     return;
   }
   _redirecting = true;
+  if (PREVIEW_HOST) { startPreviewSignIn(); return; }
   const next = encodeURIComponent(location.pathname + location.search);
   window.location.href = `/api/auth/login?next=${next}`;
 }
@@ -297,6 +302,8 @@ export async function bffBootstrap({ onWaiting } = {}) {
   // signed out) returns false immediately; 5xx/network keep retrying.
   // With no signal at all the app opens on what this phone kept (above).
   if (typeof navigator !== 'undefined' && navigator.onLine === false && _bootOffline()) return true;
+  // A preview just back from the dev site's sign-in trades its code first.
+  if (PREVIEW_HOST) await finishPreviewSignIn();
   const started = Date.now();
   for (let i = 0; ; i++) {
     const wait = i < BOOT_DELAYS_MS.length ? BOOT_DELAYS_MS[i] : 10_000;
@@ -331,7 +338,7 @@ export async function bffBootstrap({ onWaiting } = {}) {
           // silently later. Without this, cookie logins have no MSAL cache
           // entry and every Graph call dead-ends. Fire-and-forget: boot never
           // waits on it (it may navigate the page - see _primeMsalAccount).
-          _primeMsalAccount(_me.email);
+          if (!PREVIEW_HOST) _primeMsalAccount(_me.email);   // a preview has no Microsoft sign-in of its own
           return true;
         }
         return false;   // 200 but no identity -> treat as anonymous

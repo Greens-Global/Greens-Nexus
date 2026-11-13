@@ -13,6 +13,7 @@ to work a Build Session's pins.
                                                [--style-json PATH] [--before-image PATH --after-image PATH]
     python3 tools/build_notes/cli.py owners [--check] [--me EMAIL] [paths...]
     python3 tools/build_notes/cli.py preview <id> [<id> ...] --branch NAME [--pr N] [--url http://localhost:5174] [--commit SHA]
+        (--url may be the hosted https://<build>.greens-nexus-dev.pages.dev a cloud session reads off the PR)
 
 Global flags (before the subcommand): --api URL, --token TOKEN.
 `claim` downloads every media file into ~/.cache/nexus-build-notes/<id>/ and
@@ -1143,6 +1144,14 @@ def cmd_owners(client, args):
 
 PREVIEW_BASE = "http://localhost:5174"
 LOCAL_PREFIXES = ("http://localhost:", "http://127.0.0.1:")
+# A hosted preview (11/13/2026): the branch's Cloudflare Pages build, opened
+# from any computer or phone (backend build_preview.py). Read it from the
+# "Cloudflare Pages" check on the PR - its Preview URL is that commit's build.
+HOSTED_PREVIEW = re.compile(r"https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.greens-nexus-dev\.pages\.dev(?:/.*)?")
+
+
+def is_hosted_preview(url):
+    return bool(HOSTED_PREVIEW.fullmatch(str(url or "").strip()))
 
 
 def pin_path(note):
@@ -1191,8 +1200,10 @@ def post_preview(client, note_id, base=PREVIEW_BASE, branch="", pr_number=0, hos
     is read first for its URL (and its PR number when none is given). `commit`
     is the branch HEAD the preview runs - the server drops an Accept given on
     an older commit. Returns (note, body sent)."""
-    if not str(base or "").startswith(LOCAL_PREFIXES):
-        raise common.ConfigError("The preview URL must be local (http://localhost:<port> or http://127.0.0.1:<port>), not " + str(base))
+    hosted = is_hosted_preview(base)
+    if not hosted and not str(base or "").startswith(LOCAL_PREFIXES):
+        raise common.ConfigError("The preview URL must be local (http://localhost:<port> or http://127.0.0.1:<port>) "
+                                 "or the branch's hosted preview (https://<build>.greens-nexus-dev.pages.dev), not " + str(base))
     if note is None:
         note = client.get("/" + note_id) or {}
     pr = int(pr_number or 0) or int(_num(_g(note, "prNumber", "pr_number", default=0)))
@@ -1200,7 +1211,7 @@ def post_preview(client, note_id, base=PREVIEW_BASE, branch="", pr_number=0, hos
         "url": preview_url(base, note),
         "branch": branch or str(_g(note, "branch", default="") or ""),
         "prNumber": pr,
-        "host": host or socket.gethostname(),
+        "host": "" if hosted else (host or socket.gethostname()),
     }
     if commit:
         body["commit"] = str(commit)
@@ -1318,7 +1329,8 @@ def build_parser():
     p.add_argument("ids", nargs="+")
     p.add_argument("--branch", required=True)
     p.add_argument("--pr", help="PR number or URL (default: the pin's own)")
-    p.add_argument("--url", default=PREVIEW_BASE, help="preview base URL (default " + PREVIEW_BASE + "); the pin's path is appended")
+    p.add_argument("--url", default=PREVIEW_BASE, help="preview base URL (default " + PREVIEW_BASE + ", or the hosted "
+                   "https://<build>.greens-nexus-dev.pages.dev from the PR's Cloudflare Pages check); the pin's path is appended")
     p.add_argument("--host", help="this computer's name (default: socket.gethostname())")
     p.add_argument("--commit", help="the sha the preview runs (default: git rev-parse origin/<branch>, else <branch>)")
     p.set_defaults(func=cmd_preview)

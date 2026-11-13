@@ -41,6 +41,7 @@ import CrisisSupportHost from './components/CrisisSupportCard'
 import { installErrorReporter } from './lib/errorReporter'
 import { registerServiceWorker } from './lib/pwa'
 import { BFF_MODE, bffBootstrap } from './bffAuth'
+import { showPreviewMark, autoPreviewSignIn } from './lib/previewSignIn'
 
 installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
 // Let api.js drive the TanStack Query cache (invalidate after writes, clear on
@@ -178,7 +179,14 @@ if (BFF_MODE && !isPublicPath) {
   // fast normal load resolves before the timer and goes straight to the app.
   const _slow = setTimeout(() => renderConnecting(0), 600);
   bffBootstrap({ onWaiting: (ms) => { if (ms >= 600) renderConnecting(ms); } })
-    .then((authed) => { _booted = true; clearTimeout(_slow); authed ? renderApp() : renderLanding(); });
+    .then((authed) => {
+      _booted = true; clearTimeout(_slow);
+      // A Build Mode preview opened from a pin goes straight to the dev site's
+      // sign-in (once a minute at most - a failed round lands on the sign-in screen).
+      if (!authed && autoPreviewSignIn()) return;
+      authed ? renderApp() : renderLanding();
+      if (authed) showPreviewMark();
+    });
 } else {
   // MSAL mode, or a public path (/sign, /verify, /privacy, /terms) which App.jsx
   // renders itself with no session required.

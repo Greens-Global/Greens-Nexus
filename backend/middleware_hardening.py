@@ -217,7 +217,8 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/dev-notes/tokens",   # Build Mode: mints Build Tokens (credential-minting, Oct 24 2026)
                           "/dev-notes/cloud",   # Build Mode: takes a Claude Code trigger token (11/12/2026)
                           "/careers/apply/",   # public job application: personal data + a resume, no login (Oct 27 2026)
-                          "/construction-outside/")   # Construction outside links: one RFI or one sub's punch list, no login (11/11/2026)
+                          "/construction-outside/",   # Construction outside links: one RFI or one sub's punch list, no login (11/11/2026)
+                          "/auth/preview-")   # Build Mode hosted previews: the sign-in handoff and its claim (11/13/2026)
     # Routes whose path IS the credential: the trip log names the prefix,
     # never the token (the security log is durable).
     TOKEN_PATH_PREFIXES = ("/timeclock/ical/", "/task-changelog-feed/", "/unit-map/", "/documents/word-file/",

@@ -12,7 +12,7 @@ import { toViewUrl } from '../lib/storageView';
 import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import HoldButton from '../ui/HoldButton';
-import { pinMeta, pinReady, pinHeld, pinReopened, isLocalPreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND, CLAUDE_SEND_ON, isClaudeSession, canStartInCloud, ASKS, waitingOnMe, TEAM_STATES, teamPins, teamAuthors } from './meta';
+import { pinMeta, pinReady, pinHeld, pinReopened, isOpenablePreview, sessionMeta, READY_META, HELD_COLOR, KIND_META, PRIORITY_META, firstNameOf, WATCHER_COMMAND, CLAUDE_SEND_ON, isClaudeSession, canStartInCloud, ASKS, waitingOnMe, TEAM_STATES, teamPins, teamAuthors } from './meta';
 import ConnectCloud from './ConnectCloud';
 import { toast, useBuildStore, setAllTools, store } from './store';
 import { MODULES } from '../contexts/RoleContext';
@@ -79,7 +79,7 @@ function PinRow({ pin, onOpen, onChanged }) {
           <StatusLabel label={m.label} color={m.color} size="sm" />
           {pin.prUrl && <a className="bm-link" href={pin.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} /> PR #{pin.prNumber}</a>}
           {isClaudeSession(pin.claudeSessionUrl) && pin.status !== 'done' && pin.status !== 'dismissed' && <a className="bm-link" href={pin.claudeSessionUrl} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Open Claude Session</a>}
-          {pinReady(pin) && isLocalPreview(pin.preview?.url) && <a className="bm-link" href={pin.preview.url} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Open Preview</a>}
+          {pinReady(pin) && isOpenablePreview(pin.preview?.url) && <a className="bm-link" href={pin.preview.url} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Open Preview</a>}
           {pin.videoUrl && <a className="bm-link" href={toViewUrl(pin.videoUrl)} target="_blank" rel="noreferrer"><ExternalLink size={11} /> Video</a>}
         </div>
         <button type="button" className="bm-row-comment" onClick={() => onOpen?.(pin)} title="Open this pin where it was made">

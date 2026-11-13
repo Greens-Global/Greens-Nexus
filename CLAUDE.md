@@ -137,7 +137,13 @@ keep the diff minimal.
   (`routers/build_mode_connector.py`, `docs/Build-Mode-Connector.md`)
   reaches Build Mode pins ONLY, by Build Token, off until
   `NEXUS_BUILD_CONNECTOR=true` - never add a tool that touches anything
-  else in Nexus.
+  else in Nexus. **Hosted previews** (11/13/2026, `build_preview.py`,
+  `docs/Build-Mode.md` 8.11): a pin may carry the PR's Cloudflare Pages
+  build (`*.greens-nexus-dev.pages.dev`, screen-only PRs), which always
+  reaches the DEV API (`functions/api`) and signs in through the dev site's
+  handoff - a single-use code plus a PKCE verifier, Build Mode grant
+  checked at both ends, dev API only. Never register preview addresses in
+  Entra, never point a preview at production.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,

@@ -23,6 +23,7 @@ import { useBranding } from "../lib/queries";
 import { accentVars } from "../lib/brandAccent";
 import { BFF_MODE, clearSignedOutMarker } from "../bffAuth";
 import { externalAuthPost, useResendTimer } from "../lib/externalAuth";
+import { PREVIEW_HOST, startPreviewSignIn } from "../lib/previewSignIn";
 
 // Accent is a saved company setting, not hardcoded - see
 // backend/routers/branding.py (set in Settings > Branding & Policies > Brand
@@ -56,6 +57,7 @@ export default function LoginPage() {
     // Explicit click: lift the fresh-logout guard that suppresses AUTO re-login
     // (bffAuth.bffLogin) so the user's own sign-in is never blocked by it.
     clearSignedOutMarker();
+    if (PREVIEW_HOST) { startPreviewSignIn('/'); return; }   // a Build Mode preview signs in through the dev site
     if (BFF_MODE) {
       // Pass the last signed-in email as login_hint so Entra preselects the
       // account instead of showing "Pick an account".

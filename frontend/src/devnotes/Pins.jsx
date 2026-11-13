@@ -13,7 +13,7 @@ import { useIsMobile } from '../lib/useIsMobile';
 import { StatusLabel } from '../components/StatusLabel';
 import { anchorRect } from './lib/capture';
 import { placeCard } from './lib/anchor';
-import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, pinProof, isLocalPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf, isClaudeSession } from './meta';
+import { pinMeta, pinReady, pinHeld, pinReopened, pinChecked, pinAwaitsClaude, pinProof, isLocalPreview, isHostedPreview, KIND_META, PRIORITY_META, initialsOf, firstNameOf, isClaudeSession } from './meta';
 import { toast } from './store';
 import { dialog } from '../ui/dialog';
 import { HOLD_MAJOR_MS } from '../ui/HoldButton';
@@ -185,7 +185,8 @@ function Evidence({ v }) {
 // Reopens with a note (Claude Code picks it up again on the same branch).
 function PreviewBlock({ pin }) {
   const p = pin.preview || {};
-  const local = isLocalPreview(p.url);
+  const hosted = isHostedPreview(p.url);
+  const local = isLocalPreview(p.url) || hosted;
   const pr = p.prNumber || pin.prNumber;
   // No preview running anywhere (a Claude Code cloud session has no computer
   // to run one on): the pictures and the clip under Evidence are the check.
@@ -199,7 +200,8 @@ function PreviewBlock({ pin }) {
           : !proof && <span className="bm-dim bm-small">No preview link</span>}
       </div>
       {proof && <div className="bm-small" data-testid="bm-proof-hint">Claude Code attached what the fix looks like - check it under Evidence, then Accept or Reopen. Nothing to run.</div>}
-      {p.host && <div className="bm-small"><Monitor size={12} /> Runs on <b>{p.host}</b> - open it on that computer.</div>}
+      {hosted && <div className="bm-small" data-testid="bm-hosted-hint">Opens on any computer or phone and signs you in through the dev site. Screen changes only - it uses the dev site's data.</div>}
+      {p.host && !hosted && <div className="bm-small"><Monitor size={12} /> Runs on <b>{p.host}</b> - open it on that computer.</div>}
       <div className="bm-preview-meta">
         {(p.branch || pin.branch) && <code>{p.branch || pin.branch}</code>}
         {pin.prUrl && <a className="bm-link" href={pin.prUrl} target="_blank" rel="noreferrer"><ExternalLink size={12} /> PR #{pr}</a>}
