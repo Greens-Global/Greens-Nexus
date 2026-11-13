@@ -131,6 +131,14 @@ KNOWN_PUBLIC = {
     # not a public page.
     "/esign/public/{token}/history",
     "/esign/public/verify/{verify_token}",
+    # Credentials shared with someone outside Nexus (routers/vault_share.py):
+    # the 43-char share token is the credential, the password needs a one-time
+    # code sent to the address the owner typed, codes lock out after misses,
+    # the share expires on its own, and the prefix is in SENSITIVE_PREFIXES
+    # (30/min per IP).
+    "/vault-share/{token}",
+    "/vault-share/{token}/code",
+    "/vault-share/{token}/verify",
     "/timeclock/agent/checkin",            # agent device token (get_agent_device)
     "/timeclock/agent/screenshot",
     "/timeclock/agent/activity",

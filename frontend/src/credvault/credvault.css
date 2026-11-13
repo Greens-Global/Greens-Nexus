@@ -348,9 +348,9 @@ select.cv-ipt { appearance: auto; }
 @media (max-width: 900px) { .cv-login { grid-template-columns: 34px minmax(0, 1fr); } .cv-login-actions { grid-column: 1 / -1; justify-content: flex-end; } }
 
 /* ── Overview (Oct 29 2026): the audit table ─────────────────────────────── */
-.cv-health { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 12.5px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.cv-health { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 13px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .cv-health col.cv-health-dept { width: 26%; }
-.cv-health th { text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--cv-ok); padding: 7px 6px; background: var(--cv-ok-bg); border-bottom: 1px solid var(--line); overflow-wrap: anywhere; line-height: 1.25; }
+.cv-health th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--cv-ok); padding: 7px 6px; background: var(--cv-ok-bg); border-bottom: 1px solid var(--line); overflow-wrap: anywhere; line-height: 1.25; }
 .cv-health th:first-child, .cv-health td:first-child { padding-left: 10px; }
 .cv-health th.num, .cv-health td.num { text-align: center; }
 .cv-health td { padding: 7px 6px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
