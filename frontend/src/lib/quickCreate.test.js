@@ -51,7 +51,7 @@ describe('findActions', () => {
     expect(labels('new ticket')).toEqual(['New Ticket']);
     expect(labels('kud')).toEqual(['Give Kudos']);
     expect(labels('request item')).toEqual(['Request an Item']);
-    expect(labels('event invite')).toEqual(['New Event']);       // its short name counts
+    expect(labels('event')).toEqual(['New Event']);
   });
 
   it('is plain: no guesses, no small words, two characters at least, three rows at most', () => {

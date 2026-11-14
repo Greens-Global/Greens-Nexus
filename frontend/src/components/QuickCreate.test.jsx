@@ -79,7 +79,7 @@ describe('Header Quick Actions menu', () => {
     expect([...document.querySelectorAll('.qc-tile')].map((e) => e.textContent.trim())).toEqual(['New Task', 'New Ticket', 'New Note', 'New Board']);
     expect(rows()).toEqual(['New Task', 'New Ticket', 'New Note', 'New Board', 'New', 'Request', 'Send']);
     // A group row says what is inside it.
-    expect(screen.getByRole('menuitem', { name: 'Send' }).textContent).toContain('Email, Event Invite, Kudos');
+    expect(screen.getByRole('menuitem', { name: 'Send' }).textContent).toContain('Email, Event, Kudos');
   });
 
   it('a group row opens its own list, and the line back returns to it', async () => {
@@ -99,7 +99,7 @@ describe('Header Quick Actions menu', () => {
     expect(screen.getByRole('menuitem', { name: 'Task' }).querySelector('.hud-end').textContent).toBe('CT');
     await step('Back to Quick Actions');
     await step('Send');
-    expect(rows().slice(1)).toEqual(['Email', 'Event Invite', 'Kudos']);
+    expect(rows().slice(1)).toEqual(['Email', 'Event', 'Kudos']);
     // No 1:1, Ask HR, Credential, Send for Signature or Workflow anywhere (Neil, Oct 29 2026).
   });
 
@@ -142,7 +142,7 @@ describe('Header Quick Actions menu', () => {
     await open();
     expect(rows()).toEqual(['New Task', 'New Ticket', 'New Note', 'New Board', 'Request an Item', 'Send']);
     await step('Send');
-    expect(rows().slice(1)).toEqual(['Email', 'Event Invite']);
+    expect(rows().slice(1)).toEqual(['Email', 'Event']);
   });
 
   it('the keys: arrows, a letter, Right into a group, Left and Escape back out, Escape closes back to the bolt, a click outside closes', async () => {

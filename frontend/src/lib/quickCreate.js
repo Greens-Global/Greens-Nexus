@@ -89,7 +89,7 @@ export const ACTIONS = [
 
   // The Dashboard's Quick Actions offer these to everyone who has a Dashboard.
   { key: 'email', group: 'send', label: 'New Email', short: 'Email', Icon: Mail, module: 'dashboard', compose: 'email' },
-  { key: 'event', group: 'send', label: 'New Event', short: 'Event Invite', Icon: CalendarPlus, module: 'dashboard', compose: 'event' },
+  { key: 'event', group: 'send', label: 'New Event', short: 'Event', Icon: CalendarPlus, module: 'dashboard', compose: 'event' },
   { key: 'kudos', group: 'send', label: 'Give Kudos', short: 'Kudos', Icon: Award, module: 'myhr', internal: true, go: ['timeclock', 'performance:kudos:new'] },
 ];
 
