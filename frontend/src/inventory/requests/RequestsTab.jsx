@@ -223,6 +223,7 @@ export function RequestsTab({ items = [], checkouts = [], isManager, view, onVie
                     <span className="it-row-acts">
                       {ownReturn ? <span className="it-row-note">Your return</span>
                         : ready ? <button type="button" className="primary-btn it-btn-sm" onClick={() => setSheet({ kind: 'accept-return', a })}><CheckCircle size={13} /> Accept Return</button>
+                        : a.returnReason === 'offboarded' ? <span className="it-row-note">Return Pending - they left; open the item for Received or Lost</span>
                         : <span className="it-row-note">Waiting for their photo</span>}
                     </span>
                   </div>

@@ -27,12 +27,14 @@ timesheets. Rules this module keeps:
     only, returned to hr_comp holders only, never written to a log line.
 """
 import asyncio
+import json
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 import hr_checklist_seed
@@ -2663,19 +2665,109 @@ def _separation_details(inputs: dict) -> dict:
             "freeUpLicense": action == "remove",
             "handoverTo": (off.get("handoverTo") or "").strip().lower(),
             "handoverIncludeCompleted": bool(off.get("handoverIncludeCompleted")),
+            # Who their direct reports report to from the day they leave
+            # (Neil, 11/14/2026) - required when they have any.
+            "reportsTo": (off.get("reportsTo") or "").strip().lower(),
         },
         "merge": {k: str(v).strip() for k, v in (inputs.get("merge") or {}).items()
                   if re.fullmatch(r"[a-z0-9_]+", str(k)) and str(v).strip()},
     }
 
 
-def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock: bool = False) -> dict:
+def direct_reports(db: Session, emp: NexusEmployee) -> list:
+    """Who reports to them now (Reports To = them), and whom they cover as
+    the Backup Manager set on the profile - working people only. [{id,
+    email, name, jobTitle, kind: 'manager' | 'backup'}], managers first."""
+    em = (emp.work_email or "").strip().lower()
+    if not em:
+        return []
+    rows = (db.query(NexusEmployee)
+            .filter(or_(func.lower(NexusEmployee.manager_email) == em,
+                        func.lower(NexusEmployee.backup_manager_email) == em),
+                    NexusEmployee.id != emp.id, NexusEmployee.status != "offboarded").all())
+    out = []
+    for r in rows:
+        kind = "manager" if (r.manager_email or "").strip().lower() == em else "backup"
+        out.append({"id": r.id, "email": (r.work_email or "").lower(), "kind": kind, "jobTitle": r.job_title or "",
+                    "name": (r.display_name or f"{r.first_name or ''} {r.last_name or ''}").strip() or r.work_email})
+    out.sort(key=lambda x: (x["kind"] != "manager", x["name"].lower()))
+    return out
+
+
+def roles_held(db: Session, email: str) -> list:
+    """The approver / owner settings that name them (Neil, 11/14/2026): the
+    Review step lists each with where it is changed - nothing is changed
+    for HR here, each setting has its own screen. [{label, where, link}]."""
+    em = (email or "").strip().lower()
+    if not em:
+        return []
+    from models import HrDepartment, HrJobOpening, NexusGroup, ShiftGroup, TicketDepartment
+
+    def has(v) -> bool:
+        if isinstance(v, list):
+            return em in [str(x).strip().lower() for x in v]
+        txt = str(v or "")
+        if txt.strip().startswith("["):
+            try:
+                return em in [str(x).strip().lower() for x in json.loads(txt)]
+            except ValueError:
+                pass
+        return em in [x.strip().lower() for x in txt.replace(";", ",").split(",")]
+
+    out = []
+    ents = db.query(HrEntity).all()
+    names = {e.id: e.name or "Company" for e in ents}
+    for e in ents:
+        link = {"view": "admin-console", "sub": f"companies@{e.id}"}
+        for label, val in (("HR Contact", e.hr_contact_email), ("IT Support Contact", e.it_contact_email),
+                           ("Company Signatory", e.signatory_email),
+                           ("Company Manager", list(e.manager_emails or []) + [e.manager_email or ""])):
+            if has(val):
+                out.append({"label": label, "where": e.name or "Company", "link": link})
+    for d in db.query(HrDepartment).all():
+        for label, val in (("Department Lead", d.lead_email), ("Department Backup", d.backup_email)):
+            if has(val):
+                out.append({"label": label, "where": f"{d.name} - {names.get(d.company_id, 'Company')}",
+                            "link": {"view": "admin-console", "sub": f"companies@{d.company_id}"}})
+    for d in db.query(TicketDepartment).all():
+        for label, val in (("Ticket Desk Lead", d.lead_email), ("Ticket Desk Backup", d.backup_email),
+                           ("Ticket Default Assignee", d.default_assignee_email)):
+            if has(val):
+                out.append({"label": label, "where": d.name or "Tickets",
+                            "link": {"view": "admin-console", "sub": "tickets"}})
+    for g in db.query(NexusGroup).filter(func.lower(NexusGroup.default_manager_email) == em).all():
+        out.append({"label": "Default Manager For A Job Role", "where": g.name or "Job Role",
+                    "link": {"view": "admin-console", "sub": "access"}})
+    for g in db.query(ShiftGroup).filter((ShiftGroup.archived == 0) | (ShiftGroup.archived.is_(None))).all():
+        if has(g.scheduler_emails):
+            out.append({"label": "Scheduler", "where": g.name or "Team", "link": {"view": "shifts", "sub": "schedule"}})
+    for o in (db.query(HrJobOpening).filter(func.lower(HrJobOpening.hiring_owner_email) == em,
+                                            HrJobOpening.status.in_(("draft", "open", "paused"))).all()):
+        out.append({"label": "Hiring Owner", "where": o.title or "Opening", "link": {"view": "hr", "sub": "hr-hiring"}})
+    return out
+
+
+def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock: bool = False,
+                    allow_left: bool = False) -> dict:
     emp = _load_employee(db, eid, scope, lock=lock)
-    if emp.status == "offboarded":
+    if emp.status == "offboarded" and not allow_left:
         raise PacketError(f"{emp.first_name} has already left.", 409)
     d = _separation_details(inputs or {})
     if d["offboarding"]["mailboxAction"] == "share" and not d["offboarding"]["delegateTo"]:
         raise PacketError("Pick who gets access to their mailbox.")
+    if not allow_left:
+        # Direct reports need a manager from the day they leave (Neil, 11/14/2026).
+        reports = [r for r in direct_reports(db, emp) if r["kind"] == "manager"]
+        to = d["offboarding"]["reportsTo"]
+        if reports and not to:
+            n = len(reports)
+            raise PacketError(f"Pick who {'their' if n > 1 else 'their one'} direct report{'s' if n > 1 else ''} "
+                              f"report{'' if n > 1 else 's'} to from now on.")
+        if to:
+            mgr = (db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == to,
+                                                 NexusEmployee.status != "offboarded").first())
+            if mgr is None or mgr.id == emp.id:
+                raise PacketError("Pick someone in Nexus People who is staying to take over their direct reports.")
     name = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
     entity = db.query(HrEntity).filter(HrEntity.id == emp.company).first() if emp.company else None
     company = entity.name if entity else "their company"
@@ -2780,33 +2872,103 @@ def apply_separation_now(db: Session, ev: HrLifeEvent) -> dict:
         db.commit()
         return {}
     out = apply_status_change(db, emp, _separation_status_body(ev), ev.created_by)
-    d = ev.inputs or {}
-    if d.get("start_checklist"):
-        import hr_checklists
-        try:
-            if not hr_checklists.open_checklist(db, emp.id, "offboarding"):
-                hr_checklists.start(db, emp, "offboarding", anchor_date=d.get("last_day", ""),
-                                    exit_type=d.get("exit_type", ""), by=ev.created_by)
-        except ValueError as e:
-            print(f"[life-events] offboarding checklist not started for {emp.id}: {e}")
+    # Started when the exit was scheduled (Neil, 11/14/2026) - only an exit
+    # that applies at once, or one scheduled before that, starts it here.
+    start_exit_checklist(db, emp, ev)
+    moved = reassign_reports(db, emp, ev)
     ev.apply_status, ev.applied_at = "applied", _now()
     ho = (out or {}).get("handover") or {}
     it = (out or {}).get("items") or {}
     bits = ["Marked Left"]
-    if it.get("checkouts") or it.get("assignments"):
-        bits.append(f"{(it.get('checkouts') or 0) + (it.get('assignments') or 0)} item(s) returned")
+    if it.get("returnPending"):
+        bits.append(f"{it['returnPending']} item(s) to return")
     if ho.get("reassigned"):
         bits.append(f"{ho['reassigned']} task(s) handed over")
+    if moved:
+        bits.append(moved)
     m = (out or {}).get("m365") or {}
+    import exit_statement
     if m.get("error"):
         bits.append(f"M365: {m['error']}")
+        if (emp.m365_id or "").strip():      # a person with no Microsoft account has nothing to fix
+            exit_statement.flag(db, emp, "m365_issue", f"M365 issue: {m['error']}", event=ev)
     rerouted = _package_follows_the_leaver(db, ev, emp)
     if rerouted:
         bits.append(rerouted)
+    pk = live_package(db, emp.id)       # one sent by itself (Send Separation Package) follows them too
+    if pk is not None and pk.id != ev.id:
+        rerouted = _package_follows_the_leaver(db, pk, emp)
+        if rerouted:
+            bits.append(rerouted)
     ev.apply_note = "; ".join(bits)
     ev.updated_at = _now()
+    db.flush()
+    exit_statement.record(db, emp, ev.created_by, "left", ev.apply_note)
     db.commit()
     return out
+
+
+def start_exit_checklist(db: Session, emp: NexusEmployee, ev: HrLifeEvent) -> None:
+    """The offboarding checklist for this exit, ONCE: started when the exit is
+    scheduled (Neil, 11/14/2026 - the notice-period steps are due before the
+    last day, and the final Time Sheet must be in before the lockout), or
+    when it applies at once. Its id rides the event so the apply never
+    starts a second one; an open one already there is adopted and dated
+    from this last day. Flushes; the caller commits."""
+    d = dict(ev.inputs or {})
+    if not d.get("start_checklist") or d.get("checklist_id"):
+        return
+    import hr_checklists
+    try:
+        cl = hr_checklists.open_checklist(db, emp.id, "offboarding")
+        if cl is None:
+            cl = hr_checklists.start(db, emp, "offboarding", anchor_date=d.get("last_day", ""),
+                                     exit_type=d.get("exit_type", ""), by=ev.created_by)
+        elif cl.anchor_date != d.get("last_day", ""):
+            hr_checklists.move_anchor(db, cl, d.get("last_day", ""), by=ev.created_by)
+        ev.inputs = {**d, "checklist_id": cl.id}
+        db.flush()
+    except ValueError as e:
+        print(f"[life-events] offboarding checklist not started for {emp.id}: {e}")
+
+
+def reassign_reports(db: Session, emp: NexusEmployee, ev: HrLifeEvent) -> str:
+    """Their direct reports report to the person HR picked on Offboard (Neil,
+    11/14/2026), and whom they covered as Backup Manager goes back to the
+    default backup. Runs when they become Left; the rows are locked (a
+    People save racing it must not undo it). Recorded on the exit's
+    activity. Returns the note for the record ('' = nothing moved)."""
+    em = (emp.work_email or "").strip().lower()
+    to = (((ev.inputs or {}).get("offboarding") or {}).get("reportsTo") or "").strip().lower()
+    if not em:
+        return ""
+    rows = (db.query(NexusEmployee)
+            .filter(or_(func.lower(NexusEmployee.manager_email) == em,
+                        func.lower(NexusEmployee.backup_manager_email) == em),
+                    NexusEmployee.id != emp.id, NexusEmployee.status != "offboarded")
+            .order_by(NexusEmployee.id).with_for_update().all())
+    if not rows:
+        return ""
+    now, moved, cleared = _now(), [], []
+    for r in rows:
+        if (r.manager_email or "").strip().lower() == em and to and to != (r.work_email or "").lower():
+            r.manager_email, r.updated_at = to, now
+            moved.append((r.display_name or f"{r.first_name or ''} {r.last_name or ''}").strip() or r.work_email)
+        if (r.backup_manager_email or "").strip().lower() == em:
+            r.backup_manager_email, r.updated_at = "", now
+            cleared.append((r.display_name or f"{r.first_name or ''} {r.last_name or ''}").strip() or r.work_email)
+    db.flush()
+    import exit_statement
+    bits = []
+    if moved:
+        who = person_name(db, to) or to
+        note = f"{len(moved)} direct report(s) now report to {who}: {', '.join(sorted(moved))}"
+        exit_statement.record(db, emp, ev.created_by, "reports_moved", note)
+        bits.append(f"{len(moved)} direct report(s) moved to {who}")
+    if cleared:
+        exit_statement.record(db, emp, ev.created_by, "backups_cleared",
+                              f"No longer Backup Manager for: {', '.join(sorted(cleared))} - the default backup applies")
+    return "; ".join(bits)
 
 
 def _package_follows_the_leaver(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> str:
@@ -2850,38 +3012,26 @@ def _package_follows_the_leaver(db: Session, ev: HrLifeEvent, emp: NexusEmployee
     return f"unsigned package re-sent to {personal}"
 
 
-def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, excluded_ack: bool,
-                    ip: str = "", user_agent: str = "") -> tuple:
-    plan = plan_separation(db, user, eid, inputs, scope, lock=True)
+PACKAGE_DEAD = ("declined", "voided", "expired")
+APPLY_DEFERRED = ("Their offboarding is saved, but ending their access did not finish ({why}). Nexus tries "
+                  "again on its next pass, within a few minutes - their access is ended then. Check People "
+                  "in a few minutes.")
+
+
+def _send_package(db: Session, user: dict, plan: dict, ev: HrLifeEvent, *, excluded_ack: bool,
+                  ip: str = "", user_agent: str = "") -> None:
+    """The separation package for `ev` - from Documents (waits for the
+    verifier) or through Nexus Sign (the person signs first, the company
+    countersigns after - hr_packet_docs.signing_flow / the template's
+    order). No package: `ev` stays as it is. Flushes; the caller commits."""
     emp, d = plan["employee"], plan["details"]
-    if plan["unresolved"]:
-        raise PacketError("Fill in: " + ", ".join(plan["unresolved"]) + ".")
-    busy = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "separation",
-                                         HrLifeEvent.apply_status == "scheduled").first())
-    if busy and busy.status in OPEN:
-        raise PacketError("An offboarding is already scheduled for them - cancel it first.", 409)
-    now = _now()
-    if busy:
-        # Scheduled, but its paperwork was declined, voided or expired: this
-        # send replaces it (same person, fresh package, new details) instead
-        # of forcing HR to cancel and re-enter everything.
-        busy.apply_status = "canceled"
-        busy.apply_note = f"Replaced by a new offboarding on {us_date(now)}"
-        busy.updated_at = now
-    ev = HrLifeEvent(id=str(uuid.uuid4()), kind="separation", status="completed",
-                     entity_id=emp.company or "", employee_id=emp.id, subject_name=plan["subjectName"],
-                     subject_email=plan["to"] or "", setting_id=plan["setting"].id if plan["setting"] else "",
-                     template_id=plan["template"].id if plan["template"] else "", inputs=dict(d),
-                     effective_date=d["last_day"], apply_status="scheduled",
-                     created_by=user["email"].lower(), created_at=now, updated_at=now, completed_at=now)
-    db.add(ev)
     if plan.get("docplan") is not None:
         # The package is generated now and waits for the verifier (Oct 14);
         # the offboarding never waits on it.
         import hr_packet_docs as hpd
         ev.status, ev.completed_at, ev.documents = "review", "", []
-        ev.inputs = {**dict(d), "verifier_role": plan["setting"].verify_role or "hr", "engine": "documents",
-                     "extra": dict(d.get("merge") or {})}
+        ev.inputs = {**dict(ev.inputs or d), "verifier_role": plan["setting"].verify_role or "hr",
+                     "engine": "documents", "extra": dict(d.get("merge") or {})}
         db.flush()
         p = hpd.event_plan(db, ev, plan["setting"], sender=user["email"], can_see_pay=False)
         hpd.sync_documents(db, ev, plan["setting"], p, user["email"].lower())
@@ -2904,11 +3054,54 @@ def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, e
         ev.sign_request_id = out["id"]
         if not sender_first:
             ev.status = "sent"
+
+
+def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, excluded_ack: bool,
+                    ip: str = "", user_agent: str = "") -> tuple:
+    plan = plan_separation(db, user, eid, inputs, scope, lock=True)
+    emp, d = plan["employee"], plan["details"]
+    if plan["unresolved"]:
+        raise PacketError("Fill in: " + ", ".join(plan["unresolved"]) + ".")
+    busy = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "separation",
+                                         HrLifeEvent.apply_status == "scheduled").first())
+    # One exit, one package (Neil, 11/14/2026): a scheduled exit whose
+    # paperwork is open, signed, or never had any is never silently replaced
+    # - a new date is Change Last Day, which keeps the package.
+    if busy and busy.status not in PACKAGE_DEAD:
+        raise PacketError("An offboarding is already scheduled for them - use Change Last Day to move it, or "
+                          "Cancel Offboarding first.", 409)
+    now = _now()
+    carried = {}
+    if busy:
+        # Scheduled, but its paperwork was declined, voided or expired: this
+        # send replaces it (same person, fresh package, new details) instead
+        # of forcing HR to cancel and re-enter everything. The checklist
+        # already started for it carries over.
+        busy.apply_status = "canceled"
+        busy.apply_note = f"Replaced by a new offboarding on {us_date(now)}"
+        busy.updated_at = now
+        if (busy.inputs or {}).get("checklist_id"):
+            carried["checklist_id"] = busy.inputs["checklist_id"]
+    ev = HrLifeEvent(id=str(uuid.uuid4()), kind="separation", status="completed",
+                     entity_id=emp.company or "", employee_id=emp.id, subject_name=plan["subjectName"],
+                     subject_email=plan["to"] or "", setting_id=plan["setting"].id if plan["setting"] else "",
+                     template_id=plan["template"].id if plan["template"] else "", inputs={**dict(d), **carried},
+                     effective_date=d["last_day"], apply_status="scheduled",
+                     created_by=user["email"].lower(), created_at=now, updated_at=now, completed_at=now)
+    db.add(ev)
+    _send_package(db, user, plan, ev, excluded_ack=excluded_ack, ip=ip, user_agent=user_agent)
+    if busy is not None and carried.get("checklist_id"):
+        _move_checklist(db, ev, d["last_day"], user["email"].lower())
     db.commit()
     result = {}
     if d["immediate"]:
-        result = apply_separation_now(db, ev)
+        result = _apply_now_or_defer(db, ev)
     else:
+        # The checklist starts now, not on the last day (Neil, 11/14/2026):
+        # its notice-period steps are due before the last day.
+        start_exit_checklist(db, emp, ev)
+        import exit_statement
+        exit_statement.record(db, emp, ev.created_by, "scheduled", f"Last day {us_date(d['last_day'])}")
         for to in {ev.created_by, (emp.manager_email or "").lower()} - {""}:
             _notify(db, to, f"Offboarding Scheduled - {ev.subject_name}",
                     f"{ev.subject_name}'s last day is {us_date(d['last_day'])}. Nexus marks them Left the morning "
@@ -2917,12 +3110,157 @@ def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, e
     return ev, result
 
 
+def _apply_now_or_defer(db: Session, ev: HrLifeEvent) -> dict:
+    """Mark them Left now. The exit is already saved as scheduled; when the
+    leaver steps fail part way (Graph, a lock, anything but a PacketError),
+    nothing is left half done and silent: the event stays scheduled for an
+    immediate exit, the next pass (apply_due_separations) runs it again, and
+    the caller hears clearly that access ends then."""
+    eid = ev.id
+    try:
+        return apply_separation_now(db, ev)
+    except PacketError:
+        raise
+    except Exception as e:      # noqa: BLE001 - said to the caller, retried by the pass
+        db.rollback()
+        why = f"{type(e).__name__}: {str(e)[:160]}"
+        print(f"[life-events] immediate offboarding {eid} deferred to the next pass: {why}")
+        row = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).first()
+        if row is not None and row.apply_status == "scheduled":
+            row.inputs = {**(row.inputs or {}), "immediate": True}
+            row.apply_note = f"Access not ended yet - Nexus retries on its next pass ({why})"
+            row.updated_at = _now()
+            db.commit()
+        raise PacketError(APPLY_DEFERRED.format(why=why), 502)
+
+
+def _move_checklist(db: Session, ev: HrLifeEvent, last_day: str, by: str) -> None:
+    cid = (ev.inputs or {}).get("checklist_id")
+    if not cid:
+        return
+    import hr_checklists
+    from models import HrChecklist
+    cl = db.query(HrChecklist).filter(HrChecklist.id == cid).first()
+    if cl is not None and cl.status == "open":
+        hr_checklists.move_anchor(db, cl, last_day, by=by)
+
+
+def change_last_day(db: Session, ev: HrLifeEvent, last_day: str, actor: str) -> dict:
+    """Change Last Day (Neil, 11/14/2026): the scheduled exit moves - its
+    date, the checklist's due dates and the exit record - and the package
+    is NEVER voided or sent again. A day of today or earlier means their
+    access ends now (the screen holds to confirm it, like Offboard Now).
+    Commits. Returns the leaver steps' result when it applied now."""
+    if ev.kind != "separation" or ev.apply_status != "scheduled":
+        raise PacketError("Only an offboarding that hasn't happened yet can be moved.", 409)
+    day = (last_day or "").strip()[:10]
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except ValueError:
+        raise PacketError("Enter their last day.")
+    old = ev.effective_date or (ev.inputs or {}).get("last_day", "")
+    if day == old:
+        raise PacketError(f"Their last day is already {us_date(day)}.", 409)
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == ev.employee_id).with_for_update().first()
+    if emp is None:
+        raise PacketError("The employee record is gone.", 404)
+    now_ = day <= _today()
+    ev.inputs = {**(ev.inputs or {}), "last_day": day, "immediate": now_}
+    ev.effective_date, ev.updated_at = day, _now()
+    _move_checklist(db, ev, day, actor)
+    db.flush()
+    import exit_statement
+    exit_statement.move_last_day(db, emp, old, day, actor)
+    if now_:
+        db.commit()
+        return _apply_now_or_defer(db, ev)
+    for to in {ev.created_by, actor, (emp.manager_email or "").lower()} - {""}:
+        _notify(db, to, f"Last Day Moved - {ev.subject_name}",
+                f"{ev.subject_name}'s last day is now {us_date(day)} (was {us_date(old)}). Nexus marks them Left "
+                f"the morning after. The separation package was not changed.", ev)
+    db.commit()
+    return {}
+
+
+def scheduled_exit(db: Session, employee_id: str) -> Optional[HrLifeEvent]:
+    return (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == employee_id, HrLifeEvent.kind == "separation",
+                                         HrLifeEvent.apply_status == "scheduled")
+            .order_by(HrLifeEvent.created_at.desc()).first())
+
+
+def live_package(db: Session, employee_id: str) -> Optional[HrLifeEvent]:
+    """The separation package still in play for this person: out, waiting
+    for review, or signed. None = there is none (never sent, declined,
+    voided or expired) - Send Separation Package may send one."""
+    rows = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == employee_id, HrLifeEvent.kind == "separation",
+                                         HrLifeEvent.apply_status != "canceled")
+            .order_by(HrLifeEvent.created_at.desc()).all())
+    for ev in rows:
+        if ev.status in OPEN:
+            return ev
+        if ev.status == "completed" and (ev.sign_request_id or (ev.inputs or {}).get("paper_path")
+                                         or ev.documents):
+            return ev
+    return None
+
+
+def send_separation_package(db: Session, user: dict, eid: str, inputs: dict, scope, *, excluded_ack: bool,
+                            preview: bool = False, ip: str = "", user_agent: str = ""):
+    """Send Separation Package (Neil, 11/14/2026) to someone already Left -
+    or on a scheduled exit whose package was never sent or died - WITHOUT
+    touching their status, their last day or anything else of the exit. It
+    goes to their personal email once they have left; the signing order is
+    the package's own (they sign first, the company countersigns after).
+    Refused while a package is out or signed. `preview`: the plan only."""
+    emp = _load_employee(db, eid, scope, lock=not preview)
+    import exit_statement
+    ex = exit_statement.exit_of(db, emp)
+    if ex is None or not ex.get("lastDay"):
+        raise PacketError(f"{emp.first_name} is not leaving - use Offboard.", 409)
+    if emp.status != "offboarded" and ex.get("applied"):
+        raise PacketError(f"{emp.first_name} is not Left - use Offboard.", 409)
+    live = live_package(db, emp.id)
+    if live is not None:
+        word = "signed" if live.status == "completed" else "already out"
+        raise PacketError(f"Their separation package is {word} - open it on their profile.", 409)
+    sched = scheduled_exit(db, emp.id)
+    src = (sched.inputs if sched is not None else None) or {}
+    body = {**(inputs or {}), "last_day": ex["lastDay"], "send_package": True, "start_checklist": False,
+            "exit_type": (inputs or {}).get("exit_type") or ex.get("exitType") or src.get("exit_type") or "",
+            "offboarding": {"mailboxAction": "remove"}}
+    plan = plan_separation(db, user, eid, body, scope, lock=not preview, allow_left=True)
+    if not plan["package"]:
+        raise PacketError(f"No separation package is set up for {plan['company']}.", 409)
+    if preview:
+        return plan
+    if plan["unresolved"]:
+        raise PacketError("Fill in: " + ", ".join(plan["unresolved"]) + ".")
+    d, now = plan["details"], _now()
+    # Its own event, never the exit itself (apply_status ''): the last day,
+    # the status and the leaver steps stay exactly where they are.
+    ev = HrLifeEvent(id=str(uuid.uuid4()), kind="separation", status="completed",
+                     entity_id=emp.company or "", employee_id=emp.id, subject_name=plan["subjectName"],
+                     subject_email=plan["to"] or "", setting_id=plan["setting"].id if plan["setting"] else "",
+                     template_id=plan["template"].id if plan["template"] else "",
+                     inputs={**dict(d), "package_only": True, "send_kind": "external" if d["immediate"] else "internal"},
+                     effective_date=d["last_day"], apply_status="",
+                     apply_note="Separation package sent after the offboarding",
+                     created_by=user["email"].lower(), created_at=now, updated_at=now, completed_at=now)
+    db.add(ev)
+    _send_package(db, user, plan, ev, excluded_ack=excluded_ack, ip=ip, user_agent=user_agent)
+    db.flush()
+    exit_statement.record(db, emp, user["email"].lower(), "package_sent", f"Separation package sent to {plan['to']}")
+    db.commit()
+    return ev
+
+
 def cancel_separation(db: Session, ev: HrLifeEvent, actor: str) -> None:
     if ev.kind != "separation" or ev.apply_status != "scheduled":
         raise PacketError("Only an offboarding that hasn't happened yet can be canceled.", 409)
     ev.apply_status = "canceled"
     ev.apply_note = f"Canceled by {actor}"
     ev.updated_at = _now()
+    _cancel_exit_checklist(db, ev)
     if ev.status in ("intake", "review"):
         void_open(db, ev, actor)       # never sent: its documents are archived
         return
@@ -2934,11 +3272,28 @@ def cancel_separation(db: Session, ev: HrLifeEvent, actor: str) -> None:
     db.commit()
 
 
+def _cancel_exit_checklist(db: Session, ev: HrLifeEvent) -> None:
+    """A canceled offboarding takes its checklist with it (Neil, 11/14/2026):
+    canceled, its owners' tasks close (sync_tasks). Done steps stay done."""
+    cid = (ev.inputs or {}).get("checklist_id")
+    if not cid:
+        return
+    import hr_checklists
+    from models import HrChecklist
+    cl = db.query(HrChecklist).filter(HrChecklist.id == cid).with_for_update().first()
+    if cl is not None and cl.status == "open":
+        cl.status, cl.closed_at = "cancelled", _now()
+        hr_checklists.sync_tasks(db, cl)
+        db.flush()
+
+
 def apply_due_separations(limit: int = 20) -> int:
     """The last day is over: mark them Left (point 5, Pranshu Oct 8). Runs
     the morning AFTER the last day in BUSINESS_TZ - the person works their
     last day with their email and Nexus intact; cutting them off at midnight
-    UTC would be mid-afternoon the day before in California."""
+    UTC would be mid-afternoon the day before in California. An exit meant
+    to apply at once (a last day of today) whose leaver steps did not finish
+    is picked up here too (11/14/2026) - access is never left on quietly."""
     if job_switch.off("life_events"):   # Workflows > Automations switch
         return 0
     from database import SessionLocal
@@ -2948,12 +3303,17 @@ def apply_due_separations(limit: int = 20) -> int:
         today = _today()
         ids = [r.id for r in db.query(HrLifeEvent).filter(HrLifeEvent.kind == "separation",
                                                            HrLifeEvent.apply_status == "scheduled",
-                                                           HrLifeEvent.effective_date < today)
-               .limit(limit).all()]
+                                                           HrLifeEvent.effective_date <= today)
+               .order_by(HrLifeEvent.effective_date).limit(limit * 5).all()]
         for eid in ids:
+            if n >= limit:
+                break
             ev = (db.query(HrLifeEvent).filter(HrLifeEvent.id == eid, HrLifeEvent.apply_status == "scheduled")
                   .with_for_update().first())
             if not ev:
+                continue
+            if (ev.effective_date or "") >= today and not (ev.inputs or {}).get("immediate"):
+                db.rollback()            # their last day is today: they keep working it
                 continue
             try:
                 apply_separation_now(db, ev)
@@ -2967,7 +3327,6 @@ def apply_due_separations(limit: int = 20) -> int:
     finally:
         db.close()
     return n
-
 
 def _apply_separation_signed(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
     ev.apply_note = (ev.apply_note + "; " if ev.apply_note else "") + "Separation package signed"

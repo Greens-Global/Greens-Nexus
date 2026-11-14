@@ -5,7 +5,7 @@ import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus,
 import PacketReview from '../components/PacketReview';
 import SendFederalFormMenu from '../components/SendFederalFormMenu';
 import OfferModal from '../components/OfferModal';
-import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
+import { PromoteModal, OffboardModal, RoleChangeModal, ChangeLastDayModal, SeparationPackageModal } from '../components/HrPersonActions';
 import { ProbationBadge } from '../components/HrProbation';
 import { StatusLabel } from '../components/StatusLabel';
 import PersonActions from '../components/PersonActions';
@@ -24,7 +24,7 @@ import {
   Shield, AlertTriangle, Clock, RotateCcw,
   ChevronDown, ChevronUp, Link2, ExternalLink,
   ListChecks, RefreshCw, Hourglass, BarChart3,
-  Target, UserCheck,
+  Target, UserCheck, CalendarClock, Send, Ban,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatWeekday } from '../lib/datetime';
@@ -890,6 +890,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [offboardOpen, setOffboardOpen] = useState(false);
   // End Employment on probation opens Offboard with Termination and the reason (Oct 27 2026).
   const [offboardInitial, setOffboardInitial] = useState(null);
+  // A scheduled exit (Neil, 11/14/2026): Change Last Day / Cancel Offboarding
+  // instead of a second Offboard; a Left person may get the package later.
+  const [lastDayOpen, setLastDayOpen] = useState(false);
+  const [packageOpen, setPackageOpen] = useState(false);
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
   const [reviewEvent, setReviewEvent] = useState(null);    // a letter / package built from Documents, being reviewed (Oct 14)
   const [eventsKey, setEventsKey] = useState(0);
@@ -972,6 +976,18 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const expiry = nextExpiry(e);
   const tenure = fmtTenure(e.startDate);
   const canAct = canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external';
+  const scheduled = e.scheduledExit || null;
+  const left = !teamView && e.status === 'offboarded' && e.identityType !== 'external';
+  // Cancel Offboarding voids paperwork that is out - held (Hold to confirm).
+  const cancelOffboarding = () => dialog.confirm(
+    `Cancel ${fullName(e)}'s offboarding? They stay active, the offboarding checklist is canceled, and any paperwork still out is voided.`,
+    { title: 'Cancel Offboarding', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Cancel Offboarding', doneText: 'Canceled', cancelText: 'Keep It',
+      onConfirm: async () => {
+        try { await api.cancelOffboarding(scheduled.eventId); }
+        catch (err) { throw new Error(err?.message || 'Could not cancel the offboarding.', { cause: err }); }
+        toastOk('Offboarding canceled.');
+        setEventsKey(n => n + 1); onReload?.();
+      } });
   // Everything HR can do to the record, behind one Actions menu (11/08/2026);
   // the two that cannot be taken back sit last, in red.
   const actions = isRemoved || teamView ? [] : [
@@ -996,8 +1012,13 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         catch (err) { toastErr(err?.message || 'Could not send welcome email.'); }
         setWelcomeBusy(false);
       } },
+    // One exit at a time (Neil, 11/14/2026): with an exit scheduled the menu
+    // offers Change Last Day and Cancel Offboarding, never a second Offboard.
+    canAct && scheduled && { label: 'Change Last Day', Icon: CalendarClock, onClick: () => setLastDayOpen(true), title: `Their last day is ${usDay(scheduled.lastDay)} - move it without sending the package again` },
+    canEditProfile && left && { label: 'Send Separation Package', Icon: Send, onClick: () => setPackageOpen(true), title: 'Send the separation package to their personal email - their status stays Left' },
     (canAct || isAdmin) && { divider: true },
-    canAct && { label: 'Offboard', Icon: LogOut, danger: true, onClick: () => setOffboardOpen(true), title: 'Last day, the separation package through Nexus Sign, and everything that happens when they leave' },
+    canAct && scheduled && { label: 'Cancel Offboarding', Icon: Ban, danger: true, onClick: cancelOffboarding, title: 'They stay active, the checklist is canceled and any paperwork still out is voided' },
+    canAct && !scheduled && { label: 'Offboard', Icon: LogOut, danger: true, onClick: () => setOffboardOpen(true), title: 'Last day, the separation package through Nexus Sign, and everything that happens when they leave' },
     isAdmin && { label: 'Remove From Nexus', Icon: Trash2, danger: true, onClick: removeFromNexus, title: "Remove this person's Nexus record only - does not touch Microsoft 365" },
   ].filter(Boolean);
   return (
@@ -1032,6 +1053,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 ? <StatusLabel label={sm.label} color={sm.fg} size="sm" />
                 : <button type="button" className="pr-status-btn" onClick={() => setStatusOpen(true)} title="Change status (with reason)"><StatusLabel label={sm.label} color={sm.fg} size="sm" /></button>}
             {!onSchedule && !isRemoved && <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)' }}>Off the Schedule</span>}
+            {!isRemoved && <LeavingLine exit={e.scheduledExit} />}
           </div>
           <div style={{ fontSize: 14, color: 'var(--ink)', marginTop: 3 }}>
             {[e.jobTitle, companyName].filter(Boolean).join(' · ') || '-'}
@@ -1104,12 +1126,32 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           if (ev.applyStatus === 'applied') onEmployeeUpdated?.({ ...e, status: 'offboarded' });
           else onReload?.();
           const m = ev.result?.m365 || {};
-          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.export && 'mailbox export started - download it from the Documents tab once it is ready', m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
+          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.export && 'mailbox export started - download it from the Documents tab once it is ready'].filter(Boolean).join(', ');
           toastOk(ev.applyStatus === 'applied'
             ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
             : `Offboarding scheduled - last day ${usDay(ev.effectiveDate)}, Nexus marks them Left the morning after.`);
+          // A Microsoft 365 problem is an error, never a success line - it is
+          // also kept on their exit for HR (People > Exits).
+          if (m.error) toastErr(`Microsoft 365 issue: ${m.error} - it is on their exit in People > Exits.`);
           if (ev.status === 'review') setReviewEvent(ev.id);
           else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+        }} />}
+      {lastDayOpen && scheduled && <ChangeLastDayModal employee={e} current={scheduled.lastDay} toastErr={toastErr}
+        onClose={() => setLastDayOpen(false)}
+        onDone={ev => {
+          setLastDayOpen(false); setEventsKey(n => n + 1);
+          if (ev.applyStatus === 'applied') { onEmployeeUpdated?.({ ...e, status: 'offboarded', scheduledExit: null }); toastOk(`${e.firstName} is offboarded.`); }
+          else { onReload?.(); toastOk(`Last day moved to ${usDay(ev.effectiveDate)} - the package was not sent again.`); }
+          const m = ev.result?.m365 || {};
+          if (m.error) toastErr(`Microsoft 365 issue: ${m.error} - it is on their exit in People > Exits.`);
+        }} />}
+      {packageOpen && <SeparationPackageModal employee={e} toastErr={toastErr}
+        onClose={() => setPackageOpen(false)}
+        onSent={ev => {
+          setPackageOpen(false); setEventsKey(n => n + 1);
+          if (ev.status === 'review') setReviewEvent(ev.id);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          else toastOk(`Separation package sent to ${ev.subjectEmail || 'their personal email'} - they sign first.`);
         }} />}
       {reviewEvent && <PacketReview eventId={reviewEvent} onClose={() => setReviewEvent(null)}
         onChanged={() => { setEventsKey(n => n + 1); onReload?.(); }} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
@@ -3619,6 +3661,19 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   );
 }
 
+// A scheduled exit (Neil, 11/14/2026): "Leaving MM/DD" wherever people look
+// - the directory and the profile - in the Live accent (in progress / now).
+function LeavingLine({ exit, style }) {
+  if (!exit?.lastDay) return null;
+  const day = formatDate(`${exit.lastDay.slice(0, 10)}T12:00:00`);
+  return (
+    <span title={`Last day ${day} - an offboarding is scheduled`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--wk-live-ink)', whiteSpace: 'nowrap', ...style }}>
+      <LogOut size={12} /> Leaving {day.slice(0, 5)}
+    </span>
+  );
+}
+
 // A role change waiting on approval (Pranshu, Oct 14): the People list marks
 // the person so HR sees something is pending for them; a click opens it.
 function PendingRoleBadge({ req, onOpen }) {
@@ -3656,7 +3711,8 @@ export default function HR({ activeSub, onSubChange }) {
   const { hrTeam } = useRole();
   // People Analytics (Oct 27 2026) is HR's: the manager tier's /hr allowlist
   // does not open it either.
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-investors', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-reports', 'hr-exits', 'hr-performance'];
+  // A manager also sees Exits - their own people's, the tracker only (Neil, 11/14/2026).
+  const SUBS = hrTeam ? ['hr-people', 'hr-time', 'hr-exits'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-investors', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-reports', 'hr-exits', 'hr-performance'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -4282,6 +4338,7 @@ export default function HR({ activeSub, onSubChange }) {
                         {cfField && <td>{cfShown(e) || '-'}</td>}
                         <td>
                           <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 13, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
+                          {e.scheduledExit && <div style={{ marginTop: 4 }}><LeavingLine exit={e.scheduledExit} /></div>}
                           {e.probation?.ending && <div style={{ marginTop: 4 }}><ProbationBadge p={e.probation} /></div>}
                           {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact onClick={() => openChecklistOf(e.id)} /></div>)}
                         </td>
@@ -4321,6 +4378,7 @@ export default function HR({ activeSub, onSubChange }) {
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
+                            {e.scheduledExit && <LeavingLine exit={e.scheduledExit} style={{ marginTop: 2 }} />}
                             {cfField && (
                               <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 <span style={{ fontWeight: 600 }}>{cfField.label}:</span> {cfShown(e) || '-'}

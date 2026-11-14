@@ -642,6 +642,11 @@ class ItemCheckout(Base):
     # own zone, Neil 11/02/2026). '' = an older request that asked for a number
     # of days. item_due.due_date reads it - see the rule there.
     requested_due_date       = Column(String, default="")
+    # Return Pending (Neil, 11/14/2026): the holder was offboarded while the
+    # item was still out with them. The checkout stays out (the item is not
+    # lendable to anyone else) until Received or Lost is pressed on the exit
+    # or on the item (routers/items.settle_return_pending). ISO UTC; '' = no.
+    holder_left_at           = Column(String, default="")
 
 
 class ItemCartEntry(Base):
@@ -667,7 +672,7 @@ class ItemAssignment(Base):
     assigned_by         = Column(String, default="")
     assigned_by_email   = Column(String, default="")
     status              = Column(String, default="pending_acceptance")
-    return_reason       = Column(String, default="")   # '' | normal | dead | lost | reassign
+    return_reason       = Column(String, default="")   # '' | normal | dead | lost | reassign | offboarded (Return Pending)
     accept_photo_url    = Column(String, default="")
     accept_photo_name   = Column(String, default="")
     accept_note         = Column(String, default="")
