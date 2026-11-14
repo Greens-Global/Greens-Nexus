@@ -24,11 +24,32 @@ vi.mock('../api', () => {
 });
 vi.mock('../tickets/evidenceUpload', () => ({ uploadTicketEvidence: vi.fn(() => Promise.resolve('https://x.supabase.co/storage/v1/object/public/ticket-evidence/a.jpg')) }));
 
+// The ticket property picker, as a plain list (its own tests cover the real one).
+vi.mock('../tickets/PropertySelect', () => ({
+  PropertySelect: ({ onChange }) => (
+    <select aria-label="Property" defaultValue="" onChange={(e) => onChange(e.target.value)}>
+      <option value="">Select property</option><option value="gst">Greens Storage Temecula</option>
+    </select>
+  ),
+}));
+
 const { default: PlaceSheet } = await import('./PlaceSheet');
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('PlaceSheet', () => {
+  // Quick Actions > Request > Report a Problem (Neil, 11/14/2026): no tag, so
+  // the sheet asks where first, then opens straight on the report form.
+  it('with no tag asks which property, then opens on Report a Problem there', async () => {
+    getMaintenancePlace.mockImplementationOnce(() => Promise.resolve({ ...PLACE, asset: null }));
+    render(<PlaceSheet propertyId="" onClose={() => {}} />);
+    expect(screen.getByText('Where Is It?')).toBeTruthy();
+    expect(getMaintenancePlace).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Property'), { target: { value: 'gst' } });
+    expect(await screen.findByRole('button', { name: 'Send Report' })).toBeTruthy();
+    expect(getMaintenancePlace).toHaveBeenCalledWith('gst', '');
+  });
+
   it('lists the open tickets at the equipment, overdue first, and starts work on one', async () => {
     render(<PlaceSheet propertyId="gst" assetId="truck" onClose={() => {}} />);
     expect(await screen.findByText('Oil change')).toBeTruthy();

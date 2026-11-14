@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ACTIONS, GROUPS, TOP, TOP_FILL, layoutActions, findActions } from './quickCreate';
+import { ACTIONS, GROUPS, TOP, TOP_FILL, layoutActions, findActions, visibleActions } from './quickCreate';
 
 // The header's Quick Actions (Neil, 11/12/2026): the list and its layout.
 describe('ACTIONS', () => {
@@ -7,6 +7,23 @@ describe('ACTIONS', () => {
     // Forms & Checklists (Neil, 11/02/2026): beside the other asks.
     const row = ACTIONS.find((it) => it.key === 'form');
     expect(row).toMatchObject({ group: 'request', label: 'Fill a Form', module: 'myhr', go: ['timeclock', 'form:pick'] });
+  });
+
+  it('lands Sheet, Daily Log and Report a Problem on their modules\' own flows, and Announcement on its composer (Neil, 11/14/2026)', () => {
+    const by = (k) => ACTIONS.find((it) => it.key === k);
+    expect(by('sheet')).toMatchObject({ group: 'new', module: 'documents', go: ['documents', 'documents-new-sheet'] });
+    expect(by('daily-log')).toMatchObject({ group: 'new', module: 'ops', jobsite: true, go: ['ops', 'construction-activity:log'] });
+    expect(by('report-problem')).toMatchObject({ group: 'request', module: 'tickets', go: ['tickets', 'report-problem'] });
+    expect(by('announcement')).toMatchObject({ group: 'send', module: 'dashboard', tier: 'administrator', compose: 'announcement' });
+  });
+
+  it('shows a tier row only to that tier, and Daily Log only to someone on a jobsite', () => {
+    const base = { can: (t) => t === 'employee', myGrantedModules: new Map([['documents', 'editor']]), canAccessModule: () => true };
+    const keys = (role) => visibleActions(role).map((it) => it.key);
+    expect(keys(base)).not.toContain('announcement');
+    expect(keys({ ...base, can: () => true })).toContain('announcement');
+    expect(keys(base)).not.toContain('daily-log');
+    expect(keys({ ...base, onJobsite: true })).toContain('daily-log');
   });
 
   it('keeps three groups, and every action sits in one of them with a way to start', () => {
@@ -25,7 +42,9 @@ describe('ACTIONS', () => {
     const { tiles, rows } = layoutActions(ACTIONS);
     expect(tiles.map((t) => t.label)).toEqual(['New Task', 'New Ticket', 'New Note', 'New Board']);
     expect(rows.map((r) => r.label)).toEqual(['New', 'Request', 'Send']);
-    expect(rows[1].hint).toBe('Time Off, Reimbursement, Purchase Request, Item, Fill a Form, Time Sheet Fix');
+    expect(rows[1].hint).toBe('Time Off, Reimbursement, Purchase Request, Item, Fill a Form, Time Sheet Fix, Report a Problem');
+    expect(rows[0].hint).toBe('Task, Ticket, Note, Board, Document, Sheet, Daily Log');
+    expect(rows[2].hint).toBe('Email, Event, Kudos, Announcement');
   });
 
   it('lays out what a person has: the row fills, a group of one is its action, a covered group is left out', () => {

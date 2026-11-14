@@ -83,7 +83,9 @@ const DOCUMENTS_TOUR_ID = 'documents';
 // The header's Create menu (Oct 29 2026): "documents-new" is the library with
 // its New Document dialog open, "documents-esign-send" is Nexus Sign with the
 // Send for Signature wizard open; the address then goes back to the tab.
-const CREATE_SUBS = { 'documents-new': 'documents-browse', 'documents-esign-send': 'documents-esign' };
+// "documents-new-sheet" (Quick Actions > New > Sheet, Neil 11/14/2026) is the
+// library making a blank sheet, the same as its own + New > Sheet.
+const CREATE_SUBS = { 'documents-new': 'documents-browse', 'documents-esign-send': 'documents-esign', 'documents-new-sheet': 'documents-browse' };
 
 // The tab strip and the tour change the sub directly, not through App's navigate(),
 // so unsaved work in PDF Tools (lib/dialogGuard.js) is asked about here.
@@ -114,10 +116,12 @@ export default function Documents({ activeSub, onSubChange }) {
   // The + menu's New Document asks the library to pop its create dialog open - a
   // bumped counter (not a bool) so a second click while already there re-triggers it.
   const [browseCreateSignal, setBrowseCreateSignal] = useState(0);
+  const [browseSheetSignal, setBrowseSheetSignal] = useState(0);
   const [createSeenSub, setCreateSeenSub] = useState(null);
   if (activeSub !== createSeenSub) {
     setCreateSeenSub(activeSub);
-    if (CREATE_SUBS[activeSub] === 'documents-browse') setBrowseCreateSignal(n => n + 1);
+    if (activeSub === 'documents-new-sheet') setBrowseSheetSignal(n => n + 1);
+    else if (CREATE_SUBS[activeSub] === 'documents-browse') setBrowseCreateSignal(n => n + 1);
   }
   useEffect(() => {
     if (CREATE_SUBS[activeSub]) onSubChange?.(CREATE_SUBS[activeSub]);
@@ -239,7 +243,7 @@ export default function Documents({ activeSub, onSubChange }) {
 
       <div data-tour={`documents-screen-${sub}`}>
       {sub === 'documents-browse' && (
-        <DocumentsBrowser openCreateSignal={browseCreateSignal} initialView={activeSub === 'documents-hr-records' ? 'hr' : ''}
+        <DocumentsBrowser openCreateSignal={browseCreateSignal} openSheetSignal={browseSheetSignal} initialView={activeSub === 'documents-hr-records' ? 'hr' : ''}
           employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} />
       )}
 

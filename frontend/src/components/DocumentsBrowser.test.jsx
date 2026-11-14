@@ -276,6 +276,13 @@ describe('New Document', () => {
     await waitFor(() => expect(createDocument).toHaveBeenCalledWith({ title: 'Untitled Document' }));
   });
 
+  // Quick Actions > New > Sheet (Neil, 11/14/2026): the same blank sheet as + New > Sheet.
+  it('makes a blank sheet when Quick Actions asks for one', async () => {
+    createDocument.mockResolvedValue({ id: 'sheet-1', title: 'Untitled Sheet', status: 'draft', kind: 'sheet' });
+    render(<DocumentsBrowser openSheetSignal={1} employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
+    await waitFor(() => expect(createDocument).toHaveBeenCalledWith(expect.objectContaining({ kind: 'sheet' })));
+  });
+
   it('the popup (From a Template) does not need a name either', async () => {
     createDocument.mockResolvedValue({ id: 'new-2', title: 'Untitled Document', status: 'draft' });
     render(<DocumentsBrowser employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);

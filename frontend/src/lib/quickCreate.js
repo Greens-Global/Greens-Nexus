@@ -23,6 +23,9 @@
 //             dialog - "<thing>:new" style subs, the convention "purchase:new"
 //             started (Workday > Purchase Requests):
 //               documents / documents-new            Documents > New Document
+//               documents / documents-new-sheet      Documents > New Sheet
+//               ops / construction-activity:log      Site Activity, starting today's log
+//               tickets / report-problem             the place sheet: pick a property, Report a Problem
 //               inventory / catalog                  the item catalog's Request
 //               timeclock / timeoff                  Workday > Time Off, on Request Time Off
 //               timeclock / reimbursements:new       Reimbursements on its New form
@@ -35,7 +38,10 @@
 // for the module it lands in, plus the grant level that module's own New
 // button asks for when a row sets `level` (canAccessModule). `timeTracked`
 // rows are not for a time-tracking-exempt person; `internal` rows are not
-// for an external guest.
+// for an external guest; a `tier` row only for that tier and up (useRole's
+// can - the same check the module's own button makes); a `jobsite` row only
+// for someone on an open Construction job (useOnJobsite) - Construction is on
+// everyone's left menu (its walls are per job), but a Daily Log is not.
 //
 // New Note opens the Quick Note panel through the `nexus:quick-note` event.
 // It is the way in (with Ctrl+Alt+N) - the top bar has no scratchpad button
@@ -48,8 +54,11 @@
 import {
   CheckSquare, NotebookPen, FilePlus2, Package, Mail, CalendarPlus, ClipboardList,
   CalendarClock, Receipt, ShoppingCart, Timer, Award, Plus, Hand, Send,
+  Sheet as SheetIcon, HardHat, Wrench, Megaphone,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import TicketToken from '../components/icons/TicketToken';
+import { api } from '../api';
 import BoardIcon from '../components/icons/BoardIcon';
 import { NAV, isNavItemVisible } from '../components/Sidebar';
 
@@ -77,6 +86,10 @@ export const ACTIONS = [
   { key: 'board', group: 'new', label: 'New Board', short: 'Board', Icon: BoardIcon, module: 'dashboard',
     run: () => import('../notes/newBoard').then((m) => m.newBoardFromAnywhere()) },
   { key: 'document', group: 'new', label: 'New Document', short: 'Document', Icon: FilePlus2, module: 'documents', go: ['documents', 'documents-new'] },
+  // Sheet and Daily Log (Neil, 11/14/2026). A Daily Log starts today's log
+  // when the person is on one jobsite; with several, Site Activity asks which.
+  { key: 'sheet', group: 'new', label: 'New Sheet', short: 'Sheet', Icon: SheetIcon, module: 'documents', go: ['documents', 'documents-new-sheet'] },
+  { key: 'daily-log', group: 'new', label: 'New Daily Log', short: 'Daily Log', Icon: HardHat, module: 'ops', jobsite: true, go: ['ops', 'construction-activity:log'] },
 
   { key: 'time-off', group: 'request', label: 'Request Time Off', short: 'Time Off', Icon: CalendarClock, module: 'myhr', go: ['timeclock', 'timeoff'] },
   { key: 'reimbursement', group: 'request', label: 'New Reimbursement', short: 'Reimbursement', Icon: Receipt, module: 'myhr', go: ['timeclock', 'reimbursements:new'] },
@@ -86,11 +99,17 @@ export const ACTIONS = [
   // (TimeClock.jsx's "form:pick" deep link; "form:<templateId>" opens one).
   { key: 'form', group: 'request', label: 'Fill a Form', short: 'Fill a Form', Icon: ClipboardList, module: 'myhr', go: ['timeclock', 'form:pick'] },
   { key: 'time-fix', group: 'request', label: 'Time Sheet Fix', short: 'Time Sheet Fix', Icon: Timer, module: 'myhr', timeTracked: true, go: ['timeclock', 'timesheet'] },
+  // Report a Problem (Neil, 11/14/2026): a scanned tag's sheet, asking which
+  // property first - ONE ticket through the desk's own intake.
+  { key: 'report-problem', group: 'request', label: 'Report a Problem', short: 'Report a Problem', Icon: Wrench, module: 'tickets', go: ['tickets', 'report-problem'] },
 
   // The Dashboard's Quick Actions offer these to everyone who has a Dashboard.
   { key: 'email', group: 'send', label: 'New Email', short: 'Email', Icon: Mail, module: 'dashboard', compose: 'email' },
   { key: 'event', group: 'send', label: 'New Event', short: 'Event', Icon: CalendarPlus, module: 'dashboard', compose: 'event' },
   { key: 'kudos', group: 'send', label: 'Give Kudos', short: 'Kudos', Icon: Award, module: 'myhr', internal: true, go: ['timeclock', 'performance:kudos:new'] },
+  // Announcement (Neil, 11/14/2026): the Dashboard's own composer, for the
+  // administrators who may post one.
+  { key: 'announcement', group: 'send', label: 'New Announcement', short: 'Announcement', Icon: Megaphone, module: 'dashboard', tier: 'administrator', compose: 'announcement' },
 ];
 
 // The top row (Neil, 11/12/2026). A person who cannot use one of the four
@@ -107,8 +126,41 @@ export function visibleActions(role) {
     if (it.level && !role?.canAccessModule?.(it.module, 'administrator', it.level)) return false;
     if (it.timeTracked && role?.timeTrackingExempt === true) return false;
     if (it.internal && role?.isExternal) return false;
+    if (it.tier && !role?.can?.(it.tier)) return false;
+    if (it.jobsite && !role?.onJobsite) return false;
     return true;
   });
+}
+
+// Whether this person is on an open Construction job - the jobs Construction
+// itself lists for them (GET /construction/projects, the same per-job wall).
+// Asked once per page load and only after the menu first opens, so the
+// header costs nothing more for the people who never use it; until it
+// answers, and if it fails, the Daily Log row is simply not there.
+// The answer is kept per person (the account and Act As), never shown to
+// anyone else.
+let jobsiteAsk = null;   // { who, answer: Promise<boolean> }
+const isOpenJob = (p) => p && !p.archived && ['active', 'on_hold', ''].includes(p.status || '');
+export function useOnJobsite(role, open) {
+  const wanted = ACTIONS.some((it) => it.jobsite && visibleActions({ ...role, onJobsite: true }).includes(it));
+  const who = role?.myEmail || '';   // the Act As person while acting
+  const [answer, setAnswer] = useState({ who: '', yes: false });
+  useEffect(() => {
+    const asked = jobsiteAsk?.who === who;
+    if (!wanted || !(open || asked)) return undefined;
+    let live = true;
+    if (!asked) {
+      const mine = { who, answer: null };
+      mine.answer = Promise.resolve()
+        .then(() => api.getConstructionProjects())
+        .then((rows) => (Array.isArray(rows) ? rows : []).some(isOpenJob))
+        .catch(() => { if (jobsiteAsk === mine) jobsiteAsk = null; return false; });
+      jobsiteAsk = mine;
+    }
+    jobsiteAsk.answer.then((yes) => { if (live) setAnswer({ who, yes }); });
+    return () => { live = false; };
+  }, [wanted, open, who]);
+  return wanted && answer.who === who && answer.yes;
 }
 
 /**

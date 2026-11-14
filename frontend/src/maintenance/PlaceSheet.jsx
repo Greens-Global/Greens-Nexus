@@ -13,6 +13,7 @@ import { api } from '../api';
 import { ticketNo } from '../tickets/ticketMeta';
 import { TicketLine, PhotoPicker, DictateButton } from './workUi';
 import { usePhotos, openTicket, field, box, OVERDUE_COLOR } from './workLib';
+import { PropertySelect } from '../tickets/PropertySelect';
 
 function NoAccess({ onClose }) {
   return (
@@ -90,9 +91,29 @@ function ReportForm({ data, onCancel, onFiled }) {
   );
 }
 
-export default function PlaceSheet({ propertyId, assetId = '', onClose }) {
+// Opened with no tag (Quick Actions > Request > Report a Problem, Neil
+// 11/14/2026): the sheet asks where first - the ticket property picker, the
+// same list and the same wall as every ticket form - then opens straight on
+// Report a Problem for that place.
+function PickPlace({ onPick, onClose }) {
+  return (
+    <Modal title="Report a Problem" onClose={onClose} zIndex={4300}>
+      <label style={field}>Where Is It?
+        <PropertySelect value="" onChange={(id) => { if (id) onPick(id); }} />
+      </label>
+    </Modal>
+  );
+}
+
+export default function PlaceSheet({ propertyId: tagProperty = '', assetId = '', onClose }) {
+  const [picked, setPicked] = useState('');
+  if (!tagProperty && !picked) return <PickPlace onPick={setPicked} onClose={onClose} />;
+  return <Place propertyId={tagProperty || picked} assetId={tagProperty ? assetId : ''} startReporting={!tagProperty} onClose={onClose} />;
+}
+
+function Place({ propertyId, assetId = '', startReporting = false, onClose }) {
   const [state, setState] = useState({ status: 'loading' });
-  const [reporting, setReporting] = useState(false);
+  const [reporting, setReporting] = useState(startReporting);
   const [filed, setFiled] = useState(null);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');

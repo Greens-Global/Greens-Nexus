@@ -366,8 +366,18 @@ function ReadsList({ reads }) {
   );
 }
 
-function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
+// Quick Actions > Send > Announcement (Neil, 11/14/2026) opens this same
+// form in a sheet (dashboard/QuickActionModals.jsx): `inSheet` drops its own
+// heading and rule (the sheet names it) and `onDirty` tells the sheet to ask
+// before closing over typed words.
+export function AnnouncementComposer({ isMobile, onCancel, onSaved, onDirty }) {
+  return <Composer initial={EMPTY_FORM} isMobile={isMobile} onCancel={onCancel} onSaved={onSaved} onDirty={onDirty} inSheet />;
+}
+
+function Composer({ initial, editingId, isMobile, onCancel, onSaved, onDirty, inSheet = false }) {
   const [form, setForm] = useState(() => ({ ...EMPTY_FORM, ...initial }));
+  const dirty = JSON.stringify(form) !== JSON.stringify({ ...EMPTY_FORM, ...initial });
+  useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   // Publish Later: on when the post being edited is still scheduled; the
@@ -470,8 +480,10 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
 
   return (
     <form ref={formRef} onSubmit={submit} aria-label={editingId ? 'Edit Announcement' : 'Post Announcement'}
-      style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: isMobile ? '10px 0 14px' : '10px 8px 14px', marginBottom: 8, borderBottom: '1px solid var(--line, #eef0f3)' }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{editingId ? 'Edit Announcement' : 'New Announcement'}</div>
+      style={inSheet
+        ? { display: 'flex', flexDirection: 'column', gap: 10 }
+        : { display: 'flex', flexDirection: 'column', gap: 10, padding: isMobile ? '10px 0 14px' : '10px 8px 14px', marginBottom: 8, borderBottom: '1px solid var(--line, #eef0f3)' }}>
+      {!inSheet && <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{editingId ? 'Edit Announcement' : 'New Announcement'}</div>}
       <label>
         <span style={labelStyle}>Title</span>
         <input value={form.title} onChange={set('title')} maxLength={200} placeholder="What should people know?" style={{ ...field, ...tap }} />
