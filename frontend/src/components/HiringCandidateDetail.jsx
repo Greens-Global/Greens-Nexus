@@ -130,7 +130,7 @@ function OfferProgress({ events, firstName }) {
       )}
       {st.steps.map(s => (
         <div key={s.key} role="listitem" data-step={s.key} data-done={s.done || undefined}
-          style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, color: s.done ? 'var(--ink)' : s.error ? 'hsl(var(--color-orange))' : 'var(--muted)' }}>
+          style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, color: s.done ? 'var(--ink)' : s.error ? 'var(--warn-fg)' : 'var(--muted)' }}>
           {s.done ? <CheckCircle2 size={16} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
             : s.error ? <AlertTriangle size={16} style={{ flexShrink: 0 }} />
               : <Circle size={16} style={{ flexShrink: 0, opacity: 0.6 }} />}
@@ -161,7 +161,7 @@ function DecisionPanel({ candidateId, refreshKey, onReload }) {
       <div style={{ fontSize: 13, fontWeight: 800 }}>Interview Feedback</div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Answered on the "Decide on" task with Yes or No and why.</div>
       {d.votes.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'hsl(var(--color-orange))', padding: '8px 0' }}>Nobody to ask - set the department&apos;s head in Settings &gt; Companies &gt; the company &gt; Departments.</div>
+        <div style={{ fontSize: 13, color: 'var(--warn-fg)', padding: '8px 0' }}>Nobody to ask - set the department&apos;s head in Settings &gt; Companies &gt; the company &gt; Departments.</div>
       ) : d.votes.map(v => (
         <div key={v.email} style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)', alignItems: 'flex-start' }}>
           {v.vote === 'yes' ? <ThumbsUp size={15} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 2 }} aria-label="Yes" />
@@ -478,7 +478,7 @@ export default function CandidateDetailModal({
   const about = (label, value, missing) => (
     <div style={{ padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
-      <div style={{ fontSize: 13, marginTop: 2, wordBreak: 'break-word', color: missing ? 'hsl(var(--color-orange))' : 'var(--ink)' }}>{value}</div>
+      <div style={{ fontSize: 13, marginTop: 2, wordBreak: 'break-word', color: missing ? 'var(--warn-fg)' : 'var(--ink)' }}>{value}</div>
     </div>
   );
   const overview = (<>
@@ -502,7 +502,7 @@ export default function CandidateDetailModal({
               {resumeBusy ? 'Uploading...' : c.resumeUrl ? 'Replace' : 'Upload'}</button>}
           </div>
         </div>
-        {c.inactive && <div style={{ fontSize: 13, color: 'hsl(var(--color-orange))', padding: '7px 0' }}>Inactive - off the board (removed, or rejected more than 90 days ago). Reopen to bring them back.</div>}
+        {c.inactive && <div style={{ fontSize: 13, color: 'var(--warn-fg)', padding: '7px 0' }}>Inactive - off the board (removed, or rejected more than 90 days ago). Reopen to bring them back.</div>}
       </div>
       <div style={{ gridColumn: 'span 1', minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 800, margin: '4px 0 10px' }}>Notes</div>
@@ -564,7 +564,7 @@ export default function CandidateDetailModal({
           ) : onMakeOffer ? 'No offer made yet - click Make Offer above. The hiring packet goes out by itself once they have signed it.'
             : packetPick?.picked
               ? <><b style={{ color: 'var(--ink)' }}>Hiring packet:</b> {packetPick.picked.templateName} <span>- {packetPick.picked.why}</span></>
-              : <span style={{ color: 'hsl(var(--color-orange))' }}>No hiring packet is set up for this company and role - add one in Settings &gt; Hiring &gt; Hiring Documents before sending.</span>}
+              : <span style={{ color: 'var(--warn-fg)' }}>No hiring packet is set up for this company and role - add one in Settings &gt; Hiring &gt; Hiring Documents before sending.</span>}
         </div>
       )}
       {c.stage === 'offer' && c.email && onSendForSignature && (
@@ -595,7 +595,10 @@ export default function CandidateDetailModal({
       </div>
       <StageBar stage={c.stage} interviewSkipped={!!c.interviewSkippedBy} />
       <div data-next-box="" style={{ background: `hsla(${sm.hue},0.08)`, borderRadius: 12, padding: '11px 14px', fontSize: 13, display: 'flex', gap: 12, alignItems: 'center', marginTop: 10, lineHeight: 1.5, flexWrap: 'wrap' }}>
-        <span style={{ flex: '1 1 240px', minWidth: 0 }}><b>Next:</b> {NEXT_STEP[c.stage]}</span>
+        <span style={{ flex: '1 1 240px', minWidth: 0 }}><b>Next:</b> {c.stage === 'offer' && noOfferLetter && !packetOut
+          // The real blocker, said where the eye goes first (11/14/2026).
+          ? `Set up the offer letter for ${companyName || 'this company'}, then Make Offer. ${c.firstName || 'They'} signs it - nobody signs for the company - and the hiring packet goes out by itself.`
+          : NEXT_STEP[c.stage]}</span>
         {nextAction}
       </div>
       <div role="tablist" aria-label="Candidate sections" className="scroll-tabs" style={{ display: 'flex', gap: 2, marginTop: 14, borderBottom: '1px solid var(--line)', overflowX: 'auto' }}>
