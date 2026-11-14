@@ -810,6 +810,7 @@ class CandidateIn(BaseModel):
     notes:          Optional[str] = ""
     role_id:        Optional[str] = ""     # job role applied for; '' = Other (role_title + department typed)
     opening_id:     Optional[str] = ""     # the job opening they applied for (hiring_openings.py, Oct 27 2026)
+    allow_duplicate: Optional[bool] = False  # HR saw "already in Screening for ..." and added them anyway
 
 
 class CandidateUpdate(BaseModel):
@@ -959,7 +960,14 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
                        "offerDocs": _offer_docs_of(db, r),
                        "hasDuties": bool((r.job_description or r.description or "").strip())}
                       for r in roles],
-            "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
+            "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES),
+            # Interview scoring, the Leaderboard and Final Round show only while AI is on (11/14/2026).
+            "aiEnabled": _hiring_ai_on()}
+
+
+def _hiring_ai_on() -> bool:
+    from routers.hr_interviews import ai_on
+    return ai_on()
 
 
 def _offer_docs_of(db: Session, role) -> list:
@@ -1093,6 +1101,46 @@ def add_candidate_note(cid: str, body: CandidateNoteIn, user: dict = Depends(req
     return {"ok": True}
 
 
+_STAGE_WORDS = {"applied": "Applied", "screening": "Screening", "interview": "Interview", "decision": "Decision",
+                "offer": "Offer", "hired": "Hired", "rejected": "Rejected"}
+
+
+def _duplicate_candidate(db: Session, email: str, scope) -> Optional[HrCandidate]:
+    """Another candidate still on the board with this email (any case), inside
+    the caller's reach - the one Add Candidate warns about."""
+    e = (email or "").strip().lower()
+    if not e:
+        return None
+    from sqlalchemy import func
+    q = db.query(HrCandidate).filter(func.lower(HrCandidate.email) == e)
+    if scope is not None:
+        q = q.filter(HrCandidate.company.in_(scope))
+    return next((c for c in q.order_by(HrCandidate.created_at.desc()).all() if not _is_inactive(c)), None)
+
+
+def hiring_bell_action(db: Session, email: str, cand: HrCandidate) -> dict:
+    """Where a hiring bell lands for this person (11/14/2026): the candidate's
+    own card for anyone who can open Hiring; an interviewer without Hiring
+    access goes to their own open task on the candidate (Decide on, Screen),
+    else the card all the same."""
+    from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, level_for
+    from models import Task
+    e = (email or "").strip().lower()
+    card = {"view": "hr", "sub": f"hr-hiring-{cand.id}"}
+    try:
+        if level_for(e, db) >= _LEVELS["administrator"] or _module_level(e, "hr", db) >= _MODULE_LEVEL_RANK["viewer"]:
+            return card
+    except Exception:   # noqa: BLE001 - a bell never fails over where it points
+        return card
+    for tid in (getattr(cand, "decision_task_id", "") or "", getattr(cand, "screen_task_id", "") or ""):
+        if not tid.strip():
+            continue
+        t = db.query(Task).filter(Task.id == tid).first()
+        if t is not None and not t.completed and e in {(x or "").lower() for x in (t.assignee_emails or [])}:
+            return {"view": "tasks", "sub": "mine", "taskId": t.id}
+    return card
+
+
 def _check_date(value: str, label: str) -> str:
     v = (value or "").strip()[:10]
     if v:
@@ -1116,6 +1164,18 @@ def create_candidate(body: CandidateIn, background: BackgroundTasks = None, user
     for value, label in ((body.last_name, "Last name"), (body.email, "Email"), (body.phone, "Phone")):
         if not (value or "").strip():
             raise HTTPException(400, f"{label} is required.")
+    if not body.allow_duplicate:
+        # The same person applying twice (11/14/2026): HR is asked first, and
+        # adds them anyway on purpose (allow_duplicate) - never refused outright.
+        dup = _duplicate_candidate(db, body.email, scope)
+        if dup is not None:
+            dup_name = f"{dup.first_name} {dup.last_name}".strip()
+            where = _STAGE_WORDS.get(dup.stage, dup.stage.title())
+            role = f" for {dup.role_title}" if (dup.role_title or "").strip() else ""
+            raise HTTPException(409, {"code": "duplicate_candidate",
+                                      "message": f"{dup_name} is already in {where}{role} - add anyway?",
+                                      "candidateId": dup.id, "name": dup_name, "stage": dup.stage,
+                                      "roleTitle": dup.role_title or ""})
     now = datetime.now(timezone.utc).isoformat()
     role_title, department = (body.role_title or "").strip(), (body.department or "").strip()
     role_id = (body.role_id or "").strip()
@@ -1271,7 +1331,8 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
 @router.patch("/candidates/{cid}")
 def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTasks = None,
                      user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
+    # Locked: a stage move, a reroute and the rounds it cancels must not race another save.
+    row = db.query(HrCandidate).filter(HrCandidate.id == cid).with_for_update().first()
     if not row:
         raise HTTPException(404, "Candidate not found")
     scope = hr_scope(user, db)
@@ -1334,6 +1395,16 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
             row.rejected_at = now
         elif row.rejected_at or row.inactive_at:
             row.rejected_at, row.inactive_at = "", ""     # reopened: back on the board
+        if body.stage in ("rejected", "applied", "screening"):
+            # Rejected, or back before the interview: the rounds still booked are
+            # withdrawn (the Teams invite too) - nobody turns up to a dead interview.
+            from models import HrInterview
+            from routers.hr_interviews import _cancel_round
+            why = "Candidate rejected" if body.stage == "rejected" else f"Moved back to {_STAGE_WORDS[body.stage]}"
+            for iv in (db.query(HrInterview).filter(HrInterview.candidate_id == row.id,
+                                                     HrInterview.status == "scheduled").all()):
+                _cancel_round(db, iv, row, user["email"], f"Interview canceled - {why}")
+            row.interview_at = ""
         # Hired -> the candidate becomes an employee master record (onboarding)
         if body.stage == "hired" and not row.employee_id:
             created_employee = create_employee_from_candidate(db, row, user["email"])
@@ -1349,7 +1420,7 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
                        f"{cand_name} ({row.role_title or row.department or 'candidate'}) is now in {body.stage.replace('_', ' ')}."
                        + (f"\nNote: {body.stage_note.strip()}" if (body.stage_note or '').strip() else ''),
                        ref_id=row.id, requested_by=user["email"],
-                       action={"view": "hr", "sub": "hr-hiring"})
+                       action=hiring_bell_action(db, row.created_by, row))
 
     # Interview scheduling: record + notify the candidate owner (the daily
     # reminder job pings again on the day itself).
@@ -1365,7 +1436,7 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
             _hr_notify(db, row.created_by, f"Interview Scheduled - {cand_name}",
                        f"{cand_name} ({row.role_title or 'candidate'}) is booked for {pretty}.",
                        ref_id=row.id, requested_by=user["email"],
-                       action={"view": "hr", "sub": "hr-hiring"})
+                       action=hiring_bell_action(db, row.created_by, row))
 
     if body.email is not None:
         body.email = _check_candidate_email(body.email)

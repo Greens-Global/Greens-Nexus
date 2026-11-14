@@ -724,9 +724,21 @@ def signed_offer(db: Session, cid: str) -> Optional[HrLifeEvent]:
 def reroute_hire_packet(db: Session, cand: HrCandidate, new_email: str, by: str) -> bool:
     """HR corrected the candidate's email while their packet is out: the
     packet follows the correction (fresh link, old one dead, re-invited if it
-    is their turn). Without this the offer keeps going to the typo."""
-    ev = active_hire_event(db, cand.id)
-    if ev is not None and ev.status in ("intake", "review"):
+    is their turn). Without this the offer keeps going to the typo. Every
+    open one moves - the offer letter's envelope and a hiring packet alike
+    (the email is editable through Offer, 11/14/2026)."""
+    if not cand.id:
+        return False
+    moved = False
+    for ev in (db.query(HrLifeEvent)
+               .filter(HrLifeEvent.candidate_id == cand.id, HrLifeEvent.kind.in_(CANDIDATE_KINDS),
+                       HrLifeEvent.status.in_(OPEN)).all()):
+        moved = _reroute_event(db, ev, new_email, by) or moved
+    return moved
+
+
+def _reroute_event(db: Session, ev: HrLifeEvent, new_email: str, by: str) -> bool:
+    if ev.status in ("intake", "review"):
         # Not sent yet (Oct 14): the packet simply goes to the corrected address.
         ev.subject_email, ev.updated_at = new_email.strip().lower(), _now()
         _stage_note(db, ev, f"{EVENT_TITLES.get(ev.kind, 'Packet')} will go to {ev.subject_email}", by=by)
@@ -735,7 +747,7 @@ def reroute_hire_packet(db: Session, cand: HrCandidate, new_email: str, by: str)
             refresh_due(ev)
             mail_intake_after_commit(db, ev, new_intake_token(ev))
         return True
-    if not ev or not ev.sign_request_id:
+    if not ev.sign_request_id:
         return False
     from routers import esign
     req = db.query(HrSignRequest).filter(HrSignRequest.id == ev.sign_request_id).first()
@@ -752,7 +764,7 @@ def reroute_hire_packet(db: Session, cand: HrCandidate, new_email: str, by: str)
         ev.subject_email = was
         return False
     ev.updated_at = _now()
-    _stage_note(db, ev, f"Hiring packet now goes to {ev.subject_email}", by=by)
+    _stage_note(db, ev, f"{EVENT_TITLES.get(ev.kind, 'Hiring packet')} now goes to {ev.subject_email}", by=by)
     return True
 
 
