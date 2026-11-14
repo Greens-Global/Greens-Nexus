@@ -235,6 +235,52 @@ class ReviewTests(ExitCase):
         api.generate(self.emp_id, user=OWNER, db=self.db)
         self.assertEqual(api.close(self.emp_id, api.NoteIn(), user=OWNER, db=self.db)["status"], "closed")
 
+    def test_close_and_reopen_need_the_pay_grant_and_never_your_own(self):
+        # 11/14/2026: Close Exit has Review / Generate's checks; Reopen puts a
+        # closed exit back where it was.
+        self._status(403, api.close, self.emp_id, api.NoteIn(note="Handled by payroll"), user=ADMIN, db=self.db)
+        own = {"email": EMP, "level": 5}
+        self._status(403, api.close, self.emp_id, api.NoteIn(note="Handled by payroll"), user=own, db=self.db)
+        self._status(409, api.reopen, self.emp_id, api.NoteIn(), user=OWNER, db=self.db)      # not closed
+        api.review(self.emp_id, api.NoteIn(), user=OWNER, db=self.db)
+        self.assertEqual(api.close(self.emp_id, api.NoteIn(note="Handled by payroll"), user=OWNER,
+                                   db=self.db)["status"], "closed")
+        self.assertEqual(api.list_exits(user=OWNER, db=self.db)["exits"], [])
+        self._status(403, api.reopen, self.emp_id, api.NoteIn(), user=ADMIN, db=self.db)
+        self._status(403, api.reopen, self.emp_id, api.NoteIn(), user=own, db=self.db)
+        r = api.reopen(self.emp_id, api.NoteIn(note="One more payout"), user=OWNER, db=self.db)
+        self.assertEqual(r["status"], "reviewed")                                  # where it was
+        self.assertEqual(len(api.list_exits(user=OWNER, db=self.db)["exits"]), 1)
+
+    def test_generating_again_keeps_one_document_and_filed_waits_for_egnyte(self):
+        from services import egnyte as svc
+        api.review(self.emp_id, api.NoteIn(), user=OWNER, db=self.db)
+        real = (svc.configured, xs.file_to_egnyte)
+        svc.configured = lambda: True
+        xs.file_to_egnyte = lambda db, row, emp, blob, name: (False, "EgnyteError: down")
+        try:
+            out = api.generate(self.emp_id, user=OWNER, db=self.db)
+            self.assertEqual((out["review"]["status"], out["review"]["statusLabel"], out["review"]["egnyteFailed"]),
+                             ("reviewed", "Filed in Nexus - Egnyte Copy Failed", True))
+            self._status(502, api.retry_egnyte, self.emp_id, user=OWNER, db=self.db)
+            xs.file_to_egnyte = lambda db, row, emp, blob, name: (setattr(row, "egnyte_path", "/E/x.pdf"),
+                                                                  (True, "/E/x.pdf"))[1]
+            r = api.retry_egnyte(self.emp_id, user=OWNER, db=self.db)
+            self.assertEqual((r["status"], r["egnyteFailed"]), ("filed", False))
+            again = api.generate(self.emp_id, user=OWNER, db=self.db)
+        finally:
+            svc.configured, xs.file_to_egnyte = real
+        self.assertEqual(again["documentId"], out["documentId"])
+        self.assertEqual(self.db.query(models.HrDocument).filter_by(kind="settlement").count(), 1)
+        name = again["fileName"]
+        self.assertRegex(name, r"^\d{2}-\d{2}-\d{4} - ")                            # MM-DD-YYYY, never ISO
+
+    def test_an_item_change_never_makes_a_review_stale(self):
+        api.review(self.emp_id, api.NoteIn(), user=OWNER, db=self.db)
+        self.db.query(models.Item).filter_by(id="it-1").update({"assigned_to_email": ""})
+        self.db.commit()
+        self.assertFalse(self._st()["review"]["reviewStale"])
+
     def test_the_pdf_renders(self):
         st = self._st()["statement"]
         pdf = xs.render_pdf(self.db, st, "Owner Test", "2026-10-27T10:00:00")

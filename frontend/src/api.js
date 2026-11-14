@@ -3894,3 +3894,17 @@ api.meetingRecordedDelete = (noteId) => req(`/meetings/notes/${encodeURIComponen
 api.searchTicketsEverywhere = (q, limit = 6) => req(`/task-tickets/search?header=true&q=${encodeURIComponent(q)}&limit=${limit}`);
 api.searchNotes = (q, limit = 6) => req(`/notes/search?q=${encodeURIComponent(q)}&limit=${limit}`);
 api.searchDocumentLibrary = (q, limit = 6) => req(`/documents/library?q=${encodeURIComponent(q)}&limit=${limit}`);
+// Exits (Neil, 11/14/2026): the Offboard sheet's context (direct reports,
+// approver settings, a scheduled exit), Change Last Day (never re-sends the
+// package), Send Separation Package after they left, and on the exit:
+// Retry Egnyte, Reopen, the shared mailbox handover, Received / Lost for an
+// item still out with them (Return Pending - also from Item Management).
+api.offboardContext = (eid) => req(`/hr/employees/${encodeURIComponent(eid)}/offboard/context`);
+api.changeLastDay = (eid, lastDay) => req(`/hr/employees/${encodeURIComponent(eid)}/offboard/last-day`, { method: 'POST', body: JSON.stringify({ last_day: lastDay }) });
+api.previewSeparationPackage = (eid, data) => req(`/hr/employees/${encodeURIComponent(eid)}/separation-package/preview`, { method: 'POST', body: JSON.stringify(data) });
+api.sendSeparationPackage = (eid, data) => req(`/hr/employees/${encodeURIComponent(eid)}/separation-package`, { method: 'POST', body: JSON.stringify(data) });
+api.retryExitEgnyte = (eid) => req(`/exit-statements/${encodeURIComponent(eid)}/egnyte`, { method: 'POST' });
+api.reopenExitStatement = (eid, note = '') => req(`/exit-statements/${encodeURIComponent(eid)}/reopen`, { method: 'POST', body: JSON.stringify({ note }) });
+api.exitMailboxHandover = (eid, done = true) => req(`/exit-statements/${encodeURIComponent(eid)}/mailbox-handover`, { method: 'POST', body: JSON.stringify({ done }) });
+api.exitItemOutcome = (eid, kind, rowId, outcome, body = {}) => req(`/exit-statements/${encodeURIComponent(eid)}/items/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
+api.settleReturnPending = (kind, rowId, outcome, body = {}) => req(`/items/return-pending/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });

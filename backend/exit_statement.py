@@ -84,9 +84,103 @@ def full_name(emp: NexusEmployee) -> str:
     return (emp.display_name or f"{emp.first_name or ''} {emp.last_name or ''}").strip() or (emp.work_email or "")
 
 
-def log(st: ExitStatement, by: str, action: str, note: str = "") -> None:
-    st.history = list(st.history or []) + [{"at": _now(), "by": by, "action": action, "note": note}]
+def log(st: ExitStatement, by: str, action: str, note: str = "", **extra) -> None:
+    st.history = list(st.history or []) + [{"at": _now(), "by": by, "action": action, "note": note, **extra}]
     st.updated_at = _now()
+
+
+# ── The exit's activity (Neil, 11/14/2026) ───────────────────────────────────
+# What happened on an exit - the reports moved, an item received, the last
+# day moved, the mailbox handover done, an M365 issue - is kept on the
+# statement row's history (the one record of the exit, made when first
+# needed), and an open problem (M365, a failed export) also rides the
+# separation event's flags so the tracker shows it.
+
+def _exit_row(db: Session, emp: NexusEmployee) -> ExitStatement | None:
+    ex = exit_of(db, emp)
+    if not ex or not ex["lastDay"]:
+        return None
+    row = _statement_row(db, emp, ex["lastDay"])
+    if row is None:
+        now = _now()
+        row = ExitStatement(id=str(uuid.uuid4()), employee_id=emp.id,
+                            employee_email=(emp.work_email or "").strip().lower(), company=emp.company or "",
+                            event_id=ex.get("eventId", ""), last_day=ex["lastDay"], status="open", history=[],
+                            created_at=now, updated_at=now)
+        db.add(row)
+        db.flush()
+    return row
+
+
+def record(db: Session, emp: NexusEmployee, by: str, action: str, note: str = "") -> None:
+    """One line on the exit's activity. Flushes; the caller commits."""
+    row = _exit_row(db, emp)
+    if row is not None:
+        log(row, (by or "nexus").lower(), action, (note or "")[:500])
+        db.flush()
+
+
+def _emp_by_email(db: Session, email: str) -> NexusEmployee | None:
+    from sqlalchemy import func
+    em = (email or "").strip().lower()
+    return db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == em).first() if em else None
+
+
+def record_for_email(db: Session, email: str, by: str, action: str, note: str = "") -> None:
+    emp = _emp_by_email(db, email)
+    if emp is not None:
+        record(db, emp, by, action, note)
+
+
+def _exit_event(db: Session, emp: NexusEmployee) -> HrLifeEvent | None:
+    return (db.query(HrLifeEvent)
+            .filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "separation",
+                    HrLifeEvent.apply_status.in_(("scheduled", "applied")))
+            .order_by(HrLifeEvent.created_at.desc()).first())
+
+
+ISSUE_CODES = ("m365_issue", "mailbox_export_failed")
+
+
+def flag(db: Session, emp: NexusEmployee, code: str, message: str, event: HrLifeEvent | None = None) -> None:
+    """An open problem on the exit HR must see (M365 issue, mailbox export
+    failed - license kept): on the separation event's flags (the tracker's
+    Access chip) and on the activity. Flushes; the caller commits."""
+    ev = event if event is not None else _exit_event(db, emp)
+    if ev is not None:
+        ev.flags = [f for f in (ev.flags or []) if (f or {}).get("code") != code] + [
+            {"code": code, "message": message[:300], "at": _now()}]
+    db.flush()
+    record(db, emp, "nexus", code, message)
+
+
+def flag_for_email(db: Session, email: str, code: str, message: str) -> None:
+    emp = _emp_by_email(db, email)
+    if emp is not None:
+        flag(db, emp, code, message)
+
+
+def mailbox_handover(ev: HrLifeEvent | None) -> dict | None:
+    """Kept as a shared mailbox (Neil, 11/14/2026): the Exchange steps are
+    done by hand, so the exit carries "Mailbox Handover Pending" until HR
+    ticks it done. None = their mailbox is not being shared."""
+    d = (ev.inputs or {}) if ev is not None else {}
+    off = d.get("offboarding") or {}
+    if off.get("mailboxAction") != "share":
+        return None
+    done = bool(d.get("mailbox_handover_done"))
+    return {"pending": not done, "done": done, "by": d.get("mailbox_handover_by", ""),
+            "at": d.get("mailbox_handover_at", ""), "delegateTo": list(off.get("delegateTo") or [])}
+
+
+def move_last_day(db: Session, emp: NexusEmployee, old: str, new: str, by: str) -> None:
+    """Change Last Day: the exit's record moves with it (an open review of
+    the old figures shows stale - the last day is one of them)."""
+    row = _statement_row(db, emp, old) if old else None
+    if row is not None and row.status != "closed":
+        row.last_day = new
+        db.flush()
+    record(db, emp, by, "last_day_moved", f"Last day moved from {us_date(old)} to {us_date(new)}")
 
 
 # ── Who is leaving ───────────────────────────────────────────────────────────
@@ -311,13 +405,26 @@ def _items(db: Session, user: dict, emp: NexusEmployee) -> dict:
     the data), and what was closed automatically when they were marked
     Left (the status change logs the counts)."""
     from routers.hr import employee_assets
+    from routers.items import return_pending_rows
     got = employee_assets(emp.id, user=user, db=db)
-    held = ([{"name": a.get("name") or "", "serial": a.get("serial") or "", "kind": "Assigned"}
-             for a in got.get("assignments") or []]
-            + [{"name": c.get("itemName") or "", "serial": "", "kind": "Checked Out"}
-               for c in got.get("checkouts") or []])
-    auto = ((_left_entry(emp) or {}).get("itemsReturned") or {})
-    return {"held": held, "closedAtLeft": int(auto.get("checkouts") or 0) + int(auto.get("assignments") or 0)}
+    email = (emp.work_email or "").strip().lower()
+    rows = return_pending_rows(db, [email]).get(email, []) if email else []
+    by_item = {r["itemId"]: r for r in rows if r["kind"] == "assignment"}
+    held = []
+    for a in got.get("assignments") or []:
+        r = by_item.get(a.get("id"), {})
+        held.append({"name": a.get("name") or "", "serial": a.get("serial") or "", "kind": "Assigned",
+                     "itemId": a.get("id") or "", "rowKind": "assignment" if r else "", "rowId": r.get("id", ""),
+                     "returnPending": bool(r.get("returnPending")), "pictureRequired": True})
+    for r in rows:
+        if r["kind"] == "checkout":
+            held.append({"name": r["itemName"], "serial": r["serial"], "kind": "Checked Out", "itemId": r["itemId"],
+                         "rowKind": "checkout", "rowId": r["id"], "returnPending": r["returnPending"],
+                         "pictureRequired": r["pictureRequired"]})
+    entry = _left_entry(emp) or {}
+    auto = entry.get("itemsReturned") or {}
+    return {"held": held, "closedAtLeft": int(auto.get("checkouts") or 0) + int(auto.get("assignments") or 0),
+            "returnPendingAtLeft": int(entry.get("itemsReturnPending") or 0)}
 
 
 def _checklist(db: Session, emp: NexusEmployee) -> dict:
@@ -353,8 +460,10 @@ def _summary(st: dict) -> dict:
 
 
 # The parts of the statement payroll acts on - a change in any of them makes
-# a review stale. The checklist's progress is not one of them.
-_FINGERPRINT_KEYS = ("lastDay", "timesheet", "finalPay", "leave", "reimbursements", "advances", "items")
+# a review stale. The checklist's progress is not one of them, and neither
+# are the items (11/14/2026): becoming Left moves them to Return Pending, and
+# a review done before the last day must not go stale for that.
+_FINGERPRINT_KEYS = ("lastDay", "timesheet", "finalPay", "leave", "reimbursements", "advances")
 
 
 def fingerprint(st: dict) -> str:
@@ -389,6 +498,10 @@ def build(db: Session, user: dict, emp: NexusEmployee, show_money: bool) -> dict
           "checklist": _checklist(db, emp)}
     st["finalPay"] = _pay_of_final(db, email, ts, card) if card is not None else None
     st["summary"] = _summary(st)
+    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == ex["eventId"]).first() if ex.get("eventId") else None
+    st["mailboxHandover"] = mailbox_handover(ev)
+    st["issues"] = [{"code": f.get("code"), "message": f.get("message", "")} for f in ((ev.flags if ev else None) or [])
+                    if (f or {}).get("code") in ISSUE_CODES]
     return st
 
 
@@ -397,7 +510,14 @@ def ser_row(db: Session, row: ExitStatement | None, live_fp: str, show_money: bo
         return {"status": "open", "statusLabel": STATUS_LABEL["open"], "reviewStale": False, "history": []}
     from routers.reimbursements import _name as name_of
     stale = row.status in ("reviewed", "filed") and bool(row.fingerprint) and row.fingerprint != live_fp
-    return {"id": row.id, "status": row.status, "statusLabel": STATUS_LABEL.get(row.status, row.status.title()),
+    # Filed only once the Egnyte copy is in (11/14/2026): a PDF kept in Nexus
+    # whose Egnyte copy failed says so, with Retry on the screen.
+    since = [h for h in (row.history or []) if h.get("action") in ("reviewed", "egnyte_filed", "egnyte_failed")]
+    eg = since[-1] if since else {}
+    eg_failed = row.status == "reviewed" and bool(row.generated_at) and eg.get("action") == "egnyte_failed"
+    label = "Filed in Nexus - Egnyte Copy Failed" if eg_failed else STATUS_LABEL.get(row.status, row.status.title())
+    return {"id": row.id, "status": row.status, "statusLabel": label,
+            "egnyteFailed": eg_failed, "egnyteError": (eg.get("note") or "") if eg_failed else "",
             "reviewedByName": name_of(db, row.reviewed_by) if row.reviewed_by else "", "reviewedAt": row.reviewed_at or "",
             "reviewedBy": row.reviewed_by or "",
             "reviewStale": stale, "documentId": (row.document_id or "") if show_money else "",
@@ -510,9 +630,9 @@ def content(st: dict, reviewed_by: str, reviewed_at: str, letterhead: bool) -> d
         nodes.append(_table(["Item", "Serial", "Held As"], [[x["name"], x["serial"] or "-", x["kind"]] for x in it["held"]]))
     else:
         nodes.append(_p("No company items held."))
-    if it["closedAtLeft"]:
-        nodes.append(_p(f"{it['closedAtLeft']} item(s) were closed automatically when they were marked Left - "
-                        f"confirm they came back."))
+    if any(x.get("returnPending") for x in it["held"]):
+        nodes.append(_p("Items still out when they left are Return Pending until they are received or "
+                        "reported lost."))
     cl = st["checklist"]
     nodes.append(_h("Offboarding Checklist"))
     nodes.append(_p(f"{cl['done']} of {cl['total']} steps done" + (f", {cl['overdue']} overdue" if cl.get("overdue") else "")
@@ -540,31 +660,32 @@ def render_pdf(db: Session, st: dict, reviewed_by: str, reviewed_at: str) -> byt
 def file_name(st: dict) -> str:
     import re
     who = re.sub(r'[\\/:*?"<>|]+', " ", st["name"]).strip()
-    return f"{_today()} - {who} - Final Settlement Statement.pdf"
+    t = _today()                        # US dates in a file name too: MM-DD-YYYY
+    return f"{t[5:7]}-{t[8:10]}-{t[:4]} - {who} - Final Settlement Statement.pdf"
 
 
-def file_to_egnyte(statement_id: str, blob: bytes, name: str) -> None:
-    """Best-effort, on its own thread and session: the person's Egnyte
-    folder, in its Confidential subfolder (it carries pay)."""
-    from database import SessionLocal
+def file_to_egnyte(db: Session, row: ExitStatement, emp: NexusEmployee, blob: bytes, name: str) -> tuple:
+    """The person's Egnyte folder, in its Confidential subfolder (it carries
+    pay). ONE copy per statement (11/14/2026): a statement filed before is
+    written over at the path it went to (Egnyte keeps the old version),
+    never a second file. (ok, path or the reason); sets row.egnyte_path, the
+    caller commits. Called from a sync route (the threadpool), never the
+    event loop."""
     try:
         import egnyte_wiring
         from services import egnyte as svc
-        db = SessionLocal()
-        try:
-            row = db.query(ExitStatement).filter(ExitStatement.id == statement_id).first()
-            emp = db.query(NexusEmployee).filter(NexusEmployee.id == row.employee_id).first() if row else None
-            folder = egnyte_wiring.provision_person_folder(emp, db) if emp else ""
+        path = row.egnyte_path or ""
+        if not path:
+            folder = egnyte_wiring.provision_person_folder(emp, db)
             if not folder:
-                return
+                return False, "their Egnyte folder could not be found or made"
             path = f"/{folder.strip('/')}/Confidential/{name}"
-            svc.upload_file(path, blob)
-            row.egnyte_path = path
-            db.commit()
-        finally:
-            db.close()
-    except Exception as e:  # noqa: BLE001 - filing never fails the statement
-        print(f"[exit-statement] Egnyte filing failed for {statement_id}: {type(e).__name__}: {e}")
+        svc.upload_file(path, blob)
+        row.egnyte_path = path
+        return True, path
+    except Exception as e:  # noqa: BLE001 - said on the statement, never lost
+        print(f"[exit-statement] Egnyte filing failed for {row.id}: {type(e).__name__}: {e}")
+        return False, f"{type(e).__name__}: {str(e)[:160]}"
 
 
 def new_row(emp: NexusEmployee, st: dict) -> ExitStatement:

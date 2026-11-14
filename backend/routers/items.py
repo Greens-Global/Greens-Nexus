@@ -558,6 +558,7 @@ def _checkout_to_dict(c: ItemCheckout, zones=None) -> dict:
         "extensionReason":         c.extension_reason         or "",
         "extensionStatus":         c.extension_status         or "",
         "approverEmail":           c.approver_email           or "",
+        "holderLeftAt":            getattr(c, "holder_left_at", "") or "",
         "approverName":            c.approver_name            or "",
         # The return date picked on the calendar (YYYY-MM-DD, the borrower's
         # zone) - what a request shows before the handover; '' = a days request.
@@ -3571,28 +3572,40 @@ def accept_assignment_return(assignment_id: str, body: AssignmentReturnAccept, u
 
 
 def force_return_person(db: Session, email: str, actor_email: str) -> dict:
-    """Force-return everything a departing person holds so no equipment stays out
-    to a worker who has left. Called by HR offboarding - Items stays the single
-    source of truth for these state transitions. Operates in the CALLER's session
-    (the caller commits); no per-item notifications, as this is a bulk admin
-    action - except the ones somebody else is waiting on (M8, Nov 2026).
+    """What a departing person holds when they are marked Left. Called by HR
+    offboarding - Items stays the single source of truth for these state
+    transitions. Operates in the CALLER's session (the caller commits); no
+    per-item notifications, as this is a bulk admin action - except the ones
+    somebody else is waiting on (M8, Nov 2026).
 
-      • Handed-over checkouts (pending_receipt / allocated) -> returned, item freed;
-        a pending extension is cleared with its managers' bell.
+    Return Pending (Neil, 11/14/2026): an item that is physically still out
+    with them is NOT put back in stock - it stays out, pointing at the leaver
+    as its last holder, and nobody else can borrow or be assigned it until
+    someone presses Received or Lost on the exit (or on the item in Item
+    Management) - settle_return_pending.
+
+      • Handed-over checkouts (pending_receipt / allocated) -> stay out, marked
+        Return Pending (holder_left_at); a pending extension is cleared with
+        its managers' bell.
       • Not-yet-handed checkouts (pending / approved)       -> cancelled; the
         approval and hand-over bells are actioned.
-      • Live permanent assignments                          -> closed, item back to stock;
-        a reassignment in flight is dropped and the person promised the item
-        (and the manager who started it) is told.
+      • Assignments still awaiting acceptance              -> cancelled (the
+        item never reached them).
+      • Active assignments                                 -> return_initiated
+        with return_reason 'offboarded' (Return Pending); a return the holder
+        had already started keeps its reason and photo. A reassignment in
+        flight is dropped and the person promised the item (and the manager
+        who started it) is told.
       • Somebody else's approved checkout the leaver was to HAND OVER (the
         allocator) -> allocator cleared, their hand-over bell actioned and the
         desk asked to pick a new one (_desk_bell). Rows past the handover keep
         the leaver as the allocator of record.
 
-    Returns {"checkouts": n, "assignments": n} (the leaver's own rows)."""
+    Returns {"checkouts": n cancelled, "assignments": n cancelled,
+    "returnPending": n still out with them}."""
     email = (email or "").strip().lower()
     if not email:
-        return {"checkouts": 0, "assignments": 0}
+        return {"checkouts": 0, "assignments": 0, "returnPending": 0}
     now = _now_iso()
     actor = _display_name(db, actor_email)
 
@@ -3624,18 +3637,17 @@ def force_return_person(db: Session, email: str, actor_email: str) -> dict:
                    body=f"{c.item_name} was approved for {c.requested_by}, but the person who was to hand it "
                         "over has left. An items manager can hand it over from Item Management > Checkouts.",
                    item_name=c.item_name, requested_by=c.requested_by, about_email=c.requested_by_email)
+    cancelled = pending = 0
     for c in checkouts:
         prev = c.status
-        handed_over = c.status in ("pending_receipt", "allocated")
-        c.status = "returned" if handed_over else "cancelled"
-        if handed_over:
-            c.returned_at = now
-            c.condition_note = c.condition_note or f"Auto-returned on offboarding by {actor}"
-            item = db.query(Item).filter(Item.id == c.item_id).first()
-            if item and item.status == "checked_out":
-                item.status = "available"
+        if c.status in ("pending_receipt", "allocated"):
+            # Still with them: Return Pending, never back in stock by itself.
+            c.holder_left_at = c.holder_left_at or now
+            pending += 1
         else:
+            c.status = "cancelled"
             c.resolved_at, c.resolved_by = now, actor
+            cancelled += 1
         if (c.extension_status or "") == "pending":
             c.extension_days, c.extension_reason, c.extension_status = 0, "", ""
             _action_notif(db, "extension_pending", c.id)
@@ -3643,30 +3655,179 @@ def force_return_person(db: Session, email: str, actor_email: str) -> dict:
             _action_notif(db, "checkout_pending", c.id)
             if c.order_id:
                 _action_notif(db, "checkout_pending", c.order_id)
-        _settle_handover_bells(db, c, prev)
+        if c.status == "cancelled":
+            _settle_handover_bells(db, c, prev)
 
     assignments = db.query(ItemAssignment).filter(
         func.lower(ItemAssignment.assignee_email) == email,
         ItemAssignment.status.in_(_LIVE_ASSIGN),
     ).order_by(ItemAssignment.id).with_for_update().all()
+    dropped = 0
     for a in assignments:
-        a.status = "closed"
-        a.disposition = "stock"
-        a.return_accepted_by, a.return_accepted_at = actor, now
-        item = db.query(Item).filter(Item.id == a.item_id).first()
-        if item:
-            item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
-            item.status = "available"
+        if a.status == "pending_acceptance":
+            a.status = "cancelled"
+            a.return_accepted_by, a.return_accepted_at = actor, now
+            dropped += 1
+        else:
+            if a.status == "active" or a.return_reason == "reassign":
+                a.return_reason = "offboarded"
+            a.status = "return_initiated"
+            a.return_initiated_at = a.return_initiated_at or now
+            a.return_note = a.return_note or f"They left - Return Pending (marked by {actor})"
+            pending += 1
         _drop_reassign_chain(
             db, a,
-            "{item} was taken back when its holder was offboarded, so the pending reassignment to "
-            "{person} did not go ahead. Assign it again if needed.",
-            "{item} was going to be reassigned to you, but its holder left and it was taken back "
-            "into stock, so it will not be coming to you automatically. No action needed.")
+            "{item}'s holder left, so the pending reassignment to {person} did not go ahead. "
+            "Assign it again once it is back.",
+            "{item} was going to be reassigned to you, but its holder left before returning it, "
+            "so it will not be coming to you automatically. No action needed.")
         _action_notif(db, "perm_assign", a.id)
-        _action_notif(db, "perm_return", a.id)
 
-    return {"checkouts": len(checkouts), "assignments": len(assignments)}
+    return {"checkouts": cancelled, "assignments": dropped, "returnPending": pending}
+
+
+def return_pending_rows(db: Session, emails) -> dict:
+    """{email: [{kind, id, itemId, itemName, serial, heldAs, returnPending, pictureRequired}]}
+    - what each person still holds (checkouts handed over, live assignments),
+    in three queries for any number of people. returnPending = the holder
+    was offboarded with it still out (Received / Lost settle it)."""
+    ems = sorted({(e or "").strip().lower() for e in emails if e})
+    out = {e: [] for e in ems}
+    if not ems:
+        return out
+    cos = db.query(ItemCheckout).filter(func.lower(ItemCheckout.requested_by_email).in_(ems),
+                                        ItemCheckout.status.in_(["pending_receipt", "allocated"])).all()
+    asg = db.query(ItemAssignment).filter(func.lower(ItemAssignment.assignee_email).in_(ems),
+                                          ItemAssignment.status.in_(["active", "return_initiated"])).all()
+    ids = {c.item_id for c in cos} | {a.item_id for a in asg}
+    items = {i.id: i for i in db.query(Item).filter(Item.id.in_(list(ids))).all()} if ids else {}
+    for c in cos:
+        it = items.get(c.item_id)
+        out.setdefault((c.requested_by_email or "").lower(), []).append({
+            "kind": "checkout", "id": c.id, "itemId": c.item_id, "itemName": c.item_name or (it.name if it else ""),
+            "serial": (it.serial_number if it else "") or "", "heldAs": "Checked Out",
+            "returnPending": bool(c.holder_left_at),
+            "pictureRequired": not (it is not None and it.picture_required is False)})
+    for a in asg:
+        it = items.get(a.item_id)
+        out.setdefault((a.assignee_email or "").lower(), []).append({
+            "kind": "assignment", "id": a.id, "itemId": a.item_id, "itemName": a.item_name or (it.name if it else ""),
+            "serial": (it.serial_number if it else "") or "", "heldAs": "Assigned",
+            "returnPending": a.status == "return_initiated" and a.return_reason == "offboarded",
+            "pictureRequired": True})
+    return out
+
+
+def _holder_left(db: Session, email: str) -> bool:
+    row = (db.query(NexusEmployee.status)
+           .filter(func.lower(NexusEmployee.work_email) == (email or "").strip().lower()).first())
+    return bool(row) and (row[0] or "") == "offboarded"
+
+
+def settle_return_pending(db: Session, kind: str, row_id: str, *, outcome: str, actor_email: str,
+                          photo_url: str = "", photo_name: str = "", note: str = "", holder: str = "") -> dict:
+    """Received or Lost for an item still out with someone who left (Return
+    Pending, Neil 11/14/2026) - from the exit or from Item Management. The
+    ordinary return rules apply: Received needs a return photo (a checkout
+    of an item flagged photo-optional excepted), Lost needs none and marks
+    the item Lost (_refuse_lost keeps it out of circulation until found).
+    `holder`: when given, the row must be theirs (the exit's own person).
+    Raises HTTPException; the caller commits."""
+    if outcome not in ("received", "lost"):
+        raise HTTPException(400, "Pick Received or Lost")
+    _validate_photo_url(photo_url, "photo_url")
+    model = ItemCheckout if kind == "checkout" else ItemAssignment if kind == "assignment" else None
+    if model is None:
+        raise HTTPException(404, "Not found")
+    head = db.query(model.item_id).filter(model.id == row_id).first()
+    if head is None:
+        raise HTTPException(404, "Not found")
+    locked = _lock_items(db, [head[0]])
+    row = db.query(model).filter(model.id == row_id).with_for_update().first()
+    who = ((row.requested_by_email if kind == "checkout" else row.assignee_email) or "").lower() if row else ""
+    if row is None or (holder and who != holder.strip().lower()):
+        raise HTTPException(404, "Not found")
+    live = row.status in (("pending_receipt", "allocated") if kind == "checkout" else ("active", "return_initiated"))
+    if not live:
+        raise HTTPException(409, "This item is already back")
+    if not _holder_left(db, who):
+        raise HTTPException(409, "They have not left yet - they return it from My Items, or it is checked in "
+                                 "the usual way in Item Management")
+    item = locked.get(row.item_id) or db.query(Item).filter(Item.id == row.item_id).first()
+    lost = outcome == "lost"
+    photo = (photo_url or "").strip()
+    now, actor = _now_iso(), _display_name(db, actor_email)
+    if not lost and not photo:
+        needs = True if kind == "assignment" else not (item is not None and item.picture_required is False)
+        if needs:
+            raise HTTPException(400, "A return photo is required (unless the item is lost)")
+    words = (note or "").strip()[:500]
+    if kind == "checkout":
+        row.status, row.returned_at = "returned", now
+        row.return_photo_url, row.return_photo_name = photo, (photo_name or "") if photo else ""
+        row.condition_note = words or (f"Reported lost after they left, by {actor}" if lost
+                                       else f"Received after they left, by {actor}")
+        row.holder_left_at = row.holder_left_at or now
+        if row.extension_status == "pending":
+            row.extension_days, row.extension_reason, row.extension_status = 0, "", ""
+            _action_notif(db, "extension_pending", row.id)
+        if item is not None:
+            item.status = "available"
+    else:
+        if lost:
+            row.return_reason = "lost"
+        elif photo:
+            row.return_photo_url, row.return_photo_name = photo, photo_name or ""
+        if words:
+            row.return_note = words
+        row.status, row.disposition = "closed", "stock"
+        row.return_accepted_by, row.return_accepted_at = actor, now
+        row.return_initiated_at = row.return_initiated_at or now
+        if item is not None:
+            item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
+            item.status = "available"
+        _action_notif(db, "perm_return", row.id)
+        _action_notif(db, "perm_assign", row.id)
+    if lost and item is not None:
+        item.op_status = "lost"
+        item.op_status_person_email = who
+        item.op_status_person_name = (row.requested_by if kind == "checkout" else row.assignee_name) or ""
+        _notify_op_status_declaration(db, op_status="lost", person_email=item.op_status_person_email,
+                                      person_name=item.op_status_person_name, item_name=item.name)
+    try:   # the exit's activity says what came back (exit_statement.record_for_email)
+        import exit_statement
+        exit_statement.record_for_email(db, who, actor_email, "item_lost" if lost else "item_received",
+                                        f"{row.item_name} - {'reported Lost' if lost else 'Received'}")
+    except Exception as e:   # noqa: BLE001 - the exit log never blocks the item
+        print(f"[items] exit activity not recorded for {row_id}: {e}")
+    return _checkout_to_dict(row) if kind == "checkout" else _assignment_to_dict(row)
+
+
+class ReturnPendingIn(BaseModel):
+    photo_url:  Optional[str] = ""
+    photo_name: Optional[str] = ""
+    note:       Optional[str] = ""
+
+
+@router.post("/return-pending/{kind}/{row_id}/{outcome}")
+def settle_return_pending_route(kind: str, row_id: str, outcome: str, body: ReturnPendingIn,
+                                user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+                                response: Response = None):
+    """Item Management's Received / Lost on an item still out with someone who
+    left. Items managers, inside the company wall."""
+    if not _is_items_manager(user, db):
+        raise HTTPException(403, "An items manager checks this item in")
+    model = ItemCheckout if kind == "checkout" else ItemAssignment if kind == "assignment" else None
+    head = db.query(model.item_id).filter(model.id == row_id).first() if model is not None else None
+    if head is None:
+        raise HTTPException(404, "Not found")
+    _wall_item_id(head[0], user, db)
+    out = settle_return_pending(db, kind, row_id, outcome=outcome, actor_email=user["email"],
+                                photo_url=body.photo_url or "", photo_name=body.photo_name or "",
+                                note=body.note or "")
+    db.commit()
+    _tag_item(response, head[0])
+    return out
 
 
 @router.post("/assignments/{assignment_id}/cancel")

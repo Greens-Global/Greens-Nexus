@@ -313,6 +313,17 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
     for o in out:
         o["backupManager"], o["backupManagerSource"] = backup_manager.resolve(
             (o.get("workEmail") or "").strip().lower(), people, hr_contacts)
+    # A scheduled exit (Neil, 11/14/2026): {eventId, lastDay} - the profile
+    # offers Change Last Day / Cancel Offboarding instead of a second
+    # Offboard, and the list says "Leaving MM/DD". One query for everyone.
+    from models import HrLifeEvent
+    leaving = {}
+    for ev in (db.query(HrLifeEvent.id, HrLifeEvent.employee_id, HrLifeEvent.effective_date)
+               .filter(HrLifeEvent.kind == "separation", HrLifeEvent.apply_status == "scheduled")
+               .order_by(HrLifeEvent.created_at).all()):
+        leaving[ev.employee_id] = {"eventId": ev.id, "lastDay": ev.effective_date or ""}
+    for o in out:
+        o["scheduledExit"] = leaving.get(o.get("id"))
     return out
 
 
@@ -5834,13 +5845,18 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
     if did_change and body.status == "offboarded" and row.work_email:
         from routers.items import force_return_person
         items_returned = force_return_person(db, row.work_email, actor)
-        if entry is not None and (items_returned["checkouts"] or items_returned["assignments"]):
-            entry["itemsReturned"] = items_returned
-        # Their future shifts leave the schedule in the same session
-        # (shift_offboard.py, Oct 15 2026) - never a reason to fail the offboarding.
+        if entry is not None and (items_returned.get("checkouts") or items_returned.get("assignments")):
+            entry["itemsReturned"] = {k: items_returned.get(k, 0) for k in ("checkouts", "assignments")}
+        if entry is not None and items_returned.get("returnPending"):
+            # Still out with them (Neil, 11/14/2026): Received / Lost on the exit.
+            entry["itemsReturnPending"] = int(items_returned["returnPending"])
+        # Their shifts AFTER THE LAST DAY leave the schedule in the same
+        # session (shift_offboard.py, Oct 15 2026) - never a reason to fail
+        # the offboarding.
         try:
             import shift_offboard
-            shifts_removed = shift_offboard.remove_future_shifts(db, row.work_email, actor)
+            shifts_removed = shift_offboard.remove_future_shifts(db, row.work_email, actor,
+                                                                 last_day=(body.effectiveDate or "").strip()[:10])
             if entry is not None and (shifts_removed["pendingDelete"] or shifts_removed["deleted"]):
                 entry["shiftsRemoved"] = shifts_removed
         except Exception as e:   # noqa: BLE001 - the offboarding goes on
@@ -5873,6 +5889,13 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
                 entry["vaultHandover"] = vault
         except Exception as e:   # noqa: BLE001 - the vault is the least of the three handovers
             print(f"[hr] credential vault handover skipped for {row.work_email}: {e}")
+    if did_change and body.status == "offboarded" and row.work_email:
+        # Their phones stop getting the bell (push.py): a leaver's devices
+        # are no place for company notices any more.
+        from models import NexusPushSubscription
+        (db.query(NexusPushSubscription)
+         .filter(func.lower(NexusPushSubscription.email) == row.work_email.strip().lower())
+         .delete(synchronize_session=False))
     row.status = body.status
     row.status_log = log
     row.updated_at = now
@@ -5905,14 +5928,23 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
                     m365["sessions"] = "ended"
                 except Exception as e:
                     m365["sessions"] = f"not ended ({str(e)[:120]}) - press Revoke Sessions in Entra"
-            if off_block.get("freeUpLicense"):
+            # Mailbox order (Neil, 11/14/2026): with an export asked for, the
+            # license stays until the export has finished - releasing it first
+            # deletes the mailbox the export is still reading. The export
+            # thread releases it once done; a failed export keeps it and says
+            # so on the exit (_after_export).
+            wait_for_export = bool(off_block.get("exportRequested") and off_block.get("freeUpLicense"))
+            if off_block.get("freeUpLicense") and not wait_for_export:
                 m365["licenses"] = _graph_remove_all_licenses(token, row.m365_id)
             if off_block.get("exportRequested"):
                 job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=actor,
                                       status="pending", created_at=now, updated_at=now)
                 db.add(job); db.commit()
-                threading.Thread(target=_run_mailbox_export, args=(job.id, row.m365_id), daemon=True).start()
+                threading.Thread(target=_run_mailbox_export, args=(job.id, row.m365_id),
+                                 kwargs={"release_license": wait_for_export}, daemon=True).start()
                 m365["export"] = job.id
+                if wait_for_export:
+                    m365["licenses"] = "released once the mailbox export finishes"
         except Exception as e:
             m365["error"] = str(getattr(e, "detail", e))[:200]
     elif not row.m365_id and off_block and body.status in ("inactive", "offboarded"):
@@ -5995,13 +6027,56 @@ def _export_filename(m: dict, used: set) -> str:
     return name
 
 
-def _run_mailbox_export(job_id: str, m365_id: str) -> None:
+def _after_export(job_id: str, m365_id: str, ok: bool, why: str = "") -> None:
+    """The license waits for the export (Neil, 11/14/2026): once the export
+    is done it is released; a failed export keeps it, and the exit says
+    "Mailbox export failed - license kept" for HR. Its own session, on the
+    export's own thread - never the event loop."""
+    db = SessionLocal()
+    try:
+        job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == job.employee_id).first() if job else None
+        if emp is None:
+            return
+        import exit_statement
+        if ok:
+            try:
+                got = _graph_remove_all_licenses(_graph_token(), m365_id)
+                exit_statement.record_for_email(db, emp.work_email, job.requested_by, "license_released",
+                                                f"Mailbox exported, then the license was released ({got})")
+            except Exception as e:   # noqa: BLE001 - said on the exit, never silent
+                exit_statement.flag_for_email(db, emp.work_email, "m365_issue",
+                                              f"Mailbox exported, but the license was not released: {str(e)[:160]}")
+        else:
+            exit_statement.flag_for_email(db, emp.work_email, "mailbox_export_failed",
+                                          "Mailbox export failed - license kept"
+                                          + (f" ({why[:160]})" if why else ""))
+        db.commit()
+    except Exception as e:   # noqa: BLE001
+        print(f"[hr] after-export step failed for {job_id}: {e}")
+    finally:
+        db.close()
+
+
+def _run_mailbox_export(job_id: str, m365_id: str, release_license: bool = False) -> None:
+    """The export; with `release_license` the license is released only once
+    it has finished (or kept when it failed) - _after_export."""
+    ok, why = False, "it stopped before it finished"
+    try:
+        ok, why = _export_mailbox(job_id, m365_id)
+    finally:
+        if release_license:
+            _after_export(job_id, m365_id, ok, why)
+
+
+def _export_mailbox(job_id: str, m365_id: str) -> tuple:
+    """(finished, why not)."""
     db = SessionLocal()
     tmp_path = None
     try:
         job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
         if not job:
-            return
+            return False, "the export job is gone"
         job.status = "running"; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
         headers = {"Authorization": f"Bearer {_graph_token()}"}
 
@@ -6115,6 +6190,7 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
             parts.append(f"stopped at the {_EXPORT_MSG_CAP:,}-message limit")
         job.message = "; ".join(parts)
         job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+        return True, ""
     except Exception as e:
         try:
             job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
@@ -6123,6 +6199,7 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
                 job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
         except Exception:
             pass
+        return False, str(e)[:300]
     finally:
         if tmp_path:
             try:

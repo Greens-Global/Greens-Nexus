@@ -5,11 +5,14 @@
 // lose it: balances show for information, "Not Paid Out (Company Policy)",
 // except where the law requires payout (California vacation). Money only
 // with the Pay & Benefits grant. HR marks it Reviewed, generates the PDF
-// (kept in the person's documents, filed to Egnyte), then closes the exit.
+// (kept in the person's documents, copied to Egnyte), then closes the exit -
+// held, and only by a Pay & Benefits holder, never on their own exit; a
+// closed exit can be reopened. Items still out when they left are Return
+// Pending until Received or Lost is pressed here (11/14/2026).
 // The statement is information for payroll - Nexus does not run the final pay.
 // Server side: routers/exit_statements.py + exit_statement.py.
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, ExternalLink, FileText, LogOut } from 'lucide-react';
+import { AlertTriangle, ExternalLink, FileText, RefreshCw, CheckCircle, RotateCcw, Lock } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks, Spinner } from './AsyncState';
 import { StatusLabel } from './StatusLabel';
@@ -17,6 +20,9 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { openNotificationTarget } from '../lib/openTarget';
 import { Modal, AvatarName } from '../tasks/components';
 import { formatHoursHM, formatHoursWords } from '../lib/hoursText';
+import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
+import { ReturnPendingButtons } from './ReturnPending';
+import { MailboxHandoverSteps } from './HrPersonActions';
 
 const STATUS_COLOR = { open: '#b45309', reviewed: '#2563eb', filed: '#16a34a', closed: '#64748b' };
 const day = (iso) => (iso ? formatDate(`${iso.slice(0, 10)}T12:00:00`) : '-');
@@ -45,8 +51,13 @@ function Table({ head, rows }) {
 }
 
 const None = ({ children }) => <div style={{ fontSize: 13, color: 'var(--muted)' }}>{children}</div>;
+const Warn = ({ children }) => (
+  <div style={{ fontSize: 13, color: 'var(--ink)', display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6 }}>
+    <AlertTriangle size={14} style={{ color: '#b45309', flexShrink: 0, marginTop: 2 }} /><span>{children}</span>
+  </div>
+);
 
-/** One leaver's statement, with Review / Generate PDF / Close Exit. */
+/** One leaver's statement, with Review / Generate PDF / Close Exit / Reopen. */
 function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
@@ -66,6 +77,7 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
   const st = data?.statement;
   const rv = data?.review;
   const canMoney = !!data?.canSeeMoney;
+  const closed = rv?.status === 'closed';
   const openDoc = async () => {
     try { const r = await api.getDocUrl(rv.documentId); if (r?.url) window.open(r.url, '_blank', 'noopener'); }
     catch (e) { toastErr?.(e?.message || 'Could not open the PDF'); }
@@ -77,20 +89,34 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
     window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: l.view, sub: l.sub } }));
     onClose();
   };
+  const settle = (row) => async (outcome, body) => {
+    await api.exitItemOutcome(exit.employeeId, row.rowKind, row.rowId, outcome, body);
+    toastOk?.(outcome === 'lost' ? `${row.name} marked Lost.` : `${row.name} received.`);
+  };
+  const reloadAll = () => { load(); onChanged?.(); };
   const footer = st && (<>
     {rv?.documentId && canMoney && (
       <button type="button" className="secondary-btn" onClick={openDoc} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileText size={13} /> Open PDF</button>
     )}
-    {rv?.status !== 'closed' && !closing && (
+    {canMoney && closed && (
+      <HoldButton label="Reopen" doneLabel="Reopened" icon={RotateCcw} holdMs={HOLD_RECORD_MS} disabled={!!busy}
+        fallbackMessage={`Reopen ${exit.name}'s exit? It goes back on Exits In Progress as it was when it was closed.`}
+        onConfirm={async () => {
+          try { await api.reopenExitStatement(exit.employeeId); }
+          catch (e) { throw new Error(e?.message || 'Could not reopen it.', { cause: e }); }
+        }}
+        onDone={() => { toastOk?.('Exit reopened.'); reloadAll(); }} />
+    )}
+    {canMoney && !closed && !closing && (
       <button type="button" className="secondary-btn" disabled={!!busy} onClick={() => setClosing(true)}>Close Exit</button>
     )}
-    {canMoney && rv?.status !== 'closed' && (
+    {canMoney && !closed && (
       <button type="button" className="secondary-btn" disabled={!!busy}
         onClick={() => run('review', () => api.reviewExitStatement(exit.employeeId), 'Marked Reviewed')}>
         {busy === 'review' ? <><Spinner size={13} /> Saving…</> : rv?.status === 'open' || rv?.reviewStale ? 'Mark Reviewed' : 'Review Again'}
       </button>
     )}
-    {canMoney && rv?.status !== 'closed' && (
+    {canMoney && !closed && (
       <button type="button" className="primary-btn" disabled={!!busy || !['reviewed', 'filed'].includes(rv?.status) || rv?.reviewStale}
         title={rv?.status === 'open' ? 'Mark it Reviewed first' : rv?.reviewStale ? 'The figures changed - review it again first' : undefined}
         onClick={() => run('pdf', () => api.generateExitStatement(exit.employeeId), 'PDF generated and kept in their documents')}>
@@ -105,16 +131,24 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
           : (
             <div className="nx-fill">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <StatusLabel label={rv.statusLabel} color={STATUS_COLOR[rv.status]} />
+                <StatusLabel label={rv.statusLabel} color={rv.egnyteFailed ? '#b45309' : STATUS_COLOR[rv.status]} />
                 {rv.reviewStale && <span style={{ fontSize: 12, color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={13} /> Figures changed since the review</span>}
                 {rv.reviewedByName && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Reviewed by <AvatarName email={rv.reviewedBy} name={rv.reviewedByName} size={18} /> · {formatDateTime(rv.reviewedAt)}</span>}
-                {rv.egnytePath && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Filed to Egnyte</span>}
+                {rv.egnytePath && !rv.egnyteFailed && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Filed to Egnyte</span>}
+                {rv.egnyteFailed && canMoney && (
+                  <button type="button" className="secondary-btn" disabled={!!busy} style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    onClick={() => run('egnyte', () => api.retryExitEgnyte(exit.employeeId), 'Copied to Egnyte')}>
+                    {busy === 'egnyte' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry Egnyte
+                  </button>
+                )}
               </div>
+              {rv.egnyteFailed && rv.egnyteError && <Warn>The PDF is kept in their documents in Nexus, but the Egnyte copy failed: {rv.egnyteError}</Warn>}
               <div style={{ fontSize: 13, color: 'var(--muted)', margin: '8px 0 0' }}>
                 {st.companyName || 'No company'} · {st.jobTitle || 'No title'} · {st.exitTypeLabel} · Last working day <strong style={{ color: 'var(--ink)' }}>{day(st.lastDay)}</strong> ({st.stage})
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Information for payroll - Nexus does not run the final pay.</div>
               {!canMoney && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Amounts are hidden - they need Pay &amp; Benefits access.</div>}
+              {(st.issues || []).map((x) => <Warn key={x.code}>{x.message}</Warn>)}
 
               <div style={H}>Final Time Sheet</div>
               {st.timesheet.periodStart ? (<>
@@ -163,9 +197,38 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
 
               <div style={H}>Company Items</div>
               {st.items.held.length ? (
-                <Table head={['Item', 'Serial', 'Held As']} rows={st.items.held.map((x) => [x.name, x.serial || '-', x.kind])} />
+                <Table head={['Item', 'Serial', 'Held As']} rows={st.items.held.map((x) => [
+                  x.name,
+                  x.serial || '-',
+                  x.returnPending && x.rowId
+                    ? <span key="rp" style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+                        <StatusLabel label="Return Pending" color="#b45309" size="sm" />
+                        <ReturnPendingButtons item={x} holder={exit.name} settle={settle(x)} onDone={reloadAll} toastErr={toastErr} />
+                      </span>
+                    : x.kind,
+                ])} />
               ) : <None>No company items held.</None>}
-              {st.items.closedAtLeft > 0 && <None>{st.items.closedAtLeft} item(s) were closed automatically when they were marked Left - confirm they came back.</None>}
+              {st.items.held.some((x) => x.returnPending) && <None>Still out when they left: nobody else can borrow or be assigned it until it is Received or reported Lost.</None>}
+
+              {st.mailboxHandover && (<>
+                <div style={H}>Mailbox Handover</div>
+                {st.mailboxHandover.done ? (
+                  <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <CheckCircle size={14} style={{ color: 'hsl(var(--color-green))' }} /> Done{st.mailboxHandover.at ? ` ${formatDateTime(st.mailboxHandover.at)}` : ''}
+                    <button type="button" className="secondary-btn" style={small} disabled={!!busy}
+                      onClick={() => run('mbx', () => api.exitMailboxHandover(exit.employeeId, false), 'Mailbox handover marked not done')}>Not Done Yet</button>
+                  </div>
+                ) : (<>
+                  <StatusLabel label="Mailbox Handover Pending" color="#b45309" size="sm" />
+                  <div style={{ marginTop: 8 }}>
+                    <MailboxHandoverSteps upn={st.email} trustees={st.mailboxHandover.delegateTo || []} toastOk={toastOk} toastErr={toastErr} />
+                  </div>
+                  <button type="button" className="primary-btn" style={{ ...small, marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5 }} disabled={!!busy}
+                    onClick={() => run('mbx', () => api.exitMailboxHandover(exit.employeeId, true), 'Mailbox handover done')}>
+                    {busy === 'mbx' ? <Spinner size={12} /> : <CheckCircle size={12} />} Mailbox Handover Done
+                  </button>
+                </>)}
+              </>)}
 
               <div style={H}>Offboarding Checklist</div>
               {st.checklist.exists ? (<>
@@ -185,14 +248,20 @@ function StatementModal({ exit, onClose, onChanged, toastOk, toastErr }) {
                 ]} />
               </>)}
 
-              {closing && (
+              {closing && canMoney && !closed && (
                 <div style={{ marginTop: 14, display: 'grid', gap: 8 }}>
                   <textarea className="form-input" rows={2} value={closeNote} onChange={(e) => setCloseNote(e.target.value)} style={{ width: '100%', resize: 'vertical' }}
                     aria-label="Why the exit is closed" placeholder={rv.status === 'filed' ? 'Note (optional)' : 'The statement is not filed - say why the exit is closed'} />
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
                     <button type="button" className="secondary-btn" onClick={() => setClosing(false)} disabled={!!busy}>Back</button>
-                    <button type="button" className="primary-btn" disabled={!!busy || (rv.status !== 'filed' && closeNote.trim().length < 3)}
-                      onClick={() => run('close', () => api.closeExitStatement(exit.employeeId, closeNote.trim()), 'Exit closed').then((ok) => { if (ok) onClose(); })}>Close Exit</button>
+                    <HoldButton label="Close Exit" doneLabel="Closed" icon={Lock} holdMs={HOLD_RECORD_MS}
+                      disabled={!!busy || (rv.status !== 'filed' && closeNote.trim().length < 3)}
+                      fallbackMessage={`Close ${exit.name}'s exit? It leaves Exits In Progress (Reopen brings it back).`}
+                      onConfirm={async () => {
+                        try { await api.closeExitStatement(exit.employeeId, closeNote.trim()); }
+                        catch (e) { throw new Error(e?.message || 'Could not close it.', { cause: e }); }
+                      }}
+                      onDone={() => { toastOk?.('Exit closed'); onChanged?.(); onClose(); }} />
                   </div>
                 </div>
               )}
@@ -209,22 +278,23 @@ export default function ExitsTab({ toastOk, toastErr }) {
   const [open, setOpen] = useState(null);
   const load = useCallback(() => api.exitStatements(showClosed)
     .then((d) => { setRows(d?.exits || []); setErr(''); })
-    .catch((e) => { setRows([]); setErr(e?.message || 'Could not load exits'); }), [showClosed]);
+    .catch((e) => { setRows(null); setErr(e?.message || 'Could not load exits'); }), [showClosed]);
   useEffect(() => { load(); }, [load]);
   return (
     <div className="dash-card" data-exits-tab>
+      {/* The tab is named in the module bar (Neil, 11/06/2026) - no second title here. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-        <span className="dk-chip dk-chip--orange" style={{ width: 32, height: 32 }}><LogOut size={16} /></span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Exits In Progress</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Everyone leaving, and the final settlement statement payroll needs for each.</div>
-        </div>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--muted)' }}>Everyone leaving, and the final settlement statement payroll needs for each.</div>
         <label className="exits-closed-toggle" style={{ fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} /> Show Closed
         </label>
       </div>
-      {err && <div style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginBottom: 8 }}>{err}</div>}
-      {!rows ? <SkeletonBlocks count={3} height={44} />
+      {err ? (
+        <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <AlertTriangle size={14} /> Could not load the exits: {err}
+          <button type="button" className="secondary-btn" style={small} onClick={() => { setErr(''); load(); }}>Try Again</button>
+        </div>
+      ) : !rows ? <SkeletonBlocks count={3} height={44} />
         : rows.length === 0 ? <None>Nobody is leaving right now.</None>
           : (
             <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>

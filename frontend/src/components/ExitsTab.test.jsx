@@ -16,6 +16,10 @@ vi.mock('../api', () => ({
     reviewExitStatement: (...a) => review(...a),
     generateExitStatement: (...a) => generate(...a),
     closeExitStatement: vi.fn(),
+    reopenExitStatement: vi.fn(),
+    exitItemOutcome: vi.fn(),
+    exitMailboxHandover: vi.fn(),
+    retryExitEgnyte: vi.fn(),
     getDocUrl: vi.fn(),
   },
 }));
@@ -77,6 +81,27 @@ describe('ExitsTab', () => {
     expect(screen.queryByText(/\$320\.00/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Mark Reviewed' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Generate PDF' })).toBeNull();
+  });
+
+  it('shows the error, never the empty line, when the list fails', async () => {
+    list.mockRejectedValue(new Error('Server error'));
+    render(<ExitsTab />);
+    expect(await screen.findByText(/Could not load the exits/)).toBeTruthy();
+    expect(screen.queryByText('Nobody is leaving right now.')).toBeNull();
+  });
+
+  it('offers Received and Mark Lost for an item still out when they left', async () => {
+    const st = statement();
+    st.items = { held: [{ name: 'Laptop', serial: 'SN-9', kind: 'Assigned', rowKind: 'assignment', rowId: 'A1', returnPending: true, pictureRequired: true }], closedAtLeft: 0 };
+    one.mockResolvedValue({ statement: st, review: review0, canSeeMoney: true });
+    render(<ExitsTab />);
+    fireEvent.click(await screen.findByText('Erin Test'));
+    expect(await screen.findByText('Return Pending')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Received/ })).toBeTruthy();
+    expect(screen.getAllByText('Mark Lost').length).toBeGreaterThan(0);
+    // Close Exit is a hold, behind the pay grant.
+    fireEvent.click(screen.getByRole('button', { name: 'Close Exit' }));
+    expect(await screen.findByLabelText('Why the exit is closed')).toBeTruthy();
   });
 
   it('says so when nobody is leaving', async () => {

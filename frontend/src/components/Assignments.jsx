@@ -39,6 +39,7 @@ const REASON_FLAG = {
   dead:     'Reported Dead',
   lost:     'Reported Lost',
   reassign: 'Reassignment',
+  offboarded: 'Return Pending - They Left',
 };
 
 // Shared across ALL useAssignments() consumers: one poll, one in-flight request,

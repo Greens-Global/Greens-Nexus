@@ -806,11 +806,24 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
     finally { setBusy(''); }
   }
   async function act(kind) {
-    if (kind === 'cancel' && !await dialog.confirm('Cancel this offboarding? They stay active, and any paperwork still out is voided.', { title: 'Cancel Offboarding', confirmText: 'Cancel Offboarding', cancelText: 'Keep It' })) return;
+    if (kind === 'cancel') {
+      // Voids the paperwork that is out - held (Hold to confirm, Neil, 11/14/2026).
+      await dialog.confirm('Cancel this offboarding? They stay active, the offboarding checklist is canceled, and any paperwork still out is voided.', {
+        title: 'Cancel Offboarding', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Cancel Offboarding', doneText: 'Canceled', cancelText: 'Keep It',
+        onConfirm: async () => {
+          setBusy('cancel');
+          try { await api.cancelOffboarding(ev.id); }
+          catch (e) { throw new Error(e?.message || 'That did not work.', { cause: e }); }
+          finally { setBusy(''); }
+          toastOk?.('Offboarding canceled.');
+          onChanged?.();
+        },
+      });
+      return;
+    }
     setBusy(kind);
     try {
-      if (kind === 'cancel') { await api.cancelOffboarding(ev.id); toastOk?.('Offboarding canceled.'); }
-      else if (kind === 'apply') { await api.retryLifeEventApply(ev.id); toastOk?.('Applied.'); }
+      if (kind === 'apply') { await api.retryLifeEventApply(ev.id); toastOk?.('Applied.'); }
       else { const out = await api.retryLifeEventFiling(ev.id); toastOk?.(out.filingStatus === 'filed' ? 'Filed in Egnyte.' : 'Still not filed - see the reason below.'); }
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'That did not work.'); }

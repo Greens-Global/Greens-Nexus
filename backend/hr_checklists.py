@@ -758,6 +758,26 @@ def start(db, emp: NexusEmployee, kind: str, *, anchor_date: str = "", exit_type
     return cl
 
 
+def move_anchor(db, cl: HrChecklist, anchor_date: str, by: str = "nexus") -> bool:
+    """The date the checklist counts from moved (an offboarding's Change
+    Last Day, Neil 11/14/2026): every OPEN step dated from it takes its new
+    date - a date set by hand stays - and the subtasks follow. Done and N/A
+    steps are history. Flushes; the caller commits."""
+    day = (anchor_date or "")[:10]
+    if cl.status != "open" or not _parse(day) or day == cl.anchor_date:
+        return False
+    cl.anchor_date = day
+    hol = _holidays(db, cl.company or "")
+    created = (cl.created_at or "")[:10] or _today().isoformat()
+    for it in db.query(HrChecklistItem).filter(HrChecklistItem.checklist_id == cl.id).all():
+        if it.status == "open" and not it.due_manual and it.anchor in ("S", "X"):
+            it.due_date = due_for(day, created, it.anchor, it.offset or 0, bool(it.business_days), hol)
+    db.flush()
+    sync_tasks(db, cl, by=by)
+    db.flush()
+    return True
+
+
 def email_tasks_after_commit(db, task_ids: list, by: str) -> None:
     """Queue the task-assigned email (notify_task_event - batched like every
     task email) for each task once the transaction commits. From a thread, and
