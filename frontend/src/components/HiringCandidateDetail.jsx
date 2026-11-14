@@ -28,7 +28,8 @@
 // and moves the stage.
 import { useEffect, useRef, useState } from 'react';
 import { X, CalendarDays, FileText, FileSignature, XCircle, ChevronRight, Video, ClipboardList,
-         RotateCcw, Trophy, Undo2, Check, CheckCircle2, Circle, AlertTriangle, Settings, ThumbsUp, ThumbsDown, Clock } from 'lucide-react';
+         RotateCcw, Trophy, Undo2, Check, CheckCircle2, Circle, AlertTriangle, Settings, ThumbsUp, ThumbsDown, Clock, Ban,
+         ChevronDown, UserCheck } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
@@ -37,6 +38,10 @@ import { HiringPacketStatus, packetIsActive, usDay } from './HiringPacket';
 import { useEntities } from '../lib/queries';
 import { RecordingLine } from './Interviews';
 import CandidateNotes from './CandidateNotes';
+import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
+import AnchoredMenu from './AnchoredMenu';
+import { Modal } from '../tasks/components';
+import { useHiringAi } from './hiring/useHiringAi';
 
 export const STAGES = ['applied', 'screening', 'interview', 'decision', 'offer', 'hired'];
 export const STAGE_META = {
@@ -196,13 +201,19 @@ const ROUND_STATUS = {
 };
 const chip = (tone) => ({ padding: '2px 9px', borderRadius: 12, fontSize: 11, fontWeight: 700,
   background: tone === 'gray' ? 'var(--mist)' : `hsla(var(--color-${tone}),0.12)`, color: tone === 'gray' ? 'var(--muted)' : `hsl(var(--color-${tone}))` });
-// Reject is red and the way forward green (Neil, Oct 19: "red or green").
-const rejectBtn = { background: 'hsl(var(--color-red))', border: '1px solid hsl(var(--color-red))', borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer', color: '#fff', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' };
+// Reject is a quiet red word on the left, the way forward the one green
+// button in the Next box (Neil, Oct 19: "red or green"; 11/14/2026).
+const rejectBtn = { background: 'none', border: 'none', borderRadius: 8, padding: '7px 4px', fontSize: 13, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' };
 const goGreen = { background: 'hsl(var(--color-green))', borderColor: 'hsl(var(--color-green))', color: '#fff' };
 
 // The stages as a bar: done, here, still to come. Rejected shows on its own.
-// A skipped interview reads Skipped, never a plain tick (Oct 22 walkthrough).
-function StageBar({ stage, interviewSkipped = false }) {
+// A skipped interview is drawn skipped - a dashed circle, its name struck
+// through - never a plain tick and never extra words that run into the next
+// stage (11/14/2026). Wide: six steps, each name under its circle. Narrow
+// (under 641px, or a sheet under 560px): "<Stage> - Step N of 6" over a thin
+// six-segment track. Both are drawn; style.css's "Hiring stage bar" block
+// shows the one that fits.
+export function StageBar({ stage, interviewSkipped = false }) {
   if (stage === 'rejected') {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0 4px', fontSize: 13, fontWeight: 700, color: `hsl(${STAGE_META.rejected.hue})` }}>
@@ -211,32 +222,53 @@ function StageBar({ stage, interviewSkipped = false }) {
     );
   }
   const at = STAGES.indexOf(stage);
+  const state = (s, i) => (i === at ? 'here' : i < at ? (s === 'interview' && interviewSkipped ? 'skipped' : 'done') : 'todo');
+  const here = STAGE_META[stage] || STAGE_META.applied;
   return (
-    <div role="list" aria-label="Hiring stages" style={{ display: 'flex', alignItems: 'center', padding: '14px 10px 6px 4px', overflow: 'visible' }}>
-      {STAGES.map((s, i) => {
-        const done = i < at, here = i === at;
-        const skipped = done && s === 'interview' && interviewSkipped;
-        const hue = STAGE_META[s].hue;
-        return (
-          <div key={s} role="listitem" aria-current={here ? 'step' : undefined} style={{ display: 'flex', alignItems: 'center', flex: i < STAGES.length - 1 ? 1 : 'none', minWidth: 0 }}>
-            {/* The stage they are at stands out; the others stay small. */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: here ? 8 : 6, whiteSpace: 'nowrap',
-              padding: here ? '6px 14px 6px 8px' : '0', borderRadius: 999,
-              background: here ? `hsla(${hue},0.12)` : 'transparent', boxShadow: here ? `0 0 0 1.5px hsla(${hue},0.35)` : 'none',
-              transform: here ? 'scale(1.04)' : 'none', transformOrigin: 'center', transition: 'transform .15s' }}>
-              <span style={{ width: here ? 26 : 22, height: here ? 26 : 22, borderRadius: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: here ? 13 : 11, fontWeight: 800,
-                background: here ? `hsl(${hue})` : done ? 'hsla(var(--color-green),0.15)' : 'var(--mist)',
-                color: here ? '#fff' : done ? 'hsl(var(--color-green))' : 'var(--muted)', border: here ? 'none' : '1px solid var(--line)' }}>
-                {done ? <Check size={11} /> : i + 1}
+    <div className="hc-stagebar">
+      <ol className="hc-stagebar-wide" aria-label="Hiring stages" style={{ display: 'flex', listStyle: 'none', margin: 0, padding: '14px 0 4px' }}>
+        {STAGES.map((s, i) => {
+          const st = state(s, i);
+          const hue = STAGE_META[s].hue;
+          return (
+            <li key={s} aria-current={st === 'here' ? 'step' : undefined} data-stage={s} data-state={st}
+              aria-label={`${STAGE_META[s].label}${st === 'skipped' ? ' - skipped' : st === 'done' ? ' - done' : ''}`}
+              style={{ position: 'relative', flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              {i < STAGES.length - 1 && (
+                <span aria-hidden="true" style={{ position: 'absolute', top: 12, left: 'calc(50% + 17px)', right: 'calc(-50% + 17px)', height: 2,
+                  background: i < at ? 'hsla(var(--color-green),0.45)' : 'var(--line)' }} />
+              )}
+              <span aria-hidden="true" style={{ width: 26, height: 26, borderRadius: 13, boxSizing: 'border-box', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800,
+                background: st === 'here' ? `hsl(${hue})` : st === 'done' ? 'hsla(var(--color-green),0.15)' : 'transparent',
+                color: st === 'here' ? '#fff' : st === 'done' ? 'hsl(var(--color-green))' : 'var(--muted)',
+                border: st === 'here' ? 'none' : st === 'skipped' ? '1.5px dashed var(--muted)' : st === 'done' ? '1px solid hsla(var(--color-green),0.35)' : '1px solid var(--line)',
+                boxShadow: st === 'here' ? `0 0 0 4px hsla(${hue},0.16)` : 'none' }}>
+                {st === 'done' ? <Check size={12} /> : st === 'skipped' ? '' : i + 1}
               </span>
-              <span style={{ fontSize: here ? 14 : 13, fontWeight: here ? 800 : 600, color: here ? `hsl(${hue})` : skipped ? 'var(--muted)' : done ? 'var(--ink)' : 'var(--muted)' }}>
-                {STAGE_META[s].label}{skipped ? ' (Skipped)' : ''}
+              <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12,
+                fontWeight: st === 'here' ? 800 : 600, textDecoration: st === 'skipped' ? 'line-through' : 'none',
+                color: st === 'here' ? `hsl(${hue})` : st === 'done' ? 'var(--ink)' : 'var(--muted)' }}>
+                {STAGE_META[s].label}
               </span>
-            </div>
-            {i < STAGES.length - 1 && <span style={{ flex: 1, height: 2, margin: '0 10px', background: done ? 'hsla(var(--color-green),0.4)' : 'var(--line)', minWidth: 14 }} />}
-          </div>
-        );
-      })}
+            </li>
+          );
+        })}
+      </ol>
+      <div className="hc-stagebar-narrow" style={{ padding: '12px 0 4px' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: `hsl(${here.hue})` }}>
+          {here.label} <span style={{ color: 'var(--muted)', fontWeight: 600 }}>- Step {at + 1} of {STAGES.length}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+          {STAGES.map((s, i) => {
+            const st = state(s, i);
+            return (
+              <span key={s} data-seg={st} style={{ flex: 1, height: 4, borderRadius: 2, boxSizing: 'border-box',
+                background: st === 'done' ? 'hsl(var(--color-green))' : st === 'here' ? 'hsl(var(--color-purple))' : st === 'skipped' ? 'transparent' : 'var(--line)',
+                border: st === 'skipped' ? '1px dashed var(--muted)' : 'none' }} />
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -262,6 +294,10 @@ export default function CandidateDetailModal({
   const [decisionKey, setDecisionKey] = useState(0);
 
   useEffect(() => { api.ivList(c.id).then(setRounds).catch(() => setRounds([])); }, [c.id, c.stage, refreshKey]);
+  const aiOn = useHiringAi();
+  // The packet status re-reads after a Void from the footer.
+  const [docsKey, setDocsKey] = useState(0);
+  const docsRefresh = `${refreshKey ?? ''}-${docsKey}`;
 
   const sm = STAGE_META[c.stage] || STAGE_META.applied;
   const closed = c.stage === 'hired' || c.stage === 'rejected';
@@ -293,12 +329,21 @@ export default function CandidateDetailModal({
   const offerSigned = (packetEvents || []).some(e => e.kind === 'offer' && e.status === 'completed');
   const goHiringSettings = () => { onClose?.(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'hiring' } })); };
   // Once an interview is on the books the record is settled - no more editing
-  // of who they are or which company; the email goes with the packet.
+  // of who they are or which company. The email alone stays editable through
+  // Offer (11/14/2026): a typo there would send the offer letter nowhere, and
+  // the letter already out follows the corrected address.
   const canEdit = ['applied', 'screening'].includes(c.stage);
+  const canEditEmail = canEdit || ['interview', 'decision', 'offer'].includes(c.stage);
   const { data: entities } = useEntities();
   const companyName = (entities || []).find(e => e.id === c.company)?.name || '';
   // A move takes the note being written with it, then the box is clear.
   const move = (stage, fallback = '') => { onStage(c, stage, note.trim() || fallback); setNote(''); setNotesKey(k => k + 1); };
+  // A note typed but not added is not lost to a stray click (11/14/2026):
+  // closing asks first, and Add Note keeps it.
+  async function addTypedNote() {
+    try { await api.addCandidateNote(c.id, note.trim()); setNote(''); onClose(); }
+    catch (e) { toastErr?.(e?.message || 'Could not add the note.'); }
+  }
   async function uploadResume(file) {
     if (!file) return;
     setResumeBusy(true);
@@ -353,51 +398,73 @@ export default function CandidateDetailModal({
   }
 
   const primary = (label, onClick, icon, disabled, look) => (
-    <button className="primary-btn" onClick={onClick} disabled={busy || disabled} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, ...look }}>
+    <button className="primary-btn" onClick={onClick} disabled={busy || disabled} data-next-action=""
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, ...look }}>
       {busy ? <Spinner size={14} /> : icon} {label}
     </button>
   );
-  const secondary = (label, onClick, icon, disabled) => (
-    <button className="secondary-btn" onClick={onClick} disabled={busy || disabled} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      {icon} {label}
-    </button>
+  // An offer letter or hiring packet still out (11/14/2026): the server
+  // refuses Reject, Another Interview and Mark Hired By Hand under it, so the
+  // card says why instead of a 409, and Void sits right beside them.
+  const openEvent = c.stage === 'offer' ? (packetEvents || []).find(e => ['offer', 'hire'].includes(e.kind)
+    && ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status)) || null : null;
+  const openWhat = openEvent ? (openEvent.kind === 'offer' ? 'offer letter' : 'hiring packet') : '';
+  const voidFirst = openEvent ? `Void the ${openWhat} first` : '';
+  async function voidOpen() {
+    try { await api.voidLifeEvent(openEvent.id); toastOk?.(`The ${openWhat} was voided.`); }
+    catch (e) { throw new Error(e?.message || 'Could not void it.', { cause: e }); }
+  }
+  const voidBtn = openEvent && (
+    <HoldButton key="void" size="sm" label={openEvent.kind === 'offer' ? 'Void Offer Letter' : 'Void Hiring Packet'} doneLabel="Voided" icon={Ban}
+      holdMs={HOLD_RECORD_MS} onConfirm={voidOpen} onDone={() => { setDocsKey(k => k + 1); onUpdated?.(null); }}
+      fallbackMessage={`Void the ${openWhat}? It can no longer be signed.`} />
   );
-  const reject = <button onClick={() => move('rejected')} disabled={busy} style={rejectBtn}><XCircle size={13} /> Reject</button>;
+  // Reject asks for the reason, the same as dropping the card on Rejected
+  // (11/14/2026); a note still in the box is offered as the reason.
+  async function rejectWithReason() {
+    const why = await dialog.prompt(`Reject ${candName(c)}? Add a reason for the notes (optional).`,
+      { title: 'Reject', confirmText: 'Reject', defaultValue: note.trim() });
+    if (why === null) return;
+    onStage(c, 'rejected', why.trim());
+    setNote(''); setNotesKey(k => k + 1);
+  }
+  const reject = !closed && (
+    <button type="button" onClick={rejectWithReason} disabled={busy || !!voidFirst} title={voidFirst || undefined}
+      style={{ ...rejectBtn, ...(voidFirst ? { opacity: 0.5, cursor: 'not-allowed' } : null) }}>Reject</button>
+  );
+  const scheduleOrSay = () => (c.email ? onSchedule(c)
+    : toastErr?.('Add the candidate\'s email first (Edit, top right) - the Teams invite goes there.'));
+  const packetWaiting = onMakeOffer && !offerSigned && !(packetEvents || []).some(e => e.kind === 'hire' && e.status !== 'voided');
 
-  const footer = {
-    applied: [reject, primary('Move To Screening', () => move('screening'), <ChevronRight size={14} />)],
-    screening: [reject, primary('Schedule Interview', () => c.email ? onSchedule(c)
-      : toastErr?.('Add the candidate\'s email first (Edit, top right) - the Teams invite goes there.'), <Video size={14} />)],
-    interview: [reject,
-      secondary('Another Round', () => onSchedule(c), <CalendarDays size={13} />),
-      roomAllowed && secondary('Interview Room', () => onOpenRoom(c), <ClipboardList size={13} />),
-      primary('Move To Decision', () => move('decision'), <ChevronRight size={14} />)],
-    decision: [reject,
-      secondary('Another Round', () => onSchedule(c), <CalendarDays size={13} />),
-      roomAllowed && secondary('Interview Room', () => onOpenRoom(c), <ClipboardList size={13} />),
-      primary('Make Offer', toOffer, <FileSignature size={14} />, false, goGreen)],
-    offer: [reject,
-      secondary('Another Interview', () => onSchedule(c), <Undo2 size={13} />),
-      secondary('Mark Hired By Hand', markHiredByHand, null),
-      awaitingMe && onSignPacket && primary('Sign Now', () => onSignPacket(awaitingMe.senderPartyId), <FileSignature size={14} />),
-      noOfferLetter && secondary('Set Up Offer Letter', goHiringSettings, <Settings size={13} />),
-      !packetOut && offers && !offerSigned && primary('Make Offer', () => onMakeOffer(c), <FileSignature size={14} />, packetEvents === null, goGreen),
-      // The hiring packet follows a signed offer (Pranshu, Oct 15): shown, but
-      // not clickable, until the candidate has signed the offer - it then
-      // goes out by itself; Send is only for when that could not happen.
-      onMakeOffer && !offerSigned && !(packetEvents || []).some(e => e.kind === 'hire' && e.status !== 'voided') && (
-        <button key="packet-wait" className="secondary-btn" disabled title={`Goes out by itself once ${c.firstName || 'the candidate'} has signed the offer letter`}
-          style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: 0.55, cursor: 'not-allowed' }}>
-          <FileText size={13} /> Send Hiring Packet
-        </button>
-      ),
-      // Screens with no offer flow keep the plain packet send.
-      !packetOut && !onMakeOffer && primary(packetPick?.picked?.engine === 'documents' ? 'Start Hiring Packet' : 'Send Hiring Packet',
-        () => onSendPacket(c), <FileText size={14} />, packetEvents === null)],
-    rejected: [!c.inactive && secondary('Remove From Board', () => removeFromBoard(true), <XCircle size={13} />),
-      primary('Reopen', () => move('applied', 'Reopened'), <RotateCcw size={14} />)],
-    hired: [c.employeeId && onOpenPerson && primary('Open In People', () => onOpenPerson(c), <ChevronRight size={14} />)],
-  }[c.stage] || [];
+  // ONE next step, in the Next box (11/14/2026).
+  const nextAction = {
+    applied: primary('Move To Screening', () => move('screening'), <ChevronRight size={14} />),
+    screening: primary('Schedule Interview', scheduleOrSay, <Video size={14} />),
+    interview: primary('Move To Decision', () => move('decision'), <ChevronRight size={14} />),
+    decision: noOfferLetter ? primary('Set Up Offer Letter', toOffer, <Settings size={14} />)
+      : primary('Make Offer', toOffer, <FileSignature size={14} />, false, goGreen),
+    offer: awaitingMe && onSignPacket ? primary('Sign Now', () => onSignPacket(awaitingMe.senderPartyId), <FileSignature size={14} />)
+      : !packetOut && noOfferLetter ? primary('Set Up Offer Letter', goHiringSettings, <Settings size={14} />)
+        : !packetOut && offers && !offerSigned ? primary('Make Offer', () => onMakeOffer(c), <FileSignature size={14} />, packetEvents === null, goGreen)
+          : !packetOut && !onMakeOffer ? primary(packetPick?.picked?.engine === 'documents' ? 'Start Hiring Packet' : 'Send Hiring Packet',
+            () => onSendPacket(c), <FileText size={14} />, packetEvents === null)
+            : null,
+    rejected: primary('Reopen', () => move('applied', 'Reopened'), <RotateCcw size={14} />),
+    hired: c.employeeId && onOpenPerson ? primary('Open In People', () => onOpenPerson(c), <ChevronRight size={14} />) : null,
+  }[c.stage] || null;
+
+  // Everything else is under More: { key, label, icon, run, disabled, title }.
+  const more = [
+    ['interview', 'decision'].includes(c.stage) && { key: 'round', label: 'Another Round', icon: CalendarDays, run: scheduleOrSay },
+    c.stage === 'offer' && { key: 'round', label: 'Another Interview', icon: Undo2, run: scheduleOrSay, disabled: !!voidFirst, title: voidFirst },
+    roomAllowed && { key: 'room', label: 'Interview Room', icon: ClipboardList, run: () => onOpenRoom(c) },
+    c.stage === 'offer' && { key: 'hand', label: 'Mark Hired By Hand', icon: UserCheck, run: markHiredByHand, disabled: !!voidFirst, title: voidFirst },
+    // The hiring packet follows a signed offer (Pranshu, Oct 15): listed, but
+    // not clickable, until the candidate has signed - it then goes out by itself.
+    c.stage === 'offer' && packetWaiting && { key: 'packet', label: 'Send Hiring Packet', icon: FileText, disabled: true,
+      title: `Goes out by itself once ${c.firstName || 'the candidate'} has signed the offer letter` },
+    c.stage === 'rejected' && !c.inactive && { key: 'remove', label: 'Remove From Board', icon: XCircle, run: () => removeFromBoard(true) },
+  ].filter(Boolean);
 
   const TABS = [
     ['overview', 'Overview & Notes'],
@@ -418,7 +485,7 @@ export default function CandidateDetailModal({
     {(c.stage === 'decision' || c.decision) && <DecisionPanel candidateId={c.id} refreshKey={`${refreshKey}-${c.stage}-${decisionKey}`} onReload={() => setDecisionKey(k => k + 1)} />}
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 28px' }}>
       <div style={{ gridColumn: 'span 1', maxWidth: 320 }}>
-        {about('Email', c.email || (canEdit ? 'No email yet - add it with Edit' : 'No email yet'), !c.email)}
+        {about('Email', c.email || (canEditEmail ? 'No email yet - add it with Edit' : 'No email yet'), !c.email)}
         {c.phone && about('Phone', c.phone)}
         {c.expectedStart && about('Expected Start', usDay(c.expectedStart))}
         {c.expectedInterviewOn && ['applied', 'screening'].includes(c.stage) && about('Interview Expected By', `${usDay(c.expectedInterviewOn)} - screening due the business day before`)}
@@ -458,12 +525,15 @@ export default function CandidateDetailModal({
               <b style={{ fontSize: 13 }}>Interview {i + 1}</b>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDateTime(r.at)}</span>
               <span style={chip(tone)}>{label}</span>
-              {r.status === 'scored' && <span style={{ fontSize: 13, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{Math.round(r.totalScore)}/100</span>}
+              {aiOn && r.status === 'scored' && r.totalScore != null && <span style={{ fontSize: 13, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{Math.round(r.totalScore)}/100</span>}
               <span style={{ flex: 1 }} />
-              {r.status === 'scheduled' && !closed && <>
+              {r.status === 'scheduled' && !closed && (
                 <button className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => onSchedule(c, r)}>Reschedule</button>
+              )}
+              {/* A round still booked on a rejected card can be canceled (never rescheduled). */}
+              {r.status === 'scheduled' && c.stage !== 'hired' && (
                 <button className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => cancelRound(r)}>Cancel</button>
-              </>}
+              )}
             </div>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 5 }}>
               With {(r.interviewerNames || r.interviewerEmails || []).join(', ') || 'no one set'} · {r.durationMin} minutes
@@ -480,18 +550,18 @@ export default function CandidateDetailModal({
   const documents = (
     <div>
       <OfferProgress events={packetEvents} firstName={c.firstName} />
-      <HiringPacketStatus candidateId={c.id} refreshKey={refreshKey} onEvents={setPacketEvents} hideSign
+      <HiringPacketStatus candidateId={c.id} refreshKey={docsRefresh} onEvents={setPacketEvents} hideSign
         onSignNow={onSignPacket} onChanged={() => onUpdated?.(null)} toastOk={toastOk} toastErr={toastErr} />
       {c.stage === 'offer' && !packetOut && packetEvents !== null && !(packetEvents || []).length && (
         <div style={{ fontSize: 13, color: 'var(--muted)', padding: '14px 0' }}>
           {noOfferLetter ? (
-            <span style={{ color: 'hsl(var(--color-orange))' }}>
+            <span style={{ color: 'var(--warn-fg)' }}>
               No offer letter is set up for {companyName || 'this company'} yet. The offer letter comes first - add one under
-              Settings &gt; Hiring &gt; Hiring Documents &gt; Offer Letter (Set Up Offer Letter below), then Make Offer.
+              Settings &gt; Hiring &gt; Hiring Documents &gt; Offer Letter (Set Up Offer Letter, above), then Make Offer.
             </span>
           ) : offerErr ? (
             <span style={{ color: 'hsl(var(--color-red))' }}>Could not check the offer letters for this company - close and reopen the card to try again.</span>
-          ) : onMakeOffer ? 'No offer made yet - click Make Offer below. The hiring packet goes out by itself once they have signed it.'
+          ) : onMakeOffer ? 'No offer made yet - click Make Offer above. The hiring packet goes out by itself once they have signed it.'
             : packetPick?.picked
               ? <><b style={{ color: 'var(--ink)' }}>Hiring packet:</b> {packetPick.picked.templateName} <span>- {packetPick.picked.why}</span></>
               : <span style={{ color: 'hsl(var(--color-orange))' }}>No hiring packet is set up for this company and role - add one in Settings &gt; Hiring &gt; Hiring Documents before sending.</span>}
@@ -506,54 +576,97 @@ export default function CandidateDetailModal({
     </div>
   );
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 18, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '18px 28px 0', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 800, fontSize: 18 }}>{candName(c)}</div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
-                {[c.roleTitle, c.department, companyName].filter(Boolean).join(' · ')}
-              </div>
-            </div>
-            {onEdit && canEdit && <button className="secondary-btn" onClick={() => onEdit(c)} style={{ fontSize: 13, padding: '5px 12px', flexShrink: 0 }}>Edit</button>}
-            <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-          </div>
-          <StageBar stage={c.stage} interviewSkipped={!!c.interviewSkippedBy} />
-          <div style={{ background: `hsla(${sm.hue},0.08)`, borderRadius: 12, padding: '11px 14px', fontSize: 13, display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 10, lineHeight: 1.5 }}>
-            <ChevronRight size={16} style={{ color: `hsl(${sm.hue})`, flexShrink: 0, marginTop: 2 }} />
-            <span><b>Next:</b> {NEXT_STEP[c.stage]}</span>
-          </div>
-          <div role="tablist" aria-label="Candidate sections" className="scroll-tabs" style={{ display: 'flex', gap: 2, marginTop: 14, borderBottom: '1px solid var(--line)', overflowX: 'auto' }}>
-            {TABS.map(([k, label]) => (
-              <button key={k} type="button" role="tab" aria-selected={shownTab === k} onClick={() => setTab(k)}
-                style={{ padding: '8px 14px 10px', border: 'none', borderBottom: `2px solid ${shownTab === k ? 'var(--pine)' : 'transparent'}`, background: 'none', cursor: 'pointer',
-                  fontFamily: 'inherit', fontSize: 13, fontWeight: shownTab === k ? 800 : 600, color: shownTab === k ? 'var(--ink)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
-                {label}
-              </button>
-            ))}
+  // A sheet from the right (shared Modal, the 60% rule), the full-screen
+  // bottom sheet on a phone (11/14/2026). A note typed but not added asks
+  // before the card closes - Add Note keeps it.
+  const header = (titleId, requestClose) => (
+    <div style={{ padding: '18px clamp(16px, 4vw, 28px) 0', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div id={titleId} style={{ fontWeight: 800, fontSize: 18, overflowWrap: 'anywhere' }}>{candName(c)}</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
+            {[c.roleTitle, c.department, companyName].filter(Boolean).join(' · ')}
           </div>
         </div>
-
-        <div style={{ overflowY: 'auto', flex: 1, padding: '16px 28px 20px' }}>
-          {shownTab === 'overview' && overview}
-          {shownTab === 'interviews' && interviews}
-          {shownTab === 'documents' && documents}
-          {/* The packet status is read even when its tab is not open - the footer depends on it. */}
-          {shownTab !== 'documents' && ['offer', 'hired'].includes(c.stage) && (
-            <div style={{ display: 'none' }}>
-              <HiringPacketStatus candidateId={c.id} refreshKey={refreshKey} onEvents={setPacketEvents} hideSign onSignNow={onSignPacket} onChanged={() => onUpdated?.(null)} toastOk={toastOk} toastErr={toastErr} />
-            </div>
-          )}
-        </div>
-        {footer.filter(Boolean).length > 0 && (
-          <div style={{ padding: '14px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', flexShrink: 0 }}>
-            {footer.filter(Boolean).map((el, i) => <span key={i} style={{ display: 'contents' }}>{el}</span>)}
-          </div>
-        )}
+        {onEdit && canEditEmail && <button className="secondary-btn" onClick={() => onEdit(c, { emailOnly: !canEdit })}
+          title={canEdit ? undefined : 'Only the email can change once the interview is booked'}
+          style={{ fontSize: 13, padding: '5px 12px', flexShrink: 0 }}>{canEdit ? 'Edit' : 'Edit Email'}</button>}
+        <button onClick={requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+      </div>
+      <StageBar stage={c.stage} interviewSkipped={!!c.interviewSkippedBy} />
+      <div data-next-box="" style={{ background: `hsla(${sm.hue},0.08)`, borderRadius: 12, padding: '11px 14px', fontSize: 13, display: 'flex', gap: 12, alignItems: 'center', marginTop: 10, lineHeight: 1.5, flexWrap: 'wrap' }}>
+        <span style={{ flex: '1 1 240px', minWidth: 0 }}><b>Next:</b> {NEXT_STEP[c.stage]}</span>
+        {nextAction}
+      </div>
+      <div role="tablist" aria-label="Candidate sections" className="scroll-tabs" style={{ display: 'flex', gap: 2, marginTop: 14, borderBottom: '1px solid var(--line)', overflowX: 'auto' }}>
+        {TABS.map(([k, label]) => (
+          <button key={k} type="button" role="tab" aria-selected={shownTab === k} onClick={() => setTab(k)}
+            style={{ padding: '8px 14px 10px', border: 'none', borderBottom: `2px solid ${shownTab === k ? 'var(--pine)' : 'transparent'}`, background: 'none', cursor: 'pointer',
+              fontFamily: 'inherit', fontSize: 13, fontWeight: shownTab === k ? 800 : 600, color: shownTab === k ? 'var(--ink)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
+            {label}
+          </button>
+        ))}
       </div>
     </div>
+  );
+  const footer = (reject || voidBtn || more.length > 0) ? (
+    <>
+      {reject}
+      <span style={{ flex: 1 }} />
+      {voidBtn}
+      {more.length > 0 && <MoreMenu items={more} busy={busy} />}
+    </>
+  ) : null;
+
+  return (
+    <Modal onClose={onClose} header={header} footer={footer} footerStyle={{ justifyContent: 'flex-start' }}
+      isDirty={!!note.trim()} onSave={addTypedNote} saveText="Add Note"
+      confirmText="The note you typed has not been added yet. Closing now will discard it."
+      bodyStyle={{ display: 'block', padding: '16px clamp(16px, 4vw, 28px) 20px' }}>
+      {shownTab === 'overview' && overview}
+      {shownTab === 'interviews' && interviews}
+      {shownTab === 'documents' && documents}
+      {/* The packet status is read even when its tab is not open - the actions depend on it. */}
+      {shownTab !== 'documents' && ['offer', 'hired'].includes(c.stage) && (
+        <div style={{ display: 'none' }}>
+          <HiringPacketStatus candidateId={c.id} refreshKey={docsRefresh} onEvents={setPacketEvents} hideSign onSignNow={onSignPacket} onChanged={() => onUpdated?.(null)} toastOk={toastOk} toastErr={toastErr} />
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// The card's More menu: everything that is not the one next step.
+function MoreMenu({ items, busy }) {
+  const btn = useRef(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button ref={btn} type="button" className="secondary-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}
+        style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        More <ChevronDown size={14} />
+      </button>
+      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" aria-label="More actions" minWidth={220}
+        style={{ padding: 6, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: 'var(--shadow-lg)' }}>
+        {items.map(it => {
+          const Icon = it.icon;
+          const off = busy || it.disabled;
+          return (
+            <button key={it.key} type="button" role="menuitem" disabled={off} title={it.title || undefined} aria-disabled={off || undefined}
+              onClick={() => { if (off) return; setOpen(false); it.run?.(); }}
+              style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 9, textAlign: 'left', background: 'none', border: 'none', borderRadius: 8,
+                padding: '8px 10px', fontSize: 13, fontFamily: 'Inter,sans-serif', color: off ? 'var(--muted)' : 'var(--ink)', cursor: off ? 'not-allowed' : 'pointer', opacity: off ? 0.6 : 1 }}>
+              {Icon && <Icon size={14} style={{ flexShrink: 0 }} />}
+              <span style={{ flex: 1 }}>{it.label}</span>
+            </button>
+          );
+        })}
+        {items.some(it => it.disabled && it.title) && (
+          <div style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 10px 4px', borderTop: '1px solid var(--line)', marginTop: 4 }}>
+            {[...new Set(items.filter(it => it.disabled && it.title).map(it => it.title))].join('. ')}.
+          </div>
+        )}
+      </AnchoredMenu>
+    </>
   );
 }

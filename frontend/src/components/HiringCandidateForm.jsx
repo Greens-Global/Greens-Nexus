@@ -16,6 +16,7 @@ import { Spinner } from './AsyncState';
 import { SchedulingFields, emptySchedule, scheduleBody, scheduleProblems, leadsFor } from './HiringSchedule';
 import { useRole } from '../contexts/RoleContext';
 import { DateField } from '../tasks/components';
+import { dialog } from '../ui/dialog';
 
 const OTHER = '__other__';
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
@@ -51,8 +52,12 @@ function initialForm(c) {
   };
 }
 
-export default function CandidateFormModal({ candidate, onClose, onSaved, toastOk, toastErr }) {
+// `emailOnly` (11/14/2026): from Interview through Offer only the email may
+// change - the rest of the record is settled - and an offer letter already
+// out follows the corrected address (the server reroutes it).
+export default function CandidateFormModal({ candidate, emailOnly = false, onClose, onSaved, toastOk, toastErr }) {
   const editing = !!candidate;
+  const onlyEmail = editing && emailOnly;
   const { myEmail } = useRole();
   // Neil: "schedule interview and upload resume should be a part of the initial add candidate"
   const [scheduleNow, setScheduleNow] = useState(false);
@@ -112,7 +117,7 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
   }
 
   const email = f.email.trim();
-  const problems = [
+  const problems = onlyEmail ? [!email && 'Email', email && !EMAIL_RE.test(email) && 'A valid email'].filter(Boolean) : [
     !f.first_name.trim() && 'First name',
     // Neil, Oct 14: last name, email and phone are mandatory on a new candidate.
     !editing && !f.last_name.trim() && 'Last name',
@@ -130,9 +135,17 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
   ].filter(Boolean);
   const dirty = JSON.stringify(f) !== start.current || !!resume;
 
-  async function save() {
+  async function save(allowDuplicate = false) {
     if (problems.length || busy) return;
     setBusy(true);
+    if (onlyEmail) {
+      try {
+        const saved = await api.updateCandidate(candidate.id, { email });
+        onSaved(saved);
+        onClose();
+      } catch (err) { toastErr(err?.message || 'Could not change the email.'); setBusy(false); }
+      return;
+    }
     const body = {
       first_name: f.first_name.trim(), last_name: f.last_name.trim(), email, phone: f.phone.trim(),
       company: f.company, role_id: isOther ? '' : f.role_id,
@@ -143,9 +156,23 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
       source: f.source === 'Other' ? `Other - ${f.source_other.trim()}` : f.source,
       notes: f.notes,
       opening_id: f.opening_id || '',
+      ...(editing ? {} : { allow_duplicate: !!allowDuplicate }),
     };
     try {
-      let saved = editing ? await api.updateCandidate(candidate.id, body) : await api.createCandidate(body);
+      let saved;
+      try {
+        saved = editing ? await api.updateCandidate(candidate.id, body) : await api.createCandidate(body);
+      } catch (err) {
+        // The same email is already on the board (11/14/2026): say who and
+        // where, and add them only if HR says so.
+        if (!editing && err?.status === 409 && err?.detail?.code === 'duplicate_candidate') {
+          setBusy(false);
+          const ok = await dialog.confirm(err.detail.message, { title: 'Already In Hiring', confirmText: 'Add Anyway', cancelText: 'Go Back' });
+          if (ok) save(true);
+          return;
+        }
+        throw err;
+      }
       if (resume) {
         const form = new FormData(); form.append('file', resume);
         try { saved = await api.candidateResumeUpload(saved.id, form); }
@@ -181,14 +208,21 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
   const companyName = entities.find(e => e.id === f.company)?.name;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    <div className="modal-overlay" style={{ zIndex: 4100 }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      {/* A sheet from the right (style.css "Sheets"), the bottom sheet on a phone (11/14/2026). */}
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{editing ? 'Edit Candidate' : 'Add Candidate'}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{onlyEmail ? 'Edit Email' : editing ? 'Edit Candidate' : 'Add Candidate'}</h3>
           <button onClick={guard.requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 14 }}>
+          {onlyEmail ? (
+            <div style={{ gridColumn: '1 / -1' }}>
+              {input('Personal Email *', 'email', { type: 'email', autoFocus: true, placeholder: 'Where the interview invites and the offer go' })}
+              <div style={hint}>Only the email can change once the interview is booked. An offer letter or hiring packet already out goes to the new address, and the old link stops working.</div>
+            </div>
+          ) : (<>
           {input('First Name *', 'first_name', { autoFocus: !editing })}
           {input(editing ? 'Last Name' : 'Last Name *', 'last_name')}
           {input(editing ? 'Personal Email' : 'Personal Email *', 'email', { type: 'email', placeholder: 'Where interview invites and the offer go' })}
@@ -285,12 +319,13 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
                 department={f.department} leads={leadsFor(opts.departmentLeads, f.department)} /></div>}
             </div>
           )}
+          </>)}
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0, flexWrap: 'wrap' }}>
           {problems.length > 0 && dirty && <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: 'auto' }}>Still needed: {problems.join(', ')}</span>}
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={!!problems.length || busy || (editing && !dirty)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Spinner size={14} /> : editing ? <CheckCircle size={14} /> : <Plus size={14} />} {editing ? 'Save Changes' : 'Add Candidate'}
+          <button className="primary-btn" onClick={() => save()} disabled={!!problems.length || busy || (editing && !dirty)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy ? <Spinner size={14} /> : editing ? <CheckCircle size={14} /> : <Plus size={14} />} {onlyEmail ? 'Save Email' : editing ? 'Save Changes' : 'Add Candidate'}
           </button>
         </div>
       </div>

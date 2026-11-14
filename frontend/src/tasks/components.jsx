@@ -167,7 +167,10 @@ export function useEscapeLayer(onEscape, active = true) {
 // Previous / Next beside Close) draws it - it must put `titleId` on its title
 // and close through `requestClose` - and may adjust the body's and footer's
 // padding. Unset, the Modal looks exactly as before.
-export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000, backToClose = true, header = null, bodyStyle = null, footerStyle = null }) {
+// `confirmText` / `saveText` (11/14/2026): a sheet whose unsaved work cannot
+// be saved from the close question (an offer half answered) passes
+// saveText={null} so the question offers Keep Editing and Discard only.
+export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000, backToClose = true, header = null, bodyStyle = null, footerStyle = null, confirmText = '', saveText = 'Save Changes' }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
   // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
@@ -300,14 +303,14 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
           }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>Save your changes?</div>
             <div style={{ fontSize: 13, color: NX.dim, marginBottom: 18, lineHeight: 1.5 }}>
-              You have unsaved changes. Closing now will discard them.
+              {confirmText || 'You have unsaved changes. Closing now will discard them.'}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
               <button style={btn('ghost')} onClick={() => setConfirmClose(false)}>Keep Editing</button>
               <button style={btn('ghost')} onClick={exit}>Discard</button>
-              <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, pointerEvents: saving ? 'none' : 'auto' }} onClick={saveAndClose}>
-                {saving ? 'Saving…' : 'Save Changes'}
-              </button>
+              {saveText && <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, pointerEvents: saving ? 'none' : 'auto' }} onClick={saveAndClose}>
+                {saving ? 'Saving…' : saveText}
+              </button>}
             </div>
           </div>
         </div>

@@ -21,6 +21,7 @@ import DetailsFormFields from './DetailsFormFields';
 import SignOnceModal from './SignOnceModal';
 import { REPORTS_TO } from './OfferModal';
 import { DateField } from '../tasks/components';
+import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
 
 // What is printed shows the date as the document prints it - MM/DD/YYYY -
 // whatever the reader's own Profile > Date Format (Neil, 11/04/2026).
@@ -71,9 +72,8 @@ function DocPreview({ eventId, doc, onClose, toastErr }) {
     return () => { if (made) URL.revokeObjectURL(made); };
   }, [eventId, doc.documentId]);   // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div onClick={e => e.target === e.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'max(60vw, 560px)', height: 'min(94dvh, 940px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 4200 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0, fontWeight: 800, fontSize: 14 }}>{doc.title}</div>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -178,11 +178,13 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
     } catch (e) { toastErr?.(e?.message || 'Could not send the link.'); }
     setBusy('');
   }
+  // Void is held (Hold to confirm, Neil, Oct 30 2026): a refusal rewinds the
+  // button with the reason; the review closes once the check has shown.
   async function voidIt() {
     setBusy('void');
-    try { await api.voidLifeEvent(eventId); onChanged?.(); onClose(); toastOk?.('Packet voided - nothing was sent.'); }
-    catch (e) { toastErr?.(e?.message || 'Could not void it.'); }
-    setBusy('');
+    try { await api.voidLifeEvent(eventId); toastOk?.('Packet voided - nothing was sent.'); }
+    catch (e) { throw new Error(e?.message || 'Could not void it.', { cause: e }); }
+    finally { setBusy(''); }
   }
 
   const field = (label, key, props = {}) => (
@@ -386,9 +388,9 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
           <span style={{ fontSize: 13, color: 'var(--muted)', marginRight: 'auto' }}>Waiting For {v.name || 'the verifier'} ({v.roleLabel || 'HR'}) To Verify</span>
         )}
         {['intake', 'review'].includes(ev.status) && (
-          <button className="secondary-btn" onClick={voidIt} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'void' ? <Spinner size={13} /> : <Ban size={13} />} Void
-          </button>
+          <HoldButton label="Void" doneLabel="Voided" icon={Ban} holdMs={HOLD_RECORD_MS} onConfirm={voidIt}
+            onDone={() => { onChanged?.(); onClose(); }} disabled={!!busy && busy !== 'void'}
+            fallbackMessage="Void this packet? Nothing was sent, and it can no longer be sent." />
         )}
         <button className="secondary-btn" onClick={onClose} disabled={busy === 'send'}>Close</button>
         {inReview && data.isVerifier && (
@@ -411,9 +413,8 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
 
 function Shell({ title, sub, status, onClose, children }) {
   return (
-    <div onClick={e => e.target === e.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1350, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 18, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 4100 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '18px 28px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'flex-start', gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import HrInterview, HrInterviewTemplate, HrCandidate, HrStageEvent
 from routers.hr import (require_hr_read, require_hr_write, _graph_token, _GRAPH,
-                        _hr_notify)
+                        _hr_notify, hiring_bell_action)
 from auth import hr_scope
 import job_switch
 
@@ -100,6 +100,16 @@ _ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def ai_on() -> bool:
+    """Interview scoring runs only while AI is switched on for the server
+    (ai_switch, Neil, Oct 29 2026) and the key is there. Off, the follow-up
+    keeps the transcript and stays quiet - no "not scored" bells, no error
+    state - and the screens hide every AI button (`aiEnabled` on
+    GET /hr/hiring/options)."""
+    import ai_switch
+    return ai_switch.enabled() and bool(_ANTHROPIC_KEY)
 
 
 def _claude(prompt: str, max_tokens: int = 3000) -> str:
@@ -508,7 +518,7 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
         if e != me:
             _hr_notify(db, e, f"Interview - {cand_name}",
                        f"You're interviewing {cand_name} ({cand.role_title or 'candidate'}) - see the Teams invite.",
-                       ref_id=cand.id, requested_by=user["email"], action={"view": "hr", "sub": "hr-hiring"})
+                       ref_id=cand.id, requested_by=user["email"], action=hiring_bell_action(db, e, cand))
     db.add(iv)
     # Neil, Oct 14: when the interview is booked, the screening task's date
     # follows it - due the business day before.
@@ -882,7 +892,7 @@ def finish_interview(iid: str, body: FinishIn, background: BackgroundTasks = Non
     iv.followup_attempts = 0
     iv.followup_next_at = _now()
     iv.followup_note = ("Waiting for Teams to publish the transcript" if iv.join_url and not iv.transcript
-                        else "Scoring the answers")
+                        else "Scoring the answers" if ai_on() else "Saving the answers")
     if iv.join_url and not iv.recording_path:
         # The recording comes a while after the transcript - its own wait,
         # so scoring never holds for it and it never holds for scoring.
@@ -927,9 +937,11 @@ def followup_now(iid: str, user: dict = Depends(require_hr_write), db: Session =
 
 
 def _tell(db: Session, iv: HrInterview, title: str, body: str) -> None:
+    cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
     for to in {(iv.organizer_email or "").lower(), *[(e or "").lower() for e in (iv.interviewer_emails or [])]} - {""}:
         _hr_notify(db, to, title, body, ref_id=iv.candidate_id, requested_by="nexus",
-                   action={"view": "hr", "sub": "hr-hiring"})
+                   action=hiring_bell_action(db, to, cand) if cand is not None
+                   else {"view": "hr", "sub": f"hr-hiring-{iv.candidate_id}"})
 
 
 def followup_step(db: Session, iv: HrInterview) -> None:
@@ -966,6 +978,15 @@ def followup_step(db: Session, iv: HrInterview) -> None:
             setup_problem = f"Teams did not answer ({type(e).__name__})"
     if auto and iv.transcript:
         _complete_round(db, iv, cand, "nexus")     # the transcript proves the interview happened
+    if not ai_on():
+        # AI is off (ai_switch): nothing is scored. The transcript stays on the
+        # round for the record and the follow-up simply ends - no bell, never
+        # a "not scored" failure for something that was switched off.
+        typed = any((a.get("answer") or "").strip() for a in (iv.answers or []))
+        iv.followup_status, iv.followup_next_at = "done", ""
+        iv.followup_note = ("Transcript saved" if iv.transcript else "Answers saved" if typed
+                            else "Interview over")
+        return
     try:
         if iv.transcript and iv.answers:
             _autofill(iv, only_blank=True)
@@ -1185,26 +1206,52 @@ class FinalRoundIn(BaseModel):
 
 
 @router.post("/interviews/{iid}/final-round")
-def invite_final_round(iid: str, body: FinalRoundIn, user: dict = Depends(require_hr_write),
-                       db: Session = Depends(get_db)):
+def invite_final_round(iid: str, body: FinalRoundIn, background: BackgroundTasks = None,
+                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """The Leaderboard's Final Round: a Teams meeting with a scored candidate.
+    It goes through Decision like every hire (Neil, Oct 19) - never straight
+    to Offer - and only while AI scoring is on (the Leaderboard is hidden
+    otherwise). Everything is checked before the invite goes out."""
+    if not ai_on():
+        raise HTTPException(409, "AI scoring is off - the Leaderboard and Final Round are not available.")
     iv = _iv_scoped(db.query(HrInterview).filter(HrInterview.id == iid).first(), user, db)
-    cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
+    cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).with_for_update().first()
     if not (cand and cand.email):
         raise HTTPException(404, "Interview/candidate not found (or candidate has no email)")
+    if cand.stage in ("rejected", "hired"):
+        raise HTTPException(409, f"{cand.first_name} is {cand.stage} - no final round.")
+    if iv.status != "scored" or iv.total_score is None:
+        raise HTTPException(409, "Only a scored interview can lead to a final round.")
+    score = round(iv.total_score)
+    try:
+        when = datetime.fromisoformat(body.at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(400, "Pick a valid date and time")
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
     cand_name = f"{cand.first_name} {cand.last_name}".strip()
     meeting = _graph_create_meeting(
-        user["email"], f"Final round - offer discussion with {cand_name}",
+        user["email"], f"Final Round - {cand_name}",
         f"Hi {cand.first_name},\n\nGreat news - we'd like to move you to the final round. "
         "Join with the Teams link in this invite.\n", cand.email, cand_name,
-        body.at.replace("Z", "+00:00"), max(15, min(240, body.duration_min)))
-    if cand.stage in ("applied", "screening", "interview", "decision"):
-        # Recorded like every other move, so Stage History shows it.
-        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage, to_stage="offer",
-                            note="Invited to the final round", by_email=user["email"], created_at=_now()))
-        cand.stage = "offer"
+        when.isoformat(), max(15, min(240, body.duration_min)))
+    task = None
+    if cand.stage in ("applied", "screening", "interview"):
+        # Through Decision, the normal path: the "Decide on" task for the
+        # interviewers and the department head.
+        import hiring_decision
+        task = hiring_decision.enter(db, cand, user["email"], f"Invited to the final round - scored {score}/100")
+    else:
+        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage, to_stage=cand.stage,
+                            note=f"Invited to the final round - scored {score}/100", by_email=user["email"],
+                            created_at=_now()))
     cand.updated_at = _now()
-    _hr_notify(db, iv.created_by, f"Final Round Booked - {cand_name}",
-               f"{cand_name} (scored {round(iv.total_score)}) is invited to the offer discussion.",
-               ref_id=cand.id, action={"view": "hr", "sub": "hr-hiring"})
+    if (iv.created_by or "").lower() != user["email"].lower():
+        _hr_notify(db, iv.created_by, f"Final Round Booked - {cand_name}",
+                   f"{cand_name} (scored {score}) is invited to the final round.",
+                   ref_id=cand.id, action=hiring_bell_action(db, iv.created_by, cand))
     db.commit()
-    return {"ok": True, "joinUrl": meeting["joinUrl"]}
+    if task is not None and background is not None:
+        from task_notify import notify_task_event
+        background.add_task(notify_task_event, task.id, "assigned", user["email"])
+    return {"ok": True, "joinUrl": meeting["joinUrl"], "stage": cand.stage}

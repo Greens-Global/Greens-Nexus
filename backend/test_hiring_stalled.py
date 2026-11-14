@@ -73,6 +73,16 @@ class HiringStalledTests(OfferCase):
         finally:
             db.close()
 
+    def test_a_bell_about_one_candidate_opens_their_card(self):
+        import json
+        hiring_stalled.run_daily()
+        db = database.SessionLocal()
+        try:
+            self.assertEqual(json.loads(_bells(db)[HR].action), {"view": "hr", "sub": "hr-hiring-cand-1"})
+        finally:
+            db.close()
+        self.assertEqual(hiring_stalled.action_for({"a", "b"}), hiring_stalled.ACTION)   # several: the board
+
     def test_the_setting_turns_it_off_and_sets_the_quiet_days(self):
         db = database.SessionLocal()
         hr_reminder_config.save_config(db, {"hiringStalled": {"afterDays": 10}}, {"email": HR})

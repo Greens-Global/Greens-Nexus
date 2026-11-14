@@ -94,7 +94,10 @@ class PipelineCase(unittest.TestCase):
         self.db.close()
 
     def _add(self, **kw):
-        body = {"first_name": "Jane", "last_name": "Doe", "email": "jane@gmail.com", "phone": "555-0100", "company": ENT}
+        # allow_duplicate: most tests add several Janes on purpose; the
+        # duplicate warning has its own test.
+        body = {"first_name": "Jane", "last_name": "Doe", "email": "jane@gmail.com", "phone": "555-0100", "company": ENT,
+                "allow_duplicate": True}
         body.update(kw)
         return hr.create_candidate(hr.CandidateIn(**body), user=HR_USER, db=self.db)
 
@@ -467,7 +470,7 @@ class ScreeningTaskTests(PipelineCase):
         self.assertEqual(task.due_on, "")          # no interview date yet
 
 
-class FollowupTests(PipelineCase):
+class FollowupBase(PipelineCase):
     """End Interview merges everything (Neil: "when we clicked end, it should
     just take all of this stuff in and merge it all"); the transcript can be
     late, so Nexus keeps trying."""
@@ -482,6 +485,8 @@ class FollowupTests(PipelineCase):
         self.transcript_ready = False
         self.recording_ready = False
         self.claude_calls = []
+        self._real_ai = hi.ai_on
+        hi.ai_on = lambda: True             # these tests score - AI switched on
         self._real_fetch, self._real_claude = hi._fetch_transcript, hi._claude
         self._real_fetch_rec = hi._fetch_recording
 
@@ -508,6 +513,7 @@ class FollowupTests(PipelineCase):
     def tearDown(self):
         hi._fetch_transcript, hi._claude = self._real_fetch, self._real_claude
         hi._fetch_recording = self._real_fetch_rec
+        hi.ai_on = self._real_ai
         super().tearDown()
 
     def _rec_step(self):
@@ -516,6 +522,20 @@ class FollowupTests(PipelineCase):
         self.db.commit()
         self.db.expire_all()
         return self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
+
+    def _finish(self, answers):
+        return hi.finish_interview(self.iv["id"], hi.FinishIn(answers=answers), user=HR_USER, db=self.db)
+
+    def _step(self):
+        iv = self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
+        hi.followup_step(self.db, iv)
+        self.db.commit()
+        self.db.expire_all()
+        return self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
+
+
+class FollowupTests(FollowupBase):
+    """The follow-up with AI scoring switched on."""
 
     def test_the_recording_is_pulled_and_lands_on_the_employee_once_hired(self):
         out = self._finish([])
@@ -563,16 +583,6 @@ class FollowupTests(PipelineCase):
         iv = self._rec_step()
         self.assertEqual(iv.recording_status, "failed")
         self.assertIn("Graph denied", iv.recording_note)
-
-    def _finish(self, answers):
-        return hi.finish_interview(self.iv["id"], hi.FinishIn(answers=answers), user=HR_USER, db=self.db)
-
-    def _step(self):
-        iv = self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
-        hi.followup_step(self.db, iv)
-        self.db.commit()
-        self.db.expire_all()
-        return self.db.query(models.HrInterview).filter_by(id=self.iv["id"]).first()
 
     def test_end_waits_for_the_transcript_then_fills_only_blanks_and_scores(self):
         typed = [{"qid": "q1", "q": "Last role?", "answer": "Typed: ran the close", "score": None, "rationale": ""},
@@ -783,6 +793,171 @@ class DecisionTests(PipelineCase):
         cand = self.db.query(models.HrCandidate).filter_by(id=c["id"]).one()
         task = self.db.query(models.Task).filter_by(id=cand.screen_task_id).one()
         self.assertEqual(task.assignee_emails, [self.HEAD, NEIL])
+
+
+class HiringFixesTests(PipelineCase):
+    """The hiring fixes of 11/14/2026: a rejected or moved-back candidate's
+    booked rounds are withdrawn, the same email twice asks first, and the
+    bells open the candidate's own card."""
+
+    def _move(self, cid, stage, note=""):
+        return hr.update_candidate(cid, hr.CandidateUpdate(stage=stage, stage_note=note), user=HR_USER, db=self.db)
+
+    def _rounds(self, cid):
+        self.db.expire_all()
+        return [i.status for i in self.db.query(models.HrInterview).filter_by(candidate_id=cid).all()]
+
+    def _notes(self, cid):
+        return [e.note for e in self.db.query(models.HrStageEvent).filter_by(candidate_id=cid).all()]
+
+    def test_reject_cancels_the_booked_rounds_and_withdraws_the_invite(self):
+        cid = self._cand("screening")
+        self._schedule(cid, interviewer_emails=[NEIL])
+        out = self._move(cid, "rejected", "Not a fit")
+        self.assertEqual(out["stage"], "rejected")
+        self.assertEqual(out["interviewAt"], "")
+        self.assertEqual(self._rounds(cid), ["canceled"])
+        self.assertIn(("cancel", "ev1"), self.invites)
+        self.assertTrue(any("Candidate rejected" in n for n in self._notes(cid)))
+
+    def test_moving_back_before_the_interview_cancels_the_booked_rounds(self):
+        cid = self._cand("screening")
+        self._schedule(cid, interviewer_emails=[NEIL])
+        self.assertEqual(self._stage(cid).stage, "interview")
+        self._move(cid, "screening")
+        self.assertEqual(self._rounds(cid), ["canceled"])
+        self.assertTrue(any("Moved back to Screening" in n for n in self._notes(cid)))
+
+    def test_a_completed_round_is_kept_when_rejected(self):
+        cid = self._cand("screening")
+        iv = self._schedule(cid, interviewer_emails=[NEIL])
+        self.db.query(models.HrInterview).filter_by(id=iv["id"]).update({"status": "completed"})
+        self.db.commit()
+        self._move(cid, "rejected")
+        self.assertEqual(self._rounds(cid), ["completed"])
+        self.assertNotIn(("cancel", "ev1"), self.invites)
+
+    def test_the_same_email_twice_asks_first_then_adds_on_purpose(self):
+        first = self._add(email="Elena@Gmail.com", first_name="Elena", last_name="Vasquez", allow_duplicate=False)
+        with self.assertRaises(HTTPException) as ctx:
+            self._add(email="elena@gmail.com", first_name="Elena", allow_duplicate=False)
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(ctx.exception.detail["code"], "duplicate_candidate")
+        self.assertEqual(ctx.exception.detail["candidateId"], first["id"])
+        self.assertIn("Elena Vasquez is already in Applied", ctx.exception.detail["message"])
+        again = self._add(email="elena@gmail.com", first_name="Elena", allow_duplicate=True)
+        self.assertNotEqual(again["id"], first["id"])
+        # Someone off the board (removed or long rejected) is not a duplicate.
+        self.db.query(models.HrCandidate).update({"inactive_at": "2026-01-01T00:00:00+00:00", "stage": "rejected"})
+        self.db.commit()
+        self._add(email="elena@gmail.com", first_name="Elena", allow_duplicate=False)
+
+    def test_the_board_reads_each_cards_next_step(self):
+        cid = self._cand("applied")
+        moved = self._move(cid, "screening")
+        off = self._cand("offer")
+        rows = {r["id"]: r for r in hr.list_candidates(user=HR_USER, db=self.db)}
+        self.assertEqual(rows[cid]["stageSince"][:16], moved["updatedAt"][:16])   # entered Screening just now
+        self.assertNotIn("offerState", rows[cid])
+        self.assertEqual(rows[off]["offerState"], "none")              # no offer letter made yet
+        self.db.add(models.HrLifeEvent(id="ev-offer", kind="offer", status="sent", candidate_id=off, entity_id=ENT,
+                                       created_at="2026-11-10T00:00:00+00:00"))
+        self.db.commit()
+        rows = {r["id"]: r for r in hr.list_candidates(user=HR_USER, db=self.db)}
+        self.assertEqual(rows[off]["offerState"], "out")
+        self.db.query(models.HrLifeEvent).delete()
+        self.db.commit()
+
+    def test_a_bell_opens_the_candidates_card(self):
+        cid = self._cand("applied")
+        self.db.query(models.HrCandidate).filter_by(id=cid).update({"created_by": NEIL})
+        self.db.commit()
+        self._move(cid, "screening")
+        bell = self.db.query(models.NexusNotification).filter_by(recipient=NEIL).first()
+        self.assertIn(f'"hr-hiring-{cid}"', bell.action)
+
+    def test_an_interviewer_without_hiring_access_goes_to_their_task(self):
+        import json
+        cid = self._cand("screening")
+        task = models.Task(id="t-decide", code="T-1", title="Decide", assignee_emails=[NEIL], completed=False)
+        self.db.add(task)
+        self.db.query(models.HrCandidate).filter_by(id=cid).update({"decision_task_id": "t-decide"})
+        self.db.commit()
+        cand = self._stage(cid)
+        self.assertEqual(json.loads(json.dumps(hr.hiring_bell_action(self.db, NEIL, cand))),
+                         {"view": "tasks", "sub": "mine", "taskId": "t-decide"})
+        self.assertEqual(hr.hiring_bell_action(self.db, "nobody@greensglobal.com", cand),
+                         {"view": "hr", "sub": f"hr-hiring-{cid}"})
+        self.db.query(models.Task).delete()
+        self.db.commit()
+
+
+class AiOffTests(FollowupBase):
+    """AI is off unless Neil or Visesh switch it on (ai_switch): an interview
+    is never "not scored" for that - the follow-up keeps the transcript and
+    ends quietly."""
+
+    def setUp(self):
+        super().setUp()
+        hi.ai_on = lambda: False
+
+    def test_the_followup_ends_quietly_with_no_scoring_and_no_bell(self):
+        self._finish([{"qid": "q1", "q": "Last role?", "answer": "Typed", "score": None, "rationale": ""}])
+        self.transcript_ready = True
+        iv = self._step()
+        self.assertEqual((iv.status, iv.followup_status), ("completed", "done"))
+        self.assertEqual(iv.followup_note, "Transcript saved")
+        self.assertEqual(self.claude_calls, [])
+        titles = [n.title for n in self.db.query(models.NexusNotification).filter_by(recipient=NEIL).all()]
+        self.assertFalse([t for t in titles if "Scored" in t or "Not Scored" in t], titles)
+
+    def test_options_say_ai_is_off_and_final_round_is_refused(self):
+        self.assertFalse(hr.hiring_options(company_id=ENT, user=HR_USER, db=self.db)["aiEnabled"])
+        with self.assertRaises(HTTPException) as ctx:
+            hi.invite_final_round(self.iv["id"], hi.FinalRoundIn(at="2026-11-10T17:00:00Z"), user=HR_USER, db=self.db)
+        self.assertEqual(ctx.exception.status_code, 409)
+
+
+class FinalRoundTests(FollowupBase):
+    """Final Round goes through Decision like every hire, never straight to
+    Offer, and is checked before any Teams invite goes out."""
+
+    def _scored(self):
+        self._finish([{"qid": "q1", "q": "Last role?", "answer": "Typed", "score": None, "rationale": ""}])
+        self.transcript_ready = True
+        iv = self._step()
+        self.assertEqual(iv.status, "scored")
+
+    def _final(self):
+        return hi.invite_final_round(self.iv["id"], hi.FinalRoundIn(at="2026-11-10T17:00:00Z"), user=HR_USER, db=self.db)
+
+    def test_final_round_moves_to_decision_never_to_offer(self):
+        self._scored()
+        self.assertTrue(hr.hiring_options(company_id=ENT, user=HR_USER, db=self.db)["aiEnabled"])
+        self.db.query(models.HrCandidate).filter_by(id=self.cid).update({"stage": "interview"})
+        self.db.commit()
+        out = self._final()
+        self.assertEqual(out["stage"], "decision")
+        self.assertEqual(self._stage(self.cid).stage, "decision")
+        self.db.query(models.Task).delete()
+        self.db.commit()
+
+    def test_final_round_refuses_a_rejected_candidate_before_the_invite(self):
+        self._scored()
+        self.db.query(models.HrCandidate).filter_by(id=self.cid).update({"stage": "rejected"})
+        self.db.commit()
+        before = len(self.invites)
+        with self.assertRaises(HTTPException) as ctx:
+            self._final()
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(len(self.invites), before)
+
+    def test_final_round_needs_a_score_before_the_invite(self):
+        before = len(self.invites)
+        with self.assertRaises(HTTPException) as ctx:
+            self._final()                     # the round was never scored: no round(None), no meeting
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(len(self.invites), before)
 
 
 if __name__ == "__main__":

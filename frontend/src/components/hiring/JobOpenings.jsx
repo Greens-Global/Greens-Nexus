@@ -49,12 +49,15 @@ async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
-export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFilterPipeline, directCompanies = [], onCreated }) {
+// `focusId`: a headcount request's Open In Hiring - only that opening is
+// listed (Show All brings the rest back) and its editor opens.
+export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFilterPipeline, directCompanies = [], onCreated, focusId = '' }) {
   const [rows, setRows] = useState(null);
   const [links, setLinks] = useState([]);
   const [loadErr, setLoadErr] = useState(false);
-  const [openId, setOpenId] = useState(null);
-  const [show, setShow] = useState('active');
+  const [openId, setOpenId] = useState(focusId || null);
+  const [only, setOnly] = useState(focusId || '');
+  const [show, setShow] = useState(focusId ? 'all' : 'active');
   const [starting, setStarting] = useState(false);
 
   const load = useCallback(() => {
@@ -63,7 +66,8 @@ export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFi
     api.careersLinks().then(setLinks).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
-  const shown = useMemo(() => (rows || []).filter(o => (show === 'active' ? ['draft', 'open', 'paused'].includes(o.status) : true)), [rows, show]);
+  const shown = useMemo(() => (rows || []).filter(o => (only ? o.id === only
+    : show === 'active' ? ['draft', 'open', 'paused'].includes(o.status) : true)), [rows, show, only]);
   const open = rows?.find(o => o.id === openId) || null;
 
   if (loadErr) return <ErrorBanner message="Couldn't load job openings right now." onRetry={load} />;
@@ -74,10 +78,16 @@ export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFi
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 4 }}>
           {[['active', 'Active'], ['all', 'All']].map(([k, label]) => (
-            <button key={k} type="button" role="tab" aria-selected={show === k} onClick={() => setShow(k)}
-              className={show === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 13, padding: '5px 12px' }}>{label}</button>
+            <button key={k} type="button" role="tab" aria-selected={!only && show === k} onClick={() => { setOnly(''); setShow(k); }}
+              className={!only && show === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 13, padding: '5px 12px' }}>{label}</button>
           ))}
         </div>
+        {only && (
+          <span style={{ fontSize: 13, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            Showing the opening from the headcount request
+            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => setOnly('')}>Show All Openings</button>
+          </span>
+        )}
         {directCompanies.length > 0
           ? <span style={{ marginLeft: 'auto' }}><NewButton items={[{ key: 'opening', label: 'Opening' }]} onPick={() => setStarting(true)} /></span>
           : <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>New openings come from approved headcount requests.</span>}
