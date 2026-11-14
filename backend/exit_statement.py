@@ -219,42 +219,220 @@ def _statement_row(db: Session, emp: NexusEmployee, last_day: str) -> ExitStatem
             .order_by(ExitStatement.created_at.desc()).first())
 
 
-def exits_in_progress(db: Session, scope, include_closed: bool = False) -> list[dict]:
+def exits_in_progress(db: Session, scope, include_closed: bool = False, *, money: bool = True,
+                      only_emails: set | None = None) -> list[dict]:
     """Everyone leaving inside `scope` (routers/hr.hr_scope), soonest last
     day first: scheduled exits, and applied ones from the last
-    EXIT_WINDOW_DAYS that HR has not closed."""
+    EXIT_WINDOW_DAYS that HR has not closed - each with ONE "Where It Stands"
+    line (the tracker, Neil 11/14/2026): the package, the checklist, the
+    items, access, direct reports still to move, the mailbox handover and -
+    `money` (Pay & Benefits) only - the settlement. One query per kind for
+    every leaver at once, never a query per person.
+
+    `only_emails`: a manager's own view - just these people (their direct
+    reports and the people they back up), whatever `scope` is."""
     from routers.hr import _in_scope
-    floor = (date.fromisoformat(_today()) - timedelta(days=EXIT_WINDOW_DAYS)).isoformat()
-    ids = {r.employee_id for r in db.query(HrLifeEvent.employee_id)
-           .filter(HrLifeEvent.kind == "separation", HrLifeEvent.apply_status.in_(("scheduled", "applied"))).all()}
-    emps = (db.query(NexusEmployee)
-            .filter((NexusEmployee.id.in_(list(ids))) | (NexusEmployee.status == "offboarded")).all()) if ids else \
-        db.query(NexusEmployee).filter(NexusEmployee.status == "offboarded").all()
+    import hr_life_events
+    today = _today()
+    floor = (date.fromisoformat(today) - timedelta(days=EXIT_WINDOW_DAYS)).isoformat()
+    # 1. Every separation that is scheduled or applied - the newest per person wins.
+    seps = (db.query(HrLifeEvent)
+            .filter(HrLifeEvent.kind == "separation", HrLifeEvent.apply_status.in_(("scheduled", "applied")))
+            .order_by(HrLifeEvent.created_at.desc()).all())
+    exit_ev = {}
+    for ev in seps:
+        exit_ev.setdefault(ev.employee_id, ev)
+    # 2. The people: those with a separation, and everyone Left.
+    q = db.query(NexusEmployee)
+    q = (q.filter((NexusEmployee.id.in_(list(exit_ev))) | (NexusEmployee.status == "offboarded")) if exit_ev
+         else q.filter(NexusEmployee.status == "offboarded"))
+    rows = []
+    for emp in q.all():
+        em = (emp.work_email or "").strip().lower()
+        if only_emails is not None:
+            if em not in only_emails:
+                continue
+        elif not _in_scope(emp, scope):
+            continue
+        ev = exit_ev.get(emp.id)
+        if ev is not None:
+            d = ev.inputs or {}
+            ex = {"lastDay": ev.effective_date or d.get("last_day", ""), "exitType": d.get("exit_type", ""),
+                  "source": "separation", "applied": ev.apply_status == "applied", "event": ev}
+        elif (emp.status or "") == "offboarded":
+            e = _left_entry(emp)
+            ex = {"lastDay": ((e.get("effectiveDate") or e.get("at") or "") if e else "")[:10], "exitType": "",
+                  "source": "status", "applied": True, "event": None}
+        else:
+            continue
+        if not ex["lastDay"] or (ex["applied"] and ex["lastDay"] < floor):
+            continue
+        rows.append((emp, ex))
+    if not rows:
+        return []
+    ids = [emp.id for emp, _ in rows]
+    emails = [(emp.work_email or "").strip().lower() for emp, _ in rows if emp.work_email]
+    # 3. The exit records (statement rows), one query.
+    st_rows = {}
+    for r in (db.query(ExitStatement).filter(ExitStatement.employee_id.in_(ids))
+              .order_by(ExitStatement.created_at.desc()).all()):
+        st_rows.setdefault((r.employee_id, r.last_day), r)
+    # 4. The separation packages: every live separation of these people, and
+    #    their signers - two queries.
+    pk_ev = {}
+    for ev in (db.query(HrLifeEvent).filter(HrLifeEvent.kind == "separation", HrLifeEvent.employee_id.in_(ids),
+                                            HrLifeEvent.apply_status != "canceled")
+               .order_by(HrLifeEvent.created_at.desc()).all()):
+        has = bool(ev.sign_request_id or ev.documents or (ev.inputs or {}).get("paper_path")
+                   or ev.status in ("intake", "review", "awaiting_sender", "sent", "declined", "voided", "expired"))
+        if has:
+            pk_ev.setdefault(ev.employee_id, ev)
+    req_ids = [ev.sign_request_id for ev in pk_ev.values() if ev.sign_request_id]
+    parties = {}
+    if req_ids:
+        from models import HrSignParty
+        for p in db.query(HrSignParty).filter(HrSignParty.request_id.in_(req_ids)).all():
+            parties.setdefault(p.request_id, []).append(p)
+    # 5. The offboarding checklists and their step counts - two queries.
+    cls = {}
+    for cl in (db.query(HrChecklist).filter(HrChecklist.employee_id.in_(ids), HrChecklist.kind == "offboarding",
+                                            HrChecklist.status != "cancelled")
+               .order_by(HrChecklist.created_at.desc()).all()):
+        cls.setdefault(cl.employee_id, cl)
+    counts = {}
+    if cls:
+        from sqlalchemy import and_, case, func
+        late = case((and_(HrChecklistItem.due_date != "", HrChecklistItem.due_date < today), 1), else_=0)
+        for cid, status, n, overdue in (
+                db.query(HrChecklistItem.checklist_id, HrChecklistItem.status, func.count(HrChecklistItem.id),
+                         func.sum(late))
+                .filter(HrChecklistItem.checklist_id.in_([c.id for c in cls.values()]))
+                .group_by(HrChecklistItem.checklist_id, HrChecklistItem.status).all()):
+            c = counts.setdefault(cid, {"done": 0, "total": 0, "overdue": 0})
+            if status == "na":
+                continue
+            c["total"] += n
+            if status == "done":
+                c["done"] += n
+            else:
+                c["overdue"] += int(overdue or 0)
+    # 6. What each still holds (routers/items.return_pending_rows - three queries).
+    from routers.items import return_pending_rows
+    held = return_pending_rows(db, emails)
+    # 7. Direct reports still reporting to them, one query.
+    reports = {}
+    if emails:
+        from sqlalchemy import func
+        for mgr, in (db.query(func.lower(NexusEmployee.manager_email))
+                     .filter(func.lower(NexusEmployee.manager_email).in_(emails),
+                             NexusEmployee.status != "offboarded").all()):
+            reports[mgr] = reports.get(mgr, 0) + 1
     ents = {e.id: e for e in db.query(HrEntity).all()}
     out = []
-    for emp in emps:
-        if not _in_scope(emp, scope):
-            continue
-        ex = exit_of(db, emp)
-        if not ex or not ex["lastDay"]:
-            continue
-        if ex["applied"] and ex["lastDay"] < floor:
-            continue
-        st = _statement_row(db, emp, ex["lastDay"])
+    for emp, ex in rows:
+        em = (emp.work_email or "").strip().lower()
+        st = st_rows.get((emp.id, ex["lastDay"]))
         status = st.status if st else "open"
         if status == "closed" and not include_closed:
             continue
         ent = ents.get(emp.company or "")
-        import hr_life_events
-        out.append({"employeeId": emp.id, "email": (emp.work_email or "").lower(), "name": full_name(emp),
-                    "jobTitle": emp.job_title or "", "company": emp.company or "",
-                    "companyName": (ent.name if ent else "") or "", "lastDay": ex["lastDay"],
-                    "exitType": ex["exitType"],
-                    "exitTypeLabel": hr_life_events.SEPARATION_TYPES.get(ex["exitType"], "Left"),
-                    "stage": "Left" if ex["applied"] else "Leaving", "source": ex["source"],
-                    "statementStatus": status, "statementStatusLabel": STATUS_LABEL.get(status, status.title())})
+        ev = ex["event"]
+        track = _track(emp, ex, ev, pk_ev.get(emp.id), parties, cls.get(emp.id), counts, held.get(em, []),
+                       reports.get(em, 0), st, money, today)
+        row = {"employeeId": emp.id, "email": em, "name": full_name(emp), "firstName": emp.first_name or "",
+               "lastName": emp.last_name or "", "jobTitle": emp.job_title or "", "company": emp.company or "",
+               "companyName": (ent.name if ent else "") or "", "lastDay": ex["lastDay"],
+               "exitType": ex["exitType"],
+               "exitTypeLabel": hr_life_events.SEPARATION_TYPES.get(ex["exitType"], "Left"),
+               "stage": "Left" if ex["applied"] else "Leaving", "source": ex["source"],
+               "eventId": ev.id if ev is not None else "", "scheduled": bool(ev is not None and not ex["applied"]),
+               "closed": status == "closed", **track}
+        if money:
+            row.update({"statementStatus": status, "statementStatusLabel": STATUS_LABEL.get(status, status.title())})
+        out.append(row)
     out.sort(key=lambda x: (x["lastDay"], x["name"].lower()))
     return out
+
+
+def _chip(key: str, label: str, tone: str) -> dict:
+    """One status chip on the tracker: tone warn (waiting on someone -
+    yellow), done (green) or neutral (gray)."""
+    return {"key": key, "label": label, "tone": tone}
+
+
+def _package_state(emp: NexusEmployee, ev: HrLifeEvent | None, parties: dict) -> tuple:
+    """(state, chip label): none | review | waiting_person | waiting_company | signed | declined."""
+    first = (emp.first_name or "").strip() or "Them"
+    if ev is None:
+        return "none", "Package Not Sent"
+    if ev.status == "declined":
+        return "declined", "Package Declined"
+    if ev.status in ("intake", "review"):
+        return "review", "Package In Review"          # generated, waiting for HR to check it
+    if ev.status in ("voided", "expired") \
+            or (ev.status == "completed" and not (ev.sign_request_id or (ev.inputs or {}).get("paper_path"))):
+        return "none", "Package Not Sent"
+    if ev.status == "completed":
+        return "signed", "Package Signed"
+    subject = (ev.subject_email or "").strip().lower()
+    mine = [p for p in parties.get(ev.sign_request_id, []) if (p.email or "").strip().lower() == subject]
+    if mine and all(p.status in ("signed", "approved", "acknowledged") for p in mine):
+        return "waiting_company", "Waiting On Countersign"
+    if ev.status == "awaiting_sender" and not mine:
+        return "waiting_company", "Waiting On Countersign"
+    return "waiting_person", f"Waiting On {first}"
+
+
+def _track(emp, ex, ev, pk, parties, cl, counts, held, n_reports, st, money, today) -> dict:
+    chips = []
+    pstate, plabel = _package_state(emp, pk, parties)
+    chips.append(_chip("package", plabel, {"signed": "done", "none": "neutral"}.get(pstate, "warn")))
+    if cl is not None:
+        c = counts.get(cl.id, {"done": 0, "total": 0, "overdue": 0})
+        tone = "done" if c["total"] and c["done"] >= c["total"] else "warn" if c["overdue"] else "neutral"
+        chips.append(_chip("checklist", f"Checklist {c['done']}/{c['total']}", tone))
+        checklist = {"id": cl.id, **c}
+    else:
+        chips.append(_chip("checklist", "No Checklist", "neutral"))
+        checklist = {"id": "", "done": 0, "total": 0, "overdue": 0}
+    to_return = len(held)
+    settled = any(h.get("action") in ("item_received", "item_lost") for h in ((st.history if st else None) or []))
+    back = not to_return and (settled or int((_left_entry(emp) or {}).get("itemsReturnPending") or 0) > 0)
+    chips.append(_chip("items", f"{to_return} To Return" if to_return else "Items Back" if back else "No Items",
+                       "warn" if to_return else "done" if back else "neutral"))
+    flags = [(f or {}) for f in ((ev.flags if ev is not None else None) or [])]
+    issues = [f for f in flags if f.get("code") in ISSUE_CODES]
+    if issues:
+        chips.append(_chip("access", "M365 Issue", "warn"))
+    elif ex["applied"]:
+        chips.append(_chip("access", "Access Ended", "done"))
+    else:
+        morning = (date.fromisoformat(ex["lastDay"]) + timedelta(days=1)).isoformat()
+        chips.append(_chip("access", f"Access Ends {morning[5:7]}/{morning[8:10]}", "neutral"))
+    if n_reports:
+        chips.append(_chip("reports", f"{n_reports} Need{'s' if n_reports == 1 else ''} A Manager", "warn"))
+    mbx = mailbox_handover(ev)
+    if mbx and mbx["pending"]:
+        chips.append(_chip("mailbox", "Mailbox Handover Pending", "warn"))
+    if money:
+        status = st.status if st else "open"
+        since = [h for h in ((st.history if st else None) or []) if h.get("action") in ("reviewed", "egnyte_filed", "egnyte_failed")]
+        eg_failed = bool(st) and status == "reviewed" and bool(st.generated_at) and bool(since) \
+            and since[-1].get("action") == "egnyte_failed"
+        if status == "filed":
+            chips.append(_chip("settlement", "Settlement Filed", "done"))
+        elif eg_failed:
+            chips.append(_chip("settlement", "Egnyte Copy Failed", "warn"))
+        elif status == "reviewed":
+            chips.append(_chip("settlement", "Settlement Reviewed", "neutral"))
+        elif status == "closed":
+            chips.append(_chip("settlement", "Exit Closed", "neutral"))
+        else:
+            chips.append(_chip("settlement", "Settlement Open", "neutral"))
+    return {"chips": chips, "package": {"state": pstate, "label": plabel, "eventId": pk.id if pk is not None else "",
+                                        "status": pk.status if pk is not None else ""},
+            "checklist": checklist, "itemsToReturn": to_return, "reportsToMove": n_reports,
+            "mailboxPending": bool(mbx and mbx["pending"]), "issues": [i.get("message", "") for i in issues]}
 
 
 # ── The statement ────────────────────────────────────────────────────────────

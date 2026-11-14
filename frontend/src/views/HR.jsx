@@ -1051,6 +1051,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 ? <StatusLabel label={sm.label} color={sm.fg} size="sm" />
                 : <button type="button" className="pr-status-btn" onClick={() => setStatusOpen(true)} title="Change status (with reason)"><StatusLabel label={sm.label} color={sm.fg} size="sm" /></button>}
             {!onSchedule && !isRemoved && <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)' }}>Off the Schedule</span>}
+            {!isRemoved && <LeavingLine exit={e.scheduledExit} />}
           </div>
           <div style={{ fontSize: 14, color: 'var(--ink)', marginTop: 3 }}>
             {[e.jobTitle, companyName].filter(Boolean).join(' · ') || '-'}
@@ -3700,6 +3701,19 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   );
 }
 
+// A scheduled exit (Neil, 11/14/2026): "Leaving MM/DD" wherever people look
+// - the directory and the profile - in the Live accent (in progress / now).
+function LeavingLine({ exit, style }) {
+  if (!exit?.lastDay) return null;
+  const day = formatDate(`${exit.lastDay.slice(0, 10)}T12:00:00`);
+  return (
+    <span title={`Last day ${day} - an offboarding is scheduled`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--wk-live-ink)', whiteSpace: 'nowrap', ...style }}>
+      <LogOut size={12} /> Leaving {day.slice(0, 5)}
+    </span>
+  );
+}
+
 // A role change waiting on approval (Pranshu, Oct 14): the People list marks
 // the person so HR sees something is pending for them; a click opens it.
 function PendingRoleBadge({ req, onOpen }) {
@@ -3737,7 +3751,8 @@ export default function HR({ activeSub, onSubChange }) {
   const { hrTeam } = useRole();
   // People Analytics (Oct 27 2026) is HR's: the manager tier's /hr allowlist
   // does not open it either.
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-investors', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-reports', 'hr-exits', 'hr-performance'];
+  // A manager also sees Exits - their own people's, the tracker only (Neil, 11/14/2026).
+  const SUBS = hrTeam ? ['hr-people', 'hr-time', 'hr-exits'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-investors', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-reports', 'hr-exits', 'hr-performance'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -4362,6 +4377,7 @@ export default function HR({ activeSub, onSubChange }) {
                         {cfField && <td>{cfShown(e) || '-'}</td>}
                         <td>
                           <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 13, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
+                          {e.scheduledExit && <div style={{ marginTop: 4 }}><LeavingLine exit={e.scheduledExit} /></div>}
                           {e.probation?.ending && <div style={{ marginTop: 4 }}><ProbationBadge p={e.probation} /></div>}
                           {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact onClick={() => openChecklistOf(e.id)} /></div>)}
                         </td>
@@ -4401,6 +4417,7 @@ export default function HR({ activeSub, onSubChange }) {
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
+                            {e.scheduledExit && <LeavingLine exit={e.scheduledExit} style={{ marginTop: 2 }} />}
                             {cfField && (
                               <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 <span style={{ fontWeight: 600 }}>{cfField.label}:</span> {cfShown(e) || '-'}

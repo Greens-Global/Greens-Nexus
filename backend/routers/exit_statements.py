@@ -15,7 +15,10 @@ People access (the hr grant, within hr_scope) opens the list and the
 statement; money (rates, amounts) only with the hr_comp grant or as an owner
 (routers/hr._has_comp), and only those people review, generate, close and
 reopen - the figures are what they sign off, and nobody does it for their
-own exit. The manager tier's team view of People never sees exits.
+own exit. A manager (Neil, 11/14/2026) sees the exits of their own direct
+reports and the people they back up - the tracker and the checklist only,
+never pay, the settlement, the package's contents or HR's notes - checked
+per person on every read.
 """
 import uuid
 
@@ -24,10 +27,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import exit_statement as xs
-from auth import hr_team_limited
+from auth import get_current_user, hr_team_limited
 from database import get_db
 from models import ExitStatement, HrDocument, HrLifeEvent, NexusEmployee
-from routers.hr import _assert_scope, _has_comp, hr_scope, require_hr_read, require_hr_write
+from routers.hr import _assert_scope, _has_comp, hr_scope, require_hr_write
 
 router = APIRouter(prefix="/exit-statements", tags=["Exit Statements"])
 
@@ -70,23 +73,71 @@ def _not_own(user: dict, emp: NexusEmployee, what: str) -> str:
     return me
 
 
+def _hr_reader(user: dict, db: Session) -> bool:
+    """HR's view of Exits: the People grant (or an Administrator), outside
+    the manager tier's team view."""
+    from auth import _LEVELS, _module_level
+    if hr_team_limited(user):
+        return False
+    return user.get("level", 0) >= _LEVELS["administrator"] or _module_level(user["email"], "hr", db) >= 1
+
+
+def _my_people(db: Session, user: dict) -> set:
+    """A manager's own view (Neil, 11/14/2026): their DIRECT reports and the
+    people they are Backup Manager for - nobody further down."""
+    from sqlalchemy import func
+    import backup_manager
+    me = (user.get("email") or "").strip().lower()
+    if not me:
+        return set()
+    direct = {(r[0] or "").strip().lower() for r in db.query(NexusEmployee.work_email)
+              .filter(func.lower(NexusEmployee.manager_email) == me).all()}
+    return (direct | backup_manager.backed_up_by(db, me)) - {"", me}
+
+
 @router.get("")
-def list_exits(include_closed: bool = False, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    _not_team(user)
-    return {"exits": xs.exits_in_progress(db, hr_scope(user, db), include_closed), "canSeeMoney": _has_comp(user, db)}
+def list_exits(include_closed: bool = False, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if _hr_reader(user, db):
+        money = _has_comp(user, db)
+        return {"exits": xs.exits_in_progress(db, hr_scope(user, db), include_closed, money=money),
+                "canSeeMoney": money, "managerView": False, "today": xs._today()}
+    # A manager sees the exits of their own people - the tracker only, never
+    # pay, the settlement or the package's contents.
+    mine = _my_people(db, user)
+    if not mine:
+        raise HTTPException(403, "Exits are HR's - you have no direct reports leaving")
+    return {"exits": xs.exits_in_progress(db, None, include_closed, money=False, only_emails=mine),
+            "canSeeMoney": False, "managerView": True, "today": xs._today()}
+
+
+def _tracker_row(db: Session, emp: NexusEmployee, money: bool) -> dict:
+    em = (emp.work_email or "").strip().lower()
+    rows = xs.exits_in_progress(db, None, True, money=money, only_emails={em}) if em else []
+    return next((r for r in rows if r["employeeId"] == emp.id), None) or {}
 
 
 @router.get("/{eid}")
-def get_statement(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    _not_team(user)
+def get_statement(eid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not _hr_reader(user, db):
+        # A manager's own people only - checked here per person, never
+        # trusted from the list: the tracker and the checklist, nothing more.
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+        if emp is None or (emp.work_email or "").strip().lower() not in _my_people(db, user):
+            raise HTTPException(404, "Not found")
+        tracker = _tracker_row(db, emp, False)
+        if not tracker:
+            raise HTTPException(404, "No exit in progress for this person.")
+        return {"statement": None, "tracker": tracker, "checklist": xs._checklist(db, emp),
+                "review": None, "canSeeMoney": False, "managerView": True}
     emp = _employee(db, user, eid)
     money = _has_comp(user, db)
     st = _build(db, user, emp, money)
     # The fingerprint is always of the full figures, so a stale review shows
     # to everyone, money or not.
     fp = xs.fingerprint(st if money else _build(db, user, emp, True))
-    return {"statement": st, "review": xs.ser_row(db, _row(db, emp, st["lastDay"]), fp, money),
-            "canSeeMoney": money}
+    return {"statement": st, "tracker": _tracker_row(db, emp, money), "checklist": st["checklist"],
+            "review": xs.ser_row(db, _row(db, emp, st["lastDay"]), fp, money),
+            "canSeeMoney": money, "managerView": False}
 
 
 class NoteIn(BaseModel):
