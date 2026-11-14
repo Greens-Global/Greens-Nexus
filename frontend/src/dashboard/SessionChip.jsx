@@ -28,15 +28,20 @@ export function SessionChip({ mine, onOpen }) {
       // green clocked in, amber on a break, red off the clock).
       className={`dk-session-chip${on ? ' dk-session-chip--on' : ''}${mine.state === 'break' ? ' dk-session-chip--break' : ''}${mine.track ? ' has-track' : ''}`}
       onClick={onOpen}
-      // Always named in full: a phone shows "In · 6h 12m" (style.css).
+      // Always named in full: a phone shows "Working · 6:12" (style.css) -
+      // "In · 6:12" read like the time you clocked in (Neil, 11/14/2026).
       aria-label={trackText ? `${said} - ${trackText}` : said}
       title={trackText ? `Open Time Clock - ${trackText}` : 'Open Time Clock'}
       style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
     >
       <span className={`dk-dot ${mine.state === 'break' ? 'dk-dot--break' : on ? 'dk-dot--up' : 'dk-dot--off'}`} />
-      {mine.state === 'break' ? <>On Break · <b>{fmtHM(mine.todayMin)}</b></>
-        : on ? <><span className="dk-session-word">Clocked </span>In · <b>{fmtHM(mine.todayMin)}</b></>
-          : <>Clocked Out<span className="dk-session-long"> · Open Time Clock</span></>}
+      {/* One span, so the chip's gap sits only between the dot, the words and
+          the chevron - never around the "·". */}
+      <span className="dk-session-text">
+        {mine.state === 'break' ? <>On Break · <b>{fmtHM(mine.todayMin)}</b></>
+          : on ? <><span className="dk-session-word">Clocked In</span><span className="dk-session-short">Working</span> · <b>{fmtHM(mine.todayMin)}</b></>
+            : <>Clocked Out<span className="dk-session-long"> · Open Time Clock</span></>}
+      </span>
       {/* Phones only: the chip leads the toolbar row there, and the chevron
           says a tap opens the Time Clock (style.css hides it elsewhere). */}
       <ChevronRight size={15} className="dk-session-go" aria-hidden="true" />

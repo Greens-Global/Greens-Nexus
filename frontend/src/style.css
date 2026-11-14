@@ -5446,7 +5446,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dashboard-view .module-tabs-inline { margin-bottom: 4px; }
   .dk-head { padding-top: 0; gap: 8px; }
 }
-.dk-zl-short { display: none; }
+.dk-zl-short, .dk-session-short { display: none; }
 @media (max-width: 640px) {
   /* Phone: three mirrored rows (Neil, 11/13/2026) -
        date            | home clock ("CA 2:09 PM")
@@ -5526,6 +5526,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dk-toolbar .dk-session-chip:hover { transform: none; }
   .dk-toolbar .dk-dot { width: 9px; height: 9px; }
   .dk-session-long, .dk-session-word { display: none; }
+  .dk-session-short { display: inline; }   /* "Working · 6:12" - hours worked, never read as a time of day */
   .dk-session-go { display: inline-block; margin-left: -2px; color: var(--muted); }
   [data-theme="dark"] .dk-toolbar .secondary-btn, [data-theme="dark"] .dk-toolbar .dk-session-chip { background: var(--card); border-color: var(--line); box-shadow: none; }
 }
