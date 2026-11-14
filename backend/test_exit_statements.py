@@ -113,9 +113,84 @@ class ListTests(ExitCase):
         self.assertEqual([r["email"] for r in api.list_exits(user=OWNER, db=self.db)["exits"]], [MGR])
         self.assertEqual(len(api.list_exits(include_closed=True, user=OWNER, db=self.db)["exits"]), 2)
 
-    def test_the_team_view_never_sees_exits(self):
-        self._status(403, api.list_exits, user=MANAGER, db=self.db)
-        self._status(403, api.get_statement, self.emp_id, user=MANAGER, db=self.db)
+    def test_a_manager_sees_only_their_own_reports_and_no_money(self):
+        # Neil, 11/14/2026: the tracker row and the checklist of their own
+        # direct reports - never pay, the settlement or the package's contents.
+        out = api.list_exits(user=MANAGER, db=self.db)
+        self.assertTrue(out["managerView"])
+        self.assertFalse(out["canSeeMoney"])
+        self.assertEqual([r["email"] for r in out["exits"]], [EMP])
+        row = out["exits"][0]
+        self.assertNotIn("statementStatus", row)
+        self.assertNotIn("settlement", [c["key"] for c in row["chips"]])
+        one = api.get_statement(self.emp_id, user=MANAGER, db=self.db)
+        self.assertIsNone(one["statement"])
+        self.assertIsNone(one["review"])
+        self.assertEqual((one["checklist"]["done"], one["checklist"]["total"]), (1, 2))
+        self.assertNotIn("settlement", [c["key"] for c in one["tracker"]["chips"]])
+        # Someone else's report: not theirs to see, checked per person.
+        other = {"email": "other.mgr@greensglobal.com", "level": 3}
+        self._status(403, api.list_exits, user=other, db=self.db)
+        self._status(404, api.get_statement, self.emp_id, user=other, db=self.db)
+        # They are the backup manager: they see them too.
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).update(
+            {"backup_manager_email": "other.mgr@greensglobal.com"})
+        self.db.commit()
+        self.assertEqual([r["email"] for r in api.list_exits(user=other, db=self.db)["exits"]], [EMP])
+        # And they never act on an exit.
+        self._status(403, api.close, self.emp_id, api.NoteIn(note="Handled by payroll"), user=MANAGER, db=self.db)
+
+
+class TrackerTests(ExitCase):
+    def test_where_it_stands(self):
+        rows = api.list_exits(user=OWNER, db=self.db)["exits"]
+        chips = {c["key"]: (c["label"], c["tone"]) for c in rows[0]["chips"]}
+        self.assertEqual(chips["package"], ("Package Not Sent", "neutral"))
+        self.assertEqual(chips["checklist"], ("Checklist 1/2", "warn"))          # one step overdue
+        self.assertEqual(chips["access"][1], "neutral")
+        self.assertTrue(chips["access"][0].startswith("Access Ends "))
+        self.assertEqual(chips["settlement"], ("Settlement Open", "neutral"))
+        self.assertNotIn("reports", chips)
+        # A direct report still reporting to them: "1 Needs A Manager".
+        self.db.add(models.NexusEmployee(id="id-rep-x", work_email="rep.x@greensglobal.com", first_name="Rex",
+                                         last_name="Port", company=ENTITY, status="active", manager_email=EMP))
+        # A shared mailbox: the handover waits on HR.
+        ev = self.db.query(models.HrLifeEvent).filter_by(id="sep-1").one()
+        ev.inputs = {**ev.inputs, "offboarding": {"mailboxAction": "share", "delegateTo": [MGR]}}
+        self.db.commit()
+        chips = {c["key"]: (c["label"], c["tone"]) for c in api.list_exits(user=OWNER, db=self.db)["exits"][0]["chips"]}
+        self.assertEqual(chips["reports"], ("1 Needs A Manager", "warn"))
+        self.assertEqual(chips["mailbox"], ("Mailbox Handover Pending", "warn"))
+        api.mailbox_handover(self.emp_id, api.HandoverIn(done=True), user=OWNER, db=self.db)
+        chips = {c["key"] for c in api.list_exits(user=OWNER, db=self.db)["exits"][0]["chips"]}
+        self.assertNotIn("mailbox", chips)
+        # Without the pay grant: no settlement chip.
+        chips = {c["key"] for c in api.list_exits(user=ADMIN, db=self.db)["exits"][0]["chips"]}
+        self.assertNotIn("settlement", chips)
+
+    def test_the_list_is_a_few_queries_whoever_is_leaving(self):
+        # One query per kind, never one per person (release review).
+        from sqlalchemy import event
+        for i in range(6):
+            eid = f"id-many-{i}"
+            self.db.add(models.NexusEmployee(id=eid, work_email=f"many{i}@greensglobal.com", first_name="Many",
+                                             last_name=str(i), company=ENTITY, status="active"))
+            self.db.add(models.HrLifeEvent(id=f"sep-many-{i}", kind="separation", status="completed", entity_id=ENTITY,
+                                           employee_id=eid, subject_name=f"Many {i}", inputs={"last_day": self.last_day,
+                                                                                               "exit_type": "resignation"},
+                                           effective_date=self.last_day, apply_status="scheduled", created_by=HR,
+                                           created_at="2026-10-01T00:00:00"))
+        self.db.commit()
+        seen = []
+        hook = lambda *a, **k: seen.append(1)  # noqa: E731
+        engine = self.db.get_bind()
+        event.listen(engine, "before_cursor_execute", hook)
+        try:
+            rows = xs.exits_in_progress(self.db, None)
+        finally:
+            event.remove(engine, "before_cursor_execute", hook)
+        self.assertEqual(len(rows), 7)
+        self.assertLess(len(seen), 16, f"{len(seen)} queries for 7 leavers")
 
 
 class StatementTests(ExitCase):
@@ -234,6 +309,52 @@ class ReviewTests(ExitCase):
         # Closed after filing needs no note.
         api.generate(self.emp_id, user=OWNER, db=self.db)
         self.assertEqual(api.close(self.emp_id, api.NoteIn(), user=OWNER, db=self.db)["status"], "closed")
+
+    def test_close_and_reopen_need_the_pay_grant_and_never_your_own(self):
+        # 11/14/2026: Close Exit has Review / Generate's checks; Reopen puts a
+        # closed exit back where it was.
+        self._status(403, api.close, self.emp_id, api.NoteIn(note="Handled by payroll"), user=ADMIN, db=self.db)
+        own = {"email": EMP, "level": 5}
+        self._status(403, api.close, self.emp_id, api.NoteIn(note="Handled by payroll"), user=own, db=self.db)
+        self._status(409, api.reopen, self.emp_id, api.NoteIn(), user=OWNER, db=self.db)      # not closed
+        api.review(self.emp_id, api.NoteIn(), user=OWNER, db=self.db)
+        self.assertEqual(api.close(self.emp_id, api.NoteIn(note="Handled by payroll"), user=OWNER,
+                                   db=self.db)["status"], "closed")
+        self.assertEqual(api.list_exits(user=OWNER, db=self.db)["exits"], [])
+        self._status(403, api.reopen, self.emp_id, api.NoteIn(), user=ADMIN, db=self.db)
+        self._status(403, api.reopen, self.emp_id, api.NoteIn(), user=own, db=self.db)
+        r = api.reopen(self.emp_id, api.NoteIn(note="One more payout"), user=OWNER, db=self.db)
+        self.assertEqual(r["status"], "reviewed")                                  # where it was
+        self.assertEqual(len(api.list_exits(user=OWNER, db=self.db)["exits"]), 1)
+
+    def test_generating_again_keeps_one_document_and_filed_waits_for_egnyte(self):
+        from services import egnyte as svc
+        api.review(self.emp_id, api.NoteIn(), user=OWNER, db=self.db)
+        real = (svc.configured, xs.file_to_egnyte)
+        svc.configured = lambda: True
+        xs.file_to_egnyte = lambda db, row, emp, blob, name: (False, "EgnyteError: down")
+        try:
+            out = api.generate(self.emp_id, user=OWNER, db=self.db)
+            self.assertEqual((out["review"]["status"], out["review"]["statusLabel"], out["review"]["egnyteFailed"]),
+                             ("reviewed", "Filed in Nexus - Egnyte Copy Failed", True))
+            self._status(502, api.retry_egnyte, self.emp_id, user=OWNER, db=self.db)
+            xs.file_to_egnyte = lambda db, row, emp, blob, name: (setattr(row, "egnyte_path", "/E/x.pdf"),
+                                                                  (True, "/E/x.pdf"))[1]
+            r = api.retry_egnyte(self.emp_id, user=OWNER, db=self.db)
+            self.assertEqual((r["status"], r["egnyteFailed"]), ("filed", False))
+            again = api.generate(self.emp_id, user=OWNER, db=self.db)
+        finally:
+            svc.configured, xs.file_to_egnyte = real
+        self.assertEqual(again["documentId"], out["documentId"])
+        self.assertEqual(self.db.query(models.HrDocument).filter_by(kind="settlement").count(), 1)
+        name = again["fileName"]
+        self.assertRegex(name, r"^\d{2}-\d{2}-\d{4} - ")                            # MM-DD-YYYY, never ISO
+
+    def test_an_item_change_never_makes_a_review_stale(self):
+        api.review(self.emp_id, api.NoteIn(), user=OWNER, db=self.db)
+        self.db.query(models.Item).filter_by(id="it-1").update({"assigned_to_email": ""})
+        self.db.commit()
+        self.assertFalse(self._st()["review"]["reviewStale"])
 
     def test_the_pdf_renders(self):
         st = self._st()["statement"]

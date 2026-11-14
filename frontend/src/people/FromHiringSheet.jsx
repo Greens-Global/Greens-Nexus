@@ -4,8 +4,9 @@
 // Hand on their candidate card - so this sheet does not add anyone itself and
 // is never a second hiring path. It lists the candidates closest to joining
 // (At Offer, then At Decision) and a pick opens that candidate's own card in
-// Hiring, where Send Hiring Packet and Mark Hired By Hand already live.
-// Someone not in Hiring yet starts there with Add Candidate.
+// Hiring, where the offer letter and Mark Hired By Hand already live (Send
+// Hiring Packet only once the offer is signed). Someone not in Hiring yet
+// starts there with + New > Candidate.
 import { useEffect, useState } from 'react';
 import { ChevronRight, UserPlus } from 'lucide-react';
 import { api } from '../api';
@@ -14,7 +15,7 @@ import { SkeletonBlocks, ErrorBanner } from '../components/AsyncState';
 import { STAGE_META, candName } from '../components/HiringCandidateDetail';
 
 const GROUPS = [
-  { stage: 'offer', title: 'At Offer', hint: 'Send the hiring packet or mark them hired - they join People as Onboarding.' },
+  { stage: 'offer', title: 'At Offer', hint: 'Once they sign the offer letter they are hired and join People as Onboarding - the hiring packet then goes out by itself. Mark Hired By Hand is for an offer signed on paper.' },
   { stage: 'decision', title: 'At Decision', hint: 'Still being decided - make the offer from their card.' },
 ];
 
@@ -42,14 +43,14 @@ export default function FromHiringSheet({ onOpenCandidate, onOpenHiring, onClose
       footer={<button className="secondary-btn" onClick={onOpenHiring} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><UserPlus size={14} /> Open Hiring</button>}>
       <div style={{ fontFamily: 'var(--wk-font)' }}>
         <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Pick who you are bringing on - their candidate card opens in Hiring, with Send Hiring Packet and Mark Hired By Hand.
+          Pick who you are bringing on - their candidate card opens in Hiring, with the offer letter and Mark Hired By Hand. Send Hiring Packet is there once they have signed the offer.
         </p>
         {error && <ErrorBanner message={error} onRetry={load} />}
         {!rows && !error && <SkeletonBlocks count={4} height={48} />}
         {none && (
           <div className="fh-empty">
             <strong>No one is at Offer or Decision</strong>
-            Someone new starts in Hiring as a candidate - Open Hiring, then Add Candidate.
+            Someone new starts in Hiring as a candidate - Open Hiring, then + New &gt; Candidate.
           </div>
         )}
         {groups.filter((g) => g.rows.length).map((g) => (

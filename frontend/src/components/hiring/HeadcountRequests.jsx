@@ -9,13 +9,14 @@
 // holders and owners. Anyone raising a request may give one; afterwards it
 // shows as "set" to everyone else.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, Send, CheckCircle, XCircle, Pencil, Briefcase } from 'lucide-react';
+import { Send, CheckCircle, XCircle, Pencil, Briefcase } from 'lucide-react';
 import { api } from '../../api';
 import { Modal, DateField, AvatarName } from '../../tasks/components';
 import { StatusLabel } from '../StatusLabel';
 import { SkeletonBlocks, ErrorBanner, Spinner } from '../AsyncState';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { currencyOptions, moneyPrefix } from '../../asset/lib/currency';
+import NewButton from '../NewButton';
 
 const STATUS = {
   draft: { label: 'Draft', color: '#64748b' },
@@ -56,7 +57,10 @@ function stepText(r, card = true) {
   return 'Not sent yet';
 }
 
-export default function HeadcountRequests({ toastOk, toastErr }) {
+// `onOpenOpening(openingId)`: People > Hiring passes it so Open In Hiring
+// shows that opening under Openings (the Hiring tab is already on screen, so
+// navigating to it did nothing); Team > Headcount navigates to Hiring.
+export default function HeadcountRequests({ toastOk, toastErr, onOpenOpening }) {
   const [rows, setRows] = useState(null);
   const [meta, setMeta] = useState(null);
   const [loadErr, setLoadErr] = useState(false);
@@ -91,8 +95,9 @@ export default function HeadcountRequests({ toastOk, toastErr }) {
           ))}
         </div>
         {meta.canRaise && (
-          <button className="primary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}
-            onClick={() => setEditing({})}><Plus size={14} /> New Headcount Request</button>
+          <span style={{ marginLeft: 'auto' }}>
+            <NewButton items={[{ key: 'headcount', label: 'Headcount Request' }]} onPick={() => setEditing({})} />
+          </span>
         )}
       </div>
 
@@ -124,7 +129,7 @@ export default function HeadcountRequests({ toastOk, toastErr }) {
         </div>
       )}
 
-      {open && <RequestDetail r={open} meta={meta} onClose={() => setOpenId(null)} onChanged={replace}
+      {open && <RequestDetail r={open} meta={meta} onOpenOpening={onOpenOpening} onClose={() => setOpenId(null)} onChanged={replace}
         onEdit={() => { setEditing(open); setOpenId(null); }} toastOk={toastOk} toastErr={toastErr} />}
       {editing && <RequestForm initial={editing.id ? editing : null} meta={meta} onClose={() => setEditing(null)} toastErr={toastErr}
         onSaved={(r, sent) => { replace(r); setEditing(null); toastOk?.(sent ? `${r.code} sent for approval.` : `${r.code} saved as a draft.`); }} />}
@@ -141,7 +146,7 @@ function Fact({ label, children }) {
   );
 }
 
-function RequestDetail({ r, meta, onClose, onChanged, onEdit, toastOk, toastErr }) {
+function RequestDetail({ r, meta, onClose, onChanged, onEdit, onOpenOpening, toastOk, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [note, setNote] = useState('');
@@ -165,7 +170,11 @@ function RequestDetail({ r, meta, onClose, onChanged, onEdit, toastOk, toastErr 
       {r.canDecide && declining && <button className="secondary-btn" onClick={() => setDeclining(false)} disabled={busy}>Cancel</button>}
       {r.canDecide && declining && <button className="primary-btn" onClick={decline} disabled={busy || !note.trim()} style={{ background: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }}>Decline Request</button>}
       {r.canDecide && !declining && <button className="primary-btn" onClick={approve} disabled={busy} style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>{busy ? <Spinner size={14} /> : <CheckCircle size={14} />} Approve</button>}
-      {r.openingId && meta.isHr && <button className="secondary-btn" onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-hiring' } })); }}>Open In Hiring</button>}
+      {r.openingId && meta.isHr && <button className="secondary-btn" onClick={() => {
+        onClose();
+        if (onOpenOpening) onOpenOpening(r.openingId);
+        else window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-hiring' } }));
+      }}>Open In Hiring</button>}
     </>
   );
   return (

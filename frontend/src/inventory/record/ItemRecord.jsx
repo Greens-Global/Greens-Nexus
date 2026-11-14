@@ -35,6 +35,7 @@ import { ImageLightbox } from '../ui/ImageLightbox';
 import { NoPhoto } from '../ui/photos';
 import { itemsToast } from '../ui/Toast';
 import { ItemSheet, Z_RECORD } from '../ui/Sheet';
+import { ReturnPendingButtons } from '../../components/ReturnPending';
 import { printItemTags } from '../scan/events';
 
 const LIVE_CO = ['pending', 'approved', 'pending_receipt', 'allocated'];
@@ -53,6 +54,9 @@ function Fact({ label, children }) {
 
 /** Where the item is right now, in one line. */
 export function stateLine(item, co, asg) {
+  // Return Pending (Neil, 11/14/2026): still out with someone who left.
+  if (co?.holderLeftAt && ['allocated', 'pending_receipt'].includes(co.status)) return `Return Pending - ${co.requestedBy} left with it`;
+  if (asg?.status === 'return_initiated' && asg.returnReason === 'offboarded') return `Return Pending - ${asg.assigneeName || asg.assigneeEmail} left with it`;
   if (co?.status === 'allocated') return `With ${co.requestedBy} since ${formatDate(co.handedOverAt || co.allocatedAt)}`;
   if (co?.status === 'pending_receipt') return `Handed to ${co.requestedBy} on ${formatDate(co.handedOverAt)} - waiting for them to confirm receipt`;
   if (co?.status === 'approved') return `Approved for ${co.requestedBy} - ${co.assignedAllocatorName ? `${co.assignedAllocatorName} hands it over` : 'waiting for the handover'}`;
@@ -70,7 +74,7 @@ export function stateLine(item, co, asg) {
 // `fallbackItem`: the item as the server sent it for an item link or a scan
 // (GET /items/by-code) when the screen's own list does not hold it.
 export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable = true, fallbackItem = null }) {
-  const { items = [], checkouts = [], itemsLoading, checkoutsLoading, refreshItems, patchItemLocal } = useInventory() || {};
+  const { items = [], checkouts = [], itemsLoading, checkoutsLoading, refreshItems, refreshCheckouts, patchItemLocal } = useInventory() || {};
   const { assignments, refreshAssignments } = useAssignments();
   const { canAccessModule } = useRole();
   const isManager = canAccessModule('inventory', 'manager', 'editor');
@@ -148,8 +152,25 @@ export function ItemRecord({ itemId, onClose, onEdit, onOpenDetails, borrowable 
     if (inCart.has(item.id)) secondary('cart-x', 'Remove From Cart', XIcon, () => removeFromCart(item.id, { onError: m => itemsToast(m, 'error') }));
     else primary('cart', 'Add to Cart', ShoppingCart, () => addToCart(item, { onError: m => itemsToast(m, 'error'), onAdded: () => itemsToast(`${item.name} added to your cart.`) }));
   }
+  // Return Pending: the holder left with it - Received (with the return
+  // photo) or Lost, the same two buttons the exit has (Neil, 11/14/2026).
+  const pendingCo = liveCo?.holderLeftAt && ['allocated', 'pending_receipt'].includes(liveCo.status) ? liveCo : null;
+  const pendingAsg = liveAsg?.status === 'return_initiated' && liveAsg.returnReason === 'offboarded' ? liveAsg : null;
+  if (isManager && (pendingCo || pendingAsg)) {
+    const row = pendingCo
+      ? { name: item.name, rowKind: 'checkout', rowId: pendingCo.id, pictureRequired: !photoOptional }
+      : { name: item.name, rowKind: 'assignment', rowId: pendingAsg.id, pictureRequired: true };
+    btns.push(
+      <ReturnPendingButtons key="rp" item={row} holder={pendingCo ? pendingCo.requestedBy : (pendingAsg.assigneeName || pendingAsg.assigneeEmail)}
+        settle={async (outcome, body) => {
+          await api.settleReturnPending(row.rowKind, row.rowId, outcome, body);
+          itemsToast(outcome === 'lost' ? `${item.name} marked Lost.` : `${item.name} received.`);
+        }}
+        onDone={() => { refreshAssignments?.(); refreshItems?.(); refreshCheckouts?.(); }}
+        toastErr={(m) => itemsToast(m, 'error')} />);
+  }
   if (isManager) {
-    if (liveCo?.status === 'allocated' && !mineCo) secondary('force', 'Force Return', RotateCcw, () => setSheet({ kind: 'force', co: liveCo }));
+    if (liveCo?.status === 'allocated' && !mineCo && !pendingCo) secondary('force', 'Force Return', RotateCcw, () => setSheet({ kind: 'force', co: liveCo }));
     if (item.ownershipType === 'permanent' && !liveAsg) secondary('assign', 'Assign', User, () => setSheet({ kind: 'assign' }));
     if (item.ownershipType === 'permanent' && liveAsg?.status === 'active') secondary('reassign', 'Reassign', User, () => setSheet({ kind: 'assign' }));
     if (item.ownershipType === 'transient' && !liveCo) secondary('loc', 'Set Location', MapPin, () => setSheet({ kind: 'assign' }));

@@ -1466,6 +1466,80 @@ def offboard(eid: str, body: SeparationIn, request: Request,
     return out
 
 
+@router.get("/employees/{eid}/offboard/context")
+def offboard_context(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """What the Offboard sheet asks about before Review (Neil, 11/14/2026):
+    their direct reports (a replacement is required when they have any),
+    the approver / owner settings that name them, and whether an exit is
+    already scheduled (then it is Change Last Day, not a second Offboard)."""
+    try:
+        emp = hle._load_employee(db, eid, hr_scope(user, db))
+    except hle.PacketError as e:
+        _raise(e)
+    sched = hle.scheduled_exit(db, emp.id)
+    return {"reports": hle.direct_reports(db, emp), "rolesHeld": hle.roles_held(db, emp.work_email),
+            "today": hle._today(),
+            "scheduled": ({"eventId": sched.id, "lastDay": sched.effective_date} if sched is not None else None),
+            "livePackage": hle.live_package(db, emp.id) is not None}
+
+
+class LastDayIn(BaseModel):
+    last_day: str
+
+
+@router.post("/employees/{eid}/offboard/last-day")
+def change_last_day(eid: str, body: LastDayIn, user: dict = Depends(require_hr_write),
+                    db: Session = Depends(get_db)):
+    """Change Last Day (Neil, 11/14/2026): moves the scheduled exit - never
+    voids or re-sends its package. Today or earlier ends their access now
+    (the screen holds to confirm it, like Offboard Now)."""
+    try:
+        emp = hle._load_employee(db, eid, hr_scope(user, db))
+        ev = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "separation",
+                                           HrLifeEvent.apply_status == "scheduled")
+              .order_by(HrLifeEvent.created_at.desc()).with_for_update().first())
+        if ev is None:
+            raise hle.PacketError(f"No offboarding is scheduled for {emp.first_name}.", 409)
+        result = hle.change_last_day(db, ev, body.last_day, user["email"].lower())
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    db.refresh(ev)
+    out = hle.ser_event(db, ev, show_pay=False)
+    out["result"] = {k: v for k, v in (result or {}).items() if k in ("m365", "items", "handover")}
+    return out
+
+
+@router.post("/employees/{eid}/separation-package/preview")
+def preview_separation_package(eid: str, body: SeparationIn, user: dict = Depends(require_hr_write),
+                               db: Session = Depends(get_db)):
+    try:
+        plan = hle.send_separation_package(db, user, eid, body.inputs or {}, hr_scope(user, db),
+                                           excluded_ack=False, preview=True)
+    except hle.PacketError as e:
+        _raise(e)
+    return hle.separation_preview_out(plan)
+
+
+@router.post("/employees/{eid}/separation-package")
+def send_separation_package(eid: str, body: SeparationIn, request: Request,
+                            user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Send Separation Package (Neil, 11/14/2026) to someone already Left (or
+    on an exit whose package was never sent or died) - their status and
+    last day stay as they are. Their personal email once they have left;
+    they sign first, the company countersigns after."""
+    ip, ua = _client_meta(request)
+    try:
+        ev = hle.send_separation_package(db, user, eid, body.inputs or {}, hr_scope(user, db),
+                                         excluded_ack=bool(body.excluded_ack), ip=ip, user_agent=ua)
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    out = hle.ser_event(db, ev, show_pay=False)
+    out["senderPartyId"] = hle.sender_party_id(db, ev, user["email"])
+    return out
+
+
 @router.post("/life-events/{eid}/cancel-offboarding")
 def cancel_offboarding(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).with_for_update().first()

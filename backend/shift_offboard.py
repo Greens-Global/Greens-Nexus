@@ -1,9 +1,11 @@
-"""When People offboards someone, their FUTURE shifts leave the schedule
-(hardening pass, Oct 15 2026): published placements after today are marked
+"""When People offboards someone, their shifts AFTER THEIR LAST DAY leave
+the schedule (hardening pass, Oct 15 2026; the cutoff is the last day, not
+the server's date - 11/14/2026): published placements after it are marked
 for removal (pending_delete - the team sees them go at the next share, like
-any removal), drafts after today are deleted outright, and each is logged
-as 'removed' with the reason "offboarded" (shift_log). Today's and earlier
-shifts stay as the record of what was scheduled. Called from
+any removal), drafts after it are deleted outright, and each is logged as
+'removed' with the reason "offboarded" (shift_log). The last day and earlier
+stay as the record of what was scheduled. Offboarding applies the morning
+AFTER the last day, so cutting at "today" kept that morning's shift. Called from
 routers/hr.apply_status_change in the same session as the items force-
 return and the task handover; it never commits and never raises.
 """
@@ -15,13 +17,14 @@ import models
 import shift_log
 
 
-def remove_future_shifts(db, email: str, actor: str, today: date = None) -> dict:
-    """{pendingDelete, deleted} - what left the schedule for `email`."""
+def remove_future_shifts(db, email: str, actor: str, today: date = None, last_day: str = "") -> dict:
+    """{pendingDelete, deleted} - what left the schedule for `email`: every
+    shift after `last_day` (YYYY-MM-DD), else after `today`."""
     em = (email or "").strip().lower()
     out = {"pendingDelete": 0, "deleted": 0}
     if not em:
         return out
-    cutoff = (today or date.today()).isoformat()
+    cutoff = (last_day or "")[:10] if len(last_day or "") >= 10 else (today or date.today()).isoformat()
     rows = (db.query(models.ScheduledShift)
             .filter(func.lower(models.ScheduledShift.employee_email) == em,
                     models.ScheduledShift.work_date > cutoff).all())

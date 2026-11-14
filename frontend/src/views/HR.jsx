@@ -5,7 +5,7 @@ import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus,
 import PacketReview from '../components/PacketReview';
 import SendFederalFormMenu from '../components/SendFederalFormMenu';
 import OfferModal from '../components/OfferModal';
-import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
+import { PromoteModal, OffboardModal, RoleChangeModal, ChangeLastDayModal, SeparationPackageModal } from '../components/HrPersonActions';
 import { ProbationBadge } from '../components/HrProbation';
 import { StatusLabel } from '../components/StatusLabel';
 import PersonActions from '../components/PersonActions';
@@ -14,18 +14,20 @@ import { RoleChangeRequestCard, RoleChangeDecisionModal } from '../components/Ro
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
 import CandidateFormModal from '../components/HiringCandidateForm';
+import { useHiringAi } from '../components/hiring/useHiringAi';
+import { CandidateCard, ClosedColumn, boardSummary } from '../components/hiring/HiringBoard';
 import {
   Users, Plus, Search, X, Mail, Briefcase, Check, TrendingUp, LogOut,
   ChevronLeft, Network, UserPlus, Pencil, FileText,
-  CheckCircle, ChevronRight, History, CalendarDays, Camera,
+  CheckCircle, ChevronRight, History, Camera,
   Building2, Trash2, Lock,
   Shield, AlertTriangle, Clock, RotateCcw,
   ChevronDown, ChevronUp, Link2, ExternalLink,
   ListChecks, RefreshCw, Hourglass, BarChart3,
-  Target,
+  Target, UserCheck, CalendarClock, Send, Ban,
 } from 'lucide-react';
 import { api } from '../api';
-import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
+import { formatDate, formatWeekday } from '../lib/datetime';
 import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
 import { dialog } from '../ui/dialog';
 import HoldButton, { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../ui/HoldButton';
@@ -50,7 +52,7 @@ import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
 import InvestorChart from '../components/InvestorChart';
 import OrgChartCanvas, { ReportsPill } from '../components/orgchart/OrgChartCanvas';
 import { divisionColor as divColorFor, countBelow } from '../components/orgchart/tree';
-import { takePendingPerson } from '../lib/personNav';
+import { takePendingPerson, takePendingTab } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
 import { COUNTRIES } from '../lib/countries';
@@ -888,6 +890,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [offboardOpen, setOffboardOpen] = useState(false);
   // End Employment on probation opens Offboard with Termination and the reason (Oct 27 2026).
   const [offboardInitial, setOffboardInitial] = useState(null);
+  // A scheduled exit (Neil, 11/14/2026): Change Last Day / Cancel Offboarding
+  // instead of a second Offboard; a Left person may get the package later.
+  const [lastDayOpen, setLastDayOpen] = useState(false);
+  const [packageOpen, setPackageOpen] = useState(false);
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
   const [reviewEvent, setReviewEvent] = useState(null);    // a letter / package built from Documents, being reviewed (Oct 14)
   const [eventsKey, setEventsKey] = useState(0);
@@ -970,6 +976,18 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const expiry = nextExpiry(e);
   const tenure = fmtTenure(e.startDate);
   const canAct = canEditProfile && !teamView && ['active', 'onboarding'].includes(e.status) && e.identityType !== 'external';
+  const scheduled = e.scheduledExit || null;
+  const left = !teamView && e.status === 'offboarded' && e.identityType !== 'external';
+  // Cancel Offboarding voids paperwork that is out - held (Hold to confirm).
+  const cancelOffboarding = () => dialog.confirm(
+    `Cancel ${fullName(e)}'s offboarding? They stay active, the offboarding checklist is canceled, and any paperwork still out is voided.`,
+    { title: 'Cancel Offboarding', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Cancel Offboarding', doneText: 'Canceled', cancelText: 'Keep It',
+      onConfirm: async () => {
+        try { await api.cancelOffboarding(scheduled.eventId); }
+        catch (err) { throw new Error(err?.message || 'Could not cancel the offboarding.', { cause: err }); }
+        toastOk('Offboarding canceled.');
+        setEventsKey(n => n + 1); onReload?.();
+      } });
   // Everything HR can do to the record, behind one Actions menu (11/08/2026);
   // the two that cannot be taken back sit last, in red.
   const actions = isRemoved || teamView ? [] : [
@@ -994,8 +1012,13 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         catch (err) { toastErr(err?.message || 'Could not send welcome email.'); }
         setWelcomeBusy(false);
       } },
+    // One exit at a time (Neil, 11/14/2026): with an exit scheduled the menu
+    // offers Change Last Day and Cancel Offboarding, never a second Offboard.
+    canAct && scheduled && { label: 'Change Last Day', Icon: CalendarClock, onClick: () => setLastDayOpen(true), title: `Their last day is ${usDay(scheduled.lastDay)} - move it without sending the package again` },
+    canEditProfile && left && { label: 'Send Separation Package', Icon: Send, onClick: () => setPackageOpen(true), title: 'Send the separation package to their personal email - their status stays Left' },
     (canAct || isAdmin) && { divider: true },
-    canAct && { label: 'Offboard', Icon: LogOut, danger: true, onClick: () => setOffboardOpen(true), title: 'Last day, the separation package through Nexus Sign, and everything that happens when they leave' },
+    canAct && scheduled && { label: 'Cancel Offboarding', Icon: Ban, danger: true, onClick: cancelOffboarding, title: 'They stay active, the checklist is canceled and any paperwork still out is voided' },
+    canAct && !scheduled && { label: 'Offboard', Icon: LogOut, danger: true, onClick: () => setOffboardOpen(true), title: 'Last day, the separation package through Nexus Sign, and everything that happens when they leave' },
     isAdmin && { label: 'Remove From Nexus', Icon: Trash2, danger: true, onClick: removeFromNexus, title: "Remove this person's Nexus record only - does not touch Microsoft 365" },
   ].filter(Boolean);
   return (
@@ -1030,6 +1053,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 ? <StatusLabel label={sm.label} color={sm.fg} size="sm" />
                 : <button type="button" className="pr-status-btn" onClick={() => setStatusOpen(true)} title="Change status (with reason)"><StatusLabel label={sm.label} color={sm.fg} size="sm" /></button>}
             {!onSchedule && !isRemoved && <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)' }}>Off the Schedule</span>}
+            {!isRemoved && <LeavingLine exit={e.scheduledExit} />}
           </div>
           <div style={{ fontSize: 14, color: 'var(--ink)', marginTop: 3 }}>
             {[e.jobTitle, companyName].filter(Boolean).join(' · ') || '-'}
@@ -1102,12 +1126,32 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           if (ev.applyStatus === 'applied') onEmployeeUpdated?.({ ...e, status: 'offboarded' });
           else onReload?.();
           const m = ev.result?.m365 || {};
-          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.export && 'mailbox export started - download it from the Documents tab once it is ready', m.error && `M365 issue: ${m.error}`].filter(Boolean).join(', ');
+          const extra = [m.signIn && `sign-in ${m.signIn}`, m.licenses && `license ${m.licenses}`, m.export && 'mailbox export started - download it from the Documents tab once it is ready'].filter(Boolean).join(', ');
           toastOk(ev.applyStatus === 'applied'
             ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
             : `Offboarding scheduled - last day ${usDay(ev.effectiveDate)}, Nexus marks them Left the morning after.`);
+          // A Microsoft 365 problem is an error, never a success line - it is
+          // also kept on their exit for HR (People > Exits).
+          if (m.error) toastErr(`Microsoft 365 issue: ${m.error} - it is on their exit in People > Exits.`);
           if (ev.status === 'review') setReviewEvent(ev.id);
           else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+        }} />}
+      {lastDayOpen && scheduled && <ChangeLastDayModal employee={e} current={scheduled.lastDay} toastErr={toastErr}
+        onClose={() => setLastDayOpen(false)}
+        onDone={ev => {
+          setLastDayOpen(false); setEventsKey(n => n + 1);
+          if (ev.applyStatus === 'applied') { onEmployeeUpdated?.({ ...e, status: 'offboarded', scheduledExit: null }); toastOk(`${e.firstName} is offboarded.`); }
+          else { onReload?.(); toastOk(`Last day moved to ${usDay(ev.effectiveDate)} - the package was not sent again.`); }
+          const m = ev.result?.m365 || {};
+          if (m.error) toastErr(`Microsoft 365 issue: ${m.error} - it is on their exit in People > Exits.`);
+        }} />}
+      {packageOpen && <SeparationPackageModal employee={e} toastErr={toastErr}
+        onClose={() => setPackageOpen(false)}
+        onSent={ev => {
+          setPackageOpen(false); setEventsKey(n => n + 1);
+          if (ev.status === 'review') setReviewEvent(ev.id);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          else toastOk(`Separation package sent to ${ev.subjectEmail || 'their personal email'} - they sign first.`);
         }} />}
       {reviewEvent && <PacketReview eventId={reviewEvent} onClose={() => setReviewEvent(null)}
         onChanged={() => { setEventsKey(n => n + 1); onReload?.(); }} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
@@ -1258,10 +1302,12 @@ function ActionsMenu({ items }) {
 }
 
 // ── Hiring pipeline (Phase 2) ─────────────────────────────────────────────────
-const daysSince = iso => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
 
-function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSignature, openId = '', onOpened }) {
+function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSignature, onOpenPerson, openId = '', onOpened }) {
   const [candidates, setCandidates] = useState(null);
+  // AI scoring is off unless switched on for the server (ai_switch): no score
+  // chips, Leaderboard or Final Round while it is.
+  const aiOn = useHiringAi();
   const [addOpen, setAddOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   // People > New > From Hiring (11/13/2026) lands here with the candidate picked:
@@ -1279,6 +1325,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
   const [loadErr, setLoadErr] = useState(false);
   const [editing, setEditing] = useState(null);            // candidate open in the edit form
+  const [editEmailOnly, setEditEmailOnly] = useState(false); // Interview through Offer: the email alone
   const [scheduling, setScheduling] = useState(null);      // { candidate, replace } - the one scheduling path
   const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
   const [offerFor, setOfferFor] = useState(null);          // candidate the offer is being made to (Oct 14)
@@ -1292,6 +1339,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [hView, setHView] = useState('pipeline');
   const [openings, setOpenings] = useState([]);
   const [openingFilter, setOpeningFilter] = useState('');   // '' = every candidate
+  const [openingFocus, setOpeningFocus] = useState('');     // a headcount request's Open In Hiring
   const loadOpenings = useCallback(() => { api.listOpenings().then(setOpenings).catch(() => {}); }, []);
   useEffect(() => { loadOpenings(); }, [loadOpenings]);
   // Headcount Requests are off per company until Settings turns them on (Neil,
@@ -1321,18 +1369,20 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
     setDetail(d => (d ? rows.find(x => x.id === d.id) || d : d));
   }).catch(() => {}), []);
 
+  function afterMove(c, stage, updated) {
+    setCandidates(prev => prev.map(x => x.id === c.id ? { ...x, ...updated } : x));
+    setDetail(stage === 'hired' ? null : { ...c, ...updated });
+    if (stage === 'hired') {
+      toastOk(`${candName(c)} hired - added to People as Onboarding (${updated.createdEmployee?.employeeCode || ''}).`);
+      if (updated.createdEmployee) onEmployeeCreated(updated.createdEmployee);
+    } else if (stage === 'rejected') toastOk(`${candName(c)} marked rejected.`);
+    else toastOk(`${candName(c)} → ${STAGE_META[stage].label}.`);
+  }
   async function moveStage(c, stage, note) {
     if (busy) return;
     setBusy(true);
     try {
-      const updated = await api.updateCandidate(c.id, { stage, stage_note: note || '' });
-      setCandidates(prev => prev.map(x => x.id === c.id ? { ...x, ...updated } : x));
-      setDetail(stage === 'hired' ? null : { ...c, ...updated });
-      if (stage === 'hired') {
-        toastOk(`${candName(c)} hired - added to People as Onboarding (${updated.createdEmployee?.employeeCode || ''}).`);
-        if (updated.createdEmployee) onEmployeeCreated(updated.createdEmployee);
-      } else if (stage === 'rejected') toastOk(`${candName(c)} marked rejected.`);
-      else toastOk(`${candName(c)} → ${STAGE_META[stage].label}.`);
+      afterMove(c, stage, await api.updateCandidate(c.id, { stage, stage_note: note || '' }));
     } catch (err) { toastErr(err?.message || 'Could not update stage.'); }
     setBusy(false);
   }
@@ -1340,7 +1390,6 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   if (loadErr) return <ErrorBanner message="Couldn't load candidates right now." onRetry={loadCandidates} />;
   if (candidates === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Spinner size="section" /></div>;
 
-  const open = candidates.filter(c => !['hired', 'rejected'].includes(c.stage));
   // Neil, Oct 14: Hired and Rejected stay on the board ("there's no need to keep
   // this closed"); a rejected candidate leaves it when removed, or after 90 days.
   const inactive = candidates.filter(c => c.inactive);
@@ -1351,7 +1400,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const viewTabs = (
     <div className="scroll-tabs" role="tablist" aria-label="Hiring" style={{ display: 'flex', gap: 4 }}>
       {[['pipeline', 'Pipeline'], ['openings', `Openings${activeOpenings.length ? ` (${activeOpenings.length})` : ''}`], ...(hcMeta.showTab ? [['headcount', 'Headcount']] : [])].map(([k, label]) => (
-        <button key={k} type="button" role="tab" aria-selected={hView === k} onClick={() => { setHView(k); if (k === 'pipeline') { refreshBoard(); loadOpenings(); } }}
+        <button key={k} type="button" role="tab" aria-selected={hView === k} onClick={() => { setHView(k); setOpeningFocus(''); if (k === 'pipeline') { refreshBoard(); loadOpenings(); } }}
           className={hView === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 13, padding: '5px 12px' }}>{label}</button>
       ))}
     </div>
@@ -1362,9 +1411,9 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>{viewTabs}</div>
         <Suspense fallback={<SkeletonBlocks count={3} height={64} />}>
           {hView === 'openings'
-            ? <JobOpenings toastOk={toastOk} toastErr={toastErr} canSeePay={canSeePay} directCompanies={hcMeta.directOpeningCompanies}
+            ? <JobOpenings key={openingFocus || 'all'} focusId={openingFocus} toastOk={toastOk} toastErr={toastErr} canSeePay={canSeePay} directCompanies={hcMeta.directOpeningCompanies}
               onCreated={loadOpenings} onFilterPipeline={id => { setOpeningFilter(id); setHView('pipeline'); refreshBoard(); loadOpenings(); }} />
-            : <HeadcountRequests toastOk={toastOk} toastErr={toastErr} />}
+            : <HeadcountRequests toastOk={toastOk} toastErr={toastErr} onOpenOpening={id => { setOpeningFocus(id); setHView('openings'); loadOpenings(); }} />}
         </Suspense>
       </div>
     );
@@ -1412,75 +1461,41 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
     if (to < from && !await dialog.confirm(`Move ${candName(c)} back to ${STAGE_META[stage].label}?`, { title: 'Move Back', confirmText: 'Move Back' })) return;
     moveStage(c, stage, to < from ? `Moved back to ${STAGE_META[stage].label}` : '');
   }
-  // Only for an offer signed on paper - and never without saying why.
-  async function markHiredByHand(c, note = '') {
-    const why = note || await dialog.prompt(`Mark ${candName(c)} hired without the hiring packet? Say why - for example "signed the offer on paper".`,
-      { title: 'Mark Hired By Hand', confirmText: 'Mark Hired', required: true });
-    if (why) moveStage(c, 'hired', why);
+  // Only for an offer signed on paper - and never without saying why. The
+  // last step is a hold (Hold to confirm): it makes an employee record.
+  async function markHiredByHand(c) {
+    let updated = null;
+    await dialog.prompt(`Mark ${candName(c)} hired without the hiring packet? Say why - for example "signed the offer on paper". They are added to People as Onboarding.`,
+      { title: 'Mark Hired By Hand', confirmText: 'Mark Hired', doneText: 'Hired', required: true, hold: true, holdIcon: UserCheck,
+        onConfirm: async (why) => {
+          const text = String(why || '').trim();
+          if (!text) throw new Error('Say why they are marked hired by hand.');
+          updated = await api.updateCandidate(c.id, { stage: 'hired', stage_note: text });
+        } });
+    if (updated) afterMove(c, 'hired', updated);
   }
 
-  const card = c => {
-    const hue = hueFor({ employeeCode: c.id });
-    return (
-      <button key={c.id} onClick={() => setDetail(c)}
-        draggable={!isMobile && c.stage !== 'hired'}
-        onDragStart={e => { e.dataTransfer.setData('text/x-candidate', c.id); e.dataTransfer.effectAllowed = 'move'; }}
-        onDragEnd={() => setDragOver('')}
-        title={!isMobile && c.stage !== 'hired' ? 'Drag to another stage' : undefined}
-        style={{ display: 'block', width: '100%', textAlign: 'left', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 13px', marginBottom: 8, boxShadow: 'var(--shadow-sm)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: `hsla(${hue},0.13)`, color: `hsl(${hue})`, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {`${(c.firstName || '?')[0]}${(c.lastName || '')[0] || ''}`.toUpperCase()}
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{candName(c)}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.roleTitle || c.department || '-'}</div>
-          </div>
-          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
-        </div>
-        {['applied', 'screening'].includes(c.stage) && c.expectedInterviewOn && !c.interview && (
-          <div style={{ marginTop: 7 }}>
-            <span title="Expected interview date - screening is due one business day before"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'var(--mist)', color: 'var(--muted)' }}>
-              <CalendarDays size={10} /> Interview By {formatDate(c.expectedInterviewOn)}
-            </span>
-          </div>
-        )}
-        {(c.interview || c.interviewScore != null) && !['hired', 'rejected'].includes(c.stage) && (
-          <div style={{ marginTop: 7, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-            {c.interview && ['scheduled', 'live'].includes(c.interview.status) && (
-              <span title={c.interview.interviewers?.length ? `With ${c.interview.interviewers.join(', ')}` : ''}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 12,
-                  background: c.interview.status === 'live' ? 'hsla(var(--color-orange),0.12)' : 'hsla(var(--color-purple),0.1)',
-                  color: c.interview.status === 'live' ? 'hsl(var(--color-orange))' : 'hsl(var(--color-purple))' }}>
-                <CalendarDays size={10} />
-                {c.interview.status === 'live' ? 'In Progress' : formatDateTime(c.interview.at)}
-                {c.interview.interviewers?.length ? ` · ${c.interview.interviewers.map(n => n.split(' ')[0]).join(', ')}` : ''}
-              </span>
-            )}
-            {c.interview?.status === 'completed' && (
-              <span title="Interview done - waiting on the transcript or the score"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'var(--mist)', color: 'var(--muted)' }}>
-                <CheckCircle size={10} /> Interviewed
-              </span>
-            )}
-            {c.interviewScore != null && (
-              <span title="Calibrated interview score (0–100)"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 12,
-                  background: c.interviewScore >= 70 ? 'hsla(var(--color-green),0.12)' : c.interviewScore >= 45 ? 'hsla(var(--color-orange),0.12)' : 'hsla(var(--color-red),0.12)',
-                  color: c.interviewScore >= 70 ? 'hsl(var(--color-green))' : c.interviewScore >= 45 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))' }}>
-                🏆 {c.interviewScore}
-              </span>
-            )}
-          </div>
-        )}
-      </button>
-    );
-  };
+  // The card face is the name, the role and ONE chip - its next step or what
+  // blocks it (11/14/2026, components/hiring/HiringBoard.jsx). Days in the
+  // stage are in its title; 7+ days shows a small dot.
+  const scoreChip = c => (aiOn && c.interviewScore != null && !['hired', 'rejected'].includes(c.stage) ? (
+    <span title="Calibrated interview score (0-100)"
+      style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 12,
+        background: c.interviewScore >= 70 ? 'hsla(var(--color-green),0.12)' : c.interviewScore >= 45 ? 'var(--warn-bg)' : 'hsla(var(--color-red),0.12)',
+        color: c.interviewScore >= 70 ? 'hsl(var(--color-green))' : c.interviewScore >= 45 ? 'var(--warn-fg)' : 'hsl(var(--color-red))' }}>
+      Score {c.interviewScore}
+    </span>
+  ) : null);
+  const card = c => (
+    <CandidateCard key={c.id} c={c} draggable={!isMobile && c.stage !== 'hired'} onOpen={setDetail} scoreChip={scoreChip(c)} />
+  );
+  const shown = candidates.filter(c => !openingFilter || c.openingId === openingFilter);
+  const summary = boardSummary(shown);
+  const WORK_LANES = STAGES.filter(s => s !== 'hired');
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {viewTabs}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {/* Neil, Oct 14: the questionnaires and the documents are settings -
@@ -1496,7 +1511,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
               <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#b45309', color: '#fff' }}>{needPackets.length}</span>
             )}
           </button>
-          <button className="secondary-btn" style={{ fontSize: 13 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
+          {aiOn && <button className="secondary-btn" style={{ fontSize: 13 }} onClick={() => setLbOpen(true)}>Leaderboard</button>}
           {inactive.length > 0 && (
             <button className="secondary-btn" style={{ fontSize: 13 }} onClick={() => setShowInactive(s => !s)}
               title="Rejected candidates removed from the board, or rejected more than 90 days ago">
@@ -1508,37 +1523,20 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         </div>
       </div>
 
-      {/* Pipeline stats */}
-      <div className="kpi-grid nx-stat-strip" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 18 }}>
-        {[['card-blue', 'In Pipeline', open.length, 'Applied → Offer'],
-          ['card-orange', 'Interviews Booked', candidates.filter(c => c.interview && ['scheduled', 'live'].includes(c.interview.status) && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
-          ['card-purple', 'Offers Out', byStage('offer').length, 'Awaiting decision'],
-          ['card-green', 'Hired', byStage('hired').length, 'Became employees']].map(([cls, label, value, sub]) => (
-          <div key={label} className={`kpi-card ${cls}`}>
-            <div className="kpi-label">{label}</div>
-            <div className="kpi-value">{value}</div>
-            <div className="kpi-delta">{sub}</div>
-          </div>
-        ))}
+      {/* One line instead of four stat tiles, one select instead of a row of
+          opening chips (11/14/2026). */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div data-testid="hiring-summary" style={{ fontSize: 13, color: 'var(--muted)', flex: '1 1 260px' }}>{summary.text}</div>
+        {activeOpenings.length > 0 && (
+          <select className="form-input" aria-label="Job opening" value={openingFilter} onChange={e => setOpeningFilter(e.target.value)}
+            style={{ fontSize: 13, padding: '6px 10px', width: 'auto', maxWidth: 280 }}>
+            <option value="">All Openings</option>
+            {activeOpenings.map(o => (
+              <option key={o.id} value={o.id}>{o.title} ({candidates.filter(c => c.openingId === o.id && !c.inactive).length})</option>
+            ))}
+          </select>
+        )}
       </div>
-
-      {activeOpenings.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginRight: 4 }}>Openings</span>
-          {[{ id: '', title: 'All Candidates' }, ...activeOpenings].map(o => {
-            const on = openingFilter === o.id;
-            const n = o.id ? candidates.filter(c => c.openingId === o.id && !c.inactive).length : null;
-            return (
-              <button key={o.id || 'all'} type="button" aria-pressed={on} onClick={() => setOpeningFilter(o.id)}
-                title={o.id ? `${o.statusLabel} - ${o.counts?.hired || 0} of ${o.seats} hired` : 'Every candidate'}
-                style={{ fontSize: 12, fontWeight: on ? 700 : 600, padding: '4px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-                  border: `1px solid ${on ? 'var(--pine, #15803d)' : 'var(--line)'}`, background: on ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: 'var(--ink)' }}>
-                {o.title}{n != null && <span style={{ color: 'var(--muted)', fontWeight: 600 }}> · {n}</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       {candidates.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
@@ -1556,7 +1554,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
               <div key={s} style={{ marginBottom: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 4px 8px' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${STAGE_META[s].hue})` }} />
-                  <b style={{ fontSize: 12, letterSpacing: '.06em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
+                  <b style={{ fontSize: 13 }}>{STAGE_META[s].label}</b>
                   <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 20, padding: '1px 8px', color: 'var(--muted)' }}>{items.length}</span>
                 </div>
                 {items.map(card)}
@@ -1565,9 +1563,11 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           })}
         </div>
       ) : (
-        /* Desktop: kanban lanes - full height so the board reads as a board */
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${LANES.length}, minmax(170px, 1fr))`, gap: 12, alignItems: 'stretch', overflowX: 'auto' }}>
-          {LANES.map(s => {
+        /* Desktop: the five working stages share the width, Hired and Rejected
+           fold into one narrow column of two tiles - a 1280px window shows
+           every name in full (11/14/2026). */
+        <div data-testid="hiring-board" style={{ display: 'grid', gridTemplateColumns: `repeat(${WORK_LANES.length}, minmax(160px, 1fr)) 112px`, gap: 8, alignItems: 'stretch', overflowX: 'auto' }}>
+          {WORK_LANES.map(s => {
             const items = byStage(s);
             return (
               <div key={s} role="list" aria-label={`${STAGE_META[s].label} lane`}
@@ -1575,22 +1575,23 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
                 onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(''); }}
                 onDrop={e => { e.preventDefault(); dropOn(e.dataTransfer.getData('text/x-candidate'), s); }}
                 style={{ background: dragOver === s ? `hsla(${STAGE_META[s].hue},0.08)` : 'rgba(255,255,255,0.55)',
-                  border: dragOver === s ? `1.5px dashed hsl(${STAGE_META[s].hue})` : '1px solid var(--line)', borderRadius: 14, padding: 10,
-                  minHeight: 'max(420px, calc(100vh - 470px))', display: 'flex', flexDirection: 'column' }}>
+                  border: dragOver === s ? `1.5px dashed hsl(${STAGE_META[s].hue})` : '1px solid var(--line)', borderRadius: 14, padding: 8, minWidth: 0,
+                  minHeight: 'max(420px, calc(100vh - 360px))', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px 10px' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${STAGE_META[s].hue})` }} />
-                  <b style={{ fontSize: 11, letterSpacing: '.05em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
+                  <b style={{ fontSize: 13 }}>{STAGE_META[s].label}</b>
                   <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 20, padding: '0 7px', color: 'var(--muted)' }}>{items.length}</span>
                 </div>
                 {items.map(card)}
                 {items.length === 0 && (
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px dashed var(--line)', borderRadius: 10, margin: '2px 2px 4px', minHeight: 90 }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px dashed var(--line)', borderRadius: 10, margin: '2px 2px 4px', minHeight: 90, padding: 8, textAlign: 'center' }}>
                     <span style={{ fontSize: 12, color: 'var(--muted)', opacity: 0.8 }}>No one in {STAGE_META[s].label.toLowerCase()}</span>
                   </div>
                 )}
               </div>
             );
           })}
+          <ClosedColumn candidates={shown} dragOver={dragOver} onDragState={setDragOver} onDrop={dropOn} onOpen={setDetail} />
         </div>
       )}
       {showInactive && inactive.length > 0 && (
@@ -1618,7 +1619,8 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onMarkHired={c => markHiredByHand(c)}
         refreshKey={packetRefresh}
         onUpdated={u => { if (u) { setCandidates(prev => prev.map(x => x.id === u.id ? { ...x, ...u } : x)); setDetail(d => d && d.id === u.id ? { ...d, ...u } : d); } else refreshBoard(); }}
-        onEdit={cand => setEditing(cand)}
+        onEdit={(cand, o) => { setEditEmailOnly(!!o?.emailOnly); setEditing(cand); }}
+        onOpenPerson={onOpenPerson ? cand => { setDetail(null); onOpenPerson(cand.employeeId); } : undefined}
         onSchedule={(cand, replace) => setScheduling({ candidate: cand, replace: replace || null })}
         onOpenRoom={cand => { setDetail(null); setIvFor(cand); }}
         onSendPacket={cand => setPacketFor(cand)} onMakeOffer={cand => setOfferFor(cand)} onSignPacket={setSignParty}
@@ -1635,7 +1637,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       {scheduling && <ScheduleInterviewModal candidate={scheduling.candidate} replace={scheduling.replace}
         onClose={() => setScheduling(null)} toastOk={toastOk} toastErr={toastErr}
         onScheduled={() => { setScheduling(null); setPacketRefresh(n => n + 1); refreshBoard(); }} />}
-      {editing && <CandidateFormModal candidate={editing} onClose={() => setEditing(null)} toastErr={toastErr}
+      {editing && <CandidateFormModal candidate={editing} emailOnly={editEmailOnly} onClose={() => setEditing(null)} toastErr={toastErr}
         onSaved={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(d => d && d.id === u.id ? u : d); toastOk(`${candName(u)} updated.`); }} />}
       {packetFor && <SendHiringPacketModal candidate={packetFor} canSeePay={canSeePay} toastErr={toastErr}
         onClose={() => setPacketFor(null)}
@@ -1654,7 +1656,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           setSignParty(null); setPacketRefresh(n => n + 1);
           toastOk('Signed - the new hire has been emailed the packet to sign.');
         }} />
-      {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
+      {aiOn && lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); refreshBoard(); }} toastOk={toastOk} toastErr={toastErr}
         onDecision={(kind, cand) => {
           // The offer and the rejection wait for the Decision step (Oct 19).
@@ -3659,6 +3661,19 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   );
 }
 
+// A scheduled exit (Neil, 11/14/2026): "Leaving MM/DD" wherever people look
+// - the directory and the profile - in the Live accent (in progress / now).
+function LeavingLine({ exit, style }) {
+  if (!exit?.lastDay) return null;
+  const day = formatDate(`${exit.lastDay.slice(0, 10)}T12:00:00`);
+  return (
+    <span title={`Last day ${day} - an offboarding is scheduled`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--wk-live-ink)', whiteSpace: 'nowrap', ...style }}>
+      <LogOut size={12} /> Leaving {day.slice(0, 5)}
+    </span>
+  );
+}
+
 // A role change waiting on approval (Pranshu, Oct 14): the People list marks
 // the person so HR sees something is pending for them; a click opens it.
 function PendingRoleBadge({ req, onOpen }) {
@@ -3696,7 +3711,8 @@ export default function HR({ activeSub, onSubChange }) {
   const { hrTeam } = useRole();
   // People Analytics (Oct 27 2026) is HR's: the manager tier's /hr allowlist
   // does not open it either.
-  const SUBS = hrTeam ? ['hr-people', 'hr-time'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-investors', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-reports', 'hr-exits', 'hr-performance'];
+  // A manager also sees Exits - their own people's, the tracker only (Neil, 11/14/2026).
+  const SUBS = hrTeam ? ['hr-people', 'hr-time', 'hr-exits'] : ['hr-people', 'hr-hiring', 'hr-org', 'hr-investors', 'hr-time', 'hr-checklists', 'hr-analytics', 'hr-reports', 'hr-exits', 'hr-performance'];
   const sub = TIME_DEEP_LINKS[activeSub] ? 'hr-time'
     : SUBS.includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
@@ -3823,15 +3839,17 @@ export default function HR({ activeSub, onSubChange }) {
   // can resolve it to the row id the detail pane selects on.
   useEffect(() => {
     if (!employees.length) return undefined;
-    const openFor = email => {
+    const openFor = (email, tab = '') => {
       const em = (email || '').trim().toLowerCase();
       if (!em) return;
       const match = [...employees, ...extEmployees].find(x => (x.workEmail || '').toLowerCase() === em);
-      if (match) setSelectedId(match.id);
+      if (match) { if (tab) setOpenTab(tab); setSelectedId(match.id); }
       else toastErr(`${em} is not in People.`);
     };
-    openFor(takePendingPerson());
-    const h = e => openFor(e.detail?.email);
+    const pending = takePendingPerson();
+    const pendingTab = takePendingTab();
+    openFor(pending, pendingTab);
+    const h = e => openFor(e.detail?.email, e.detail?.tab);
     window.addEventListener('nexus:person', h);
     return () => window.removeEventListener('nexus:person', h);
   }, [employees, extEmployees]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -4097,6 +4115,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {sub === 'hr-hiring' && (
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr} openId={hiringOpenId} onOpened={() => setHiringOpenId('')}
+          onOpenPerson={id => { if (!id) return; setOpenTab('overview'); setSelectedId(id); onSubChange?.('hr-people'); }}
           onEmployeeCreated={emp => { setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b)))); refreshPeople(); }}
           onSendForSignature={c => {
             // E-Sign lives in the Documents module now - stash the offer and jump
@@ -4321,6 +4340,7 @@ export default function HR({ activeSub, onSubChange }) {
                         {cfField && <td>{cfShown(e) || '-'}</td>}
                         <td>
                           <span style={{ padding: '4px 11px', borderRadius: 6, fontSize: 13, fontWeight: 600, background: sm.bg, color: sm.fg, whiteSpace: 'nowrap' }}>{sm.label}</span>
+                          {e.scheduledExit && <div style={{ marginTop: 4 }}><LeavingLine exit={e.scheduledExit} /></div>}
                           {e.probation?.ending && <div style={{ marginTop: 4 }}><ProbationBadge p={e.probation} /></div>}
                           {(clProgress[e.id] || []).map(p => <div key={p.checklistId} style={{ marginTop: 4 }}><ChecklistChip p={p} compact onClick={() => openChecklistOf(e.id)} /></div>)}
                         </td>
@@ -4360,6 +4380,7 @@ export default function HR({ activeSub, onSubChange }) {
                                 <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
+                            {e.scheduledExit && <LeavingLine exit={e.scheduledExit} style={{ marginTop: 2 }} />}
                             {cfField && (
                               <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 <span style={{ fontWeight: 600 }}>{cfField.label}:</span> {cfShown(e) || '-'}

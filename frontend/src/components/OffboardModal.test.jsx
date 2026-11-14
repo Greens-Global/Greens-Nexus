@@ -3,10 +3,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Render-smoke for Offboard (Neil, Oct 8): the last day decides where the
-// paperwork goes and when they become Left.
-
-// The modal starts on TODAY'S LOCAL date - a UTC date is already tomorrow
-// in the evening in the US (after 5 PM Pacific).
+// paperwork goes and when they become Left. The Last Day starts EMPTY (Neil,
+// 11/14/2026); "Today - Access Ends Now" is one tap, and "today" is the
+// server's (offboardContext) - here the local date stands in for it.
 const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 // The last day is the shared DateField (a calendar button, never a native date
@@ -19,6 +18,7 @@ vi.mock('../tasks/components', async (orig) => ({
 const offboard = vi.fn(() => Promise.resolve({ id: 'ev1', applyStatus: 'scheduled', effectiveDate: '2099-01-31' }));
 vi.mock('../api', () => ({
   api: {
+    offboardContext: () => Promise.resolve({ reports: [], rolesHeld: [], today: localToday(), scheduled: null }),
     previewOffboard: (eid, body) => Promise.resolve({
       immediate: body.inputs.last_day <= localToday(), lastDay: body.inputs.last_day,
       package: true, documents: ['Separation Package'], sendTo: 'erin@x.com', why: 'they still have their work email until their last day',
@@ -35,8 +35,11 @@ const { OffboardModal } = await import('./HrPersonActions');
 const erin = { id: 'e1', firstName: 'Erin', lastName: 'Lee', jobTitle: 'Analyst', workEmail: 'erin@x.com', personalEmail: 'erin@gmail.com', managerEmail: 'max@x.com' };
 
 describe('OffboardModal', () => {
-  it('today: says their access ends now and the paperwork goes to the personal email', () => {
+  it('today: says their access ends now and the paperwork goes to the personal email', async () => {
     render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
+    expect(screen.getByLabelText('Last day').value).toBe('');            // never today by default
+    expect(screen.queryByText(/their access ends as soon as you confirm/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Today - Access Ends Now/ }));
     expect(screen.getByText(/their access ends as soon as you confirm/)).toBeTruthy();
     expect(screen.getByText(/erin@gmail.com/)).toBeTruthy();
   });
@@ -44,9 +47,10 @@ describe('OffboardModal', () => {
   it('a future last day is scheduled', async () => {
     const onSent = vi.fn();
     render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={onSent} toastErr={() => {}} />);
-    fireEvent.change(screen.getByDisplayValue(localToday()), { target: { value: '2099-01-31' } });
+    fireEvent.change(screen.getByLabelText('Last day'), { target: { value: '2099-01-31' } });
     expect(screen.getByText(/through 01\/31\/2099; the morning after, Nexus marks them Left by itself/)).toBeTruthy();
     fireEvent.change(screen.getByDisplayValue('- pick one -'), { target: { value: 'resignation' } });
+    await waitFor(() => expect(screen.getByText('Review').closest('button')).not.toBeDisabled());
     fireEvent.click(screen.getByText('Review'));
     await waitFor(() => expect(screen.getByText('Schedule Offboarding')).toBeTruthy());
     expect(screen.getByText(/Goes to erin@x.com/)).toBeTruthy();
@@ -60,7 +64,9 @@ describe('OffboardModal', () => {
   it('today: Offboard Now is held, and a refusal says why', async () => {
     const onSent = vi.fn();
     render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={onSent} toastErr={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: /Today - Access Ends Now/ }));
     fireEvent.change(screen.getByDisplayValue('- pick one -'), { target: { value: 'resignation' } });
+    await waitFor(() => expect(screen.getByText('Review').closest('button')).not.toBeDisabled());
     fireEvent.click(screen.getByText('Review'));
     const hold = await screen.findByRole('button', { name: 'Offboard Now, press and hold' });
     expect(hold).toBeDisabled();
