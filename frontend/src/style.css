@@ -11060,3 +11060,12 @@ select.nx-dl-chip:focus { border-color: var(--wk-brand, var(--pine)); background
   .hc-stagebar-wide { display: none !important; }
   .hc-stagebar-narrow { display: block; }
 }
+
+/* The exit sheet's footer (People > Exits, 11/14/2026): a row on a computer;
+   on a phone an even two-column grid, so four buttons never wrap ragged. */
+.nx-exit-foot { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+@media (max-width: 640px) {
+  .nx-exit-foot { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .nx-exit-foot > * { width: 100%; justify-content: center; }
+  .nx-exit-foot > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+}

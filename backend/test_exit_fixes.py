@@ -145,6 +145,25 @@ class ExitFixTests(unittest.TestCase):
         self.assertEqual(hle.apply_due_separations(), 1)
         self.assertEqual(len(self._get(models.HrChecklist, employee_id="e-leaver", kind="offboarding")), 1)
 
+    def test_an_exit_scheduled_before_the_change_gets_its_checklist_on_the_next_pass(self):
+        # A scheduled exit from before 11/14/2026: checklist asked for, none
+        # started. The daily pass starts it (dated from the last day), once.
+        r = self._offboard(FUTURE)
+        self.assertEqual(r.status_code, 200, r.text)
+        db = self._db()
+        db.query(models.HrChecklistItem).delete(synchronize_session=False)
+        db.query(models.HrChecklist).delete(synchronize_session=False)
+        ev = db.query(models.HrLifeEvent).filter_by(id=r.json()["id"]).first()
+        ev.inputs = {k: v for k, v in (ev.inputs or {}).items() if k != "checklist_id"}
+        db.commit()
+        db.close()
+        self.assertEqual(hle.apply_due_separations(), 0)          # nothing due yet...
+        cls = self._get(models.HrChecklist, employee_id="e-leaver", kind="offboarding")
+        self.assertEqual([(c.status, c.anchor_date) for c in cls], [("open", FUTURE)])   # ...but the checklist started
+        self.assertEqual(self._get(models.HrLifeEvent, id=r.json()["id"])[0].inputs["checklist_id"], cls[0].id)
+        hle.apply_due_separations()
+        self.assertEqual(len(self._get(models.HrChecklist, employee_id="e-leaver", kind="offboarding")), 1)
+
     def test_cancel_offboarding_cancels_its_checklist(self):
         r = self._offboard(FUTURE)
         self.assertEqual(r.status_code, 200, r.text)

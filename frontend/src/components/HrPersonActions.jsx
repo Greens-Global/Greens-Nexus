@@ -530,7 +530,7 @@ export function OffboardModal({ employee: e, companyName, initial = null, onClos
             <PersonSearchSelect placeholder="Blank = their supervisor" groups={[{ label: 'Nexus People', people: people.filter(p => p.email !== (e.workEmail || '').toLowerCase()) }]}
               onPick={em => setHandoverTo(em || '')} />
           )}
-          <div style={hint}>Their open tasks move to this person, in one project of their previously assigned tasks. Equipment they hold is returned and their future shifts come off the schedule.</div>
+          <div style={hint}>Their open tasks move to this person, in one project of their previously assigned tasks. Equipment they hold stays Return Pending until someone marks it Received or Lost on their exit, and their future shifts come off the schedule.</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={includeCompleted} onChange={ev => { setIncludeCompleted(ev.target.checked); setPreview(null); }} style={{ accentColor: 'var(--pine)' }} /> Include their completed tasks

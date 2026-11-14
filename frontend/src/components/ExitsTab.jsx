@@ -146,14 +146,16 @@ function ExitSheet({ exit, today, onClose, onChanged, toastOk, toastErr }) {
     onClose();
   };
   const openProfile = () => { openPersonProfile(exit.email); onClose(); };
-  const openChecklist = () => { window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-checklists' } })); onClose(); };
+  // Their own checklist, on their People page (11/14/2026) - not the board of everyone's.
+  const openChecklist = () => { openPersonProfile(exit.email, 'checklist'); onClose(); };
   const settle = (row) => async (outcome, body) => {
     await api.exitItemOutcome(exit.employeeId, row.rowKind, row.rowId, outcome, body);
     toastOk?.(outcome === 'lost' ? `${row.name} marked Lost.` : `${row.name} received.`);
   };
   const pkg = tr.package || {};
   const canSendPackage = !manager && ['none', 'declined'].includes(pkg.state);
-  const footer = data && (<>
+  // One even grid on a phone (style.css .nx-exit-foot); a plain row on a computer.
+  const footer = data && (<div className="nx-exit-foot">
     {exit.email && (
       <button type="button" className="secondary-btn" onClick={openProfile} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><User size={13} /> Open Profile</button>
     )}
@@ -185,7 +187,7 @@ function ExitSheet({ exit, today, onClose, onChanged, toastOk, toastErr }) {
         {busy === 'pdf' ? <><Spinner size={13} /> Generating…</> : 'Generate PDF'}
       </button>
     )}
-  </>);
+  </div>);
   const chip = (key) => <Chips chips={tr.chips} only={key} />;
   return (
     <Modal title={`Exit - ${exit.name}`} onClose={onClose} footer={footer}>
@@ -230,7 +232,7 @@ function ExitSheet({ exit, today, onClose, onChanged, toastOk, toastErr }) {
                   </ul>
                 )}
                 {!manager && (
-                  <button type="button" className="secondary-btn" style={{ ...small, marginTop: 8 }} onClick={openChecklist}><ListChecks size={12} /> Open Checklists</button>
+                  <button type="button" className="secondary-btn" style={{ ...small, marginTop: 8 }} onClick={openChecklist}><ListChecks size={12} /> Open Checklist</button>
                 )}
               </>) : <None>No offboarding checklist.</None>}
 

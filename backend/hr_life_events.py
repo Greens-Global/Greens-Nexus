@@ -3287,6 +3287,34 @@ def _cancel_exit_checklist(db: Session, ev: HrLifeEvent) -> None:
         db.flush()
 
 
+def _start_missing_exit_checklists(db: Session, today: str, limit: int = 50) -> int:
+    """An exit scheduled before checklists started at scheduling (11/14/2026)
+    with "Start the offboarding checklist" ticked has none yet: start it now,
+    so its notice-period steps are not held until the morning after the last
+    day. start_exit_checklist is once-only (the checklist id rides the
+    event), so this costs one read once every such exit has one. Commits."""
+    n = 0
+    rows = (db.query(HrLifeEvent).filter(HrLifeEvent.kind == "separation",
+                                         HrLifeEvent.apply_status == "scheduled",
+                                         HrLifeEvent.effective_date >= today)
+            .limit(limit * 4).all())
+    for ev in rows:
+        d = ev.inputs or {}
+        if n >= limit or not d.get("start_checklist") or d.get("checklist_id"):
+            continue
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == ev.employee_id).first()
+        if emp is None:
+            continue
+        try:
+            start_exit_checklist(db, emp, ev)
+            db.commit()
+            n += 1
+        except Exception as e:      # tried again on the next pass
+            db.rollback()
+            print(f"[life-events] offboarding checklist {ev.id} not started: {type(e).__name__}: {e}")
+    return n
+
+
 def apply_due_separations(limit: int = 20) -> int:
     """The last day is over: mark them Left (point 5, Pranshu Oct 8). Runs
     the morning AFTER the last day in BUSINESS_TZ - the person works their
@@ -3301,6 +3329,7 @@ def apply_due_separations(limit: int = 20) -> int:
     n = 0
     try:
         today = _today()
+        _start_missing_exit_checklists(db, today)
         ids = [r.id for r in db.query(HrLifeEvent).filter(HrLifeEvent.kind == "separation",
                                                            HrLifeEvent.apply_status == "scheduled",
                                                            HrLifeEvent.effective_date <= today)

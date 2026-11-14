@@ -52,7 +52,7 @@ import EgnytePersonFolder from '../egnyte/EgnytePersonFolder';
 import InvestorChart from '../components/InvestorChart';
 import OrgChartCanvas, { ReportsPill } from '../components/orgchart/OrgChartCanvas';
 import { divisionColor as divColorFor, countBelow } from '../components/orgchart/tree';
-import { takePendingPerson } from '../lib/personNav';
+import { takePendingPerson, takePendingTab } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
 import { COUNTRIES } from '../lib/countries';
@@ -3839,15 +3839,17 @@ export default function HR({ activeSub, onSubChange }) {
   // can resolve it to the row id the detail pane selects on.
   useEffect(() => {
     if (!employees.length) return undefined;
-    const openFor = email => {
+    const openFor = (email, tab = '') => {
       const em = (email || '').trim().toLowerCase();
       if (!em) return;
       const match = [...employees, ...extEmployees].find(x => (x.workEmail || '').toLowerCase() === em);
-      if (match) setSelectedId(match.id);
+      if (match) { if (tab) setOpenTab(tab); setSelectedId(match.id); }
       else toastErr(`${em} is not in People.`);
     };
-    openFor(takePendingPerson());
-    const h = e => openFor(e.detail?.email);
+    const pending = takePendingPerson();
+    const pendingTab = takePendingTab();
+    openFor(pending, pendingTab);
+    const h = e => openFor(e.detail?.email, e.detail?.tab);
     window.addEventListener('nexus:person', h);
     return () => window.removeEventListener('nexus:person', h);
   }, [employees, extEmployees]);   // eslint-disable-line react-hooks/exhaustive-deps
