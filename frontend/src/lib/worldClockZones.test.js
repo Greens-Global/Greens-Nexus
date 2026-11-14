@@ -122,3 +122,31 @@ describe('greetingFor', () => {
     expect(greetingFor(new Date(2026, 8, 28, 19))).toBe('Good Evening');
   });
 });
+
+// The phone header's short words (Neil, 11/13/2026: "CA 2:09 PM").
+describe('shortZoneLabel', () => {
+  const winter = new Date('2026-01-15T18:00:00Z');
+  const summer = new Date('2026-07-15T18:00:00Z');
+  it('says CA for California and the time family for other North American zones, in winter and summer', async () => {
+    const { shortZoneLabel } = await import('./worldClockZones');
+    expect(shortZoneLabel('America/Los_Angeles', winter)).toBe('CA');
+    for (const d of [winter, summer]) {
+      expect(shortZoneLabel('America/Chicago', d)).toBe('CT');
+      expect(shortZoneLabel('America/New_York', d)).toBe('ET');
+      expect(shortZoneLabel('America/Denver', d)).toBe('MT');
+      expect(shortZoneLabel('America/Anchorage', d)).toBe('AKT');
+    }
+  });
+  it('says the country elsewhere, shortened where it is long', async () => {
+    const { shortZoneLabel } = await import('./worldClockZones');
+    expect(shortZoneLabel('Asia/Kolkata', winter)).toBe('India');
+    expect(shortZoneLabel('Asia/Dubai', winter)).toBe('UAE');
+    expect(shortZoneLabel('Asia/Tokyo', winter)).toBe('Japan');
+    expect(shortZoneLabel('Australia/Sydney', winter)).toBe('Sydney');
+  });
+  it('rides on the home and California clocks of headerClocks', async () => {
+    const { headerClocks } = await import('./worldClockZones');
+    const clocks = headerClocks([], winter, 'America/Chicago', 'Asia/Kolkata');
+    expect(clocks.map((c) => c.short)).toEqual([undefined, 'India', 'CA']);
+  });
+});

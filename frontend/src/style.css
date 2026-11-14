@@ -5109,8 +5109,12 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 .dk-session-chip b { font-variant-numeric: tabular-nums; font-weight: 700; }
 [data-theme="dark"] .dk-session-chip { background: var(--card); border-color: var(--line); color: var(--muted); box-shadow: none; }
 [data-theme="dark"] .dk-session-chip--on { color: #4ade80; }
+.dk-session-go { display: none; }
 .dk-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }   /* bigger (Neil, Oct 14 2026): seen from across the room */
 .dk-dot--up { background: #00c875; }
+.dk-dot--break { background: #eab308; }   /* amber on a break, as the left menu's clock (sbring--break) */
+.dk-session-chip--on.dk-session-chip--break { color: #b45309; border-color: rgba(180,83,9,.3); }
+[data-theme="dark"] .dk-session-chip--on.dk-session-chip--break { color: #fbbf24; }
 .dk-dot--off { background: #b91c1c; opacity: .75; }   /* red = off the clock (Neil, Oct 14 2026: green working, amber break, red not) */
 
 /* stat cards */
@@ -5436,60 +5440,95 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 
 /* Phone dashboard header (Neil, Sep 23): the tab strip's margin, the
    wrapper's gap and the greeting's padding used to stack into ~40px of
-   nothing above "Good morning"; the view picker, Customize, the clock chip
-   and the view menu now share one scrolling toolbar row of same-height
-   pills, and the local time rides the date line instead of its own row. */
-.dk-sub-local { display: none; }
+   nothing above "Good morning". */
 @media (max-width: 900px) {
   .dashboard-view { gap: 8px; }
   .dashboard-view .module-tabs-inline { margin-bottom: 4px; }
   .dk-head { padding-top: 0; gap: 8px; }
 }
+.dk-zl-short, .dk-session-short { display: none; }
 @media (max-width: 640px) {
-  /* Phone: the big clock keeps the top-right corner (Neil, Oct 7). The two
-     column wrappers dissolve (display: contents) so the header's own pieces
-     land on a grid - greeting | clock on the first row, the date line and
-     the scrolling toolbar full-width beneath. Only the small zones hide;
-     California rides in the date line (.dk-sub-local). */
-  .dk-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 0; align-items: start; }
+  /* Phone: three mirrored rows (Neil, 11/13/2026) -
+       date            | home clock ("CA 2:09 PM")
+       Good Afternoon, | 4:09 PM
+       Neil!           | [clock chip] [Customize]
+     then the summary full width. The two column wrappers dissolve
+     (display: contents) so every piece lands on one grid. The greeting
+     spans both columns over rows 2-3 with a line height equal to the row
+     height, so its two lines sit level with the clock and the controls;
+     each line stops short of what is beside it (--dk-clock-w / --dk-tools-w,
+     measured in DeskGreeting) and a long name ends in "...". */
+  .dk-head {
+    --dk-big: clamp(20px, 6.2vw, 24px);   /* type-ok: the greeting and clock shrink together on a narrow phone */
+    --dk-line: 40px;
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto var(--dk-line) var(--dk-line) auto;
+    column-gap: 12px; row-gap: 0; align-items: center;
+  }
   .dk-head-left, .dk-head-right { display: contents; }
-  /* Date above the greeting (Neil, 11/04/2026): date, greeting, then the
-     summary; the clock keeps the top-right corner across the first two. */
-  .dk-head-date { grid-column: 1; grid-row: 1; font-size: 14px; margin-bottom: 2px; }
-  .dk-head h1 { font-size: 24px; grid-column: 1; grid-row: 2; }
-  .dk-clock-row { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
-  .dk-clock { font-size: 24px; }
-  .dk-head-sub { grid-column: 1 / -1; grid-row: 3; font-size: 15px; }
-  .dk-toolbar { grid-column: 1 / -1; grid-row: 4; }
-  .dk-toolbar { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 4px 0 6px; }
-  .dk-toolbar::-webkit-scrollbar { display: none; }
+  /* Row 1 spans the whole width on both sides (the buttons below set the
+     right column's width, not the date's), the date giving way to the home
+     clocks only when the two would meet. */
+  .dk-head-date {
+    grid-column: 1 / -1; grid-row: 1; justify-self: start; font-size: 13px; line-height: 20px; margin: 0;
+    max-width: calc(100% - var(--dk-zones-w, 0px) - 12px);
+    min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dk-head h1 {
+    grid-column: 1 / -1; grid-row: 2 / span 2; align-self: start; min-width: 0;
+    font-size: var(--dk-big); line-height: var(--dk-line); margin: 0;
+  }
+  .dk-hi, .dk-hi-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dk-hi { max-width: calc(100% - var(--dk-clock-w, 5.2em) - 12px); }
+  .dk-hi-name { max-width: calc(100% - var(--dk-tools-w, 180px) - 12px); }
+  .dk-clock-row { grid-column: 2; grid-row: 2; justify-self: end; position: relative; z-index: 1; }
+  .dk-clock { font-size: var(--dk-big); line-height: var(--dk-line); }
+  /* Home first: the house clock and California only, short ("CA 2:09 PM"),
+     at the top right across from the date. My Profile picks stay on the
+     computer. */
+  .dk-head-right > .dk-zones {
+    grid-column: 1 / -1; grid-row: 1; justify-self: end; margin: 0; gap: 10px;
+    font-size: 13px; line-height: 20px; white-space: nowrap;
+  }
+  .dk-zones .dk-zone-sep, .dk-zones .dk-zone.is-pick, .dk-zones .dk-zabbr { display: none; }
+  .dk-zl { display: none; }
+  .dk-zl-short { display: inline; }
+  .dk-head-right > .dk-zones b { font-weight: 600; }
+  .dk-head-sub { grid-column: 1 / -1; grid-row: 4; font-size: 14px; line-height: 1.45; margin-top: 2px; }
+  .dk-head-sub:empty { display: none; }
+
+  /* The controls: the clock chip, then Customize as its icon, one 36px
+     height, one radius, one border - level with the name. */
+  .dk-toolbar {
+    grid-column: 2; grid-row: 3; justify-self: end; position: relative; z-index: 1;
+    gap: 6px !important; padding: 0; flex-wrap: nowrap;
+  }
   .dk-toolbar > * { flex-shrink: 0; }
-  .dk-session-chip { white-space: nowrap; padding: 7px 11px; }
-  .dk-session-long { display: none; }
-  /* Tighter pills so picker, Customize, clock and the view menu fit a
-     390px screen without scrolling. */
-  .dk-toolbar { gap: 6px !important; }
+  .dk-toolbar .dk-session-chip { order: -1; }   /* the chip, then Customize */
   .dk-toolbar .dk-controls { gap: 6px !important; }
-  .dk-toolbar .secondary-btn, .dk-toolbar .primary-btn { padding: 7px 11px; }
-  .dk-toolbar select.form-input { padding-right: 26px !important; padding-left: 10px !important; }
-  /* One tidy group at the right edge (Neil, Oct 18): the view picker,
-     Customize, the clock chip and the "..." menu share one 40px height and
-     one bordered look - the picker read as a borderless box beside two
-     taller squares. Pushed right with an auto margin rather than
-     justify-content, so a row that ever overflows still scrolls from its
-     start. Customize and "..." are 40px squares. */
-  .dk-toolbar > :first-child { margin-left: auto; }
-  .dk-toolbar select.form-input, .dk-toolbar .secondary-btn, .dk-toolbar .dk-session-chip {
-    height: 40px; min-height: 40px; box-sizing: border-box;
+  .dk-toolbar .secondary-btn, .dk-toolbar .primary-btn, .dk-toolbar .dk-session-chip {
+    height: 36px; min-height: 36px; box-sizing: border-box;
+    border: 1px solid var(--wk-line2); border-radius: 10px; background: var(--wk-card, var(--card));
+    box-shadow: 0 1px 2px rgba(29, 33, 57, .04); font-size: 13px; font-weight: 600;
   }
-  .dk-toolbar select.form-input {
-    width: auto !important; max-width: 60vw !important; border: 1px solid var(--wk-line); border-radius: 8px;
-    background-color: var(--wk-card, var(--card)); box-shadow: 0 1px 2px rgba(29,33,57,.04); font-size: 13px !important;
-  }
-  .dk-toolbar .dk-icon-btn { width: 40px; padding: 0 !important; justify-content: center; }
-  .dk-toolbar .dk-session-chip { border-radius: 8px; }
-  .dk-zones { display: none; }
-  .dk-sub-local { display: inline; white-space: nowrap; }  /* "California 6:21 PM PDT" never splits */
+  .dk-toolbar .secondary-btn, .dk-toolbar .primary-btn { padding: 0 11px; }
+  .dk-toolbar .dk-customize { width: 36px; padding: 0; justify-content: center; color: var(--wk-dim); }
+  .dk-customize-word, .dk-customize .dk-customize-caret { display: none; }
+  .dk-customize svg { width: 17px; height: 17px; }
+  .dk-toolbar .dk-session-chip { gap: 7px; padding: 0 6px 0 11px; color: var(--ink); white-space: nowrap; }
+  .dk-toolbar .dk-session-chip--on { color: var(--wk-green); }
+  .dk-toolbar .dk-session-chip--break { color: #b45309; }
+  [data-theme="dark"] .dk-toolbar .dk-session-chip--break { color: #fbbf24; }
+  /* 36px to the eye, 44px to the thumb: the hit area reaches past the edge. */
+  .dk-toolbar .dk-customize, .dk-toolbar .dk-session-chip { position: relative; }
+  .dk-toolbar .dk-customize::before, .dk-toolbar .dk-session-chip::before { content: ''; position: absolute; inset: -4px -3px; }
+  .dk-toolbar .dk-customize:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
+  .dk-toolbar .dk-session-chip:hover { transform: none; }
+  .dk-toolbar .dk-dot { width: 9px; height: 9px; }
+  .dk-session-long, .dk-session-word { display: none; }
+  .dk-session-short { display: inline; }   /* "Working · 6:12" - hours worked, never read as a time of day */
+  .dk-session-go { display: inline-block; margin-left: -2px; color: var(--muted); }
+  [data-theme="dark"] .dk-toolbar .secondary-btn, [data-theme="dark"] .dk-toolbar .dk-session-chip { background: var(--card); border-color: var(--line); box-shadow: none; }
 }
 
 /* ── PDF Editor module: full-bleed workspace below the header ────────────── */
