@@ -23,6 +23,7 @@ import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
+import { TimeField } from '../tasks/components';
 import { leadsFor } from './HiringSchedule';
 import { REPORTS_TO } from './OfferModal';
 import { SignModal } from './ESign';
@@ -623,9 +624,9 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0 14px' }}>
               <div><label style={lbl}>Starts At</label>
-                <input className="form-input" type="time" style={{ width: '100%' }} value={timing.work_start} onChange={e => setTiming(t => ({ ...t, work_start: e.target.value }))} /></div>
+                <TimeField value={timing.work_start} onChange={x => setTiming(t => ({ ...t, work_start: x }))} ariaLabel="Starts at" style={{ width: '100%' }} /></div>
               <div><label style={lbl}>Ends At</label>
-                <input className="form-input" type="time" style={{ width: '100%' }} value={timing.work_end} onChange={e => setTiming(t => ({ ...t, work_end: e.target.value }))} /></div>
+                <TimeField value={timing.work_end} onChange={x => setTiming(t => ({ ...t, work_end: x }))} ariaLabel="Ends at" style={{ width: '100%' }} /></div>
               <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Work Days</label>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {DAYS.map(([k, l]) => {

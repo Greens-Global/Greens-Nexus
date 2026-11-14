@@ -21,8 +21,10 @@ import { useRole } from '../contexts/RoleContext';
 import { formatDateTime } from '../lib/datetime';
 import PersonSearchSelect from './PersonSearchSelect';
 import { Spinner } from './AsyncState';
-import { DateField } from '../tasks/components';
+import { DateField, TimeField } from '../tasks/components';
 import { dialog } from '../ui/dialog';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
 const hint = { fontSize: 12, color: 'var(--muted)', marginTop: 4 };
@@ -84,7 +86,7 @@ export function SchedulingFields({ value: v, onChange, roleId, tpls, department 
           <DateField value={v.date} onChange={x => set('date', x || '')} placeholder="MM/DD/YYYY" title="Interview date" style={{ width: '100%' }} />
         </div></div>
       <div><label style={FL}>Time *</label>
-        <input type="time" className="form-input" style={{ width: '100%' }} value={v.time} onChange={e => set('time', e.target.value)} /></div>
+        <TimeField value={v.time} onChange={x => set('time', x)} ariaLabel="Interview time" style={{ width: '100%' }} /></div>
       <div><label style={FL}>Length</label>
         <select className="form-input" style={{ width: '100%' }} value={v.duration} onChange={e => set('duration', Number(e.target.value))}>
           {DURATIONS.map(m => <option key={m} value={m}>{m} minutes</option>)}
@@ -120,6 +122,7 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
   const { myEmail } = useRole();
   const [tpls, setTpls] = useState([]);
   const [v, setV] = useState(() => emptySchedule(myEmail, replace));
+  const [start] = useState(() => JSON.stringify(emptySchedule(myEmail, replace)));
   const [busy, setBusy] = useState(false);
   const [leads, setLeads] = useState([]);
   useEffect(() => { api.ivTemplates().then(setTpls).catch(() => {}); }, []);
@@ -129,6 +132,8 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
   const problems = scheduleProblems(v);
   const name = [c.firstName, c.lastName].filter(Boolean).join(' ');
   const canSkip = !replace && ['applied', 'screening'].includes(c.stage);
+  // A stray click outside never loses a filled-in schedule (11/14/2026).
+  const dirty = JSON.stringify(v) !== start;
 
   async function skip() {
     if (busy) return;
@@ -153,8 +158,9 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
       onScheduled?.(iv);
     } catch (e) { toastErr?.(e?.message || 'Could not schedule the interview.'); setBusy(false); }
   }
+  const guard = useUnsavedGuard(dirty && !busy, onClose);
   return (
-    <div onClick={e => e.target === e.currentTarget && onClose()}
+    <div onClick={e => e.target === e.currentTarget && guard.requestClose()}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1260, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -166,7 +172,7 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
                   : `Teams invite to ${c.email || 'their email'} and everyone interviewing.`}
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button onClick={guard.requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
           {!c.email && <div style={{ fontSize: 13, color: 'hsl(var(--color-orange))', marginBottom: 12 }}>Add the candidate's email first (Edit) - the invite goes there.</div>}
@@ -186,6 +192,10 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
           </button>
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt message="The interview has not been scheduled yet. If you close now, what you picked will be lost."
+          onKeepEditing={guard.keepEditing} onDiscard={onClose} />
+      )}
     </div>
   );
 }

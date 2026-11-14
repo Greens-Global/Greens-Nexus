@@ -28,7 +28,7 @@
 // and moves the stage.
 import { useEffect, useRef, useState } from 'react';
 import { X, CalendarDays, FileText, FileSignature, XCircle, ChevronRight, Video, ClipboardList,
-         RotateCcw, Trophy, Undo2, Check, CheckCircle2, Circle, AlertTriangle, Settings, ThumbsUp, ThumbsDown, Clock } from 'lucide-react';
+         RotateCcw, Trophy, Undo2, Check, CheckCircle2, Circle, AlertTriangle, Settings, ThumbsUp, ThumbsDown, Clock, Ban } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
@@ -37,6 +37,10 @@ import { HiringPacketStatus, packetIsActive, usDay } from './HiringPacket';
 import { useEntities } from '../lib/queries';
 import { RecordingLine } from './Interviews';
 import CandidateNotes from './CandidateNotes';
+import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { useHiringAi } from './hiring/useHiringAi';
 
 export const STAGES = ['applied', 'screening', 'interview', 'decision', 'offer', 'hired'];
 export const STAGE_META = {
@@ -262,6 +266,10 @@ export default function CandidateDetailModal({
   const [decisionKey, setDecisionKey] = useState(0);
 
   useEffect(() => { api.ivList(c.id).then(setRounds).catch(() => setRounds([])); }, [c.id, c.stage, refreshKey]);
+  const aiOn = useHiringAi();
+  // The packet status re-reads after a Void from the footer.
+  const [docsKey, setDocsKey] = useState(0);
+  const docsRefresh = `${refreshKey ?? ''}-${docsKey}`;
 
   const sm = STAGE_META[c.stage] || STAGE_META.applied;
   const closed = c.stage === 'hired' || c.stage === 'rejected';
@@ -293,12 +301,22 @@ export default function CandidateDetailModal({
   const offerSigned = (packetEvents || []).some(e => e.kind === 'offer' && e.status === 'completed');
   const goHiringSettings = () => { onClose?.(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'hiring' } })); };
   // Once an interview is on the books the record is settled - no more editing
-  // of who they are or which company; the email goes with the packet.
+  // of who they are or which company. The email alone stays editable through
+  // Offer (11/14/2026): a typo there would send the offer letter nowhere, and
+  // the letter already out follows the corrected address.
   const canEdit = ['applied', 'screening'].includes(c.stage);
+  const canEditEmail = canEdit || ['interview', 'decision', 'offer'].includes(c.stage);
   const { data: entities } = useEntities();
   const companyName = (entities || []).find(e => e.id === c.company)?.name || '';
   // A move takes the note being written with it, then the box is clear.
   const move = (stage, fallback = '') => { onStage(c, stage, note.trim() || fallback); setNote(''); setNotesKey(k => k + 1); };
+  // A note typed but not added is not lost to a stray click (11/14/2026):
+  // closing asks first, and Add Note keeps it.
+  async function addTypedNote() {
+    try { await api.addCandidateNote(c.id, note.trim()); setNote(''); onClose(); }
+    catch (e) { toastErr?.(e?.message || 'Could not add the note.'); }
+  }
+  const guard = useUnsavedGuard(!!note.trim(), onClose, addTypedNote);
   async function uploadResume(file) {
     if (!file) return;
     setResumeBusy(true);
@@ -357,12 +375,29 @@ export default function CandidateDetailModal({
       {busy ? <Spinner size={14} /> : icon} {label}
     </button>
   );
-  const secondary = (label, onClick, icon, disabled) => (
-    <button className="secondary-btn" onClick={onClick} disabled={busy || disabled} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+  const secondary = (label, onClick, icon, disabled, title) => (
+    <button className="secondary-btn" onClick={onClick} disabled={busy || disabled} title={title || undefined} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       {icon} {label}
     </button>
   );
-  const reject = <button onClick={() => move('rejected')} disabled={busy} style={rejectBtn}><XCircle size={13} /> Reject</button>;
+  // An offer letter or hiring packet still out (11/14/2026): the server
+  // refuses Reject, Another Interview and Mark Hired By Hand under it, so the
+  // footer says why instead of a 409, and Void sits right beside them.
+  const openEvent = c.stage === 'offer' ? (packetEvents || []).find(e => ['offer', 'hire'].includes(e.kind)
+    && ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status)) || null : null;
+  const openWhat = openEvent ? (openEvent.kind === 'offer' ? 'offer letter' : 'hiring packet') : '';
+  const voidFirst = openEvent ? `Void the ${openWhat} first` : '';
+  async function voidOpen() {
+    try { await api.voidLifeEvent(openEvent.id); toastOk?.(`The ${openWhat} was voided.`); }
+    catch (e) { throw new Error(e?.message || 'Could not void it.', { cause: e }); }
+  }
+  const voidBtn = openEvent && (
+    <HoldButton key="void" label={openEvent.kind === 'offer' ? 'Void Offer Letter' : 'Void Hiring Packet'} doneLabel="Voided" icon={Ban}
+      holdMs={HOLD_RECORD_MS} onConfirm={voidOpen} onDone={() => { setDocsKey(k => k + 1); onUpdated?.(null); }}
+      fallbackMessage={`Void the ${openWhat}? It can no longer be signed.`} />
+  );
+  const reject = <button onClick={() => move('rejected')} disabled={busy || !!voidFirst} title={voidFirst || undefined}
+    style={{ ...rejectBtn, ...(voidFirst ? { opacity: 0.5, cursor: 'not-allowed' } : null) }}><XCircle size={13} /> Reject</button>;
 
   const footer = {
     applied: [reject, primary('Move To Screening', () => move('screening'), <ChevronRight size={14} />)],
@@ -377,8 +412,9 @@ export default function CandidateDetailModal({
       roomAllowed && secondary('Interview Room', () => onOpenRoom(c), <ClipboardList size={13} />),
       primary('Make Offer', toOffer, <FileSignature size={14} />, false, goGreen)],
     offer: [reject,
-      secondary('Another Interview', () => onSchedule(c), <Undo2 size={13} />),
-      secondary('Mark Hired By Hand', markHiredByHand, null),
+      voidBtn,
+      secondary('Another Interview', () => onSchedule(c), <Undo2 size={13} />, !!voidFirst, voidFirst),
+      secondary('Mark Hired By Hand', markHiredByHand, null, !!voidFirst, voidFirst),
       awaitingMe && onSignPacket && primary('Sign Now', () => onSignPacket(awaitingMe.senderPartyId), <FileSignature size={14} />),
       noOfferLetter && secondary('Set Up Offer Letter', goHiringSettings, <Settings size={13} />),
       !packetOut && offers && !offerSigned && primary('Make Offer', () => onMakeOffer(c), <FileSignature size={14} />, packetEvents === null, goGreen),
@@ -418,7 +454,7 @@ export default function CandidateDetailModal({
     {(c.stage === 'decision' || c.decision) && <DecisionPanel candidateId={c.id} refreshKey={`${refreshKey}-${c.stage}-${decisionKey}`} onReload={() => setDecisionKey(k => k + 1)} />}
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 28px' }}>
       <div style={{ gridColumn: 'span 1', maxWidth: 320 }}>
-        {about('Email', c.email || (canEdit ? 'No email yet - add it with Edit' : 'No email yet'), !c.email)}
+        {about('Email', c.email || (canEditEmail ? 'No email yet - add it with Edit' : 'No email yet'), !c.email)}
         {c.phone && about('Phone', c.phone)}
         {c.expectedStart && about('Expected Start', usDay(c.expectedStart))}
         {c.expectedInterviewOn && ['applied', 'screening'].includes(c.stage) && about('Interview Expected By', `${usDay(c.expectedInterviewOn)} - screening due the business day before`)}
@@ -458,12 +494,15 @@ export default function CandidateDetailModal({
               <b style={{ fontSize: 13 }}>Interview {i + 1}</b>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{formatDateTime(r.at)}</span>
               <span style={chip(tone)}>{label}</span>
-              {r.status === 'scored' && <span style={{ fontSize: 13, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{Math.round(r.totalScore)}/100</span>}
+              {aiOn && r.status === 'scored' && r.totalScore != null && <span style={{ fontSize: 13, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{Math.round(r.totalScore)}/100</span>}
               <span style={{ flex: 1 }} />
-              {r.status === 'scheduled' && !closed && <>
+              {r.status === 'scheduled' && !closed && (
                 <button className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => onSchedule(c, r)}>Reschedule</button>
+              )}
+              {/* A round still booked on a rejected card can be canceled (never rescheduled). */}
+              {r.status === 'scheduled' && c.stage !== 'hired' && (
                 <button className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => cancelRound(r)}>Cancel</button>
-              </>}
+              )}
             </div>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 5 }}>
               With {(r.interviewerNames || r.interviewerEmails || []).join(', ') || 'no one set'} · {r.durationMin} minutes
@@ -480,7 +519,7 @@ export default function CandidateDetailModal({
   const documents = (
     <div>
       <OfferProgress events={packetEvents} firstName={c.firstName} />
-      <HiringPacketStatus candidateId={c.id} refreshKey={refreshKey} onEvents={setPacketEvents} hideSign
+      <HiringPacketStatus candidateId={c.id} refreshKey={docsRefresh} onEvents={setPacketEvents} hideSign
         onSignNow={onSignPacket} onChanged={() => onUpdated?.(null)} toastOk={toastOk} toastErr={toastErr} />
       {c.stage === 'offer' && !packetOut && packetEvents !== null && !(packetEvents || []).length && (
         <div style={{ fontSize: 13, color: 'var(--muted)', padding: '14px 0' }}>
@@ -508,7 +547,7 @@ export default function CandidateDetailModal({
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 18, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '18px 28px 0', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -518,8 +557,10 @@ export default function CandidateDetailModal({
                 {[c.roleTitle, c.department, companyName].filter(Boolean).join(' · ')}
               </div>
             </div>
-            {onEdit && canEdit && <button className="secondary-btn" onClick={() => onEdit(c)} style={{ fontSize: 13, padding: '5px 12px', flexShrink: 0 }}>Edit</button>}
-            <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+            {onEdit && canEditEmail && <button className="secondary-btn" onClick={() => onEdit(c, { emailOnly: !canEdit })}
+              title={canEdit ? undefined : 'Only the email can change once the interview is booked'}
+              style={{ fontSize: 13, padding: '5px 12px', flexShrink: 0 }}>{canEdit ? 'Edit' : 'Edit Email'}</button>}
+            <button onClick={guard.requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
           </div>
           <StageBar stage={c.stage} interviewSkipped={!!c.interviewSkippedBy} />
           <div style={{ background: `hsla(${sm.hue},0.08)`, borderRadius: 12, padding: '11px 14px', fontSize: 13, display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 10, lineHeight: 1.5 }}>
@@ -544,7 +585,7 @@ export default function CandidateDetailModal({
           {/* The packet status is read even when its tab is not open - the footer depends on it. */}
           {shownTab !== 'documents' && ['offer', 'hired'].includes(c.stage) && (
             <div style={{ display: 'none' }}>
-              <HiringPacketStatus candidateId={c.id} refreshKey={refreshKey} onEvents={setPacketEvents} hideSign onSignNow={onSignPacket} onChanged={() => onUpdated?.(null)} toastOk={toastOk} toastErr={toastErr} />
+              <HiringPacketStatus candidateId={c.id} refreshKey={docsRefresh} onEvents={setPacketEvents} hideSign onSignNow={onSignPacket} onChanged={() => onUpdated?.(null)} toastOk={toastOk} toastErr={toastErr} />
             </div>
           )}
         </div>
@@ -554,6 +595,11 @@ export default function CandidateDetailModal({
           </div>
         )}
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt title="Add Your Note?" message="The note you typed has not been added yet. If you close now, it will be lost."
+          saveText="Add Note" onKeepEditing={guard.keepEditing} onDiscard={() => { setNote(''); onClose(); }}
+          onSave={guard.saveAndClose} saving={guard.saving} />
+      )}
     </div>
   );
 }

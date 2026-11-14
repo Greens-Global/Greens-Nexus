@@ -14,6 +14,7 @@ import { RoleChangeRequestCard, RoleChangeDecisionModal } from '../components/Ro
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
 import CandidateFormModal from '../components/HiringCandidateForm';
+import { useHiringAi } from '../components/hiring/useHiringAi';
 import {
   Users, Plus, Search, X, Mail, Briefcase, Check, TrendingUp, LogOut,
   ChevronLeft, Network, UserPlus, Pencil, FileText,
@@ -22,7 +23,7 @@ import {
   Shield, AlertTriangle, Clock, RotateCcw,
   ChevronDown, ChevronUp, Link2, ExternalLink,
   ListChecks, RefreshCw, Hourglass, BarChart3,
-  Target,
+  Target, UserCheck,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -1260,8 +1261,11 @@ function ActionsMenu({ items }) {
 // ── Hiring pipeline (Phase 2) ─────────────────────────────────────────────────
 const daysSince = iso => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
 
-function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSignature, openId = '', onOpened }) {
+function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSignature, onOpenPerson, openId = '', onOpened }) {
   const [candidates, setCandidates] = useState(null);
+  // AI scoring is off unless switched on for the server (ai_switch): no score
+  // chips, Leaderboard or Final Round while it is.
+  const aiOn = useHiringAi();
   const [addOpen, setAddOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   // People > New > From Hiring (11/13/2026) lands here with the candidate picked:
@@ -1279,6 +1283,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
   const [loadErr, setLoadErr] = useState(false);
   const [editing, setEditing] = useState(null);            // candidate open in the edit form
+  const [editEmailOnly, setEditEmailOnly] = useState(false); // Interview through Offer: the email alone
   const [scheduling, setScheduling] = useState(null);      // { candidate, replace } - the one scheduling path
   const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
   const [offerFor, setOfferFor] = useState(null);          // candidate the offer is being made to (Oct 14)
@@ -1292,6 +1297,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [hView, setHView] = useState('pipeline');
   const [openings, setOpenings] = useState([]);
   const [openingFilter, setOpeningFilter] = useState('');   // '' = every candidate
+  const [openingFocus, setOpeningFocus] = useState('');     // a headcount request's Open In Hiring
   const loadOpenings = useCallback(() => { api.listOpenings().then(setOpenings).catch(() => {}); }, []);
   useEffect(() => { loadOpenings(); }, [loadOpenings]);
   // Headcount Requests are off per company until Settings turns them on (Neil,
@@ -1321,18 +1327,20 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
     setDetail(d => (d ? rows.find(x => x.id === d.id) || d : d));
   }).catch(() => {}), []);
 
+  function afterMove(c, stage, updated) {
+    setCandidates(prev => prev.map(x => x.id === c.id ? { ...x, ...updated } : x));
+    setDetail(stage === 'hired' ? null : { ...c, ...updated });
+    if (stage === 'hired') {
+      toastOk(`${candName(c)} hired - added to People as Onboarding (${updated.createdEmployee?.employeeCode || ''}).`);
+      if (updated.createdEmployee) onEmployeeCreated(updated.createdEmployee);
+    } else if (stage === 'rejected') toastOk(`${candName(c)} marked rejected.`);
+    else toastOk(`${candName(c)} → ${STAGE_META[stage].label}.`);
+  }
   async function moveStage(c, stage, note) {
     if (busy) return;
     setBusy(true);
     try {
-      const updated = await api.updateCandidate(c.id, { stage, stage_note: note || '' });
-      setCandidates(prev => prev.map(x => x.id === c.id ? { ...x, ...updated } : x));
-      setDetail(stage === 'hired' ? null : { ...c, ...updated });
-      if (stage === 'hired') {
-        toastOk(`${candName(c)} hired - added to People as Onboarding (${updated.createdEmployee?.employeeCode || ''}).`);
-        if (updated.createdEmployee) onEmployeeCreated(updated.createdEmployee);
-      } else if (stage === 'rejected') toastOk(`${candName(c)} marked rejected.`);
-      else toastOk(`${candName(c)} → ${STAGE_META[stage].label}.`);
+      afterMove(c, stage, await api.updateCandidate(c.id, { stage, stage_note: note || '' }));
     } catch (err) { toastErr(err?.message || 'Could not update stage.'); }
     setBusy(false);
   }
@@ -1351,7 +1359,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const viewTabs = (
     <div className="scroll-tabs" role="tablist" aria-label="Hiring" style={{ display: 'flex', gap: 4 }}>
       {[['pipeline', 'Pipeline'], ['openings', `Openings${activeOpenings.length ? ` (${activeOpenings.length})` : ''}`], ...(hcMeta.showTab ? [['headcount', 'Headcount']] : [])].map(([k, label]) => (
-        <button key={k} type="button" role="tab" aria-selected={hView === k} onClick={() => { setHView(k); if (k === 'pipeline') { refreshBoard(); loadOpenings(); } }}
+        <button key={k} type="button" role="tab" aria-selected={hView === k} onClick={() => { setHView(k); setOpeningFocus(''); if (k === 'pipeline') { refreshBoard(); loadOpenings(); } }}
           className={hView === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 13, padding: '5px 12px' }}>{label}</button>
       ))}
     </div>
@@ -1362,9 +1370,9 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>{viewTabs}</div>
         <Suspense fallback={<SkeletonBlocks count={3} height={64} />}>
           {hView === 'openings'
-            ? <JobOpenings toastOk={toastOk} toastErr={toastErr} canSeePay={canSeePay} directCompanies={hcMeta.directOpeningCompanies}
+            ? <JobOpenings key={openingFocus || 'all'} focusId={openingFocus} toastOk={toastOk} toastErr={toastErr} canSeePay={canSeePay} directCompanies={hcMeta.directOpeningCompanies}
               onCreated={loadOpenings} onFilterPipeline={id => { setOpeningFilter(id); setHView('pipeline'); refreshBoard(); loadOpenings(); }} />
-            : <HeadcountRequests toastOk={toastOk} toastErr={toastErr} />}
+            : <HeadcountRequests toastOk={toastOk} toastErr={toastErr} onOpenOpening={id => { setOpeningFocus(id); setHView('openings'); loadOpenings(); }} />}
         </Suspense>
       </div>
     );
@@ -1412,11 +1420,18 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
     if (to < from && !await dialog.confirm(`Move ${candName(c)} back to ${STAGE_META[stage].label}?`, { title: 'Move Back', confirmText: 'Move Back' })) return;
     moveStage(c, stage, to < from ? `Moved back to ${STAGE_META[stage].label}` : '');
   }
-  // Only for an offer signed on paper - and never without saying why.
-  async function markHiredByHand(c, note = '') {
-    const why = note || await dialog.prompt(`Mark ${candName(c)} hired without the hiring packet? Say why - for example "signed the offer on paper".`,
-      { title: 'Mark Hired By Hand', confirmText: 'Mark Hired', required: true });
-    if (why) moveStage(c, 'hired', why);
+  // Only for an offer signed on paper - and never without saying why. The
+  // last step is a hold (Hold to confirm): it makes an employee record.
+  async function markHiredByHand(c) {
+    let updated = null;
+    await dialog.prompt(`Mark ${candName(c)} hired without the hiring packet? Say why - for example "signed the offer on paper". They are added to People as Onboarding.`,
+      { title: 'Mark Hired By Hand', confirmText: 'Mark Hired', doneText: 'Hired', required: true, hold: true, holdIcon: UserCheck,
+        onConfirm: async (why) => {
+          const text = String(why || '').trim();
+          if (!text) throw new Error('Say why they are marked hired by hand.');
+          updated = await api.updateCandidate(c.id, { stage: 'hired', stage_note: text });
+        } });
+    if (updated) afterMove(c, 'hired', updated);
   }
 
   const card = c => {
@@ -1446,7 +1461,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
             </span>
           </div>
         )}
-        {(c.interview || c.interviewScore != null) && !['hired', 'rejected'].includes(c.stage) && (
+        {(c.interview || (aiOn && c.interviewScore != null)) && !['hired', 'rejected'].includes(c.stage) && (
           <div style={{ marginTop: 7, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
             {c.interview && ['scheduled', 'live'].includes(c.interview.status) && (
               <span title={c.interview.interviewers?.length ? `With ${c.interview.interviewers.join(', ')}` : ''}
@@ -1464,12 +1479,12 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
                 <CheckCircle size={10} /> Interviewed
               </span>
             )}
-            {c.interviewScore != null && (
-              <span title="Calibrated interview score (0–100)"
+            {aiOn && c.interviewScore != null && (
+              <span title="Calibrated interview score (0-100)"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 12,
-                  background: c.interviewScore >= 70 ? 'hsla(var(--color-green),0.12)' : c.interviewScore >= 45 ? 'hsla(var(--color-orange),0.12)' : 'hsla(var(--color-red),0.12)',
-                  color: c.interviewScore >= 70 ? 'hsl(var(--color-green))' : c.interviewScore >= 45 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))' }}>
-                🏆 {c.interviewScore}
+                  background: c.interviewScore >= 70 ? 'hsla(var(--color-green),0.12)' : c.interviewScore >= 45 ? 'var(--warn-bg)' : 'hsla(var(--color-red),0.12)',
+                  color: c.interviewScore >= 70 ? 'hsl(var(--color-green))' : c.interviewScore >= 45 ? 'var(--warn-fg)' : 'hsl(var(--color-red))' }}>
+                Score {c.interviewScore}
               </span>
             )}
           </div>
@@ -1496,7 +1511,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
               <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#b45309', color: '#fff' }}>{needPackets.length}</span>
             )}
           </button>
-          <button className="secondary-btn" style={{ fontSize: 13 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
+          {aiOn && <button className="secondary-btn" style={{ fontSize: 13 }} onClick={() => setLbOpen(true)}>Leaderboard</button>}
           {inactive.length > 0 && (
             <button className="secondary-btn" style={{ fontSize: 13 }} onClick={() => setShowInactive(s => !s)}
               title="Rejected candidates removed from the board, or rejected more than 90 days ago">
@@ -1618,7 +1633,8 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onMarkHired={c => markHiredByHand(c)}
         refreshKey={packetRefresh}
         onUpdated={u => { if (u) { setCandidates(prev => prev.map(x => x.id === u.id ? { ...x, ...u } : x)); setDetail(d => d && d.id === u.id ? { ...d, ...u } : d); } else refreshBoard(); }}
-        onEdit={cand => setEditing(cand)}
+        onEdit={(cand, o) => { setEditEmailOnly(!!o?.emailOnly); setEditing(cand); }}
+        onOpenPerson={onOpenPerson ? cand => { setDetail(null); onOpenPerson(cand.employeeId); } : undefined}
         onSchedule={(cand, replace) => setScheduling({ candidate: cand, replace: replace || null })}
         onOpenRoom={cand => { setDetail(null); setIvFor(cand); }}
         onSendPacket={cand => setPacketFor(cand)} onMakeOffer={cand => setOfferFor(cand)} onSignPacket={setSignParty}
@@ -1635,7 +1651,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       {scheduling && <ScheduleInterviewModal candidate={scheduling.candidate} replace={scheduling.replace}
         onClose={() => setScheduling(null)} toastOk={toastOk} toastErr={toastErr}
         onScheduled={() => { setScheduling(null); setPacketRefresh(n => n + 1); refreshBoard(); }} />}
-      {editing && <CandidateFormModal candidate={editing} onClose={() => setEditing(null)} toastErr={toastErr}
+      {editing && <CandidateFormModal candidate={editing} emailOnly={editEmailOnly} onClose={() => setEditing(null)} toastErr={toastErr}
         onSaved={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(d => d && d.id === u.id ? u : d); toastOk(`${candName(u)} updated.`); }} />}
       {packetFor && <SendHiringPacketModal candidate={packetFor} canSeePay={canSeePay} toastErr={toastErr}
         onClose={() => setPacketFor(null)}
@@ -1654,7 +1670,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           setSignParty(null); setPacketRefresh(n => n + 1);
           toastOk('Signed - the new hire has been emailed the packet to sign.');
         }} />
-      {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
+      {aiOn && lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); refreshBoard(); }} toastOk={toastOk} toastErr={toastErr}
         onDecision={(kind, cand) => {
           // The offer and the rejection wait for the Decision step (Oct 19).
@@ -4097,6 +4113,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {sub === 'hr-hiring' && (
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr} openId={hiringOpenId} onOpened={() => setHiringOpenId('')}
+          onOpenPerson={id => { if (!id) return; setOpenTab('overview'); setSelectedId(id); onSubChange?.('hr-people'); }}
           onEmployeeCreated={emp => { setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b)))); refreshPeople(); }}
           onSendForSignature={c => {
             // E-Sign lives in the Documents module now - stash the offer and jump

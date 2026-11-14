@@ -12,7 +12,7 @@ const promptMock = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { prompt: (...a) => promptMock(...a), confirm: vi.fn(), alert: vi.fn() } }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [] }) }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'hr@x.com' }) }));
-vi.mock('../tasks/components', () => ({ DateField: () => null }));
+vi.mock('../tasks/components', () => ({ DateField: () => null, TimeField: () => null }));
 vi.mock('./PersonSearchSelect', () => ({ default: () => null }));
 
 const { ScheduleInterviewModal } = await import('./HiringSchedule');

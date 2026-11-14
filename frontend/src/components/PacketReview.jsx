@@ -21,6 +21,7 @@ import DetailsFormFields from './DetailsFormFields';
 import SignOnceModal from './SignOnceModal';
 import { REPORTS_TO } from './OfferModal';
 import { DateField } from '../tasks/components';
+import HoldButton, { HOLD_RECORD_MS } from '../ui/HoldButton';
 
 // What is printed shows the date as the document prints it - MM/DD/YYYY -
 // whatever the reader's own Profile > Date Format (Neil, 11/04/2026).
@@ -178,11 +179,13 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
     } catch (e) { toastErr?.(e?.message || 'Could not send the link.'); }
     setBusy('');
   }
+  // Void is held (Hold to confirm, Neil, Oct 30 2026): a refusal rewinds the
+  // button with the reason; the review closes once the check has shown.
   async function voidIt() {
     setBusy('void');
-    try { await api.voidLifeEvent(eventId); onChanged?.(); onClose(); toastOk?.('Packet voided - nothing was sent.'); }
-    catch (e) { toastErr?.(e?.message || 'Could not void it.'); }
-    setBusy('');
+    try { await api.voidLifeEvent(eventId); toastOk?.('Packet voided - nothing was sent.'); }
+    catch (e) { throw new Error(e?.message || 'Could not void it.', { cause: e }); }
+    finally { setBusy(''); }
   }
 
   const field = (label, key, props = {}) => (
@@ -386,9 +389,9 @@ export default function PacketReview({ eventId, onClose, onChanged, toastOk, toa
           <span style={{ fontSize: 13, color: 'var(--muted)', marginRight: 'auto' }}>Waiting For {v.name || 'the verifier'} ({v.roleLabel || 'HR'}) To Verify</span>
         )}
         {['intake', 'review'].includes(ev.status) && (
-          <button className="secondary-btn" onClick={voidIt} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'void' ? <Spinner size={13} /> : <Ban size={13} />} Void
-          </button>
+          <HoldButton label="Void" doneLabel="Voided" icon={Ban} holdMs={HOLD_RECORD_MS} onConfirm={voidIt}
+            onDone={() => { onChanged?.(); onClose(); }} disabled={!!busy && busy !== 'void'}
+            fallbackMessage="Void this packet? Nothing was sent, and it can no longer be sent." />
         )}
         <button className="secondary-btn" onClick={onClose} disabled={busy === 'send'}>Close</button>
         {inReview && data.isVerifier && (

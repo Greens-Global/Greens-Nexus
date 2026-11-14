@@ -16,8 +16,10 @@ vi.mock('../api', () => ({
     hiringPacketOptions: () => Promise.resolve({ picked: null, options: [] }),
     offerOptions: () => (ctl.optionsFail ? Promise.reject(new Error('API error 500')) : Promise.resolve({ choices: ctl.choices })),
     candidateDecision: () => Promise.resolve(ctl.decision),
+    voidLifeEvent: (...a) => voidMock(...a),
   },
 }));
+const voidMock = vi.fn(() => Promise.resolve({}));
 const confirmMock = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmMock(...a), prompt: vi.fn(), alert: vi.fn() } }));
 vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
@@ -213,5 +215,56 @@ describe('offerSteps', () => {
     const packet = st.steps.find(s => s.key === 'packet');
     expect(packet.error).toBe(true);
     expect(packet.label).toContain('No hiring packet is set up.');
+  });
+});
+
+// The hiring fixes of 11/14/2026.
+describe('Hiring fixes', () => {
+  const reset = (over = {}) => { Object.assign(ctl, { choices: [{ id: 'o1', name: 'Offer Letter' }], optionsFail: false, events: [] }, over); };
+
+  it('Offer with the letter out: Reject, Another Interview and Mark Hired By Hand say to void it first, and Void is right there', async () => {
+    reset({ events: [{ id: 'e1', kind: 'offer', status: 'sent', createdAt: '2026-11-10T10:00:00Z', verifiedAt: '2026-11-10T10:05:00Z', flags: [],
+      parties: [{ id: 'p2', name: 'Jane Doe', isSubject: true, signedAt: '', order: 1 }] }] });
+    render(<CandidateDetailModal {...props} onMakeOffer={vi.fn()} candidate={{ ...base, stage: 'offer' }} />);
+    const voidBtn = await screen.findByRole('button', { name: /Void Offer Letter/ });
+    expect(voidBtn).toBeTruthy();
+    for (const label of ['Reject', 'Another Interview', 'Mark Hired By Hand']) {
+      const b = screen.getByText(label).closest('button');
+      expect(b.disabled).toBe(true);
+      expect(b.getAttribute('title')).toBe('Void the offer letter first');
+    }
+  });
+
+  it('Offer with nothing out: Reject and Another Interview work and there is no Void', async () => {
+    reset();
+    render(<CandidateDetailModal {...props} onMakeOffer={vi.fn()} candidate={{ ...base, stage: 'offer' }} />);
+    await waitFor(() => expect(screen.getByText('Make Offer')).toBeTruthy());
+    expect(screen.getByText('Reject').closest('button').disabled).toBe(false);
+    expect(screen.getByText('Another Interview').closest('button').disabled).toBe(false);
+    expect(screen.queryByRole('button', { name: /Void Offer Letter/ })).toBeNull();
+  });
+
+  it('a round still booked on a rejected card can be canceled, never rescheduled', async () => {
+    reset();
+    render(<CandidateDetailModal {...props} candidate={{ ...base, id: 'with-round', stage: 'rejected' }} />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Interviews/ }));
+    await waitFor(() => expect(screen.getByText('Cancel')).toBeTruthy());
+    expect(screen.queryByText('Reschedule')).toBeNull();
+  });
+
+  it('from Interview on, Edit opens the email alone', () => {
+    reset();
+    const onEdit = vi.fn();
+    render(<CandidateDetailModal {...props} onEdit={onEdit} candidate={{ ...base, stage: 'decision' }} />);
+    fireEvent.click(screen.getByText('Edit Email'));
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }), { emailOnly: true });
+  });
+
+  it('Hired: Open In People opens the new employee', () => {
+    reset();
+    const onOpenPerson = vi.fn();
+    render(<CandidateDetailModal {...props} onOpenPerson={onOpenPerson} candidate={{ ...base, stage: 'hired', employeeId: 'emp-9' }} />);
+    fireEvent.click(screen.getByText('Open In People'));
+    expect(onOpenPerson).toHaveBeenCalledWith(expect.objectContaining({ employeeId: 'emp-9' }));
   });
 });

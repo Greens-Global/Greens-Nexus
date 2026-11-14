@@ -11,6 +11,8 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { Spinner } from './AsyncState';
 import { useRole } from '../contexts/RoleContext';
+import { DateField, TimeField } from '../tasks/components';
+import { useHiringAi } from './hiring/useHiringAi';
 
 // AI-assisted interviews: Teams invite → live questionnaire → transcript
 // auto-fill → calibrated scores → role leaderboard → final-round invite.
@@ -39,7 +41,8 @@ const STATUS_CHIP = {
   completed: ['var(--mist)', 'var(--muted)'],
   scored:    ['hsla(var(--color-green),0.12)', 'hsl(var(--color-green))'],
 };
-const Chip = ({ s }) => { const [bg, fg] = STATUS_CHIP[s] || STATUS_CHIP.scheduled; return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.04em', background: bg, color: fg }}>{s}</span>; };
+const STATUS_WORD = { scheduled: 'Scheduled', live: 'In Progress', completed: 'Completed', scored: 'Scored', canceled: 'Canceled' };
+const Chip = ({ s }) => { const [bg, fg] = STATUS_CHIP[s] || STATUS_CHIP.scheduled; return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: bg, color: fg }}>{STATUS_WORD[s] || s}</span>; };
 
 // Open a recording / transcript through its short-lived link (private bucket).
 async function openInterviewFile(iv, kind, toastErr) {
@@ -261,6 +264,8 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
 // and the score) and Nexus finishes the merge by itself. Once scored, the
 // decision is made right here: Move To Offer, Another Round, or Reject.
 export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toastErr }) {
+  // AI scoring only while AI is switched on for the server (ai_switch).
+  const aiOn = useHiringAi();
   const [list, setList] = useState(null);
   const [sel, setSel] = useState(null);             // selected interview object
   const [busy, setBusy] = useState('');
@@ -305,7 +310,8 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
   const endInterview = run('end', async () => {
     const u = await api.ivFinish(sel.id, { answers: sel.answers });
     refreshSel(u); setTyped(false);
-    toastOk?.((u.followupNote?.startsWith('Waiting') ? 'Interview ended - Nexus pulls the Teams transcript as soon as it is published, then scores it.' : 'Interview ended - scoring now.')
+    toastOk?.((!aiOn ? (u.followupNote?.startsWith('Waiting') ? 'Interview ended - Nexus saves the Teams transcript as soon as it is published.' : 'Interview ended.')
+      : u.followupNote?.startsWith('Waiting') ? 'Interview ended - Nexus pulls the Teams transcript as soon as it is published, then scores it.' : 'Interview ended - scoring now.')
       + ' The interviewers and the department head were asked for their decision.');
   });
   const retryNow = run('retry', async () => refreshSel(await api.ivFollowupNow(sel.id)));
@@ -351,11 +357,11 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
               {sel.joinUrl && (
                 <a href={sel.joinUrl} target="_blank" rel="noreferrer" className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, textDecoration: 'none' }}>
-                  <Video size={13} /> Join Teams meeting
+                  <Video size={13} /> Join Teams Meeting
                 </a>
               )}
               <div style={{ flex: 1 }} />
-              {sel.status === 'scored' && <span style={{ fontSize: 15, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />{Math.round(sel.totalScore)}/100</span>}
+              {aiOn && sel.status === 'scored' && sel.totalScore != null && <span style={{ fontSize: 15, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />{Math.round(sel.totalScore)}/100</span>}
             </div>
             <div style={{ marginBottom: 12 }}>
               <RecordingLine iv={sel} busy={busy === 'rec'} toastErr={toastErr}
@@ -371,8 +377,9 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                 <span style={{ flex: 1 }}>
                   {sel.followupStatus !== 'waiting' ? sel.followupNote
                     : (sel.followupNote || '').startsWith('Waiting for Teams')
-                      ? `${sel.followupNote}. Nexus keeps trying for up to 2 hours and scores it as soon as it arrives - you'll get a bell.`
-                      : `${sel.followupNote || 'Working on it'} - you'll get a bell when it's scored.`}
+                      ? (aiOn ? `${sel.followupNote}. Nexus keeps trying for up to 2 hours and scores it as soon as it arrives - you'll get a bell.`
+                        : `${sel.followupNote}. Nexus keeps trying for up to 2 hours and saves it to the interview.`)
+                      : aiOn ? `${sel.followupNote || 'Working on it'} - you'll get a bell when it's scored.` : (sel.followupNote || 'Working on it')}
                 </span>
                 {['waiting', 'failed'].includes(sel.followupStatus) && (
                   <button className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={retryNow} disabled={!!busy}>
@@ -385,7 +392,7 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
             {/* Transcript + AI actions - folded until the interview is over */}
             {(sel.status === 'completed' || sel.status === 'scored') && (
               <details style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '8px 12px', marginBottom: 12 }}>
-              <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 800 }}>Transcript And Scoring</summary>
+              <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 800 }}>{aiOn ? 'Transcript And Scoring' : 'Transcript'}</summary>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0 4px' }}>
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('pull', async () => { await api.ivPullTranscript(sel.id); refreshSel({ ...sel, hasTranscript: true }); }, 'Transcript pulled from Teams')}>
@@ -394,15 +401,17 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                 <button className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setShowPaste(p => !p)}>
                   <FileText size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />Paste Transcript
                 </button>
+                {aiOn && <>
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'hsl(var(--color-purple))' }}
                   disabled={!!busy || !(sel.hasTranscript)} title={sel.hasTranscript ? '' : 'Pull or paste a transcript first'}
                   onClick={run('fill', async () => refreshSel(await api.ivAutofill(sel.id)), 'Answers auto-filled from the transcript')}>
-                  {busy === 'fill' ? <Spinner size={13} /> : <Sparkles size={13} />} AI Auto-fill Answers
+                  {busy === 'fill' ? <Spinner size={13} /> : <Sparkles size={13} />} AI Auto-Fill Answers
                 </button>
                 <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('cal', async () => refreshSel(await api.ivCalibrate(sel.id)), 'Scored - check the leaderboard')}>
                   {busy === 'cal' ? <Spinner size={13} /> : <Trophy size={13} />} Calibrate Score
                 </button>
+                </>}
               </div>
               {showPaste && (
               <div style={{ marginBottom: 8 }}>
@@ -410,7 +419,7 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                   placeholder="Paste the Teams transcript here (Meeting → … → View transcript → copy)" onChange={e => setPaste(e.target.value)} />
                 <button className="secondary-btn" style={{ marginTop: 6, fontSize: 12 }} disabled={!paste.trim() || !!busy}
                   onClick={run('save-t', async () => { const u = await api.ivPatch(sel.id, { transcript: paste }); refreshSel({ ...u, hasTranscript: true }); setShowPaste(false); setPaste(''); }, 'Transcript saved')}>
-                  Save transcript
+                  Save Transcript
                 </button>
               </div>
               )}
@@ -429,22 +438,22 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                     <div key={a.qid} style={{ marginBottom: 8, border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px' }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
                         <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{a.q}</span>
-                        {a.score !== null && a.score !== undefined && (
-                          <span style={{ fontSize: 13, fontWeight: 800, color: a.score >= 7 ? 'hsl(var(--color-green))' : a.score >= 4 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))', flexShrink: 0 }}>{a.score}/10</span>
+                        {aiOn && a.score !== null && a.score !== undefined && (
+                          <span style={{ fontSize: 13, fontWeight: 800, color: a.score >= 7 ? 'hsl(var(--color-green))' : a.score >= 4 ? 'var(--warn-fg)' : 'hsl(var(--color-red))', flexShrink: 0 }}>{a.score}/10</span>
                         )}
                       </div>
                       <textarea className="form-input" rows={2} style={{ width: '100%', marginTop: 8, fontSize: 13, resize: 'vertical' }}
                         value={a.answer || ''} placeholder="Their answer"
                         onChange={e => setAnswer(a.qid, e.target.value)}
                         onBlur={() => { if (sel.status !== 'live') api.ivPatch(sel.id, { answers: sel.answers }).then(() => setTyped(false)).catch(() => {}); }} />
-                      {a.rationale && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}><Sparkles size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />{a.rationale}</div>}
+                      {aiOn && a.rationale && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}><Sparkles size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />{a.rationale}</div>}
                     </div>
                   ))}
                 </div>
               );
             }) : <div style={{ fontSize: 13, color: 'var(--muted)' }}>No questionnaire attached to this round.</div>}
 
-            {sel.summary && (
+            {aiOn && sel.summary && (
               <div style={{ background: 'hsla(var(--color-green),0.06)', border: '1px solid hsla(var(--color-green),0.25)', borderRadius: 10, padding: '10px 12px', fontSize: 13 }}>
                 <strong>AI verdict:</strong> {sel.summary}
               </div>
@@ -453,7 +462,7 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
         )}
       </div>
       <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
-        {sel?.status === 'scored' && <span style={{ marginRight: 'auto', fontSize: 13, fontWeight: 700 }}>
+        {aiOn && sel?.status === 'scored' && sel.totalScore != null && <span style={{ marginRight: 'auto', fontSize: 13, fontWeight: 700 }}>
           <Trophy size={13} style={{ verticalAlign: 'middle', marginRight: 5, color: 'hsl(var(--color-green))' }} />Scored {Math.round(sel.totalScore)}/100</span>}
         {/* Interview over, then a decision (Neil, Oct 19): the room no longer
             offers or rejects - the candidate moves to Decision, where the
@@ -477,7 +486,7 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
         </>}
         {sel?.status === 'completed' && !sel.followupStatus && (
           <button className="primary-btn" onClick={endInterview} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'end' ? <Spinner size={14} /> : <Sparkles size={14} />} Score Interview
+            {busy === 'end' ? <Spinner size={14} /> : aiOn ? <Sparkles size={14} /> : <CheckCircle size={14} />} {aiOn ? 'Score Interview' : 'Finish Interview'}
           </button>
         )}
         {sel?.status === 'completed' && typed && (
@@ -506,8 +515,9 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
   const [tpls, setTpls] = useState([]);
   const [tid, setTid] = useState('');
   const [rows, setRows] = useState(null);
+  const aiOn = useHiringAi();
   const [inviting, setInviting] = useState(null);   // interview id with date picker open
-  const [finalAt, setFinalAt] = useState('');
+  const [finalAt, setFinalAt] = useState({ date: '', time: '' });   // a DateField and a 12-hour TimeField
   const [busy, setBusy] = useState(false);
   const [rec, setRec] = useState(null);             // AI hire recommendation
   const [recBusy, setRecBusy] = useState(false);
@@ -522,18 +532,19 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
     finally { setRecBusy(false); }
   };
 
+  const finalReady = !!(finalAt.date && finalAt.time);
   const invite = async (iv) => {
-    if (!finalAt) return;
+    if (!finalReady) return;
     setBusy(true);
     try {
-      await api.ivFinalRound(iv.id, { at: new Date(finalAt).toISOString(), duration_min: 30 });
-      toastOk?.(`Final-round invite sent to ${iv.candidateName} ✓`);
-      setInviting(null); setFinalAt('');
+      await api.ivFinalRound(iv.id, { at: new Date(`${finalAt.date}T${finalAt.time}`).toISOString(), duration_min: 30 });
+      toastOk?.(`Final Round invite sent to ${iv.candidateName}.`);
+      setInviting(null); setFinalAt({ date: '', time: '' });
     } catch (e) { toastErr?.(e?.message || 'Could not send the invite'); }
     finally { setBusy(false); }
   };
 
-  const dirty = !!finalAt;
+  const dirty = !!(finalAt.date || finalAt.time);
   const invitingRow = inviting ? (rows || []).find(r => r.id === inviting) : null;
   const guard = useUnsavedGuard(dirty, onClose, invitingRow ? () => invite(invitingRow) : undefined);
 
@@ -546,11 +557,11 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
             <option value="">All Roles</option>
             {tpls.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
-          {(rows || []).length >= 2 && (
+          {aiOn && (rows || []).length >= 2 && (
             <button className="primary-btn" onClick={recommend} disabled={recBusy}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
               {recBusy ? <Spinner size={13} /> : <Sparkles size={13} />}
-              {recBusy ? 'Comparing…' : 'AI: whom should we hire?'}
+              {recBusy ? 'Comparing…' : 'AI: Whom Should We Hire?'}
             </button>
           )}
         </div>
@@ -577,7 +588,7 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
           </div>
         )}
         {rows === null ? <Spinner size="inline" />
-          : rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No calibrated interviews yet - run "Calibrate score" after each interview.</div>
+          : rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No calibrated interviews yet - run Calibrate Score after each interview.</div>
           : rows.map((iv, i) => (
             <div key={iv.id} style={{ borderBottom: '1px solid var(--line)', padding: '10px 0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -589,26 +600,29 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
                   <div style={{ fontSize: 13, fontWeight: 700 }}>
                     {iv.candidateName || '-'}
                     {iv.candidateStage === 'hired' && (
-                      <span style={{ marginLeft: 7, fontSize: 11, fontWeight: 800, letterSpacing: '.04em', color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.12)', padding: '2px 8px', borderRadius: 10 }}>HIRED</span>
+                      <span style={{ marginLeft: 7, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.12)', padding: '2px 8px', borderRadius: 10 }}>Hired</span>
                     )}
                     {iv.candidateStage === 'offer' && (
-                      <span style={{ marginLeft: 7, fontSize: 11, fontWeight: 800, letterSpacing: '.04em', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 8px', borderRadius: 10 }}>OFFER</span>
+                      <span style={{ marginLeft: 7, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 8px', borderRadius: 10 }}>Offer</span>
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{iv.templateName || 'No questionnaire'} · {iv.at ? formatDate(iv.at) : ''}</div>
                 </div>
-                <span style={{ fontSize: 18, fontWeight: 800, color: iv.totalScore >= 70 ? 'hsl(var(--color-green))' : iv.totalScore >= 45 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))' }}>
+                <span style={{ fontSize: 18, fontWeight: 800, color: iv.totalScore >= 70 ? 'hsl(var(--color-green))' : iv.totalScore >= 45 ? 'var(--warn-fg)' : 'hsl(var(--color-red))' }}>
                   {Math.round(iv.totalScore)}
                 </span>
-                {iv.candidateStage === 'hired' ? null : inviting !== iv.id ? (
+                {!aiOn || ['hired', 'rejected'].includes(iv.candidateStage) ? null : inviting !== iv.id ? (
                   <button className="secondary-btn" style={{ fontSize: 12, padding: '4px 11px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                    onClick={() => { setInviting(iv.id); setFinalAt(''); }}>
-                    <Send size={12} /> Final round
+                    onClick={() => { setInviting(iv.id); setFinalAt({ date: '', time: '' }); }}>
+                    <Send size={12} /> Final Round
                   </button>
                 ) : (
-                  <span style={{ display: 'inline-flex', gap: 6 }}>
-                    <input type="datetime-local" className="form-input" style={{ fontSize: 12, padding: '4px 8px' }} value={finalAt} onChange={e => setFinalAt(e.target.value)} />
-                    <button className="primary-btn" style={{ fontSize: 12, padding: '4px 11px' }} disabled={!finalAt || busy} onClick={() => invite(iv)}>
+                  <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className="form-input" style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, padding: '4px 8px', minWidth: 120 }}>
+                      <DateField value={finalAt.date} onChange={x => setFinalAt(f => ({ ...f, date: x || '' }))} placeholder="MM/DD/YYYY" title="Final Round date" />
+                    </span>
+                    <TimeField value={finalAt.time} onChange={x => setFinalAt(f => ({ ...f, time: x }))} ariaLabel="Final Round time" style={{ fontSize: 12, padding: '4px 8px', width: 'auto' }} />
+                    <button className="primary-btn" style={{ fontSize: 12, padding: '4px 11px' }} disabled={!finalReady || busy} onClick={() => invite(iv)}>
                       {busy ? '…' : 'Send'}
                     </button>
                   </span>
@@ -621,7 +635,7 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
       {guard.confirming && (
         <UnsavedChangesPrompt
           onKeepEditing={guard.keepEditing}
-          onDiscard={() => { setInviting(null); setFinalAt(''); onClose(); }}
+          onDiscard={() => { setInviting(null); setFinalAt({ date: '', time: '' }); onClose(); }}
           onSave={invitingRow ? guard.saveAndClose : undefined}
           saving={busy}
         />

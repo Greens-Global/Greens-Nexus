@@ -22,7 +22,9 @@ import { currencyOptions } from '../asset/lib/currency';
 import { useEntities, usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
-import { DateField } from '../tasks/components';
+import { DateField, TimeField } from '../tasks/components';
+import { useUnsavedGuard } from '../lib/useUnsavedGuard';
+import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { worksInLabel } from '../lib/usStates';
 import WorksInSelect from './WorksInSelect';
 import { leadsFor } from './HiringSchedule';
@@ -434,9 +436,9 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           <label style={{ ...lbl, marginTop: 26 }}>Timings</label>
           <div style={{ ...grid, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
             <div><label style={{ ...hint, marginTop: 0, marginBottom: 4, display: 'block' }} htmlFor="of-from">From</label>
-              <input id="of-from" type="time" className="form-input" style={{ width: '100%' }} value={timing.work_start} onChange={e => setTiming(t => ({ ...t, work_start: e.target.value }))} /></div>
+              <TimeField value={timing.work_start} onChange={x => setTiming(t => ({ ...t, work_start: x }))} ariaLabel="Timings from" style={{ width: '100%' }} /></div>
             <div><label style={{ ...hint, marginTop: 0, marginBottom: 4, display: 'block' }} htmlFor="of-to">To</label>
-              <input id="of-to" type="time" className="form-input" style={{ width: '100%' }} value={timing.work_end} onChange={e => setTiming(t => ({ ...t, work_end: e.target.value }))} /></div>
+              <TimeField value={timing.work_end} onChange={x => setTiming(t => ({ ...t, work_end: x }))} ariaLabel="Timings to" style={{ width: '100%' }} /></div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
             {DAYS.map(([k, l]) => {
@@ -543,9 +545,13 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
 
   const body = { who: whoStep, offer: offerStep, questions: questionsStep, preview: previewStep }[step];
   const last = step === 'preview';
+  // Anything answered here is not lost to a stray click outside (11/14/2026).
+  const dirty = step !== 'who' || !!who.worker_type || !!String(pay.base || '').trim() || Object.keys(answers).length > 0
+    || !!newDuties.trim() || !!person.address.trim() || !!chosenId;
+  const guard = useUnsavedGuard(dirty && !busy, onClose);
 
   return (
-    <div onClick={e => e.target === e.currentTarget && !busy && onClose()}
+    <div onClick={e => e.target === e.currentTarget && !busy && guard.requestClose()}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div role="dialog" aria-label="Make An Offer" style={{ background: 'var(--card)', borderRadius: 18, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '18px 28px 0', flexShrink: 0 }}>
@@ -555,7 +561,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
               <div style={{ fontWeight: 800, fontSize: 18 }}>Make An Offer</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{name}{c.roleTitle ? ` · ${c.roleTitle}` : ''}</div>
             </div>
-            <button onClick={onClose} disabled={busy} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+            <button onClick={guard.requestClose} disabled={busy} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
           </div>
           <div role="tablist" aria-label="Offer steps" className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 16, borderBottom: '1px solid var(--line)', overflowX: 'auto' }}>
             {STEPS.map(([k, label], i) => {
@@ -594,6 +600,10 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           )}
         </div>
       </div>
+      {guard.confirming && (
+        <UnsavedChangesPrompt message="This offer has not been created yet. If you close now, everything you answered will be lost."
+          onKeepEditing={guard.keepEditing} onDiscard={onClose} />
+      )}
     </div>
   );
 }
