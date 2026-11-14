@@ -16,15 +16,14 @@
 //     hired, and the hiring packet starts by itself.
 // Problems show only when Continue is pressed, on the step they belong to.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info, RefreshCw, ExternalLink } from 'lucide-react';
+import { FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../api';
 import { currencyOptions } from '../asset/lib/currency';
 import { useEntities, usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
-import { DateField, TimeField } from '../tasks/components';
-import { useUnsavedGuard } from '../lib/useUnsavedGuard';
-import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import { DateField, TimeField, Modal } from '../tasks/components';
+import SheetHead from './hiring/SheetHead';
 import { worksInLabel } from '../lib/usStates';
 import WorksInSelect from './WorksInSelect';
 import { leadsFor } from './HiringSchedule';
@@ -548,62 +547,53 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   // Anything answered here is not lost to a stray click outside (11/14/2026).
   const dirty = step !== 'who' || !!who.worker_type || !!String(pay.base || '').trim() || Object.keys(answers).length > 0
     || !!newDuties.trim() || !!person.address.trim() || !!chosenId;
-  const guard = useUnsavedGuard(dirty && !busy, onClose);
-
-  return (
-    <div onClick={e => e.target === e.currentTarget && !busy && guard.requestClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div role="dialog" aria-label="Make An Offer" style={{ background: 'var(--card)', borderRadius: 18, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '18px 28px 0', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <FileSignature size={18} style={{ color: 'var(--pine)' }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 800, fontSize: 18 }}>Make An Offer</div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{name}{c.roleTitle ? ` · ${c.roleTitle}` : ''}</div>
-            </div>
-            <button onClick={guard.requestClose} disabled={busy} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-          </div>
-          <div role="tablist" aria-label="Offer steps" className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 16, borderBottom: '1px solid var(--line)', overflowX: 'auto' }}>
-            {STEPS.map(([k, label], i) => {
-              const on = k === step;
-              const done = i < stepIndex;
-              return (
-                <button key={k} type="button" role="tab" aria-selected={on} disabled={i > stepIndex} onClick={() => i < stepIndex && goTo(k)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 12px 10px', border: 'none', borderBottom: `2px solid ${on ? 'var(--pine)' : 'transparent'}`, background: 'none',
-                    cursor: i < stepIndex ? 'pointer' : 'default', fontFamily: 'inherit', fontSize: 13, fontWeight: on ? 800 : 600, color: on ? 'var(--ink)' : done ? 'var(--muted)' : 'var(--line)', whiteSpace: 'nowrap' }}>
-                  <span style={{ width: 20, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    background: on ? 'var(--pine)' : done ? 'hsla(var(--color-green),0.15)' : 'var(--mist)', color: on ? '#fff' : done ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
-                    {done ? <Check size={11} /> : i + 1}
-                  </span>
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div style={{ overflowY: 'auto', flex: 1, padding: '0 28px 24px' }}>
-          {body}
-          {shown.map(x => <Warn key={x}>{x}</Warn>)}
-        </div>
-
-        <div style={{ padding: '14px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-          {stepIndex > 0 && <button type="button" className="secondary-btn" onClick={() => goTo(STEPS[stepIndex - 1][0])} disabled={busy} style={smallBtn}><ArrowLeft size={13} /> Back</button>}
-          <span style={{ flex: 1 }} />
-          <button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          {last ? (
-            <button type="button" className="primary-btn" onClick={create} disabled={busy} style={smallBtn}>
-              {busy ? <Spinner size={14} /> : <FileSignature size={14} />} Create Offer Letter
-            </button>
-          ) : (
-            <button type="button" className="primary-btn" onClick={next} disabled={loading && step === 'who'} style={smallBtn}>Continue <ArrowRight size={13} /></button>
-          )}
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt message="This offer has not been created yet. If you close now, everything you answered will be lost."
-          onKeepEditing={guard.keepEditing} onDiscard={onClose} />
-      )}
+  const stepTabs = (
+    <div role="tablist" aria-label="Offer steps" className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 16, borderBottom: '1px solid var(--line)', overflowX: 'auto' }}>
+      {STEPS.map(([k, label], i) => {
+        const on = k === step;
+        const done = i < stepIndex;
+        return (
+          <button key={k} type="button" role="tab" aria-selected={on} disabled={i > stepIndex} onClick={() => i < stepIndex && goTo(k)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 12px 10px', border: 'none', borderBottom: `2px solid ${on ? 'var(--pine)' : 'transparent'}`, background: 'none',
+              cursor: i < stepIndex ? 'pointer' : 'default', fontFamily: 'inherit', fontSize: 13, fontWeight: on ? 800 : 600, color: on ? 'var(--ink)' : done ? 'var(--muted)' : 'var(--line)', whiteSpace: 'nowrap' }}>
+            <span style={{ width: 20, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              background: on ? 'var(--pine)' : done ? 'hsla(var(--color-green),0.15)' : 'var(--mist)', color: on ? '#fff' : done ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
+              {done ? <Check size={11} /> : i + 1}
+            </span>
+            {label}
+          </button>
+        );
+      })}
     </div>
+  );
+
+  // A sheet from the right over the candidate card (11/14/2026); a stray click
+  // outside asks before the answers are lost.
+  return (
+    <Modal onClose={onClose} zIndex={4100} isDirty={dirty && !busy} saveText={null}
+      confirmText="This offer has not been created yet. Closing now will discard everything you answered."
+      header={(titleId, requestClose) => (
+        <SheetHead titleId={titleId} onClose={requestClose} closeDisabled={busy} title="Make An Offer"
+          icon={<FileSignature size={18} style={{ color: 'var(--pine)', flexShrink: 0 }} />}
+          sub={`${name}${c.roleTitle ? ` · ${c.roleTitle}` : ''}`}>
+          {stepTabs}
+        </SheetHead>
+      )}
+      bodyStyle={{ display: 'block', padding: '0 clamp(16px, 4vw, 28px) 24px' }}
+      footer={(exit) => (<>
+        {stepIndex > 0 && <button type="button" className="secondary-btn" onClick={() => goTo(STEPS[stepIndex - 1][0])} disabled={busy} style={smallBtn}><ArrowLeft size={13} /> Back</button>}
+        <span style={{ flex: 1 }} />
+        <button type="button" className="secondary-btn" onClick={exit} disabled={busy}>Cancel</button>
+        {last ? (
+          <button type="button" className="primary-btn" onClick={create} disabled={busy} style={smallBtn}>
+            {busy ? <Spinner size={14} /> : <FileSignature size={14} />} Create Offer Letter
+          </button>
+        ) : (
+          <button type="button" className="primary-btn" onClick={next} disabled={loading && step === 'who'} style={smallBtn}>Continue <ArrowRight size={13} /></button>
+        )}
+      </>)}>
+      {body}
+      {shown.map(x => <Warn key={x}>{x}</Warn>)}
+    </Modal>
   );
 }

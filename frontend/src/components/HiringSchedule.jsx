@@ -21,10 +21,9 @@ import { useRole } from '../contexts/RoleContext';
 import { formatDateTime } from '../lib/datetime';
 import PersonSearchSelect from './PersonSearchSelect';
 import { Spinner } from './AsyncState';
-import { DateField, TimeField } from '../tasks/components';
+import { DateField, TimeField, Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
-import { useUnsavedGuard } from '../lib/useUnsavedGuard';
-import UnsavedChangesPrompt from './UnsavedChangesPrompt';
+import SheetHead from './hiring/SheetHead';
 
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
 const hint = { fontSize: 12, color: 'var(--muted)', marginTop: 4 };
@@ -158,44 +157,33 @@ export function ScheduleInterviewModal({ candidate: c, replace, onClose, onSched
       onScheduled?.(iv);
     } catch (e) { toastErr?.(e?.message || 'Could not schedule the interview.'); setBusy(false); }
   }
-  const guard = useUnsavedGuard(dirty && !busy, onClose);
+  // A sheet from the right over the candidate card (11/14/2026); a stray
+  // click outside asks before what was picked is lost.
   return (
-    <div onClick={e => e.target === e.currentTarget && guard.requestClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1260, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: 15 }}>{replace ? 'Reschedule Interview' : 'Schedule Interview'} - {name}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
-              {replace ? <>Moving the round on {formatDateTime(replace.at)}. The old invite is withdrawn.</>
-                : ['decision', 'offer'].includes(c.stage) ? 'Another round - this moves them back to Interview.'
-                  : `Teams invite to ${c.email || 'their email'} and everyone interviewing.`}
-            </div>
-          </div>
-          <button onClick={guard.requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-        </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
-          {!c.email && <div style={{ fontSize: 13, color: 'hsl(var(--color-orange))', marginBottom: 12 }}>Add the candidate's email first (Edit) - the invite goes there.</div>}
-          <SchedulingFields value={v} onChange={setV} roleId={c.roleId} tpls={tpls} department={c.department} leads={leads} />
-        </div>
-        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
-          {canSkip && (
-            <button type="button" onClick={skip} disabled={busy} title="The interview already happened, or is not needed - move them to Decision"
-              style={{ marginRight: 'auto', background: 'none', border: 'none', padding: '6px 0', cursor: 'pointer', fontSize: 13, color: 'var(--muted)', textDecoration: 'underline', fontFamily: 'inherit' }}>
-              Skip Interview
-            </button>
-          )}
-          {problems.length > 0 && <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: canSkip ? 0 : 'auto' }}>Still needed: {problems.join(', ')}</span>}
-          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={go} disabled={busy || !!problems.length || !c.email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Spinner size={14} /> : replace ? <CalendarDays size={14} /> : <Video size={14} />} {replace ? 'Reschedule' : 'Schedule And Send Invite'}
-          </button>
-        </div>
-      </div>
-      {guard.confirming && (
-        <UnsavedChangesPrompt message="The interview has not been scheduled yet. If you close now, what you picked will be lost."
-          onKeepEditing={guard.keepEditing} onDiscard={onClose} />
+    <Modal onClose={onClose} zIndex={4100} isDirty={dirty && !busy} saveText={null}
+      confirmText="The interview has not been scheduled yet. Closing now will discard what you picked."
+      header={(titleId, requestClose) => (
+        <SheetHead titleId={titleId} onClose={requestClose} title={`${replace ? 'Reschedule Interview' : 'Schedule Interview'} - ${name}`}
+          sub={replace ? <>Moving the round on {formatDateTime(replace.at)}. The old invite is withdrawn.</>
+            : ['decision', 'offer'].includes(c.stage) ? 'Another round - this moves them back to Interview.'
+              : `Teams invite to ${c.email || 'their email'} and everyone interviewing.`} />
       )}
-    </div>
+      bodyStyle={{ display: 'block', padding: '16px clamp(16px, 4vw, 22px)' }}
+      footer={(exit) => (<>
+        {canSkip && (
+          <button type="button" onClick={skip} disabled={busy} title="The interview already happened, or is not needed - move them to Decision"
+            style={{ marginRight: 'auto', background: 'none', border: 'none', padding: '6px 0', cursor: 'pointer', fontSize: 13, color: 'var(--muted)', textDecoration: 'underline', fontFamily: 'inherit' }}>
+            Skip Interview
+          </button>
+        )}
+        {problems.length > 0 && <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: canSkip ? 0 : 'auto' }}>Still needed: {problems.join(', ')}</span>}
+        <button className="secondary-btn" onClick={exit} disabled={busy}>Cancel</button>
+        <button className="primary-btn" onClick={go} disabled={busy || !!problems.length || !c.email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {busy ? <Spinner size={14} /> : replace ? <CalendarDays size={14} /> : <Video size={14} />} {replace ? 'Reschedule' : 'Schedule And Send Invite'}
+        </button>
+      </>)}>
+      {!c.email && <div style={{ fontSize: 13, color: 'var(--warn-fg)', marginBottom: 12 }}>Add the candidate's email first (Edit) - the invite goes there.</div>}
+      <SchedulingFields value={v} onChange={setV} roleId={c.roleId} tpls={tpls} department={c.department} leads={leads} />
+    </Modal>
   );
 }

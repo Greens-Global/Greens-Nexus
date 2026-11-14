@@ -1016,9 +1016,40 @@ def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends
     if emails:
         people = {r.work_email: (r.display_name or f"{r.first_name} {r.last_name}").strip()
                   for r in db.query(NexusEmployee).filter(NexusEmployee.work_email.in_(emails)).all()}
+    # The board card's one next step (11/14/2026): when they entered the stage
+    # they are in, where their offer letter stands, and whose decision vote is
+    # still owed.
+    entered: dict = {}
+    offers: dict = {}
+    if ids:
+        stage_of = {c.id: c.stage for c in rows}
+        for ev in (db.query(HrStageEvent.candidate_id, HrStageEvent.to_stage, HrStageEvent.created_at)
+                   .filter(HrStageEvent.candidate_id.in_(ids), or_(HrStageEvent.kind == "", HrStageEvent.kind.is_(None)))
+                   .order_by(HrStageEvent.created_at).all()):
+            if ev.to_stage == stage_of.get(ev.candidate_id) and (ev.created_at or "") > entered.get(ev.candidate_id, ""):
+                entered[ev.candidate_id] = ev.created_at or ""
+        offer_ids = [c.id for c in rows if c.stage == "offer"]
+        if offer_ids:
+            from hr_life_events import OPEN
+            from models import HrLifeEvent
+            for cid, status in (db.query(HrLifeEvent.candidate_id, HrLifeEvent.status)
+                                .filter(HrLifeEvent.candidate_id.in_(offer_ids), HrLifeEvent.kind == "offer").all()):
+                st = "signed" if status == "completed" else "out" if status in OPEN else ""
+                if st and offers.get(cid) != "signed":
+                    offers[cid] = st
     out = []
     for c in rows:
         d = _ser_candidate(c)
+        d["stageSince"] = entered.get(c.id) or c.created_at or ""
+        if c.stage == "offer":
+            d["offerState"] = offers.get(c.id, "none")
+        if c.stage == "decision":
+            try:
+                import hiring_decision
+                votes = hiring_decision.summary(db, c)["votes"]
+                d["decisionWaiting"] = sum(1 for v in votes if not v["vote"])
+            except Exception:   # noqa: BLE001 - a card chip never breaks the board
+                d["decisionWaiting"] = None
         d["interviewScore"] = round(best[c.id]) if c.id in best else None
         iv = rounds.get(c.id)
         d["interview"] = None if not iv else {

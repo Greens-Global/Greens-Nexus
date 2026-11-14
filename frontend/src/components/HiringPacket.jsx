@@ -49,9 +49,8 @@ export function EmailPreviewModal({ event, entityId = '', templateId = '', note 
     api.packetEmailPreview({ event, entityId, templateId, note, role, stage }).then(setMail).catch(e => setErr(e?.message || 'Could not render the email.'));
   }, [event, entityId, templateId, note, role, stage]);
   return (
-    <div onClick={e => e.target === e.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, height: 'min(92dvh, 860px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 4200 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Email Preview - Subject</div>
@@ -88,10 +87,10 @@ export function usDay(iso) {
   return m ? `${m[2]}/${m[3]}/${m[1]}` : (iso || '');
 }
 
+// A sheet from the right (style.css "Sheets"), the bottom sheet on a phone (11/14/2026).
 const Overlay = ({ children, onClose }) => (
-  <div onClick={e => e.target === e.currentTarget && onClose()}
-    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+  <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 4100 }}>
+    <div className="modal-content nx-popup" role="dialog" aria-modal="true" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
       {children}
     </div>
   </div>
@@ -134,7 +133,7 @@ function StatusChip({ label, tone }) {
 export function PacketSigner({ partyId, onClose, onDone, toastOk, toastErr }) {
   if (!partyId) return null;
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 4300, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
       <SignModal partyId={partyId} onClose={onClose} onDone={onDone}
         toastOk={toastOk || (() => {})} toastErr={toastErr || (() => {})} />
     </div>, document.body);

@@ -17,10 +17,11 @@ import { useHiringAi } from './hiring/useHiringAi';
 // AI-assisted interviews: Teams invite → live questionnaire → transcript
 // auto-fill → calibrated scores → role leaderboard → final-round invite.
 
-const Overlay = ({ children, onClose, wide }) => (
-  <div onClick={e => e.target === e.currentTarget && onClose()}
-    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+// A sheet from the right (style.css "Sheets": .modal-overlay > .modal-content.nx-popup),
+// the bottom sheet on a phone (11/14/2026).
+const Overlay = ({ children, onClose }) => (
+  <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 4100 }}>
+    <div className="modal-content nx-popup" role="dialog" aria-modal="true" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
       {children}
     </div>
   </div>

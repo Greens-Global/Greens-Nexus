@@ -852,6 +852,22 @@ class HiringFixesTests(PipelineCase):
         self.db.commit()
         self._add(email="elena@gmail.com", first_name="Elena", allow_duplicate=False)
 
+    def test_the_board_reads_each_cards_next_step(self):
+        cid = self._cand("applied")
+        moved = self._move(cid, "screening")
+        off = self._cand("offer")
+        rows = {r["id"]: r for r in hr.list_candidates(user=HR_USER, db=self.db)}
+        self.assertEqual(rows[cid]["stageSince"][:16], moved["updatedAt"][:16])   # entered Screening just now
+        self.assertNotIn("offerState", rows[cid])
+        self.assertEqual(rows[off]["offerState"], "none")              # no offer letter made yet
+        self.db.add(models.HrLifeEvent(id="ev-offer", kind="offer", status="sent", candidate_id=off, entity_id=ENT,
+                                       created_at="2026-11-10T00:00:00+00:00"))
+        self.db.commit()
+        rows = {r["id"]: r for r in hr.list_candidates(user=HR_USER, db=self.db)}
+        self.assertEqual(rows[off]["offerState"], "out")
+        self.db.query(models.HrLifeEvent).delete()
+        self.db.commit()
+
     def test_a_bell_opens_the_candidates_card(self):
         cid = self._cand("applied")
         self.db.query(models.HrCandidate).filter_by(id=cid).update({"created_by": NEIL})

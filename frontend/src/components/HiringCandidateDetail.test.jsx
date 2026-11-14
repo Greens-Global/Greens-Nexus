@@ -21,7 +21,8 @@ vi.mock('../api', () => ({
 }));
 const voidMock = vi.fn(() => Promise.resolve({}));
 const confirmMock = vi.fn();
-vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmMock(...a), prompt: vi.fn(), alert: vi.fn() } }));
+const promptMock = vi.fn();
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmMock(...a), prompt: (...a) => promptMock(...a), alert: vi.fn() } }));
 vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
 vi.mock('../lib/queries', () => ({ useEntities: () => ({ data: [] }) }));
 
@@ -29,6 +30,9 @@ const { default: CandidateDetailModal } = await import('./HiringCandidateDetail'
 const base = { id: 'c1', firstName: 'Jane', lastName: 'Doe', email: 'jane@gmail.com', roleTitle: 'Analyst' };
 const noop = () => {};
 const props = { onClose: noop, onStage: vi.fn(), onSchedule: vi.fn(), onOpenRoom: noop, onSendPacket: noop, onEdit: noop };
+// Everything but the one next step sits under More (11/14/2026).
+const openMore = () => fireEvent.click(screen.getByRole('button', { name: /More/ }));
+const menuItem = (name) => screen.getByRole('menuitem', { name });
 
 describe('CandidateDetailModal', () => {
   it('Applied: move to Screening or reject - no Interview Room', async () => {
@@ -61,7 +65,8 @@ describe('CandidateDetailModal', () => {
     render(<CandidateDetailModal {...props} candidate={{ ...base, id: 'with-round', stage: 'interview' }} />);
     await waitFor(() => expect(screen.getByText(/With Neil K/)).toBeTruthy());
     expect(screen.getByText(/Questionnaire: Analyst/)).toBeTruthy();
-    expect(screen.getByText('Interview Room')).toBeTruthy();
+    openMore();
+    expect(menuItem('Interview Room')).toBeTruthy();
     expect(screen.getByText('Move To Decision')).toBeTruthy();     // Neil, Oct 19: interview over, then a decision
     expect(screen.queryByText('Make Offer')).toBeNull();
   });
@@ -77,20 +82,27 @@ describe('CandidateDetailModal', () => {
     expect(screen.getByText('Waiting for their answer')).toBeTruthy();
     expect(screen.getByText('Final Call: Hire')).toBeTruthy();
     expect(screen.getByText('Make Offer').closest('button').style.background).toContain('--color-green');
-    expect(screen.getByText('Reject').closest('button').style.background).toContain('--color-red');
+    expect(screen.getByText('Reject').closest('button').style.color).toContain('--color-red');   // a quiet red word
     ctl.decision = { votes: [], decision: '', deciderName: 'Hedy Lead' };
   });
 
   it('Offer: the hiring packet is the next step; another interview still possible', async () => {
     render(<CandidateDetailModal {...props} candidate={{ ...base, stage: 'offer' }} />);
     await waitFor(() => expect(screen.getByText('Send Hiring Packet').closest('button')).not.toBeDisabled());
-    expect(screen.getByText('Another Interview')).toBeTruthy();
-    expect(screen.getByText('Mark Hired By Hand')).toBeTruthy();
+    expect(screen.getByText('Send Hiring Packet').closest('[data-next-box]')).toBeTruthy();   // the ONE next step
+    openMore();
+    expect(menuItem('Another Interview')).toBeTruthy();
+    expect(menuItem('Mark Hired By Hand')).toBeTruthy();
   });
 
-  it('a skipped interview reads Skipped on the stage bar (Oct 22)', () => {
-    render(<CandidateDetailModal {...props} candidate={{ ...base, stage: 'decision', interviewSkippedBy: 'hr@greensglobal.com' }} />);
-    expect(screen.getByText('Interview (Skipped)')).toBeTruthy();
+  it('a skipped interview is drawn skipped on the stage bar - no words that run into the next stage (11/14/2026)', () => {
+    const { baseElement } = render(<CandidateDetailModal {...props} candidate={{ ...base, stage: 'decision', interviewSkippedBy: 'hr@greensglobal.com' }} />);
+    const step = baseElement.querySelector('li[data-stage="interview"]');
+    expect(step.getAttribute('data-state')).toBe('skipped');
+    expect(step.getAttribute('aria-label')).toBe('Interview - skipped');
+    expect(step.textContent).toBe('Interview');
+    expect(baseElement.querySelector('[data-seg="skipped"]')).toBeTruthy();       // the phone's track too
+    expect(screen.queryByText(/\(Skipped\)/)).toBeNull();
   });
 
   it('Rejected: reopen', () => {
@@ -111,8 +123,7 @@ describe('Make Offer and the offer progress', () => {
     confirmMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);   // "no interview yet - continue", then the set-up prompt
     const onStage = vi.fn(), onMakeOffer = vi.fn();
     render(<CandidateDetailModal {...props} onStage={onStage} onMakeOffer={onMakeOffer} candidate={{ ...base, stage: 'decision', decision: 'hire' }} />);
-    await waitFor(() => expect(screen.getByText('Make Offer')).toBeTruthy());
-    fireEvent.click(screen.getByText('Make Offer'));
+    fireEvent.click(await screen.findByText('Set Up Offer Letter'));
     await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(2));
     expect(confirmMock.mock.calls[1][1]).toMatchObject({ title: 'Set Up an Offer Letter First', confirmText: 'Open Hiring Documents' });
     expect(onStage).not.toHaveBeenCalled();
@@ -151,7 +162,8 @@ describe('Make Offer and the offer progress', () => {
     expect(list.querySelector('[data-step="company"]').textContent).toContain('Signed by Charmi Desai');
     expect(list.querySelector('[data-step="candidate"]').textContent).toContain('Waiting for Jane to sign');
     expect(list.querySelector('[data-step="packet"]').hasAttribute('data-done')).toBe(false);
-    const send = screen.getByText('Send Hiring Packet').closest('button');
+    openMore();
+    const send = menuItem('Send Hiring Packet');
     expect(send.disabled).toBe(true);
     expect(send.getAttribute('title')).toMatch(/once Jane has signed/);
   });
@@ -162,7 +174,8 @@ describe('Make Offer and the offer progress', () => {
     expect(await screen.findByText(/No offer letter is set up for/)).toBeTruthy();
     expect(screen.getByText('Set Up Offer Letter')).toBeTruthy();
     expect(screen.queryByText('Make Offer')).toBeNull();
-    expect(screen.getByText('Send Hiring Packet').closest('button').disabled).toBe(true);
+    openMore();
+    expect(menuItem('Send Hiring Packet').disabled).toBe(true);
   });
 });
 
@@ -228,10 +241,13 @@ describe('Hiring fixes', () => {
     render(<CandidateDetailModal {...props} onMakeOffer={vi.fn()} candidate={{ ...base, stage: 'offer' }} />);
     const voidBtn = await screen.findByRole('button', { name: /Void Offer Letter/ });
     expect(voidBtn).toBeTruthy();
-    for (const label of ['Reject', 'Another Interview', 'Mark Hired By Hand']) {
-      const b = screen.getByText(label).closest('button');
-      expect(b.disabled).toBe(true);
-      expect(b.getAttribute('title')).toBe('Void the offer letter first');
+    const rej = screen.getByText('Reject').closest('button');
+    expect(rej.disabled).toBe(true);
+    expect(rej.getAttribute('title')).toBe('Void the offer letter first');
+    openMore();
+    for (const label of ['Another Interview', 'Mark Hired By Hand']) {
+      expect(menuItem(label).disabled).toBe(true);
+      expect(menuItem(label).getAttribute('title')).toBe('Void the offer letter first');
     }
   });
 
@@ -240,7 +256,8 @@ describe('Hiring fixes', () => {
     render(<CandidateDetailModal {...props} onMakeOffer={vi.fn()} candidate={{ ...base, stage: 'offer' }} />);
     await waitFor(() => expect(screen.getByText('Make Offer')).toBeTruthy());
     expect(screen.getByText('Reject').closest('button').disabled).toBe(false);
-    expect(screen.getByText('Another Interview').closest('button').disabled).toBe(false);
+    openMore();
+    expect(menuItem('Another Interview').disabled).toBe(false);
     expect(screen.queryByRole('button', { name: /Void Offer Letter/ })).toBeNull();
   });
 
@@ -266,5 +283,39 @@ describe('Hiring fixes', () => {
     render(<CandidateDetailModal {...props} onOpenPerson={onOpenPerson} candidate={{ ...base, stage: 'hired', employeeId: 'emp-9' }} />);
     fireEvent.click(screen.getByText('Open In People'));
     expect(onOpenPerson).toHaveBeenCalledWith(expect.objectContaining({ employeeId: 'emp-9' }));
+  });
+});
+
+describe('The card as a sheet (11/14/2026)', () => {
+  it('one next step per stage, in the Next box', async () => {
+    for (const stage of ['applied', 'screening', 'interview', 'decision', 'rejected']) {
+      const { baseElement, unmount } = render(<CandidateDetailModal {...props} candidate={{ ...base, stage }} />);
+      const box = baseElement.querySelector('[data-next-box]');
+      expect(box.querySelectorAll('[data-next-action]').length).toBe(1);
+      unmount();
+    }
+  });
+
+  it('Reject asks for the reason, the same as dropping the card on Rejected', async () => {
+    promptMock.mockReset().mockResolvedValueOnce('Took another offer');
+    const onStage = vi.fn();
+    render(<CandidateDetailModal {...props} onStage={onStage} candidate={{ ...base, stage: 'screening' }} />);
+    fireEvent.click(screen.getByText('Reject'));
+    await waitFor(() => expect(onStage).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }), 'rejected', 'Took another offer'));
+    expect(promptMock.mock.calls[0][1]).toMatchObject({ title: 'Reject', confirmText: 'Reject' });
+  });
+
+  it('a Reject canceled at the reason does nothing', async () => {
+    promptMock.mockReset().mockResolvedValueOnce(null);
+    const onStage = vi.fn();
+    render(<CandidateDetailModal {...props} onStage={onStage} candidate={{ ...base, stage: 'applied' }} />);
+    fireEvent.click(screen.getByText('Reject'));
+    await waitFor(() => expect(promptMock).toHaveBeenCalled());
+    expect(onStage).not.toHaveBeenCalled();
+  });
+
+  it('opens as a dialog named for the candidate', () => {
+    render(<CandidateDetailModal {...props} candidate={{ ...base, stage: 'applied' }} />);
+    expect(screen.getByRole('dialog', { name: 'Jane Doe' })).toBeTruthy();
   });
 });

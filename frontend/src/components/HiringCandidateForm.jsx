@@ -208,9 +208,10 @@ export default function CandidateFormModal({ candidate, emailOnly = false, onClo
   const companyName = entities.find(e => e.id === f.company)?.name;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    <div className="modal-overlay" style={{ zIndex: 4100 }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      {/* A sheet from the right (style.css "Sheets"), the bottom sheet on a phone (11/14/2026). */}
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{onlyEmail ? 'Edit Email' : editing ? 'Edit Candidate' : 'Add Candidate'}</h3>
           <button onClick={guard.requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
