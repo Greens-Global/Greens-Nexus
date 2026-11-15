@@ -4,7 +4,7 @@
    every company reveal/share/approve), PasswordField (show/generate), and
    PersonalLockGate (the Personal Vault password: set up, unlock, OTP-verified
    reset) - which Personal Links (views/ExternalLinks.jsx) also opens. */
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { LoadingState } from '../components/AsyncState';
 import {
   ShieldCheck, Eye, EyeOff, X, Users, Building2, Calculator, HardHat, Landmark, Server, Activity, Lock,
@@ -203,9 +203,12 @@ function SmsConsent({ checked, onChange }) {
 // anything after that"). Pick a channel, agree to texts for SMS, then Get Code;
 // the button says Sending… until the code is out, and a failure says why.
 export function ChannelPicker({ targets, busy, error, onGetCode, emailFallback = "" }) {
-  const [pick, setPick] = useState("");
-  const [consent, setConsent] = useState(false);
   const smsOk = !targets || targets.sms?.available;
+  // Email is the only way in when there is no phone on file: it comes picked
+  // (11/15/2026 phone pass - a choice of one was a dead tap). With both, the
+  // person still chooses.
+  const [pick, setPick] = useState(() => (smsOk ? "" : "email"));
+  const [consent, setConsent] = useState(false);
   const ready = pick === "email" || (pick === "sms" && smsOk && consent);
   const Card = ({ ch, icon, title, sub, disabled }) => (
     <label className={`cv-channel${pick === ch ? " is-on" : ""}${disabled ? " is-off" : ""}`} data-channel={ch}>
@@ -245,6 +248,7 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [resendIn, setResendIn] = useState(0);
+  const tried = useRef("");                  // the last code checked (see below)
 
   useEffect(() => {
     api.cvOtpTargets().then(setTargets).catch((e) => setLoadErr(e.message || "Could not load verification options."));
@@ -259,13 +263,21 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
     setBusy(true); setError("");
     try {
       const res = await api.cvOtpRequest(ch);
-      setChannel(ch); setChallenge(res); setCode(""); setResendIn(30);
+      setChannel(ch); setChallenge(res); setCode(""); setResendIn(30); tried.current = "";
     } catch (e) { setError(e.message || "Could not send the code."); }
     setBusy(false);
   }
 
+  // Six digits are the whole code: it is checked as soon as they are in -
+  // typed, pasted or filled from the text message (11/15/2026 phone pass).
+  // A code that was refused is not sent again until it changes.
+  useEffect(() => {
+    if (code.length === 6 && challenge && !busy && tried.current !== code) verify();
+  }, [code, challenge]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function verify() {
     if (code.length !== 6 || !challenge) return;
+    tried.current = code;
     setBusy(true); setError("");
     try {
       await api.cvOtpVerify(challenge.challengeId, code);
@@ -306,6 +318,7 @@ export function VaultOtpModal({ onClose, onVerified, title = "Verify Your Identi
         <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: "0 0 8px" }}>Enter the 6-digit code:</p>
         <input value={code} onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }}
           placeholder="000 000" maxLength={6} className="cv-ipt cv-mono" style={codeInput} autoFocus
+          inputMode="numeric" autoComplete="one-time-code" aria-label="6-digit code"
           onKeyDown={(e) => e.key === "Enter" && code.length === 6 && verify()} />
       </div>
       {error && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginBottom: 8 }}>{error}</div>}
