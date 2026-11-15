@@ -123,4 +123,20 @@ describe('SiteActivity', () => {
     fireEvent.click(await screen.findByText("Start Today's Log"));
     expect(await screen.findByText(/Add at least one photo/)).toBeTruthy();
   });
+
+  // Quick Actions > New > Daily Log (Neil, 11/14/2026).
+  it('starts today\'s log by itself when Quick Actions asks and the person is on one jobsite', async () => {
+    api.startConstructionLog.mockRejectedValue(new Error('Started from Quick Actions'));
+    render(<SiteActivity startSignal={1} />);
+    expect(await screen.findByText(/Started from Quick Actions/)).toBeTruthy();
+    expect(api.startConstructionLog).toHaveBeenCalledTimes(1);
+  });
+
+  it('with several jobsites it waits for the person to pick one - never a guess', async () => {
+    api.getConstructionOverview.mockResolvedValue({ projects: [project, project2] });
+    render(<SiteActivity startSignal={1} />);
+    expect(await screen.findByText("Start Today's Log")).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.startConstructionLog).not.toHaveBeenCalled();
+  });
 });

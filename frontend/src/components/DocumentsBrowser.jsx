@@ -388,7 +388,7 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
   );
 }
 
-export default function DocumentsBrowser({ openCreateSignal, initialView = '', employees = [], entities = [], toastOk, toastErr }) {
+export default function DocumentsBrowser({ openCreateSignal, openSheetSignal, initialView = '', employees = [], entities = [], toastOk, toastErr }) {
   const isMobile = useIsMobile();
   const [folders, setFolders] = useState([]);
   const [rows, setRows] = useState(null);
@@ -522,6 +522,8 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
       setMakingSheet(false);
     }
   };
+  // Quick Actions > New > Sheet lands here: the same blank sheet as + New > Sheet.
+  useEffect(() => { if (openSheetSignal) newSheet(); }, [openSheetSignal]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (editingSheet) return (
     <Suspense fallback={<SkeletonBlocks count={8} height={36} />}>

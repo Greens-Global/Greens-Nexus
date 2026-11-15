@@ -12,7 +12,7 @@ import { api } from '../api';
 import { sendMail, createEvent } from '../m365';
 import { TasksProvider } from '../tasks/TasksContext';
 import CreateTaskModal from '../tasks/CreateTaskModal';
-import { PersonSelect } from '../tasks/components';
+import { PersonSelect, Modal } from '../tasks/components';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 // "Add Personal Link" is the Links tab's own form (src/links/), not a copy.
@@ -280,7 +280,29 @@ function TicketModal({ onClose, seed }) {
   );
 }
 
+// ── New Announcement ─────────────────────────────────────────────────────────
+// The Dashboard's own Announcements composer (administrators - the bolt shows
+// the row only to them, and the server refuses anyone else), in a sheet.
+// Lazy: the announcements chunk loads on click.
+const AnnouncementComposer = lazy(async () => {
+  const { AnnouncementComposer: C } = await import('./essentials/Announcements.jsx');
+  return { default: C };
+});
+function AnnouncementModal({ onClose }) {
+  const isMobile = useIsMobile();
+  const [dirty, setDirty] = useState(false);
+  return (
+    <Modal title="New Announcement" onClose={() => onClose()} isDirty={dirty}>
+      <Suspense fallback={null}>
+        <AnnouncementComposer isMobile={isMobile} onDirty={setDirty} onCancel={() => onClose()}
+          onSaved={() => onClose({ toast: 'Announcement saved.' })} />
+      </Suspense>
+    </Modal>
+  );
+}
+
 export default function QuickActionModal({ kind, onClose, initialUrl, seed = null }) {
+  if (kind === 'announcement') return <AnnouncementModal onClose={onClose} />;
   if (kind === 'personal-link') return <PersonalLinkComposer initialUrl={initialUrl} onClose={onClose} />;
   if (kind === 'email') return <EmailModal onClose={onClose} />;
   if (kind === 'event') return <EventModal onClose={onClose} />;

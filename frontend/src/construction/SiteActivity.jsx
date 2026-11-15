@@ -19,7 +19,7 @@
 // it; the review queue shows only the picked jobsite; "today" is the
 // jobsite's own date (the server's clock for it); names, never addresses;
 // nothing about AI while AI is off; an approved log reopens only with a reason.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ClipboardList, Folder, MapPin, Plus, RotateCcw } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
@@ -46,7 +46,7 @@ function browserToday() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export default function SiteActivity({ projectId: routeId = '', onProjectChange }) {
+export default function SiteActivity({ projectId: routeId = '', onProjectChange, startSignal = 0 }) {
   const { can } = useRole();
   const { aiEnabled } = useConstructionMeta();
 
@@ -112,6 +112,16 @@ export default function SiteActivity({ projectId: routeId = '', onProjectChange 
       setBusy(false);
     }
   };
+
+  // Quick Actions > New > Daily Log: once the jobsites are in, start today's
+  // log - only when the person is on ONE jobsite; with several they pick the
+  // job here first and press Start Today's Log, never a guess.
+  const handledSignal = useRef(0);
+  useEffect(() => {
+    if (!startSignal || handledSignal.current === startSignal || projects === null) return;
+    handledSignal.current = startSignal;
+    if (projects.length === 1) startToday();
+  }, [startSignal, projects]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The one way back from Approved: a manager, with a reason on the record.
   const reopen = async (l) => {

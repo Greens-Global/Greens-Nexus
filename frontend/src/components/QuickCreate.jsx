@@ -19,7 +19,7 @@ import { ChevronRight, ArrowLeft } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { ModalLoading } from './AsyncState';
 import BoltIcon from './icons/BoltIcon';
-import { visibleActions, layoutActions, goTo, takeQuickAction, QUICK_ACTION_EVENT } from '../lib/quickCreate';
+import { visibleActions, layoutActions, goTo, takeQuickAction, QUICK_ACTION_EVENT, useOnJobsite } from '../lib/quickCreate';
 
 const QuickActionModal = lazy(() => import('../dashboard/QuickActionModals.jsx'));
 
@@ -46,7 +46,9 @@ export default function QuickCreate() {
   const menuRef = useRef(null);
   const [cameFrom, setCameFrom] = useState('');       // the group just stepped back out of
 
-  const items = visibleActions(role);
+  // Daily Log is for people on a jobsite: asked once, the first time the menu opens.
+  const onJobsite = useOnJobsite(role, open);
+  const items = visibleActions({ ...role, onJobsite });
   const { tiles, rows } = layoutActions(items);
   const group = rows.find((r) => r.kind === 'group' && r.key === level) || null;
 

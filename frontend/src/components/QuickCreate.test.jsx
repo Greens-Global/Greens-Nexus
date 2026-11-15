@@ -16,8 +16,12 @@ vi.mock('../support/HelpMenu', () => ({ default: () => <button aria-label="Help"
 vi.mock('./MyProfileModal', () => ({ default: () => null }));
 vi.mock('../dashboard/QuickActionModals.jsx', () => ({ default: ({ kind }) => <div role="dialog" aria-label={`Composer ${kind}`} /> }));
 const perfMe = vi.fn(() => Promise.resolve({ hasTeam: true }));
+// The Construction jobs the person is on (Daily Log's rule) - none by default.
+let JOBS = [];
+const getConstructionProjects = vi.fn(() => Promise.resolve(JOBS));
 vi.mock('../api', () => ({
-  api: new Proxy({}, { get: (_, k) => (k === 'perfMe' ? perfMe : k === 'qaEnabled' ? () => Promise.resolve({ enabled: false }) : () => Promise.resolve({})) }),
+  api: new Proxy({}, { get: (_, k) => (k === 'perfMe' ? perfMe : k === 'getConstructionProjects' ? getConstructionProjects
+    : k === 'qaEnabled' ? () => Promise.resolve({ enabled: false }) : () => Promise.resolve({})) }),
 }));
 // An employee whose Access Groups give Tasks and Documents, and Credentials
 // at viewer level only - no Workflows.
@@ -41,7 +45,7 @@ const employee = () => {
   };
 };
 
-afterEach(() => { cleanup(); perfMe.mockClear(); });
+afterEach(() => { cleanup(); perfMe.mockClear(); getConstructionProjects.mockClear(); JOBS = []; });
 
 const header = () => render(
   <HeaderTabsProvider>
@@ -79,7 +83,7 @@ describe('Header Quick Actions menu', () => {
     expect([...document.querySelectorAll('.qc-tile')].map((e) => e.textContent.trim())).toEqual(['New Task', 'New Ticket', 'New Note', 'New Board']);
     expect(rows()).toEqual(['New Task', 'New Ticket', 'New Note', 'New Board', 'New', 'Request', 'Send']);
     // A group row says what is inside it.
-    expect(screen.getByRole('menuitem', { name: 'Send' }).textContent).toContain('Email, Event Invite, Kudos');
+    expect(screen.getByRole('menuitem', { name: 'Send' }).textContent).toContain('Email, Event, Kudos');
   });
 
   it('a group row opens its own list, and the line back returns to it', async () => {
@@ -94,12 +98,12 @@ describe('Header Quick Actions menu', () => {
     expect(screen.getByRole('menu', { name: 'Quick Actions' })).toBeTruthy();
     expect(focused()).toBe('Request');
     await step('New');
-    expect(rows().slice(1)).toEqual(['Task', 'Ticket', 'Note', 'Board', 'Document']);
+    expect(rows().slice(1)).toEqual(['Task', 'Ticket', 'Note', 'Board', 'Document', 'Sheet']);
     // The shortcut that already exists is shown beside its row.
     expect(screen.getByRole('menuitem', { name: 'Task' }).querySelector('.hud-end').textContent).toBe('CT');
     await step('Back to Quick Actions');
     await step('Send');
-    expect(rows().slice(1)).toEqual(['Email', 'Event Invite', 'Kudos']);
+    expect(rows().slice(1)).toEqual(['Email', 'Event', 'Kudos']);
     // No 1:1, Ask HR, Credential, Send for Signature or Workflow anywhere (Neil, Oct 29 2026).
   });
 
@@ -128,6 +132,39 @@ describe('Header Quick Actions menu', () => {
     ['Workflow', 'Credential'].forEach((r) => expect(rows()).not.toContain(r));
   });
 
+  it('adds Sheet, Daily Log, Report a Problem and Announcement, each only for whom it is (Neil, 11/14/2026)', async () => {
+    // An employee on no jobsite: Sheet (a Documents grant), no Daily Log,
+    // no Report a Problem (no Tickets), no Announcement (not an administrator).
+    ROLE = employee();
+    header();
+    await open();
+    await step('New');
+    expect(rows()).toContain('Sheet');
+    expect(rows()).not.toContain('Daily Log');
+    await step('Back to Quick Actions');
+    await step('Request');
+    expect(rows()).not.toContain('Report a Problem');
+    await step('Back to Quick Actions');
+    await step('Send');
+    expect(rows()).not.toContain('Announcement');
+    cleanup();
+    // An administrator on an open job gets all four; an archived job alone
+    // would not count.
+    JOBS = [{ id: 'j1', status: 'active', archived: false }];
+    ROLE = { ...employee(), myEmail: 'ana@greensglobal.com', myRole: 'administrator', can: () => true, canAccessModule: () => true,
+      myGrantedModules: new Map([['tasks', 'editor'], ['documents', 'editor'], ['tickets', 'editor']]) };
+    header();
+    await open();
+    await step('New');
+    expect(rows().slice(-2)).toEqual(['Sheet', 'Daily Log']);
+    await step('Back to Quick Actions');
+    await step('Request');
+    expect(rows()).toContain('Report a Problem');
+    await step('Back to Quick Actions');
+    await step('Send');
+    expect(rows()).toContain('Announcement');
+  });
+
   it('is not shown to an external guest with no module that starts anything', () => {
     ROLE = { ...employee(), isExternal: true, myGrantedModules: new Map([['accounting', 'viewer']]) };
     header();
@@ -142,7 +179,7 @@ describe('Header Quick Actions menu', () => {
     await open();
     expect(rows()).toEqual(['New Task', 'New Ticket', 'New Note', 'New Board', 'Request an Item', 'Send']);
     await step('Send');
-    expect(rows().slice(1)).toEqual(['Email', 'Event Invite']);
+    expect(rows().slice(1)).toEqual(['Email', 'Event']);
   });
 
   it('the keys: arrows, a letter, Right into a group, Left and Escape back out, Escape closes back to the bolt, a click outside closes', async () => {
