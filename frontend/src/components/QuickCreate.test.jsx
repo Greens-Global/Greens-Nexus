@@ -225,6 +225,28 @@ describe('Header Quick Actions menu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  // Neil, 11/15/2026: the bolt reads as pressed while open, and on a phone a
+  // dim sits behind the menu; a tap on the dim only closes the menu.
+  it('marks the bolt pressed while open, and the dim behind the menu closes it without passing the tap on', async () => {
+    ROLE = employee();
+    header();
+    expect(document.querySelector('.qc-scrim')).toBeNull();
+    await open();
+    expect(bolt().getAttribute('aria-expanded')).toBe('true');
+    const scrim = document.querySelector('.qc-scrim');
+    expect(scrim).toBeTruthy();
+    expect(scrim.parentElement).toBe(document.body);
+    // Touching the dim does not close the menu on the way down (the tap would
+    // then land on the page under it); its click does.
+    fireEvent.touchStart(scrim);
+    fireEvent.mouseDown(scrim);
+    expect(screen.getByRole('menu')).toBeTruthy();
+    await act(async () => { fireEvent.click(scrim); });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.querySelector('.qc-scrim')).toBeNull();
+    expect(bolt().getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('a composer row opens in place; a module row navigates to its create sub', async () => {
     ROLE = employee();
     const nav = vi.fn();
