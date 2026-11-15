@@ -6,6 +6,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 // 12-column table, which scrolled sideways and hid Hours, OT, Notes and the
 // Work Log. The weekly total is a band between the weeks.
 
+// A fixed clock (only Date is faked; timers stay real so findBy works): the
+// card picks its pay period from the computer's date, the test's TODAY is
+// California's, and on CI (UTC) the two named different periods every evening
+// Pacific time on a period's last day (11/14/2026 failed that way). Noon
+// California, mid-period, keeps both on the same day and period.
+vi.useFakeTimers({ toFake: ['Date'] });
+vi.setSystemTime(new Date('2026-11-10T20:00:00Z'));
 const now = new Date();
 // Today on the card's clock (California) - not the test machine's, which
 // runs in UTC on CI and is a day ahead every evening Pacific time.
