@@ -321,7 +321,7 @@ export default function LoginPage() {
         .nxl-hero > * { position: relative; }
         .nxl-hero-inner { width: 100%; max-width: 552px; margin-inline: auto; }
         .nxl-hero-brand {
-          position: absolute; top: 22px; left: clamp(28px, 5vw, 72px);
+          position: absolute; top: 32px; left: clamp(40px, 6vw, 84px);
           display: flex; align-items: center; gap: 14px;
         }
         /* The brand lockup at ~150% (Sagar, Sep 17; Neil, Sep 22). Sized
@@ -329,9 +329,9 @@ export default function LoginPage() {
            transform: scale(), which the entrance animation below cancels
            (every hero child lands on transform: none), so the earlier
            scale(1.45) never actually showed. */
-        /* Hero size: the ring needs ~100px for its six icons to read; the
-           wordmark lands at the hero title's scale. */
-        .nxl-lockup { height: 104px; width: auto; display: block; filter: drop-shadow(0 8px 20px rgba(0, 0, 0, .24)); }
+        /* 72px: the white disc under the ring keeps it legible at this size,
+           and it sits clear of the corner (Pranshu, 11/15/2026). */
+        .nxl-lockup { height: 72px; width: auto; display: block; filter: drop-shadow(0 6px 16px rgba(0, 0, 0, .22)); }
 
         .nxl-hero-title {
           margin: 0;
