@@ -83,9 +83,11 @@ PENDING_SECTION = "pending"    # everything else still waiting on them (daily "A
 DUE_SECTION = "due_week"       # their open tasks due in the coming week (Oct 2)
 TIME_OFF_SECTION = "time_off_ahead"   # who is off in the next two weeks (Oct 5)
 HOLIDAY_SECTION = "holidays_ahead"    # company holidays this week and next (Oct 29 2026)
+COMING_SECTION = "coming_up"          # the email's one section for the two above (Nov 15 2026)
 # Actions first, then tasks (Neil, 10/01: "it needs to be all actions ... not
 # just the tasks").
 ORDER = [PENDING_SECTION, SECTION, DUE_SECTION, TEAM_SECTION, TIME_OFF_SECTION, HOLIDAY_SECTION]
+EMAIL_ORDER = [PENDING_SECTION, SECTION, DUE_SECTION, TEAM_SECTION, COMING_SECTION]
 TIME_OFF_DAYS = 14
 HOLIDAY_WORDS = {"mandatory": "Day Off", "half_day": "Half Day", "optional": "Optional Holiday"}
 
@@ -259,13 +261,16 @@ def overdue_rows(db: Session, email: str, today: date, my_reports: dict) -> tupl
                 if pids else {})
     rows, team = [], []
     for due, t in mine:
-        detail = f"Due {due.strftime('%m/%d/%Y')} - {_plural((today - due).days, 'day')} overdue"
-        if projects.get(t.project_id or ""):
-            detail += f" - {projects[t.project_id]}"
+        late = (today - due).days
+        project = f" - {projects[t.project_id]}" if projects.get(t.project_id or "") else ""
+        detail = f"Due {due.strftime('%m/%d/%Y')} - {_plural(late, 'day')} overdue{project}"
+        short = f"Due {due.strftime('%m/%d/%Y')}{project}"
         rows.append({
             # No task ID (Oct 1): the title is what a person recognizes, and
             # without a "ref" the table drops its ID column.
             "title": t.title, "detail": detail,
+            # The email says how late in a red tag (Nov 15 2026).
+            "overdue_days": late, "short_detail": short,
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email,
             # Extend Due Date (Neil) plus the usual Comment / React / Toggle
@@ -281,6 +286,9 @@ def overdue_rows(db: Session, email: str, today: date, my_reports: dict) -> tupl
         team.append({
             "title": f"{name} has {_plural(len(items), 'overdue task')}",
             "detail": "; ".join(shown) + (f"; and {len(hidden)} more" if hidden else ""),
+            # The email: the name, an "N Overdue" tag and the tasks as a short
+            # list rather than one run-on line (Nov 15 2026).
+            "name": name, "lines": shown + ([f"and {len(hidden)} more"] if hidden else []),
             "url": f"{app_url()}/tasks/mine?task={items[0][1].id}", "module": "team",
             "overdue_count": len(items),
         })
@@ -346,29 +354,71 @@ def build_sections(db: Session, email: str, today: date) -> dict:
 
 
 def _intro(sections: dict) -> str:
-    """What the week holds, across every module - not a sentence about tasks
-    (Neil, 10/01: "the paragraph at the top should not be limited to the
-    task")."""
+    """What the week holds, in one short line (Nov 15 2026; it used to list
+    every section in one 50-word sentence, which the tiles under it already
+    say). Across every module, not only tasks (Neil, 10/01: "the paragraph at
+    the top should not be limited to the task")."""
     parts = []
-    pending = sections.get(PENDING_SECTION) or []
-    if pending:
-        modules = ", ".join(label for _, label, _ in daily._group_by_module(pending))
-        parts.append(f"{_plural(len(pending), 'item')} needing your action ({modules})")
+    if sections.get(PENDING_SECTION):
+        parts.append(f"{len(sections[PENDING_SECTION])} need{'s' if len(sections[PENDING_SECTION]) == 1 else ''} "
+                     "your attention")
     if sections.get(SECTION):
-        parts.append(_plural(len(sections[SECTION]), "overdue task"))
+        n = len(sections[SECTION])
+        parts.append(f"{_plural(n, 'task')} {'is' if n == 1 else 'are'} overdue")
     if sections.get(DUE_SECTION):
-        parts.append(f"{_plural(len(sections[DUE_SECTION]), 'task')} due this week")
-    if sections.get(TEAM_SECTION):
-        n = len(sections[TEAM_SECTION])
-        parts.append(f"{n} team member{'' if n == 1 else 's'} behind on their tasks")
-    if sections.get(TIME_OFF_SECTION):
-        parts.append("who is off in the next two weeks")
-    if sections.get(HOLIDAY_SECTION):
-        parts.append("the holidays coming up")
+        n = len(sections[DUE_SECTION])
+        parts.append(f"{n} {'is' if n == 1 else 'are'} due this week")
     if not parts:
         return "Here is your week in Nexus."
-    listed = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
-    return f"Here is everything waiting on you in Nexus this week: {listed}."
+    return "Here is your week: " + (parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]) + "."
+
+
+def _subject(sections: dict, week_of: str) -> str:
+    """The inbox line says what is waiting (Nov 15 2026)."""
+    bits = []
+    if sections.get(PENDING_SECTION):
+        n = len(sections[PENDING_SECTION])
+        bits.append(f"{n} Need{'s' if n == 1 else ''} Your Attention")
+    if sections.get(SECTION):
+        bits.append(f"{len(sections[SECTION])} Overdue")
+    return f"Weekly Digest - {', '.join(bits) or 'Your Week'} - {week_of}"
+
+
+def _preheader(sections: dict) -> str:
+    """The inbox preview line: the opening line's counts, then the first
+    holiday coming up."""
+    line = _intro(sections)
+    line = line[len("Here is your week: "):] if line.startswith("Here is your week: ") else ""
+    hol = sections.get(HOLIDAY_SECTION) or []
+    if hol:
+        day = (hol[0].get("detail") or "").split(",")[0]
+        when = "next week" if "Next Week" in (hol[0].get("detail") or "") else "this week"
+        line = (line + " " if line else "") + f"{hol[0]['title']} is {day} {when}."
+    if not line and sections.get(TEAM_SECTION):
+        line = _team_note(sections)
+    return (line[:1].upper() + line[1:]) if line else "Your week in Nexus."
+
+
+def _for_email(sections: dict) -> dict:
+    """The sections as the email draws them: Due This Week under a heading
+    per day, Upcoming Time Off and Upcoming Holidays together as Coming Up
+    (Nov 15 2026). build_sections keeps its keys - the counts, the log and
+    the card read them."""
+    out = dict(sections)
+    if out.get(DUE_SECTION):
+        days = []
+        for r in out[DUE_SECTION]:
+            try:
+                d = date.fromisoformat(r.get("due_on") or "")
+                days.append(dict(r, group=f"{d.strftime('%A')}, {d.strftime('%m/%d/%Y')}"))
+            except ValueError:
+                days.append(dict(r, group="Later"))
+        out[DUE_SECTION] = days
+    coming = ([dict(r, group="Time Off") for r in out.pop(TIME_OFF_SECTION, [])] +
+              [dict(r, group="Holidays") for r in out.pop(HOLIDAY_SECTION, [])])
+    if coming:
+        out[COMING_SECTION] = coming
+    return out
 
 
 def _team_note(sections: dict) -> str:
@@ -388,12 +438,12 @@ def _team_note(sections: dict) -> str:
 def render(first_name: str, today: date, sections: dict, greeting: str, logo_url: str, cfg: dict) -> tuple:
     week_of = f"Week of {datetime.strptime(week_start(today), '%Y-%m-%d').strftime('%m/%d/%Y')}"
     footer = (f"You receive the Weekly Digest every {DAY_NAMES[send_day(cfg) - 1]}, before your shift "
-              "starts. It lists everything waiting on you across Nexus - approvals and requests to decide, "
-              "your time sheet, tickets, items, documents to sign and tasks - who on your team is off, "
-              "and the holidays coming up.")
-    return daily.render_email(first_name, today.isoformat(), sections, greeting=greeting, logo_url=logo_url,
-                              title="Weekly Digest", date_label=week_of, intro=_intro(sections),
-                              footer=footer, order=ORDER, expanded=True,
+              "starts. It lists everything waiting on you across Nexus, who on your team is off and the "
+              "holidays coming up.")
+    return daily.render_email(first_name, today.isoformat(), _for_email(sections), greeting=greeting,
+                              logo_url=logo_url, title="Weekly Digest", date_label=week_of,
+                              intro=_intro(sections), subject=_subject(sections, week_of),
+                              preheader=_preheader(sections), footer=footer, order=EMAIL_ORDER,
                               cta_label="Open My Briefing", cta_path="/briefing",
                               notes={TEAM_SECTION: _team_note(sections)}, stop_kind="weekly_digest")
 

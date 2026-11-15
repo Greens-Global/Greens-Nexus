@@ -1374,12 +1374,17 @@ def due_task_rows(db: Session, email: str, first: str, last: str, *, label_day: 
     for t in mine:
         d = datetime.strptime(t.due_on[:10], "%Y-%m-%d")
         detail = (f"Due {d.strftime('%a')} {d.strftime('%m/%d/%Y')}" if label_day else "Due today")
+        rest = []
         if t.status == "recurring" or (t.recurrence or {}).get("freq"):
-            detail += " - recurring"
+            rest.append("recurring")
         if projects.get(t.project_id or ""):
-            detail += f" - {projects[t.project_id]}"
+            rest.append(projects[t.project_id])
+        detail = " - ".join([detail] + rest)
         rows.append({
             "title": t.title, "detail": detail,
+            # The email shows the day as a Due Today tag or a day heading
+            # (Nov 15 2026), so its line under the title is the rest.
+            "due_on": t.due_on[:10], "due_today": not label_day, "short_detail": " - ".join(rest),
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email, "task_open": True,
             "project_id": t.project_id or "", "task_status": t.status or "",
@@ -1412,13 +1417,24 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
 # Sep 25 redesign (Neil: remove anything that reads as AI-generated, look like
 # an enterprise product). Plain, neutral layout matching the ticket/task
 # notification emails (ticket_mail_templates.ticket_email_html): dark green
-# brand bar, no emoji, no pills or gradients. Each module inside a section is
-# ONE table, one row per item, instead of a separate card per item.
+# brand bar, no emoji, no gradients.
+#
+# Nov 15 2026 pass (Neil approved the plan, before / after at
+# https://claude.ai/artifact/C6UwnwUwSXoZPd3X9AydHT): one white card per
+# section with its modules as light divider rows inside (no "ITEM / ACTIONS"
+# header per module), color only where it means something (red = needs you,
+# green = brand / done, a short bar beside each heading), white tiles three to
+# a row that jump to their section (six in one row pushed the Weekly Digest
+# wider than a phone), every section open in every client (the collapse only
+# ran in Apple Mail, so an iPhone opened the briefing with nothing showing), a
+# subject and inbox preview line that say what is waiting, "Mark Done" /
+# "Reopen" for the old "Toggle Completion", small square tags for Due Today /
+# Days Overdue, and Approve / Reject at least 40px tall on a phone.
 #
 # Email-client rules still apply: everything is inline-styled table markup
 # that renders correctly with no <style> support at all (Outlook desktop's
-# Word engine). The <style> block only adds the collapse toggle and the phone
-# layout for clients that honor it.
+# Word engine). The <style> block only adds the phone layout for clients that
+# honor it.
 # The app's own green (Oct 6: "make the green used in mails the same as the
 # default green in the application") - the --color-green status token,
 # hsl(142,60%,30%), the same #1f7a40 the task emails' buttons and the one-tap
@@ -1426,38 +1442,30 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
 # (email_theme), so every family follows one setting.
 _GREEN = "#1f7a40"
 _BRAND = _GREEN
+_RED = "#b91c1c"
 _INK, _BODY, _MUTED, _LINE, _SOFT = "#111827", "#374151", "#6b7280", "#e5e7eb", "#f9fafb"
 _LINK = _GREEN
 
 _SECTION_META = {
-    # key: (heading, accent, summary label)
-    "action_required": ("Action Required",                    "#b91c1c", "Need your action"),
-    "needs_to_know":   ("Updates for You",                     "#b45309", "Updates for you"),
-    "completed":       ("Completed Since Your Last Briefing",  _GREEN, "Completed"),
+    # key: (heading, accent, tile label). The accent is the short bar beside
+    # the heading and the tile's number - never a tinted table. Red is for
+    # what needs the reader, green for done, ink for everything else.
+    "action_required": ("Action Required",                    _RED,   "Need Your Action"),
+    "needs_to_know":   ("Updates for You",                    _INK,   "Updates"),
+    "completed":       ("Completed Since Your Last Briefing", _GREEN, "Completed"),
     # Weekly Digest (weekly_digest.py, Sep 28) - rendered by the same code.
-    "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue tasks"),
-    "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
-    "pending":         ("Needs Your Attention",                "#b45309", "Needs your attention"),
-    "due_week":        ("Due This Week",                       "#1d4ed8", "Due this week"),
-    "time_off_ahead":  ("Upcoming Time Off",                   "#0f766e", "Time off ahead"),
-    "holidays_ahead":  ("Upcoming Holidays",                   "#7c3aed", "Holidays ahead"),
+    "overdue":         ("Overdue Tasks",                      _RED,   "Overdue Tasks"),
+    "team_overdue":    ("Your Team's Overdue Work",           _INK,   "Team Members Behind"),
+    "pending":         ("Needs Your Attention",               _RED,   "Need Your Attention"),
+    "due_week":        ("Due This Week",                      _INK,   "Due This Week"),
+    # Upcoming Time Off and Upcoming Holidays share one section in the email
+    # (weekly_digest.render); the two keys stay for the rows and the counts.
+    "coming_up":       ("Coming Up",                          _INK,   "Coming Up"),
+    "time_off_ahead":  ("Upcoming Time Off",                  _INK,   "Time Off Ahead"),
+    "holidays_ahead":  ("Upcoming Holidays",                  _INK,   "Holidays Ahead"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
-# Each section's tables carry that section's color (Pranshu, Sep 26): a light
-# tint for the rows, a deeper one for the header row, and a matching border,
-# so a table reads as part of its section at a glance.
-_TONE = {
-    # key: (row background, header background, border)
-    "action_required": ("#fef5f5", "#fce4e4", "#f1c7c7"),
-    "needs_to_know":   ("#fffaf0", "#fdefd5", "#f0d6a8"),
-    "completed":       ("#f3fbf5", "#dff3e6", "#bfe3cb"),
-    "overdue":         ("#fef5f5", "#fce4e4", "#f1c7c7"),
-    "team_overdue":    ("#fffaf0", "#fdefd5", "#f0d6a8"),
-    "pending":         ("#fffaf0", "#fdefd5", "#f0d6a8"),
-    "due_week":        ("#f5f8ff", "#e1e9fd", "#c3d3f7"),
-    "time_off_ahead":  ("#f0fdfa", "#d5f5ee", "#a7e3d6"),
-    "holidays_ahead":  ("#f8f5ff", "#ece6fd", "#d4c8f7"),
-}
+_TAG = {"red": ("#fdecec", "#991b1b"), "yellow": ("#fef6d8", "#854d0e")}
 
 _MODULE_META = {
     "tasks":    "Tasks",
@@ -1487,14 +1495,8 @@ _MODULE_VIEW_URL = {
 _MODULE_ROW_CAP = 18
 
 
-
-def _th(tone: tuple) -> str:
-    return (f"padding:8px 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
-            f"color:{_BODY};text-align:left;background:{tone[1]};border-bottom:1px solid {tone[2]}")
-
-
-def _td(tone: tuple) -> str:
-    return f"padding:12px;vertical-align:top;border-top:1px solid {tone[2]}"
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
 
 
 def _greeting(local_now: datetime) -> str:
@@ -1521,10 +1523,12 @@ def _recipient_local_now(db: Session, email: str) -> datetime:
 
 
 # Button colors (Pranshu, Sep 26): Approve and Open in Nexus green, Reject red.
-_BUTTON_COLOR = {"approve": _GREEN, "reject": "#b91c1c", "open": _GREEN}
+# Reject is a red OUTLINE since Nov 15 2026 (still red), so a column of
+# decisions is not a column of solid red.
+_BUTTON_COLOR = {"approve": _GREEN, "reject": _RED, "open": _GREEN}
 
 
-def _button(label: str, url: str, kind: str, *, pad: str = "5px 14px", size: str = "12px") -> str:
+def _button(label: str, url: str, kind: str, *, pad: str = "8px 14px", size: str = "13px") -> str:
     """One button, as a table CELL holding the link - put it in _button_bar.
 
     Outlook desktop draws mail with Word, which ignores padding, border-radius
@@ -1532,18 +1536,23 @@ def _button(label: str, url: str, kind: str, *, pad: str = "5px 14px", size: str
     outline with the color only behind the words (Oct 1, Outlook Classic vs
     Outlook web). A cell's bgcolor and padding (mso-padding-alt) are what Word
     does honor, so the button is the cell; everywhere else the link's own
-    padding makes the whole button clickable."""
+    padding makes the whole button clickable. `kind` is approve / reject /
+    open or a color (the closing button passes the brand color)."""
     color = _BUTTON_COLOR.get(kind, kind)
+    if kind == "reject":
+        fill, ink, edge = "#ffffff", color, "#e8b4b4"
+    else:
+        fill, ink, edge = color, "#ffffff", color
     link = (f"display:inline-block;padding:{pad};font-size:{size};font-weight:600;line-height:1.3;"
-            "color:#ffffff;text-decoration:none;border-radius:4px;white-space:nowrap")
-    return (f"<td class='nx-btn' bgcolor='{color}' style='background:{color};border-radius:4px;mso-padding-alt:{pad}'>"
-            f"<a href='{escape(url)}' style='{link}'>{escape(label)}</a></td>")
+            f"color:{ink};text-decoration:none;border-radius:6px;white-space:nowrap")
+    return (f"<td class='nx-btn' bgcolor='{fill}' style='background:{fill};border:1px solid {edge};"
+            f"border-radius:6px;mso-padding-alt:{pad}'><a href='{escape(url)}' style='{link}'>{escape(label)}</a></td>")
 
 
 def _button_bar(cells: list, align: str = "left") -> str:
-    """Buttons side by side, 6px apart, in one table row (Outlook desktop has
+    """Buttons side by side, 8px apart, in one table row (Outlook desktop has
     no inline-block to line them up with)."""
-    gap = "<td width='6' style='width:6px;font-size:0;line-height:0'>&nbsp;</td>"
+    gap = "<td class='nx-gap' width='8' style='width:8px;font-size:0;line-height:0'>&nbsp;</td>"
     cells = [c for c in cells if c]
     if not cells:
         return ""
@@ -1556,7 +1565,7 @@ def _links(pairs: list) -> str:
     # of a line when the links wrap. The trailing ordinary space is the only
     # break point, so each link wraps whole.
     sep = "&nbsp;&nbsp;&nbsp; "
-    return sep.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:12.5px;font-weight:600;"
+    return sep.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:13px;font-weight:600;"
                     f"text-decoration:none;white-space:nowrap'>{escape(label)}</a>" for label, url in pairs)
 
 
@@ -1566,17 +1575,19 @@ def _decision_buttons(kind: str, action_id: str, email: str, *, labels=("Approve
     # Email link scanners (Outlook Safe Links, Gmail) prefetch every URL in a
     # message; each link opens a one-tap confirm page
     # (routers/briefing_actions.py) that only acts on its own POST.
-    size = {"pad": "4px 10px", "size": "11.5px"} if small else {}
+    size = {"pad": "6px 12px", "size": "12.5px"} if small else {}
     return [_button(labels[0], briefing_mail_actions.action_url(kind, action_id, "approve", email), "approve", **size),
             _button(labels[1], briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject", **size)]
 
 
 def _row_links(row: dict) -> list:
     """[(label, url)] for a row's own actions (Neil, 10/01 and 10/05): Comment,
-    React, Toggle Completion, Open - no Change Status, "Open" rather than "Open
-    in Nexus". Each opens the signed one-tap page (routers/mail_actions.py) or
-    the item in Nexus - a digest of many tasks cannot run them inside the
-    email, which Neil accepted on 10/05."""
+    React, the completion switch, Open - no Change Status, "Open" rather than
+    "Open in Nexus". Each opens the signed one-tap page (routers/mail_actions.py)
+    or the item in Nexus - a digest of many tasks cannot run them inside the
+    email, which Neil accepted on 10/05. The completion switch says what it
+    does (Nov 15 2026, was "Toggle Completion"): Mark Done on an open task,
+    Reopen on a finished one - and it comes first, the one most people want."""
     links = []
     if row.get("task_id"):
         # The same signed forms the task notification email uses
@@ -1584,26 +1595,26 @@ def _row_links(row: dict) -> list:
         # (task, recipient), do= picks the form.
         tok = task_mail_actions.sign_token(row["task_id"], row.get("action_email", ""))
         base = f"{task_mail_actions.api_base()}/mail-actions/page?token={tok}"
-        links += [("Comment", f"{base}&do=comment"), ("React", f"{base}&do=react")]
         if row.get("task_open") or row.get("task_done"):
-            links.append(("Toggle Completion", f"{base}&do=toggle"))
+            links.append(("Reopen" if row.get("task_done") else "Mark Done", f"{base}&do=toggle"))
         if row.get("task_extend"):
             # Weekly Digest (Neil, Sep 28): "an option to extend the tasks" -
             # do=extend applies the app's own due-date rule.
             links.append(("Extend", f"{base}&do=extend"))
+        links += [("Comment", f"{base}&do=comment"), ("React", f"{base}&do=react")]
     if row.get("url"):
         links.append(("Open", row["url"]))
     return links
 
 
 def _inline_links(pairs: list) -> str:
-    """Links on ONE line, dot-separated - the cell is nowrap, so a separator
-    can never be left dangling at a line end (the reason _links uses plain
-    spacing)."""
+    """Links on ONE line, dot-separated. On a computer the cell is nowrap, so
+    a separator is never left dangling; on a phone the dots are hidden
+    (.nx-dot) and the ordinary space after each is where the line wraps."""
     # Spaces as text, not padding: some clients drop a span's padding and ran
     # the links together ("Comment·React", Oct 6).
-    dot = f"&nbsp;&nbsp;<span style='color:{_MUTED}'>&middot;</span>&nbsp;&nbsp;"
-    return dot.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:12.5px;font-weight:600;"
+    dot = f"&nbsp;&nbsp;<span class='nx-dot' style='color:#c4c9d0'>&middot;</span>&nbsp; "
+    return dot.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:13px;font-weight:600;"
                     f"text-decoration:none;white-space:nowrap'>{escape(label)}</a>" for label, url in pairs)
 
 
@@ -1611,31 +1622,39 @@ def _actions_cell_html(row: dict, td: str) -> str:
     """The right-hand cell of a row (Neil, 10/05: "in line, the four actions
     are to the right"): the row's links, then Approve / Reject when it is a
     decision - all on ONE line, as cells of one table row so Outlook desktop
-    lines them up too."""
+    lines them up too. On a phone the cell drops under the row."""
     cells = []
     if row.get("cta"):
         # One solid button that says what it does (Neil, 11/12/2026: "a link
         # directly to do so as a button") in place of the small Open link.
         label, url = row["cta"]
-        cells.append(_button(label, url, "open", pad="7px 16px", size="12.5px"))
-        return (f"<td class='nx-td nx-act' align='right' style='{td};text-align:right;white-space:nowrap;"
-                f"vertical-align:middle'>{_button_bar(cells, 'right')}</td>")
+        cells.append(_button(label, url, "open"))
+        return (f"<td class='nx-td nx-act' align='right' style='{td};text-align:right;white-space:nowrap'>"
+                f"{_button_bar(cells, 'right')}</td>")
     links = _row_links(row)
-    if links:
-        cells.append(f"<td class='nx-links' style='white-space:nowrap;vertical-align:middle;padding-right:4px'>"
-                     f"{_inline_links(links)}</td>")
     if row.get("action_kind"):
         cells += _decision_buttons(row["action_kind"], row["action_id"], row["action_email"])
-    cells += _bundle_buttons(row)
+    if not links and not cells:
+        return f"<td class='nx-td nx-act nx-none' style='{td}'></td>"
+    # The links and the buttons are two cells of ONE row (one line on a
+    # computer); a phone stacks them - links, then buttons a thumb can hit.
+    parts = []
+    if links:
+        parts.append(f"<td class='nx-links' style='white-space:nowrap;vertical-align:middle;"
+                     f"padding:{'0 10px 0 0' if cells else '0'}'>{_inline_links(links)}</td>")
+    if cells:
+        parts.append(f"<td class='nx-btns' style='vertical-align:middle'>{_button_bar(cells, 'right')}</td>")
     return (f"<td class='nx-td nx-act' align='right' style='{td};text-align:right;white-space:nowrap'>"
-            f"{_button_bar(cells, 'right')}</td>")
+            f"<table role='presentation' cellpadding='0' cellspacing='0' border='0' align='right'><tr>"
+            f"{''.join(parts)}</tr></table></td>")
 
 
 def _bundle_buttons(row: dict) -> list:
     """Approve All / Reject All for a bundled row (an employee with several
     pending time-off requests - Neil, Oct 26: "club the requests ... allow for
-    one or more to be approved at the same time (or rejected)"), next to the
-    per-request pairs on each line (_sub_actions_html). The token names
+    one or more to be approved at the same time (or rejected)"), on the last
+    line under the per-request pairs (_sub_actions_html) - beside the title
+    they pushed the email wider than 680px (Nov 15 2026). The token names
     every request in the bundle (ids comma-joined); its page lists them with
     a checkbox each, all ticked, and decides the ticked ones together
     (routers/briefing_actions.py). A copy for someone else (the Weekly
@@ -1648,7 +1667,7 @@ def _bundle_buttons(row: dict) -> list:
                              labels=("Approve All", "Reject All"))
 
 
-def _sub_actions_html(row: dict, tone: tuple) -> str:
+def _sub_actions_html(row: dict) -> str:
     """The requests inside a bundled row, one line each with its own small
     Approve / Reject (Neil, Oct 26: individual decisions stay, beside the
     row's Approve All / Reject All). On a phone the pair drops under its
@@ -1658,60 +1677,136 @@ def _sub_actions_html(row: dict, tone: tuple) -> str:
     subs = row.get("sub_actions") or []
     if not subs:
         return ""
-    line = f"border-top:1px solid {tone[2]}"
+    line = f"border-top:1px solid {_LINE}"
     lines = "".join(
-        f"<tr><td class='nx-sub-d' style='padding:7px 0;font-size:12.5px;color:{_BODY};{line}'>"
+        f"<tr><td class='nx-sub-d' style='padding:8px 0;font-size:13px;color:{_BODY};white-space:nowrap;{line}'>"
         f"{escape(s['detail'])}</td>"
-        f"<td class='nx-sub-a' align='right' style='padding:5px 0 5px 12px;{line};white-space:nowrap;"
+        f"<td class='nx-sub-a' align='right' style='padding:6px 0 6px 12px;{line};white-space:nowrap;"
         f"vertical-align:middle'>"
         + (_button_bar(_decision_buttons(s["action_kind"], s["action_id"], s["action_email"], small=True), "right")
            if s.get("action_kind") else "")
         + "</td></tr>"
         for s in subs)
-    return f"<table width='100%' cellpadding='0' cellspacing='0' style='margin-top:8px;border-collapse:collapse'>{lines}</table>"
+    every = _bundle_buttons(row)
+    if every:
+        lines += (f"<tr><td class='nx-sub-d' style='padding:8px 0;font-size:13px;font-weight:600;color:{_INK};"
+                  f"white-space:nowrap;{line}'>All {len(subs)} Requests</td>"
+                  f"<td class='nx-sub-a' align='right' style='padding:6px 0 6px 12px;{line};white-space:nowrap;"
+                  f"vertical-align:middle'>{_button_bar(every, 'right')}</td></tr>")
+    return (f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
+            f"style='margin-top:10px;border-collapse:collapse'>{lines}</table>")
 
 
-def _comments_row_html(row: dict, colspan: int, tone: tuple) -> str:
-    """Last 3 comments on a task (Sep 23), full width under its row so they
-    stay readable instead of squeezed into one column."""
+def _comments_html(row: dict) -> str:
+    """Last 3 comments on a task (Sep 23), under its title."""
     if not row.get("comments"):
         return ""
     lines = "".join(
-        f"<div style='padding:3px 0;font-size:12.5px;line-height:1.5;color:{_BODY}'>"
+        f"<div style='padding:2px 0;font-size:13px;line-height:1.5;color:{_BODY}'>"
         f"<span style='font-weight:600;color:{_INK}'>{escape(c['author'])}:</span> {escape(c['body'])}</div>"
         for c in row["comments"])
-    return (f"<tr><td colspan='{colspan}' class='nx-td' style='padding:0 12px 12px'>"
-            f"<div style='background:#ffffff;border-left:3px solid {tone[2]};padding:8px 12px'>"
-            f"<div style='font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
-            f"color:{_MUTED};margin-bottom:2px'>Recent Comments</div>{lines}</div></td></tr>")
+    return f"<div style='margin-top:10px;border-left:3px solid {_LINE};padding:2px 0 2px 12px'>{lines}</div>"
 
 
-def _item_row_html(row: dict, with_ref: bool, tone: tuple) -> str:
-    """One row: what it is and what happened on the left - the title, the
-    update under it - and its actions on the same line at the right."""
-    td = _td(tone)
-    ref = (f"<td class='nx-td nx-ref' width='92' style='{td};font-size:12px;font-weight:600;color:{_MUTED};"
-           f"white-space:nowrap'>{escape(row.get('ref') or '')}</td>") if with_ref else ""
-    detail = (f"<div style='font-size:13px;line-height:1.45;color:{_BODY};margin-top:3px'>"
-              f"{escape(row['detail'])}</div>") if row.get("detail") else ""
-    item = (f"<td class='nx-td' style='{td}'>"
-            f"<div style='font-size:13.5px;font-weight:600;color:{_INK};line-height:1.4'>{escape(row['title'])}</div>"
-            f"{detail}{_sub_actions_html(row, tone)}</td>")
-    return f"<tr>{ref}{item}{_actions_cell_html(row, td)}</tr>{_comments_row_html(row, 3 if with_ref else 2, tone)}"
+def _tag(text: str, tone: str) -> str:
+    """A small square status tag (Title Case, like the app's status chips)."""
+    bg, fg = _TAG[tone]
+    return (f"<span style='display:inline-block;background:{bg};color:{fg};font-size:11px;font-weight:600;"
+            f"line-height:1;padding:4px 7px;border-radius:3px;white-space:nowrap'>{escape(text)}</span>")
 
 
-def _overflow_footer_html(module: str, shown: list, hidden: list, with_ref: bool, tone: tuple) -> str:
-    """The line under a table that has more rows than it lists: how many are
+def _row_tag(row: dict) -> str:
+    if row.get("overdue_days"):
+        n = row["overdue_days"]
+        return _tag(f"{n} Day{'' if n == 1 else 's'} Overdue", "red")
+    if row.get("due_today"):
+        return _tag("Due Today", "yellow")
+    if row.get("overdue_count"):
+        return _tag(f"{row['overdue_count']} Overdue", "red")
+    return ""
+
+
+_DECISION_TITLE = re.compile(r"^Approve(?: ([A-Z][\w ]*?))?: ")
+
+
+def _row_title(row: dict) -> str:
+    """The row's title as the email shows it. "Approve: X" beside Approve /
+    Reject buttons said Approve twice, so a decision row drops the word
+    ("Approve Checkout: X" reads "Checkout: X"); My Briefing and the Outlook
+    card keep the full title."""
+    title = row.get("name") or row["title"]
+    if row.get("action_kind") or any(s.get("action_kind") for s in row.get("sub_actions") or []):
+        m = _DECISION_TITLE.match(title)
+        if m:
+            title = (f"{m.group(1)}: " if m.group(1) else "") + title[m.end():]
+    return title
+
+
+def _row_detail_html(row: dict) -> str:
+    """The line under the title. `short_detail` is the detail without what a
+    tag or a day heading already says; a ticket's number leads the line
+    instead of taking a column of its own; `lines` is a short list (a team
+    member's overdue tasks)."""
+    if row.get("lines"):
+        return "".join(f"<div style='font-size:13px;line-height:1.5;color:{_BODY};padding-left:14px;"
+                       f"text-indent:-14px'>&bull;&nbsp; {escape(t)}</div>" for t in row["lines"])
+    detail = row.get("short_detail") if row.get("short_detail") is not None else row.get("detail") or ""
+    if row.get("ref"):
+        detail = f"{row['ref']} - {detail}" if detail else row["ref"]
+    return (f"<div style='font-size:13px;line-height:1.5;color:{_BODY};margin-top:3px'>{escape(detail)}</div>"
+            if detail else "")
+
+
+def _row_wrap(cells: str, first: bool) -> str:
+    """A card row is its OWN little table: in one table shared by every row,
+    the widest actions of one row and the widest title area of another added
+    up, and the email grew past 680px (Nov 15 2026)."""
+    edge = "" if first else f"border-top:1px solid {_LINE};"
+    return (f"<tr><td style='{edge}padding:0'><table role='presentation' width='100%' cellpadding='0' "
+            f"cellspacing='0' style='border-collapse:collapse'><tr>{cells}</tr></table></td></tr>")
+
+
+def _item_row_html(row: dict, first: bool = False, *_legacy) -> str:
+    """One row: the title and what happened on the left, its actions on the
+    same line at the right (a phone puts them underneath)."""
+    td = "padding:14px 16px;vertical-align:top"
+    tag = _row_tag(row)
+    item = (f"<td class='nx-td nx-item' style='{td}'>"
+            f"<div style='font-size:14px;font-weight:600;color:{_INK};line-height:1.4'>{escape(_row_title(row))}</div>"
+            f"{_row_detail_html(row)}"
+            + (f"<div style='margin-top:6px'>{tag}</div>" if tag else "")
+            + f"{_sub_actions_html(row)}{_comments_html(row)}</td>")
+    return _row_wrap(item + _actions_cell_html(row, td), first)
+
+
+def _done_row_html(row: dict, first: bool = False) -> str:
+    """A Completed row: one quiet line with a green check - done is good news,
+    not work. A finished task keeps Reopen, Comment and React (Neil, 10/01)."""
+    td = "padding:10px 16px;vertical-align:top"
+    detail = row.get("detail") or ""
+    if detail == "Completed":
+        detail = ""
+    if row.get("ref"):
+        detail = f"{row['ref']} - {detail}" if detail else row["ref"]
+    under = (f"<div style='font-size:12.5px;line-height:1.5;color:{_MUTED};margin:2px 0 0 20px'>{escape(detail)}</div>"
+             if detail else "")
+    item = (f"<td class='nx-td nx-item' style='{td}'><div style='font-size:13.5px;line-height:1.45;color:{_INK}'>"
+            f"<span style='color:{_GREEN};font-weight:700'>&#10003;</span>&nbsp;&nbsp;{escape(row['title'])}</div>"
+            f"{under}</td>")
+    return _row_wrap(item + _actions_cell_html(row, td), first)
+
+
+def _overflow_html(module: str, shown: list, hidden: list) -> str:
+    """The line under a group that has more rows than it lists: how many are
     not listed, and where to see them all."""
-    cols = 3 if with_ref else 2
     more = f"{len(hidden)} more not listed. "
     # Team rows are people, not one screen: "View All" used to open the first
-    # report's first task (Oct 5), so a team table gets the count only.
+    # report's first task (Oct 5), so a team group gets the count only.
     view_url = ("" if module == "team" else
                 (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}")
     view = _links([(f"View All {len(shown) + len(hidden)} in Nexus", view_url)]) if view_url else ""
-    return (f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {tone[2]};"
-            f"background:{tone[1]};font-size:12.5px;color:{_BODY}'>{escape(more)}{view}</td></tr>")
+    return (f"<tr><td class='nx-td' style='padding:10px 16px;border-top:1px solid {_LINE};"
+            f"font-size:13px;color:{_BODY}'>{escape(more)}{view}</td></tr>")
 
 
 def _group_by_module(rows: list) -> list:
@@ -1724,77 +1819,129 @@ def _group_by_module(rows: list) -> list:
     return [(m, _MODULE_META.get(m, m.replace("_", " ").title()), buckets[m]) for m in order]
 
 
-def _module_table_html(section: str, module: str, label: str, rows: list) -> str:
-    tone = _TONE[section]
-    shown, hidden = rows[:_MODULE_ROW_CAP], rows[_MODULE_ROW_CAP:]
-    with_ref = any(r.get("ref") for r in rows)
-    th = _th(tone)
-    head = ((f"<th class='nx-th' style='{th}'>ID</th>" if with_ref else "") +
-            f"<th class='nx-th' style='{th}'>Item</th>"
-            f"<th class='nx-th' align='right' style='{th};text-align:right'>Actions</th>")
-    body = "".join(_item_row_html(r, with_ref, tone) for r in shown)
-    if hidden:
-        body += _overflow_footer_html(module, shown, hidden, with_ref, tone)
-    return (f"<div style='margin:18px 0 8px;font-size:13px;font-weight:600;color:{_INK}'>{escape(label)} "
-            f"<span style='font-weight:400;color:{_MUTED}'>({len(rows)})</span></div>"
-            # bgcolor as well as the style: Outlook desktop honors the attribute
-            # on tables more reliably than a CSS background.
-            f"<table width='100%' cellpadding='0' cellspacing='0' class='nx-tbl' bgcolor='{tone[0]}' "
-            f"style='background:{tone[0]};border:1px solid {tone[2]};border-collapse:collapse;border-radius:6px'>"
-            f"<tr class='nx-head'>{head}</tr>{body}</table>")
+def _groups(rows: list) -> list:
+    """The divider rows inside a section: by the rows' own `group` when every
+    row names one (the digest's days and Coming Up), else by module."""
+    if rows and all(r.get("group") for r in rows):
+        out: dict = {}
+        for r in rows:
+            out.setdefault(r["group"], []).append(r)
+        return [(rs[0].get("module") or "", label, rs) for label, rs in out.items()]
+    return _group_by_module(rows)
 
 
-def _section_html(key: str, rows: list, expanded: bool = False, note: str = "") -> str:
-    heading, accent, _ = _SECTION_META[key]
-    tables = "".join(_module_table_html(key, m, label, grows) for m, label, grows in _group_by_module(rows))
-    if note:
-        tables = f"<div style='margin:14px 0 0;font-size:13.5px;line-height:1.5;color:{_BODY}'>{escape(note)}</div>" + tables
-    sid = f"nx-sec-{key}"
-    # Checkbox-hack collapse, collapsed by default where the <style> CSS runs.
-    # The content's own inline style is display:block, so a client that
-    # ignores the CSS (Outlook desktop) shows the section expanded - never
-    # stuck hidden. Outlook desktop still drew the checkbox - "[ ]", or "[X]"
-    # on the Weekly Digest's open sections - despite mso-hide:all (Oct 1), and
-    # it cannot collapse anyway, so the checkbox and the arrow sit inside
-    # <!--[if !mso]> comments: every other client gets them, Outlook desktop
-    # never sees them.
+def _group_head_html(label: str, n: int, first: bool) -> str:
+    edge = "" if first else f"border-top:1px solid {_LINE};"
+    return (f"<tr><td class='nx-grp' bgcolor='{_SOFT}' style='{edge}background:{_SOFT};"
+            f"padding:8px 16px;font-size:12px;font-weight:600;color:{_MUTED}'>{escape(label)}"
+            f"<span style='font-weight:400'>&nbsp;&nbsp;{n}</span></td></tr>")
+
+
+def _section_html(key: str, rows: list, expanded: bool = True, note: str = "") -> str:
+    """One section: its heading with the section's short color bar, an
+    optional line of text, then ONE card - a divider row per module (or day)
+    and a row per item. `expanded` is kept for old callers: every section is
+    open since Nov 15 2026 (the checkbox collapse ran only in Apple Mail)."""
+    heading, accent, _ = _SECTION_META.get(key, (key.replace("_", " ").title(), _INK, ""))
+    groups = _groups(rows)
+    # A section that is one group of one kind needs no divider ("Overdue
+    # Tasks" holding only Tasks).
+    bare = len(groups) == 1 and key in ("overdue", "team_overdue")
+    body, first = "", True
+    for module, label, grows in groups:
+        if not bare:
+            body += _group_head_html(label, len(grows), first)
+            first = False
+        shown, hidden = grows[:_MODULE_ROW_CAP], grows[_MODULE_ROW_CAP:]
+        draw = _done_row_html if key == "completed" else _item_row_html
+        for i, r in enumerate(shown):
+            body += draw(r, first and i == 0)
+        first = False
+        if hidden:
+            body += _overflow_html(module, shown, hidden)
+    note_html = (f"<div style='margin:0 0 12px;font-size:13.5px;line-height:1.5;color:{_BODY}'>{escape(note)}</div>"
+                 if note else "")
     return f"""
-    <tr><td class="nx-pad" style="padding:26px 32px 0">
-      <!--[if !mso]><!--><input type="checkbox" id="{sid}" class="nx-acc"{" checked" if expanded else ""} style="display:none;mso-hide:all"><!--<![endif]-->
-      <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer">
-        <table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:2px solid {accent}">
-          <tr>
-            <td style="padding:0 0 8px;font-size:16px;font-weight:600;color:{_INK}">{escape(heading)}
-              <span style="font-weight:400;color:{_MUTED}">({len(rows)})</span></td>
-            <td align="right" style="padding:0 0 8px;font-size:12px;color:{_MUTED}"><!--[if !mso]><!--><span class="nx-arrow" style="display:inline-block">&#9656;</span><!--<![endif]--></td>
-          </tr>
-        </table>
-      </label>
-      <div class="nx-content" style="display:block">{tables}</div>
+    <tr><td class="nx-pad" style="padding:30px 32px 0">
+      <a name="nx-sec-{key}" id="nx-sec-{key}"></a>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td width="4" bgcolor="{accent}" style="width:4px;background:{accent};font-size:0;line-height:0">&nbsp;</td>
+        <td style="padding:0 0 0 10px;font-size:17px;font-weight:600;line-height:1.3;color:{_INK}">{escape(heading)}
+          <span style="font-weight:400;color:{_MUTED}">&nbsp;{len(rows)}</span></td>
+      </tr></table>
+      <div style="height:12px;line-height:12px;font-size:0">&nbsp;</div>
+      {note_html}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="nx-card" bgcolor="#ffffff"
+        style="background:#ffffff;border:1px solid {_LINE};border-radius:8px;border-collapse:separate">{body}</table>
     </td></tr>"""
 
 
 def _summary_html(sections: dict, order: list = None) -> str:
+    """White tiles, at most three to a row (six in one row pushed the Weekly
+    Digest wider than a phone), each a link to its section. The number takes
+    the section's color: red only where something needs the reader."""
     present = [k for k in (order or _ORDER) if sections.get(k)]
     if not present:
         return f"<div style='font-size:13.5px;color:{_MUTED}'>Nothing new since your last briefing.</div>"
-    cells = []
-    for i, k in enumerate(present):
-        _, accent, noun = _SECTION_META[k]
-        # Solid section color with white text (Pranshu, Sep 26: the light
-        # tints were too faint to read at a glance). A white gap between
-        # tiles keeps them separate.
-        gap = "border-left:6px solid #ffffff;" if i else ""
-        cells.append(f"<td class='nx-kpi' width='{100 // len(present)}%' bgcolor='{accent}' "
-                     f"style='{gap}background:{accent};padding:14px 18px;vertical-align:top'>"
-                     f"<div style='font-size:24px;font-weight:600;color:#ffffff;line-height:1'>{len(sections[k])}</div>"
-                     f"<div style='font-size:12px;color:#ffffff;margin-top:6px'>{escape(noun)}</div></td>")
-    return (f"<table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse'>"
-            f"<tr>{''.join(cells)}</tr></table>")
+    rows = [present[i:i + 3] for i in range(0, len(present), 3)]
+    gap = "<td class='nx-tgap' width='8' style='width:8px;font-size:0;line-height:0'>&nbsp;</td>"
+    out = []
+    for ri, keys in enumerate(rows):
+        cells = []
+        for k in keys:
+            _, accent, label = _SECTION_META[k]
+            cells.append(
+                f"<td class='nx-kpi' width='33%' valign='top' style='width:33%;border:1px solid {_LINE};"
+                f"border-top:3px solid {accent};border-radius:6px;background:#ffffff'>"
+                f"<a href='#nx-sec-{k}' style='display:block;padding:12px 14px;text-decoration:none'>"
+                f"<span style='display:block;font-size:24px;font-weight:600;line-height:1;color:{accent}'>"
+                f"{len(sections[k])}</span>"
+                f"<span style='display:block;font-size:12px;line-height:1.35;color:{_BODY};margin-top:6px'>"
+                f"{escape(label)}</span></a></td>")
+        if len(present) > 3:   # keep the columns lined up across rows
+            cells += ["<td width='33%' style='width:33%'>&nbsp;</td>"] * (3 - len(cells))
+        out.append(f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
+                   f"style='border-collapse:separate{';margin-top:8px' if ri else ''}'><tr>{gap.join(cells)}</tr></table>")
+    return "".join(out)
 
 
 _DAILY_FOOTER = ("You receive one briefing a day, before your shift starts (or at a set time on a day without "
                  "a shift). It lists what needs your attention in Nexus since your last briefing.")
+
+_OWN_SHEET_VERBS = ("Submit", "Fix", "Resubmit", "Sign", "Check")
+
+
+def daily_preheader(sections: dict) -> str:
+    """The inbox preview line (hidden in the email itself), by rules from the
+    rows: "Submit your Time Sheet, 7 decisions waiting, 2 tasks due today,
+    3 more to do, 4 updates, 4 done." Without it the inbox showed "GREENS
+    GLOBAL Monday, 11/16/2026 Daily Briefing Good morning..."."""
+    act = sections.get("action_required") or []
+    bits, counted = [], 0
+    own = [r for r in act if r.get("module") == "timecard" and "Your" in r.get("title", "")
+           and r["title"].split()[0] in _OWN_SHEET_VERBS]
+    if own:
+        bits.append(f"{own[0]['title'].split()[0].lower()} your Time Sheet")
+        counted += len(own)
+    decisions = [r for r in act if r not in own and (
+        r.get("action_kind") or r.get("sub_actions") or (r.get("title") or "").startswith(("Approve", "Review ")))]
+    if decisions:
+        bits.append(f"{_plural(len(decisions), 'decision')} waiting")
+        counted += len(decisions)
+    due = [r for r in act if r.get("due_today") and r not in decisions]
+    if due:
+        bits.append(f"{_plural(len(due), 'task')} due today")
+        counted += len(due)
+    if len(act) > counted:
+        bits.append(f"{len(act) - counted} more to do")
+    if sections.get("needs_to_know"):
+        bits.append(_plural(len(sections["needs_to_know"]), "update"))
+    if sections.get("completed"):
+        bits.append(f"{len(sections['completed'])} done")
+    if not bits:
+        return "Nothing new since your last briefing."
+    line = ", ".join(bits)
+    return line[:1].upper() + line[1:] + "."
 
 
 def _stop_link(kind: str) -> str:
@@ -1822,52 +1969,70 @@ def _brand() -> str:
 def render_email(first_name: str, briefing_date: str, sections: dict,
                  greeting: str = "Hello", logo_url: str = "", *,
                  title: str = "Daily Briefing", date_label: str = "",
-                 intro: str = "Here is what changed since your last briefing.",
-                 footer: str = _DAILY_FOOTER, order: list = None, expanded: bool = False,
+                 intro: str = None, subject: str = "", preheader: str = None,
+                 footer: str = _DAILY_FOOTER, order: list = None, expanded: bool = True,
                  cta_label: str = "Open My Briefing", cta_path: str = "/briefing",
                  cta_hint: str = "", notes: dict = None, stop_kind: str = "daily_briefing") -> tuple:
     """The briefing email. The keyword-only arguments exist for the Weekly
-    Digest (weekly_digest.py), which reuses this layout with its own section;
-    their defaults are the daily email exactly. `expanded` starts sections
-    open instead of collapsed; cta_* is the page the top link and the closing
-    button open. No hint under the button by default: "Collapse sections and
-    approve, comment or complete in one click" promised a collapse most mail
-    clients cannot do (Neil, 10/01). `notes` puts one line of text at the top of
-    a section ({section key: text}) - the digest's team summary."""
+    Digest (weekly_digest.py), which reuses this layout with its own sections;
+    their defaults are the daily email exactly. `subject`, `intro` and
+    `preheader` default to the daily's own (the count of what needs action);
+    cta_* is the page the top link and the closing button open. `expanded`
+    is accepted for old callers - every section is open. `notes` puts one
+    line of text at the top of a section ({section key: text}) - the
+    digest's team summary."""
     order = order or _ORDER
     brand = _brand()
     _d = datetime.strptime(briefing_date, "%Y-%m-%d")
     weekday_date = date_label or f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}"
-    subject = f"Your {title} - {weekday_date}"
+    n_act = len(sections.get(order[0]) or [])
+    if not subject:
+        # The inbox line says whether today's needs you (Nov 15 2026; it was
+        # "Your Daily Briefing - <date>" every day).
+        subject = (f"{title} - {n_act} Need{'s' if n_act == 1 else ''} Your Action - {weekday_date}" if n_act
+                   else f"{title} - All Caught Up - {weekday_date}")
+    if intro is None:
+        intro = (f"{_plural(n_act, 'thing')} need{'s' if n_act == 1 else ''} you today." if n_act else
+                 "Nothing needs you today. Here is what changed since your last briefing.")
+    if preheader is None:
+        preheader = daily_preheader(sections)
     logo = (f"<img src='{escape(logo_url)}' alt='Greens Global' height='26' style='display:block;border:0'>"
             if logo_url else
             "<span style='color:#ffffff;font-size:14px;font-weight:700;letter-spacing:.18em'>GREENS GLOBAL</span>")
     salutation = f"{greeting}, {escape(first_name)}." if first_name else f"{greeting}."
-    body_sections = "".join(_section_html(k, sections[k], expanded, (notes or {}).get(k, ""))
+    body_sections = "".join(_section_html(k, sections[k], True, (notes or {}).get(k, ""))
                             for k in order if sections.get(k))
-    html = f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+    # The preview line, then filler so the client does not pull body text in
+    # after it. Hidden everywhere, Outlook desktop included (mso-hide).
+    pre = (f"<div style='display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;"
+           f"color:#f3f4f6;opacity:0'>{escape(preheader)}{'&nbsp;&zwnj;' * 60}</div>") if preheader else ""
+    html = f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif" lang="en">
+  {pre}
   <style>
-    .nx-acc:not(:checked) ~ .nx-content {{ display:none !important; }}
-    .nx-acc:checked ~ .nx-content {{ display:block !important; }}
-    .nx-acc:checked + .nx-acc-label .nx-arrow {{ transform:rotate(90deg); }}
     @media (max-width:560px) {{
       .nx-wrap {{ border-left:0 !important; border-right:0 !important; }}
       .nx-pad {{ padding-left:16px !important; padding-right:16px !important; }}
-      .nx-head {{ display:none !important; }}
       .nx-td {{ display:block !important; width:auto !important; }}
-      .nx-ref {{ padding-bottom:0 !important; }}
-      .nx-act {{ border-top:0 !important; padding-top:0 !important; text-align:left !important; white-space:normal !important; }}
+      .nx-item {{ padding-bottom:4px !important; }}
+      .nx-act {{ border-top:0 !important; padding-top:6px !important; text-align:left !important; white-space:normal !important; }}
+      .nx-none {{ display:none !important; }}
       .nx-act table {{ float:none !important; }}
+      .nx-act > table {{ float:none !important; }}
+      .nx-links, .nx-btns {{ display:block !important; text-align:left !important; }}
+      .nx-links {{ white-space:normal !important; line-height:2 !important; padding:0 0 6px !important; }}
+      .nx-dot {{ display:none !important; }}
+      .nx-btn a {{ padding:11px 18px !important; font-size:14px !important; }}
       .nx-sub-d {{ display:block !important; padding-bottom:4px !important; }}
-      .nx-sub-a {{ display:block !important; border-top:0 !important; padding:0 0 8px !important; text-align:left !important; }}
+      .nx-sub-a {{ display:block !important; border-top:0 !important; padding:0 0 10px !important; text-align:left !important; }}
       .nx-sub-a table {{ float:none !important; }}
-      .nx-kpi {{ padding:12px !important; }}
+      .nx-kpi a {{ padding:10px !important; }}
+      .nx-tgap {{ width:6px !important; }}
     }}
   </style>
-  <table class="nx-wrap" align="center" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#ffffff;border:1px solid {_LINE};border-collapse:collapse">
+  <table role="presentation" class="nx-wrap" align="center" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#ffffff;border:1px solid {_LINE};border-collapse:collapse">
     <tr>
       <td class="nx-pad" bgcolor="{brand}" style="background:{brand};padding:16px 32px">
-        <table width="100%" cellpadding="0" cellspacing="0"><tr>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td>{logo}</td>
           <td align="right" style="font-size:12.5px;color:#e8f5ec">{escape(weekday_date)}</td>
         </tr></table>
@@ -1875,18 +2040,15 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     </tr>
     <tr>
       <td class="nx-pad" style="padding:28px 32px 0">
-        <div style="font-size:21px;font-weight:600;color:{_INK}">{escape(title)}</div>
-        <div style="font-size:14px;line-height:1.55;color:{_BODY};margin-top:6px">{salutation} {escape(intro)}</div>
+        <div style="font-size:22px;font-weight:600;color:{_INK}">{escape(title)}</div>
+        <div style="font-size:14.5px;line-height:1.55;color:{_BODY};margin-top:6px">{salutation} {escape(intro)}</div>
       </td>
     </tr>
-    <tr><td class="nx-pad" style="padding:20px 32px 0">{_summary_html(sections, order)}</td></tr>
-    <tr><td class="nx-pad" style="padding:12px 32px 0;font-size:13px">
-      <a href="{escape(app_url())}{escape(cta_path)}" style="color:{_LINK};font-weight:600;text-decoration:none">{escape(cta_label)} in Nexus &rarr;</a>
-    </td></tr>
+    <tr><td class="nx-pad" style="padding:18px 32px 0">{_summary_html(sections, order)}</td></tr>
     {body_sections}
     <tr>
       <td class="nx-pad" style="padding:32px 32px 28px">
-        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", brand, pad="10px 22px", size="13px")])}
+        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", brand, pad="10px 22px", size="13.5px")])}
         {f'<div style="font-size:12px;color:{_MUTED};margin-top:8px">{escape(cta_hint)}</div>' if cta_hint else ''}
       </td>
     </tr>
