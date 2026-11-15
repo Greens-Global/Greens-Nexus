@@ -97,9 +97,13 @@ def main() -> None:
     # The ring is the leftmost square of the crop (its height).
     r = cut.height / 2
     cx, cy = r, r
-    disc = Image.new("RGBA", cut.size, (0, 0, 0, 0))
-    grow = r * 0.06
-    ImageDraw.Draw(disc).ellipse((cx - r - grow, cy - r - grow, cx + r + grow, cy + r + grow), fill=WHITE)
+    # Exactly the ring's size - a disc any bigger shows as a ragged white rim
+    # around the ring (Pranshu, 11/15/2026). Drawn at 4x and shrunk so its
+    # edge is smooth under the ring's.
+    big = Image.new("L", (cut.width * 4, cut.height * 4), 0)
+    ImageDraw.Draw(big).ellipse(((cx - r) * 4, (cy - r) * 4, (cx + r) * 4 - 1, (cy + r) * 4 - 1), fill=255)
+    disc = Image.new("RGBA", cut.size, WHITE)
+    disc.putalpha(big.resize(cut.size, Image.LANCZOS))
     disc.alpha_composite(cut)
     disc.save(BRAND / "nexus-lockup-white.png", optimize=True)
 

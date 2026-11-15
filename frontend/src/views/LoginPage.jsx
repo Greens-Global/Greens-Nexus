@@ -331,7 +331,7 @@ export default function LoginPage() {
            scale(1.45) never actually showed. */
         /* 72px: the white disc under the ring keeps it legible at this size,
            and it sits clear of the corner (Pranshu, 11/15/2026). */
-        .nxl-lockup { height: 72px; width: auto; display: block; filter: drop-shadow(0 6px 16px rgba(0, 0, 0, .22)); }
+        .nxl-lockup { height: 72px; width: auto; display: block; filter: drop-shadow(0 3px 10px rgba(0, 0, 0, .16)); }
 
         .nxl-hero-title {
           margin: 0;
