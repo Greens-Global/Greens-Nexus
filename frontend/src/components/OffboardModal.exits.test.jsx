@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 // Offboard (Neil, 11/14/2026): the Last Day starts EMPTY - today is one tap
 // ("Today - Access Ends Now") with the red warning, judged by the server's
@@ -77,6 +77,9 @@ describe('ChangeLastDayModal', () => {
     expect(screen.getByText('11/21/2026')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Save Last Day/ }).disabled).toBe(true);
     await waitFor(() => expect(context).toHaveBeenCalled());
+    // Let the server's today (11/14) land before Today is tapped - tapped first,
+    // the device's own date is picked and reads as a future day once it lands.
+    await act(async () => { await context.mock.results[0].value; });
     fireEvent.click(screen.getByRole('button', { name: /Today - Access Ends Now/ }));
     expect(screen.getByRole('button', { name: /End Access Now/ })).toBeTruthy();
   });
