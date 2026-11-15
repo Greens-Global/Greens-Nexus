@@ -293,7 +293,7 @@ class RenderTests(_Case):
                 "module": "tasks"}
         rows = [task] + self.rows()
         _, html = daily_briefing.render_email("Pat", self.today, {"action_required": rows})
-        self.assertLess(html.index("Time Sheet <span"), html.index("Tasks <span"))
+        self.assertLess(html.index(">Time Sheet<span"), html.index(">Tasks<span"))
         self.assertIn(">Review and Submit</a>", html)
         self.assertIn("do=submit", html)
 
