@@ -60,7 +60,8 @@ export const OFFLINE_STATIC = [
   '/icons/nexus-badge-96.png',
   '/icons/apple-touch-icon-180.png',
   '/favicon-32.png',
-  '/brand/nexus-mark.png',          // the sidebar and Help mark (11/15/2026)
+  '/brand/nexus-mark.png',          // the login ring (11/15/2026)
+  '/brand/nexus-n.png',             // the sidebar and Help mark
   '/brand/nexus-lockup-white.png',
 ];
 

@@ -481,7 +481,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           <NavTip label="Go to Dashboard" side="right">
           <a href="#dashboard" className="sidebar-brand" aria-label="Nexus - go to Dashboard"
             onClick={(e) => { e.preventDefault(); onNavigate('dashboard'); }}>
-            <img className="dk-mark" src="/brand/nexus-mark.png" alt="" aria-hidden="true" />
+            <img className="dk-mark" src="/brand/nexus-n.png" alt="" aria-hidden="true" />
             {!collapsed && <span className="company-name" style={{ '--i': 0 }}>Nexus</span>}
           </a>
           </NavTip>

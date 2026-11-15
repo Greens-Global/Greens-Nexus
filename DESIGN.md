@@ -135,15 +135,18 @@ green-to-blue ring around the two-figure N. The sources are
 `frontend/scripts/make-brand-assets.py` cuts every asset the app uses, so
 never edit a PNG by hand:
 
-- `public/brand/nexus-mark.png` - the mark alone, transparent. The sidebar
-  (`.dk-mark`, 34px, beside the Nexus wordmark in Inter), Welcome to Nexus
-  on the login page (84px) and the Help panel.
-- `public/brand/nexus-lockup-white.png` - the mark with the white "Nexus"
-  wordmark from the designer's file, the module tagline cut off. Dark
-  backgrounds only (the green login panel); on a light surface use the mark
-  plus text.
-- `public/icons/*` and `public/favicon-32.png` - the mark on a white tile for
-  the browser tab and the phone's home screen. The notification badge
-  (`nexus-badge-96.png`) stays the flat white N: a badge is one color.
+- `public/brand/nexus-n.png` - the two-figure N alone, transparent: every
+  SMALL size (Pranshu, 11/15/2026: the ring's icons are mush under ~40px).
+  The sidebar (`.dk-mark`, 34px, beside the Nexus wordmark in Inter), the
+  Help panel, the browser tab and the phone's home screen (`public/icons/*`,
+  `public/favicon-32.png`, the N on a white tile).
+- `public/brand/nexus-mark.png` - the full ring, transparent: Welcome to
+  Nexus on the login page (84px) and anything else 64px or larger.
+- `public/brand/nexus-lockup-white.png` - the ring on a white disc with the
+  white "Nexus" wordmark from the designer's file, the module tagline cut
+  off. Dark backgrounds only (the green login panel); on a light surface use
+  the N plus text.
+- The notification badge (`nexus-badge-96.png`) stays the flat white N: a
+  badge is one color.
 
 Never draw a green rounded square with an N again - that was the old mark.
