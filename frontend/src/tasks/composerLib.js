@@ -40,10 +40,12 @@ export function noteFromHtml(html) {
   return (doc.body.textContent || '').replace(/\n{2,}/g, '\n').trim();
 }
 
-const DROP_ON_ANOTHER = ['title', 'description', 'files', 'suggestedProjectId'];
+// The priority is not kept (Neil, 11/15/2026: "the same date, person and
+// project") - an Urgent must not slide onto the next task unseen.
+const DROP_ON_ANOTHER = ['title', 'description', 'files', 'suggestedProjectId', 'priority'];
 
 /** What Add Another starts the next task with: the last task's date, people
- *  and priority. The screen's own project stays locked; a project picked for
+ *  and project (Neil, 11/15/2026). The screen's own project stays locked; a project picked for
  *  the last task is only filled in (`suggestedProjectId`). */
 export function carryDefaults(base = {}, carry = {}, lockedProjectId = '') {
   const rest = Object.fromEntries(Object.entries(base).filter(([k]) => !DROP_ON_ANOTHER.includes(k)));
@@ -52,7 +54,6 @@ export function carryDefaults(base = {}, carry = {}, lockedProjectId = '') {
     ...rest,
     dueOn: carry.dueOn || base.dueOn || '',
     assigneeIds: carry.assigneeIds?.length ? carry.assigneeIds : base.assigneeIds,
-    priority: carry.priority || base.priority,
     ...(locked ? { projectId: locked } : { suggestedProjectId: carry.projectId || '' }),
   };
 }

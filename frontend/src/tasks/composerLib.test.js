@@ -43,9 +43,10 @@ describe('dueLabel', () => {
 
 describe('carryDefaults (Add Another)', () => {
   const carry = { dueOn: '2026-11-16', assigneeIds: ['bob@x.com'], projectId: 'p2', priority: 'high' };
-  it('keeps the date, the people and the priority, never the name, note or files', () => {
-    const next = carryDefaults({ title: 'Old', description: '<p>x</p>', files: [1], status: 'in_progress' }, carry);
-    expect(next).toMatchObject({ dueOn: '2026-11-16', assigneeIds: ['bob@x.com'], priority: 'high', status: 'in_progress', suggestedProjectId: 'p2' });
+  it('keeps the date, the people and the project, never the priority, name, note or files', () => {
+    const next = carryDefaults({ title: 'Old', description: '<p>x</p>', files: [1], status: 'in_progress', priority: 'urgent' }, carry);
+    expect(next).toMatchObject({ dueOn: '2026-11-16', assigneeIds: ['bob@x.com'], status: 'in_progress', suggestedProjectId: 'p2' });
+    expect(next).not.toHaveProperty('priority');
     expect(next).not.toHaveProperty('title');
     expect(next).not.toHaveProperty('description');
     expect(next).not.toHaveProperty('files');

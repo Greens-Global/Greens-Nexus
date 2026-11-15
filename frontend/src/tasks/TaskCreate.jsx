@@ -8,7 +8,7 @@
 //     full form with everything typed so far. After a task is made, "Task
 //     Added" (with when it is due) offers Open and Add Another, and the row
 //     that shows it lights up for a moment. Add Another keeps the date, the
-//     people, the project and the priority (Neil, 11/15/2026).
+//     people and the project (Neil, 11/15/2026); the priority starts at Medium.
 // The page's own close (`onClose`) runs when the person is done - after the
 // message, not when the sheet goes - so Add Another has somewhere to come
 // back to. A new tap on the page's + while the message shows starts over.

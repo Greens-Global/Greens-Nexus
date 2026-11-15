@@ -605,8 +605,8 @@ keep the diff minimal.
   form as before; a phone gets the chip composer (`QuickCreateTask`: name,
   note, Due / Assignee / Project / Priority chips opening phone pickers in
   the sheet - `composerPickers.jsx`, typed words fill the same chips) and
-  then "Task Added" with Open and Add Another (keeps date, people, project,
-  priority). Its `defaults` must keep one identity while open (state or a
+  then "Task Added" with Open and Add Another (keeps date, people and
+  project; never the priority). Its `defaults` must keep one identity while open (state or a
   memo). Full Details on a phone groups the form (When, People, Where...)
   and turns a missing field red only after Create is pressed.
 - **The Tickets desk is queues, not tiles** (Neil, 10/31/2026): the main

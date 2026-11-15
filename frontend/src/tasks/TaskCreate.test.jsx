@@ -1,7 +1,7 @@
 // One New Task from every door (Neil, 11/15/2026): a computer gets the full
 // form as before; a phone gets the composer, its Details opens the full form
 // with the draft, and a made task shows "Task Added" with Open and Add Another
-// (which keeps the date, people, project and priority).
+// (which keeps the date, people and project - not the priority).
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
@@ -62,12 +62,12 @@ describe('TaskCreate', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('Add Another opens a fresh composer that keeps the date, people, project and priority', async () => {
+  it('Add Another opens a fresh composer that keeps the date, people and project, not the priority', async () => {
     render(<TaskCreate defaults={{ status: 'in_progress' }} onClose={() => {}} />);
     await click('Composer Create');
     await click('Add Another');
     const next = JSON.parse(screen.getByTestId('composer').dataset.defaults);
-    expect(next).toEqual({ status: 'in_progress', dueOn: '2099-01-02', assigneeIds: ['bob@x.com'], priority: 'high', suggestedProjectId: 'p2' });
+    expect(next).toEqual({ status: 'in_progress', dueOn: '2099-01-02', assigneeIds: ['bob@x.com'], suggestedProjectId: 'p2' });
     expect(screen.queryByRole('status')).toBeNull();
   });
 
@@ -96,7 +96,7 @@ describe('TaskCreate', () => {
     expect(screen.getByRole('status').textContent).toMatch(/Task Added/);
     expect(onClose).not.toHaveBeenCalled();
     await click('Add Another');
-    expect(JSON.parse(screen.getByTestId('composer').dataset.defaults)).toMatchObject({ dueOn: '2099-02-02', priority: 'low', suggestedProjectId: 'p2' });
+    expect(JSON.parse(screen.getByTestId('composer').dataset.defaults)).toMatchObject({ dueOn: '2099-02-02', suggestedProjectId: 'p2' });
   });
 
   it('a new task started elsewhere (the bolt) ends a message still showing', async () => {
