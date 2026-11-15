@@ -329,7 +329,8 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
         : /approv|request/i.test(`${n.type} ${n.title}`) ? 'orange'
         : 'blue',
       title: n.title || 'Notification',
-      sub: n.body || '',
+      // Bell bodies carry **bold** markers; this one-line preview is plain text.
+      sub: (n.body || '').replace(/\*\*/g, ''),
       time: timeAgo(n.timestamp),
       go: () => { markRead?.(n.id); if (n.action?.view) navTo(n.action.view, n.action.sub); },
     }));

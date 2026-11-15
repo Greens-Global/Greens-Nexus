@@ -8683,6 +8683,66 @@ body:has(.nx-set-shell) { overflow-x: clip; }
   .nx-ntf-row { grid-template-columns: 16px minmax(0, 1fr) 32px; }
   .nx-ntf-link { padding: 9px 0; margin-top: -2px; margin-bottom: -6px; }
 }
+/* The panel's frame, header and decision row (phone pass, 11/15/2026). dvh so
+   the end of the list clears Safari's bottom bar; 100vh first for older ones. */
+.notif-drawer { height: 100vh; height: 100dvh; }
+.nx-ntf-hdr { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "title text icons" "sub text icons";
+  align-items: center; column-gap: 2px; padding: 18px 16px 16px 30px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.nx-ntf-hdr-title { grid-area: title; align-self: end; padding-right: 12px; font-size: 15px; font-weight: 700; color: var(--ink); }
+.nx-ntf-hdr-meta { display: contents; }
+.nx-ntf-hdr-sub { grid-area: sub; align-self: start; padding-right: 12px; margin-top: 1px; font-size: 13px; color: var(--muted); }
+.nx-ntf-hdr-text { grid-area: text; display: flex; align-items: center; gap: 2px; }
+.nx-ntf-hdr-icons { grid-area: icons; display: flex; align-items: center; gap: 2px; }
+.nx-ntf-hdr-btn { padding: 7px 12px; border: none; border-radius: 8px; background: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.nx-ntf-hdr-btn.is-brand { padding: 7px 10px; color: var(--wk-brand); }
+.nx-ntf-hdr-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 8px; border: none; border-radius: 8px; background: none; cursor: pointer; color: var(--muted); }
+.nx-ntf-hdr-btn:hover, .nx-ntf-hdr-icon:hover { background: var(--mist); }
+.nx-ntf-ctl { margin-left: 28px; }
+.nx-ntf-ctl-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.nx-ntf-btn { padding: 9px 16px; justify-content: center; white-space: nowrap; }
+.nx-ntf-closed { padding: 11px 16px 11px 30px; }
+/* Swipe to clear (components/SwipeAway.jsx): the word under a row on its way out. */
+.nx-swipe { position: relative; overflow: hidden; }
+.nx-swipe-under { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 22px; background: var(--mist); color: var(--muted); font-size: 13px; font-weight: 600; }
+.nx-swipe-under.is-end { justify-content: flex-end; }
+@media (hover: none) {
+  .nx-ntf-hdr-btn, .nx-ntf-hdr-icon, .nx-ntf-tap { min-height: 40px; }
+  .nx-ntf-hdr-icon { min-width: 40px; }
+}
+/* A phone: the panel is the whole screen. The title takes the page size with
+   the two icons beside it; the count and Mark All Read / Clear All share the
+   next row when they fit; the rows move in from the 30px gutter; the three
+   decisions share one row at the card's full width; the words read at 14. */
+/* Toasts (components/NotificationToasts.jsx): a finger-sized X on touch; on a
+   phone the stack spans the screen under the header. */
+@media (hover: none) {
+  .nx-toast-x { display: flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; margin: -10px -10px -10px 0; }
+}
+/* The bell's panel open: the new row is already in its list, so a toast
+   would only cover the panel's header (Mark All Read, Clear All). */
+body:has(.notif-drawer:not([inert])) .nx-toasts { display: none !important; }
+@media (max-width: 640px) {
+  .nx-toasts { left: 12px !important; right: 12px !important; width: auto !important; max-width: none !important; top: calc(68px + env(safe-area-inset-top, 0px)) !important; }
+}
+@media (max-width: 640px) {
+  .nx-ntf-hdr { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title icons" "meta meta";
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 8px 8px 20px; }
+  .nx-ntf-hdr-title { align-self: center; font-size: 18px; }
+  .nx-ntf-hdr-meta { grid-area: meta; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; column-gap: 8px; }
+  .nx-ntf-hdr-sub { align-self: center; margin-top: 0; padding-right: 0; }
+  .nx-ntf-hdr-text { margin-left: -10px; }
+  .nx-ntf-list { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .nx-ntf-sec { padding-left: 20px; }
+  .nx-ntf-row { padding-left: 20px; padding-right: 10px; }
+  .nx-ntf-act { padding: 14px 14px 14px 20px; }
+  .nx-ntf-closed { padding-left: 20px; padding-right: 12px; }
+  .nx-ntf-row.is-unread::before, .nx-ntf-act.is-unread::before { left: 7px; }
+  .nx-ntf-title, .nx-ntf-body { font-size: 14px; }
+  .nx-ntf-ctl { margin-left: 0; }
+  .nx-ntf-ctl-row { display: grid; grid-template-columns: auto 1fr 1fr; gap: 6px; }
+  .nx-ntf-btn { min-height: 42px; padding: 0 10px; }
+  .nx-ntf-tap { min-height: 42px; }
+}
 /* Performance, flat (Oct 29 2026): goals are rows in one hairline list, not a
    box each; the progress has its own column so the bars line up; a team row
    bands and lights on hover; figures are counts with a dot, hairlines between. */
