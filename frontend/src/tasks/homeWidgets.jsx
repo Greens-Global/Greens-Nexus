@@ -122,7 +122,7 @@ export function FocusTiles({ counts, focus, onPick, active, actions = null }) {
 export function TaskLine({ t, due, dueTone, projectName, project, parentTitle, recurring, compact, onOpen, onToggle }) {
   const prio = t.priority === 'urgent' || t.priority === 'high' ? PRIORITY_META[t.priority] : null;
   return (
-    <div data-task-row onClick={() => onOpen(t.id)} className="nx-row-hover" role="button" tabIndex={0} aria-label={`Open ${t.title}`}
+    <div data-task-row data-task-line={t.id} onClick={() => onOpen(t.id)} className="nx-row-hover" role="button" tabIndex={0} aria-label={`Open ${t.title}`}
       onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen(t.id); } }}
       style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer', minWidth: 0 }}>
       {onToggle && (

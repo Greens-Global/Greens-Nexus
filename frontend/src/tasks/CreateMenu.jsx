@@ -25,9 +25,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, ListChecks, FolderKanban, Briefcase, FilePlus, Users, ChevronDown } from 'lucide-react';
 import { NX, FONT, btn } from './theme';
-import CreateTaskModal from './CreateTaskModal';
-import QuickCreateTask from './QuickCreateTask';
-import { useIsMobile } from '../lib/useIsMobile';
+import TaskCreate from './TaskCreate';
 import { ProjectCreateModal } from './ProjectsView';
 import { PortfolioCreateModal } from './PortfoliosView';
 import { SaveTemplateModal } from './TemplatesView';
@@ -67,17 +65,14 @@ const FAB_Z = 400;
 export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60, variant = 'fab', create = '' }) {
   const [open, setOpen] = useState(false);
   const [show, setShow] = useState(null); // an ITEMS key, or null
-  // What the phone quick-add sheet hands over when "Full Details" is tapped.
-  const [fullDraft, setFullDraft] = useState(null);
+  // New task: TaskCreate.jsx - the quick composer on a phone, the full form on
+  // a computer, from the menu or the page's "+" alike (11/15/2026).
+  const [taskOpen, setTaskOpen] = useState(null);
   const ref = useRef(null);
-  const isMobile = useIsMobile();
   // A page-scoped FAB: one action, fired on click - no menu to open, so the
   // "+" never turns into an "x".
   const single = variant === 'fab' && ITEM[create] ? ITEM[create] : null;
-  // On a phone the task "+" opens the same name-first quick-add sheet as the
-  // MobileTaskBar's "+" on My Tasks, not the dense desktop form.
-  const quickTask = show === 'task' && !!single && isMobile && !fullDraft;
-  const closeTask = () => { setShow(null); setFullDraft(null); };
+  const closeTask = () => { setShow(null); setTaskOpen(null); };
 
   // Escape closes, like every other dismissible layer in the module. The scrim
   // below handles pointer dismissal, so there is no outside-click listener.
@@ -89,7 +84,7 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
   }, [open]);
 
   const inline = variant === 'inline';
-  const pick = (key) => { setOpen(false); setShow(key); };
+  const pick = (key) => { setOpen(false); setShow(key); if (key === 'task') setTaskOpen({ ...taskDefaults }); };
 
   return (
     // Inline anchors its dropdown to itself, so it needs a positioned box; the
@@ -167,8 +162,7 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
         </button>
       )}
 
-      {quickTask && <QuickCreateTask defaults={taskDefaults} onClose={closeTask} onFullDetails={setFullDraft} />}
-      {show === 'task' && !quickTask && <CreateTaskModal defaults={{ ...taskDefaults, ...fullDraft }} onClose={closeTask} lockedProjectId={taskDefaults.projectId || ''} />}
+      {show === 'task' && taskOpen && <TaskCreate defaults={taskOpen} onClose={closeTask} lockedProjectId={taskDefaults.projectId || ''} />}
 
       {show === 'project' && (
         <ProjectCreateModal onClose={() => setShow(null)} onCreated={() => onNavigate && onNavigate('projects')} />

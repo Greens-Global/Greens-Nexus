@@ -18,7 +18,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
 import { topLevel, teamProjectIds, taskInProject } from './lib';
 import { CalendarView } from './views/extras';
-import CreateTaskModal from './CreateTaskModal';
+import TaskCreate from './TaskCreate';
 import { emailToName } from '../lib/utils';
 import AnchoredMenu from '../components/AnchoredMenu';
 import ProjectIcon from './ProjectIcon';
@@ -890,7 +890,7 @@ function ProjectWorkSection({ project, tasks, onNavigate }) {
           <span style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</span>
           <span style={{ fontSize: 12, color: NX.faint }}>{projectTasks.length} task{projectTasks.length === 1 ? '' : 's'}</span>
         </button>
-        <button onClick={() => setAdding(true)} title={`Add a task to ${project.name}`}
+        <button onClick={() => setAdding({ projectId: project.id })} title={`Add a task to ${project.name}`}
           style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, fontWeight: 600, color: NX.dim, flexShrink: 0 }}>
           <Plus size={14} />Task
         </button>
@@ -915,7 +915,7 @@ function ProjectWorkSection({ project, tasks, onNavigate }) {
         )
       )}
       {adding && (
-        <CreateTaskModal defaults={{ projectId: project.id }} lockedProjectId={project.id}
+        <TaskCreate defaults={adding} lockedProjectId={project.id}
           onClose={() => setAdding(false)} />
       )}
     </div>

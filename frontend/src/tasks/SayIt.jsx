@@ -18,7 +18,10 @@ import { UnderstoodChip } from './TypedTaskChips';
  * snapshot() -> { title, dueOn, priority, assigneeIds } as the form stands;
  * onFill(those four) writes them back.
  */
-export default function SayIt({ people, myEmail, snapshot, onFill }) {
+// `compact` (11/15/2026, the phone New Task composer's action bar): the button
+// alone. The composer's own chips show what was understood, so the hint and
+// the chips here would only say it twice; the Listening panel is unchanged.
+export default function SayIt({ people, myEmail, snapshot, onFill, compact = false }) {
   const [live, setLive] = useState('');
   const [result, setResult] = useState(null);   // { said, ignore, base, r }
   const heard = useRef('');
@@ -67,7 +70,9 @@ export default function SayIt({ people, myEmail, snapshot, onFill }) {
 
   if (d.listening) {
     return (
-      <div role="status" aria-live="polite" style={{ border: `1px solid ${NX.red}`, borderRadius: 12, padding: '10px 12px', background: 'rgba(220,38,38,0.05)', fontFamily: FONT }}>
+      <div role="status" aria-live="polite" style={{ border: `1px solid ${NX.red}`, borderRadius: 12, padding: '10px 12px', background: 'rgba(220,38,38,0.05)', fontFamily: FONT,
+        // In the composer's bar: a full row of its own, above the buttons.
+        ...(compact ? { flexBasis: '100%', order: -1, marginBottom: 6 } : null) }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: NX.ink }}>
           <span className="nx-rec-dot" aria-hidden="true" /> Listening - say the whole task
         </div>
@@ -82,6 +87,17 @@ export default function SayIt({ people, myEmail, snapshot, onFill }) {
     );
   }
 
+  if (compact) {
+    return (
+      <>
+        <button type="button" onClick={start} aria-label="Say It - speak the whole task" title="Say the whole task: what, when, who"
+          style={{ ...btn('outline'), gap: 6, fontWeight: 700, color: NX.primary, borderColor: NX.primary, minHeight: 40, flexShrink: 0 }}>
+          <Mic size={15} aria-hidden="true" /> Say It
+        </button>
+        {d.error && <div role="alert" style={{ flexBasis: '100%', fontSize: 12, color: NX.red }}>{d.error}</div>}
+      </>
+    );
+  }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontFamily: FONT }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

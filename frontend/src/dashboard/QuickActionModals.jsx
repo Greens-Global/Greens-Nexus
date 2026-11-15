@@ -11,7 +11,7 @@ import { X, Send } from 'lucide-react';
 import { api } from '../api';
 import { sendMail, createEvent } from '../m365';
 import { TasksProvider } from '../tasks/TasksContext';
-import CreateTaskModal from '../tasks/CreateTaskModal';
+import TaskCreate from '../tasks/TaskCreate';
 import { PersonSelect, Modal } from '../tasks/components';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
@@ -253,10 +253,12 @@ function EventModal({ onClose }) {
 // usable immediately and the project list fills in when the load lands.
 // `seed` (Share to Nexus, lib/shareTarget.js): the form's own `defaults` -
 // a title, a description and files for its attachment list.
+// TaskCreate (11/15/2026): the full form on a computer, the quick composer on
+// a phone - the same New Task as the Tasks module's own +.
 function TaskModal({ onClose, seed }) {
   return (
     <TasksProvider>
-      <CreateTaskModal onClose={() => onClose()} defaults={seed || undefined} />
+      <TaskCreate onClose={() => onClose()} defaults={seed || undefined} />
     </TasksProvider>
   );
 }

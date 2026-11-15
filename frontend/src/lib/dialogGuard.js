@@ -212,6 +212,10 @@ function onClickCapture(e) {
 
 function onKeyCapture(e) {
   if (bypass || e.key !== 'Escape') return;
+  // A menu open over the dialog (components/AnchoredMenu.jsx - the phone New
+  // Task's Add menu, a row's ... menu) takes this Escape for itself: it closes
+  // the menu, not the dialog, so there is nothing to ask about (11/15/2026).
+  if (document.querySelector('.nx-anchored:not(.is-closing)')) return;
   const top = topmost();
   if (!top || !top.hasAttribute('data-nx-dirty')) return;
   e.stopImmediatePropagation();
