@@ -4109,6 +4109,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
      The other bodies keep their inline bottom too (12-76px, a little more
      room after the last card than the 8px they had). */
   .nx-gutter { padding-top: 8px !important; padding-left: 0 !important; padding-right: 0 !important; }
+  /* A screen with the floating "+" (Home, Projects, Portfolios, Teams -
+     views/Tasks.jsx data-fab): room under the last card for the + and the
+     bar below it, so the + never covers words (11/15/2026: it sat on
+     Bookmarks' and Updates' text). */
+  .nx-tasks [data-fab] .nx-page, .nx-tasks [data-fab] .nx-gutter { padding-bottom: calc(200px + env(safe-area-inset-bottom, 0px)) !important; }
 
   /* A full-width card has nothing to round against, so square the corners and
      drop the side borders - it reads as a native list rather than a card that
@@ -9370,6 +9375,33 @@ body:has(.apv-phone) { overflow-x: clip; }
 .nx-docb-vars-lib:hover { color: var(--ink); border-color: var(--ink); }
 .nx-docb-bubble { position: fixed; z-index: 60; transform: translateY(calc(-100% - 8px)); }
 .nx-docb-bubble button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; background: var(--ink); color: var(--paper); border: none; border-radius: 7px; font: 600 12px Inter, sans-serif; cursor: pointer; box-shadow: var(--shadow-lg); }
+/* "Task Added" after a task is made on a phone (tasks/TaskCreate.jsx,
+   11/15/2026): what was added and when it is due, Open, Add Another. Above the
+   Tasks bottom bar and the floating +; the row that shows the new task
+   lights up for a moment (.nx-just-added, tasks/openTask.js). */
+.nx-task-added {
+  position: fixed; left: 12px; right: 12px; bottom: calc(88px + env(safe-area-inset-bottom, 0px)); z-index: 4100;
+  display: flex; align-items: center; gap: 4px; padding: 6px 6px 6px 14px; border-radius: 14px;
+  /* Dark in both themes: the green Open reads on it either way. */
+  background: #111827; color: #fff; border: 1px solid rgba(255,255,255,.1); font: 400 14px Inter, sans-serif;
+  box-shadow: 0 10px 30px rgba(0,0,0,.28); animation: nx-task-added-in 220ms var(--ease-out, ease-out) both;
+}
+.nx-task-added-ok { width: 22px; height: 22px; border-radius: 50%; background: #22a35a; color: #fff; display: grid; place-items: center; flex-shrink: 0; margin-right: 6px; }
+.nx-task-added-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.nx-task-added-text b, .nx-task-added-text small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nx-task-added-text b { font-weight: 600; }
+.nx-task-added-text small { font-size: var(--fs-label, 12px); opacity: .78; }
+.nx-task-added button { background: none; border: none; min-height: 44px; padding: 0 9px; border-radius: 10px; color: inherit; font: 600 14px Inter, sans-serif; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.nx-task-added button.nx-task-added-open { color: #86efac; }
+.nx-task-added button:focus-visible { outline: 2px solid #86efac; outline-offset: -2px; }
+@keyframes nx-task-added-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.nx-just-added { animation: nx-just-added 1.8s ease-out; }
+@keyframes nx-just-added {
+  0%, 35% { background-color: color-mix(in srgb, var(--nx-primary, #1f7a3f) 14%, transparent); box-shadow: inset 3px 0 0 var(--nx-primary, #1f7a3f); }
+  100% { background-color: transparent; box-shadow: inset 3px 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .nx-task-added, .nx-just-added { animation: none; } }
+
 /* the Undo toast after a hold (ui/dialog.jsx dialog.undo) */
 .nx-undo {
   position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 100001;

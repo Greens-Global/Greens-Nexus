@@ -160,7 +160,8 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   // them (PersonView) rather than the task workspace filtered by assignee -
   // that answered "their tasks" and nothing else, with no name, role or teams.
   useEffect(() => {
-    const openTask = (e) => { const id = e.detail?.taskId; if (id) setSearchTaskId(id); };
+    // `handled`: tells a sender (tasks/openTask.js) the module took it, so it need not navigate here.
+    const openTask = (e) => { const id = e.detail?.taskId; if (id) { setSearchTaskId(id); e.detail.handled = true; } };
     const openPerson = (e) => {
       const email = e.detail?.email;
       if (email) { setPerson({ email, name: e.detail?.name || email, fromOutside: !!e.detail?.fromOutside }); setPersonTasks(false); }
@@ -361,7 +362,9 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
         <CreateMenu onNavigate={go} taskDefaults={taskDefaults} bottom={fabBottom} create={fabCreate} />
       )}
 
-      <div style={{ flex: 1, minHeight: 0 }} data-tour={`task-screen-${sub}`}>
+      {/* data-fab: the floating "+" is on this screen - style.css gives the
+          page room under its last card so the + never sits on top of it. */}
+      <div style={{ flex: 1, minHeight: 0 }} data-tour={`task-screen-${sub}`} data-fab={!onManage && fabCreate && isMobile && !hasMobileBar ? '' : undefined}>
         {loading ? (
           /* Nothing below mounts until the data is in, so a ?task= link from
              an email is still in the URL when My Tasks reads it and opens the

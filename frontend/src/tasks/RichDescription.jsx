@@ -120,6 +120,10 @@ export default function RichDescription({
   // where the words stay inside the company - a task's description and
   // comments, a ticket's internal note - never a reply mailed to a requester.
   recordLinks = false,
+  // `short` (11/15/2026, the phone's New Task form): one row - Dictate, Bold,
+  // Italic, the two lists and Link. The full row wrapped to two lines of
+  // sixteen buttons on a phone.
+  short = false,
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [ai, setAi] = useState(null);   // { busy, error, suggestion, original }
@@ -487,11 +491,12 @@ export default function RichDescription({
               dictation.start();
             }} />
         )}
-        {voiceOk && (
+        {voiceOk && !short && (
           <Btn icon={AudioLines} label={voice.recording ? 'Stop and Add the Voice Note' : 'Record a Voice Note'} active={voice.recording} danger
             onClick={() => { setWaitForStop(false); if (voice.recording) voice.stop(); else voice.start(); }} />
         )}
-        {(dictateOk || voiceOk) && <Divider />}
+        {(dictateOk || (voiceOk && !short)) && <Divider />}
+        {!short && (<>
         <span ref={addRef} style={{ display: 'inline-flex' }}>
           <Btn icon={Plus} label="Attach" active={addOpen} onClick={() => setAddOpen((o) => !o)} />
           {/* Portaled: the editor frame and the modal/drawer body around it
@@ -529,21 +534,26 @@ export default function RichDescription({
         <Btn icon={Undo2} label="Undo" disabled={!can?.undo().run} onClick={() => editor.chain().focus().undo().run()} />
         <Btn icon={Redo2} label="Redo" onClick={() => editor.chain().focus().redo().run()} />
         <Divider />
+        </>)}
         <Btn icon={Bold} label="Bold" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} />
         <Btn icon={Italic} label="Italic" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} />
+        {!short && (<>
         <Btn icon={UnderlineIcon} label="Underline" active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} />
         <Btn icon={Highlighter} label="Highlight" active={editor.isActive('highlight')} onClick={() => editor.chain().focus().toggleHighlight().run()} />
         <Btn icon={Strikethrough} label="Strikethrough" active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} />
+        </>)}
         <Divider />
         <Btn icon={List} label="Bulleted list" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} />
         <Btn icon={ListOrdered} label="Numbered list" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} />
-        <Btn icon={IndentIncrease} label="Indent list item" onClick={() => editor.chain().focus().sinkListItem('listItem').run()} />
+        {!short && <Btn icon={IndentIncrease} label="Indent list item" onClick={() => editor.chain().focus().sinkListItem('listItem').run()} />}
         <Divider />
         <Btn icon={Link2} label="Link" active={editor.isActive('link')} onClick={setLink} />
+        {!short && (<>
         <Btn icon={Code} label="Inline code" active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()} />
         <Btn icon={SquareCode} label="Code block" active={editor.isActive('codeBlock')} onClick={() => editor.chain().focus().toggleCodeBlock().run()} />
         <Divider />
         <Btn icon={ai?.busy ? Loader2 : Sparkles} label="Rephrase with AI" disabled={ai?.busy} onClick={rephrase} />
+        </>)}
       </div>
       )}
     </div>

@@ -11,8 +11,7 @@ import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyl
 import { Avatar, EmptyState, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu, usePeople } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
 import MobileTaskBar from './MobileTaskBar';
-import CreateTaskModal from './CreateTaskModal';
-import QuickCreateTask from './QuickCreateTask';
+import TaskCreate from './TaskCreate';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
 import { dueFilterHidesUndated } from './calendarMove';
@@ -349,11 +348,11 @@ export default function MyTasksView({ onNavigate }) {
     [nameOf, store.projectName, store.teamName],
   );
   const [openId, setOpenId] = useState(taskIdFromUrl);
-  const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
-  const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
+  // New task: TaskCreate.jsx picks the form (the phone composer or the full form).
+  const [creating, setCreating] = useState(null);
   const isMobile = useIsMobile();
   // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
-  const openCreate = (defs) => (isMobile ? setQuickCreate(defs) : setCreating(defs));
+  const openCreate = (defs) => setCreating({ ...(defs || {}) });
 
   // People directory for collaborator pickers (excludes me - I'm the assignee).
   const people = useMemo(() => {
@@ -652,8 +651,7 @@ export default function MyTasksView({ onNavigate }) {
         />
       )}
 
-      {quickCreate && <QuickCreateTask defaults={quickCreate} onClose={() => setQuickCreate(null)} onFullDetails={(d) => { setQuickCreate(null); setCreating({ ...quickCreate, ...d }); }} />}
-      {creating && <CreateTaskModal defaults={creating} onClose={() => setCreating(null)} />}
+      {creating && <TaskCreate defaults={creating} onClose={() => setCreating(null)} />}
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
     </div>
   );

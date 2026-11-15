@@ -30,13 +30,16 @@ describe('QuickCreateTask voice', () => {
     try {
       render(<QuickCreateTask defaults={{}} onClose={onClose} onFullDetails={() => {}} />);
       await screen.findByRole('button', { name: /Say It/ });
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Dictate the Task Name - type what you say' })).toBeTruthy());
       // People load first, so "Bob" can be matched.
       await act(async () => { await Promise.resolve(); });
+      await waitFor(() => expect(screen.getByRole('button', { name: /Say It/ })).toBeTruthy());
       fireEvent.click(screen.getByRole('button', { name: /Say It/ }));
       await act(async () => { rec.onresult({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: 'check the gate tomorrow, urgent, for Bob' } }] }); });
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Done' })); });
       expect(screen.getByLabelText('Task name').value).toBe('Check the gate');
+      // What it heard is on the chips.
+      expect(screen.getByRole('button', { name: /^Assignee: Bob Brown/ })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^Priority: Urgent/ })).toBeTruthy();
       expect(createTask).not.toHaveBeenCalled();
       // A voice note rides along.
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Record a Voice Note' })); });

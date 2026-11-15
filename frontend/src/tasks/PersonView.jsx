@@ -12,7 +12,7 @@ import { api } from '../api';
 import { NX, FONT, btn, card, chip } from './theme';
 import { Avatar, EmptyState, useIsMobile } from './components';
 import AsyncSection from '../components/AsyncState';
-import CreateTaskModal from './CreateTaskModal';
+import TaskCreate from './TaskCreate';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { formatDate } from '../lib/datetime';
 import DueBadge from './DueBadge';
@@ -279,7 +279,7 @@ export default function PersonView({ email, name, onBack, onOpenProject, onViewA
       </AsyncSection>
 
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
-      {creating && <CreateTaskModal defaults={creating} onClose={() => setCreating(null)} />}
+      {creating && <TaskCreate defaults={creating} onClose={() => setCreating(null)} />}
     </div>
   );
 }

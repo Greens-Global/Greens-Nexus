@@ -8,8 +8,7 @@ import { useRole } from '../contexts/RoleContext';
 import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, projectRoleWithTeams, roleAtLeast, withSubtasks, topLevel, taskInProject, importedSubtaskFilter } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
 import { EmptyState, usePeople, useIsMobile, ProjectAccessButton, ExportMenu } from './components';
-import CreateTaskModal from './CreateTaskModal';
-import QuickCreateTask from './QuickCreateTask';
+import TaskCreate from './TaskCreate';
 import MobileTaskBar from './MobileTaskBar';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { useTableValue } from './tableCols';
@@ -161,10 +160,11 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [openId, setOpenId] = useState(taskIdFromUrl);
   // The Custom grouping's sections (sec, above): this project's own, shared
   // by everyone on it (customSections.js) - the Board's Section columns too.
-  const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
-  const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
-  // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
-  const openCreate = (defs) => (isMobile ? setQuickCreate(defs) : setCreating(defs));
+  // New task: TaskCreate.jsx picks the form - the quick composer on a phone,
+  // the full form on a computer - from the same context defaults. A fresh
+  // object each time, so a second tap while "Task Added" shows starts over.
+  const [creating, setCreating] = useState(null);
+  const openCreate = (defs) => setCreating({ ...(defs || {}) });
 
   const filter = {
     ...filters, search,
@@ -579,8 +579,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         />
       )}
 
-      {quickCreate && <QuickCreateTask defaults={quickCreate} onClose={() => setQuickCreate(null)} onFullDetails={(d) => { setQuickCreate(null); setCreating({ ...quickCreate, ...d }); }} />}
-      {creating && <CreateTaskModal defaults={creating} onClose={() => setCreating(null)} lockedProjectId={lockedProjectId || ''} />}
+      {creating && <TaskCreate defaults={creating} onClose={() => setCreating(null)} lockedProjectId={lockedProjectId || ''} />}
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
       {importing && lockedProject && (
         <Suspense fallback={null}>
