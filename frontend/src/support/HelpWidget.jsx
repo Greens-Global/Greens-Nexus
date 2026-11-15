@@ -119,7 +119,7 @@ function HomeTab({ firstName, pageDoc, liveTour, otherTours, onSearch, onAsk, on
     <div className="hw-scroll">
       <div className="hw-hero">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="dk-mark hw-mark" aria-hidden="true">N</div>
+          <img className="dk-mark hw-mark" src="/brand/nexus-mark.png" alt="" aria-hidden="true" />
           <button type="button" className="hw-close hw-close-light" onClick={onClose} aria-label="Close help"><X size={18} /></button>
         </div>
         <div className="hw-hello">Hi {firstName || 'there'}!</div>
@@ -573,7 +573,7 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
       role="dialog" aria-label="Help" ref={panelRef} onKeyDown={onKeyDown}>
       {tab !== 'home' && (
         <div className="hw-bar">
-          <div className="dk-mark hw-mark-sm" aria-hidden="true">N</div>
+          <img className="dk-mark hw-mark-sm" src="/brand/nexus-mark.png" alt="" aria-hidden="true" />
           <div className="hw-bar-title">{title}</div>
           {(big || canGrow) && (
             <button type="button" className="hw-size" aria-pressed={big}

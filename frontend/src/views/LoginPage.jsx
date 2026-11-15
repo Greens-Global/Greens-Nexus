@@ -143,8 +143,10 @@ export default function LoginPage() {
       <aside className="nxl-hero" aria-hidden="true">
         <div className="nxl-hero-wash" />
         <div className="nxl-hero-brand" style={{ "--i": 0 }}>
-          <span className="nxl-mark nxl-mark--inverse">N</span>
-          <span className="nxl-hero-name">Nexus</span>
+          {/* The brand lockup (Pranshu, 11/15/2026): the ring mark and the
+              white Nexus wordmark, cut from the designer's file by
+              scripts/make-brand-assets.py - no tagline. */}
+          <img className="nxl-lockup" src="/brand/nexus-lockup-white.png" alt="Nexus" />
         </div>
         {/* One column, centered in the panel (Sagar, Sep 15). The panel only
             left-padded its content before, so on a wide screen the block sat
@@ -173,7 +175,7 @@ export default function LoginPage() {
       {/* Right: one calm action */}
       <main className="nxl-stage">
         <div className="nxl-stage-inner">
-          <div className="nxl-badge" style={{ "--i": 0 }} aria-hidden="true">N</div>
+          <img className="nxl-badge" style={{ "--i": 0 }} src="/brand/nexus-mark.png" alt="" aria-hidden="true" />
 
           {partner === null && (<>
           <h1 className="nxl-title" style={{ "--i": 1 }}>Welcome to Nexus</h1>
@@ -327,13 +329,7 @@ export default function LoginPage() {
            transform: scale(), which the entrance animation below cancels
            (every hero child lands on transform: none), so the earlier
            scale(1.45) never actually showed. */
-        .nxl-mark {
-          width: 48px; height: 48px; border-radius: 13px;
-          display: inline-flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 24px;
-        }
-        .nxl-mark--inverse { background: rgba(255,255,255,.16); color: #fff; }
-        .nxl-hero-name { font-size: 24px; font-weight: 800; letter-spacing: -.01em; }
+        .nxl-lockup { height: 60px; width: auto; display: block; }
 
         .nxl-hero-title {
           margin: 0;
@@ -402,12 +398,9 @@ export default function LoginPage() {
         .nxl-on .nxl-card:nth-child(3) { transform: rotate(-.6deg); }
 
         .nxl-badge {
-          width: 60px; height: 60px; border-radius: 15px;
-          background: ${P.base}; color: #fff;
-          display: flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 32px;
-          box-shadow: 0 10px 26px ${P.shadow};
-          margin-bottom: 24px;
+          width: 84px; height: 84px; display: block;
+          filter: drop-shadow(0 10px 22px ${P.shadow});
+          margin-bottom: 22px;
         }
         .nxl-title {
           font-size: clamp(26px, 3vw, 34px);

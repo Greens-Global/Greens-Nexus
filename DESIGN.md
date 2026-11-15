@@ -27,7 +27,7 @@ terminal/mono styling, neon, glassmorphism, heavy gradients.
 ## Live accent (Neil, 11/02/2026)
 
 Mock: https://claude.ai/artifact/PwncxMck8YaSkFkQ8hmTHE. **Green stays the brand**
-(primary buttons, the active nav item, links, the N tile, anything done). **Orange
+(primary buttons, the active nav item, links, anything done). **Orange
 means "in progress / now" and nothing else.**
 
 - Tokens (style.css "Live accent" block, contrast ratios in its comment):
@@ -126,3 +126,24 @@ Two selectable light worlds (profile menu → Theme, `data-wktheme` on `<html>`,
 - All existing behavior preserved (nav filtering, saved dashboard views + Customize grid,
   drawer/palette/zoom/theme, MSAL). Sentence-case labels; American English.
 - Zero states designed, never blank; sample-data widgets labeled.
+
+## The Nexus mark (Pranshu, 11/15/2026)
+
+The brand is the ring mark the designer drew: six module segments on a
+green-to-blue ring around the two-figure N. The sources are
+`frontend/brand-src/` (black background baked in) and
+`frontend/scripts/make-brand-assets.py` cuts every asset the app uses, so
+never edit a PNG by hand:
+
+- `public/brand/nexus-mark.png` - the mark alone, transparent. The sidebar
+  (`.dk-mark`, 34px, beside the Nexus wordmark in Inter), Welcome to Nexus
+  on the login page (84px) and the Help panel.
+- `public/brand/nexus-lockup-white.png` - the mark with the white "Nexus"
+  wordmark from the designer's file, the module tagline cut off. Dark
+  backgrounds only (the green login panel); on a light surface use the mark
+  plus text.
+- `public/icons/*` and `public/favicon-32.png` - the mark on a white tile for
+  the browser tab and the phone's home screen. The notification badge
+  (`nexus-badge-96.png`) stays the flat white N: a badge is one color.
+
+Never draw a green rounded square with an N again - that was the old mark.
