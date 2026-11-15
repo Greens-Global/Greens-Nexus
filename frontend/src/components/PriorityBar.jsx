@@ -6,6 +6,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
 import { useIsMobile } from '../lib/useIsMobile';
+import { useBackToClose } from '../lib/useBackToClose';
 import { openNotificationTarget } from '../lib/openTarget';
 import { PersonSelect } from '../tasks/components';
 
@@ -29,18 +30,25 @@ import { PersonSelect } from '../tasks/components';
 // taller bar.
 //
 // Same data as the bell (NotificationContext): nothing is fetched twice.
+//
+// Phone pass (11/15/2026): the colors are the --pn-* tokens in style.css, so
+// Dark Mode gets a deep amber bar instead of a pastel strip on black; on a
+// phone the bar is a flush banner (it spans the screen, so a rounded card
+// looked clipped at both edges), its buttons are finger-sized, Back puts
+// its sheets away, and Clear All lives in the Show All sheet (the "1 of 3"
+// pill) so the summary line has room to say something.
 
 const BAR = {
   position: 'sticky', top: 0, zIndex: 60,
   display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', margin: '0 0 8px',
-  background: '#FFF3C4', color: '#5b4300', border: '1px solid #f2d36b', borderRadius: 10, fontSize: 13,
-  boxShadow: '0 2px 8px rgba(91, 67, 0, 0.12)',
+  background: 'var(--pn-bg)', color: 'var(--pn-ink)', border: '1px solid var(--pn-line)', borderRadius: 10, fontSize: 13,
+  boxShadow: '0 2px 8px var(--pn-shadow)',
 };
-const BTN = { border: '1px solid #d9b93a', background: '#fff8dc', color: '#5b4300', borderRadius: 8, padding: '4px 10px', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 };
-const ICON = { border: 'none', background: 'none', padding: 3, cursor: 'pointer', color: '#7a5d00', display: 'inline-flex', flexShrink: 0 };
+const BTN = { border: '1px solid var(--pn-btn-line)', background: 'var(--pn-btn-bg)', color: 'var(--pn-ink)', borderRadius: 8, padding: '4px 10px', font: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 };
+const ICON = { border: 'none', background: 'none', padding: 3, cursor: 'pointer', color: 'var(--pn-icon)', display: 'inline-flex', flexShrink: 0 };
 const ONE_LINE = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 };
 const TEXT_BTN = { border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer', display: 'block', width: '100%' };
-const PANEL = { background: '#FFFBEA', color: '#5b4300', border: '1px solid #f2d36b', boxShadow: '0 10px 30px rgba(91, 67, 0, 0.22)', fontSize: 14 };
+const PANEL = { background: 'var(--pn-panel)', color: 'var(--pn-ink)', border: '1px solid var(--pn-line)', boxShadow: '0 10px 30px var(--pn-shadow-lg)', fontSize: 14 };
 
 // The bar's one line: the body's first line, and within that its first
 // sentence, so "X asked to add a punch on 10/15/2026. Reason: ..." stops at
@@ -60,6 +68,9 @@ export default function PriorityBar({ onNavigate }) {
   const open = useMemo(() => (ctx?.notifications || []).filter((n) => n.priority === 1 && !n.closed && !n.actioned), [ctx?.notifications]);
   const barRef = useRef(null);
   const layer = showAll || !!detail;
+  // A phone's sheets (the full message, Show All) close on Back like every
+  // other sheet, instead of Back leaving the page under them.
+  useBackToClose(phone && layer, () => { setDetail(''); setShowAll(false); });
   // Esc, or a click anywhere outside the bar (the desktop dropdown lives inside
   // it; the phone sheet has its own backdrop), puts the layer away.
   useEffect(() => {
@@ -91,7 +102,7 @@ export default function PriorityBar({ onNavigate }) {
   // Every open notice closed at once - each still restorable from the bell's Closed list.
   const clearAll = () => { open.forEach((item) => ctx.dismiss(item.id)); shut(); };
 
-  const openBtn = (item) => item.action?.view && <button type="button" style={BTN} onClick={() => go(item)}>Open</button>;
+  const openBtn = (item) => item.action?.view && <button type="button" className="nx-pn-btn" style={BTN} onClick={() => go(item)}>Open</button>;
   const closeBtn = (item) => (
     <button type="button" className="nx-touch-target" style={ICON} onClick={() => close(item)} title="Close this notice (it stays in the bell under Closed for 30 days)" aria-label="Close notice"><X size={16} /></button>
   );
@@ -102,14 +113,25 @@ export default function PriorityBar({ onNavigate }) {
     if (split) {
       return (
         <button type="button" style={{ ...TEXT_BTN, ...ONE_LINE }} onClick={() => setDetail(item.id)} aria-label={label}>
-          <span style={{ color: '#6b5200' }}>{sum || 'Tap to read'}</span>
+          <span style={{ color: 'var(--pn-ink-2)' }}>{sum || 'Tap to read'}</span>
         </button>
       );
     }
     return (
       <button type="button" style={{ ...TEXT_BTN, ...ONE_LINE, flex: 1 }} onClick={() => setDetail(item.id)} aria-label={label}>
         <strong>{item.title}</strong>
-        {sum && <span style={{ marginLeft: 8, color: '#6b5200' }}>{sum}</span>}
+        {sum && <span style={{ marginLeft: 8, color: 'var(--pn-ink-2)' }}>{sum}</span>}
+      </button>
+    );
+  };
+  // A phone's Show All row: the title, then the summary under it - one line
+  // each, so neither is cut to a few words.
+  const headlineStacked = (item) => {
+    const sum = noticeSummary(item.body);
+    return (
+      <button type="button" style={{ ...TEXT_BTN, flex: 1, minWidth: 0 }} onClick={() => setDetail(item.id)} aria-label={`Read the full notice: ${item.title}`}>
+        <strong style={{ ...ONE_LINE, display: 'block' }}>{item.title}</strong>
+        {sum && <span style={{ ...ONE_LINE, display: 'block', marginTop: 2, fontSize: 13, color: 'var(--pn-ink-2)' }}>{sum}</span>}
       </button>
     );
   };
@@ -120,11 +142,11 @@ export default function PriorityBar({ onNavigate }) {
       <button type="button" style={ICON} aria-label="Next notice" disabled={at >= open.length - 1} onClick={() => setAt((a) => Math.min(open.length - 1, a + 1))}><ChevronRight size={14} /></button>
     </span>
   );
-  const showAllBtn = open.length > 1 && <button type="button" style={BTN} onClick={() => { setDetail(''); setShowAll(true); }}>Show All</button>;
+  const showAllBtn = open.length > 1 && <button type="button" className="nx-pn-btn" style={BTN} onClick={() => { setDetail(''); setShowAll(true); }}>Show All</button>;
   // Clear All on the bar itself, beside Show All (Charmi, 10/27 call item 10:
   // "You can show all and clear all") - closes THIS person's notices only,
   // each kept in the bell's Closed list for 30 days.
-  const clearAllBtn = open.length > 1 && <button type="button" style={BTN} onClick={clearAll} title="Close every notice (they stay in the bell under Closed for 30 days)">Clear All</button>;
+  const clearAllBtn = open.length > 1 && <button type="button" className="nx-pn-btn" style={BTN} onClick={clearAll} title="Close every notice (they stay in the bell under Closed for 30 days)">Clear All</button>;
 
   // The layer above the bar: a bottom sheet on a phone, a dropdown under the
   // bar on a desktop (capped, scrolling) - never a taller bar.
@@ -152,8 +174,8 @@ export default function PriorityBar({ onNavigate }) {
       </div>
       {detailItem.body && <p style={{ margin: '8px 0 12px', lineHeight: 1.45, whiteSpace: 'pre-line', overflowWrap: 'anywhere' }}>{detailItem.body}</p>}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-        <button type="button" style={BTN} onClick={() => close(detailItem)} title="It stays in the bell under Closed for 30 days">Close Notice</button>
-        {detailItem.action?.view && <button type="button" style={{ ...BTN, background: '#5b4300', color: '#fff', borderColor: '#5b4300' }} onClick={() => go(detailItem)}>Open</button>}
+        <button type="button" className="nx-pn-btn" style={BTN} onClick={() => close(detailItem)} title="It stays in the bell under Closed for 30 days">Close Notice</button>
+        {detailItem.action?.view && <button type="button" className="nx-pn-btn" style={{ ...BTN, background: 'var(--pn-solid)', color: 'var(--pn-solid-ink)', borderColor: 'var(--pn-solid)' }} onClick={() => go(detailItem)}>Open</button>}
       </div>
     </>
   );
@@ -161,12 +183,12 @@ export default function PriorityBar({ onNavigate }) {
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <strong style={{ flex: 1 }}>{open.length} Priority Notices</strong>
-        <button type="button" style={BTN} onClick={clearAll} title="Close every notice (they stay in the bell under Closed for 30 days)">Clear All</button>
+        <button type="button" className="nx-pn-btn" style={BTN} onClick={clearAll} title="Close every notice (they stay in the bell under Closed for 30 days)">Clear All</button>
         <button type="button" style={ICON} onClick={() => setShowAll(false)} aria-label="Hide the list"><X size={16} /></button>
       </div>
       {open.map((item) => (
-        <div key={item.id} data-notice={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderTop: '1px solid #f2d36b' }}>
-          {headline(item)}
+        <div key={item.id} data-notice={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: phone ? '10px 0' : '7px 0', borderTop: '1px solid var(--pn-line)' }}>
+          {phone ? headlineStacked(item) : headline(item)}
           {openBtn(item)}
           {closeBtn(item)}
         </div>
@@ -178,17 +200,16 @@ export default function PriorityBar({ onNavigate }) {
   if (phone) {
     // Two short rows at most: title, count and X; then the summary and Open.
     return (
-      <div ref={barRef} role="alert" aria-label="Priority notice" style={{ ...BAR, display: 'block', padding: '6px 10px' }}>
+      <div ref={barRef} role="alert" aria-label="Priority notice" className="nx-pn-bar is-phone" style={{ ...BAR, display: 'block', padding: '6px 6px 8px 12px', borderRadius: 0, borderLeft: 'none', borderRight: 'none', borderTop: 'none' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <AlertTriangle size={15} style={{ flexShrink: 0 }} />
           <strong style={{ ...ONE_LINE, flex: 1 }}>{n.title}</strong>
-          {open.length > 1 && <button type="button" style={{ ...BTN, padding: '2px 8px' }} onClick={() => { setDetail(''); setShowAll(true); }} aria-label="Show All">{Math.min(at, open.length - 1) + 1} of {open.length}</button>}
+          {open.length > 1 && <button type="button" className="nx-pn-btn" style={{ ...BTN, padding: '2px 10px' }} onClick={() => { setDetail(''); setShowAll(true); }} aria-label="Show All">{Math.min(at, open.length - 1) + 1} of {open.length}</button>}
           {closeBtn(n)}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, paddingLeft: 23 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, paddingLeft: 23, paddingRight: 4 }}>
           <div style={{ flex: 1, minWidth: 0 }}>{headline(n, { split: true })}</div>
           {openBtn(n)}
-          {clearAllBtn}
         </div>
         {layerEl}
       </div>

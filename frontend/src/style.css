@@ -8646,6 +8646,23 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 .dk-fav-open { margin-left: auto; border: none; background: none; padding: 0; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; color: var(--wk-brand); }
 .dk-fav-open:hover { text-decoration: underline; }
 .dk-fav-empty { margin: 0; padding: 14px 6px; font-size: 13px; color: var(--muted); text-align: center; line-height: 1.5; }
+/* Priority notice bar (components/PriorityBar.jsx). Warnings stay yellow with
+   an icon (DESIGN.md); in Dark Mode the yellow is a deep amber with light
+   amber words instead of the pastel strip, which glared on a black page
+   (phone pass, 11/15/2026). */
+:root {
+  --pn-bg: #FFF3C4; --pn-ink: #5b4300; --pn-ink-2: #6b5200; --pn-icon: #7a5d00; --pn-line: #f2d36b;
+  --pn-btn-line: #d9b93a; --pn-btn-bg: #fff8dc; --pn-panel: #FFFBEA; --pn-solid: #5b4300; --pn-solid-ink: #fff;
+  --pn-shadow: rgba(91, 67, 0, 0.12); --pn-shadow-lg: rgba(91, 67, 0, 0.22);
+}
+[data-theme="dark"] {
+  --pn-bg: #2a2007; --pn-ink: #fde68a; --pn-ink-2: #e8d59a; --pn-icon: #fbbf24; --pn-line: #5f4a0e;
+  --pn-btn-line: #85681a; --pn-btn-bg: #382b09; --pn-panel: #211906; --pn-solid: #fbbf24; --pn-solid-ink: #1f1703;
+  --pn-shadow: rgba(0, 0, 0, 0.35); --pn-shadow-lg: rgba(0, 0, 0, 0.5);
+}
+@media (hover: none) {
+  .nx-pn-btn { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; }
+}
 /* Notifications panel (components/NotificationBell.jsx, Oct 28 2026 - Neil:
    "still looks gimmicky and not professional"). Flat rows on white with
    hairline dividers, the way the rest of Nexus reads: unread is a small brand
