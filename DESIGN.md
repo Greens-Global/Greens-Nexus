@@ -27,7 +27,7 @@ terminal/mono styling, neon, glassmorphism, heavy gradients.
 ## Live accent (Neil, 11/02/2026)
 
 Mock: https://claude.ai/artifact/PwncxMck8YaSkFkQ8hmTHE. **Green stays the brand**
-(primary buttons, the active nav item, links, the N tile, anything done). **Orange
+(primary buttons, the active nav item, links, anything done). **Orange
 means "in progress / now" and nothing else.**
 
 - Tokens (style.css "Live accent" block, contrast ratios in its comment):
@@ -126,3 +126,27 @@ Two selectable light worlds (profile menu → Theme, `data-wktheme` on `<html>`,
 - All existing behavior preserved (nav filtering, saved dashboard views + Customize grid,
   drawer/palette/zoom/theme, MSAL). Sentence-case labels; American English.
 - Zero states designed, never blank; sample-data widgets labeled.
+
+## The Nexus mark (Pranshu, 11/15/2026)
+
+The brand is the ring mark the designer drew: six module segments on a
+green-to-blue ring around the two-figure N. The sources are
+`frontend/brand-src/` (black background baked in) and
+`frontend/scripts/make-brand-assets.py` cuts every asset the app uses, so
+never edit a PNG by hand:
+
+- `public/brand/nexus-n.png` - the two-figure N alone, transparent: every
+  SMALL size (Pranshu, 11/15/2026: the ring's icons are mush under ~40px).
+  The sidebar (`.dk-mark`, 34px, beside the Nexus wordmark in Inter), the
+  Help panel, the browser tab and the phone's home screen (`public/icons/*`,
+  `public/favicon-32.png`, the N on a white tile).
+- `public/brand/nexus-mark.png` - the full ring, transparent: Welcome to
+  Nexus on the login page (84px) and anything else 64px or larger.
+- `public/brand/nexus-lockup-white.png` - the ring on a white disc with the
+  white "Nexus" wordmark from the designer's file, the module tagline cut
+  off. Dark backgrounds only (the green login panel); on a light surface use
+  the N plus text.
+- The notification badge (`nexus-badge-96.png`) stays the flat white N: a
+  badge is one color.
+
+Never draw a green rounded square with an N again - that was the old mark.
