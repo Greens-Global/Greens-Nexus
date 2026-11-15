@@ -72,7 +72,9 @@ export default function QuickCreate() {
   // A click or tap anywhere else closes it.
   useEffect(() => {
     if (!open) return undefined;
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) close(false); };
+    // The phone's dim closes the menu on its own click, so a tap there is
+    // swallowed instead of falling through to the page once the dim is gone.
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target) && !e.target?.closest?.('.qc-scrim')) close(false); };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('touchstart', onDown);
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('touchstart', onDown); };
@@ -204,6 +206,13 @@ export default function QuickCreate() {
             </div>
           )}
         </div>
+      )}
+      {/* The phone's dim behind the open menu (style.css .qc-scrim; nothing on
+          a computer). A tap on it only closes the menu - it never reaches what
+          is underneath. At the page root for the same reason as below. */}
+      {open && createPortal(
+        <div className="qc-scrim" aria-hidden="true" onClick={() => close(false)} />,
+        document.body,
       )}
       {/* At the page root: the header's backdrop blur would box a fixed overlay. */}
       {composing && createPortal(

@@ -8744,12 +8744,51 @@ body:has(.nx-set-shell) { overflow-x: clip; }
    background, corners and press, no edge, no shadow. Only the bolt
    (icons/BoltIcon.jsx) and a faint green on hover / open mark it as the
    action button. */
-.icon-btn.qc-btn:hover, .icon-btn.qc-btn[aria-expanded="true"] { background: #e7f6ee; }
+.icon-btn.qc-btn:hover { background: #e7f6ee; }
 .icon-btn.qc-btn:focus-visible { outline-offset: 2px; }
-[data-theme="dark"] .icon-btn.qc-btn:hover, [data-theme="dark"] .icon-btn.qc-btn[aria-expanded="true"] { background: rgba(74, 222, 128, .12); }
+[data-theme="dark"] .icon-btn.qc-btn:hover { background: rgba(74, 222, 128, .12); }
+/* Pressed while the menu is open (Neil, 11/15/2026, "Sunk" in
+   https://claude.ai/artifact/PzbfY3njyYdYuFkzL3oB64): a deeper green, a soft
+   inner shadow at the top, the tile a touch smaller and the bolt 1px down -
+   a key held down. Closed, it is the plain tile again (11/13/2026). */
+.qc-bolt { transition: transform var(--dur-xs) var(--ease-standard); }
+.icon-btn.qc-btn[aria-expanded="true"] {
+  background: #d3efdf; transform: scale(.96);
+  box-shadow: inset 0 2px 4px rgba(21, 128, 61, .22), inset 0 0 0 1px rgba(21, 128, 61, .14);
+}
+.icon-btn.qc-btn[aria-expanded="true"] .qc-bolt { transform: translateY(1px); }
+[data-theme="dark"] .icon-btn.qc-btn[aria-expanded="true"] {
+  background: rgba(74, 222, 128, .2);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(74, 222, 128, .22);
+}
 .qc-btn:focus-visible, .qc-item:focus-visible, .qc-tile:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
 .qc-item:focus { background: var(--sidebar-hover-bg); }
 .header-user-dropdown.qc-menu { width: 320px; max-height: calc(100dvh - 88px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+/* Lifted (Neil, 11/15/2026): a tight edge under the menu plus a wide soft
+   shadow, and a faint outline in place of the gray border - the app-wide
+   --shadow-lg barely set it off the Dashboard's banner and tiles. */
+.header-user-dropdown.qc-menu {
+  border-color: transparent;
+  box-shadow: 0 0 0 1px rgba(20, 32, 26, .06), 0 2px 4px rgba(20, 32, 26, .06),
+    0 12px 28px -6px rgba(20, 32, 26, .18), 0 28px 56px -16px rgba(20, 32, 26, .22);
+}
+[data-theme="dark"] .header-user-dropdown.qc-menu {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .07), 0 2px 4px rgba(0, 0, 0, .5),
+    0 12px 28px -6px rgba(0, 0, 0, .65), 0 28px 56px -16px rgba(0, 0, 0, .7);
+}
+/* On a phone the page under the header dims while the menu is open (the
+   header stays bright, so the pressed bolt still shows what opened it); a
+   tap on the dim closes the menu. Under the header's z-index (110), at the
+   page root (QuickCreate.jsx portals it). Computers: no dim. */
+.qc-scrim { display: none; }
+@media (max-width: 900px) {
+  .qc-scrim { display: block; position: fixed; inset: 0; z-index: 109; background: rgba(20, 32, 26, .22); animation: qc-scrim-in 200ms var(--ease-out) both; }
+  [data-theme="dark"] .qc-scrim { background: rgba(0, 0, 0, .45); }
+  /* The header's own background is see-through (its blur): solid while the
+     menu is open, so the dim never shows through it. */
+  .top-header:has(.qc-btn[aria-expanded="true"]) { background: var(--card); }
+}
+@keyframes qc-scrim-in { from { opacity: 0; } to { opacity: 1; } }
 /* The top row: one tap each. */
 .qc-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px 2px 6px; }
 .qc-tile {
@@ -8776,7 +8815,7 @@ body:has(.nx-set-shell) { overflow-x: clip; }
 @keyframes qc-step-back { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
 .qc-sub { animation: qc-step-in 180ms var(--ease-out) both; }
 .qc-level.is-back { animation: qc-step-back 180ms var(--ease-out) both; }
-@media (prefers-reduced-motion: reduce) { .qc-sub, .qc-level.is-back { animation: none; } .qc-tile-ico { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .qc-sub, .qc-level.is-back, .qc-scrim { animation: none; } .qc-tile-ico, .qc-bolt { transition: none; } }
 @media (max-width: 900px) {
   .qc-btn { width: 44px; height: 44px; }
   /* A full-width sheet under the header: measured from the header itself
