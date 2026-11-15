@@ -143,12 +143,16 @@ describe('Credentials', () => {
     expect(screen.getByText('Logins You Manage', { selector: '.cv-kpi-label' })).toBeTruthy();
   });
 
-  it('on a phone the detail opens as a full-screen sheet', async () => {
+  it('on a phone an owner lands on My Logins, and the detail opens as a full-screen sheet', async () => {
     const real = window.matchMedia;
     window.matchMedia = (q) => ({ matches: /max-width: 900px/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
     try {
       render(<CredentialVaultApp />);
-      await toLogins();
+      // The everyday list first (11/15/2026 phone pass); Overview is one tab away.
+      await waitFor(() => expect(row('c1')).toBeTruthy());
+      expect(screen.getByRole('tab', { name: 'My Logins' }).getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByText(/^Until \d/)).toBeTruthy();                            // the verified window, short
+      expect(screen.queryByText(/Verified until/)).toBeNull();
       expect(screen.queryByText('Copy from the row, or open a login')).toBeNull();     // no inline pane on a phone
       fireEvent.click(screen.getByRole('button', { name: 'Stripe details' }));
       const dlg = await screen.findByRole('dialog', { name: 'Stripe' });

@@ -400,3 +400,60 @@ select.cv-ipt { appearance: auto; }
 
 .cv-pager { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--line); }
 .cv-section .cv-pager { padding: 8px 0 0; border-top: none; }
+
+/* ── Activity date filters (11/15/2026): the house DateField in a box that
+   matches the selects beside it. ─────────────────────────────────────────── */
+.cv-dir-date.form-input { display: inline-flex; align-items: center; width: auto; flex: 0 0 auto; min-width: 136px; height: 34px; padding: 0 10px; font-size: 13px; font-weight: 600; box-sizing: border-box; }
+.cv-dir-date > span { flex: 1; }
+
+/* ── Health by Department on a phone (11/15/2026): one row per department ─── */
+.cv-health-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.cv-health-list-row { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 11px 12px; border: none; border-bottom: 1px solid var(--line); background: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
+.cv-health-list-row:last-child { border-bottom: none; }
+.cv-health-list-row.is-active { background: var(--wk-hover); }
+.cv-health-list-row.is-total { cursor: default; background: var(--bg-secondary); }
+.cv-health-list-top { display: flex; align-items: baseline; gap: 8px; }
+.cv-health-list-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-health-list-row.is-total .cv-health-list-name { font-weight: 700; }
+.cv-health-list-n { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cv-health-list-issues { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cv-health-list-issues .tone-bad { color: var(--cv-bad); }
+.cv-health-list-issues .tone-warn { color: var(--cv-warn); }
+.cv-health-list-issues .tone-ok { color: var(--cv-ok); font-weight: 500; }
+
+/* Share > People Outside Nexus: email, mobile and remove on one row; on a
+   phone the email takes the row with remove beside it, the mobile under it. */
+.cv-outside-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; grid-template-areas: "email phone x"; gap: 8px 12px; align-items: center; }
+.cv-outside-row > input[type="email"] { grid-area: email; }
+.cv-outside-row > input[type="tel"] { grid-area: phone; }
+.cv-outside-row > button { grid-area: x; }
+@media (max-width: 640px) { .cv-outside-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "email x" "phone phone"; } }
+/* A text link that is a <button> ("+ Add Another") reads as a link, not a grey box. */
+button.cv-link { background: none; border: none; padding: 4px 0; font: inherit; font-weight: 600; cursor: pointer; }
+
+/* ── Phones (11/15/2026 phone pass): thumb-sized targets ───────────────────
+   The row's User / Password / Open were 27px tall and the open login's
+   copy / show / close / star 25-28px - under the 40px the rest of Nexus
+   gives a thumb (style.css "Comfortable thumb targets"). */
+@media (max-width: 640px) {
+  /* One row of equal buttons under the name, however many the login has. */
+  .cv-login-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; }
+  .cv-login-actions .cv-btn { min-height: 38px; padding: 0 6px; font-size: 13px; justify-content: center; }
+  /* Four buttons (a login with an authenticator code) leave no room for the
+     icons - the words carry them, and every button reads the same. */
+  .cv-login-actions:has(> :nth-child(4)) .cv-btn svg { display: none; }
+  .cv-iconbtn { width: 38px; height: 38px; border-radius: 10px; }
+  .cv-star { padding: 9px; }
+  .cv-drawer-head { padding: 14px 16px 12px; }
+  .cv-drawer-body { padding: 4px 16px 20px; }
+  .cv-drawer-foot { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+  .cv-drawer-foot .cv-btn, .cv-drawer-foot .cv-btn-dark { min-height: 40px; }
+  .cv-btn, .cv-btn-dark { min-height: 38px; }
+  .cv-field { padding: 5px 6px 5px 10px; }
+  .cv-dir-date.form-input { flex: 1 1 40%; height: 40px; font-size: 16px; } /* type-ok: matches the 16px selects beside it */
+  .cv-dir-select { height: 40px; }
+  /* Activity: the action on its own row, From and To side by side under it. */
+  .cv-dir-head.is-activity > select.cv-dir-select { flex-basis: 100%; }
+  .cv-modal { padding: 20px 18px; }
+  .cv-channel { padding: 14px; }
+}

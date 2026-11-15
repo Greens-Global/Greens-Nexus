@@ -4161,20 +4161,23 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
    Geometry (padding, gaps, widths) is untouched, so nothing reflows. */
 @media (max-width: 640px) {
   .nx-tasks button,
-  .nx-tasks select,
   .nx-tasks label,
   .nx-tasks-portal button,
-  .nx-tasks-portal select,
   .nx-tasks-portal label {
     font-size: 13px !important;
   }
 
   /* Inputs stay at 16px: anything smaller makes iOS zoom the page on focus
-     (the same rule the rest of Nexus follows). */
+     (the same rule the rest of Nexus follows). A closed <select> zooms the
+     same way - at 13px here it zoomed into every dropdown in a shared popup
+     (Credentials' Add Credential, 11/15/2026), so it is 16px too; its open
+     list keeps the module's size below. */
   .nx-tasks input,
   .nx-tasks textarea,
+  .nx-tasks select,
   .nx-tasks-portal input,
-  .nx-tasks-portal textarea {
+  .nx-tasks-portal textarea,
+  .nx-tasks-portal select {
     font-size: 16px !important; /* type-ok: iOS zooms a field under 16px */
   }
 

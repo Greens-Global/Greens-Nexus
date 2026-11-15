@@ -9,6 +9,7 @@ import { Modal, PersonSelect, PersonMultiSelect, DateField, ChipMultiSelect } fr
 import { Field, PasswordField, TYPES, TIERS } from "./vaultShared";
 import { DURATIONS, ROTATION_CHOICES, audienceKey, siteOf, localDay } from "./vaultModel";
 import { formatDate, formatTime } from "../lib/datetime";
+import { useIsMobile } from "../lib/useIsMobile";
 import { FIELDS, guessMap, applyMap, validateRows, findDuplicates, toPayload } from "./importModel";
 
 const EMPTY = { name: "", dept: "", type: "Password", tier: "Standard", username: "", secret: "", url: "", note: "", owner: "", backupOwner: "", rotationMax: 90, expiresAt: "", totpSecret: "", clearTotp: false, siteId: "" };
@@ -366,13 +367,13 @@ export function CredentialForm({ cred, people, myEmail, nameOf, onClose, onSave,
           )}
           <Field label="Username"><input value={form.username} onChange={(e) => set("username", e.target.value)} className="cv-ipt" placeholder="account@…" autoComplete="off" /></Field>
           <PasswordField value={form.secret} onChange={(v) => set("secret", v)} required={!editing} error={shown.secret}
-            label={editing ? "New Password" : "Password"} placeholder={editing ? "Leave blank to keep the current password" : "Enter or generate a password"} />
+            label={editing ? "New Password" : "Password"} placeholder={editing ? "Unchanged if left blank" : "Enter or generate a password"} />
           {editing && form.secret && <p className="cv-hint">Saving a new password counts as a rotation. The current one is kept as the previous password until the next rotation.</p>}
           <Field label="Link" error={shown.url}><input value={form.url} onChange={(e) => set("url", e.target.value)} className={`cv-ipt${shown.url ? " cv-ipt-error" : ""}`} aria-invalid={shown.url ? true : undefined} placeholder="https://…" /></Field>
           <Field label={cred?.hasTotp && !form.clearTotp ? "Authenticator Key (set)" : "Authenticator Key"}>
             {cred?.hasTotp && !form.clearTotp ? (
               <div className="cv-form-grid" style={{ alignItems: "center" }}>
-                <input value={form.totpSecret} onChange={(e) => set("totpSecret", e.target.value)} className="cv-ipt" placeholder="Leave blank to keep the current key" autoComplete="off" />
+                <input value={form.totpSecret} onChange={(e) => set("totpSecret", e.target.value)} className="cv-ipt" placeholder="Unchanged if left blank" autoComplete="off" />
                 <button type="button" className="cv-btn" onClick={() => set("clearTotp", true)}>Remove Authenticator</button>
               </div>
             ) : (
@@ -429,6 +430,7 @@ export function CredentialForm({ cred, people, myEmail, nameOf, onClose, onSave,
 const STEP_TITLES = ["Choose the File", "Match the Columns", "Review", "Done"];
 
 export function ImportWizard({ depts, sites = [], departments = [], people, myEmail, existing = [], nameOf = (e) => e, onClose, onImport }) {
+  const touch = useIsMobile("(hover: none) and (pointer: coarse)");
   const [step, setStep] = useState(0);
   const [file, setFile] = useState(null);
   const [sheet, setSheet] = useState(null);            // { headers: [], rows: [[]] , sheets: [names], name }
@@ -509,7 +511,8 @@ export function ImportWizard({ depts, sites = [], departments = [], people, myEm
         {step === 0 && (
           <div className="cv-drop" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) readFile(f); }}>
             <Upload size={26} style={{ opacity: .5 }} />
-            <strong>Drop your password spreadsheet here</strong>
+            {/* A touch screen has nothing to drop from (11/15/2026 phone pass). */}
+            <strong>{touch ? "Choose your password spreadsheet" : "Drop your password spreadsheet here"}</strong>
             <span className="cv-hint">Best: the template - its Company column lists your companies and Department only that company&apos;s departments. Any other Excel (.xlsx, .xls) or CSV works too; you match its columns on the next step. The first sheet is read; passwords stay in your browser until you click Import.</span>
             <span style={{ display: "inline-flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
               <button type="button" className="cv-btn" onClick={downloadTemplate} disabled={templateBusy}><Download size={14} /> {templateBusy ? "Preparing…" : "Download the Template"}</button>
@@ -715,7 +718,7 @@ export function ShareModal({ cred, people, nameOf, onClose, onSubmit }) {
         <Field label="People Outside Nexus (Optional)" as="div">
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }} data-share="outside">
             {outside.map((x, i) => (
-              <div key={i} className="cv-form-grid" style={{ gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr) auto", alignItems: "center" }}>
+              <div key={i} className="cv-outside-row">
                 <input className={`cv-ipt${x.email.trim() && !EMAIL_RE.test(x.email.trim()) ? " cv-ipt-error" : ""}`} type="email" placeholder="name@company.com"
                   aria-label={`Outside email ${i + 1}`} value={x.email} autoComplete="off"
                   onChange={(e) => setOutside((o) => o.map((y, j) => (j === i ? { ...y, email: e.target.value } : y)))} />

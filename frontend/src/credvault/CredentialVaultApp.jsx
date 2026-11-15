@@ -27,8 +27,8 @@ import NewButton from "../components/NewButton";
 import { useRole } from "../contexts/RoleContext";
 import { useNameResolver } from "../lib/useNameResolver";
 import { useIsMobile } from "../lib/useIsMobile";
-import { formatDateTime } from "../lib/datetime";
-import { usePeople } from "../tasks/components";
+import { formatDateTime, formatTime } from "../lib/datetime";
+import { usePeople, DateField } from "../tasks/components";
 import { VaultOtpModal, DEFAULT_DEPTS, TYPES, TIERS, TierChip, agoLabel, actionStyle } from "./vaultShared";
 import {
   ACCESS_LABEL, ACCESS_TONE, collectionsFor, filterCredentials, sortCredentials, healthFlags, healthTone,
@@ -128,11 +128,12 @@ export default function CredentialVaultApp({ activeSub }) {
   const applySub = useCallback((sub) => {
     const { tab: t, credId, collection: col, create } = parseSub(sub);
     if (!t) return;
-    setTab(t === "vault" ? (credId ? "logins" : "overview") : t);
+    // A collection (Trash, Needs Attention) lives in the Overview's list, on a phone too.
+    setTab(t === "vault" ? (credId || (isMobile && !col) ? "logins" : "overview") : t);
     if (col) setCollection(col);
     if (credId) { setCollection("all"); setFDept(""); setSelectedId(credId); }
     if (create && canWrite) setForm({ cred: null });
-  }, [canWrite]);
+  }, [canWrite, isMobile]);
   useEffect(() => { applySub(activeSub); }, [activeSub, applySub]);
   useEffect(() => {
     const h = (e) => { if (e.detail?.view === "credvault") applySub(e.detail.sub); };
@@ -179,12 +180,14 @@ export default function CredentialVaultApp({ activeSub }) {
   const sharedWithMe = countOf("shared");
   const canManage = isAdmin || creds.some((c) => c.canEdit);
   // The landing tab is decided once the list is in: Overview for owners,
-  // heads and admins - unless a deep link already picked a place.
+  // heads and admins - unless a deep link already picked a place. A phone
+  // lands on My Logins, the everyday list (11/15/2026 phone pass): the audit
+  // numbers are one tap away, a password to copy should not be.
   useEffect(() => {
     if (loading || landed.current) return;
     landed.current = true;
-    if (canManage && !parseSub(activeSub).tab) setTab("overview");
-  }, [loading, canManage, activeSub]);
+    if (canManage && !isMobile && !parseSub(activeSub).tab) setTab("overview");
+  }, [loading, canManage, activeSub, isMobile]);
   useEffect(() => {
     if (!clipLeft) return undefined;
     const t = setTimeout(() => setClipLeft((n) => n - 1), 1000);
@@ -392,9 +395,11 @@ export default function CredentialVaultApp({ activeSub }) {
           lights the tab; the code chip and Add Credential ride the bar's right end. */}
       <ModuleActions>
         <div className="cv-header-actions">
+          {/* A phone keeps the bar to one row: the verified window as its time
+              alone, and no "Code on First Reveal" - the open login says so. */}
           {verified
-            ? <span className="cv-chip tone-ok cv-chip-lg" title="Reveals and approvals inside this window do not ask for another code"><ShieldCheck size={13} /> {verifiedLabel(otp.until, now)}</span>
-            : <span className="cv-chip cv-chip-lg" title="The first reveal asks for a code by text or email - except your own department's logins"><Shield size={13} /> Code on First Reveal</span>}
+            ? <span className="cv-chip tone-ok cv-chip-lg" title="Reveals and approvals inside this window do not ask for another code"><ShieldCheck size={13} /> {isMobile ? `Until ${formatTime(new Date(otp.until))}` : verifiedLabel(otp.until, now)}</span>
+            : !isMobile && <span className="cv-chip cv-chip-lg" title="The first reveal asks for a code by text or email - except your own department's logins"><Shield size={13} /> Code on First Reveal</span>}
           {canWrite && (
             // "+ New", the one create button across Nexus (Neil, 11/13/2026).
             <NewButton title="Add a credential" items={[
@@ -583,7 +588,7 @@ export default function CredentialVaultApp({ activeSub }) {
 
       {tab === "activity" && (
         <div className="wkc">
-          <div className="cv-dir-head">
+          <div className="cv-dir-head is-activity">
             <span className="wkc-chip"><History size={14} /></span>
             <span className="wkc-title">Activity</span>
             <span className="cv-count-pill">{visibleLog.length}</span>
@@ -591,9 +596,10 @@ export default function CredentialVaultApp({ activeSub }) {
               <Search size={13} style={{ flexShrink: 0 }} />
               <input placeholder="Search activity…" aria-label="Search activity" value={logFilter.query} onChange={(e) => setLogFilter((f) => ({ ...f, query: e.target.value }))} />
             </label>
-            <select className="form-input cv-dir-select" value={logFilter.action} onChange={(e) => setLogFilter((f) => ({ ...f, action: e.target.value }))} aria-label="Action">{LOG_ACTIONS.map((a) => <option key={a} value={a}>{a === "All" ? "All actions" : a}</option>)}</select>
-            <input type="date" className="form-input cv-dir-select" aria-label="From" value={logFilter.from} onChange={(e) => setLogFilter((f) => ({ ...f, from: e.target.value }))} />
-            <input type="date" className="form-input cv-dir-select" aria-label="To" value={logFilter.to} onChange={(e) => setLogFilter((f) => ({ ...f, to: e.target.value }))} />
+            <select className="form-input cv-dir-select" value={logFilter.action} onChange={(e) => setLogFilter((f) => ({ ...f, action: e.target.value }))} aria-label="Action">{LOG_ACTIONS.map((a) => <option key={a} value={a}>{a === "All" ? "All Actions" : a}</option>)}</select>
+            {/* The house date box, not the browser's (a phone drew its own mm/dd/yyyy). */}
+            <span className="form-input cv-dir-date"><DateField value={logFilter.from} onChange={(v) => setLogFilter((f) => ({ ...f, from: v || "" }))} placeholder="From" title="From" max={logFilter.to || ""} /></span>
+            <span className="form-input cv-dir-date"><DateField value={logFilter.to} onChange={(v) => setLogFilter((f) => ({ ...f, to: v || "" }))} placeholder="To" title="To" min={logFilter.from || ""} /></span>
           </div>
           {visibleLog.length === 0 && <div className="cv-empty"><strong>No activity matches</strong>Try another person, credential, action or date range.</div>}
           <div className="cv-divide">
