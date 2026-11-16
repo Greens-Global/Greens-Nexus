@@ -7,6 +7,7 @@ import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-li
 //   3. Time: someone the viewer cannot see in Shifts is not "No usual hours".
 //   4. Pay: pay that saved is never reported as unsaved, and it is re-read.
 //   5. Time: a failed Work Mode read is an error with Retry, never "On-Site".
+//   6. Overview: an emergency contact edit sends only the fields that changed.
 //   7. A full timestamp shows the viewer's own day, not the UTC day.
 
 // A US evening: 01:00Z on 11/17 is still 11/16 here.
@@ -141,6 +142,22 @@ describe('People review fixes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     const radio = await screen.findByRole('radio', { name: /Remote/ });
     expect(radio.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('6. Overview: fixing the contact name sends only the name, never the old phone', async () => {
+    const { default: OverviewTab } = await import('./OverviewTab');
+    const ray = { ...ANA, personal: { emergency: { name: 'Ann Old', relationship: 'Sister', phone: '555-0100', email: '' } } };
+    answers.updateEmployee = { ...ray };
+    render(<OverviewTab e={ray} canEdit onSaved={() => {}} toastOk={vi.fn()} toastErr={vi.fn()} />);
+    // The Personal Details section's own Edit (Profile, Office, Personal).
+    fireEvent.click(screen.getAllByRole('button', { name: /^Edit$/ })[2]);
+    fireEvent.change(screen.getByLabelText('Emergency Contact Name'), { target: { value: 'Ann New' } });
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(sent('updateEmployee').length).toBe(1));
+    const [, body] = sent('updateEmployee')[0];
+    // The server merges these into the stored contact, so a phone the person
+    // changed in My HR meanwhile is kept.
+    expect(body.personal).toEqual({ emergency: { name: 'Ann New' } });
   });
 
   it('7. A paystub uploaded on a US evening shows that evening\'s day', async () => {
