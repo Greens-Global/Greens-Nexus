@@ -4784,12 +4784,17 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   padding: 1px 7px;
   line-height: 1.3;
 }
-/* Every tab count is something waiting on you (Oct 18). A quiet counter since
-   Oct 25 (Neil: "more subtle") - the same language as the sidebar; red is
-   the bell's alone. On the active tab it takes the tab's accent. */
-.hdr-tab.active .hdr-tab-badge, .module-tab-inline-btn.active .hdr-tab-badge { background: var(--wk-brand-tint); border-color: transparent; color: var(--wk-brand); }
-[data-theme="dark"] .hdr-tab-badge { background: rgba(255,255,255,.06); color: var(--ink); }
-[data-theme="dark"] .hdr-tab.active .hdr-tab-badge { background: color-mix(in srgb, var(--wk-brand) 18%, transparent); color: color-mix(in srgb, var(--wk-brand) 55%, #fff); }
+/* Every tab count is something waiting on you (Oct 18). A SOLID brand pill
+   with a white number on every tab, open or not (Neil, 11/16/2026: "I like
+   the solid green pill... Very clear", option 3 in
+   https://claude.ai/artifact/CRwxKdRPvE41bCkeMbr9hn) - it replaced the quiet
+   grey counter of Oct 25. Red stays the bell's alone; Tickets' Unassigned
+   keeps its amber (--alarm, below). The count's change flash is white here,
+   since a brand flash would not show on a brand pill. */
+.hdr-tab-badge, .hdr-tab.active .hdr-tab-badge, .module-tab-inline-btn.active .hdr-tab-badge,
+[data-theme="dark"] .hdr-tab-badge, [data-theme="dark"] .hdr-tab.active .hdr-tab-badge {
+  background: var(--wk-brand); border-color: transparent; color: #fff; --flash: #fff;
+}
 /* A count that is a call to act (Tickets' Unassigned queue, 10/31/2026):
    amber, the same word the Unassigned cell uses - never red (the bell's). */
 .hdr-tab-badge--alarm, .module-tab-inline-btn.active .hdr-tab-badge--alarm { background: rgba(217,119,6,.14); border-color: transparent; color: #b45309; }
@@ -5036,7 +5041,7 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 .dk-head-sub { font-size: 15px; color: var(--wk-dim); line-height: 1.5; }   /* a touch larger, level with the controls across from it (Neil, Oct 30 2026) */
 .dk-head-sub b { color: var(--wk-brand); font-weight: 700; }
 [data-theme="dark"] .dk-head-sub { color: var(--muted); }
-[data-theme="dark"] .dk-head-sub b { color: #b9bbff; }
+[data-theme="dark"] .dk-head-sub b { color: color-mix(in srgb, var(--wk-brand) 50%, #fff); }   /* the brand, lifted for dark (was a lavender left from the old blue brand; 11/16/2026) */
 
 .dk-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 /* The h1's 10px and this 4px put the date line's middle level with the
