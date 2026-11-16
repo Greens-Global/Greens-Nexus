@@ -1405,6 +1405,17 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 
 /* AnchoredMenu: grows out of its trigger corner and shrinks back into it. */
 .nx-anchored { animation: nx-menu-in var(--dur-sm) var(--ease-out); transform-origin: top left; }
+/* Every menu and pop-up pinned to a button (AnchoredMenu - row "..." menus,
+   filters, pickers, the module bar's menus) wears the ONE lifted shadow the
+   header's menus use (Neil, 11/16/2026: "so we have consistency"): the
+   outline is the shadow's own ring, so a drawn border goes clear. It wins
+   over each caller's own inline shadow, which is why it is !important. A
+   panel that drew no card of its own gets the card color here (it showed
+   the page through it); a caller's own background still wins. */
+.nx-anchored {
+  background-color: var(--card); border-radius: 10px;
+  box-shadow: var(--shadow-menu) !important; border-color: transparent !important;
+}
 .nx-anchored[data-align="end"] { transform-origin: top right; }
 .nx-anchored[data-dir="up"] { transform-origin: bottom left; }
 .nx-anchored[data-dir="up"][data-align="end"] { transform-origin: bottom right; }
