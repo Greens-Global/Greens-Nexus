@@ -5461,15 +5461,20 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
        Neil!           | [clock chip] [Customize]
      then the summary full width. The two column wrappers dissolve
      (display: contents) so every piece lands on one grid. The greeting
-     spans both columns over rows 2-3 with a line height equal to the row
-     height, so its two lines sit level with the clock and the controls;
-     each line stops short of what is beside it (--dk-clock-w / --dk-tools-w,
-     measured in DeskGreeting) and a long name ends in "...". */
+     spans both columns over rows 2-3, each of its lines as tall as its own
+     row, so the two sit level with the clock and the controls; each line
+     stops short of what is beside it (--dk-clock-w / --dk-tools-w,
+     measured in DeskGreeting) and a long name ends in "...".
+     Tighter (Neil, 11/16/2026, Option B in
+     https://claude.ai/artifact/G3ymbFgFnA6d6rxhhFBfSH): the first line's
+     row only holds its own text (30px), the name's keeps the 36px buttons
+     (36px) - 14px less than two 40px rows, nothing smaller to tap. */
   .dk-head {
     --dk-big: clamp(20px, 6.2vw, 24px);   /* type-ok: the greeting and clock shrink together on a narrow phone */
-    --dk-line: 40px;
+    --dk-line1: 30px;
+    --dk-line2: 36px;
     display: grid; grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: auto var(--dk-line) var(--dk-line) auto;
+    grid-template-rows: auto var(--dk-line1) var(--dk-line2) auto;
     column-gap: 12px; row-gap: 0; align-items: center;
   }
   .dk-head-left, .dk-head-right { display: contents; }
@@ -5483,13 +5488,13 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   }
   .dk-head h1 {
     grid-column: 1 / -1; grid-row: 2 / span 2; align-self: start; min-width: 0;
-    font-size: var(--dk-big); line-height: var(--dk-line); margin: 0;
+    font-size: var(--dk-big); line-height: var(--dk-line2); margin: 0;
   }
   .dk-hi, .dk-hi-name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .dk-hi { max-width: calc(100% - var(--dk-clock-w, 5.2em) - 12px); }
-  .dk-hi-name { max-width: calc(100% - var(--dk-tools-w, 180px) - 12px); }
+  .dk-hi { max-width: calc(100% - var(--dk-clock-w, 5.2em) - 12px); line-height: var(--dk-line1); }
+  .dk-hi-name { max-width: calc(100% - var(--dk-tools-w, 180px) - 12px); line-height: var(--dk-line2); }
   .dk-clock-row { grid-column: 2; grid-row: 2; justify-self: end; position: relative; z-index: 1; }
-  .dk-clock { font-size: var(--dk-big); line-height: var(--dk-line); }
+  .dk-clock { font-size: var(--dk-big); line-height: var(--dk-line1); }
   /* Home first: the house clock and California only, short ("CA 2:09 PM"),
      at the top right across from the date. My Profile picks stay on the
      computer. */
