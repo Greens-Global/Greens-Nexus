@@ -166,15 +166,19 @@ describe('Checks and dates', () => {
     expect(screen.getByLabelText('Expires On').value).toBe(inDays(90));
     fireEvent.click(screen.getByRole('button', { name: '365d' }));
     expect(screen.getByLabelText('Expires On').value).toBe(inDays(365));
-    fireEvent.change(screen.getByLabelText('Expires On'), { target: { value: '2027-01-15' } });
+    // A date of your own, 45 days out: no Rotate Every choice (60 / 90 / 180 /
+    // 365) can land on it. A fixed '2027-01-15' was exactly 60 days after
+    // 11/16/2026, so on that day the form rightly read it as "follow 60d".
+    const own = inDays(45);
+    fireEvent.change(screen.getByLabelText('Expires On'), { target: { value: own } });
     fireEvent.click(screen.getByRole('button', { name: '60d' }));
-    expect(screen.getByLabelText('Expires On').value).toBe('2027-01-15');                     // a date of your own stays
+    expect(screen.getByLabelText('Expires On').value).toBe(own);                              // a date of your own stays
     fireEvent.click(companiesBox().getByRole('button', { name: 'Greens' }));
     fireEvent.click(deptsBox().getByRole('button', { name: 'IT' }));
     fillBasics();
     fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0][0]).toMatchObject({ rotationMax: 60, expiresAt: '2027-01-15' });
+    expect(onSave.mock.calls[0][0]).toMatchObject({ rotationMax: 60, expiresAt: own });
   });
 
   it('a login can be site specific: Location lists the sites of the companies picked', async () => {
