@@ -106,11 +106,13 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
       const up = await ensureStepUp();
       if (!up.ok) { if (!up.cancelled) toastErr('Identity check did not complete.'); return false; }
       const payDirty = JSON.stringify({ comp: draft.comp, bank: draft.bank, gstin: draft.gstin }) !== JSON.stringify({ comp: saved.comp, bank: saved.bank, gstin: saved.gstin });
+      let paySaved = false;
       try {
         if (payDirty) {
           const clean = { ...draft.comp }; delete clean.history;   // the server owns history
           // The PAN is left out: Compliance is where it changes (null = unchanged on the server).
           await api.saveCompensation(employee.id, { compensation: clean, bank: draft.bank, gstin: draft.gstin });
+          paySaved = true;
         }
         if (wcRate !== null) {
           await api.addWorkersCompRate(employee.id, {
@@ -123,7 +125,17 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
         toastOk('Pay & Benefits saved.');
         setReload(n => n + 1);
         return true;
-      } catch (e) { toastErr(e?.message || 'Could not save compensation.'); return false; }
+      } catch (e) {
+        // Pay that saved is never reported as unsaved, and the screen re-reads
+        // it so Discard does not show the old figures (People review, 11/16/2026).
+        if (paySaved) {
+          setReload(n => n + 1);
+          toastErr(`Pay saved, but the workers' comp rate was not: ${e?.message || 'it could not be saved.'}`);
+        } else {
+          toastErr(e?.message || 'Could not save compensation.');
+        }
+        return false;
+      }
     },
   });
 
@@ -282,7 +294,7 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
                 return (
                   <div key={`${h.year}-${h.setAt}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--line)', color: inForce ? 'var(--ink)' : 'var(--muted)' }}>
                     <span>{h.year} · {wcClassText(h)}${h.ratePct} per $100{h.description ? ` · ${h.description}` : ''}{inForce ? '' : ' (replaced)'}</span>
-                    <span>{h.setBy ? nameOf(h.setBy) : ''}{h.setAt ? ` · ${formatDate(h.setAt.slice(0, 10))}` : ''}</span>
+                    <span>{h.setBy ? nameOf(h.setBy) : ''}{h.setAt ? ` · ${formatDate(h.setAt)}` : ''}</span>
                   </div>
                 );
               })}
@@ -308,7 +320,7 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
                       <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{label(PAY_BASIS, h.payBasis)}</td>
                       <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{h.currency}</td>
                       <td style={{ padding: '7px 8px 7px 0', borderBottom: '1px solid var(--line)' }}>{h.effectiveDate ? formatDate(h.effectiveDate) : 'Since always'}</td>
-                      <td style={{ padding: '7px 0', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>{h.changedBy ? nameOf(h.changedBy) : '-'}{h.changedAt ? ` · ${formatDate(h.changedAt.slice(0, 10))}` : ''}</td>
+                      <td style={{ padding: '7px 0', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>{h.changedBy ? nameOf(h.changedBy) : '-'}{h.changedAt ? ` · ${formatDate(h.changedAt)}` : ''}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -407,7 +419,7 @@ export default function PayTab({ employee, readOnly = false, onGoCompliance, toa
                 <button type="button" onClick={() => openStub(s.id)} style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif', padding: 0 }}>
                   {s.fileName}
                 </button>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{formatDate(s.createdAt?.slice(0, 10))}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{formatDate(s.createdAt)}</span>
                 {!readOnly && (
                   <HoldButton label="Delete" doneLabel="Deleted" size="sm" holdMs={HOLD_RECORD_MS}
                     ariaLabel="Delete Paystub" onConfirm={() => deleteStub(s.id)} />

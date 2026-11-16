@@ -49,6 +49,12 @@ export default function OverviewTab({ e, employees = [], canEdit = false, canSyn
     onSave: async (draft) => {
       if (!draft.first_name.trim()) { toastErr('A first name is needed.'); return false; }
       const body = changedKeys(saved, draft);
+      // Only the emergency fields that changed (People pass, 11/16/2026): the
+      // server merges them into the stored contact, so a phone the person
+      // updated in My HR while this record was open is not written back.
+      if (body.personal?.emergency) {
+        body.personal = { ...body.personal, emergency: changedKeys(saved.personal.emergency, draft.personal.emergency) };
+      }
       if (!Object.keys(body).length) return true;
       try {
         const out = await api.updateEmployee(e.id, body);

@@ -8,7 +8,7 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { timeTrackingText } from '../lib/timeTracking';
 import { useRole } from '../contexts/RoleContext';
 import { dialog } from '../ui/dialog';
-import { SkeletonBlocks, Spinner } from '../components/AsyncState';
+import { SkeletonBlocks, Spinner, ErrorBanner } from '../components/AsyncState';
 import { SwitchRow } from '../components/settings/SettingsUI';
 import { fmtLeave } from '../components/LeaveBalances';
 import { isoDate, shiftTimeText } from '../components/shifts/shiftLib';
@@ -73,6 +73,12 @@ function ShiftFacts({ email }) {
     const end = new Date(); end.setDate(end.getDate() + 6);
     api.timeSchedule(isoDate(start), isoDate(end)).then(r => {
       if (!live) return;
+      // The planner answers only for the people the viewer may see in Shifts.
+      // Someone outside that is not "No usual hours" - send them to Shifts
+      // (People review, 11/16/2026).
+      const seen = [...(r?.employees || []), ...(r?.offSchedule || [])]
+        .some(x => String(x?.email || '').toLowerCase() === email);
+      if (!seen) { setState(false); return; }
       const id = r?.usual?.[email] || '';
       const usual = id ? (r?.shifts || []).find(p => p.id === id) || null : null;
       const teams = (r?.groups || []).filter(g => !g.archived && (g.members || []).map(m => String(m).toLowerCase()).includes(email));
@@ -153,11 +159,14 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
   const { canAccessModule, hrTeam } = useRole();
   const canEdit = !hrTeam && canAccessModule('hr', 'manager', 'editor');   // a team view is read only
   const [data, setData] = useState(null);        // { geofence: {mode,remote,setBy,setAt}, lastPunchLocation, workSites }
+  const [loadErr, setLoadErr] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // A failed read is an error with Retry - it used to draw as On-Site with no
+  // locations, a mode the person may not have (People review, 11/16/2026).
   const load = () => api.getGeofence(employee.id)
     .then(setData)
-    .catch(() => setData({ geofence: {}, lastPunchLocation: null, workSites: [] }));
+    .catch((err) => { setData(null); setLoadErr(err?.message || 'Could not load the work mode.'); });
   useEffect(() => { load(); }, [employee.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const gf = data?.geofence || {};
@@ -213,7 +222,7 @@ function GeofenceSection({ employee, toastOk, toastErr }) {
         <MapPinned size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Work Mode
       </div>
 
-      {!data ? <SkeletonBlocks count={3} height={40} /> : (
+      {loadErr ? <ErrorBanner message={loadErr} onRetry={() => { setLoadErr(''); load(); }} /> : !data ? <SkeletonBlocks count={3} height={40} /> : (
         <>
           <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
             Nobody is tied to a single address. A person works remote, works from our locations - any of them - or is hybrid and does both.

@@ -394,6 +394,11 @@ def _team_view(row: dict) -> dict:
     but no Compliance records and no contractor rate - never pay."""
     row["compliance"] = {}
     row["contractor"] = {k: v for k, v in (row.get("contractor") or {}).items() if k not in _CONTRACTOR_PAY}
+    # The National ID / SSN / Aadhaar stays HR-side (People pass, 11/16/2026):
+    # the screen masked it, but the JSON carried it whole to every manager.
+    # The person's own My HR drops the same key (myhr.py, "masked IDs stay
+    # HR-side").
+    row["personal"] = {k: v for k, v in (row.get("personal") or {}).items() if k != "nationalId"}
     return row
 
 
@@ -409,6 +414,12 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
     if new_email and (db.query(NexusEmployee.id)
                         .filter(func.lower(NexusEmployee.work_email) == new_email).first()):
         raise HTTPException(409, f"{new_email} is already the work email of another person in People")
+    # A contractor's rate is pay (Neil, 11/11/2026): the same rule as the
+    # profile save - only Pay & Benefits sets it, on a new person too (People
+    # pass, 11/16/2026: Add Person let anyone set it, then hid it from them).
+    if (any(str((body.contractor or {}).get(k) or "").strip() for k in _CONTRACTOR_PAY)
+            and not _has_comp(user, db)):
+        raise HTTPException(403, "Only Pay & Benefits sets a contractor's rate.")
     now = datetime.now(timezone.utc).isoformat()
     row = NexusEmployee(
         id=str(uuid.uuid4()),
@@ -518,6 +529,19 @@ def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: di
     company = fields.get("company")
     if scope is not None and company is not None and company.strip() not in scope:
         raise HTTPException(403, "You can't move someone to a company outside your People access")
+    # A person's home company is part of their wall (auth._own_company_scope),
+    # so an Administrator below Super Administrator never moves their own or
+    # another Administrator's - the same rule as their access limits
+    # (access_scopes._guard_walled; CLAUDE.md Tiers: nothing set up with the
+    # walls off widens reach once they are armed). People pass, 11/16/2026.
+    import auth
+    if (company is not None and company.strip() != (row.company or "")
+            and auth.bound_by_super_rules(user, db)):
+        target = (row.work_email or "").lower()
+        if target and target == (user.get("email") or "").lower():
+            raise HTTPException(403, "You can't change your own company")
+        if target and auth.level_for(target, db) >= auth._LEVELS["administrator"]:
+            raise HTTPException(403, "Only a Super Administrator changes an Administrator's company.")
     _validate(fields.get("employment_type"), fields.get("status"), fields.get("identity_type"))
     # Offboarding goes through Offboard (POST /employees/{eid}/offboard), which
     # requires the termination date and runs the leaver steps (Neil, Teams
@@ -536,6 +560,13 @@ def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: di
     for key in ("contractor", "personal", "compliance"):
         if isinstance(fields.get(key), dict):
             fields = {**fields, key: {**(getattr(row, key, None) or {}), **fields[key]}}
+    # The emergency contact is merged one level deeper (People pass,
+    # 11/16/2026): the record sends only the emergency fields HR changed, so a
+    # phone the person updated in My HR meanwhile is kept, not written back.
+    em_in = (fields.get("personal") or {}).get("emergency")
+    if isinstance(em_in, dict):
+        em_held = ((row.personal or {}).get("emergency") or {})
+        fields = {**fields, "personal": {**fields["personal"], "emergency": {**em_held, **em_in}}}
     # A contractor's rate is pay (Neil, 11/11/2026: "fix what you think"): only
     # the Pay & Benefits grant reads or changes it - the same rule as an
     # employee's salary. Everyone else's save keeps the stored rate.
@@ -600,8 +631,19 @@ def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: di
             # "contractor" too: its JSON carries the contractor's rate and billing rate.
             _mask = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation", "account",
                      "compliance", "contractor")
+            # Inside a JSON block (personal) the keys are masked one by one
+            # (People pass, 11/16/2026): "personal" itself matches no mask word,
+            # so its National ID and date of birth went into the log in clear.
+            _inner = _mask + ("nationalid", "dob", "birth")
+
+            def _redact(val):
+                if isinstance(val, dict):
+                    return {ik: ("(hidden)" if any(m in str(ik).lower() for m in _inner) else iv)
+                            for ik, iv in val.items()}
+                return val
             shown = {k: ("(changed)" if any(m in k.lower() for m in _mask)
-                         else [None if v[0] is None else str(v[0])[:120], None if v[1] is None else str(v[1])[:120]])
+                         else [None if v[0] is None else str(_redact(v[0]))[:120],
+                               None if v[1] is None else str(_redact(v[1]))[:120]])
                      for k, v in changes.items()}
             details = {"employee": row.work_email, "changes": shown}
             if source:
@@ -739,6 +781,16 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
     _assert_scope(row, hr_scope(user, db))
     if not row.deleted_at:
         return {"ok": True, **_pay_view(_serialize(row, db=db), user, db)}
+    # One live person per work email (People pass, 11/16/2026): a removed
+    # person's address looks free, so HR may have added them again - restoring
+    # the old row then made two live people share one email, and every lookup
+    # by email picked one of them at random. The default query sees live rows
+    # only (database.py's soft-delete filter).
+    email = (row.work_email or "").strip().lower()
+    if email and (db.query(NexusEmployee.id)
+                    .filter(func.lower(NexusEmployee.work_email) == email, NexusEmployee.id != row.id).first()):
+        raise HTTPException(409, f"{email} already belongs to someone in People. Remove or change that person "
+                                 "first, then restore this one.")
 
     q = db.query(HrRemovedIdentity)
     conds = []
@@ -5461,11 +5513,18 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
         current = dict(row.compensation or {})
         eff_in = str(incoming.get("effectiveDate") or "").strip()
         if eff_in:
-            # The rate history compares days as text: anything but YYYY-MM-DD
-            # (e.g. 11/05/2026) would sort before every day and apply since always.
-            try:
-                datetime.strptime(eff_in, "%Y-%m-%d")
-            except ValueError:
+            # The rate history compares days as text, so it is STORED as
+            # YYYY-MM-DD - a raw 11/05/2026 would sort before every day and
+            # apply since always. MM/DD/YYYY, the format the message names, is
+            # accepted and converted (People pass, 11/16/2026: the message
+            # gave an example the check refused).
+            for fmt in ("%Y-%m-%d", "%m/%d/%Y"):
+                try:
+                    eff_in = datetime.strptime(eff_in, fmt).strftime("%Y-%m-%d")
+                    break
+                except ValueError:
+                    continue
+            else:
                 raise HTTPException(400, "Effective Date must be a date, e.g. 11/05/2026")
             incoming["effectiveDate"] = eff_in
         # Auto-snapshot the prior base into history when the base pay changes.
@@ -5887,7 +5946,33 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     # here to re-run a mailbox / license step (did_change is False then).
     if body.status == "offboarded" and (row.status or "") != "offboarded":
         raise HTTPException(400, OFFBOARD_ONLY)
+    if (body.offboarding or {}).get("exportRequested"):
+        _assert_may_export(db, user, row)
     return _pay_view(apply_status_change(db, row, body, user["email"]), user, db)
+
+
+def _assert_may_export(db: Session, user: dict, row: NexusEmployee) -> None:
+    """Whose mailbox a People editor may export (People pass, 11/16/2026): an
+    export hands over every message, so nobody below Super Administrator
+    exports the mailbox of someone above their own tier, or of an
+    Administrator / Super Administrator."""
+    import auth
+    mine = int(user.get("level", 0) or 0)
+    if mine >= auth._LEVELS["owner"]:
+        return
+    theirs = auth.level_for((row.work_email or "").lower(), db)
+    if theirs > mine or theirs >= auth._LEVELS["administrator"]:
+        raise HTTPException(403, "Only a Super Administrator exports the mailbox of someone above your tier "
+                                 "or of an Administrator.")
+
+
+def _still_leaving(db: Session, employee_id: str) -> bool:
+    """A mailbox export runs only while its person is Inactive or Left - a
+    status set back to Active stops it (People pass, 11/16/2026: setting
+    someone Inactive with an export and straight back to Active used to keep
+    the export running on a working colleague)."""
+    status = db.query(NexusEmployee.status).filter(NexusEmployee.id == employee_id).scalar()
+    return (status or "") in ("inactive", "offboarded")
 
 
 def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, actor: str) -> dict:
@@ -6041,7 +6126,11 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
             if off_block.get("exportRequested"):
                 job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=actor,
                                       status="pending", created_at=now, updated_at=now)
-                db.add(job); db.commit()
+                db.add(job)
+                # The same audit row as the Export Mailbox button (People pass,
+                # 11/16/2026) - this path used to start one with none.
+                _audit_mailbox(db, {"email": actor, "role": ""}, row, "Started a mailbox export")
+                db.commit()
                 threading.Thread(target=_run_mailbox_export, args=(job.id, row.m365_id),
                                  kwargs={"release_license": wait_for_export}, daemon=True).start()
                 m365["export"] = job.id
@@ -6179,6 +6268,9 @@ def _export_mailbox(job_id: str, m365_id: str) -> tuple:
         job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
         if not job:
             return False, "the export job is gone"
+        stopped = "Stopped: this person is no longer Inactive or Left, so their mailbox was not exported."
+        if not _still_leaving(db, job.employee_id):
+            raise RuntimeError(stopped)
         job.status = "running"; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
         headers = {"Authorization": f"Bearer {_graph_token()}"}
 
@@ -6230,6 +6322,8 @@ def _export_mailbox(job_id: str, m365_id: str) -> tuple:
                 if count >= _EXPORT_MSG_CAP:
                     capped = True
                     break
+                if not _still_leaving(db, job.employee_id):   # re-checked every page of 100
+                    raise RuntimeError(stopped)
                 r = graph_get(url)
                 if r.status_code in (401, 403):
                     raise RuntimeError("Graph denied mailbox read - grant the Mail.Read application permission and admin consent.")
@@ -6263,6 +6357,8 @@ def _export_mailbox(job_id: str, m365_id: str) -> tuple:
             if skipped:
                 zf.writestr("SKIPPED.txt", "Messages Microsoft 365 would not hand over (received, subject, reason):\n"
                             + "\n".join(skipped) + "\n")
+        if not _still_leaving(db, job.employee_id):   # never store a working colleague's mail
+            raise RuntimeError(stopped)
         path = f"exports/{job.employee_id}/{job_id}.zip"
         size = os.path.getsize(tmp_path)
 
@@ -6333,6 +6429,7 @@ def start_mailbox_export(eid: str, user: dict = Depends(require_hr_write), db: S
     if (emp.status or "") not in ("inactive", "offboarded"):
         raise HTTPException(409, "A mailbox export is part of offboarding - offboard this person or set them "
                                  "to Inactive first.")
+    _assert_may_export(db, user, emp)
     now = datetime.now(timezone.utc).isoformat()
     job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=eid, requested_by=user["email"],
                           status="pending", created_at=now, updated_at=now)

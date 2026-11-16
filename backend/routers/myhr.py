@@ -893,6 +893,16 @@ def _person_name(e) -> str:
     return (e.display_name or "").strip() or f"{e.first_name} {e.last_name}".strip() or e.work_email
 
 
+def may_see_externals(user: dict, db: Session) -> bool:
+    """Who may see guests' and externals' addresses (Sep 22, 2026): an
+    external's work email is the personal address they were invited with, so
+    only callers who can assign work to them - managers and above, or an
+    editor-or-better Tasks grant. The directory and the person card share it."""
+    import auth
+    return (int(user.get("level") or 0) >= auth._LEVELS["manager"]
+            or auth._module_level(user["email"], "tasks", db) >= auth._MODULE_LEVEL_RANK["editor"])
+
+
 @router.get("/directory")
 def people_directory(include_external: bool = False,
                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -928,11 +938,8 @@ def people_directory(include_external: bool = False,
     Everyone else gets the same list as if they had not asked (Neil's
     security-debt list: the whole company could pull those addresses)."""
     import cache, auth
-    if include_external:
-        can_assign = (int(user.get("level") or 0) >= auth._LEVELS["manager"]
-                      or auth._module_level(user["email"], "tasks", db) >= auth._MODULE_LEVEL_RANK["editor"])
-        if not can_assign:
-            include_external = False
+    if include_external and not may_see_externals(user, db):
+        include_external = False
     scope = auth.company_scope(user, db)
     # An Administrator (walled once the switch is on) still sees the people with
     # no company - the guests / externals they manage and untagged People
@@ -1009,7 +1016,14 @@ def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session
             pq = pq.filter(or_(NexusEmployee.company.in_(list(scope)), blank) if scope else blank)
         else:
             pq = pq.filter(NexusEmployee.company.in_(list(scope))) if scope else pq.filter(false())
+    # Guests and externals follow the directory's rule (People pass,
+    # 11/16/2026): their "work email" is a personal address, so a caller who
+    # may not see externals finds one only by the exact address they already
+    # have - never by a name or a piece of an address (q=gmail.com).
+    hide_ext = not may_see_externals(user, db)
     for e in pq.all():
+        if hide_ext and (e.identity_type or "") in ("guest", "external") and q != (e.work_email or "").lower():
+            continue
         # Both spellings are searchable: people type the Teams name they see,
         # but older links and emails still carry the first+last form.
         names = {f"{e.first_name} {e.last_name}".strip().lower(), _person_name(e).lower()} - {""}

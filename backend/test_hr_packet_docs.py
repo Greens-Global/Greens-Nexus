@@ -480,6 +480,10 @@ class PacketDocsTests(unittest.TestCase):
         db.close()
 
     def test_the_company_signatory_must_be_a_nexus_person(self):
+        # Only an Administrator or a Full People grant sets the Authorized
+        # Signatory (People review, 11/11/2026) - so Neil (owner) sets it here;
+        # what this test checks is that it must be a Nexus person.
+        os.environ["NEXUS_DEV_EMAIL"] = NEIL
         r = self.client.patch(f"/hr/entities/{CO}", json={"signatory_email": "stranger@elsewhere.com"})
         self.assertEqual(r.status_code, 400, r.text)
         r = self.client.patch(f"/hr/entities/{CO}", json={"signatory_email": NEIL.upper()})

@@ -52,6 +52,10 @@ const pickRows = (list) => {
   }).map((e) => ({ email: e.workEmail.toLowerCase(), name: fullName(e), external: ['guest', 'external'].includes(e.identityType || 'internal') }));
 };
 
+// The contractor keys that are pay - the server's _CONTRACTOR_PAY.
+const CONTRACTOR_PAY = ['rate', 'rate_type', 'currency', 'billing_rate', 'bill_rate'];
+const withoutPay = (c) => Object.fromEntries(Object.entries(c || {}).filter(([k]) => !CONTRACTOR_PAY.includes(k)));
+
 const BLANK = {
   first_name: '', last_name: '', work_email: '', personal_email: '', phone: '', job_title: '', designation: '',
   department: '', employment_type: 'full_time', start_date: '', manager_email: '', backup_manager_email: '',
@@ -89,11 +93,15 @@ export default function AddPersonSheet({
   const [deptSaving, setDeptSaving] = useState(false);
   useEffect(() => {
     if (!f.company) { setDeptOptions([]); return; }
+    // Only the latest company's answer counts: picking A then B quickly let
+    // A's slower reply fill B's list (People review, 11/16/2026).
+    let live = true;
     setDeptLoading(true);
     api.getCompanyDepartments(f.company)
-      .then((list) => setDeptOptions((list || []).map((d) => d.name)))
-      .catch(() => setDeptOptions([]))
-      .finally(() => setDeptLoading(false));
+      .then((list) => { if (live) setDeptOptions((list || []).map((d) => d.name)); })
+      .catch(() => { if (live) setDeptOptions([]); })
+      .finally(() => { if (live) setDeptLoading(false); });
+    return () => { live = false; };
   }, [f.company]);
   async function saveNewDept() {
     const name = newDeptName.trim();
@@ -128,7 +136,9 @@ export default function AddPersonSheet({
         ...f,
         employment_type: isContractor ? 'contractor' : isGuest ? (f.employment_type === 'intern' ? 'intern' : 'full_time') : f.employment_type,
         identity_type: isGuest ? 'guest' : 'internal',
-        contractor: isContractor ? f.contractor : {},
+        // A contractor's rate is pay (Neil, 11/11/2026): only the Pay & Benefits
+        // grant sets it - without it the rate fields are hidden and never sent.
+        contractor: isContractor ? (canSeeComp ? f.contractor : withoutPay(f.contractor)) : {},
         on_schedule: onSchedule,
       };
       const saved = await api.createEmployee(body);
@@ -320,19 +330,19 @@ export default function AddPersonSheet({
                     <label style={FL}>Contract End</label>
                     <DateField value={(f.contractor || {}).contract_end || ''} onChange={(v) => setC('contract_end', v || '')} placeholder="MM/DD/YYYY" title="Contract end" style={DATE_BOX} />
                   </div>
-                  {cInput('Rate', 'rate', { placeholder: 'e.g. 85' })}
-                  <div>
+                  {canSeeComp && cInput('Rate', 'rate', { placeholder: 'e.g. 85' })}
+                  {canSeeComp && <div>
                     <label style={FL} htmlFor="ap-rate-type">Rate Type</label>
                     <select id="ap-rate-type" className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).rate_type || 'hourly'} onChange={(e) => setC('rate_type', e.target.value)}>
                       <option value="hourly">Hourly</option><option value="fixed_fee">Fixed Fee</option><option value="daily">Daily</option><option value="monthly">Monthly Retainer</option>
                     </select>
-                  </div>
-                  <div>
+                  </div>}
+                  {canSeeComp && <div>
                     <label style={FL} htmlFor="ap-currency">Currency</label>
                     <select id="ap-currency" className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).currency || 'USD'} onChange={(e) => setC('currency', e.target.value)}>
                       {currencyOptions().map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
                     </select>
-                  </div>
+                  </div>}
                   {cInput('Engagement Area', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
                   <div>
                     {cInput('Next Invoice Number', 'invoice_next_number', { type: 'number', min: 1, step: 1, placeholder: 'e.g. 1' })}
