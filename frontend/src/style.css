@@ -8854,6 +8854,27 @@ body:has(.notif-drawer:not([inert])) .nx-toasts { display: none !important; }
   background: rgba(74, 222, 128, .2);
   box-shadow: inset 0 2px 5px rgba(0, 0, 0, .55), inset 0 0 0 1px rgba(74, 222, 128, .22);
 }
+/* The same press, in gray, on the other buttons that stay in view while
+   their menu is open (Neil, 11/16/2026: "make it the same concept",
+   https://claude.ai/artifact/H9LDPBz4utF3AULiYqicNb): the profile, Help (a
+   computer's header; it was paler when open, the opposite of pressed) and
+   the Dashboard's Customize. Green stays the bolt's. The bell, the phone
+   menu and phone search cover their own button, so they have none. */
+.header-user-pill, .help-menu-btn, .dk-customize { transition: background var(--transition-fast), transform var(--dur-xs) var(--ease-standard), box-shadow var(--dur-xs) var(--ease-standard); }
+.header-user-pill > *, .help-menu-btn > svg, .dk-customize > svg { transition: transform var(--dur-xs) var(--ease-standard); }
+.header-user-pill[aria-expanded="true"], .help-menu-btn[aria-expanded="true"], .dk-customize[aria-expanded="true"] {
+  background: #e3e5ec; transform: scale(.96);
+  box-shadow: inset 0 2px 4px rgba(20, 24, 40, .18), inset 0 0 0 1px rgba(20, 24, 40, .08);
+}
+.header-user-pill[aria-expanded="true"] > *, .help-menu-btn[aria-expanded="true"] > svg, .dk-customize[aria-expanded="true"] > svg:not(.dk-customize-caret) { transform: translateY(1px); }
+[data-theme="dark"] :is(.header-user-pill, .help-menu-btn, .dk-customize)[aria-expanded="true"] {
+  background: rgba(255, 255, 255, .1);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, .6), inset 0 0 0 1px rgba(255, 255, 255, .08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .header-user-pill[aria-expanded="true"], .help-menu-btn[aria-expanded="true"], .dk-customize[aria-expanded="true"],
+  .icon-btn.qc-btn[aria-expanded="true"] { transform: none; }
+}
 .qc-btn:focus-visible, .qc-item:focus-visible, .qc-tile:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: -2px; }
 .qc-item:focus { background: var(--sidebar-hover-bg); }
 .header-user-dropdown.qc-menu { width: 320px; max-height: calc(100dvh - 88px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
