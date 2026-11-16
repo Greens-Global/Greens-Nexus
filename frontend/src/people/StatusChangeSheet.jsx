@@ -201,7 +201,7 @@ export default function StatusChangeSheet({ employee, employees = [], onClose, o
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Recent Changes</div>
             {employee.statusLog.slice(0, 4).map((h, i) => (
               <div key={i} style={{ fontSize: 13, color: 'var(--muted)', padding: '3px 0' }}>
-                {LABEL[h.from] || h.from} to {LABEL[h.to] || h.to} · {formatDate(h.effectiveDate || (h.at || '').slice(0, 10))}{h.reason ? ` · ${h.reason}` : ''}
+                {LABEL[h.from] || h.from} to {LABEL[h.to] || h.to} · {formatDate(h.effectiveDate || h.at || '')}{h.reason ? ` · ${h.reason}` : ''}
               </div>
             ))}
           </div>

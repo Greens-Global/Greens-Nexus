@@ -6,16 +6,20 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { api } from '../api';
 import { Modal } from '../tasks/components';
+import { CountSkeleton } from './AsyncState';
 
 // `row` (11/08/2026): one line inside People's Status card instead of the banner.
 export default function RecordsAudit({ entityName, onOpen, refreshKey, row = false }) {
-  const [people, setPeople] = useState([]);
+  // null while the read is out, 'failed' when it failed - neither is a real 0
+  // (11/16/2026: a failed read showed "Records Audit 0").
+  const [state, setState] = useState(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     let alive = true;
-    api.getRecordsAudit().then(r => alive && setPeople(r.people || [])).catch(() => alive && setPeople([]));
+    api.getRecordsAudit().then(r => alive && setState(r?.people || [])).catch(() => alive && setState('failed'));
     return () => { alive = false; };
   }, [refreshKey]);
+  const people = Array.isArray(state) ? state : [];
   if (!people.length && !row) return null;
   const n = people.length;
   return (
@@ -23,7 +27,9 @@ export default function RecordsAudit({ entityName, onOpen, refreshKey, row = fal
       {row ? (
         <button type="button" className="pp-stat" onClick={() => setOpen(true)} disabled={!n} title="Who is missing something on file or has an expired document">
           <span className="pp-stat-label">Records Audit</span>
-          <b style={{ color: n ? '#b45309' : 'var(--ink)' }}>{n}</b>
+          <b style={{ color: n ? '#b45309' : 'var(--ink)' }}>
+            {state == null ? <CountSkeleton width="1.2em" /> : state === 'failed' ? <span title="Couldn't load">-</span> : n}
+          </b>
         </button>
       ) : (
       <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px solid rgba(180,83,9,0.35)', background: 'rgba(180,83,9,0.07)', borderRadius: 12, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
