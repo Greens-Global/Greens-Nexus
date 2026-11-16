@@ -166,13 +166,13 @@ describe('Checks and dates', () => {
     expect(screen.getByLabelText('Expires On').value).toBe(inDays(90));
     fireEvent.click(screen.getByRole('button', { name: '365d' }));
     expect(screen.getByLabelText('Expires On').value).toBe(inDays(365));
-    // A date of your own - 45 days out, so it never lands on what a rotation
-    // would give (a fixed 01/15/2027 WAS 60 days out on 11/16/2026, and the
-    // form rightly saves a date equal to the rotation's as "follows").
+    // A date of your own, 45 days out: no Rotate Every choice (60 / 90 / 180 /
+    // 365) can land on it. A fixed '2027-01-15' was exactly 60 days after
+    // 11/16/2026, so on that day the form rightly read it as "follow 60d".
     const own = inDays(45);
     fireEvent.change(screen.getByLabelText('Expires On'), { target: { value: own } });
     fireEvent.click(screen.getByRole('button', { name: '60d' }));
-    expect(screen.getByLabelText('Expires On').value).toBe(own);                               // a date of your own stays
+    expect(screen.getByLabelText('Expires On').value).toBe(own);                              // a date of your own stays
     fireEvent.click(companiesBox().getByRole('button', { name: 'Greens' }));
     fireEvent.click(deptsBox().getByRole('button', { name: 'IT' }));
     fillBasics();

@@ -5,9 +5,9 @@
 //
 // This file owns the trigger and the lifecycle:
 //   - opens from the button, the "?" key anywhere outside a text field, or a
-//     `nexus:help-open` window event (the phone menu's Help row - the header
-//     button is hidden on phones, where a 4th right-side icon collides with
-//     the centered wordmark)
+//     `nexus:help-open` window event (the header button is hidden on phones,
+//     where a 4th right-side icon collides with the centered wordmark; the
+//     phone menu's Help row that sent the event went 11/16/2026 - Neil)
 //   - Esc closes and hands focus back to the "?" button; a click outside
 //     closes it too
 //   - remembers the last tab for the session

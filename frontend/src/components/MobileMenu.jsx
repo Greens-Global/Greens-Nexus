@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, ChevronRight, ChevronLeft, ChevronDown, LogOut, Moon, Sun, CircleHelp, Scale } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, ChevronDown, LogOut, Moon, Sun } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
 import { useRole } from '../contexts/RoleContext';
@@ -278,15 +278,10 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
       <div className="mobile-menu-divider" />
       <div className="mobile-menu-rows secondary">
         {/* Dark mode moved to the profile dropdown (avatar, top-right) - Neil */}
-        {/* Help: the header's "?" button has no room on a phone, so the same
-            Help menu (support/HelpMenu.jsx) opens from here. */}
-        <button className="mobile-menu-row"
-          onClick={() => { onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:help-open')), 0); }}>
-          <span className="mobile-menu-row-label"><CircleHelp style={{ width: 19, height: 19, flexShrink: 0 }} /><span>Help</span></span>
-        </button>
-        <button className="mobile-menu-row" onClick={() => go('legal', 'privacy')}>
-          <span className="mobile-menu-row-label"><Scale style={{ width: 19, height: 19, flexShrink: 0 }} /><span>Legal</span></span>
-        </button>
+        {/* No Help or Legal rows (Neil, 11/16/2026: "I don't think help and
+            legal are needed in the main navigation on mobile"): Legal lives in
+            the profile dropdown (the header's photo), and Help Center stays a
+            module above. Never add them back here. */}
         <button className="mobile-menu-row signout"
           onClick={() => (BFF_MODE ? bffLogout() : clearOfflineReadCache().then(() => instance.logoutRedirect({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname })))}>
           <span>Sign Out</span>

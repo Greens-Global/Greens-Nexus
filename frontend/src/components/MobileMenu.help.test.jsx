@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
-// Phones have no room for the header's "?" button, so the phone menu carries a
-// Help row that closes the menu and opens the same Help menu.
+// Neil, 11/16/2026: "I don't think help and legal are needed in the main
+// navigation on mobile". The phone menu has no Help or Legal row: Legal is in
+// the profile dropdown (the header's photo) and Help Center is a module.
 
 vi.mock('@azure/msal-react', () => ({
   useMsal: () => ({ instance: {}, accounts: [{ name: 'Test Person', username: 'test@example.com' }] }),
@@ -17,16 +18,11 @@ vi.mock('../lib/peoplePhotos', () => ({ usePersonPhoto: () => '' }));
 
 const MobileMenu = (await import('./MobileMenu')).default;
 
-describe('mobile menu Help row', () => {
-  it('closes the menu and asks the Help menu to open', async () => {
-    const onClose = vi.fn();
-    const opened = vi.fn();
-    window.addEventListener('nexus:help-open', opened);
-    render(<MobileMenu open onClose={onClose} onNavigate={() => {}} activeView="dashboard" />);
-    fireEvent.click(screen.getByRole('button', { name: /Help/ }));
-    expect(onClose).toHaveBeenCalledTimes(1);
-    await act(() => new Promise((r) => { setTimeout(r, 5); }));
-    expect(opened).toHaveBeenCalledTimes(1);
-    window.removeEventListener('nexus:help-open', opened);
+describe('mobile menu', () => {
+  it('has no Help or Legal row, and keeps Sign Out', () => {
+    render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="dashboard" />);
+    expect(screen.queryByRole('button', { name: /^Help$/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Legal$/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Sign Out/ })).toBeTruthy();
   });
 });
