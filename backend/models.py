@@ -10470,6 +10470,90 @@ class VaultExternalShare(Base):
     change_alerted_at = Column(String, default="")
 
 
+# ── Operations > Tenants (Neil, 11/17/2026, routers/ops_tenants.py) ──────────
+# New tables - create_all builds them; RLS by main._enable_rls_everywhere at
+# startup (run get_advisors after the release). The cubby_* tables above stay
+# exactly as they are (still stripped), so no existing Operations screen or
+# report starts showing contact details by accident.
+
+class OpsTenant(Base):
+    """A READ-ONLY copy of one Cubby customer's contact details at one
+    facility (Neil, 11/17/2026). Cubby stays the single source of truth: a
+    row is never edited in Nexus, cubby_sync.py replaces a facility's rows
+    every 15 minutes, and opening a tenant record re-reads that tenant live
+    from Cubby. Never stored: date of birth, ID type / number, card or bank
+    numbers. `gate_code` is encrypted (secret_box); `gate_code_hash` is a
+    keyed hash, there only so a search can match a code exactly. Read through
+    ops_access.reach - nobody below Administrator sees a row until an
+    ops_access_rules row says so."""
+    __tablename__ = "ops_tenants"
+    id                = Column(String, primary_key=True)          # "<facility_id>:<customer_id>"
+    facility_id       = Column(String, index=True, nullable=False)
+    customer_id       = Column(String, index=True, default="")
+    name              = Column(String, default="")
+    first_name        = Column(String, default="")
+    last_name         = Column(String, default="")
+    company_name      = Column(String, default="")
+    email             = Column(String, default="", index=True)    # lowercased
+    phone             = Column(String, default="")
+    phone_digits      = Column(String, default="", index=True)    # digits only, for search
+    address           = Column(String, default="")
+    address2          = Column(String, default="")
+    city              = Column(String, default="")
+    state             = Column(String, default="")
+    zip               = Column(String, default="")
+    country           = Column(String, default="")
+    military          = Column(Boolean, default=False)
+    comm_prefs        = Column(JSON, default=None)                # Cubby's communicationPreferences as given
+    gate_code         = Column(String, default="")                # encrypted with secret_box; '' = none
+    gate_code_hash    = Column(String, default="", index=True)    # keyed hash of the code, for an exact-match search
+    gate_code_enabled = Column(Boolean, default=False)
+    current           = Column(Boolean, default=False, index=True)   # has a lease here that has not ended
+    unit_names        = Column(String, default="")                # "A1, B2" - the units of their active leases here
+    search_text       = Column(String, default="")                # lowercased: name, company, email, unit names, vehicle plates
+    cubby_updated_at  = Column(String, default="")                # Cubby's updatedAt
+    synced_at         = Column(String, default="")                # UTC iso of the sync or live re-read that wrote this
+
+
+class OpsLeaseExtra(Base):
+    """What the stripped cubby_rentals blob drops from a lease (Neil,
+    11/17/2026): the alternate contacts and the stored vehicle. Read-only
+    like OpsTenant and under the same access rule; replaced per facility by
+    every sync. Only leases that carry one of the two have a row."""
+    __tablename__ = "ops_lease_extras"
+    id            = Column(String, primary_key=True)              # "<facility_id>:<lease_id>"
+    facility_id   = Column(String, index=True, nullable=False)
+    lease_id      = Column(String, default="")
+    customer_id   = Column(String, index=True, default="")
+    unit_id       = Column(String, default="")
+    alt_contacts  = Column(JSON, default=list)                    # [{name, phone, email}]
+    vehicle_type  = Column(String, default="")
+    vehicle_plate = Column(String, default="", index=True)        # uppercased
+    vehicle_state = Column(String, default="")
+    synced_at     = Column(String, default="")
+
+
+class OpsAccessRule(Base):
+    """Who sees which facilities and whether they see tenant details (Neil,
+    11/17/2026: access is by role - an Access Group / job role - and by
+    person). One row per subject. `facility_ids` [] = every facility. A
+    person's reach is the union of their own rule and the rules of every
+    group they belong to (ops_access.reach); with no rule at all nobody below
+    Administrator sees tenant details. Changed under Operations by an
+    Administrator or an Operations grant at Full; every change is an AuditLog
+    row."""
+    __tablename__ = "ops_access_rules"
+    id             = Column(String, primary_key=True)             # uuid
+    subject_type   = Column(String, nullable=False)               # person | group
+    subject_id     = Column(String, nullable=False, index=True)   # work email, lowercased | NexusGroup.id
+    facility_ids   = Column(JSON, default=list)                   # Cubby facility ids; [] = every facility
+    tenant_details = Column(Boolean, default=False)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
+    __table_args__ = (UniqueConstraint("subject_type", "subject_id", name="ux_ops_access_rules_subject"),)
+
 class LegalEntity(Base):
     """One legal entity's own record in Accounting > Entities (Neil, 11/17/2026).
 

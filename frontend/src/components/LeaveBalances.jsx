@@ -245,6 +245,10 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
   const pols = data.policies || [];
   const polName = Object.fromEntries(pols.map(p => [p.id, p.name]));
 
+  // Live once ANY start date is set - the organization's or a company's own
+  // (11/18/2026: prod has only Oversite's and Aarav's, so the list, Search
+  // and As Of never showed).
+  const live = !!data.cutover || (data.companies || []).some(c => c.cutover);
   const cutRow = cutCo ? (data.companies || []).find(c => c.id === cutCo) : null;
   const savedCut = cutRow ? cutRow.cutover : (data.cutover || '');
   function pickCutCo(id) { setCutCo(id); const row = (data.companies || []).find(c => c.id === id); setCut((row ? row.cutover : data.cutover) || ''); }
@@ -281,7 +285,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
         <span className="wkc-chip"><CalendarClock size={14} /></span>
         <span style={HD}>Leave Balances</span>
         <span style={{ flex: 1 }} />
-        {data.canSetup && data.cutover && (
+        {data.canSetup && live && (
           <button className="secondary-btn" onClick={recalc} disabled={busy === 'recalc'} title="Rebuild earned and used hours from every finalized pay period since the start date"
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy === 'recalc' ? <Spinner size={12} /> : <RefreshCw size={12} />} Recalculate
@@ -321,7 +325,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
           </span>
         </div>
       )}
-      {!data.canSetup && !data.cutover && (
+      {!data.canSetup && !live && (
         <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>An administrator sets the start date before balances can be loaded.</div>
       )}
 
@@ -334,7 +338,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
         <div style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>The policies themselves are under Settings &gt; Time Off &amp; Leave &gt; Leave Policies.</div>
       )}
 
-      {data.cutover && (
+      {live && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 8px' }}>
             <div style={{ position: 'relative', flex: '0 1 260px' }}>

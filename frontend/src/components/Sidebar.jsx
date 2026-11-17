@@ -158,6 +158,7 @@ export const NAV = [
       { subview: "revenue",     label: "ECRI Management", icon: TrendingUp },
       { subview: "portfolio",   label: "Portfolio",       icon: Gauge },
       { subview: "site-map",    label: "Site Map",        icon: MapIcon },
+      { subview: "tenants",     label: "Tenants",         icon: Users },
     ],
   },
   // Development was removed from the nav (Neil, Aug 11) - the module isn't

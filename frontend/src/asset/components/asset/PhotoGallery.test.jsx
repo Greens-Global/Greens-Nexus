@@ -38,7 +38,7 @@ describe('PhotoGallery lightbox', () => {
 
   it('folds the Media section from a button with aria-expanded', () => {
     render(<PhotoGallery p={ASSET} onSave={vi.fn()} />);
-    const fold = screen.getByRole('button', { name: /Media \(2\)/ });
+    const fold = screen.getByRole('button', { name: /^Media 2 photos/ });
     expect(fold.getAttribute('aria-expanded')).toBe('true');
     fireEvent.click(fold);
     expect(fold.getAttribute('aria-expanded')).toBe('false');

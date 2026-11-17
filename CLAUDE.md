@@ -573,6 +573,11 @@ keep the diff minimal.
   (the day docked) below - whatever the person's full-day hours. The Time
   Sheet no longer prints a "Bands:" line; the day statuses say the result.
   India contractors never use these (8 h / 4 h credits, `india_contractor_pay`).
+  The bands are an INDIA rule only (Neil, 11/18/2026: "Only applies to
+  India"): a salaried person who does not work in India
+  (`india_contractor_pay.works_in_india`) has any worked day as a full day -
+  only a past weekday with no work at all is docked, and a Sick / Vacation /
+  Personal day is paid leave, never docked (Charmi, 11/18/2026).
 
 - **Hourly company holidays are unpaid** (Neil, 11/04/2026: "Holidays are
   days off for hourly employees"): `_compute_timecard` lists a holiday the
@@ -1331,6 +1336,28 @@ keep the diff minimal.
   Every Nexus write goes through `routers.tasks._create_task` / `update_task`
   as the facility project's owner - never a second write path.
 
+- **Operations > Tenants (Neil, 11/17/2026, `routers/ops_tenants.py`,
+  `ops_access.py`, `frontend/src/operations/Tenants.jsx`, plan
+  https://claude.ai/artifact/3muEVfH7rFHGcC8MNyE4TP).** Cubby stays the single
+  source of truth. Nexus keeps a READ-ONLY copy of tenant contact details,
+  gate codes, second contacts and vehicle plates in `ops_tenants` /
+  `ops_lease_extras` - written by the 15-minute sync, never editable in
+  Nexus - and opening a tenant record re-reads that tenant LIVE from Cubby
+  (the stored copy, with its time, when Cubby does not answer). The
+  `cubby_*` tables and their blobs stay stripped: never put contact details
+  there, or every Operations screen and report starts showing them. Never
+  stored: date of birth, ID numbers, card or bank numbers. Gate codes are
+  stored encrypted and shown plainly (internal only). Access is
+  `ops_access.reach`: Administrators and above see every facility and tenant
+  details; everyone else needs a rule in `ops_access_rules` (Settings >
+  Operations > Tenants And Facility Access), by role or by person, that names
+  the facilities and turns Tenant Details on - no rule, no tenant details.
+  The two tables are in `audit_capture.NOISE_TABLES` and are written with
+  plain table statements so a phone number never reaches the change log;
+  every record open writes one AuditLog row. What Nexus plans in bulk (rates,
+  rent increases) goes to Cubby as an import file; only small single actions
+  (a note, a task, a move-out notice) may go directly, each behind its own
+  switch.
 - **Knowledge Base filing and links (Neil, 11/02/2026):** a page APPLIES TO
   many departments (`kb_documents.departments`, the original comma column,
   read through `kb_core.departments_of`; default = its collection's
@@ -1537,6 +1564,38 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   the verify lists: https://claude.ai/artifact/MZR3srrjuzCQQYHTMERgNU .
 - Equipment and vehicles pair with Item Management (`AddItemModal`) - do not
   build a second warranty/serial system there.
+- **The top menu (Neil, 11/17/2026 redesign):** the portfolio's header tabs
+  are Overview (the landing tab, `asset-overview`), Properties
+  (`asset-portfolio` - old links keep working), Fleet, Development,
+  Maintenance, Dates, Activity (`lib/navigation.js` `PORTFOLIO_TABS`). Fleet
+  and Development hide when empty, Maintenance until `useTabSignals` says the
+  person may see it; a plain number after Maintenance / Dates (ModuleTabs'
+  opt-in `count`), never a pill. Every tab's first row is "+ New" (Property /
+  Vehicle / Heavy Equipment / Import) and "..." (Trash, Import, Export as CSV);
+  only Properties puts its view's name on the left. An open asset's Back line
+  names where it came from (`useTrailCrumbs`), never a bare arrow; its tabs
+  are Overview, Maintenance, Records (a dropdown of the collections with rows
+  plus "Add ..." for the empty ones), Timeline (only with rows), Activity;
+  `AssetTitleBand` walks the list it was opened from ("< 7 of 23 >", J / K).
+- **Properties is a register, not a page of cards:** List by default (the
+  mode kept per person, `useTableValue('asset-portfolio', 'mode')`),
+  Gallery and Map one click. ONE query model, `lib/portfolioQuery.js`:
+  filters, FACETED counts, the smart search's phrase rules (no AI, like
+  sayTask), the suggested views and the presets other tabs open
+  (`goTab('properties', { preset })`), the view in the address
+  (`asset-portfolio~<encodeView>`; the search words are never written),
+  group sums. A parcel group is one row whose numbers SUM its parcels. "CA" and
+  "California" are one state; managers are matched case- and space-blind; My
+  Properties matches the signed-in name / email (`myNames`, the Overview's
+  rule). Saved views are per person (`useTableValue('asset-portfolio',
+  'views')`); sharing is Copy Link - never a shared-views store. Bulk Set
+  Company / Asset Manager / Stage goes through the store, one row save and one
+  Activity entry per asset (`lib/assetPatch.js` keeps the snapshot in step).
+  RETIRED: the Needs Attention band on the portfolio, its chips and the red
+  unseen-log badge, and the "Need a Company" chip (Neil approved) - replaced
+  by the needs line under the summary, bulk Set Company and the Company
+  filter's No Company. Data Gaps opens from the Missing Key Details view,
+  Flagged from "Review N flagged fields"; never bring the band back.
 - **Preventive maintenance (Neil, 11/03/2026, Construction plan phase 5).**
   Tickets ARE the work orders - no second queue. A preventive schedule is a
   `property_maintenance_services` row with `kind` calendar / floating /

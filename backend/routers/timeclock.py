@@ -10373,7 +10373,9 @@ def _attendance_bands(full_hours: float) -> tuple:
     rule of full-day hours minus an hour / 4 h; the Time Sheet no longer
     prints the bands). Only guarded by a shorter full day, so the half band
     never sits above the full one. India contractors never read this: their
-    8 h / 4 h credits are india_contractor_pay's."""
+    8 h / 4 h credits are india_contractor_pay's. Only people who work in
+    India get these bands (Neil, 11/18/2026) - _fixed_card sets them to one
+    minute for everyone else."""
     full_min = min(SALARIED_FULL_MIN, max(0, int(round(float(full_hours or 8) * 60))))
     return full_min, min(SALARIED_HALF_MIN, full_min)
 
@@ -10455,6 +10457,13 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         return _salary_on(ds) * 12 / working_days if working_days else 0.0
     daily = _daily_on(m_end)
     FULL_MIN, HALF_MIN = _attendance_bands(full_hours)
+    # The 4 h / 2.5 h day bands are an India rule only (Neil, 11/18/2026:
+    # "Only applies to India"; Charmi: a US salaried person is paid the same
+    # for 2 hours or 12). Anywhere else any time worked makes it a full day -
+    # nothing is docked for a short day.
+    in_india = india_contractor_pay.works_in_india(db, em, rate_row=rr)
+    if not in_india:
+        FULL_MIN = HALF_MIN = 1
     today = _employee_today(db, em)   # employee-LOCAL date, not UTC (boundary correctness)
 
     worked_by_day = {d["date"]: d.get("workedMin", 0) for d in card.get("days", [])}
@@ -10556,7 +10565,12 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         elif leave_cls and not is_weekend:
             status = leave_cls              # leave: the day is deducted unless they also worked it (Oct 12)
             leave_days[leave_cls] += 1
-            if work_min >= FULL_MIN:
+            if not in_india:
+                # Outside India a Sick / Vacation / Personal day is PAID leave
+                # (Charmi, 11/18/2026: Valinda's Vacation day docked $236) -
+                # it comes out of the leave balance, never off the salary.
+                deduct = 0.0
+            elif work_min >= FULL_MIN:
                 deduct = 0.0
             elif work_min >= HALF_MIN:
                 deduct = daily_d / 2.0; missed_half += 1; _missed(leave_cls, half=True)

@@ -45,50 +45,13 @@
   .nexus-asset-root .gt-frow:not(.gt-editing) > *:nth-child(1){ grid-column: 1; grid-row: 1; }
   .nexus-asset-root .gt-frow:not(.gt-editing) > *:nth-child(2){ grid-column: 1; grid-row: 2; }
   .nexus-asset-root .gt-frow:not(.gt-editing) > *:nth-child(3){ grid-column: 2; grid-row: 1 / 3; align-self: center; justify-self: center; }
-  .nexus-asset-root .gt-filters{ gap: 8px !important; flex-wrap: wrap !important; }
-  .nexus-asset-root .gt-fmain{ flex: 1 1 100% !important; gap: 8px !important; flex-wrap: wrap !important; min-width: 0 !important; }
-  .nexus-asset-root .gt-fmain > span{ display: none !important; }
-  .nexus-asset-root .gt-fmain > div:first-child{ flex: 1 1 100% !important; max-width: none !important; min-width: 0 !important; }
-  .nexus-asset-root .gt-fmain > select{
-    flex: 1 1 calc(50% - 4px) !important;
-    width: auto !important; max-width: none !important; min-width: 0 !important;
-    font-size: 16px !important; /* type-ok: iOS zooms a field under 16px */
-    
-    appearance: none; -webkit-appearance: none; cursor: pointer;
-    border: 1.5px solid var(--border-color) !important; padding-right: 32px !important;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-    background-position: right 11px center; background-repeat: no-repeat;
-  }
-  .nexus-asset-root .gt-filters > div:last-child{ flex: 1 1 100% !important; margin-top: 2px; }
-  .nexus-asset-root .list-table, .nexus-asset-root .list-table tbody{ display: block !important; }
-  .nexus-asset-root .list-table thead{ display: none !important; }
-  .nexus-asset-root .list-table tr{
-    display: flex !important; flex-wrap: wrap; align-items: center; gap: 0 8px;
-    position: relative; padding: 8px 26px 8px 8px;
-    margin-bottom: 8px; border: 1px solid var(--border-color); border-radius: 12px;
-    background: var(--bg-card) !important; box-shadow: var(--shadow-sm);
-  }
-  .nexus-asset-root .list-table tr[style*="bg-secondary"]{ border-left: 3px solid var(--pine); }
-  .nexus-asset-root .list-table tr::after{
-    content: '\203A'; position: absolute; right: 11px; top: 11px;
-    color: var(--text-muted); font-size: 18px; font-weight: 700;
-  }
-  .nexus-asset-root .list-table td{
-    display: block !important; border: none !important; width: auto !important;
-    padding: 1px 2px !important; overflow: visible !important; white-space: normal !important;
-  }
-  .nexus-asset-root .list-table td:nth-child(1){ flex: 1 1 100%; min-width: 0; padding: 2px !important; }
-  .nexus-asset-root .list-table td:nth-child(4), .nexus-asset-root .list-table td:nth-child(7){
-    font-size: 13px; color: var(--text-secondary); padding-bottom: 2px !important;
-  }
-  .nexus-asset-root .list-table td:nth-child(2), .nexus-asset-root .list-table td:nth-child(3), .nexus-asset-root .list-table td:nth-child(5), .nexus-asset-root .list-table td:nth-child(6), .nexus-asset-root .list-table td:nth-child(8){ display: none !important; }
 }
 @media (max-width: 640px){
   .nexus-asset-root .coll-table, .nexus-asset-root .coll-table > tbody{ display: block !important; }
   .nexus-asset-root .coll-table > thead{ display: none !important; }
-  .nexus-asset-root .coll-table > tbody > tr{ display: block; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-card) !important; box-shadow: var(--shadow-sm); margin-bottom: 8px; padding: 4px 13px; }
+  .nexus-asset-root .coll-table > tbody > tr{ display: block; border-bottom: 1px solid var(--border-color); background: transparent !important; padding: 6px 0; }
   .nexus-asset-root .coll-table > tbody > tr > td{ display: flex !important; justify-content: space-between; align-items: baseline; gap: 14px; width: auto !important; border: none !important; padding: 8px 0 !important; white-space: normal !important; text-align: right; }
-  .nexus-asset-root .coll-table > tbody > tr > td::before{ content: attr(data-label); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-secondary); text-align: left; flex: 0 0 auto; padding-top: 3px; white-space: nowrap; }
+  .nexus-asset-root .coll-table > tbody > tr > td::before{ content: attr(data-label); font-size: 12px; font-weight: 500; color: var(--text-secondary); text-align: left; flex: 0 0 auto; padding-top: 3px; white-space: nowrap; }
   .nexus-asset-root .coll-table > tbody > tr > td:empty{ display: none !important; }
   /* A cell whose only content is the desktop "-" placeholder (CollectionTable
      marks it data-empty) is dropped from the card instead of reading "SCOPE -". */
@@ -105,10 +68,6 @@
   .nexus-asset-root .asset-head{ gap: 6px 8px !important; margin-bottom: 8px !important; padding-bottom: 10px !important; }
   .nexus-asset-root .asset-head-main{ flex: 1 1 160px !important; gap: 8px !important; }
   .nexus-asset-root .asset-head-thumb{ display: none !important; }
-  .nexus-asset-root .asset-head .view-title-group{ flex: 1 1 0; min-width: 0; }
-  .nexus-asset-root .asset-head .view-title-group h2{ flex-wrap: nowrap !important; }
-  .nexus-asset-root .asset-head .view-title-group h2 > span:first-child{ flex: 0 1 auto; min-width: 0; white-space: nowrap; }
-  .nexus-asset-root .asset-head .view-title-group p{ display: block !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nexus-asset-root .asset-head-actions{ flex-wrap: nowrap !important; gap: 6px !important; }
   .nexus-asset-root .asset-head.is-editing .asset-head-actions{ flex: 1 1 100%; justify-content: flex-end; }
   .nexus-asset-root .asset-fade-x{
@@ -131,16 +90,6 @@
 .nexus-asset-root .asset-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-md) !important;border-color:var(--border-hover) !important}
 .nexus-asset-root .asset-card:active{transform:translateY(-1px) scale(.995)}
 .nexus-asset-root .asset-card:focus-visible{outline:2px solid var(--pine);outline-offset:2px}
-.nexus-asset-root .pt-portfolio-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
-@media (max-width:1240px){
-  .nexus-asset-root .pt-portfolio-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
-}
-@media (max-width:860px){
-  .nexus-asset-root .pt-portfolio-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-}
-@media (max-width:560px){
-  .nexus-asset-root .pt-portfolio-grid{grid-template-columns:1fr}
-}
 
 /* Fleet face of the portfolio tile - vehicles and equipment (Neil, 11/02/2026, mock
    https://claude.ai/artifact/PwncxMck8YaSkFkQ8hmTHE section 2; TileCard.jsx FleetTile).
@@ -166,7 +115,7 @@
 .nexus-asset-root .fleet-photo.has-photo{background:#fff}
 .nexus-asset-root .fleet-photo img{width:100%;height:100%;object-fit:contain;display:block}
 .nexus-asset-root .fleet-sil{width:78%;max-height:86%;height:auto}
-.nexus-asset-root .fleet-private{position:absolute;top:8px;left:8px;font-size:11px;font-weight:700;color:#fff;padding:2px 8px;border-radius:999px;background:rgba(0,0,0,.5)}
+.nexus-asset-root .fleet-private{position:absolute;top:8px;left:8px;font-size:12px;font-weight:600;color:hsl(var(--color-red));padding:2px 6px;border-radius:4px;background:var(--bg-card)}
 .nexus-asset-root .fleet-who{display:flex;align-items:center;gap:8px;min-width:0;font-size:13px;color:var(--text-primary)}
 .nexus-asset-root .fleet-av{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;letter-spacing:.02em;background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border-color)}
 .nexus-asset-root .fleet-person{min-width:0;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -180,4 +129,293 @@
 
 /* The Save / Cancel bar slides up from the bottom edge. */
 @keyframes saveBarUp{ from { transform: translateY(100%); } to { transform: translateY(0); }
+}
+
+/* ==========================================================================================
+   The redesign (Neil, 11/17/2026): the portfolio's top menu, the Properties register and the
+   open asset's title band. No boxes around sections, no rails, no pills, no uppercase:
+   type size and weight, whitespace and hairlines. A menu floats, so it may have a hairline
+   edge and a shadow. Sizes are on the type scale (11 12 13 14 15 18 24 32).
+   ========================================================================================== */
+.nexus-asset-root .pt-dim{color:var(--text-secondary)}
+.nexus-asset-root .pt-faint{color:var(--text-muted)}
+.nexus-asset-root .pt-sep{color:var(--text-muted);margin:0 8px}
+.nexus-asset-root .is-red{color:hsl(var(--color-red))}
+.nexus-asset-root .pt-link.is-red{color:hsl(var(--color-red));font-weight:600}
+.nexus-asset-root .pt-link.is-ink{color:var(--text-primary);font-weight:400}
+.nexus-asset-root .pt-link.is-live{color:var(--wk-live-ink);font-weight:500}
+.nexus-asset-root .pt-link.is-quiet{color:var(--text-secondary);font-weight:400}
+.nexus-asset-root .pt-icon-btn:disabled{opacity:.4;cursor:default}
+.nexus-asset-root .pt-icon-btn.is-boxed{border:1px solid var(--border-color);background:var(--bg-card)}
+.nexus-asset-root .pt-skel{border-radius:6px;background:linear-gradient(90deg,var(--mist),var(--bg-secondary),var(--mist));background-size:200% 100%;animation:ptSkel 1.2s ease-in-out infinite}
+@keyframes ptSkel{from{background-position:100% 0}to{background-position:-100% 0}}
+@media (prefers-reduced-motion:reduce){.nexus-asset-root .pt-skel{animation:none}}
+
+/* Shared by the page and the menus (menus are portaled to <body>, outside .nexus-asset-root). */
+.pt-dim{color:var(--text-secondary)}
+.pt-sep{color:var(--text-muted);margin:0 8px}
+.pt-link{border:none;background:none;padding:0;font:inherit;font-size:13px;font-weight:500;color:var(--pine);cursor:pointer;text-align:left}
+.pt-link:hover{text-decoration:underline;text-underline-offset:3px}
+.pt-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:none;border-radius:8px;background:none;color:var(--text-secondary);cursor:pointer}
+.pt-icon-btn:hover:not(:disabled){background:var(--mist);color:var(--text-primary)}
+.pt-link:focus-visible,.pt-icon-btn:focus-visible{outline:2px solid hsl(var(--color-blue));outline-offset:2px}
+
+/* The page's first row (inside the shell's ModuleActions row): the view's name on the left. */
+.pt-first-row{display:flex;align-items:center;gap:12px;flex:1 1 auto;min-width:0}
+.pt-first-title{display:flex;align-items:baseline;gap:8px;min-width:0;flex:1 1 auto}
+.pt-first-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+.pt-more-btn{padding:8px !important}
+.pt-view-btn{display:inline-flex;align-items:center;gap:6px;border:none;background:none;padding:2px 4px;margin-left:-4px;border-radius:6px;font:inherit;font-size:18px;font-weight:700;letter-spacing:-.01em;color:var(--text-primary);cursor:pointer;white-space:nowrap;max-width:100%}
+.pt-view-btn > span{overflow:hidden;text-overflow:ellipsis}
+.pt-view-btn:hover{background:var(--mist)}
+.pt-view-btn svg{color:var(--text-secondary);flex-shrink:0}
+.pt-view-btn:focus-visible{outline:2px solid hsl(var(--color-blue));outline-offset:2px}
+.pt-view-edited{font-size:13px;color:var(--text-muted);white-space:nowrap}
+
+/* Summary and what needs you. */
+.nexus-asset-root .pt-summary{margin:0 0 18px}
+.nexus-asset-root .pt-lead{margin:0;font-size:18px;font-weight:600;letter-spacing:-.01em;line-height:1.35;color:var(--text-primary)}
+.nexus-asset-root .pt-needs{margin-top:8px;font-size:13px;line-height:1.6;display:flex;flex-wrap:wrap;align-items:baseline}
+.nexus-asset-root .pt-attention{margin-top:12px}
+.nexus-asset-root .pt-att-row{display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:16px;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--border-color);font-size:13px}
+.nexus-asset-root .pt-att-row:first-child{border-top:1px solid var(--border-color)}
+.nexus-asset-root .pt-att-when{font-weight:600}
+.nexus-asset-root .pt-att-when.is-red{color:hsl(var(--color-red))}
+.nexus-asset-root .pt-att-when.is-live{color:var(--wk-live-ink)}
+.nexus-asset-root .pt-att-what{border:none;background:none;padding:0;font:inherit;font-size:13px;color:var(--text-primary);text-align:left;cursor:pointer;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nexus-asset-root .pt-att-what b{font-weight:600}
+.nexus-asset-root .pt-att-what:hover b{text-decoration:underline;text-underline-offset:3px}
+.nexus-asset-root .pt-att-side{font-variant-numeric:tabular-nums;white-space:nowrap}
+.nexus-asset-root .pt-fnote{font-size:12px;color:var(--text-secondary);margin-top:6px}
+.nexus-asset-root .pt-aside-links{display:flex;gap:18px;margin:-6px 0 14px;font-size:13px}
+
+/* The toolbar. */
+.nexus-asset-root .pt-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.nexus-asset-root .pt-search{position:relative;flex:0 1 360px;min-width:220px}
+.nexus-asset-root .pt-search .form-input{width:100%;height:36px;padding:0 32px 0 34px;font-size:13px;border-radius:8px}
+.nexus-asset-root .pt-search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-secondary);pointer-events:none}
+.nexus-asset-root .pt-search-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:24px;height:24px;border:none;border-radius:6px;background:none;color:var(--text-secondary);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.nexus-asset-root .pt-search-clear:hover{background:var(--mist);color:var(--text-primary)}
+.nexus-asset-root .pt-filters-btn{height:36px;display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.nexus-asset-root .pt-filters-btn.is-open{border-color:var(--pine)}
+.nexus-asset-root .pt-filters-n{color:var(--pine);font-weight:600;margin-left:2px;font-variant-numeric:tabular-nums}
+.nexus-asset-root .pt-pick{display:inline-flex;align-items:center;gap:4px;height:36px;padding:0 6px;border:none;background:none;border-radius:8px;font:inherit;font-size:13px;color:var(--text-primary);cursor:pointer;white-space:nowrap}
+.nexus-asset-root .pt-pick:hover{background:var(--mist)}
+.nexus-asset-root .pt-pick:focus-visible{outline:2px solid hsl(var(--color-blue));outline-offset:2px}
+.nexus-asset-root .pt-pick-label{color:var(--text-secondary)}
+.nexus-asset-root .pt-pick b{font-weight:600}
+.nexus-asset-root .pt-pick svg{color:var(--text-secondary)}
+.nexus-asset-root .pt-modes{display:inline-flex;margin-left:auto;padding:3px;border:1px solid var(--border-color);border-radius:10px;background:var(--bg-card)}
+.nexus-asset-root .pt-modes button{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border:none;border-radius:7px;background:none;font:inherit;font-size:13px;font-weight:500;color:var(--text-secondary);cursor:pointer}
+.nexus-asset-root .pt-modes button:hover{color:var(--text-primary)}
+.nexus-asset-root .pt-modes button.is-on{background:var(--mist);color:var(--text-primary);font-weight:600}
+
+/* Menus. */
+.pt-menu-heading{padding:8px 10px 4px;font-size:12px;font-weight:500;color:var(--text-secondary)}
+.pt-menu-sep{height:1px;background:var(--border-color);margin:6px -6px}
+.pt-menu-row{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:none;border-radius:7px;background:none;font:inherit;font-size:13px;color:var(--text-primary);text-align:left;cursor:pointer}
+.pt-menu-row:hover,.pt-menu-row:focus-visible{background:var(--mist);outline:none}
+.pt-menu-row:disabled{opacity:.5;cursor:default}
+.pt-menu-row[aria-checked="true"]{font-weight:600}
+.pt-menu-check{width:16px;display:inline-flex;justify-content:center;color:var(--pine);flex-shrink:0}
+.pt-menu-row:not([aria-checked]) .pt-menu-check{color:var(--text-secondary)}
+.pt-menu-words{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pt-menu-hint{font-size:12px;color:var(--text-muted)}
+.pt-menu-count{font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.pt-menu-count.is-zero{color:var(--text-muted)}
+.pt-menu-form{display:flex;flex-direction:column;gap:8px;padding:8px 6px}
+.pt-menu-form .form-input{width:100%;height:34px;font-size:13px}
+.pt-menu-label{font-size:13px;font-weight:600;color:var(--text-primary)}
+.pt-menu-hint-line{font-size:12px;color:var(--text-secondary);line-height:1.45;padding:2px 4px}
+.pt-menu-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.pt-manage-row{display:flex;align-items:center;gap:4px;padding:4px 0;border-bottom:1px solid var(--border-color);font-size:13px}
+.pt-manage-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* The search's suggestions. */
+.pt-sug{display:flex;align-items:center;gap:10px;padding:7px 14px;font-size:13px;color:var(--text-primary);cursor:pointer}
+.pt-sug.is-active{background:var(--mist)}
+.pt-sug-icon{color:var(--text-secondary);flex-shrink:0}
+.pt-sug-words{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pt-sug-words b{font-weight:600}
+.pt-sug-side{font-size:12px;color:var(--text-secondary);white-space:nowrap}
+.pt-sug-side.is-zero{color:var(--text-muted)}
+.pt-sug-thumb{width:32px;height:22px;border-radius:4px;overflow:hidden;background:var(--mist);flex-shrink:0}
+.pt-sug-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+[role="listbox"] [role="group"] > .pt-menu-heading{padding:8px 14px 4px}
+[role="listbox"] [role="group"] + [role="group"]{border-top:1px solid var(--border-color);margin-top:4px;padding-top:2px}
+.pt-sug-empty{padding:10px 14px;font-size:13px;color:var(--text-secondary)}
+.pt-sug-foot{margin-top:6px;padding:10px 14px 6px;border-top:1px solid var(--border-color);font-size:12px;line-height:1.45;color:var(--text-secondary)}
+
+/* The Filters panel. */
+.pt-filters{font-size:13px;color:var(--text-primary)}
+.pt-fcols{display:grid;grid-template-columns:1fr 1fr;gap:4px 32px;padding:16px 20px 4px}
+.pt-filters.is-phone .pt-fcols{grid-template-columns:1fr;padding:0}
+.pt-fsec{border:none;margin:0 0 14px;padding:0;min-width:0}
+.pt-fsec-title{padding:0;margin-bottom:6px;font-size:13px;font-weight:600}
+.pt-fcheck{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer}
+.pt-fcheck input{margin:0;width:15px;height:15px;accent-color:var(--pine);flex-shrink:0}
+.pt-fcheck-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pt-fcheck-count{font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.pt-fcheck.is-zero{color:var(--text-muted)}
+.pt-fcheck.is-zero .pt-fcheck-count{color:var(--text-muted)}
+.pt-fcheck.is-indent{padding-left:23px}
+.pt-filters .pt-fnote{font-size:12px;color:var(--text-secondary);margin-top:4px}
+.pt-fsearch{position:relative;margin-bottom:6px}
+.pt-fsearch svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-secondary)}
+.pt-fsearch .form-input{width:100%;height:32px;padding-left:30px;font-size:13px}
+.pt-fmore{margin-top:2px;font-size:12px}
+.pt-frange{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.pt-frange-label{width:84px;color:var(--text-secondary)}
+.pt-frange .form-input{width:76px;height:30px;padding:0 8px;font-size:13px}
+.pt-ffoot{display:flex;align-items:center;gap:16px;padding:12px 20px;border-top:1px solid var(--border-color)}
+.pt-ffoot > .pt-dim{flex:1;font-size:12px}
+.pt-filters.is-phone .pt-ffoot{padding:12px 0 0;margin-top:8px}
+@media (max-width:640px){
+  .pt-fcheck{padding:8px 0}
+  .pt-frange .form-input,.pt-fsearch .form-input{font-size:16px} /* type-ok: iOS zooms a field under 16px */
+}
+
+/* The filter words and the bulk line. */
+.nexus-asset-root .pt-words,.nexus-asset-root .pt-bulk{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px;margin:0 0 10px;font-size:13px;min-height:24px}
+.nexus-asset-root .pt-word{display:inline-flex;align-items:baseline;gap:4px}
+.nexus-asset-root .pt-word b{font-weight:600}
+.nexus-asset-root .pt-word-x{align-self:center;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border:none;border-radius:4px;background:none;color:var(--text-muted);cursor:pointer}
+.nexus-asset-root .pt-word-x:hover{color:var(--text-primary);background:var(--mist)}
+.nexus-asset-root .pt-words-count{margin-left:auto;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.nexus-asset-root .pt-bulk b{font-weight:600}
+.nexus-asset-root .pt-bulk .pt-sep{margin:0 -6px}
+
+/* The list. */
+.nexus-asset-root .pt-list-wrap{overflow-x:auto}
+.nexus-asset-root .pt-list{width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px;color:var(--text-primary)}
+.nexus-asset-root .pt-list th{position:relative;text-align:left;font-size:12px;font-weight:500;color:var(--text-secondary);padding:0 12px;height:36px;border-bottom:1px solid var(--border-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nexus-asset-root .pt-list th.is-num,.nexus-asset-root .pt-list td.is-num{text-align:right}
+.nexus-asset-root .pt-list td{padding:10px 12px;border-bottom:1px solid var(--border-color);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nexus-asset-root .pt-list td.is-num{font-variant-numeric:tabular-nums}
+.nexus-asset-root .pt-th-btn{border:none;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.nexus-asset-root .pt-th-btn:hover{color:var(--text-primary)}
+.nexus-asset-root .pt-th-btn:focus-visible{outline:2px solid hsl(var(--color-blue));outline-offset:2px}
+.nexus-asset-root .pt-th-btn.is-static{cursor:default}
+.nexus-asset-root th[aria-sort] .pt-th-btn{color:var(--text-primary);font-weight:600}
+.nexus-asset-root .pt-col-resize{position:absolute;top:0;right:0;width:8px;height:100%;cursor:col-resize}
+.nexus-asset-root .pt-col-resize:hover{box-shadow:inset -1px 0 0 var(--border-color)}
+.nexus-asset-root .pt-row{cursor:pointer;transition:background .12s}
+.nexus-asset-root .pt-row:hover,.nexus-asset-root .pt-row:focus-visible{background:var(--mist);outline:none}
+.nexus-asset-root .pt-row:focus-visible .pt-prop-name{text-decoration:underline;text-underline-offset:3px}
+.nexus-asset-root .pt-row.is-on{background:color-mix(in srgb,var(--pine) 6%,transparent)}
+.nexus-asset-root .pt-row.is-last .pt-thumb{box-shadow:0 0 0 2px var(--wk-live)}
+.nexus-asset-root .pt-row.is-child td{padding-top:7px;padding-bottom:7px;color:var(--text-secondary)}
+.nexus-asset-root .pt-row.is-child .pt-prop{padding-left:22px}
+.nexus-asset-root .pt-list .pt-cell-property,.nexus-asset-root .pt-list th:first-child{padding-left:4px}
+.nexus-asset-root .pt-prop{display:flex;align-items:center;gap:8px;min-width:0}
+.nexus-asset-root .pt-list th .pt-prop{height:36px}
+.nexus-asset-root .pt-check{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex-shrink:0;cursor:pointer}
+.nexus-asset-root .pt-check input{margin:0;width:15px;height:15px;accent-color:var(--pine);cursor:pointer;opacity:.45;transition:opacity .12s}
+.nexus-asset-root .pt-row:hover .pt-check input,.nexus-asset-root .pt-check input:checked,.nexus-asset-root .pt-check input:focus-visible,.nexus-asset-root .pt-check input:indeterminate,.nexus-asset-root th .pt-check input:hover{opacity:1}
+.nexus-asset-root .pt-check-space{width:22px;flex-shrink:0}
+.nexus-asset-root .pt-expand{display:inline-flex;align-items:center;justify-content:center;width:18px;height:22px;padding:0;border:none;background:none;color:var(--text-secondary);cursor:pointer;flex-shrink:0;border-radius:4px}
+.nexus-asset-root .pt-expand:hover{color:var(--text-primary);background:var(--bg-secondary)}
+.nexus-asset-root .pt-expand-space{width:18px;flex-shrink:0}
+.nexus-asset-root .pt-thumb{width:48px;height:34px;border-radius:6px;overflow:hidden;flex-shrink:0;background:var(--bg-secondary);display:inline-flex;align-items:center;justify-content:center;color:var(--text-muted)}
+.nexus-asset-root .pt-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.nexus-asset-root .pt-prop-words{display:flex;flex-direction:column;min-width:0;margin-left:4px}
+.nexus-asset-root .pt-prop-name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nexus-asset-root .pt-prop-meta{font-size:12px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nexus-asset-root .pt-group-row th{height:auto;padding:20px 12px 8px 4px;font-size:13px;color:var(--text-primary)}
+.nexus-asset-root .pt-group-row td{padding:20px 12px 8px;font-size:12px;font-weight:600;color:var(--text-secondary);vertical-align:bottom}
+.nexus-asset-root .pt-group-name{font-size:15px;font-weight:600;margin-right:8px}
+.nexus-asset-root .pt-group-count{font-weight:400;color:var(--text-secondary)}
+
+/* The phone list. */
+.nexus-asset-root .pt-prow{display:flex;align-items:center;gap:14px;width:100%;padding:12px 0;border:none;border-bottom:1px solid var(--border-color);background:none;font:inherit;text-align:left;color:var(--text-primary);cursor:pointer}
+.nexus-asset-root .pt-prow-thumb{width:64px;height:46px;border-radius:8px;overflow:hidden;flex-shrink:0;background:var(--bg-secondary);display:inline-flex;align-items:center;justify-content:center;color:var(--text-muted)}
+.nexus-asset-root .pt-prow.is-last .pt-prow-thumb{box-shadow:0 0 0 2px var(--wk-live)}
+.nexus-asset-root .pt-prow-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.nexus-asset-root .pt-prow-words{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.nexus-asset-root .pt-prow-name{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nexus-asset-root .pt-prow-meta{font-size:13px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nexus-asset-root .pt-prow-chev{color:var(--text-muted);flex-shrink:0}
+
+/* The gallery. */
+.nexus-asset-root .pt-gallery-group + .pt-gallery-group{margin-top:28px}
+.nexus-asset-root .pt-group-head{margin:0 0 16px;padding-bottom:10px;border-bottom:1px solid var(--border-color);font-size:15px;font-weight:600}
+.nexus-asset-root .pt-group-head .pt-dim{font-size:13px;font-weight:400;margin-left:6px}
+.nexus-asset-root .pt-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:28px 24px}
+@media (max-width:1240px){ .nexus-asset-root .pt-grid{grid-template-columns:repeat(3,minmax(0,1fr))} }
+@media (max-width:860px){ .nexus-asset-root .pt-grid{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width:560px){ .nexus-asset-root .pt-grid{grid-template-columns:1fr} }
+.nexus-asset-root .pt-tile{min-width:0;cursor:pointer;border-radius:10px;outline:none}
+.nexus-asset-root .pt-tile:focus-visible .pt-tile-photo{box-shadow:0 0 0 2px hsl(var(--color-blue))}
+.nexus-asset-root .pt-tile-photo{aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;color:var(--text-muted);transition:filter .15s}
+.nexus-asset-root .pt-tile-photo img{width:100%;height:100%;object-fit:cover;object-position:center 35%;display:block}
+.nexus-asset-root .pt-tile:hover .pt-tile-photo{filter:brightness(.92)}
+.nexus-asset-root .pt-tile.is-selected .pt-tile-photo{box-shadow:0 0 0 2px var(--wk-live)}
+.nexus-asset-root .pt-tile-name{margin-top:12px;font-size:15px;font-weight:600;line-height:1.3;color:var(--text-primary);overflow-wrap:anywhere}
+.nexus-asset-root .pt-tile:hover .pt-tile-name,.nexus-asset-root .pt-tile:focus-visible .pt-tile-name{text-decoration:underline;text-underline-offset:3px}
+.nexus-asset-root .pt-tile-meta{margin-top:3px;font-size:12px;color:var(--text-secondary)}
+.nexus-asset-root .pt-tile-facts{margin-top:8px;font-size:13px;color:var(--text-primary);font-variant-numeric:tabular-nums}
+.nexus-asset-root .pt-tile-facts.is-faint{color:var(--text-muted)}
+.nexus-asset-root .pt-tile-stage{margin-top:4px;font-size:13px;font-weight:600}
+
+/* The map. */
+.nexus-asset-root .pt-map-line{margin-bottom:10px;font-size:13px;color:var(--text-secondary)}
+.nexus-asset-root .pt-map-canvas{width:100%;height:min(70vh,640px);border-radius:10px;overflow:hidden;background:var(--bg-secondary)}
+.nexus-asset-root .pt-map-missing{margin-top:14px;font-size:13px;line-height:1.7}
+.nexus-asset-root .pt-map-missing-head{color:var(--text-secondary)}
+
+.nexus-asset-root .pt-empty{padding:40px 0;font-size:14px;color:var(--text-secondary);text-align:center}
+.nexus-asset-root .pt-empty b{color:var(--text-primary);font-weight:600}
+.nexus-asset-root .pt-loading{display:flex;flex-direction:column}
+.nexus-asset-root .pt-skel-row{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border-color)}
+
+@media (max-width:640px){
+  .nexus-asset-root .pt-toolbar{flex-wrap:nowrap}
+  .nexus-asset-root .pt-search{flex:1 1 auto;min-width:0}
+  .nexus-asset-root .pt-search .form-input{height:44px;font-size:16px} /* type-ok: iOS zooms a field under 16px */
+  .nexus-asset-root .pt-filters-btn{height:44px}
+  .nexus-asset-root .pt-summary{margin-bottom:12px}
+  .nexus-asset-root .pt-att-row{grid-template-columns:1fr auto;gap:2px 12px}
+  .nexus-asset-root .pt-att-what{grid-column:1 / -1;grid-row:2;white-space:normal}
+  .nexus-asset-root .pt-words-count{margin-left:0}
+}
+
+/* The open asset: its title band, its record sub-row. */
+.nexus-asset-root .at-band{display:flex;gap:28px;align-items:flex-start;margin:0 0 20px}
+.nexus-asset-root .at-photo{width:236px;aspect-ratio:236/148;border-radius:10px;overflow:hidden;flex-shrink:0;background:var(--bg-secondary)}
+.nexus-asset-root .at-photo img{width:100%;height:100%;object-fit:cover;object-position:center 30%;display:block}
+.nexus-asset-root .at-words{flex:1;min-width:0}
+.nexus-asset-root .at-title-row{display:flex;align-items:flex-start;gap:16px}
+.nexus-asset-root .at-name{flex:1;min-width:0;margin:0;font-size:24px;font-weight:700;letter-spacing:-.015em;line-height:1.25;color:var(--text-primary);overflow-wrap:anywhere}
+.nexus-asset-root .at-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.nexus-asset-root .at-more{padding:8px !important}
+.nexus-asset-root .at-walk{display:inline-flex;align-items:center;gap:6px;margin-right:4px;font-size:13px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.nexus-asset-root .at-walk-n{white-space:nowrap}
+.nexus-asset-root .at-address{margin-top:6px;font-size:13px;color:var(--text-secondary)}
+.nexus-asset-root .at-meta{margin-top:10px;font-size:13px;color:var(--text-primary);display:flex;flex-wrap:wrap;align-items:baseline}
+.nexus-asset-root .at-meta b{font-weight:600}
+.nexus-asset-root .at-facts{margin:10px 0 0;font-size:15px;line-height:1.5;color:var(--text-primary)}
+.nexus-asset-root .at-facts b{font-weight:600}
+.nexus-asset-root .at-phone-acts{display:flex;gap:8px;margin-top:14px}
+.nexus-asset-root .at-phone-acts .secondary-btn{flex:1;justify-content:center;height:44px}
+.nexus-asset-root .at-band.is-phone{flex-direction:column;gap:14px}
+.nexus-asset-root .at-band.is-phone .at-photo{width:auto;align-self:stretch;margin:0 -12px;border-radius:0;aspect-ratio:16/9;max-height:240px}
+.nexus-asset-root .at-band.is-phone .at-actions{margin-top:12px;flex-wrap:wrap}
+.nexus-asset-root .at-subrow{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:0 0 16px;border-bottom:1px solid var(--border-color)}
+.nexus-asset-root .at-subrow.is-right{border-bottom:none;justify-content:flex-end;margin-bottom:8px}
+.nexus-asset-root .at-subtabs{display:flex;gap:20px;min-width:0}
+.nexus-asset-root .at-subtabs button{border:none;background:none;padding:8px 0 10px;font:inherit;font-size:13px;font-weight:500;color:var(--text-secondary);cursor:pointer;white-space:nowrap;box-shadow:inset 0 -2px 0 transparent}
+.nexus-asset-root .at-subtabs button:hover{color:var(--text-primary)}
+.nexus-asset-root .at-subtabs button.is-on{color:var(--text-primary);font-weight:600;box-shadow:inset 0 -2px 0 var(--text-primary)}
+.nexus-asset-root .at-subtab-n{margin-left:4px;font-weight:400;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.nexus-asset-root .at-subrow-right{display:flex;align-items:center;gap:8px;padding-bottom:8px;flex-shrink:0}
+.nexus-asset-root .at-search{position:relative;width:240px}
+.nexus-asset-root .at-search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-secondary)}
+.nexus-asset-root .at-search .form-input{width:100%;height:34px;padding:0 10px 0 30px;font-size:13px}
+.nexus-asset-root .at-hint{margin:-8px 0 12px;font-size:13px;color:var(--text-secondary)}
+.nexus-asset-root .at-empty{padding:24px 0;font-size:13px;color:var(--text-secondary)}
+@media (max-width:640px){
+  .nexus-asset-root .at-subrow{flex-direction:column;align-items:stretch;gap:8px}
+  .nexus-asset-root .at-subrow-right{padding-bottom:10px}
+  .nexus-asset-root .at-search{flex:1;width:auto}
+  .nexus-asset-root .at-search .form-input{font-size:16px} /* type-ok: iOS zooms a field under 16px */
 }

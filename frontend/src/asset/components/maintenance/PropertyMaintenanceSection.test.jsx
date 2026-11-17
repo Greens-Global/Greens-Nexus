@@ -116,7 +116,7 @@ describe('Property Maintenance with tickets', () => {
 
   it('a recurring service lists the original and every child with date, cost and total per currency', async () => {
     render(<PropertyMaintenanceSection {...props} />);
-    fireEvent.click(await screen.findByRole('tab', { name: /Preventive Maintenance/ }));
+    fireEvent.click(await screen.findByRole('tab', { name: /^Preventive/ }));
     expect(screen.getByText('Every Year')).toBeTruthy();
     expect(screen.getByText('(Original)')).toBeTruthy();
     expect(screen.getByText('Ticket #140')).toBeTruthy();
@@ -127,14 +127,18 @@ describe('Property Maintenance with tickets', () => {
 
   it('lists open and closed tickets, and offers create and walkthrough', async () => {
     render(<PropertyMaintenanceSection {...props} />);
-    fireEvent.click(await screen.findByRole('tab', { name: 'Open Tickets (1)' }));
+    // A tab's count is a plain number after its name, only when there is one.
+    fireEvent.click(await screen.findByRole('tab', { name: 'Open Tickets 1' }));
+    expect(screen.getByRole('tab', { name: 'Log' })).toBeTruthy();
     expect(screen.getByText('Broken handrail')).toBeTruthy();
-    fireEvent.click(screen.getByRole('tab', { name: 'Closed Tickets (2)' }));
-    expect(screen.getAllByText('Recorded').length).toBe(2);         // the count, and the chip on Ticket #100
+    fireEvent.click(screen.getByRole('tab', { name: 'Closed Tickets 2' }));
+    expect(screen.getByText('1 in the maintenance record')).toBeTruthy();   // the sentence over the list
+    expect(screen.getByText('1 waiting to be added')).toBeTruthy();
+    expect(screen.getAllByText('Recorded').length).toBe(1);          // the words on Ticket #100
     expect(screen.getAllByText('Needs Action').length).toBeGreaterThan(1);
     expect(screen.getByRole('button', { name: 'Log Work' })).toBeTruthy();   // the one primary
+    expect(screen.getByRole('button', { name: 'Report a Problem' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'More maintenance actions' }));
-    expect(screen.getByRole('menuitem', { name: 'Create New Ticket' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: 'Batch Create' })).toBeTruthy();   // the modal's own title
     expect(screen.getByRole('menuitem', { name: 'Set Up Units' })).toBeTruthy();
   });

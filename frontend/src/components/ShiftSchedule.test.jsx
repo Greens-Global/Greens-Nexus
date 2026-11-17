@@ -1396,7 +1396,7 @@ describe('Confirmations: the schedule comes to people', () => {
   });
   it('nudges one person, shows who was already nudged, and reads all-confirmed in green', async () => {
     const r = rows();
-    r.push({ email: 'cat@greensglobal.com', name: 'Cat Cole', unconfirmed: 1, publishes: [{ publishId: 'pub2', at: '2026-10-14T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: null, nudgedAt: '2026-10-14T20:00:00Z' }] });
+    r.push({ email: 'cat@greensglobal.com', name: 'Cat Cole', unconfirmed: 1, publishes: [{ publishId: 'pub2', at: '2026-10-14T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: null, nudgedAt: '2026-10-14T12:00:00Z' }] });
     timeSchedule.mockResolvedValue({ ...data([shift()]), employees: [...data([]).employees, { email: 'cat@greensglobal.com', name: 'Cat Cole' }] });
     timeSchedConfirmations.mockResolvedValue(answer(r));
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);

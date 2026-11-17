@@ -268,6 +268,13 @@ export function assetSignals(asset, store) {
 // assetCompleteness - completeness % calculator for the Manage page
 // ------------------------------------------------------------------------------------------
 
+/** Is a value filled in? "N/A", "NA" and a bare dash are placeholders, not answers - they
+ *  count as NOT filled for completeness (Neil, 11/17/2026). */
+export function isFilled(v) {
+  const t = String(v ?? '').trim();
+  return !!t && !/^(n\/?a|-+|–|—)$/i.test(t);
+}
+
 /**
  * Returns { pct, missing } - a completeness percentage (0-100, rounded) and the list of missing
  * field labels, used by the Manage page to show data-quality progress per asset.
@@ -288,7 +295,7 @@ export function assetCompleteness(property) {
   if (inferAssetKind(property) !== 'property') {
     const schema = ASSET_SCHEMAS[inferAssetKind(property)] || [];
     const fields = schema.filter((f) => !f.sec); // drop { sec: '...' } section-header markers
-    const missing = fields.filter((f) => !String(property[f.k] || '').trim()).map((f) => f.label);
+    const missing = fields.filter((f) => !isFilled(property[f.k])).map((f) => f.label);
     const hasPhoto = (property.images && property.images.length) || property.image;
     if (!hasPhoto) missing.push('Photos');
     const total = fields.length + 1; // +1 for the synthetic Photos check
@@ -325,7 +332,7 @@ export function assetCompleteness(property) {
         ['Google Maps Link', property.mapUrl || snapVal('Google Maps Link')],
       ];
 
-  const missing = CHECK.filter((c) => !String(c[1] || '').trim()).map((c) => c[0]);
+  const missing = CHECK.filter((c) => !isFilled(c[1])).map((c) => c[0]);
   const hasPhoto = (property.images && property.images.length) || property.image;
   if (!hasPhoto) missing.push('Photos');
   const total = CHECK.length + 1;
