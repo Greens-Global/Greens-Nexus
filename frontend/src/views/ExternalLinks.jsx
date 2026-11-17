@@ -36,6 +36,8 @@ import {
   MoreHorizontal, Copy, ArrowUp, ArrowDown, Send,
 } from 'lucide-react';
 import { ModuleActions } from '../components/ModuleTabs';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../ui/HoldButton';
 
 // Mirrors the old start.greensglobal.com department dropdown (Neil, Aug 12) -
 // "Development" deliberately excluded per that ask. Admin-managed now (Aug
@@ -572,8 +574,8 @@ export default function ExternalLinks() {
     try { await fn(...a); if (okMsg) setBanner({ kind: 'ok', text: okMsg }); }
     catch (e) { setBanner({ kind: 'err', text: e?.message || 'Something went wrong.' }); throw e; }
   };
-  const confirmDiscard = () => !dirty || window.confirm('You have unsaved changes to your layout - discard them?');
-  const guardedSwitch = (id) => { if (confirmDiscard()) switchView(id); };
+  const confirmDiscard = async () => !dirty || dialog.confirm('You have unsaved changes to your layout - discard them?', { title: 'Unsaved Changes', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true });
+  const guardedSwitch = async (id) => { if (await confirmDiscard()) switchView(id); };
   const isOwnView = !!activeView;
   const saveViewLayout = wrap(async () => {
     if (isOwnView) { await saveView(); return; }
@@ -594,8 +596,8 @@ export default function ExternalLinks() {
     title: 'Create a new view', label: 'Starts from the default layout - customize it after', initial: '', cta: 'Create view',
     onSubmit: wrap(name => createNewView(name), 'View created - customize away'),
   });
-  const guardedNew = () => { if (confirmDiscard()) createNew(); };
-  const guardedDone = () => { if (confirmDiscard()) { setEditing(false); reloadViews(); } };
+  const guardedNew = async () => { if (await confirmDiscard()) createNew(); };
+  const guardedDone = async () => { if (await confirmDiscard()) { setEditing(false); reloadViews(); } };
   // Customize mode is unmistakable (Neil, Sep 22): the page fades around
   // the tiles (body.links-editing, see style.css), a bar at the bottom
   // holds Save / Done, and Escape leaves - unless a drag, a folder, or a
@@ -607,7 +609,7 @@ export default function ExternalLinks() {
   useEffect(() => {
     if (!editing) return;
     const onKey = (e) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
       if (nameModal || document.body.classList.contains('links-dragging')) return;
       if (document.querySelector('.modal-overlay, [role="dialog"]')) return;
       guardedDone();
@@ -616,10 +618,10 @@ export default function ExternalLinks() {
     return () => document.removeEventListener('keydown', onKey);
   });
   const makeDefault = wrap(async () => { setViewMenu(false); if (activeId) await setDefaultView(activeId); }, 'Set as your default');
-  const deleteCurrentView = () => {
+  const deleteCurrentView = async () => {
     setViewMenu(false);
     if (!activeId) return;
-    if (window.confirm(`Delete "${activeView?.name}"?`)) removeView(activeId).catch(e => setBanner({ kind: 'err', text: e?.message }));
+    if (await dialog.confirm(`Delete "${activeView?.name}"?`, { title: 'Delete View', confirmText: 'Delete', danger: true })) removeView(activeId).catch(e => setBanner({ kind: 'err', text: e?.message }));
   };
 
   const openLink = (link) => {
@@ -751,16 +753,18 @@ export default function ExternalLinks() {
     }
   };
 
-  const remove = async (link) => {
-    if (!window.confirm(`Remove "${link.name}" from Links? This cannot be undone.`)) return;
-    try {
-      await api.deleteExternalLink(link.id);
-      setLinks(prev => (prev || []).filter(l => l.id !== link.id));
-      setBanner({ kind: 'ok', text: `"${link.name}" removed.` });
-    } catch (e) {
-      setBanner({ kind: 'err', text: e?.message || 'Could not remove this link.' });
-    }
-  };
+  const remove = (link) => dialog.confirm(`Remove "${link.name}" from Links? This cannot be undone.`, {
+    title: 'Remove Link?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Remove', doneText: 'Removed',
+    onConfirm: async () => {
+      try {
+        await api.deleteExternalLink(link.id);
+        setLinks(prev => (prev || []).filter(l => l.id !== link.id));
+        setBanner({ kind: 'ok', text: `"${link.name}" removed.` });
+      } catch (e) {
+        throw new Error(e?.message || 'Could not remove this link.', { cause: e });
+      }
+    },
+  });
 
   // Bulk category/department reassignment (Manage > All Links, Aug 14) -
   // no dedicated bulk endpoint; loops the existing single-link PATCH since
@@ -791,15 +795,18 @@ export default function ExternalLinks() {
   // cancelled confirm instead of clearing it as if something happened.
   const bulkDeleteLinks = async (ids) => {
     if (!ids.length) return false;
-    if (!window.confirm(`Remove ${ids.length} link${ids.length === 1 ? '' : 's'} from Links? This cannot be undone.`)) return false;
-    const results = await Promise.allSettled(ids.map(id => api.deleteExternalLink(id)));
-    const removed = new Set();
-    let failed = 0;
-    results.forEach((r, i) => { if (r.status === 'fulfilled') removed.add(ids[i]); else failed++; });
-    setLinks(prev => (prev || []).filter(l => !removed.has(l.id)));
-    if (failed) setBanner({ kind: 'err', text: `Removed ${removed.size} link${removed.size === 1 ? '' : 's'}, ${failed} failed.` });
-    else setBanner({ kind: 'ok', text: `Removed ${removed.size} link${removed.size === 1 ? '' : 's'}.` });
-    return true;
+    return dialog.confirm(`Remove ${ids.length} link${ids.length === 1 ? '' : 's'} from Links? This cannot be undone.`, {
+      title: `Remove ${ids.length} Link${ids.length === 1 ? '' : 's'}?`, hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Remove', doneText: 'Removed',
+      onConfirm: async () => {
+        const results = await Promise.allSettled(ids.map(id => api.deleteExternalLink(id)));
+        const removed = new Set();
+        let failed = 0;
+        results.forEach((r, i) => { if (r.status === 'fulfilled') removed.add(ids[i]); else failed++; });
+        setLinks(prev => (prev || []).filter(l => !removed.has(l.id)));
+        if (failed) setBanner({ kind: 'err', text: `Removed ${removed.size} link${removed.size === 1 ? '' : 's'}, ${failed} failed.` });
+        else setBanner({ kind: 'ok', text: `Removed ${removed.size} link${removed.size === 1 ? '' : 's'}.` });
+      },
+    });
   };
 
   const bumpPersonalClick = (link) => {
@@ -896,7 +903,7 @@ export default function ExternalLinks() {
   };
 
   const removePersonal = async (link) => {
-    if (!window.confirm(`Remove "${link.name}" from your Personal Links?`)) return;
+    if (!(await dialog.confirm(`Remove "${link.name}" from your Personal Links?`, { title: 'Remove Personal Link', confirmText: 'Remove', danger: true }))) return;
     try {
       await api.deletePersonalLink(link.id);
       setPersonalLinks(prev => (prev || []).filter(l => l.id !== link.id));
@@ -1668,7 +1675,7 @@ function FolderModal({
     setTimeout(onClose, 200);
   };
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !drag.active && !renaming) requestClose(); };
+    const onKey = (e) => { if (e.key === 'Escape' && !e.defaultPrevented && !drag.active && !renaming) requestClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   });
@@ -2040,8 +2047,8 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
       editable={true} jiggle={editable && view !== 'list'}
       onClose={closeFolder}
       onRename={(name) => renameFolder(openFolder.id, name, folderCommit)}
-      onDeleteFolder={() => {
-        if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
+      onDeleteFolder={async () => {
+        if (!(await dialog.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`, { title: 'Delete Folder', confirmText: 'Delete', danger: true }))) return;
         deleteFolder(openFolder.id, folderCommit);
         closeFolder();
       }}
@@ -2491,7 +2498,7 @@ function ManageModal({
     try { await onRefreshDescription(link); } finally { setRefreshingId(null); }
   };
   const doRefreshAll = async () => {
-    if (!window.confirm('Re-fetch and shorten the description for every Company Link? This overwrites current descriptions.')) return;
+    if (!(await dialog.confirm('Re-fetch and shorten the description for every Company Link? This overwrites current descriptions.', { title: 'Refresh All Descriptions', confirmText: 'Refresh All' }))) return;
     setRefreshingAll(true);
     try { await onRefreshAllDescriptions(); } finally { setRefreshingAll(false); }
   };
@@ -3231,7 +3238,7 @@ function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete, touch 
     finally { setBusyId(null); }
   };
   const remove = async (item) => {
-    if (!window.confirm(`Remove "${item.name}" from the ${label.toLowerCase()} list? Links already using it keep it - this only takes it out of the picker.`)) return;
+    if (!(await dialog.confirm(`Remove "${item.name}" from the ${label.toLowerCase()} list? Links already using it keep it - this only takes it out of the picker.`, { title: 'Remove From List', confirmText: 'Remove', danger: true }))) return;
     setBusyId(item.id); setError('');
     try { await onDelete(item.id); }
     catch (e) { setError(e?.message || 'Could not remove.'); }

@@ -20,6 +20,7 @@ vi.mock('../tasks/components', () => ({
 }));
 
 const { default: Revenue, filterTenants, defaultEffective, toBody, blankStrategy, overUnderPct, overUnderText } = await import('./Revenue');
+const { dialog: nxDialog } = await import('../ui/dialog');
 
 const FAC = { id: 'fac_t', shortName: 'Temecula' };
 const tenant = (key, extra = {}) => ({
@@ -147,7 +148,7 @@ describe('Revenue push switch', () => {
     api.opsRevenueBatches.mockResolvedValue({ batches: [batch('pending')] });
     api.opsRevenueBatch.mockResolvedValue(batch('pending'));
     api.opsRevenuePush.mockResolvedValue(batch('pushed'));
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const confirm = vi.spyOn(nxDialog, 'confirm').mockResolvedValue(true);
     render(<Revenue facility={FAC} />);
     await screen.findByText('Tenant a1');
     fireEvent.change(screen.getByLabelText('View'), { target: { value: 'batches' } });
@@ -156,7 +157,8 @@ describe('Revenue push switch', () => {
     fireEvent.click(await within(dialog).findByRole('button', { name: 'Push Tenant a1 to Cubby' }));
     await waitFor(() => expect(api.opsRevenuePush).toHaveBeenCalledWith('b1', 'a1'));
     expect(await within(dialog).findByText('Pushed to Cubby')).toBeTruthy();
-    window.confirm.mockRestore();
+    expect(confirm).toHaveBeenCalled();
+    confirm.mockRestore();
   });
 });
 

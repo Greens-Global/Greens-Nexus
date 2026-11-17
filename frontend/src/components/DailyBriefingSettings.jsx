@@ -320,22 +320,23 @@ function DeliveryLog() {
     const already = row.sentAt
       ? 'This day already sent successfully - this WILL send a second real email right now. '
       : '';
-    if (!window.confirm(
+    if (!(await dialog.confirm(
       `${already}Send ${row.employeeEmail}'s ${formatDate(row.briefingDate, row.briefingDate)} briefing right now?\n\n` +
       `This sends immediately, regardless of their shift window - it does not wait for the next scan or for the ` +
-      `window to be open. Nothing changes for any other employee or for the normal 15-minute scan schedule.`
-    )) return;
+      `window to be open. Nothing changes for any other employee or for the normal 15-minute scan schedule.`,
+      { title: 'Force Resend', confirmText: 'Send Now' },
+    ))) return;
     setResendingId(row.id);
     try {
       const result = await api.forceResendDailyBriefing(row.id);
       if (result.sentNow) {
-        alert(`Sent - ${row.employeeEmail}'s briefing went out just now (mode: ${result.mode}).`);
+        await dialog.alert(`Sent - ${row.employeeEmail}'s briefing went out just now (mode: ${result.mode}).`);
       } else if (result.mode === 'off') {
-        alert(`Cleared, but mode is currently Off - nothing was sent. Switch to Test or Live first.`);
+        await dialog.alert(`Cleared, but mode is currently Off - nothing was sent. Switch to Test or Live first.`);
       } else if (!result.hadContent) {
-        alert(`Cleared, but there was nothing to report for ${row.employeeEmail} right now - no email needed.`);
+        await dialog.alert(`Cleared, but there was nothing to report for ${row.employeeEmail} right now - no email needed.`);
       } else {
-        alert(`Cleared, but the send did not go through - check the Delivery Log for details.`);
+        await dialog.alert(`Cleared, but the send did not go through - check the Delivery Log for details.`);
       }
       load();
     } catch (e) { setErr(e.message || String(e)); }

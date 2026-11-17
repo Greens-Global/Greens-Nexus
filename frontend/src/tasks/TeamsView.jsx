@@ -22,6 +22,8 @@ import TaskCreate from './TaskCreate';
 import { emailToName } from '../lib/utils';
 import AnchoredMenu from '../components/AnchoredMenu';
 import ProjectIcon from './ProjectIcon';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 // Curated team icons (keys match the export's deptIcons set).
 const DEPT_ICONS = [
@@ -151,11 +153,11 @@ export default function TeamsView({ onNavigate, actions }) {
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
-                      <button onClick={() => decideMemberRequest(r.id, 'approved').catch(() => window.alert('You do not have permission to decide member requests.'))}
+                      <button onClick={() => decideMemberRequest(r.id, 'approved').catch(() => dialog.alert('You do not have permission to decide member requests.'))}
                         style={{ ...btn('ghost'), color: NX.green, background: 'rgba(22,163,74,0.15)', padding: '6px 10px' }}>
                         <Check size={14} />Approve
                       </button>
-                      <button onClick={() => decideMemberRequest(r.id, 'rejected').catch(() => window.alert('You do not have permission to decide member requests.'))}
+                      <button onClick={() => decideMemberRequest(r.id, 'rejected').catch(() => dialog.alert('You do not have permission to decide member requests.'))}
                         style={{ ...btn('ghost'), color: NX.dim, padding: '6px 10px' }}>
                         <X size={14} />Deny
                       </button>
@@ -195,7 +197,7 @@ export default function TeamsView({ onNavigate, actions }) {
         <TeamModal
           team={editing.id ? editing : null}
           onClose={() => setEditing(null)}
-          onDelete={editing.id ? () => { if (confirm(`Delete "${editing.name}"? This can't be undone.`)) { deleteTeam(editing.id); setEditing(null); } } : null}
+          onDelete={editing.id ? () => dialog.confirm(`Delete "${editing.name}"? This can't be undone.`, { title: 'Delete Team?', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Delete Team', doneText: 'Deleted', onConfirm: async () => { await deleteTeam(editing.id); setEditing(null); } }) : null}
         />
       )}
     </div>
@@ -245,7 +247,7 @@ export function TeamApprovalAction({ team }) {
 
   const run = async (fn, key) => {
     setBusy(key);
-    try { await fn(); } catch (e) { alert(e?.message || 'That did not work.'); } finally { setBusy(''); }
+    try { await fn(); } catch (e) { dialog.alert(e?.message || 'That did not work.'); } finally { setBusy(''); }
   };
 
   if (isManager && st === 'pending') {
@@ -561,7 +563,7 @@ export function TeamModal({ team, onClose, onDelete, personal = false }) {
       onClose();
     } catch (e) {
       setSaving(false);
-      alert('Could not save the team.');
+      dialog.alert('Could not save the team.');
     }
   };
 
@@ -830,7 +832,7 @@ function TeamMembersTab({ team }) {
   const { nameOf, updateTeam } = useTasks();
   const people = usePeople();
   const members = team.memberIds || [];
-  const remove = (email) => { if (confirm(`Remove ${nameOf(email)} from ${team.name}?`)) updateTeam(team.id, { memberIds: members.filter((e) => e !== email) }).catch(() => {}); };
+  const remove = async (email) => { if (await dialog.confirm(`Remove ${nameOf(email)} from ${team.name}?`, { title: 'Remove Member', confirmText: 'Remove', danger: true })) updateTeam(team.id, { memberIds: members.filter((e) => e !== email) }).catch(() => {}); };
 
   return (
     <div style={{ maxWidth: 640, margin: '0 auto' }}>

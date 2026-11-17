@@ -5,6 +5,7 @@ import { useWorkforceView } from './viewContext';
 import { Spinner } from '../AsyncState';
 import { findPeople } from '../../lib/peopleSearch';
 import { useListNav } from '../../lib/listNav';
+import { dialog } from '../../ui/dialog';
 
 // The picker, the "showing view X" notice and the view editor. State and the
 // filter itself live in viewContext.js.
@@ -88,7 +89,7 @@ function ViewEditor({ view, onClose, onDone }) {
     nameRef.current?.focus();
   }, []);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape' && !e.defaultPrevented) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
@@ -122,7 +123,7 @@ function ViewEditor({ view, onClose, onDone }) {
     } catch (e) { setErr(e?.message || 'Could not save the view.'); setBusy(false); }
   };
   const remove = async () => {
-    if (!view || !window.confirm(`Delete the "${view.name}" view?`)) return;
+    if (!view || !(await dialog.confirm(`Delete the "${view.name}" view?`, { title: 'Delete View', confirmText: 'Delete', danger: true }))) return;
     setBusy(true);
     try { await api.workforceViewDelete(view.id); onDone(null, true); }
     catch (e) { setErr(e?.message || 'Could not delete the view.'); setBusy(false); }

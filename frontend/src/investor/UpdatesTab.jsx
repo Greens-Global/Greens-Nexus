@@ -5,6 +5,8 @@ import { useNameResolver } from '../lib/useNameResolver';
 import { formatDate } from './lib/format';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, useIrLoad } from './lib/ui';
 import { Spinner } from '../components/AsyncState';
+import { dialog } from '../ui/dialog';
+import { HOLD_RECORD_MS } from '../ui/HoldButton';
 
 export default function UpdatesTab() {
   const nameOf = useNameResolver();
@@ -63,16 +65,18 @@ export default function UpdatesTab() {
     }
   };
 
-  const remove = async (u) => {
-    if (!window.confirm(`Delete the update "${u.title}"?`)) return;
-    setRowErr('');
-    try {
-      await api.deleteIrUpdate(u.id);
-      await reload();
-    } catch (err) {
-      setRowErr(err?.message || 'Delete failed.');
-    }
-  };
+  const remove = (u) => dialog.confirm(`Delete the update "${u.title}"?`, {
+    title: 'Delete Update?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Delete', doneText: 'Deleted',
+    onConfirm: async () => {
+      setRowErr('');
+      try {
+        await api.deleteIrUpdate(u.id);
+        await reload();
+      } catch (err) {
+        throw new Error(err?.message || 'Delete failed.', { cause: err });
+      }
+    },
+  });
 
   // Pinned first, then newest first.
   const rows = [...(updates || [])].sort((a, b) => {

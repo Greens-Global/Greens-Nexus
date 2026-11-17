@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import { DateField } from './components';
 import { bulkDatesSummary } from './calendarMove';
+import { dialog } from '../ui/dialog';
 
 // The Dates action (Oct 22 2026). The server works each task out from its own
 // stored date (bulk_update `dates`), so a shift is never computed from what
@@ -43,7 +44,7 @@ export default function BulkDatesPanel({ ids, tasks, store, onDone }) {
       // before its previous occurrence) - too long for the one-line toast.
       const blocked = r?.blockedTasks || [];
       if (blocked.length) {
-        alert(`${blocked.length} of ${ids.length} not moved:\n`
+        dialog.alert(`${blocked.length} of ${ids.length} not moved:\n`
           + blocked.slice(0, 5).map((b) => `"${b.title}": ${b.reason}`).join('\n')
           + (blocked.length > 5 ? `\nand ${blocked.length - 5} more` : ''));
       }

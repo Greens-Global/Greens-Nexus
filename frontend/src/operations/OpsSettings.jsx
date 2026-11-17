@@ -13,6 +13,7 @@ import { Lock, Send } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { formatDateTime } from '../lib/datetime';
+import { dialog } from '../ui/dialog';
 
 export default function OpsSettings({ toastOk, toastErr }) {
   const [state, setState] = useState({ status: 'loading', data: null });
@@ -32,7 +33,7 @@ export default function OpsSettings({ toastOk, toastErr }) {
 
   const flip = async () => {
     const next = !on;
-    if (next && !window.confirm('Turn on Push to Cubby? Approved rate and rent changes will be sent to Cubby from Nexus, which changes live prices and rents.')) return;
+    if (next && !(await dialog.confirm('Turn on Push to Cubby? Approved rate and rent changes will be sent to Cubby from Nexus, which changes live prices and rents.', { title: 'Turn On Push to Cubby?', confirmText: 'Turn On' }))) return;
     setSaving(true);
     try {
       setState({ status: 'ready', data: await api.saveOpsSettings({ cubbyPushOn: next }) });

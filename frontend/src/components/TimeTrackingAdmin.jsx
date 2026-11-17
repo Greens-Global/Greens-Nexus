@@ -16,6 +16,8 @@ import { useRole } from '../contexts/RoleContext';
 import { Spinner, LoadingState } from './AsyncState';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import PageTrail from '../components/PageTrail';
+import { dialog } from '../ui/dialog';
+import { HOLD_RECORD_MS } from '../ui/HoldButton';
 
 // Human "last seen" from a seconds delta.
 function relSeen(secs) {
@@ -133,9 +135,12 @@ export function AgentInstall() {
     return stop;
   }, [loadDevices]);
 
-  async function remove(id, label) {
-    if (!window.confirm(`Remove ${label || 'this computer'} from the list?\n\nThis deletes its Nexus record. If the agent is still installed, uninstall it on the PC separately.`)) return;
-    try { await api.timeAgentDeleteDevice(id); loadDevices(); } catch { /* stays listed; retry */ }
+  function remove(id, label) {
+    return dialog.confirm(`Remove ${label || 'this computer'} from the list?\n\nThis deletes its Nexus record. If the agent is still installed, uninstall it on the PC separately.`, {
+      title: 'Remove Computer?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Remove', doneText: 'Removed',
+      // A refusal shows under the button and the computer stays listed.
+      onConfirm: async () => { await api.timeAgentDeleteDevice(id); loadDevices(); },
+    });
   }
 
   async function assign(id, email) {

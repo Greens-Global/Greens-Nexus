@@ -9,6 +9,7 @@ const api = { getOpsSettings: vi.fn(), saveOpsSettings: vi.fn() };
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => (...a) => api[k](...a) }) }));
 
 const { default: OpsSettings } = await import('./OpsSettings');
+const { dialog } = await import('../ui/dialog');
 
 const OFF = { cubbyPushOn: false, writeConfigured: false, writeKeyEnv: 'CUBBY_MANAGER_API_KEY', updatedBy: '', updatedAt: '', history: [], canEdit: true };
 
@@ -30,7 +31,7 @@ describe('Operations settings', () => {
     api.getOpsSettings.mockResolvedValue(OFF);
     api.saveOpsSettings.mockResolvedValue({ ...OFF, cubbyPushOn: true, updatedBy: 'neil@greensglobal.com', updatedAt: '2026-10-21T18:00:00Z',
       history: [{ by: 'neil@greensglobal.com', at: '2026-10-21T18:00:00Z', from: false, to: true }] });
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValue(true);
     const ok = vi.fn();
     render(<OpsSettings toastOk={ok} />);
     fireEvent.click(await screen.findByRole('switch', { name: 'Push to Cubby' }));
@@ -38,7 +39,8 @@ describe('Operations settings', () => {
     expect(await screen.findByText(/no Cubby key \(CUBBY_MANAGER_API_KEY or CUBBY_API_KEY\)/)).toBeTruthy();
     expect(screen.getByTestId('ops-settings-history').textContent).toContain('turned it on');
     expect(ok).toHaveBeenCalledWith('Push to Cubby is on');
-    window.confirm.mockRestore();
+    expect(confirm).toHaveBeenCalled();
+    confirm.mockRestore();
   });
 
   it('is read-only for someone who cannot change it', async () => {

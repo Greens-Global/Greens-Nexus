@@ -4,6 +4,7 @@ import { api } from '../api';
 import { formatCurrency, formatDate, statusLabel } from './lib/format';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, StatusText, ThinBar, useIrLoad } from './lib/ui';
 import { Spinner } from '../components/AsyncState';
+import { dialog } from '../ui/dialog';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -57,7 +58,7 @@ export default function DistributionsTab() {
 
   const setDistStatus = async (dist, status, confirmMsg) => {
     if (actionBusy) return;
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    if (confirmMsg && !(await dialog.confirm(confirmMsg))) return;
     setActionBusy(true); setActionErr('');
     try {
       await api.updateIrDistribution(dist.id, { status });

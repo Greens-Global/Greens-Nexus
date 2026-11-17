@@ -16,6 +16,7 @@ import { SOURCE_NAMES } from '../../support/helpLog';
 import PeoplePick from '../components/PeoplePick';
 import ReadingReport from './ReadingReport';
 import PhotoReviews from './PhotoReviews';
+import { dialog } from '../../ui/dialog';
 
 const KIND_WORDS = { created: 'created', submitted: 'submitted for review', published: 'published', changes_requested: 'asked for changes on', archived: 'archived', restored: 'restored', verified: 'verified', flagged: 'reported a problem with', signed: 'signed', translated: 'translated', revision_opened: 'started a revision of', revision_submitted: 'submitted a revision of', revision_discarded: 'discarded a revision of', task_started: 'started a task from', flag_resolved: 'resolved a report on', withdrawn: 'withdrew',
   request_assigned: 'assigned a page request:', request_closed: 'closed a page request:', sign_sent: 'sent a signing request for', sign_declined: 'declined to sign',
@@ -93,7 +94,7 @@ function MigrationModal({ onClose, onApplied }) {
   const [applying, setApplying] = useState(false);
   useEffect(() => { api.kbMigrationReport().then(setRep).catch((e) => toast(errText(e), 'err')); }, [toast]);
   const apply = async () => {
-    if (!window.confirm('Convert every old page and course now? Nothing is deleted or overwritten; the old bodies stay beside the new ones. This can take a few minutes.')) return;
+    if (!(await dialog.confirm('Convert every old page and course now? Nothing is deleted or overwritten; the old bodies stay beside the new ones. This can take a few minutes.', { title: 'Convert Everything', confirmText: 'Convert Everything' }))) return;
     setApplying(true); setBusy(true);
     try { const r = await api.kbMigrationApply(); setRep(r); toast('Migration finished'); onApplied(); } catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); setApplying(false); }
   };

@@ -13,6 +13,7 @@ import PeoplePick, { usePeopleList } from '../components/PeoplePick';
 import { useToast, errText } from '../components/Toast';
 import { useTrailCrumbs } from '../../components/PageTrail';
 import { goKb, goView, fmtDate, fmtDateTime, pageUrl, copyText, typeMeta, plural, subFor } from '../lib';
+import { dialog } from '../../ui/dialog';
 
 const LANGS = { en: 'English', es: 'Español', hi: 'हिन्दी' };
 
@@ -258,7 +259,7 @@ export default function PageView({ id, me }) {
                           {page.status === 'in_review' && <button type="button" className="kb-btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => { setMoreOpen(false); act(() => api.kbWithdrawPage(page.id), 'Back to draft'); }}><RotateCcw />Withdraw From Review</button>}
                           {page.require_ack && <button type="button" className="kb-btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => { setMoreOpen(false); goKb('signatures', page.id); }}><ClipboardList />Who Has Signed</button>}
                           {page.has_original && <button type="button" className="kb-btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => { setMoreOpen(false); api.kbPageOriginal(page.id).then(setOriginal).catch((e) => toast(errText(e), 'err')); }}><History />View Original Source</button>}
-                          {page.status !== 'archived' && (me?.can_manage || me?.owned_collections?.includes(page.collection_id)) && <button type="button" className="kb-btn ghost danger" style={{ justifyContent: 'flex-start' }} onClick={() => { setMoreOpen(false); if (window.confirm('Archive this page? Readers will no longer see it. It can be restored as a draft.')) act(() => api.kbArchivePage(page.id), 'Archived'); }}><Archive />Archive</button>}
+                          {page.status !== 'archived' && (me?.can_manage || me?.owned_collections?.includes(page.collection_id)) && <button type="button" className="kb-btn ghost danger" style={{ justifyContent: 'flex-start' }} onClick={async () => { setMoreOpen(false); if (await dialog.confirm('Archive this page? Readers will no longer see it. It can be restored as a draft.', { title: 'Archive Page', confirmText: 'Archive' })) act(() => api.kbArchivePage(page.id), 'Archived'); }}><Archive />Archive</button>}
                           {page.status === 'archived' && <button type="button" className="kb-btn ghost" style={{ justifyContent: 'flex-start' }} onClick={() => { setMoreOpen(false); act(() => api.kbRestorePage(page.id), 'Restored as a draft'); }}><RotateCcw />Restore as Draft</button>}
                         </div>
                       </AnchoredMenu>

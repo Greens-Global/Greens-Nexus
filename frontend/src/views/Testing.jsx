@@ -21,6 +21,8 @@ import { Spinner } from '../components/AsyncState';
 import { PersonSelect } from '../tasks/components';
 import { formatDate, formatPacificDateTime } from '../lib/datetime';
 import PageTrail from '../components/PageTrail';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS } from '../ui/HoldButton';
 
 // ── Testing module - interactive QA runs over the audit test cases, bug
 // reports with recorded steps + AI conversion, assignments with due dates.
@@ -910,16 +912,20 @@ export default function Testing() {
   async function deleteRun() {
     const run = (runs || []).find(r => r.id === runId);
     if (!run) return;
-    if (!window.confirm(`Delete the run “${run.name}”? This removes all its recorded pass/fail results and assignments. Test cases themselves are kept. This cannot be undone.`)) return;
-    try {
-      await api.qaDeleteRun(run.id);
-      const rest = (runs || []).filter(r => r.id !== run.id);
-      setRuns(rest);
-      const next = rest[0]?.id || '';
-      setRunId(next);
-      setResults(next ? await api.qaRunResults(next).catch(() => []) : []);
-      toastOk(`Run “${run.name}” deleted.`);
-    } catch (e) { toastErr(e?.message || 'Could not delete the run.'); }
+    await dialog.confirm(`Delete the run "${run.name}"? This removes all its recorded pass/fail results and assignments. Test cases themselves are kept. This cannot be undone.`, {
+      title: 'Delete Run?', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Delete Run', doneText: 'Deleted',
+      onConfirm: async () => {
+        try {
+          await api.qaDeleteRun(run.id);
+          const rest = (runs || []).filter(r => r.id !== run.id);
+          setRuns(rest);
+          const next = rest[0]?.id || '';
+          setRunId(next);
+          setResults(next ? await api.qaRunResults(next).catch(() => []) : []);
+          toastOk(`Run “${run.name}” deleted.`);
+        } catch (e) { throw new Error(e?.message || 'Could not delete the run.', { cause: e }); }
+      },
+    });
   }
 
   return (

@@ -21,6 +21,7 @@ import { projectLook } from './projectLook';
 import { isFollowing } from './followRules';
 import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
 import { ProjectStatusChip, useProjectStatusEditor } from './projectStatus';
+import { dialog } from '../ui/dialog';
 
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, icon: '', ownerId: null,
@@ -759,7 +760,7 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
       onSaved(project);
     } catch (e) {
       setSaving(false);
-      window.alert(e?.message || (template ? 'Could not create the project from this template.' : 'Could not save the project.'));
+      dialog.alert(e?.message || (template ? 'Could not create the project from this template.' : 'Could not save the project.'));
     }
   };
 
