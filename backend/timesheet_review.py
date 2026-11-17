@@ -633,6 +633,7 @@ def waiting_on(db: Session, reviewer: str) -> list:
                  .filter(TimesheetReview.status == "with_manager",
                          TimesheetReview.employee_email.in_(sorted(mine))).all() if r.id not in seen]
     rows = [r for r in rows if r.employee_email != me]          # never their own
+    rows = [r for r in rows if not outside_review(db, r.employee_email)]
     # ...and never one that can no longer be decided (stale_reason) - the sweep
     # retires it, but the list must not wait for the sweep (Oct 22).
     rows = [r for r in rows if not stale_reason(db, r, launch=False)]
@@ -802,6 +803,26 @@ def queue_row(db: Session, r: TimesheetReview) -> dict:
             "reviewFlag": review_flag(db, r.employee_email, r.period_start, r.period_end, blocker)}
 
 
+# India is not reviewed in Nexus yet (Charmi, 11/16/2026: "India employees are
+# still not using this module for billing, so approval should not reflect").
+# Their closed periods sat on every approver's Time Sheets to Review list, the
+# Approvals inbox and the morning briefing as "not submitted". Where a person
+# works is ca_breaks.country_of - their People country, else their company's.
+# Flip REVIEW_INDIA once India pays from Nexus; nothing else changes.
+REVIEW_INDIA = False
+
+
+def outside_review(db: Session, email: str, emp=None) -> bool:
+    """True for a person whose time sheets are not reviewed in Nexus: they
+    work in India while REVIEW_INDIA is off. Their punches, cards and pay
+    stay exactly as they are - only the approval lists leave them out."""
+    if REVIEW_INDIA:
+        return False
+    import ca_breaks
+    em = (email or "").lower()
+    return (ca_breaks.country_of(db, em, emp) if emp is not None else ca_breaks.country_of(db, em)) == "IN"
+
+
 def last_closed_period(db: Session, email: str) -> tuple[str, str, str]:
     """The person's most recent pay period that is already over."""
     return closed_periods(db, email, 1)[0]
@@ -870,6 +891,8 @@ def not_reviewed(db: Session, reviewer: str) -> list:
     for em in sorted((people & set(punched)) - {me}):
         emp = _employee(db, em)
         if not emp or (emp.status or "active") not in ("active", "onboarding") or is_time_tracking_exempt(db, em):
+            continue
+        if outside_review(db, em, emp):
             continue
         for start, end, pay_type in closed_periods(db, em):
             if end < REVIEW_LAUNCH:
