@@ -7,7 +7,7 @@ in their reach, imports the opening balances and picks a person's policy.
 The start date, the policies and Recalculate are company-wide, so they need
 an administrator or a Full HR grant. A manager reads their direct reports'.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -80,8 +80,11 @@ def person_balance(email: str, user: dict = Depends(get_current_user), db: Sessi
 
 
 @router.get("/admin")
-def admin_overview(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Everyone this HR person looks after, with their balances. Only the
+def admin_overview(as_of: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Everyone this HR person looks after, with their balances. `as_of`
+    (YYYY-MM-DD, Charmi 11/17/2026) reads every balance as it stood at the end
+    of that day - e.g. the last pay date, to match a QuickBooks pay stub
+    while the newest finalized period is not paid yet. Only the
     companies inside their reach (11/02/2026): every company for HR whose
     reach no wall or scope limits (_year_end_all), else the companies they
     are HR for (hr_access.is_hr_for_company - an Administrator is walled to
@@ -118,17 +121,26 @@ def admin_overview(user: dict = Depends(get_current_user), db: Session = Depends
     base_cut = lb.cutover(db)
     own_cuts = lb.company_cutovers(db)
     now_utc = datetime.now(timezone.utc)
+    as_of_d = None
+    if as_of:
+        try:
+            as_of_d = date.fromisoformat(as_of.strip()[:10])
+        except ValueError:
+            raise HTTPException(400, "Pick the date as MM/DD/YYYY.")
     people = []
     for emp in emps:
         email = (emp.work_email or "").strip().lower()
         if email == me and not glob:
             continue
         local_today = (now_utc - timedelta(minutes=offs.get(email, 0))).date()
+        if as_of_d is not None:
+            local_today = min(as_of_d, local_today)
         b = lb.balances(db, email, today=local_today, pols=pols, emp=emp,
                         rows=led_by.get(email, []), cut=own_cuts.get(emp.company or "") or base_cut)
         people.append({"email": email, "name": f"{emp.first_name or ''} {emp.last_name or ''}".strip() or email,
                        "company": emp.company or "", "department": emp.department or "", **b})
-    return {"cutover": lb.cutover(db), "companies": _company_cutovers(db, None if glob else companies),
+    return {"cutover": lb.cutover(db), "asOf": as_of_d.isoformat() if as_of_d else "",
+            "companies": _company_cutovers(db, None if glob else companies),
             "canSetup": glob,
             # The policies are every company's (Neil, 11/02/2026): a Super Administrator's.
             "canEditPolicies": _super(db, user),
