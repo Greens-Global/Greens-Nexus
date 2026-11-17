@@ -193,7 +193,9 @@ export default function MyTeam({ phone }) {
       {!data && people.length > 0 && pushSection}
       {data && (
         <>
-          <div data-testid="team-tiles" style={{ display: 'grid', gridTemplateColumns: `repeat(${isMobile ? 2 : tiles.length}, minmax(0, 1fr))`, gap: 8 }}>
+          {/* A phone: four tiles 2x2; three (no schedule, so no Late) one row
+              of three - a 2x2 left On Leave alone under a blank cell. */}
+          <div data-testid="team-tiles" style={{ display: 'grid', gridTemplateColumns: `repeat(${isMobile && tiles.length !== 3 ? 2 : tiles.length}, minmax(0, 1fr))`, gap: 8 }}>
             {tiles.map(t => (
               <Tile key={t.key} tile={t} count={data.counts?.[t.key] || 0} open={openBucket === t.key} mobile={isMobile}
                 onClick={() => { setOpenBucket(openBucket === t.key ? null : t.key); setBucketAll(false); }} />

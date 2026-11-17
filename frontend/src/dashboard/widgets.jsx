@@ -19,7 +19,6 @@ import { setPendingOpen } from '../lib/pendingOpen';
 import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { useRole } from '../contexts/RoleContext';
-import Refresher from '../kb/training/Refresher';   // Refresher (Neil, 11/07/2026): spaced repetition from the courses you passed
 import { readIds, pushRecentId } from '../links/shortcutStorage';
 import { looksLikeUrl } from '../links/personalLinkModal.jsx';
 import { ModalLoading, CountSkeleton } from '../components/AsyncState';
@@ -36,6 +35,9 @@ const lazyPanel = (name) => lazy(() => import('./panels.jsx').then(m => ({ defau
 const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
 // Weather (Sep 29) loads with the first Weather tile, not with every dashboard.
 const WeatherWidget = lazy(() => import('./weatherWidget.jsx'));
+// Refresher (Neil, 11/07/2026): three questions a day from the courses this
+// person passed - lazy, so kb.css (its styles) loads only with the tile.
+const RefresherWidget = lazy(() => import('./refresherWidget.jsx'));
 // The one-tap Punch tile (Oct 11) brings the whole punch stack (gates, the
 // durable queue, geolocation, agent pairing) - loaded only when a board has one.
 const PunchTile = lazy(() => import('./essentials/PunchTile.jsx'));
@@ -268,7 +270,9 @@ function KpiBarWidget({ config, kpis, kpisError, reloadKpis }) {
 }
 
 function ShortcutWidget({ config }) {
-  const t = config || SHORTCUT_TARGETS[0];
+  // A tile with no target picked yet (an empty config) opens the first one
+  // rather than drawing a bare chip with no name.
+  const t = config?.view ? config : SHORTCUT_TARGETS[0];
   // Saved configs carry only { view, sub, label } - the icon and color come
   // from the catalog entry they point at; an unknown target keeps the old look.
   const known = targetFor(t);
@@ -1085,12 +1089,12 @@ function ClockWidget() {
 // `fit` (11/05/2026): a list tile sized to its content outside Customize - it
 // caps its own rows and links to its module for the rest, never an inner
 // scrollbar (DashboardGrid's fitTops). Stat, action and tool tiles stay boxes.
+// `phoneFit` (11/17/2026, the phone stack only - the desktop board is
+// untouched): 'shrink' - a list or panel that scrolls inside its box is as
+// tall as what it shows, up to its board height, so a short list or an empty
+// state is not a tall blank card on a phone; 'content' - the Weather tile,
+// which lays itself out by its board size there and is as tall as that.
 const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
-// Three refresher questions a day from the courses this person passed; the
-// card itself renders nothing when nothing is due (compact says so instead).
-function RefresherWidget() {
-  return <div className="kb" style={{ padding: 2 }}><Refresher compact /></div>;
-}
 
 function KudosWidget() {
   const { myEmail } = useRole();
@@ -1119,7 +1123,7 @@ export const WIDGETS = {
   shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut', compact: true },
   links:         { title: 'Quick Links',     cat: 'Links',     icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget, fit: true },
   'links-folder': { title: 'Links Folder',   cat: 'Links',     icon: FolderOpen,   size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder', fit: true },
-  favorites:     { title: 'Favorites',       cat: 'Links',     icon: Bookmark,     size: { w: 4, h: 5 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: FavoritesWidget },
+  favorites:     { title: 'Favorites',       cat: 'Links',     icon: Bookmark,     size: { w: 4, h: 5 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: FavoritesWidget, phoneFit: 'shrink' },
   'personal-links': { title: 'My Personal Links', cat: 'Links', icon: Link2,       size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: PersonalLinksWidget, fit: true },
   // Quick Actions (styles Oct 13): the size, the resize bounds and the phone
   // height all follow the style in the tile's config - a bare icon dock is
@@ -1143,22 +1147,22 @@ export const WIDGETS = {
   // Same bounds as Calendar (Oct 14): at three columns the merged panel's
   // month grid left the agenda a sliver.
   agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel, hidden: true, fit: true },
-  weather:       { title: 'Weather',         cat: 'Live',      icon: CloudSun,     size: { w: 4, h: 6 }, limits: { minW: 2, minH: 2, maxW: 8, maxH: 7 }, render: WeatherWidget, configurable: 'weather' },
+  weather:       { title: 'Weather',         cat: 'Live',      icon: CloudSun,     size: { w: 4, h: 6 }, limits: { minW: 2, minH: 2, maxW: 8, maxH: 7 }, render: WeatherWidget, configurable: 'weather', phoneFit: 'content' },
   // `fit` (11/05/2026): as tall as the month grid and the day's agenda, on
   // the board and in the phone stack (where the agenda runs under the grid).
   calendar:      { title: 'Calendar',        cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel, fit: true },
   clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
-  notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },
+  notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget, phoneFit: 'shrink' },
   'team-attendance': { title: 'Team Clocked-In', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor', compact: true },
   'team-approvals':  { title: 'Team Approvals',  cat: 'Team',  icon: ClipboardCheck, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'pending_requisitions' }} />, minRole: 'manager', compact: true },
   'time-off':        { title: 'Time Off to Review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager', compact: true },
 
   // ── Panels ported from the old Overview / Team Analytics screens ──
-  approvals:       { title: 'Pending Approvals',  cat: 'Team',      icon: ClipboardList, size: { w: 8, h: 5 }, limits: { minW: 6, minH: 4, maxW: 12, maxH: 8 }, render: ApprovalsPanel,    minRole: 'manager' },
-  'who-has-what':  { title: 'Who Has What',       cat: 'Team',      icon: HandCoins,     size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: WhoHasWhatPanel,   minRole: 'supervisor' },
+  approvals:       { title: 'Pending Approvals',  cat: 'Team',      icon: ClipboardList, size: { w: 8, h: 5 }, limits: { minW: 6, minH: 4, maxW: 12, maxH: 8 }, render: ApprovalsPanel,    minRole: 'manager', phoneFit: 'shrink' },
+  'who-has-what':  { title: 'Who Has What',       cat: 'Team',      icon: HandCoins,     size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: WhoHasWhatPanel,   minRole: 'supervisor', phoneFit: 'shrink' },
   // Phone: the whole Time Admin lives in this tile, so it gets a real
   // screen's height in the stack instead of its board rows (Oct 14).
-  'team-time':     { title: 'Team Time',          cat: 'Team',      icon: Timer,         size: { w: 12, h: 6 }, limits: { minW: 8, minH: 5, maxW: 12, maxH: 8 }, render: TeamTimePanel,     minRole: 'manager', phoneRowsWhen: () => 10 },
+  'team-time':     { title: 'Team Time',          cat: 'Team',      icon: Timer,         size: { w: 12, h: 6 }, limits: { minW: 8, minH: 5, maxW: 12, maxH: 8 }, render: TeamTimePanel,     minRole: 'manager', phoneRowsWhen: () => 10, phoneFit: 'shrink' },
   // Phase 3 (Sep 25). Tickets is a supervisor module; the time-off list,
   // punch exceptions and purchases are manager-level on the server.
   // My Open Tickets (Neil, Oct 26 2026): the ticket desk's twin of the My

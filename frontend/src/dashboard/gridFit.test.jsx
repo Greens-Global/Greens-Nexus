@@ -87,6 +87,46 @@ describe('DashboardGrid fit tiles', () => {
   });
 });
 
+// Phone stack sizing (11/17/2026): a list that scrolls in its box shrinks to
+// what it shows, never past its board height; the Weather tile is as tall as
+// its phone layout. The desktop board is untouched by either.
+describe('DashboardGrid phone stack sizing', () => {
+  const layout = [
+    { i: 'fav', type: 'favorites', x: 0, y: 0, w: 4, h: 5 },
+    { i: 'wx', type: 'weather', x: 0, y: 5, w: 4, h: 6 },
+    { i: 'kpi', type: 'kpi', x: 0, y: 11, w: 3, h: 2 },
+  ];
+  const renderWidget = (it) => <div data-testid={`w-${it.i}`} />;
+  const cellOf = (id) => screen.getByTestId(`w-${id}`).parentElement.parentElement.parentElement;
+  const phoneFitFor = (it) => WIDGETS[it.type]?.phoneFit || null;
+
+  it('caps a shrink tile at its board height and lets a content tile take its own', () => {
+    render(<DashboardGrid layout={layout} editing={false} stacked onLayoutChange={() => {}} renderWidget={renderWidget} phoneFitFor={phoneFitFor} compactFor={(it) => it.type === 'kpi'} />);
+    const fav = cellOf('fav').style;
+    expect(fav.height).toBe('');
+    expect(fav.maxHeight).toBe(`${5 * 72}px`);
+    expect(fav.minHeight).toBe('150px');
+    expect(fav.gridTemplateRows).toBe('minmax(0, 1fr)');
+    const wx = cellOf('wx').style;
+    expect(wx.height).toBe('');
+    expect(wx.maxHeight).toBe('');
+    expect(wx.minHeight).toBe('150px');
+    expect(cellOf('kpi').style.height).toBe(`${2 * 72}px`);   // a stat tile keeps its box
+  });
+
+  it('leaves the desktop board as it was', () => {
+    render(<DashboardGrid layout={layout} editing={false} onLayoutChange={() => {}} renderWidget={renderWidget} phoneFitFor={phoneFitFor} />);
+    expect(cellOf('fav').style.height).toBe(`${5 * 72}px`);
+    expect(cellOf('wx').style.height).toBe(`${6 * 72}px`);
+  });
+
+  it('marks the tiles that scroll inside their box, and Weather as content', () => {
+    for (const k of ['favorites', 'approvals', 'who-has-what', 'team-time', 'notes']) expect(WIDGETS[k].phoneFit).toBe('shrink');
+    expect(WIDGETS.weather.phoneFit).toBe('content');
+    for (const k of ['kpi', 'action', 'clock', 'my-time', 'time-clock']) expect(WIDGETS[k].phoneFit).toBeFalsy();
+  });
+});
+
 describe('widget loading', () => {
   beforeEach(() => {
     apiMock.getTaskTickets.mockReturnValue(new Promise(() => {}));

@@ -79,7 +79,15 @@ export function fitTops(items, heightOf, rowH = ROW_H) {
 // `fitFor(it)` (11/05/2026) marks the content-fit tiles (see fitTops): sized
 // to what they show outside Customize and in the phone stack; in Customize
 // the board keeps its row grid so dragging and resizing snap as before.
-export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, onDuplicate, limitsFor, resolveLayout, alwaysResizable, stacked = false, onMove, canConfigure, compactFor, rowsFor, fitFor, emptyState = null }) {
+// `phoneFitFor(it)` (11/17/2026) sizes a tile in the phone stack only (the
+// desktop board is untouched):
+//   'content' - as tall as what it shows (the Weather tile, which lays itself
+//               out by its board size on a phone instead of measuring itself);
+//   'shrink'  - as tall as what it shows, never taller than its board height
+//               (a list that scrolls inside the tile when it is long), so a
+//               short list or an empty state is not a tall blank card.
+// Both keep the 150px floor every phone tile has.
+export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, onDuplicate, limitsFor, resolveLayout, alwaysResizable, stacked = false, onMove, canConfigure, compactFor, rowsFor, fitFor, phoneFitFor, emptyState = null }) {
   const ref = useRef(null);
   const [width, setWidth] = useState(1000);
   const [drag, setDrag] = useState(null);   // live drag/resize session
@@ -154,7 +162,10 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
     const ordered = [...layout].sort((a, b) => (a.y - b.y) || (a.x - b.x));
     const rows = stackRows(ordered, isCompact);
     const pos = new Map(ordered.map((it, k) => [it.i, k]));
-    const cell = (it) => (
+    const cell = (it) => {
+      const phoneFit = isFit(it) ? null : phoneFitFor?.(it);
+      const boardPx = (rowsFor?.(it) || it.h) * ROW_H;
+      return (
       // Edit mode drops the card 16px so its control bar (which sits
       // across the top edge) never covers the card above it. A compact tile
       // keeps its own height (a one-row pill stays a pill); everything else
@@ -163,15 +174,21 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       // ([data-widget-unavailable]) shrinks to it - style.css (Oct 17).
       // A content-fit tile is as tall as its content (display grid stretches
       // the card to the 150px floor when the content is shorter).
+      // 'shrink': one fr row inside a max-height - the grid sizes the row to
+      // the content and, when the content is taller, clamps it to the max,
+      // so the card gets a definite height and its list scrolls inside it.
       <div key={it.i} className={isFit(it) ? 'dash-stack-cell dash-fit' : 'dash-stack-cell'}
-        style={isFit(it)
+        style={isFit(it) || phoneFit === 'content'
           ? { display: 'grid', minHeight: 150, marginTop: editing ? 16 : 0, minWidth: 0 }
-          : { height: (rowsFor?.(it) || it.h) * ROW_H, minHeight: isCompact(it) || rowsFor?.(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
+          : phoneFit === 'shrink'
+          ? { display: 'grid', gridTemplateRows: 'minmax(0, 1fr)', minHeight: 150, maxHeight: Math.max(150, boardPx), marginTop: editing ? 16 : 0, minWidth: 0 }
+          : { height: boardPx, minHeight: isCompact(it) || rowsFor?.(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
         <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure} onDuplicate={onDuplicate}
           renderWidget={renderWidget} startDrag={() => {}} draggable={false} canConfigure={canConfigure} stackedNow
           onMove={onMove} first={pos.get(it.i) === 0} last={pos.get(it.i) === ordered.length - 1} />
       </div>
-    );
+      );
+    };
     return (
       <div ref={ref} className="dash-grid" style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
         {layout.length === 0 && emptyState}

@@ -251,10 +251,13 @@ export default function MyWork({ phone }) {
 
   const closeComposer = () => { setComposer(null); load(); };
   const headBtn = { fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4, padding: mobile ? '0 10px' : '2px 8px', minHeight: mobile ? 44 : 0 };
+  // On a phone the two 44px buttons beside the title squeezed it (and its
+  // count line) to a word; there they are their own row under the title,
+  // halves of the card's width.
   const actions = (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-      <button type="button" className="secondary-btn" style={headBtn} onClick={() => setComposer('task')}><Plus size={12} /> New Task</button>
-      <button type="button" className="secondary-btn" style={headBtn} onClick={() => setComposer('ticket')}><TicketIcon size={12} /> Submit a Ticket</button>
+    <div style={mobile ? { display: 'flex', gap: 8, marginBottom: 12 } : { display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+      <button type="button" className="secondary-btn" style={mobile ? { ...headBtn, flex: 1, justifyContent: 'center' } : headBtn} onClick={() => setComposer('task')}><Plus size={12} /> New Task</button>
+      <button type="button" className="secondary-btn" style={mobile ? { ...headBtn, flex: 1, justifyContent: 'center' } : headBtn} onClick={() => setComposer('ticket')}><TicketIcon size={12} /> Submit a Ticket</button>
     </div>
   );
 
@@ -296,7 +299,8 @@ export default function MyWork({ phone }) {
     // what the number is made of (Neil, 11/05/2026: 50 here read against 35
     // there). View All opens the whole list beside the page; it carries no
     // count of its own.
-    <DashCard title="My Work" sub={total ? workSub(total, data?.sources) : undefined} action={actions}>
+    <DashCard title="My Work" sub={total ? workSub(total, data?.sources) : undefined} action={mobile ? undefined : actions}>
+      {mobile && actions}
       {body}
       {composer === 'task' && <Suspense fallback={<PortalLoading />}><QuickActionModal kind="task" onClose={closeComposer} /></Suspense>}
       {composer === 'ticket' && <Suspense fallback={<PortalLoading />}><TicketComposer onClose={closeComposer} /></Suspense>}

@@ -69,6 +69,18 @@ describe('Calendar agenda', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  // 11/17/2026 phone pass: with no calendar (not a Microsoft 365 account) the
+  // month pickers and day steppers moved nothing - the card is its line.
+  it('shows only the reason when there is no calendar - no pickers, no steppers', async () => {
+    apiMock.dashAgenda.mockReset().mockResolvedValue({ available: false });
+    render(<CalendarPanel phone />);
+    expect(await screen.findByText(/isn't connected/)).toBeTruthy();
+    expect(screen.queryByLabelText('Month')).toBeNull();
+    expect(screen.queryByLabelText('Year')).toBeNull();
+    expect(screen.queryByLabelText('Next Day')).toBeNull();
+    expect(screen.queryByText('Today')).toBeNull();
+  });
+
   it('sizes the tile to its content (fit), and the old My Agenda alias the same way and bounds', () => {
     expect(WIDGETS.calendar.fit).toBe(true);
     expect(WIDGETS.agenda.fit).toBe(true);

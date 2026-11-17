@@ -385,6 +385,7 @@ export default function CustomDashboard() {
               compactFor={(it) => !!WIDGETS[it.type]?.compact}
               rowsFor={(it) => WIDGETS[it.type]?.phoneRowsWhen?.(it.config)}
               fitFor={(it) => !!WIDGETS[it.type]?.fit}
+              phoneFitFor={(it) => WIDGETS[it.type]?.phoneFit || null}
               stacked={isPhone}
               onMove={(i, dir) => d.moveWidget(i, dir, hiddenItems)}
               emptyState={(

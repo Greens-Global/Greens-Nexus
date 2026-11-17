@@ -140,6 +140,44 @@ describe('Weather widget', () => {
     expect(onChange).toHaveBeenCalledWith({ units: 'metric' });
   });
 
+  // Phone (11/17/2026): the tile is laid out by the size it has on the board,
+  // never by its own height (on a phone that is its content's).
+  it('on a phone, shows by its board size: the glance at 2 rows, the hours at 3-4, the week from 5', async () => {
+    const days = ['2026-09-28', '2026-09-29', '2026-09-30'].map((date, i) => ({ date, high: 80 + i, low: 60, code: 2, precipChance: 0 }));
+    weather.mockResolvedValue({ ...FORECAST, daily: days });
+    const place = { mode: 'place', place: { name: 'Austin', region: 'Texas', countryCode: 'US', lat: 30.27, lon: -97.74 } };
+    const { unmount } = render(<WeatherWidget config={place} phone size={{ w: 4, h: 2 }} />);
+    expect(await screen.findByText('67°')).toBeTruthy();
+    expect(screen.getByLabelText('Rain')).toBeTruthy();
+    expect(screen.queryByLabelText('Hourly')).toBeNull();
+    expect(screen.queryByLabelText('Daily forecast')).toBeNull();
+    unmount();
+    const mid = render(<WeatherWidget config={place} phone size={{ w: 4, h: 4 }} />);
+    expect(await screen.findByText('67°')).toBeTruthy();
+    expect(screen.getByLabelText('Hourly')).toBeTruthy();
+    expect(screen.getByText('Humidity')).toBeTruthy();
+    expect(screen.queryByLabelText('Daily forecast')).toBeNull();
+    mid.unmount();
+    render(<WeatherWidget config={place} phone size={{ w: 4, h: 6 }} />);
+    expect(await screen.findByText('67°')).toBeTruthy();
+    expect(screen.getByLabelText('Daily forecast').textContent).toContain('82°');
+  });
+
+  // Neil, 11/17/2026: "still getting a little cropped when you click on it" -
+  // a narrow popup puts each day on two lines instead of one ~590px row.
+  it('the Forecast popup reads on a phone: two-line days, nothing in a fixed-width row', async () => {
+    weather.mockResolvedValue({ ...FORECAST, daily: [{ date: '2026-09-28', high: 82, low: 63, code: 61, precipChance: 60, precipSum: 0.3, windMax: 12 }] });
+    render(<WeatherWidget config={{ mode: 'place', place: { name: 'Austin', region: 'Texas', countryCode: 'US', lat: 30.27, lon: -97.74 } }} phone size={{ w: 4, h: 2 }} />);
+    await screen.findByText('67°');
+    fireEvent.click(screen.getByRole('button', { name: /Weather/ }));
+    const week = await screen.findByLabelText('Next 10 Days');
+    expect(week.textContent).toContain('09/28/2026');
+    expect(week.textContent).toContain('Rain 60% · .30 in');
+    expect(week.textContent).toContain('Wind 12 mph');
+    // No row demands more width than a phone has.
+    for (const row of week.children) expect(row.style.gridTemplateColumns).not.toMatch(/minmax\(124px/);
+  });
+
   // Wide (Neil, 11/13/2026: it "doesn't show anything extra as the width
   // expands but the height doesn't"): a short, wide tile shows the week as
   // day columns beside the glance.

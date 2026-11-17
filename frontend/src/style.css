@@ -5954,6 +5954,16 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 @container dkstat (max-width: 150px) {
   .dk-stat-num { font-size: 24px; }
 }
+/* A half-width phone pair gives a long label a second line instead of
+   cutting it ("Requisitions to Appr...") - 11/17/2026 phone pass. A noted
+   tile keeps one line: its note needs the room. The desktop board's shorter
+   two-row tile keeps the ellipsis. */
+@container dkstat (max-width: 220px) {
+  .dash-stack-cell .dk-stat:not(.dk-stat--noted) .dk-stat-label {
+    white-space: normal; line-height: 1.25;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  }
+}
 /* A tile whose line under the label is information, not a hint - My Open
    Tasks' "+12 with no due date, +8 recurring" (Oct 23 2026) - keeps that line
    on a two-row tile: the chip and the numeral tighten to make room. */
