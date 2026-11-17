@@ -5987,6 +5987,8 @@ from routers import facility_maintenance_map  # noqa: E402
 app.include_router(facility_maintenance_map.router)  # Operations: open tickets + maintenance per Cubby unit, for the map layer (Neil, Ops 10/20)
 from routers import ops_reports as ops_reports_router  # noqa: E402
 app.include_router(ops_reports_router.router)     # Operations > Reports: Cubby's reports interactive + Report Builder (Neil, 10/20)
+from routers import ops_tenants as ops_tenants_router  # noqa: E402
+app.include_router(ops_tenants_router.router)     # Operations > Tenants: read-only tenant directory + record, facility / tenant-details access rules (Neil, 11/17)
 from routers import unit_map as unit_map_router  # noqa: E402
 app.include_router(unit_map_router.ops_router)     # Operations > Site Map: site model + layers per facility (Neil, 10/20)
 app.include_router(unit_map_router.public_router)  # Customer unit map /find/<token>: one unit, the route, no login (Neil, 10/20)

@@ -1336,6 +1336,28 @@ keep the diff minimal.
   Every Nexus write goes through `routers.tasks._create_task` / `update_task`
   as the facility project's owner - never a second write path.
 
+- **Operations > Tenants (Neil, 11/17/2026, `routers/ops_tenants.py`,
+  `ops_access.py`, `frontend/src/operations/Tenants.jsx`, plan
+  https://claude.ai/artifact/3muEVfH7rFHGcC8MNyE4TP).** Cubby stays the single
+  source of truth. Nexus keeps a READ-ONLY copy of tenant contact details,
+  gate codes, second contacts and vehicle plates in `ops_tenants` /
+  `ops_lease_extras` - written by the 15-minute sync, never editable in
+  Nexus - and opening a tenant record re-reads that tenant LIVE from Cubby
+  (the stored copy, with its time, when Cubby does not answer). The
+  `cubby_*` tables and their blobs stay stripped: never put contact details
+  there, or every Operations screen and report starts showing them. Never
+  stored: date of birth, ID numbers, card or bank numbers. Gate codes are
+  stored encrypted and shown plainly (internal only). Access is
+  `ops_access.reach`: Administrators and above see every facility and tenant
+  details; everyone else needs a rule in `ops_access_rules` (Settings >
+  Operations > Tenants And Facility Access), by role or by person, that names
+  the facilities and turns Tenant Details on - no rule, no tenant details.
+  The two tables are in `audit_capture.NOISE_TABLES` and are written with
+  plain table statements so a phone number never reaches the change log;
+  every record open writes one AuditLog row. What Nexus plans in bulk (rates,
+  rent increases) goes to Cubby as an import file; only small single actions
+  (a note, a task, a move-out notice) may go directly, each behind its own
+  switch.
 - **Knowledge Base filing and links (Neil, 11/02/2026):** a page APPLIES TO
   many departments (`kb_documents.departments`, the original comma column,
   read through `kb_core.departments_of`; default = its collection's
