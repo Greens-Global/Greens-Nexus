@@ -35,7 +35,11 @@ export default function ComplianceTab({ e, canEdit = false, paperworkKey, onSave
     onSave: async (draft) => {
       if (draft.pan && !PAN_RE.test(draft.pan)) return false;
       try {
-        const body = changedKeys(saved, draft);   // only what changed; the server merges it
+        // Only the keys that changed, but a changed `consents` goes WHOLE: the
+        // server merges the compliance block one level deep, so a partial
+        // consents object replaced the stored one and dropped the other
+        // consents (People review, 11/16/2026).
+        const body = changedKeys({ compliance: saved }, { compliance: draft }).compliance || {};
         if (!Object.keys(body).length) return true;
         const out = await api.updateEmployee(e.id, { compliance: body });
         onSaved?.(out);

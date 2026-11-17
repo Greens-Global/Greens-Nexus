@@ -27,7 +27,7 @@ import {
   Target, UserCheck, CalendarClock, Send, Ban,
 } from 'lucide-react';
 import { api } from '../api';
-import { formatDate, formatWeekday } from '../lib/datetime';
+import { formatDate, formatWeekday, formatMonthDayNumeric } from '../lib/datetime';
 import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
 import { dialog } from '../ui/dialog';
 import HoldButton, { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../ui/HoldButton';
@@ -120,12 +120,19 @@ const STATUS_META = {
   inactive:   { label: 'Inactive',   bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   offboarded: { label: 'Left',       bg: 'var(--mist)',                    fg: 'var(--muted)' },
 };
+// A staged external (an unreleased test account, hr.py) is its own badge,
+// never "Active" (11/16/2026). Kept out of STATUS_META so the status filter
+// does not offer it.
+const STAGED_META = { label: 'Staged', bg: 'var(--mist)', fg: 'var(--muted)' };
+const statusMetaOf = (e) => STATUS_META[e?.status] || (e?.status === 'staged' ? STAGED_META : STATUS_META.active);
 
 // INACTIVE_STATUSES (the Inactive tab's statuses) and peopleTallies (every
 // people count on this screen) live in people/lib.js.
 // Guest (Microsoft 365 guest) and external (no M365 login) rows - one
 // predicate for the whole screen.
 const isExternalPerson = (e) => ['guest', 'external'].includes(e?.identityType || 'internal');
+// Search text: lowercased with accents folded, so "jose" finds José (11/16/2026).
+const foldText = (v) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 // The status dropdown's "Deleted" entry. Deliberately NOT a STATUS_META member:
 // removal is orthogonal to employment status (a removed person keeps whatever
@@ -738,7 +745,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.requesterName}</span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {ASK_HR_KIND[t.askHrKind] || 'HR Request'} · #{t.code} · {formatDate(t.createdAt?.slice(0, 10))}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {ASK_HR_KIND[t.askHrKind] || 'HR Request'} · #{t.code} · {formatDate(t.createdAt)}</span>
                 <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 3 }}>{t.subject}</div>
               </div>
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', flexShrink: 0 }}>{t.assigneeId ? '' : 'Unassigned · '}Open Ticket</span>
@@ -750,7 +757,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt?.slice(0, 10))}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt)}</span>
                 <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
                 {attachmentRow(r)}
               </div>
@@ -788,7 +795,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
               {earlier.map(r => (
                 <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '8px 12px' }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt?.slice(0, 10))}
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt)}
                     {' · '}{r.ticketId ? 'Moved to a ticket' : (r.status === 'resolved' ? 'Resolved' : r.status)}</span>
                   <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
                   {r.response && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}><strong>HR:</strong> {r.response}</div>}
@@ -942,7 +949,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     } catch (err) { toastErr(err?.message || 'Could not restore this person.'); }
     setRestoreBusy(false);
   }
-  const sm = STATUS_META[e.status] || STATUS_META.active;
+  const sm = statusMetaOf(e);
   // Case-insensitive email match - manager_email is stored lowercased server-side
   // and the org chart matches the same way, so a reassignment there reflects here.
   const meEmail = (e.workEmail || '').toLowerCase();
@@ -1244,7 +1251,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           {shownTab === 'access' && teamView && <TeamAccessView employee={e} />}
           {/* keyed on updatedAt: a role change made from the Change Role modal
               re-reads the job role and access shown here */}
-          {shownTab === 'access' && isAdmin && !teamView && <EmployeeAccess key={e.updatedAt} email={meEmail} identityType={e.identityType} companyId={e.company || ''} showLifecycle={!isRemoved} onExternalChanged={onExternalChanged} onRemoved={() => onRemoved?.(e.id)} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
+          {shownTab === 'access' && isAdmin && !teamView && <EmployeeAccess key={e.updatedAt} email={meEmail} identityType={e.identityType} companyId={e.company || ''} showLifecycle={!isRemoved} onExternalChanged={onExternalChanged} onRemoved={() => onRemoved?.(e.id)} toastOk={toastOk} toastErr={toastErr} onChanged={() => onReload?.()}
             onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('choose') : undefined} />}
         </div>
       </div>
@@ -1887,7 +1894,25 @@ function OrgListRows({ nodes, depth = 0, childrenOf, collapsed, onToggle, onSele
 // The people with no manager, beside the chart (Neil, 11/07/2026) - each
 // with a Reports To picker, so nobody has to drag a card up a scrolling
 // page. A row can still be dragged onto a manager on the chart.
-function NoManagerDock({ people, rows, dnd, onSetManager, onSelect, selectedId, entityName, mobile = false, below = false }) {
+//
+// Only people with no "Reports to" at all are listed under No Manager. Someone
+// whose manager is filtered out, hidden (External Users off) or no longer on
+// the chart HAS a manager, so they sit under Manager Not Shown with no picker -
+// the picker there invited HR to overwrite a real manager (11/16/2026).
+function NoManagerDock({ people, hidden = [], rows, dnd, onSetManager, onSelect, selectedId, entityName, mobile = false, below = false }) {
+  const tile = (e, email) => (
+    <div role="button" tabIndex={0} data-orgtile="1" aria-label={`${fullName(e)}${e.jobTitle ? `, ${e.jobTitle}` : ''}`}
+      onPointerDown={mobile ? undefined : ev => dnd.onCardPointerDown(ev, e)} onClick={mobile ? () => onSelect(e) : undefined}
+      onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSelect(e); } }}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: mobile ? 'pointer' : 'grab', marginBottom: email ? 8 : 0, touchAction: 'none', userSelect: 'none',
+        outline: selectedId === e.id ? '2px solid hsl(var(--color-green))' : 'none', outlineOffset: 4, borderRadius: 6, opacity: dnd.draggingId === e.id ? 0.4 : 1 }}>
+      <Avatar e={e} size={34} card={false} />
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</span>
+        <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[e.jobTitle, entityName(e.company)].filter(Boolean).join(' · ') || '-'}</span>
+      </span>
+    </div>
+  );
   return (
     <aside aria-label="No manager" style={{ width: below ? '100%' : 272, flex: 'none', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', padding: '12px 14px', alignSelf: below ? 'stretch' : 'flex-start', maxHeight: below ? 'none' : 'max(360px, calc(100vh - 240px))', overflowY: 'auto', boxSizing: 'border-box' }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>No Manager <span style={{ color: 'var(--muted)', fontWeight: 500 }}>{people.length}</span></div>
@@ -1897,23 +1922,26 @@ function NoManagerDock({ people, rows, dnd, onSetManager, onSelect, selectedId, 
         const email = (e.workEmail || '').toLowerCase();
         return (
           <div key={e.id} data-email={email} className="nx-orgcard" style={{ padding: '10px 0', borderTop: '1px solid var(--line)' }}>
-            <div role="button" tabIndex={0} data-orgtile="1" aria-label={`${fullName(e)}${e.jobTitle ? `, ${e.jobTitle}` : ''}`}
-              onPointerDown={mobile ? undefined : ev => dnd.onCardPointerDown(ev, e)} onClick={mobile ? () => onSelect(e) : undefined}
-              onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSelect(e); } }}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: mobile ? 'pointer' : 'grab', marginBottom: 8, touchAction: 'none', userSelect: 'none',
-                outline: selectedId === e.id ? '2px solid hsl(var(--color-green))' : 'none', outlineOffset: 4, borderRadius: 6, opacity: dnd.draggingId === e.id ? 0.4 : 1 }}>
-              <Avatar e={e} size={34} card={false} />
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</span>
-                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[e.jobTitle, entityName(e.company)].filter(Boolean).join(' · ') || '-'}</span>
-              </span>
-            </div>
+            {tile(e, email)}
             <PersonSelect value={null} onChange={v => v && onSetManager(e, v)} people={rows.filter(r => r.email !== email)} allowNone={false}
               placeholder="Reports to" ariaLabel={`Reports To for ${fullName(e)}`} style={{ height: 34, borderRadius: 8, fontSize: 13 }} />
           </div>
         );
       })}
       </div>
+      {hidden.length > 0 && (
+        <div data-testid="org-manager-hidden" style={{ marginTop: people.length ? 14 : 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>Manager Not Shown <span style={{ color: 'var(--muted)', fontWeight: 500 }}>{hidden.length}</span></div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2, marginBottom: 6, lineHeight: 1.4 }}>They report to someone outside these filters or not on the chart.</div>
+          <div style={below ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', columnGap: 20 } : undefined}>
+            {hidden.map(e => (
+              <div key={e.id} data-email={(e.workEmail || '').toLowerCase()} className="nx-orgcard" style={{ padding: '10px 0', borderTop: '1px solid var(--line)' }}>
+                {tile(e, '')}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
@@ -1946,7 +1974,9 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
   // Externals are active / inactive / staged (never offboarded): only the
   // active ones belong on the chart or in the toggle's count.
   const liveExternals = externals.filter(e => (e.status || 'active') === 'active');
-  const people = [...employees.filter(e => e.status !== 'offboarded'), ...(includeExternal ? liveExternals : [])];
+  // Inactive people are not working people (the People tile leaves them out
+  // too), so the chart and its Reports To picker skip them (11/16/2026).
+  const people = [...employees.filter(e => !INACTIVE_STATUSES.has(e.status || 'active')), ...(includeExternal ? liveExternals : [])];
 
   // First render (Neil, 11/07/2026): the whole company, fitted. Leaves stack
   // under their manager now, so even 60 people are one readable screen; past
@@ -2165,7 +2195,11 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
   // the smaller separate trees follow it to the right.
   const visRoots = visible.filter(e => !visHasManager(e) && visChildrenOf(e).length > 0)
     .sort((a, b) => (totals.get(b.id) - totals.get(a.id)) || fullName(a).localeCompare(fullName(b)));
-  const visUnlinked = visible.filter(e => !visHasManager(e) && !(visChildren.get((e.workEmail || '').toLowerCase()) || []).length);
+  const loose = visible.filter(e => !visHasManager(e) && !(visChildren.get((e.workEmail || '').toLowerCase()) || []).length);
+  // No Manager = no "Reports to" at all; a manager who is only off screen
+  // (a filter, External Users off, inactive) is not "no manager".
+  const visUnlinked = loose.filter(e => !(e.managerEmail || '').trim());
+  const visManagerHidden = loose.filter(e => (e.managerEmail || '').trim());
   const entityName = id => (entities || []).find(en => en.id === id)?.name || '';
   const filtered = !!(orgCompany || orgDept || q);
 
@@ -2292,8 +2326,8 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
     </div>
   );
   const lineColorOf = (n) => { const d = divisionOf(n); return d ? `hsl(${divColor(d)})` : null; };
-  const dock = visUnlinked.length > 0 && (
-    <NoManagerDock people={visUnlinked} rows={pickerRows} dnd={dnd} onSetManager={(person, email) => drop(email, person)}
+  const dock = (visUnlinked.length > 0 || visManagerHidden.length > 0) && (
+    <NoManagerDock people={visUnlinked} hidden={visManagerHidden} rows={pickerRows} dnd={dnd} onSetManager={(person, email) => drop(email, person)}
       onSelect={setSelected} selectedId={selected?.id} entityName={entityName} mobile={mobile} below={mobile || narrow} />
   );
   return (
@@ -2379,7 +2413,7 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
           <div style={{ border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', padding: '0 10px', marginBottom: 12 }}>
             {visRoots.length
               ? <OrgListRows nodes={visRoots} childrenOf={childrenOf} collapsed={collapsedSet} onToggle={toggle} onSelect={setSelected} keyOf={keyOf} selectedId={selected?.id} currentId={matchKey} entityName={entityName} />
-              : <div style={{ padding: 16, fontSize: 13, color: 'var(--muted)' }}>{visUnlinked.length ? 'No reporting lines yet - everyone is listed below.' : 'No one matches these filters.'}</div>}
+              : <div style={{ padding: 16, fontSize: 13, color: 'var(--muted)' }}>{loose.length ? 'No reporting lines yet - everyone is listed below.' : 'No one matches these filters.'}</div>}
           </div>
           {dock}
         </div>
@@ -2394,7 +2428,7 @@ function OrgChartTab({ employees, externals = [], entities = [], onUpdated, onOp
               collapsed={collapsedSet} onToggle={toggle} ariaLabel="Organizational Chart" lineColorOf={lineColorOf}
               onExpandAll={expandAll} onCollapseAll={collapseAll} onFindMe={findMe}
               borderColor={draggingId ? 'hsl(var(--color-green))' : 'var(--line)'}
-              emptyText={visUnlinked.length ? 'No reporting lines yet - everyone is listed beside the chart.' : 'No one matches these filters.'} />
+              emptyText={loose.length ? 'No reporting lines yet - everyone is listed beside the chart.' : 'No one matches these filters.'} />
           </div>
           {dock}
         </div>
@@ -3582,13 +3616,17 @@ function StatusDonut({ segments, total, size = 118 }) {
   );
 }
 
+// A count whose read failed: "-" with "Couldn't load", never a real-looking 0.
+const FAILED = 'failed';
+
 // One count: label over number, the whole thing a button when it opens the
 // people behind it.
 function Stat({ label, n, onGo, tone, loading }) {
   return (
     <button type="button" className="pp-stat" onClick={onGo} disabled={!onGo}>
       <span className="pp-stat-label">{label}</span>
-      <b style={{ color: tone && n ? tone : 'var(--ink)' }}>{loading || n == null ? <CountSkeleton width="1.2em" /> : n}</b>
+      <b style={{ color: tone && n ? tone : 'var(--ink)' }}>{loading || n == null ? <CountSkeleton width="1.2em" />
+        : n === FAILED ? <span title="Couldn't load">-</span> : n}</b>
     </button>
   );
 }
@@ -3600,7 +3638,10 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   // in People (Charmi, Oct 20 2026): Total = Active + Onboarding.
   const isExt = isExternalPerson;
   const current = employees.filter(e => !isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active'));
-  const { people: total, active: nActive, onboarding: nOnboarding, external: nExternal } = peopleTallies(employees, externals);
+  const { people: total, active: nActive, onboarding: nOnboarding } = peopleTallies(employees, externals);
+  // "+N external" counts the live ones only - a staged (unreleased) account is
+  // not one yet, the same rule as the org chart's External Users count.
+  const nExternal = externals.filter(e => isExt(e) && (e.status || 'active') === 'active').length;
   const nInactive = employees.filter(e => !isExt(e) && e.status === 'inactive').length;
   const nProbation = current.filter(e => ['in_probation', 'extended'].includes(e.probation?.status)).length;
   const types = EMP_TYPES.map(([k, label]) => ({ key: k, label, n: current.filter(e => e.employmentType === k).length })).filter(t => t.n > 0);
@@ -3616,10 +3657,16 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   const [onLeave, setOnLeave] = useState(null);
   useEffect(() => {
     let alive = true;
-    api.exitStatements().then(r => alive && setExits((r?.exits || []).length)).catch(() => alive && setExits(0));
-    api.getContactDirectory().then(r => alive && setOnLeave((r?.people || []).filter(p => p.availability?.label === 'On Leave').length)).catch(() => alive && setOnLeave(0));
+    api.exitStatements().then(r => alive && setExits((r?.exits || []).length)).catch(() => alive && setExits(FAILED));
+    // The directory is walled by company scope, not by HR scope, so its rows
+    // are kept only for people in this People list (11/16/2026: a company-
+    // limited HR person counted other companies' leave).
+    api.getContactDirectory().then(r => alive && setOnLeave(r?.people || [])).catch(() => alive && setOnLeave(FAILED));
     return () => { alive = false; };
   }, [refreshKey]);
+  const listed = new Set([...employees, ...externals].map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
+  const onLeaveN = onLeave == null || onLeave === FAILED ? onLeave
+    : onLeave.filter(p => p.availability?.label === 'On Leave' && listed.has((p.email || '').toLowerCase())).length;
 
 
   return (
@@ -3639,7 +3686,7 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
         <div className="pp-stats">
           <Stat loading={loading} label="Onboarding" n={nOnboarding} onGo={() => onStatusFilter?.('onboarding')} />
           <Stat loading={loading} label="Exits" n={exits} onGo={onGoExits} />
-          <Stat loading={loading} label="On Leave Today" n={onLeave} />
+          <Stat loading={loading} label="On Leave Today" n={onLeaveN} />
           <Stat loading={loading} label="On Probation" n={nProbation} onGo={() => onStatusFilter?.('__probation:open__')} />
           <RecordsAudit row entityName={entityName} refreshKey={refreshKey} onOpen={onOpenPerson} />
         </div>
@@ -3669,7 +3716,7 @@ function LeavingLine({ exit, style }) {
   return (
     <span title={`Last day ${day} - an offboarding is scheduled`}
       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: 'var(--wk-live-ink)', whiteSpace: 'nowrap', ...style }}>
-      <LogOut size={12} /> Leaving {day.slice(0, 5)}
+      <LogOut size={12} /> Leaving {formatMonthDayNumeric(`${exit.lastDay.slice(0, 10)}T12:00:00`, true)}
     </span>
   );
 }
@@ -3759,6 +3806,9 @@ export default function HR({ activeSub, onSubChange }) {
   // they had, so it cannot live in STATUS_META alongside active/onboarding.
   const [deletedEmployees, setDeletedEmployees] = useState([]);
   const [deletedLoading, setDeletedLoading] = useState(false);
+  // Its own error (11/16/2026): a failed read used to show "Nobody has been
+  // removed." under the banner, and Retry reloaded the live list instead.
+  const [deletedError, setDeletedError] = useState('');
   const [selectedId, setSelectedIdNow] = useState(null);
   // A person record holding unsaved edits asks before another one opens (11/03/2026).
   const setSelectedId = (id) => (id === selectedId ? setSelectedIdNow(id) : guardRecordLeave(() => setSelectedIdNow(id)));
@@ -3875,9 +3925,10 @@ export default function HR({ activeSub, onSubChange }) {
   // would be the exact leak the server-side global filter exists to prevent.
   function loadDeleted() {
     setDeletedLoading(true);
+    setDeletedError('');
     api.getDeletedEmployees()
-      .then(rows => { setDeletedEmployees(rows); setError(''); })
-      .catch(err => setError(err?.message || 'Could not load removed people.'))
+      .then(rows => { setDeletedEmployees(Array.isArray(rows) ? rows : []); })
+      .catch(err => setDeletedError(err?.message || 'Could not load removed people.'))
       .finally(() => setDeletedLoading(false));
   }
   const loadEntities = () => api.getEntities().then(setEntities).catch(() => setEntities([]));
@@ -3916,6 +3967,11 @@ export default function HR({ activeSub, onSubChange }) {
   }, [employees, companyF]);
 
   const showingDeleted = statusF === DELETED_F;
+  // A stat card counts the whole directory, so opening it clears the other
+  // filters - the list then holds exactly the number clicked (11/16/2026).
+  const clearDirectoryFilters = () => {
+    setSearch(''); setTypeF('All'); setCompanyF([]); setDeptF([]); setCfKey(''); setCfF('');   // the page resets with them
+  };
   const isExtRow = isExternalPerson;
   const filtered = useMemo(() => {
     // The directory is the MASTER list: internal people + guest/external
@@ -3936,8 +3992,8 @@ export default function HR({ activeSub, onSubChange }) {
       // matching on it here would filter the list down to nothing.
       if (!showingDeleted && statusF !== 'All' && statusF !== PROBATION_F && !PROBATION_LENS[statusF] && e.status !== statusF) return false;
       if (search.trim()) {
-        const q = search.trim().toLowerCase();
-        return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department, e.externalCompany].some(v => (v || '').toLowerCase().includes(q));
+        const q = foldText(search.trim());
+        return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department, e.externalCompany].some(v => foldText(v).includes(q));
       }
       return true;
     });
@@ -3984,6 +4040,10 @@ export default function HR({ activeSub, onSubChange }) {
     refreshPeople();
   };
   const onSaved = saved => {
+    // A caller with no saved row (an access change) only asks for a re-read
+    // (11/16/2026: reading saved.id on undefined threw after every Access
+    // tab change and showed an error toast over a save that had worked).
+    if (!saved || !saved.id) { refreshPeople(); return; }
     const isNew = !employees.some(e => e.id === saved.id) && !extEmployees.some(e => e.id === saved.id);   // add modal shows its own toast
     // Route the row to the list its identity belongs in - an edit can flip a
     // person between internal and guest/external.
@@ -4173,8 +4233,8 @@ export default function HR({ activeSub, onSubChange }) {
         {/* Three cards: People, Status (what HR acts on), Departments. A phone
             with a record open shows the record, not the cards above it. */}
         {!hrTeam && !(selected && isMobile) && <PeopleStatCards employees={employees} externals={extEmployees} loading={loading} isMobile={isMobile}
-          onStatusFilter={s => { setStatusF(s); setSelectedId(null); }}
-          onJumpToDirectory={() => { setSelectedId(null); setStatusF('All'); }}
+          onStatusFilter={s => { clearDirectoryFilters(); setStatusF(s); setSelectedId(null); }}
+          onJumpToDirectory={() => { clearDirectoryFilters(); setListTab('active'); setSelectedId(null); setStatusF('All'); }}
           onGoExits={() => onSubChange?.('hr-exits')}
           entityName={entityName} refreshKey={peopleRev} onOpenPerson={id => { setOpenTab('documents'); setSelectedId(id); }} />}
 
@@ -4289,6 +4349,8 @@ export default function HR({ activeSub, onSubChange }) {
               <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
                 <Spinner size="section" />
               </div>
+            ) : showingDeleted && deletedError ? (
+              <div style={{ padding: 16 }}><ErrorBanner message={deletedError} onRetry={loadDeleted} /></div>
             ) : showingDeleted && deletedEmployees.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)' }}>
                 <Trash2 size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
@@ -4318,7 +4380,7 @@ export default function HR({ activeSub, onSubChange }) {
                 </thead>
                 <tbody>
                   {paged.map(e => {
-                    const sm = STATUS_META[e.status] || STATUS_META.active;
+                    const sm = statusMetaOf(e);
                     return (
                       <tr key={e.id} className={pendingRoles[e.id]?.canDecide ? 'nx-needs-you--row' : undefined} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}>
                         <td>
@@ -4368,7 +4430,7 @@ export default function HR({ activeSub, onSubChange }) {
                 <div style={{ borderRight: '1px solid var(--line)', display: 'flex', flexDirection: 'column', minHeight: 460 }}>
                   <div style={{ flex: 1, overflowY: 'auto', maxHeight: '64vh' }}>
                     {paged.map(e => {
-                      const sm = STATUS_META[e.status] || STATUS_META.active;
+                      const sm = statusMetaOf(e);
                       const active = selectedId === e.id;
                       return (
                         <button key={e.id} className={pendingRoles[e.id]?.canDecide && !active ? 'nx-needs-you--row' : undefined} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}
