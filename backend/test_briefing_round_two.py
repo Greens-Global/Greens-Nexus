@@ -249,8 +249,8 @@ class ContentTests(_Case):
         self.assertEqual([r.get("waiting_days") for r in rows], [1, 10, None])
         _, html = daily_briefing.render_email("Amy", "2026-09-28", {"action_required": rows})
         self.assertLess(html.index(">Old<"), html.index(">New<"))
-        self.assertIn(">Waiting 10 Days<", html)
-        self.assertIn(">Waiting 1 Day<", html)
+        self.assertIn(">Waiting 10 days</span>", html)
+        self.assertIn(">Waiting 1 day</span>", html)
 
     def test_the_today_line_names_the_shift_and_its_place(self):
         self._emp(AMY)
@@ -272,6 +272,18 @@ class ContentTests(_Case):
         self.assertEqual(lines[0], "You finished 2 tasks.")
         self.assertEqual(lines[1], "Your team finished 1 task. 1 is overdue, the same as the week before.")
         self.assertEqual(weekly_digest.last_week_lines(self.db, "nobody@greensglobal.com", TODAY), [])
+
+    def test_last_week_counts_the_hours_on_your_punches(self):
+        self._emp(AMY)
+        # Tue 09/22 and Wed 09/23: 8h and 7h 30m (UTC times, Pacific days).
+        for day, start, end in (("2026-09-22", "2026-09-22T16:00:00+00:00", "2026-09-23T00:00:00+00:00"),
+                                ("2026-09-23", "2026-09-23T16:00:00+00:00", "2026-09-23T23:30:00+00:00"),
+                                ("2026-09-28", "2026-09-28T16:00:00+00:00", "2026-09-28T20:00:00+00:00")):   # this week
+            for kind, at in (("in", start), ("out", end)):
+                self.db.add(models.TimePunch(id=gen_id(), employee_email=AMY, kind=kind, at=at, local_date=day,
+                                             tz_offset_min=420, voided=0))
+        self.db.commit()
+        self.assertEqual(weekly_digest.last_week_lines(self.db, AMY, TODAY), ["You worked 15h 30m."])
 
     def test_a_busy_managers_email_stays_under_gmails_limit(self):
         def task(i, **kw):

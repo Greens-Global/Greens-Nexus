@@ -1593,7 +1593,6 @@ _SECTION_META = {
     "holidays_ahead":  ("Upcoming Holidays",                  _INK,   "Holidays Ahead"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
-_TAG = {"red": ("#fdecec", "#991b1b"), "yellow": ("#fef6d8", "#854d0e"), "gray": ("#f1f3f5", "#374151")}
 
 _MODULE_META = {
     "tasks":    "Tasks",
@@ -1826,36 +1825,36 @@ def _sub_actions_html(row: dict) -> str:
 
 
 def _comments_html(row: dict) -> str:
-    """Last 3 comments on a task (Sep 23), under its title."""
+    """The latest comment on a task (Sep 23; one since 11/17/2026 - three made
+    the email long), as a quiet line under the title. No box, no side bar."""
     if not row.get("comments"):
         return ""
-    lines = "".join(
-        f"<div style='padding:2px 0;font-size:13px;line-height:1.5;color:{_BODY}'>"
-        f"<span style='font-weight:600;color:{_INK}'>{escape(c['author'])}:</span> {escape(c['body'])}</div>"
-        for c in row["comments"])
-    return f"<div style='margin-top:10px;border-left:3px solid {_LINE};padding:2px 0 2px 12px'>{lines}</div>"
+    c = row["comments"][-1]
+    body = c.get("body") or ""
+    body = body if len(body) <= 160 else body[:157].rstrip() + "..."
+    return (f"<div style='margin-top:4px;font-size:13px;line-height:1.5;color:{_MUTED}'>"
+            f"<span style='color:{_BODY};font-weight:600'>{escape(c['author'])}:</span> {escape(body)}</div>")
 
 
-def _tag(text: str, tone: str) -> str:
-    """A small square status tag (Title Case, like the app's status chips)."""
-    bg, fg = _TAG[tone]
-    return (f"<span style='display:inline-block;background:{bg};color:{fg};font-size:11px;font-weight:600;"
-            f"line-height:1;padding:4px 7px;border-radius:3px;white-space:nowrap'>{escape(text)}</span>")
+# A row's state is plain colored text in its own line (Neil, 11/17/2026: no
+# pills or tag boxes): red when it needs you most, amber when it is getting
+# old or is due today, gray otherwise.
+_STATE_INK = {"red": "#b91c1c", "amber": "#a16207", "gray": _MUTED}
 
 
-def _row_tag(row: dict) -> str:
+def _row_state(row: dict) -> tuple:
+    """(words, tone) for the row's state, or ("", "")."""
     if row.get("overdue_days"):
         n = row["overdue_days"]
-        return _tag(f"{n} Day{'' if n == 1 else 's'} Overdue", "red")
+        return f"{n} day{'' if n == 1 else 's'} overdue", "red"
     if row.get("due_today"):
-        return _tag("Due Today", "yellow")
+        return "Due today", "amber"
     if row.get("overdue_count"):
-        return _tag(f"{row['overdue_count']} Overdue", "red")
+        return f"{row['overdue_count']} overdue", "red"
     if row.get("waiting_days"):
-        # How long a decision has waited on you: gray, yellow from 3 days, red from 7.
         n = row["waiting_days"]
-        return _tag(f"Waiting {n} Day{'' if n == 1 else 's'}", "red" if n >= 7 else "yellow" if n >= 3 else "gray")
-    return ""
+        return f"Waiting {n} day{'' if n == 1 else 's'}", ("red" if n >= 7 else "amber" if n >= 3 else "gray")
+    return "", ""
 
 
 _DECISION_TITLE = re.compile(r"^Approve(?: ([A-Z][\w ]*?))?: ")
@@ -1874,58 +1873,79 @@ def _row_title(row: dict) -> str:
     return title
 
 
-def _row_detail_html(row: dict) -> str:
-    """The line under the title. `short_detail` is the detail without what a
-    tag or a day heading already says; a ticket's number leads the line
-    instead of taking a column of its own; `lines` is a short list (a team
-    member's overdue tasks)."""
+def _detail_text(row: dict) -> str:
+    """The line under the title: `short_detail` (the detail without what the
+    state or the day already says), a ticket's number first, a team member's
+    tasks joined on one line."""
     if row.get("lines"):
-        return "".join(f"<div style='font-size:13px;line-height:1.5;color:{_BODY};padding-left:14px;"
-                       f"text-indent:-14px'>&bull;&nbsp; {escape(t)}</div>" for t in row["lines"])
+        return " - ".join(row["lines"])
     detail = row.get("short_detail") if row.get("short_detail") is not None else row.get("detail") or ""
     if row.get("ref"):
         detail = f"{row['ref']} - {detail}" if detail else row["ref"]
-    return (f"<div style='font-size:13px;line-height:1.5;color:{_BODY};margin-top:3px'>{escape(detail)}</div>"
-            if detail else "")
+    return detail
+
+
+def _detail_html(row: dict) -> str:
+    words, tone = _row_state(row)
+    text = escape(_detail_text(row))
+    # The dot travels WITH the state, so a wrapped line never ends in a dot.
+    state = ((f"<span style='white-space:nowrap'>{'&middot;&nbsp; ' if text else ''}"
+              f"<span style='color:{_STATE_INK[tone]};font-weight:600'>{escape(words)}</span></span>")
+             if words else "")
+    joined = f"{text}&nbsp; {state}" if text and state else (text or state)
+    return (f"<div style='font-size:13px;line-height:1.5;color:{_BODY};margin-top:2px'>{joined}</div>"
+            if joined else "")
 
 
 def _row_wrap(cells: str, first: bool) -> str:
-    """A card row is its OWN little table: in one table shared by every row,
-    the widest actions of one row and the widest title area of another added
-    up, and the email grew past 680px (Nov 15 2026)."""
+    """A row is its OWN little table: in one table shared by every row, the
+    widest actions of one row and the widest title area of another added up,
+    and the email grew past 680px (Nov 15 2026). Rows are parted by a hairline."""
     edge = "" if first else f"border-top:1px solid {_LINE};"
     return (f"<tr><td style='{edge}padding:0'><table role='presentation' width='100%' cellpadding='0' "
             f"cellspacing='0' style='border-collapse:collapse'><tr>{cells}</tr></table></td></tr>")
 
 
+def _plain(row: dict) -> bool:
+    """A row with nothing to press and nothing under it (who is off, a
+    holiday): title and detail share ONE line."""
+    return not (row.get("cta") or row.get("action_kind") or row.get("sub_actions") or row.get("task_id")
+                or row.get("comments") or row.get("lines") or row.get("url"))
+
+
 def _item_row_html(row: dict, first: bool = False, *_legacy) -> str:
-    """One row: the title and what happened on the left, its actions on the
-    same line at the right (a phone puts them underneath)."""
-    td = "padding:14px 16px;vertical-align:top"
-    tag = _row_tag(row)
+    """One row: the title and its line on the left, its actions on the same
+    line at the right (a phone puts them underneath)."""
+    td = "padding:10px 0;vertical-align:top"
+    if _plain(row):
+        words, tone = _row_state(row)
+        rest = " &nbsp;&middot;&nbsp; ".join(p for p in (
+            escape(_detail_text(row)),
+            f"<span style='color:{_STATE_INK[tone]};font-weight:600'>{escape(words)}</span>" if words else "") if p)
+        item = (f"<td class='nx-td nx-item' style='{td};font-size:13.5px;line-height:1.5;color:{_BODY}'>"
+                f"<span style='font-weight:600;color:{_INK}'>{escape(_row_title(row))}</span>"
+                + (f" &nbsp;&middot;&nbsp; {rest}" if rest else "") + "</td>")
+        return _row_wrap(item, first)
     item = (f"<td class='nx-td nx-item' style='{td}'>"
             f"<div style='font-size:14px;font-weight:600;color:{_INK};line-height:1.4'>{escape(_row_title(row))}</div>"
-            f"{_row_detail_html(row)}"
-            + (f"<div style='margin-top:6px'>{tag}</div>" if tag else "")
-            + f"{_sub_actions_html(row)}{_comments_html(row)}</td>")
-    return _row_wrap(item + _actions_cell_html(row, td), first)
+            f"{_detail_html(row)}{_sub_actions_html(row)}{_comments_html(row)}</td>")
+    return _row_wrap(item + _actions_cell_html(row, td.replace("padding:10px 0", "padding:10px 0 10px 12px")), first)
 
 
 def _done_row_html(row: dict, first: bool = False) -> str:
     """A Completed row: one quiet line with a green check - done is good news,
     not work. A finished task keeps Reopen, Comment and React (Neil, 10/01)."""
-    td = "padding:10px 16px;vertical-align:top"
+    td = "padding:7px 0;vertical-align:top"
     detail = row.get("detail") or ""
     if detail == "Completed":
         detail = ""
     if row.get("ref"):
         detail = f"{row['ref']} - {detail}" if detail else row["ref"]
-    under = (f"<div style='font-size:12.5px;line-height:1.5;color:{_MUTED};margin:2px 0 0 20px'>{escape(detail)}</div>"
-             if detail else "")
-    item = (f"<td class='nx-td nx-item' style='{td}'><div style='font-size:13.5px;line-height:1.45;color:{_INK}'>"
-            f"<span style='color:{_GREEN};font-weight:700'>&#10003;</span>&nbsp;&nbsp;{escape(row['title'])}</div>"
-            f"{under}</td>")
-    return _row_wrap(item + _actions_cell_html(row, td), first)
+    item = (f"<td class='nx-td nx-item' style='{td};font-size:13.5px;line-height:1.5;color:{_INK}'>"
+            f"<span style='color:{_GREEN};font-weight:700'>&#10003;</span>&nbsp;&nbsp;{escape(row['title'])}"
+            + (f"<span style='color:{_MUTED}'> &nbsp;&middot;&nbsp; {escape(detail)}</span>" if detail else "")
+            + "</td>")
+    return _row_wrap(item + _actions_cell_html(row, td.replace("padding:7px 0", "padding:7px 0 7px 12px")), first)
 
 
 def _overflow_html(module: str, shown: list, hidden: list) -> str:
@@ -1937,7 +1957,7 @@ def _overflow_html(module: str, shown: list, hidden: list) -> str:
     view_url = ("" if module == "team" else
                 (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}")
     view = _links([(f"View All {len(shown) + len(hidden)} in Nexus", view_url)]) if view_url else ""
-    return (f"<tr><td class='nx-td' style='padding:10px 16px;border-top:1px solid {_LINE};"
+    return (f"<tr><td class='nx-td' style='padding:8px 0;border-top:1px solid {_LINE};"
             f"font-size:13px;color:{_BODY}'>{escape(more)}{view}</td></tr>")
 
 
@@ -1954,8 +1974,8 @@ def _group_by_module(rows: list) -> list:
 
 
 def _groups(rows: list) -> list:
-    """The divider rows inside a section: by the rows' own `group` when every
-    row names one (the digest's days and Coming Up), else by module."""
+    """The groups inside a section: by the rows' own `group` when every row
+    names one (Coming Up's Time Off / Holidays), else by module."""
     if rows and all(r.get("group") for r in rows):
         out: dict = {}
         for r in rows:
@@ -1965,27 +1985,26 @@ def _groups(rows: list) -> list:
 
 
 def _group_head_html(label: str, n: int, first: bool) -> str:
-    edge = "" if first else f"border-top:1px solid {_LINE};"
-    return (f"<tr><td class='nx-grp' bgcolor='{_SOFT}' style='{edge}background:{_SOFT};"
-            f"padding:8px 16px;font-size:12px;font-weight:600;color:{_MUTED}'>{escape(label)}"
+    """A group's name as a small quiet line - no band, no box."""
+    return (f"<tr><td class='nx-grp' style='padding:{'2px' if first else '12px'} 0 2px;font-size:12px;"
+            f"font-weight:600;color:{_MUTED}'>{escape(label)}"
             f"<span style='font-weight:400'>&nbsp;&nbsp;{n}</span></td></tr>")
 
 
 def _section_html(key: str, rows: list, expanded: bool = True, note: str = "", cap: int = None) -> str:
-    """One section: its heading with the section's short color bar, an
-    optional line of text, then ONE card - a divider row per module (or day)
-    and a row per item. `expanded` is kept for old callers: every section is
-    open since Nov 15 2026 (the checkbox collapse ran only in Apple Mail)."""
-    heading, accent, _ = _SECTION_META.get(key, (key.replace("_", " ").title(), _INK, ""))
+    """One section: its heading and count, an optional line of text, then the
+    rows parted by hairlines - a small name over each module when there are
+    several. No colored bar, no box (Neil, 11/17/2026). `expanded` is kept for
+    old callers: every section is open (the checkbox collapse ran only in
+    Apple Mail)."""
+    heading, _, _ = _SECTION_META.get(key, (key.replace("_", " ").title(), _INK, ""))
     groups = _groups(rows)
-    # A section that is one group of one kind needs no divider ("Overdue
-    # Tasks" holding only Tasks).
-    bare = len(groups) == 1 and key in ("overdue", "team_overdue")
+    bare = len(groups) == 1   # one kind of thing needs no name over it
     body, first = "", True
     for module, label, grows in groups:
         if not bare:
             body += _group_head_html(label, len(grows), first)
-            first = False
+            first = True   # the row right under a name needs no hairline
         lim = cap or _MODULE_ROW_CAP
         shown, hidden = grows[:lim], grows[lim:]
         draw = _done_row_html if key == "completed" else _item_row_html
@@ -1994,50 +2013,42 @@ def _section_html(key: str, rows: list, expanded: bool = True, note: str = "", c
         first = False
         if hidden:
             body += _overflow_html(module, shown, hidden)
-    note_html = (f"<div style='margin:0 0 12px;font-size:13.5px;line-height:1.5;color:{_BODY}'>{escape(note)}</div>"
+    note_html = (f"<div style='margin:0 0 4px;font-size:13px;line-height:1.5;color:{_MUTED}'>{escape(note)}</div>"
                  if note else "")
     return f"""
-    <tr><td class="nx-pad" style="padding:30px 32px 0">
-      <a name="nx-sec-{key}" id="nx-sec-{key}"></a>
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td width="4" bgcolor="{accent}" style="width:4px;background:{accent};font-size:0;line-height:0">&nbsp;</td>
-        <td role="heading" aria-level="2" style="padding:0 0 0 10px;font-size:17px;font-weight:600;line-height:1.3;color:{_INK}">{escape(heading)}
-          <span style="font-weight:400;color:{_MUTED}">&nbsp;{len(rows)}</span></td>
-      </tr></table>
-      <div style="height:12px;line-height:12px;font-size:0">&nbsp;</div>
+    <tr><td class="nx-pad" style="padding:22px 32px 0">
+      <div role="heading" aria-level="2" style="font-size:16px;font-weight:600;line-height:1.3;color:{_INK};padding-bottom:6px;border-bottom:1px solid {_LINE}">{escape(heading)}<span style="font-weight:400;color:{_MUTED}">&nbsp;&nbsp;{len(rows)}</span></div>
+      <div style="height:4px;line-height:4px;font-size:0">&nbsp;</div>
       {note_html}
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="nx-card" bgcolor="#ffffff"
-        style="background:#ffffff;border:1px solid {_LINE};border-radius:8px;border-collapse:separate">{body}</table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">{body}</table>
     </td></tr>"""
 
 
+# What each section's count says in the summary line under the greeting.
+_COUNT_WORDS = {
+    "action_required": ("need your action", "needs your action"), "pending": ("need your attention", "needs your attention"),
+    "overdue": ("overdue", "overdue"), "due_week": ("due this week", "due this week"),
+    "needs_to_know": ("updates", "update"), "team_overdue": ("team members behind", "team member behind"),
+    "completed": ("done", "done"),
+}
+
+
 def _summary_html(sections: dict, order: list = None) -> str:
-    """White tiles, at most three to a row (six in one row pushed the Weekly
-    Digest wider than a phone), each a link to its section. The number takes
-    the section's color: red only where something needs the reader."""
-    present = [k for k in (order or _ORDER) if sections.get(k) and k not in ("coming_up",)][:6]
-    if not present:
+    """ONE quiet line of counts under the greeting ("9 need your action - 2
+    overdue - 3 due this week") - words, not tiles (Neil, 11/17/2026: no stat
+    boxes). Red only on what needs the reader."""
+    parts = []
+    for k in (order or _ORDER):
+        if not sections.get(k) or k not in _COUNT_WORDS:
+            continue
+        n = len(sections[k])
+        ink = "#b91c1c" if k in ("action_required", "pending", "overdue") else _INK
+        many, one = _COUNT_WORDS[k]
+        parts.append(f"<span style='font-weight:700;color:{ink}'>{n}</span> {escape(one if n == 1 else many)}")
+    if not parts:
         return f"<div style='font-size:13.5px;color:{_MUTED}'>Nothing new since your last briefing.</div>"
-    rows = [present[i:i + 3] for i in range(0, len(present), 3)]
-    gap = "<td class='nx-tgap' width='8' style='width:8px;font-size:0;line-height:0'>&nbsp;</td>"
-    out = []
-    for ri, keys in enumerate(rows):
-        cells = []
-        for k in keys:
-            _, accent, label = _SECTION_META[k]
-            cells.append(
-                f"<td class='nx-kpi' width='33%' valign='top' style='width:33%;border:1px solid {_LINE};"
-                f"border-top:3px solid {accent};border-radius:6px;background:#ffffff'>"
-                f"<a href='#nx-sec-{k}' style='display:block;padding:12px 14px;text-decoration:none'>"
-                f"<span style='display:block;font-size:24px;font-weight:600;line-height:1;color:{accent}'>"
-                f"{len(sections[k])}</span>"
-                f"<span style='display:block;font-size:12px;line-height:1.35;color:{_BODY};margin-top:6px'>"
-                f"{escape(label)}</span></a></td>")
-        if len(present) > 3:   # keep the columns lined up across rows
-            cells += ["<td width='33%' style='width:33%'>&nbsp;</td>"] * (3 - len(cells))
-        out.append(f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
-                   f"style='border-collapse:separate{';margin-top:8px' if ri else ''}'><tr>{gap.join(cells)}</tr></table>")
-    return "".join(out)
+    dot = f"<span style='color:{_MUTED}'>&nbsp;&nbsp;&middot;&nbsp;&nbsp;</span>"
+    return f"<div style='font-size:14px;line-height:1.6;color:{_BODY}'>{dot.join(parts)}</div>"
 
 
 _BODY_BUDGET = 80_000          # the sections; the frame and styles add ~15 KB -> under 95 KB
@@ -2045,28 +2056,21 @@ _FYI_SECTIONS = ("completed", "needs_to_know", "coming_up", "team_overdue")
 
 
 def _today_html(line: str) -> str:
-    """The day at a glance under the greeting: your shift, its site, a holiday."""
+    """The day under the counts: your shift and its site - plain text."""
     if not line:
         return ""
-    return (f"<table role='presentation' cellpadding='0' cellspacing='0' style='margin-top:12px'><tr>"
-            f"<td bgcolor='{_SOFT}' style='background:{_SOFT};border:1px solid {_LINE};border-radius:6px;"
-            f"padding:8px 12px;font-size:13.5px;color:{_INK}'><span style='font-weight:600'>Today</span>"
-            f"<span style='color:{_MUTED}'>&nbsp;&nbsp;&middot;&nbsp;&nbsp;</span>{escape(line)}</td></tr></table>")
+    return f"<div style='font-size:13.5px;line-height:1.5;color:{_MUTED};margin-top:2px'>{escape(line)}</div>"
 
 
 def _recap_html(lines) -> str:
-    """Last Week (Weekly Briefing): a few plain lines, no table."""
+    """Last Week (Weekly Briefing): a heading and a few plain lines."""
     if not lines:
         return ""
-    body = "".join(f"<div style='font-size:13.5px;line-height:1.6;color:{_BODY};padding:2px 0'>{escape(t)}</div>"
-                   for t in lines)
+    body = "".join(f"<div style='font-size:13.5px;line-height:1.6;color:{_BODY}'>{escape(t)}</div>" for t in lines)
     return f"""
-    <tr><td class="nx-pad" style="padding:30px 32px 0">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td width="4" bgcolor="{_GREEN}" style="width:4px;background:{_GREEN};font-size:0;line-height:0">&nbsp;</td>
-        <td role="heading" aria-level="2" style="padding:0 0 0 10px;font-size:17px;font-weight:600;line-height:1.3;color:{_INK}">Last Week</td>
-      </tr></table>
-      <div style="height:10px;line-height:10px;font-size:0">&nbsp;</div>
+    <tr><td class="nx-pad" style="padding:22px 32px 0">
+      <div role="heading" aria-level="2" style="font-size:16px;font-weight:600;line-height:1.3;color:{_INK};padding-bottom:6px;border-bottom:1px solid {_LINE}">Last Week</div>
+      <div style="height:8px;line-height:8px;font-size:0">&nbsp;</div>
       {body}
     </td></tr>"""
 
@@ -2100,10 +2104,10 @@ def daily_preheader(sections: dict) -> str:
         counted += len(due)
     if len(act) > counted:
         bits.append(f"{len(act) - counted} more to do")
-    if sections.get("needs_to_know"):
+    # Updates only when nothing needs action; finished items never - the
+    # preview says what needs you (11/17/2026: it ran to two lines).
+    if sections.get("needs_to_know") and not act:
         bits.append(_plural(len(sections["needs_to_know"]), "update"))
-    if sections.get("completed"):
-        bits.append(f"{len(sections['completed'])} done")
     if not bits:
         return "Nothing new since your last briefing."
     line = ", ".join(bits)
@@ -2159,10 +2163,9 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
         subject = (f"{title} - {n_act} Need{'s' if n_act == 1 else ''} Your Action - {weekday_date}" if n_act
                    else f"{title} - All Caught Up - {weekday_date}")
     if intro is None:
-        intro = (f"{_plural(n_act, 'thing')} need{'s' if n_act == 1 else ''} you today." if n_act else
-                 "Nothing needs you today.")
-        intro += f" Here is what changed since {since_label}." if since_label else (
-            "" if n_act else " Here is what changed since your last briefing.")
+        # The counts are the line under it, so the greeting carries only the
+        # window when it reaches past yesterday (11/17/2026).
+        intro = f"Here is what changed since {since_label}." if since_label else ""
     if preheader is None:
         preheader = daily_preheader(sections)
     logo = (f"<img src='{escape(logo_url)}' alt='Greens Global' height='26' style='display:block;border:0'>"
@@ -2194,8 +2197,8 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
       .nx-wrap {{ border-left:0 !important; border-right:0 !important; }}
       .nx-pad {{ padding-left:16px !important; padding-right:16px !important; }}
       .nx-td {{ display:block !important; width:auto !important; }}
-      .nx-item {{ padding-bottom:4px !important; }}
-      .nx-act {{ border-top:0 !important; padding-top:6px !important; text-align:left !important; white-space:normal !important; }}
+      .nx-item {{ padding-bottom:6px !important; }}
+      .nx-act {{ border-top:0 !important; padding:0 0 10px !important; text-align:left !important; white-space:normal !important; }}
       .nx-none {{ display:none !important; }}
       .nx-act table {{ float:none !important; }}
       .nx-act > table {{ float:none !important; }}
@@ -2206,13 +2209,11 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
       .nx-sub-d {{ display:block !important; padding-bottom:4px !important; }}
       .nx-sub-a {{ display:block !important; border-top:0 !important; padding:0 0 10px !important; text-align:left !important; }}
       .nx-sub-a table {{ float:none !important; }}
-      .nx-kpi a {{ padding:10px !important; }}
-      .nx-tgap {{ width:6px !important; }}
     }}
   </style>
   <table role="presentation" class="nx-wrap" align="center" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#ffffff;border:1px solid {_LINE};border-collapse:collapse">
     <tr>
-      <td class="nx-pad" bgcolor="{brand}" style="background:{brand};padding:16px 32px">
+      <td class="nx-pad" bgcolor="{brand}" style="background:{brand};padding:12px 32px">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td>{logo}</td>
           <td align="right" style="font-size:12.5px;color:#e8f5ec">{escape(weekday_date)}</td>
@@ -2220,23 +2221,23 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
       </td>
     </tr>
     <tr>
-      <td class="nx-pad" style="padding:28px 32px 0">
-        <div role="heading" aria-level="1" style="font-size:22px;font-weight:600;color:{_INK}">{escape(title)}</div>
-        <div style="font-size:14.5px;line-height:1.55;color:{_BODY};margin-top:6px">{salutation} {escape(intro)}</div>
+      <td class="nx-pad" style="padding:22px 32px 0">
+        <div role="heading" aria-level="1" style="font-size:20px;font-weight:600;color:{_INK}">{escape(title)}</div>
+        <div style="font-size:14px;line-height:1.55;color:{_BODY};margin-top:4px">{salutation}{(' ' + escape(intro)) if intro else ''}</div>
+        <div style="margin-top:6px">{_summary_html(sections, order)}</div>
         {_today_html(today_line)}
       </td>
     </tr>
-    <tr><td class="nx-pad" style="padding:18px 32px 0">{_summary_html(sections, order)}</td></tr>
     {body_sections}
     {_recap_html(recap)}
     <tr>
-      <td class="nx-pad" style="padding:32px 32px 28px">
-        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", brand, pad="10px 22px", size="13.5px")])}
+      <td class="nx-pad" style="padding:24px 32px 22px">
+        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", brand, pad="9px 18px", size="13px")])}
         {f'<div style="font-size:12px;color:{_MUTED};margin-top:8px">{escape(cta_hint)}</div>' if cta_hint else ''}
       </td>
     </tr>
     <tr>
-      <td class="nx-pad" style="background:{_SOFT};border-top:1px solid {_LINE};padding:16px 32px;font-size:11.5px;line-height:1.6;color:{_MUTED}">
+      <td class="nx-pad" style="border-top:1px solid {_LINE};padding:14px 32px;font-size:11.5px;line-height:1.6;color:{_MUTED}">
         {escape(footer)}
         {_stop_link(stop_kind)}
       </td>

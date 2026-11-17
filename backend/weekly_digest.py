@@ -403,19 +403,22 @@ def _preheader(sections: dict) -> str:
 
 
 def _for_email(sections: dict) -> dict:
-    """The sections as the email draws them: Due This Week under a heading
-    per day, Upcoming Time Off and Upcoming Holidays together as Coming Up
-    (Nov 15 2026). build_sections keeps its keys - the counts, the log and
-    the card read them."""
+    """The sections as the email draws them: Due This Week with its day at the
+    front of each row's line ("Tue 11/24/2026 - Operations", soonest first -
+    a heading per day made the email long, 11/17/2026), Upcoming Time Off and
+    Upcoming Holidays together as Coming Up (Nov 15 2026). build_sections
+    keeps its keys - the counts, the log and the card read them."""
     out = dict(sections)
     if out.get(DUE_SECTION):
         days = []
         for r in out[DUE_SECTION]:
+            rest = r.get("short_detail") if r.get("short_detail") is not None else ""
             try:
                 d = date.fromisoformat(r.get("due_on") or "")
-                days.append(dict(r, group=f"{d.strftime('%A')}, {d.strftime('%m/%d/%Y')}"))
+                when = f"{d.strftime('%a')} {d.strftime('%m/%d/%Y')}"
             except ValueError:
-                days.append(dict(r, group="Later"))
+                when = ""
+            days.append(dict(r, short_detail=" - ".join(p for p in (when, rest) if p)))
         out[DUE_SECTION] = days
     coming = ([dict(r, group="Time Off") for r in out.pop(TIME_OFF_SECTION, [])] +
               [dict(r, group="Holidays") for r in out.pop(HOLIDAY_SECTION, [])])
@@ -447,7 +450,7 @@ def render(first_name: str, today: date, sections: dict, greeting: str, logo_url
               "holidays coming up.")
     return daily.render_email(first_name, today.isoformat(), _for_email(sections), greeting=greeting,
                               logo_url=logo_url, title="Weekly Briefing", date_label=week_of,
-                              intro=_intro(sections), subject=_subject(sections, week_of),
+                              intro="", subject=_subject(sections, week_of),
                               preheader=_preheader(sections), footer=footer, order=EMAIL_ORDER,
                               recap=recap, today_line=today_text,
                               cta_label="Open My Briefing", cta_path="/briefing",

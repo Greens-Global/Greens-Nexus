@@ -92,6 +92,13 @@ are the main one (iOS zooms the page on a field under 16px).
 
 ## Grammar
 
+**No rectangles (Neil, 11/17/2026 - outranks the items below).** No colored side or top
+bars as accents, no stat tiles / KPI boxes, no bordered box or tinted panel per section, no
+boxed info strips, no pill or tag boxes around counts or states, no uppercase eyebrows - in
+screens, emails, PDFs, mockups and artifacts alike. Hierarchy comes from type, whitespace
+and hairline dividers; counts read as words in a line; a state is plain colored text.
+Buttons stay buttons. See CLAUDE.md, Frontend conventions.
+
 - **Cards on canvas**: white, radius 8, soft border + shadow; card header = title + optional
   count pill + right meta. No nested cards.
 - **Colored icon chips**: 32–36px rounded squares, status-color tinted bg + colored icon —
