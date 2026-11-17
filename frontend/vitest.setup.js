@@ -11,7 +11,10 @@ import { vi } from 'vitest';
 // Credential Vault and a Preventive Maintenance test on three runs of one PR;
 // #1118 needed three attempts). 5 s is patience, not leniency - a wait that
 // never resolves still fails, and a passing test is no slower.
-configure({ asyncUtilTimeout: 5000 });
+// 10 s from 11/18/2026: a whole-view first render (ShiftSchedule's drag
+// test) still passed 5 s on a loaded runner; the 20 s testTimeout in
+// vite.config.js leaves room for it.
+configure({ asyncUtilTimeout: 10000 });
 
 // IntersectionObserver - used by the task list's incremental-render sentinel.
 if (!globalThis.IntersectionObserver) {
