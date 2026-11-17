@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
+import { dialog } from '../ui/dialog';
 
 // Subtasks in the task drawer (Sagar, Oct 13 2026): a subtask says whose it is
 // under its title, and closing, deleting or completing one goes back to the
@@ -69,13 +70,16 @@ describe('a subtask in the task drawer', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('deleting a subtask lands on the main task, not a closed drawer', () => {
+  it('deleting a subtask lands on the main task, not a closed drawer', async () => {
     const onClose = vi.fn();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // The question is the Nexus dialog now, not the browser's confirm box.
+    const ask = vi.spyOn(dialog, 'confirm').mockResolvedValue(true);
     render(<TaskDetailDrawer taskId="s" onClose={onClose} />);
     fireEvent.click(screen.getByTitle('More Actions'));
     fireEvent.click(screen.getByText('Delete Subtask'));
-    expect(state.deleteTask).toHaveBeenCalledWith('s');
+    await waitFor(() => expect(state.deleteTask).toHaveBeenCalledWith('s'));
+    expect(ask).toHaveBeenCalledWith('Delete subtask "' + sub.title + '"?', expect.objectContaining({ danger: true }));
+    ask.mockRestore();
     expect(onClose).not.toHaveBeenCalled();
     expect(title()).toBe(parent.title);
   });

@@ -74,7 +74,7 @@ describe('a refused save', () => {
     await mount();
     await act(async () => { await live.store.updateTask('a', { priority: 'urgent' }).catch(() => {}); });
     expect(rows()).toBe('a:low,b:low,c:low');
-    expect(window.alert).toHaveBeenCalledWith('Blocked by a dependency');
+    expect(dialogAlert).toHaveBeenCalledWith('Blocked by a dependency');
   });
 
   it('keeps a save that succeeded', async () => {

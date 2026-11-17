@@ -523,7 +523,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
       setTrail([]);
       setActiveId(copy.id);
     } catch (e) {
-      alert(`Could not duplicate the task: ${e?.message || e}`);
+      dialog.alert(`Could not duplicate the task: ${e?.message || e}`);
     }
   };
 
@@ -664,10 +664,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   {canEdit && <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark Milestone' : 'Mark as Milestone'}
                   </MenuItem>}
-                  {canEdit && <MenuItem danger icon={<Trash2 size={14} />} onClick={() => {
+                  {canEdit && <MenuItem danger icon={<Trash2 size={14} />} onClick={async () => {
                     close();
                     const sub = !!task.parentTaskId;
-                    if (!window.confirm(sub ? `Delete subtask "${task.title}"?` : `Delete "${task.title}" and its subtasks?`)) return;
+                    if (!(await dialog.confirm(sub ? `Delete subtask "${task.title}"?` : `Delete "${task.title}" and its subtasks?`, { title: sub ? 'Delete Subtask' : 'Delete Task', confirmText: 'Delete', danger: true }))) return;
                     const gone = activeId;
                     const name = task.title;
                     clearDraftsFor([gone]);
@@ -2350,11 +2350,11 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
 // box open with the words in it and says so there - it used to show an alert
 // and then clear the draft and close the box all the same.
 function useCommentHandlers(task, addComment, reload, { canComment = true, canPin = true } = {}) {
-  const quiet = (p) => p.catch((e) => { if (e?.message) window.alert(e.message); });
+  const quiet = (p) => p.catch((e) => { if (e?.message) dialog.alert(e.message); });
   const all = {
     onPin: async (c) => { await quiet(api.editTaskComment(c.id, { pinned: !c.pinned })); reload(); },
     onEdit: async (c, text) => { await api.editTaskComment(c.id, { body: text }); reload(); },
-    onDelete: async (c) => { if (!window.confirm('Delete this comment?')) return; await quiet(api.deleteTaskComment(c.id)); reload(); },
+    onDelete: async (c) => { if (!(await dialog.confirm('Delete this comment?', { title: 'Delete Comment', confirmText: 'Delete', danger: true }))) return; await quiet(api.deleteTaskComment(c.id)); reload(); },
     onReply: async (root, html) => { await addComment(task.id, html, { parent_id: root.id }); reload(); },
     onReact: async (c, emoji) => { await quiet(api.reactTaskComment(c.id, emoji)); reload(); },
     onResolve: async (c, v) => { await quiet(api.editTaskComment(c.id, { resolved: v })); reload(); },

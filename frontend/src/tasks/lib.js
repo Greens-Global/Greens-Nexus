@@ -1185,7 +1185,7 @@ export async function uploadTaskAttachment(taskId, file, extra = {}, onProgress)
     // A video may be up to 50 MB (lib/voice.js MEDIA_MAX), like one in a note.
     url = await storeTaskFile(file, onProgress, 'tasks', kind === 'video' ? MEDIA_MAX.video : undefined);
   } catch (e) {
-    alert(`"${file.name}" couldn't be stored: ${e?.message || 'upload failed'}. Remove the attachment and try again.`);
+    dialog.alert(`"${file.name}" couldn't be stored: ${e?.message || 'upload failed'}. Remove the attachment and try again.`);
   }
   return api.addTaskAttachment(taskId, { name: file.name, size, kind, url, ...extra });
 }

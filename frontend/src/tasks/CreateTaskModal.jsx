@@ -203,8 +203,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     try {
       const { text } = await api.ocrImage(f);
       if (text && text.trim()) set('title', (form.title ? `${form.title} ` : '') + text.trim().replace(/\s+/g, ' '));
-      else alert('No text found in the image.');
-    } catch { alert("Couldn't extract text from the image."); }
+      else dialog.alert('No text found in the image.');
+    } catch { dialog.alert("Couldn't extract text from the image."); }
     finally { setOcrBusy(false); }
   };
 
@@ -325,7 +325,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
       if (notAttached.length) dialog.alert(notAttachedText(notAttached, isEdit ? 'saved' : 'created'), { title: 'Some Files Did Not Attach' });
       if (created) onCreated?.(created);
       onClose(true);
-    } catch (e) { alert(`Could not save task: ${e.message || e}`); setBusy(false); }
+    } catch (e) { dialog.alert(`Could not save task: ${e.message || e}`); setBusy(false); }
   };
 
   const sel = { ...input, cursor: 'pointer' };

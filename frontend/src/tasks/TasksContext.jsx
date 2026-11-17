@@ -16,6 +16,7 @@ import { loadTaskData, loadOlderTasks, withRecent, withOlder, taskSnapshot, reme
 import { noteStatusChanges } from './recentChanges';
 import { applyFieldUpdate } from './formula';
 import { moveUndoBody } from './lib';
+import { dialog } from '../ui/dialog';
 
 function tasksReducer(prev, v) {
   const next = typeof v === 'function' ? v(prev) : v;
@@ -496,7 +497,7 @@ export function TasksProvider({ children }) {
   // connection under a bulk change is one notice and not a stack of alerts.
   const sayNotSaved = useCallback((e, fallback) => {
     if (e?.status === 401) return;
-    if (e?.status) alert(e.message || fallback);
+    if (e?.status) dialog.alert(e.message || fallback);
     else offerRef.current?.(`Not saved. ${e?.message || 'Try again.'}`, null);
   }, []);
 
@@ -643,7 +644,7 @@ export function TasksProvider({ children }) {
     const failed = results.filter((r) => r.status === 'rejected');
     if (failed.length) {
       const why = failed[0].reason?.message || 'Try again from the Recycle Bin.';
-      alert(failed.length === ids.length && ids.length === 1
+      dialog.alert(failed.length === ids.length && ids.length === 1
         ? `Could not restore this task. ${why}`
         : `Could not restore ${failed.length} of ${ids.length} tasks. ${why}`);
     }
