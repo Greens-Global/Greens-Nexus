@@ -1065,11 +1065,23 @@ h1,h2,h3,h4,h5,h6,
    (fixed header/tabs, scrolling body per sub-view) - the default .viewport
    padding + content-based sizing left empty margins on every side and let
    the module's white chrome fall short of the viewport instead of filling
-   it. Strip padding and give it a definite height (100vh minus the 56px
+   it. Strip padding and give it a definite height (100vh minus the 64px
    .top-header) so height:100% cascades correctly through the module. */
 /* --nx-announce-h: the weekly New Feature bar's height while it shows
    (components/FeatureBanner.jsx), 0 otherwise. */
-.viewport-flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 56px - var(--nx-announce-h, 0px)); }
+.viewport-flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 64px - var(--nx-announce-h, 0px)); }
+/* A phone: dvh (the part of the page on screen, as .nx-modal-sheet does), and
+   the room .main-content keeps at its foot for the bottom tab bar, a .fab or
+   the Time Clock capsule (the "content must never hide behind the bar" rule
+   below - the same three selectors) comes off too. It was 100vh - 56px with
+   that 64px under it, so Tasks stood 72px taller than the screen and the page
+   scrolled behind the module. */
+@media (max-width: 900px) {
+  .viewport-flush { height: calc(100dvh - 64px - var(--nx-announce-h, 0px)); }
+  .mobile-nav ~ .main-content .viewport-flush,
+  .main-content:has(.fab) .viewport-flush,
+  body:has(.tc-capsule) .viewport-flush { height: calc(100vh - 128px - env(safe-area-inset-bottom) - var(--nx-announce-h, 0px)); height: calc(100dvh - 128px - env(safe-area-inset-bottom) - var(--nx-announce-h, 0px)); }
+}
 /* Two classes (0,2,0) so this wins over every single-class `.viewport { padding: … }`
    rule regardless of source order - there are seven of them across the responsive
    blocks, and the flush variant (task/ticket module) must keep zero padding at all

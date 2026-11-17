@@ -70,6 +70,23 @@ describe('mobile menu folding groups', () => {
     expect(rowLabels()).toContain('IT');
   });
 
+  // The group with the open page opens by itself, so the saved list did not
+  // decide it and a tap on its header changed nothing on screen.
+  it('a tap folds and unfolds the group holding the page you are on', () => {
+    const { unmount } = render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="it" />);
+    fireEvent.click(group('Operations'));
+    expect(group('Operations').getAttribute('aria-expanded')).toBe('false');
+    expect(rowLabels()).not.toContain('IT');
+    fireEvent.click(group('Operations'));
+    expect(group('Operations').getAttribute('aria-expanded')).toBe('true');
+    expect(rowLabels()).toContain('IT');
+    // Folding it is for this visit: the next time the menu opens it is open again.
+    fireEvent.click(group('Operations'));
+    unmount();
+    render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="it" />);
+    expect(group('Operations').getAttribute('aria-expanded')).toBe('true');
+  });
+
   it('shows everything flat for someone with a handful of modules', () => {
     nav.items = [
       { view: 'dashboard', label: 'Dashboard' }, { divider: true }, { view: 'tasks', label: 'Tasks' },

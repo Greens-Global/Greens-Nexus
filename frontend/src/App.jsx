@@ -343,7 +343,7 @@ const LEGAL_VIEWS = new Set(['legal', 'privacy-policy', 'terms-conditions']);
 // everyone's default (Neil, Oct 12 2026); changing it is gated inside.
 const OPEN_VIEWS = new Set(['whats-new']);
 
-function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
+function ProtectedView({ activeView, activeSub, onSubChange, onNavigate, onBounce = onNavigate }) {
   const { can, myGrantedModules, isExternal } = useRole();
   const minRole = VIEW_MIN_ROLES[activeView];
 
@@ -366,11 +366,13 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 
   // An external landing on a non-granted view (e.g. the default 'dashboard'
   // after login) is bounced to their first granted module instead of being
-  // parked on the Access Restricted panel.
+  // parked on the Access Restricted panel. The bounce REPLACES the entry it
+  // leaves (onBounce): pushed, Back returned to "/" and bounced again, so a
+  // guest could never go Back out of their landing module.
   const firstGranted = isExternal ? (myGrantedModules.keys().next().value ?? null) : null;
   useEffect(() => {
-    if (isExternal && !hasAccess && firstGranted) onNavigate(firstGranted);
-  }, [isExternal, hasAccess, firstGranted, onNavigate]);
+    if (isExternal && !hasAccess && firstGranted) onBounce(firstGranted);
+  }, [isExternal, hasAccess, firstGranted, onBounce]);
 
   // A role-change approver sent here by the bell or the email, who cannot
   // open People itself: the decision dialog alone, then the dashboard (see
@@ -691,9 +693,11 @@ function MainApp() {
   // canGoBack/prevLabel always reflect the CURRENT history entry, kept in
   // sync identically whether the move came from this app's arrow or the
   // browser's own back/forward.
-  const [canGoBack, setCanGoBack] = useState(false);
-  const [prevLabel, setPrevLabel] = useState(null);
-  const [prevView, setPrevView] = useState(null);
+  // Seeded from the entry itself: after a reload it still carries its stamp,
+  // and starting empty took the header's Back line and the phone's arrow away.
+  const [canGoBack, setCanGoBack] = useState(() => (window.history.state?.depth || 0) > 0);
+  const [prevLabel, setPrevLabel] = useState(() => window.history.state?.fromLabel || null);
+  const [prevView, setPrevView] = useState(() => window.history.state?.fromView || null);
   const prevLocRef = useRef({ view: activeView, sub: activeSub });
   // The page's own name (its lit tab, else the module), kept by ModuleBar: a
   // move inside one module stamps it, so Back reads "Hiring", not "People".
@@ -843,6 +847,14 @@ function MainApp() {
     setSidebarOpen(false);
   }
 
+  // A bounce off a screen this person cannot open (ProtectedView): the next
+  // address write replaces that screen's entry instead of pushing over it.
+  const bounceFrom = useRef(null);
+  function bounce(view) {
+    bounceFrom.current = { view: activeView, sub: activeSub };
+    navigate(view);
+  }
+
   useEffect(() => {
     const handler = e => navigate(e.detail.view, e.detail.sub ?? null);
     window.addEventListener('nexus:navigate', handler);
@@ -874,9 +886,14 @@ function MainApp() {
       if (runPopGuard(e)) { rememberEntry(); return; }
       guardPopstate(e, () => {
         const { view, sub } = parsePath();
-        fromPopstate.current = true;
+        const nextSub = sub ?? getDefaultSub(view);
+        // Only a pop that changes the screen: one that lands on the screen
+        // already showing (a #hash on the same address) changes no state, so
+        // the address effect never ran to clear the flag and the NEXT in-app
+        // move was not written to the address bar or history.
+        fromPopstate.current = view !== prevLocRef.current.view || nextSub !== prevLocRef.current.sub;
         setActiveView(view);
-        setActiveSub(sub ?? getDefaultSub(view));
+        setActiveSub(nextSub);
         setCanGoBack((e.state?.depth || 0) > 0);
         setPrevLabel(e.state?.fromLabel || null);
         setPrevView(e.state?.fromView || null);
@@ -900,11 +917,14 @@ function MainApp() {
       : activeView === 'dashboard' && activeSub === 'links'
         ? '/links'
         : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
-    if (window.location.pathname !== path && first) {
+    const bounced = !!bounceFrom.current && bounceFrom.current.view === prevLocRef.current.view && bounceFrom.current.sub === prevLocRef.current.sub;
+    if (bounced) bounceFrom.current = null;
+    if (window.location.pathname !== path && (first || bounced)) {
       // The FIRST write only rewrites the address the app was opened at (an
       // old alias, a default tab added) - REPLACE it: a pushed copy left the
       // old address one Back away, and opening it again rewrote it again, so
-      // Back never left (Items redesign review, 11/02/2026).
+      // Back never left (Items redesign review, 11/02/2026). A guest's bounce
+      // off a screen they cannot open replaces it for the same reason.
       window.history.replaceState(window.history.state, '', addressFor(path, { first, search: window.location.search, hash: window.location.hash }));
       rememberEntry();
     } else if (window.location.pathname !== path) {
@@ -961,7 +981,8 @@ function MainApp() {
           </div>
         )}
         {/* Keyboard users skip the left menu and the header (navigation review, 11/12/2026). */}
-        <a href="#nx-main" className="nx-skip-link">Skip to Content</a>
+        <a href="#nx-main" className="nx-skip-link"
+          onClick={(e) => { e.preventDefault(); document.getElementById('nx-main')?.focus(); }}>Skip to Content</a>
         <div className="app-container" style={serverDown ? { paddingTop: 34 } : undefined}>
           <WidgetBoundary name="sidebar" resetKey={widgetKey}
             fallback={<NavFallback as="aside" className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`} />}>
@@ -1054,6 +1075,7 @@ function MainApp() {
                   activeSub={activeSub}
                   onSubChange={s => setActiveSub(s)}
                   onNavigate={navigate}
+                  onBounce={bounce}
                 />
               </Suspense>
               </ViewErrorBoundary>

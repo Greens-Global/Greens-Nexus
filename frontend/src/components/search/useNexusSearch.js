@@ -9,7 +9,7 @@ import { NAV, isNavItemVisible } from '../Sidebar';
 import { visibleSubs } from '../MobileMenu';
 import { openContact } from '../../lib/contactNav';
 import { openPersonTasks } from '../../lib/personTasksNav';
-import { setPendingOpen } from '../../lib/pendingOpen';
+import { setPendingOpen, takePendingOpen } from '../../lib/pendingOpen';
 import { formatDate } from '../../lib/datetime';
 import { visibleActions, findActions, runQuickAction } from '../../lib/quickCreate';
 import { api } from '../../api';
@@ -125,6 +125,26 @@ const openTicket = (id, view) => {
   setPendingOpen('ticket', id);
   navigate(view);
   setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-ticket', { detail: { ticketId: id } })), 0);
+};
+// A task, the same way (it used to send the event alone: on a first visit the
+// Tasks module is still downloading, nothing hears it, and the pick landed on
+// My Tasks with nothing open). views/Tasks.jsx drains the note on mount and
+// marks the live event handled - then the note is dropped, so a later visit
+// does not reopen a drawer the person closed.
+const openTask = (id) => {
+  setPendingOpen('task', id);
+  navigate('tasks', 'mine');
+  setTimeout(() => {
+    const detail = { taskId: id };
+    window.dispatchEvent(new CustomEvent('nexus:open-task', { detail }));
+    if (detail.handled) takePendingOpen('task');
+  }, 0);
+};
+// "See all N tasks": the Tasks workspace with the same words in its search.
+const openTaskSearch = (q) => {
+  setPendingOpen('tasks-search', q);
+  navigate('tasks', 'mine');
+  setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:tasks-search', { detail: { q } })), 0);
 };
 // A document opens beside the library's list, where the library opens it
 // (components/DocumentsBrowser.jsx drains the note or hears the event).
@@ -344,7 +364,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
           key: `task:${item.id}`, Icon: Check, title: item.title, done: !!item.completed,
           detail: [item.parentTitle ? `in ${item.parentTitle}` : '', item.projectName].filter(Boolean).join(' · '),
           save: { kind: 'task', to: { task: String(item.id) } },
-          run: () => { toTasks('mine'); setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId: item.id } })), 0); },
+          run: () => openTask(item.id),
         };
         if (g.key === 'jobs') return {
           key: `job:${item.id}`, Icon: HardHat, title: item.name,
@@ -370,7 +390,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       if (total > list.length) {
         if (g.key === 'tasks') rows.push({
           key: 'more:tasks', more: true, title: `See all ${total} tasks`,
-          run: () => { toTasks('mine'); setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:tasks-search', { detail: { q: (query || '').trim() } })), 0); },
+          run: () => openTaskSearch((query || '').trim()),
         });
         else note = `and ${total - list.length} more ${g.label.toLowerCase()}`;
       }
@@ -506,8 +526,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
   const favKeys = useMemo(() => new Set(favorites.map((f) => f.key)), [favorites]);
   const runTo = (to) => {
     if (to.task) {
-      navigate('tasks', 'mine');
-      setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId: to.task } })), 0);
+      openTask(to.task);
     } else if (to.person) {
       if (canTasks) openPersonTasks(to.person, to.name); else openContact(to.person);
     } else if (to.ticket) {

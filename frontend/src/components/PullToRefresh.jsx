@@ -3,6 +3,17 @@ import { RefreshCw } from 'lucide-react';
 
 const ARM_AT = 70; // indicator travel (px) that arms the refresh
 
+// Is anything between the touch and the page scrolled down? Tasks, Tickets
+// and What's New scroll in a container of their own (.viewport-flush), where
+// window.scrollY stays 0 - dragging down to bring a list back up is a scroll,
+// and it used to reload the page.
+function scrolledAbove(el) {
+  for (let n = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+    if (n.scrollTop > 0) return true;
+  }
+  return false;
+}
+
 // Phone-only pull-to-refresh. Reloads the page - the URL mirrors view/sub so
 // the user lands back on the same screen with completely fresh data. Ignores
 // gestures that start inside dialogs/drawers or while one is open, and never
@@ -20,6 +31,7 @@ export default function PullToRefresh() {
       if (!window.matchMedia('(max-width: 900px)').matches) return;
       if (window.scrollY > 0 || document.body.style.overflow === 'hidden') return;
       if (e.target.closest('[role="dialog"], .cart-drawer, .notif-drawer, .mobile-menu, .mobile-submenu, .gs-overlay, .swipe-row')) return;
+      if (scrolledAbove(e.target)) return;
       gesture.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, locked: null };
     };
 

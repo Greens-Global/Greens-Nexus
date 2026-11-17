@@ -12,6 +12,8 @@ import NavMore from './NavMore';
 import { useOffscreenCounts } from '../lib/useOffscreenCounts';
 import { WORKFORCE_GRANTS } from '../lib/workforceAccess';
 import { clearOfflineReadCache } from '../lib/offline/read';
+import { useBackToClose } from '../lib/useBackToClose';
+import { tabsFor } from '../inventory/model/routes';
 
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
 // tap deep-links exactly where the in-page tab would. Modules absent here
@@ -26,12 +28,14 @@ import { clearOfflineReadCache } from '../lib/offline/read';
  * listed for someone without one of them. `role` is useRole().
  */
 export function visibleSubs(view, role) {
-  const entry = SUBMENUS[view];
+  const entry = typeof SUBMENUS[view] === 'function' ? SUBMENUS[view](role) : SUBMENUS[view];
   if (!entry) return null;
   const list = Array.isArray(entry) ? entry : (role?.can?.('manager') ? entry.manager : entry.employee);
   const mayOpen = (s) => !!s.grants && s.grants.some((g) => !!role?.canAccessModule?.(g, 'administrator', 'viewer'));
   // An external (B2B guest) gets only the granted tabs - in Team, Workforce
-  // Analytics alone (views/Shifts.jsx draws the same).
+  // Analytics alone (views/Shifts.jsx draws the same). The list may come back
+  // EMPTY (a guest in a module with no granted tab): callers then open the
+  // module itself - an empty panel was a dead end.
   return list.filter((s) => (role?.isExternal ? mayOpen(s) : !s.grants || mayOpen(s)));
 }
 
@@ -54,19 +58,15 @@ export const SUBMENUS = {
       { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
     ],
   },
-  inventory: {
-    manager: [
-      { sub: 'myitems',      label: 'My Items' },
-      { sub: 'catalog',      label: 'Catalog' },
-      { sub: 'manage',       label: 'Manage' },
-      { sub: 'checkouts',    label: 'Checkouts' },
-      { sub: 'whohasit',     label: 'Who Has What' },
-      { sub: 'audit',        label: 'Audit Log' },
-    ],
-    employee: [
-      { sub: 'catalog', label: 'Catalog' },
-      { sub: 'myitems', label: 'My Items' },
-    ],
+  // Item Management's own tabs and rule (inventory/model/routes.js tabsFor,
+  // Items redesign 11/02/2026): My Stuff and Borrow for everyone, Requests
+  // for items managers and supervisors, Inventory for items managers - read
+  // as views/InventoryManagement.jsx reads them. (Someone below supervisor
+  // who is only the allocator on a checkout reaches Requests from the
+  // module's own tabs: the menu does not hold the checkouts.)
+  inventory: (role) => {
+    const isManager = !!role?.canAccessModule?.('inventory', 'manager', 'editor');
+    return tabsFor({ isManager, isAllocator: !!role?.can?.('supervisor') }).map((t) => ({ sub: t.key, label: t.label }));
   },
   ops: [
     { sub: 'construction-dashboard', label: 'Project Dashboard' },
@@ -149,13 +149,14 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   const [subClosing, setSubClosing] = useState(false);
   const [closing,    setClosing]    = useState(false);
   const [openGroups, setOpenGroups] = useState(readOpenGroups);
-  useEffect(() => { if (!open) { setSubPanel(null); setSubClosing(false); setClosing(false); } }, [open]);
+  // The group holding the page you are on, folded by a tap - for this visit.
+  const [shutActive, setShutActive] = useState(null);
+  useEffect(() => { if (!open) { setSubPanel(null); setSubClosing(false); setClosing(false); setShutActive(null); } }, [open]);
 
   // A busy module below the fold gets a "3 waiting below" pill (NavMore).
   // Above the early return: hooks run on every render.
   const menuRef = useRef(null);
   const [offscreen, reveal] = useOffscreenCounts(menuRef, [counts, open]);
-  if (!open) return null;
 
   // X slides the whole menu back out to the left before unmounting
   // (a transformed ancestor carries the fixed submenu along with it)
@@ -163,6 +164,29 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
     setClosing(true);
     setTimeout(onClose, 340);
   };
+  const closeSub = () => {
+    setSubClosing(true);
+    setTimeout(() => { setSubPanel(null); setSubClosing(false); }, 260);
+  };
+  // The phone's Back and Escape take the top layer off - the sub-panel, then
+  // the menu - like every other sheet (lib/useBackToClose.js). Back used to
+  // change the screen underneath and leave the menu standing over it.
+  const stepBack = () => (subPanel ? closeSub() : requestClose());
+  useBackToClose(open, stepBack);
+  const stepBackRef = useRef(stepBack);
+  useEffect(() => { stepBackRef.current = stepBack; });
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      // A popup over the menu (the clock's own dialogs) keeps its Escape.
+      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[aria-modal="true"]:not(.mobile-menu):not(.mobile-submenu)')) return;
+      e.preventDefault();
+      stepBackRef.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+  if (!open) return null;
 
   const subsFor = view => visibleSubs(view, role);
 
@@ -186,7 +210,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };
   const openRow = item => {
     const subs = subsFor(item.view);
-    if (subs) setSubPanel({ view: item.view, label: item.label, subs });
+    if (subs?.length) setSubPanel({ view: item.view, label: item.label, subs });
     else go(item.view);
   };
   const toggleGroup = (name) => setOpenGroups((list) => {
@@ -194,6 +218,11 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
     saveOpenGroups(next);
     return next;
   });
+  // The group holding the page you are on opens by itself, so the saved list
+  // does not decide it: a tap folds and unfolds it (it used to change only
+  // the saved list, and nothing moved).
+  const holdsActive = (g) => g.items.some((it) => it.view === activeView);
+  const tapGroup = (g) => (holdsActive(g) ? setShutActive((cur) => (cur === g.name ? null : g.name)) : toggleGroup(g.name));
 
   // The rail's groups as sections: { name, items, idx }.
   const groups = [];
@@ -206,7 +235,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   const shownGroups = groups.filter((g) => g.items.length);
   const moduleRows = shownGroups.reduce((n, g) => n + g.items.length, 0);
   const folds = (g) => moduleRows > FOLD_AT && g.idx >= 2 && g.items.length > 1 && !!g.name;
-  const isOpenGroup = (g) => openGroups.includes(g.name) || g.items.some((it) => it.view === activeView);
+  const isOpenGroup = (g) => (holdsActive(g) ? shutActive !== g.name : openGroups.includes(g.name));
 
   const renderRow = (item) => (
     <button key={item.view} className={`mobile-menu-row${activeView === item.view ? ' active' : ''}${moduleCount(counts, item.view) ? ' has-count' : ''}`} onClick={() => openRow(item)}
@@ -217,7 +246,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         <span>{item.label}</span>
       </span>
       <NavCount n={moduleCount(counts, item.view)} />
-      {subsFor(item.view) ? <ChevronRight size={17} /> : null}
+      {subsFor(item.view)?.length ? <ChevronRight size={17} /> : null}
     </button>
   );
 
@@ -236,7 +265,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         aria-expanded={openNow}
         data-count={!openNow && waiting ? waiting : undefined}
         aria-label={!openNow && waiting ? `${g.name}, ${countText(waiting)} waiting on you` : g.name}
-        onClick={() => toggleGroup(g.name)}>
+        onClick={() => tapGroup(g)}>
         <span>{g.name}</span>
         {!openNow && <span className="mm-group-icons" aria-hidden="true">{g.items.slice(0, 4).map((it) => <span key={it.view}>{renderIcon(it, 14)}</span>)}</span>}
         <span className="mm-group-line" aria-hidden="true" />
@@ -245,11 +274,6 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
       </button>,
       ...(openNow ? g.items.map(renderRow) : []),
     ];
-  };
-
-  const closeSub = () => {
-    setSubClosing(true);
-    setTimeout(() => { setSubPanel(null); setSubClosing(false); }, 260);
   };
 
   return (<>

@@ -2,7 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X } from 'lucide-react';
 import { useNexusSearch, SEARCH_PLACEHOLDER, SEARCH_HINT, SEARCH_LABEL } from './search/useNexusSearch';
 import SearchResults from './search/SearchResults';
-import { isSearchShortcut } from '../lib/keys';
+import { isSearchShortcut, PHONE_QUERY } from '../lib/keys';
+import { useIsMobile } from '../lib/useIsMobile';
+import { useBackToClose } from '../lib/useBackToClose';
 
 // ── The search sheet ─────────────────────────────────────────────────────────
 // The same Nexus search as the header bar (components/search/useNexusSearch),
@@ -20,6 +22,11 @@ export default function GlobalSearch() {
   const listRef  = useRef(null);
   const search = useNexusSearch(query, { enabled: open });
 
+  // On a phone the sheet is the whole screen: Back closes it, not the screen
+  // underneath (lib/useBackToClose.js). Before the scroll lock below, as in
+  // the shared Modal: its entry is pushed at the page's real scroll offset.
+  const phone = useIsMobile(PHONE_QUERY);
+  useBackToClose(phone && open, () => setOpen(false));
 
   useEffect(() => {
     if (!open) return undefined;
@@ -35,6 +42,9 @@ export default function GlobalSearch() {
   const pick = useCallback((row) => { setOpen(false); remember(row); row.run?.(); }, [remember]);
   useEffect(() => {
     const onKey = (e) => {
+      // Escape closes it wherever the focus is (a result row, the close
+      // button) - the input's own handler only heard it while typing.
+      if (open && e.key === 'Escape' && !e.defaultPrevented) { setOpen(false); return; }
       if (!isSearchShortcut(e)) return;
       e.preventDefault();
       if (open) { if (e.key !== '/') setOpen(false); return; }

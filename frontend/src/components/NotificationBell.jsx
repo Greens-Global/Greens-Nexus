@@ -184,13 +184,18 @@ export default function NotificationBell({ onNavigate }) {
   const { approveRequest, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
-  const { can, myGrantedModules } = useRole();
+  const { can, myGrantedModules, myEmail: roleEmail, actingAs } = useRole();
   const myName  = accounts[0]?.name     ?? '';
   const myEmail = (accounts[0]?.username ?? '').toLowerCase();
+  // Whose bell this is. Under Act As the server sends the acted-as person's
+  // rows, so the lists key on that person (RoleContext myEmail / actingAs) -
+  // on the real account they filtered every addressed row out.
+  const bellEmail = (roleEmail || myEmail).toLowerCase();
+  const bellName  = actingAs ? (actingAs.targetName || '') : myName;
   // Closed (Neil, 10/01): clearing keeps the row for 30 days under Closed,
   // so an accidental clear can be undone. The lists below see only the open ones.
   const notifications = (allNotifications || []).filter(n => !n.closed);
-  const closedRows = (allNotifications || []).filter(n => n.closed && (!n.recipient || n.recipient === myEmail || n.recipient === myName));
+  const closedRows = (allNotifications || []).filter(n => n.closed && (!n.recipient || n.recipient === bellEmail || n.recipient === bellName));
 
   const [open,           setOpen]           = useState(false);
   const [showClosed,     setShowClosed]     = useState(false);
@@ -279,7 +284,7 @@ export default function NotificationBell({ onNavigate }) {
     // is [] and every pending notification would be wrongly cleared for good.
     if (invRequestsLoading || !invRequests.length) return;
     notifications.forEach(n => {
-      if (n.type !== 'checkout_pending' || (n.recipient && n.recipient !== myEmail) || n.actioned) return;
+      if (n.type !== 'checkout_pending' || (n.recipient && n.recipient !== bellEmail) || n.actioned) return;
       const refId = n.refId ?? '';
       if (!refId) return;
       // Grace period: a fresh notification can arrive (realtime) before the
@@ -605,7 +610,7 @@ export default function NotificationBell({ onNavigate }) {
 
   // Needs Action (managers+) and Updates, and the unread count: ONE rule
   // shared with the dashboard's card and tile (lib/notificationCounts.js).
-  const { actionable, updates, unread: myUnread } = bellLists(allNotifications, { isManager: can('manager'), myEmail, myName });
+  const { actionable, updates, unread: myUnread } = bellLists(allNotifications, { isManager: can('manager'), myEmail: bellEmail, myName: bellName });
 
   // A toast click set this to a notification id - open the panel on that card
   // with the full set of choices (Review / Approve All / Reject All) visible.
@@ -680,26 +685,33 @@ export default function NotificationBell({ onNavigate }) {
       {/* Backdrop */}
       <div onClick={() => setOpen(false)} style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
-        zIndex: 1200, opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none',
+        zIndex: isPhone ? 2700 : 1200, opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none',
         transition: 'opacity 0.25s ease',
       }} />
 
       {/* Drawer - mirrors My Requests / Access Manager so the panel slides in from the side.
           Closed, it is out of reach (Neil, 11/12/2026, navigation review): inert
           takes it out of the Tab order, so focus can no longer land on its
-          off-screen buttons and scroll the whole shell sideways to show them. */}
+          off-screen buttons and scroll the whole shell sideways to show them.
+          It is a dialog only while open: the closed panel stays in the page, and
+          as a standing role="dialog" it made every "is a popup open?" check
+          (the header's Ctrl+F, C then T, Approvals' keys, Escape in Purchase
+          Requests, Links and Accounting Reports) answer yes on every screen. */}
       {/* nx-sheet: the panel shapes itself for phones - without it style.css's
           "dialogs become bottom sheets" rule (role="dialog" + position: fixed)
           turned its header and its list into two sheets, each with a grab bar
           and a 92vh cap (phone pass, 11/15/2026). Height is in style.css
           (.notif-drawer, dvh) so the end of the list clears Safari's bar. */}
-      <div className="notif-drawer nx-sheet" role="dialog" aria-label="Notifications Panel" inert={!open} style={{
+      <div className="notif-drawer nx-sheet" role={open ? 'dialog' : undefined} aria-label="Notifications Panel" inert={!open} style={{
         position: 'fixed', top: 0, right: 0,
         // A little wider (Neil, 11/13/2026): 620px, from 560.
         width: 'min(620px, 94vw)',
         background: 'var(--card)',
         boxShadow: open ? '-12px 0 48px rgba(0,0,0,0.22)' : 'none',
-        zIndex: 1201,
+        // A phone: the whole screen, so the top layer - over Tasks' floating
+        // List / + bar (2500), which painted on the open panel and took taps
+        // (the phone menu's layer, style.css .mobile-menu; popups stay above).
+        zIndex: isPhone ? 2701 : 1201,
         display: 'flex', flexDirection: 'column',
         transform: open ? 'translateX(0)' : 'translateX(100%)',
         transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
