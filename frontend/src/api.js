@@ -3908,6 +3908,20 @@ api.reopenExitStatement = (eid, note = '') => req(`/exit-statements/${encodeURIC
 api.exitMailboxHandover = (eid, done = true) => req(`/exit-statements/${encodeURIComponent(eid)}/mailbox-handover`, { method: 'POST', body: JSON.stringify({ done }) });
 api.exitItemOutcome = (eid, kind, rowId, outcome, body = {}) => req(`/exit-statements/${encodeURIComponent(eid)}/items/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
 api.settleReturnPending = (kind, rowId, outcome, body = {}) => req(`/items/return-pending/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
+// Operations > Tenants (Neil, 11/17/2026): Nexus keeps a READ-ONLY copy of
+// tenant contact details - Cubby stays the source of truth, nothing here
+// edits a tenant. Who sees tenant details, and in which facilities, is the
+// access rules (Settings > Operations > Tenants And Facility Access).
+// `opsTenantRecord` is the tenant sheet's read (it re-reads the tenant live
+// from Cubby); `opsTenant(facilityId, customerId)` above stays the Reports
+// drill-down's.
+api.opsAccessMe = () => req('/facility-ops/access/me');
+api.opsAccess = () => req('/facility-ops/access');
+api.saveOpsAccess = (body) => req('/facility-ops/access', { method: 'PUT', body: JSON.stringify(body) });
+api.deleteOpsAccess = (id) => req(`/facility-ops/access/${encodeURIComponent(id)}`, { method: 'DELETE' });
+api.opsTenants = ({ q = '', facility = '', facilities = '', status = 'current', limit = 50, offset = 0 } = {}) =>
+  req(`/facility-ops/tenants?${new URLSearchParams({ q, facility, facilities, status, limit: String(limit), offset: String(offset) })}`);
+api.opsTenantRecord = (customerId) => req(`/facility-ops/tenants/${encodeURIComponent(customerId)}`, { timeoutMs: 20_000 });
 // Asset Management > Maintenance (Neil, 11/17/2026; routers/maintenance.py):
 // tickets per property - open, all, the newest, preventive schedules and
 // overdue - walled like /maintenance/rollup (403 for anyone it is not for).

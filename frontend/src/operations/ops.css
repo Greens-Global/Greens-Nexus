@@ -518,3 +518,27 @@
   .ops-period select { padding: 9px 10px; }
   .ops-root > .ops-note { font-size: 12px; margin-top: 6px; }
 }
+
+/* Settings > Operations > Tenants And Facility Access (OpsAccessSettings.jsx,
+   Neil 11/17/2026): one rule a row with a hairline between them - no card of
+   its own. On a narrow screen the columns stack and the switch names itself. */
+.ops-access-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr) 130px auto; align-items: center; gap: 10px 18px; padding: 12px 0; border-top: 1px solid var(--line); }
+.ops-access-head { padding: 0 0 8px; border-top: none; font-size: 12px; font-weight: 600; color: var(--muted); }
+.ops-access-lab { display: none; }
+@media (max-width: 760px) {
+  .ops-access-row { grid-template-columns: minmax(0, 1fr); }
+  .ops-access-head { display: none; }
+  .ops-access-lab { display: inline; }
+}
+
+/* Operations > Tenants and the tenant record (Neil, 11/17/2026: no boxed
+   rows, no uppercase labels). Column names read as words; on a phone each
+   row is plain lines with a hairline between rows, not a card of its own. */
+.ops-plain-table th { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; }
+@media (max-width: 640px) {
+  .ops-plain-table.stack-table tbody { gap: 0; }
+  .ops-plain-table.stack-table tbody tr { border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 12px 2px; background: none; }
+  .ops-plain-table.stack-table tbody tr:last-child { border-bottom: none; }
+  .ops-plain-table.stack-table tbody tr:hover { background: none; }
+  .ops-plain-table.stack-table td::before { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; }
+}
