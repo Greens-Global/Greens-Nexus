@@ -410,7 +410,7 @@ class ContentTests(_Case):
         # overdue" (Neil, 10/01).
         self.assertRegex(html, r">1</span> overdue")   # the counts line (11/17/2026)
         self.assertNotIn("These are the tasks you have overdue", html)
-        self.assertIn("Due 09/20/2026&nbsp; ", html)
+        self.assertIn("Due 09/20/2026&nbsp;&nbsp; ", html)
         self.assertIn(">8 days overdue</span>", html)   # plain red words (11/17/2026)
         self.assertIn(">Extend</a>", html)
         self.assertIn("do=extend", html)

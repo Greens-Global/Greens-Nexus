@@ -94,18 +94,18 @@ class DailyLayoutTests(unittest.TestCase):
                                         self.html)), items)
 
     def test_decision_rows_drop_the_approve_word_others_keep_their_title(self):
-        self.assertIn(">Fence repair</div>", self.html)
-        self.assertIn(">Checkout: Drill</div>", self.html)
-        self.assertIn(">Bo&#x27;s Time Off (Vacation)</div>", self.html)
+        self.assertIn(">Fence repair</a></div>", self.html)
+        self.assertIn(">Checkout: Drill</a></div>", self.html)
+        self.assertIn(">Bo&#x27;s Time Off (Vacation)</a></div>", self.html)
         self.assertNotIn("Approve: ", self.html)
-        self.assertIn(">Submit Your Time Sheet</div>", self.html)
+        self.assertIn(">Submit Your Time Sheet</a></div>", self.html)
 
     def test_mark_done_reopen_and_tags(self):
         self.assertEqual(self.html.count(">Mark Done<"), 2)
         self.assertEqual(self.html.count(">Reopen<"), 1)
         self.assertNotIn("Toggle Completion", self.html)
         self.assertIn(">Due today</span>", self.html)          # plain colored words, no tag box
-        self.assertIn("Facilities&nbsp; ", self.html)          # the date is in the state, not repeated
+        self.assertIn("Facilities&nbsp;&nbsp; ", self.html)          # the date is in the state, not repeated
         self.assertIn("#1042 - Assigned to you - Open</div>", self.html)
 
     def test_bundle_all_buttons_sit_under_the_requests(self):
@@ -173,8 +173,8 @@ class WeeklyLayoutTests(unittest.TestCase):
 
     def test_overdue_tag_and_team_list(self):
         self.assertIn(">17 days overdue</span>", self.html)
-        self.assertIn("Due 10/30/2026 - Compliance&nbsp; ", self.html)
-        self.assertIn(">Sam Rivera</div>", self.html)
+        self.assertIn("Due 10/30/2026 - Compliance&nbsp;&nbsp; ", self.html)
+        self.assertIn(">Sam Rivera</a></div>", self.html)
         self.assertIn(">6 overdue</span>", self.html)
         self.assertIn("a - b - c - and 3 more", self.html)
         self.assertIn(">Extend<", self.html)

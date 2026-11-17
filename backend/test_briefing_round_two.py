@@ -306,5 +306,109 @@ class ContentTests(_Case):
         self.assertIn('role="heading" aria-level="2"', html)
 
 
+class ReviewFixTests(_Case):
+    """The fixes from the review of 11/17/2026, one each."""
+
+    def test_the_weekly_never_catches_up_on_a_weekend(self):
+        emp = self._emp(AMY)
+        self._live(daily=False)
+        cfg = weekly_digest.get_settings(self.db)
+        saturday = datetime(2026, 10, 3, 8, 30)                       # 8:30 AM, after the 8:00 send time
+        with mock.patch.object(daily_briefing, "_shift_local_now", lambda tz: saturday):
+            self.assertFalse(weekly_digest._no_shift_due(self.db, emp.work_email, cfg)[0])
+        tuesday = datetime(2026, 9, 29, 8, 30)
+        with mock.patch.object(daily_briefing, "_shift_local_now", lambda tz: tuesday):
+            self.assertTrue(weekly_digest._no_shift_due(self.db, emp.work_email, cfg)[0])
+
+    def test_a_monday_with_only_finished_items_sends_nothing(self):
+        done = {"title": "X", "detail": "Completed", "url": "u", "module": "tasks"}
+        secs, _ = weekly_digest.combined({"completed": [done]}, {"sections": {}, "recap": [], "cfg": {}},
+                                         "2026-09-28", {})
+        self.assertEqual(secs, {})
+
+    def test_an_after_midnight_shift_is_not_a_two_day_gap(self):
+        local = _frozen_local_now("America/Los_Angeles")               # Mon 7:10 AM
+        # Briefed Sun 10:30 PM for Monday's 1:00 AM shift; now briefing Tuesday's.
+        self.assertEqual(daily_briefing.since_label_for("2026-09-28T05:30:00", "2026-09-29", local), "")
+
+    def test_the_monday_preview_says_which_week_the_holiday_is(self):
+        week = {"sections": {weekly_digest.HOLIDAY_SECTION: [
+            {"title": "Thanksgiving Day", "detail": "Thursday, 11/26/2026 - Day Off - Next Week", "url": "",
+             "module": "holidays"}]}, "recap": [], "cfg": {}}
+        row = {"title": "Approve: X", "detail": "", "url": "u", "module": "tasks", "task_id": "t1",
+               "action_kind": "task_approval", "action_id": "t1", "action_email": AMY}
+        _, extra = weekly_digest.combined({"action_required": [row]}, week, "2026-11-16", {})
+        self.assertIn("Thanksgiving Day is Thursday next week", extra["preheader"])
+
+    def test_an_overdue_approval_is_listed_once(self):
+        row = {"title": "Approve: Budget", "detail": "", "url": "u", "module": "tasks", "task_id": "t1",
+               "action_kind": "task_approval", "action_id": "t1", "action_email": AMY}
+        week = {"sections": {weekly_digest.SECTION: [dict(row, overdue_days=3)]}, "recap": [], "cfg": {}}
+        secs, extra = weekly_digest.combined({"action_required": [row]}, week, "2026-09-28", {})
+        self.assertNotIn(weekly_digest.SECTION, secs)
+        self.assertNotIn("Overdue", extra["subject"])
+
+    def test_the_window_never_reaches_back_more_than_two_weeks(self):
+        emp = self._emp(AMY)
+        self._live(weekly=False)
+        self.db.add(models.NexusDailyBriefingLog(id=gen_id(), employee_email=AMY, briefing_date="2026-08-20",
+                                                 sent_at="2026-08-20T13:00:00", mode="live",
+                                                 created_at="2026-08-20T13:00:00"))
+        self.db.commit()
+        seen = {}
+        real = daily_briefing.build_sections
+
+        def spy(db, email, since_iso, briefing_date):
+            seen["since"] = since_iso
+            return real(db, email, since_iso, briefing_date)
+        with mock.patch.object(daily_briefing, "build_sections", spy):
+            daily_briefing._send_one(self.db, emp, daily_briefing.get_settings(self.db), "2026-09-28",
+                                     _frozen_local_now("America/Los_Angeles"))
+        self.assertEqual(seen["since"][:10], "2026-09-14")
+
+    def test_last_week_never_says_zero_and_always_has_a_subject(self):
+        self._emp(BOSS)
+        self._emp(AMY, manager_email=BOSS)
+        # Overdue a week ago, finished since: nothing overdue now.
+        self._task("Old", "2026-09-10", completed=True, completed_at="2026-09-25T10:00:00")
+        self.assertIn("Nothing is overdue, down from 1 the week before.",
+                      " ".join(weekly_digest.last_week_lines(self.db, BOSS, TODAY)))
+        self.db.query(models.Task).delete()
+        self.db.commit()
+        self._task("Late", "2026-09-10")                                # overdue then and now, nothing done
+        self.assertEqual(weekly_digest.last_week_lines(self.db, BOSS, TODAY),
+                         ["Your team has 1 overdue task, the same as the week before."])
+
+    def test_a_test_copy_of_monday_carries_no_links_that_act_as_the_person(self):
+        self._emp(AMY)
+        self._shift(AMY)
+        daily_briefing.save_settings(self.db, {"mode": "test", "test_recipients": ["qa@greensglobal.com"]}, "a@x.com")
+        weekly_digest.save_settings(self.db, {"mode": "test", "test_recipients": ["qa@greensglobal.com"]}, "a@x.com")
+        self._task("Renew business license", "2026-09-20")
+        daily_briefing._scan_once()
+        [mail] = self.sent
+        self.assertIn("Renew business license", mail["html"])
+        self.assertNotIn("do=extend", mail["html"])
+        self.assertNotIn("mail-actions/page", mail["html"])
+
+    def test_monday_is_one_email_whichever_scan_runs_first(self):
+        self._emp(AMY)
+        self._shift(AMY)
+        self._live()
+        self._task("Renew business license", "2026-09-20")
+        weekly_digest._scan_once()                     # the weekly steps aside: the daily carries the week
+        self.assertEqual(self.sent, [])
+        daily_briefing._scan_once()
+        weekly_digest._scan_once()
+        self.assertEqual([m["subject"][:16] for m in self.sent], ["Weekly Briefing "])
+
+    def test_a_week_of_only_coming_up_still_has_a_counts_line(self):
+        _, html = daily_briefing.render_email("Amy", "2026-09-28", {"coming_up": [
+            {"title": "Holiday", "detail": "Friday", "url": "", "module": "holidays", "group": "Holidays"}]},
+            order=["coming_up"])
+        self.assertRegex(html, r">1</span> coming up")
+        self.assertNotIn("color:#6b7280'>Nothing new since your last briefing.</div>", html)   # the counts line
+
+
 if __name__ == "__main__":
     unittest.main()

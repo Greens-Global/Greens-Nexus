@@ -94,6 +94,7 @@ SCAN_EVERY_SEC = 15 * 60             # tight enough to catch a shift-relative
                                       # instant within 15 minutes, matching
                                       # timeclock_watch.py's 30-min precedent
                                       # for a similar per-person threshold
+LOOKBACK_DAYS_MAX = 14               # the window never reaches further back (two weeks off)
 LOOKBACK_HOURS_FIRST_RUN = 48        # "since" window when an employee has no
                                       # prior briefing logged yet
 LEAD_MINUTES_MIN, LEAD_MINUTES_MAX = 30, 360
@@ -328,6 +329,10 @@ def since_label_for(since_iso: str, briefing_date: str, local_now: datetime) -> 
         return ""
     if local_now is not None:
         sent = sent + (local_now - datetime.now(timezone.utc).replace(tzinfo=None))
+        # The recipient's own today, not the shift's date: a shift starting
+        # just after midnight is briefed the evening before, and its date
+        # would read every email as a two-day gap (review, 11/17/2026).
+        day = local_now.date()
     if (day - sent.date()).days < 2:
         return ""
     return f"{sent.strftime('%A')}, {sent.strftime('%m/%d/%Y')}"
@@ -1763,6 +1768,9 @@ def _actions_cell_html(row: dict, td: str) -> str:
         cells += _decision_buttons(row["action_kind"], row["action_id"], row["action_email"])
     if not links and not cells:
         return f"<td class='nx-td nx-act nx-none' style='{td}'></td>"
+    # Only "Open": a computer keeps it in line; a phone hides it - the title
+    # is the same link (11/17/2026: a line of its own on every ticket).
+    only_open = not cells and [label for label, _ in links] == ["Open"]
     # The links and the buttons are two cells of ONE row (one line on a
     # computer); a phone stacks them - links, then buttons a thumb can hit.
     parts = []
@@ -1771,7 +1779,8 @@ def _actions_cell_html(row: dict, td: str) -> str:
                      f"padding:{'0 10px 0 0' if cells else '0'}'>{_inline_links(links)}</td>")
     if cells:
         parts.append(f"<td class='nx-btns' style='vertical-align:middle'>{_button_bar(cells, 'right')}</td>")
-    return (f"<td class='nx-td nx-act' align='right' style='{td};text-align:right;white-space:nowrap'>"
+    return (f"<td class='nx-td nx-act{' nx-open-only' if only_open else ''}' align='right' "
+            f"style='{td};text-align:right;white-space:nowrap'>"
             f"<table role='presentation' cellpadding='0' cellspacing='0' border='0' align='right'><tr>"
             f"{''.join(parts)}</tr></table></td>")
 
@@ -1888,11 +1897,11 @@ def _detail_text(row: dict) -> str:
 def _detail_html(row: dict) -> str:
     words, tone = _row_state(row)
     text = escape(_detail_text(row))
-    # The dot travels WITH the state, so a wrapped line never ends in a dot.
-    state = ((f"<span style='white-space:nowrap'>{'&middot;&nbsp; ' if text else ''}"
-              f"<span style='color:{_STATE_INK[tone]};font-weight:600'>{escape(words)}</span></span>")
+    # No separator dot: the colored words stand apart, and a wrapped line
+    # never starts or ends with a stray dot (phone, 11/17/2026).
+    state = (f"<span style='color:{_STATE_INK[tone]};font-weight:600;white-space:nowrap'>{escape(words)}</span>"
              if words else "")
-    joined = f"{text}&nbsp; {state}" if text and state else (text or state)
+    joined = f"{text}&nbsp;&nbsp; {state}" if text and state else (text or state)
     return (f"<div style='font-size:13px;line-height:1.5;color:{_BODY};margin-top:2px'>{joined}</div>"
             if joined else "")
 
@@ -1926,8 +1935,12 @@ def _item_row_html(row: dict, first: bool = False, *_legacy) -> str:
                 f"<span style='font-weight:600;color:{_INK}'>{escape(_row_title(row))}</span>"
                 + (f" &nbsp;&middot;&nbsp; {rest}" if rest else "") + "</td>")
         return _row_wrap(item, first)
+    # The title opens the item, so a phone can drop a lone Open link.
+    title = escape(_row_title(row))
+    if row.get("url"):
+        title = f"<a href='{escape(row['url'])}' style='color:{_INK};text-decoration:none'>{title}</a>"
     item = (f"<td class='nx-td nx-item' style='{td}'>"
-            f"<div style='font-size:14px;font-weight:600;color:{_INK};line-height:1.4'>{escape(_row_title(row))}</div>"
+            f"<div style='font-size:14px;font-weight:600;color:{_INK};line-height:1.4'>{title}</div>"
             f"{_detail_html(row)}{_sub_actions_html(row)}{_comments_html(row)}</td>")
     return _row_wrap(item + _actions_cell_html(row, td.replace("padding:10px 0", "padding:10px 0 10px 12px")), first)
 
@@ -1942,7 +1955,9 @@ def _done_row_html(row: dict, first: bool = False) -> str:
     if row.get("ref"):
         detail = f"{row['ref']} - {detail}" if detail else row["ref"]
     item = (f"<td class='nx-td nx-item' style='{td};font-size:13.5px;line-height:1.5;color:{_INK}'>"
-            f"<span style='color:{_GREEN};font-weight:700'>&#10003;</span>&nbsp;&nbsp;{escape(row['title'])}"
+            f"<span style='color:{_GREEN};font-weight:700'>&#10003;</span>&nbsp;&nbsp;"
+            + (f"<a href='{escape(row['url'])}' style='color:{_INK};text-decoration:none'>{escape(row['title'])}</a>"
+               if row.get("url") else escape(row["title"]))
             + (f"<span style='color:{_MUTED}'> &nbsp;&middot;&nbsp; {escape(detail)}</span>" if detail else "")
             + "</td>")
     return _row_wrap(item + _actions_cell_html(row, td.replace("padding:7px 0", "padding:7px 0 7px 12px")), first)
@@ -2029,7 +2044,7 @@ _COUNT_WORDS = {
     "action_required": ("need your action", "needs your action"), "pending": ("need your attention", "needs your attention"),
     "overdue": ("overdue", "overdue"), "due_week": ("due this week", "due this week"),
     "needs_to_know": ("updates", "update"), "team_overdue": ("team members behind", "team member behind"),
-    "completed": ("done", "done"),
+    "completed": ("done", "done"), "coming_up": ("coming up", "coming up"),
 }
 
 
@@ -2202,8 +2217,9 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
       .nx-none {{ display:none !important; }}
       .nx-act table {{ float:none !important; }}
       .nx-act > table {{ float:none !important; }}
-      .nx-links, .nx-btns {{ display:block !important; text-align:left !important; }}
-      .nx-links {{ white-space:normal !important; line-height:2 !important; padding:0 0 6px !important; }}
+      .nx-open-only {{ display:none !important; }}
+      .nx-links, .nx-btns {{ display:inline-block !important; vertical-align:middle !important; text-align:left !important; }}
+      .nx-links {{ white-space:normal !important; line-height:2 !important; padding:0 12px 6px 0 !important; }}
       .nx-dot {{ display:none !important; }}
       .nx-btn a {{ padding:11px 18px !important; font-size:14px !important; }}
       .nx-sub-d {{ display:block !important; padding-bottom:4px !important; }}
@@ -2376,7 +2392,10 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     since_iso = ""
     last = _last_log(db, emp.work_email)
     if last and last.sent_at:
-        since_iso = last.sent_at
+        # Never further back than LOOKBACK_DAYS_MAX: a month with the emails
+        # off (or stopped by the person) must not turn into a month-long email.
+        floor = (datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS_MAX)).strftime("%Y-%m-%dT%H:%M:%S")
+        since_iso = max(last.sent_at[:19], floor)
     if not since_iso:
         since_iso = (datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -2397,6 +2416,10 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     # and stands in for the separate one (weekly_digest.combine_into_daily).
     import weekly_digest
     week = weekly_digest.combine_into_daily(db, emp, date.fromisoformat(briefing_date), mode)
+    if week and mode == "test" and not weekly_digest._only_for(emp, list(cfg.get("test_recipients") or [])):
+        # A copy read by someone else carries no links that act as this person,
+        # the same rule as the separate Weekly Briefing's test mode.
+        week = {**week, "sections": weekly_digest._without_actions(week["sections"])}
     extra = {"today_line": today_line_for(db, emp.work_email, briefing_date),
              "since_label": since_label_for(since_iso if last and last.sent_at else "", briefing_date, local_now)}
     if week:
