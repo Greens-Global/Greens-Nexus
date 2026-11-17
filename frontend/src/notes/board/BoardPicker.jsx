@@ -8,7 +8,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useScrollLock } from '../../lib/useScrollLock';
-import { PenTool, Search, X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
+import BoardIcon from '../../components/icons/BoardIcon';
 import { api } from '../../api';
 import { noteTitle } from '../notesModel';
 import { formatDate } from '../../lib/datetime';
@@ -62,7 +63,7 @@ export default function BoardPicker({ open = true, onClose, onPick, excludeId = 
           {shown.map((b) => (
             <li key={b.id}>
               <button type="button" onClick={() => onPick({ noteId: b.id, title: noteTitle(b), thumbUrl: b.thumbUrl || '' })}>
-                {b.thumbUrl ? <img src={b.thumbUrl} alt="" loading="lazy" /> : <span className="is-empty" aria-hidden="true"><PenTool size={14} /></span>}
+                {b.thumbUrl ? <img src={b.thumbUrl} alt="" loading="lazy" /> : <span className="is-empty" aria-hidden="true"><BoardIcon size={14} /></span>}
                 <span className="nt-board-pick-title">{noteTitle(b)}{b.mine === false && <small className="nt-board-pick-shared">Shared with you</small>}</span>
                 <span className="nt-board-pick-when">{b.updatedAt ? formatDate(b.updatedAt) : ''}</span>
               </button>

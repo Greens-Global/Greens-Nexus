@@ -16,7 +16,8 @@
 import { useEffect, useState } from 'react';
 import { Node, mergeAttributes } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
-import { StickyNote, PenTool, SquareCheckBig, HardHat, BookOpen, LifeBuoy } from 'lucide-react';
+import { StickyNote, SquareCheckBig, HardHat, BookOpen, LifeBuoy } from 'lucide-react';
+import BoardIcon from '../components/icons/BoardIcon';
 import { api } from '../api';
 import { openTask } from './notesTasks';
 import { setPendingOpen } from '../lib/pendingOpen';
@@ -35,7 +36,7 @@ export const splitRef = (ref) => {
 
 export const RECORD_META = {
   note: { label: 'Note', icon: StickyNote },
-  board: { label: 'Board', icon: PenTool },
+  board: { label: 'Board', icon: BoardIcon },
   task: { label: 'Task', icon: SquareCheckBig },
   ticket: { label: 'Ticket', icon: LifeBuoy },
   job: { label: 'Job', icon: HardHat },
