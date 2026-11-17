@@ -573,6 +573,10 @@ keep the diff minimal.
   (the day docked) below - whatever the person's full-day hours. The Time
   Sheet no longer prints a "Bands:" line; the day statuses say the result.
   India contractors never use these (8 h / 4 h credits, `india_contractor_pay`).
+  The bands are an INDIA rule only (Neil, 11/18/2026: "Only applies to
+  India"): a salaried person who does not work in India
+  (`india_contractor_pay.works_in_india`) has any worked day as a full day -
+  only a past weekday with no work at all is docked.
 
 - **Hourly company holidays are unpaid** (Neil, 11/04/2026: "Holidays are
   days off for hourly employees"): `_compute_timecard` lists a holiday the
