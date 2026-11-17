@@ -192,7 +192,7 @@ function BucketCell({ r, policy }) {
         {r.carried > 0 ? `${fmtLeave(r.carried, policy)} carries` : 'Nothing carries'}
         {r.expired > 0 ? ` · ${fmtLeave(r.expired, policy)} expires` : ''}
       </span>
-      {r.exempt && <span style={{ color: 'hsl(var(--color-blue))' }}>{r.note}</span>}
+      {/* No law line under each person (Charmi / Neil, 11/17/2026): "N carries" already says it. */}
       {!r.projected && (
         <span style={{ color: owed ? 'hsl(var(--color-orange))' : 'hsl(var(--color-green))', fontWeight: 600 }}>
           {owed ? 'Not Applied Yet' : 'Applied'}

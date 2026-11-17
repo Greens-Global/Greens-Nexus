@@ -883,7 +883,7 @@ export const api = {
   // Paid leave balances (Oct 19 2026, routers/leave_balances.py).
   leaveMyBalance:      ()           => req('/leave-balances/me'),
   leavePersonBalance:  (email)      => req(`/leave-balances/person/${encodeURIComponent(email)}`),
-  leaveAdmin:          ()           => req('/leave-balances/admin'),
+  leaveAdmin:          (asOf = '')  => req(`/leave-balances/admin${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ''}`),
   // `company` (Oct 23): that company's own start date; `reset` drops it so it follows the organization's.
   leaveSetCutover:     (date, company = '', reset = false) => req('/leave-balances/cutover', { method: 'PUT', body: JSON.stringify({ date, company, reset }) }),
   leaveSavePolicies:   (policies)   => req('/leave-balances/policies', { method: 'PUT', body: JSON.stringify({ policies }) }),
