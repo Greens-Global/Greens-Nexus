@@ -29,5 +29,9 @@ export function useSession() {
     role: myRole,
     // The Access Group grant on Asset Management ('' | viewer | editor | full | owner).
     moduleLevel: role?.myGrantedModules?.get?.('property-asset') || '',
+    // Who is signed in (11/17/2026): "My Properties" and the Overview's Mine match these
+    // against an asset's free-text manager. From the signed-in account; no new request.
+    name: acct?.name || '',
+    email: acct?.username || '',
   };
 }

@@ -529,7 +529,7 @@ const DEFAULT_SUBS = {
   ops:               "construction-dashboard",
   operations:        "overview",
   development:       "dev-permits",
-  "property-asset":  "asset-portfolio",
+  "property-asset":  "asset-overview",   // Asset Management lands on Overview (Neil, 11/17/2026); /asset-portfolio is Properties
   hr:                "hr-ms",
   documents:         "documents-files",   // Files opens on Browse Files (Neil, 11/10/2026); a documents-only grant gets its first tab
   "investor-relations": "investor-dashboard",
