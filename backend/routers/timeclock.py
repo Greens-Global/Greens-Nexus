@@ -1597,6 +1597,15 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
     if not (body.note or "").strip():
         raise HTTPException(400, "Add a short note explaining the missed punch.")
     email = user["email"]
+    # The punch may have landed after all (11/17/2026, Valinda): her 11/05
+    # clock-out committed on the web but the answer never reached the phone,
+    # so the queue kept it and replayed it the next afternoon - a clock-out
+    # was allowed again by then - and the time sheet showed it twice. The same
+    # punch at the same minute is already on the card: 409, which the queue
+    # reads as "it landed" and drops (lib/punchQueue.js).
+    from types import SimpleNamespace
+    if _same_live_punch(db, SimpleNamespace(employee_email=email, punch_kind=body.kind, at=body.at)) is not None:
+        raise HTTPException(409, "That punch is already on your time sheet.")
     local_date = _local_date(body.at, body.tz_offset_min or 0)
     _guard_not_finalized(db, email, local_date)
     _guard_review(db, email, local_date, email)
@@ -1962,17 +1971,38 @@ def _inverted_days(punches: list, days: set) -> set:
     """Days (local_date) in `days` holding a clock-out that comes BEFORE a
     clock-in of the same day with nothing open ahead of it - the out-before-in
     a typo or a wrong edit makes. A lone clock-out with no clock-in that day is
-    a missing punch, not an inversion, so it is not counted here."""
+    a missing punch, not an inversion, so it is not counted here.
+
+    Neither is a lone clock-out whose next clock-in already has a clock-out
+    of its own that day (11/17/2026, Valinda): she forgot to clock out on
+    11/04 and pressed Clock Out at 8:42 AM on 11/05, a moment before that
+    morning's clock-in. Adding the real 11/04 clock-out left that press
+    standing alone, and it read as an out-before-in on 11/05 - every add on
+    11/04 was refused while the time sheet showed it as Missing. The time
+    sheet already lists such a press as a clock-out with no clock-in."""
     out, open_in = set(), False
     ordered = sorted(punches, key=lambda p: p.at or "")
-    for i, p in enumerate(ordered):
+    shift = [q for q in ordered if q.kind in ("in", "out")]
+    pos = {id(q): k for k, q in enumerate(shift)}
+
+    def needs_it(p) -> bool:
+        """The same-day clock-in after `p` is left with no clock-out of its
+        own - the case where `p` really was meant to close it."""
+        k = pos[id(p)]
+        nxt = next((j for j in range(k + 1, len(shift))
+                    if shift[j].kind == "in" and shift[j].local_date == p.local_date), None)
+        if nxt is None:
+            return False
+        after = shift[nxt + 1] if nxt + 1 < len(shift) else None
+        return not (after is not None and after.kind == "out" and after.local_date == p.local_date)
+
+    for p in ordered:
         if p.kind == "in":
             open_in = True
         elif p.kind == "out":
             if open_in:
                 open_in = False
-            elif p.local_date in days and any(
-                    q.kind == "in" and q.local_date == p.local_date for q in ordered[i + 1:]):
+            elif p.local_date in days and needs_it(p):
                 out.add(p.local_date)
     return out
 
@@ -4394,6 +4424,16 @@ def _cannot_apply_msg(db: Session, reqs: list, problems: set, punches_after: lis
         us_day = datetime.strptime(day, "%Y-%m-%d").strftime("%m/%d/%Y")
     except ValueError:
         us_day = d
+    # A lone clock-out asked for on a day with nothing else on it (11/17/2026,
+    # Valinda: "Add clock-out at 5:00 PM" with "Use vacation day please" on a
+    # day off) is not a punch to fix - say what to do instead.
+    if (len(reqs) == 1 and r.punch_kind == "out" and prob == "out_without_in" and day == r.local_date
+            and not any(p.local_date == day and p.id != r.id for p in punches_after)):
+        why = (r.reason or "").strip()
+        return (f"{who} asked for a clock-out at {t} on {us_day}, but nothing else is on that day, so a "
+                f"clock-out alone can't go in." + (f' {who}\'s note: "{why[:120]}".' if why else "")
+                + f" If {who} was off that day, Reject this and use Add on {us_day} to put in the time off "
+                  f"(Vacation, Sick or Personal); if {who} worked, Reject it and add the shift with both times.")
     return (f"{who}'s {what} on {d} can't be added as it stands: the time sheet for {us_day} would then have "
             f"{_PROBLEM_WORDS.get(prob, 'a punch out of order')}. With it, that day reads: "
             f"{_punch_list_text(punches_after, day)}. Ask {who} for the missing time, or open the time sheet "
