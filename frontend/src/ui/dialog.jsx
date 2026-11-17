@@ -22,18 +22,27 @@
 // `minLength:n` keeps it disabled until n characters, with a hint saying so.
 //
 // One <DialogHost/> is mounted at the app root (main.jsx). Calls made before it
-// mounts are queued and shown once it does.
+// mounts are queued and shown once it does. One dialog shows at a time: a call
+// made while another is open waits its turn behind it, so every caller's
+// promise resolves (a second call used to replace the first, which then hung).
+//
+// The dialog is the top layer (z 100000): Escape, Enter and Tab are heard on
+// the window, so they work wherever focus sits and nothing under the dialog
+// hears them. Tab stays inside the card and focus goes back to the opener.
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MOTION, motionWait } from '../lib/motion';
+import { trapTabIn } from '../lib/useDialogFocus';
 import HoldButton, { HOLD_MAJOR_MS } from './HoldButton';
 
 let _present = null;          // set by the mounted DialogHost
-const _queue = [];            // calls made before the host mounted
+const _queue = [];            // calls waiting: made before the host mounted, or while a dialog is open
 let _presentUndo = null;      // the Undo toast, same host
+let _seq = 0;                 // one id per call: a new dialog never inherits the last one's hold button
 
 function _show(opts) {
   return new Promise((resolve) => {
-    const item = { ...opts, resolve };
+    _seq += 1;
+    const item = { ...opts, resolve, _id: _seq };
     if (_present) _present(item);
     else _queue.push(item);
   });
@@ -90,23 +99,37 @@ function DialogCard() {
   // gets on with it, while the card plays `.is-closing` and is removed on a
   // timer. A dialog presented during that window replaces it straight away.
   const [closing, setClosing] = useState(false);
+  // A hold action in flight, or showing its check before the dialog closes
+  // (ui/HoldButton.jsx `onBusy`): Cancel, Escape and the scrim wait for it -
+  // cancelling then resolved false while the server went on and did it.
+  const [holdBusy, setHoldBusy] = useState(false);
   const exitTimer = useRef(null);
+  // The dialog on screen. Written by hand wherever `item` is set, never from
+  // an effect: the next call must know at once whether one is open.
   const itemRef = useRef(null);
-  useEffect(() => { itemRef.current = item; }, [item]);
   const inputRef = useRef(null);
   const okRef = useRef(null);
+  const cardRef = useRef(null);
+  const openerRef = useRef(null);   // what had focus before the dialog took it
+  const keyRef = useRef(null);
+
+  // Shows the call at the head of the queue - unless a dialog is open and
+  // staying. One that is on its way out is replaced straight away.
+  const showNext = useCallback(() => {
+    if (itemRef.current && !exitTimer.current) return;
+    const it = _queue.shift();
+    if (!it) return;
+    if (!openerRef.current) openerRef.current = document.activeElement;
+    clearTimeout(exitTimer.current); exitTimer.current = null; setClosing(false);
+    itemRef.current = it;
+    setValue(it.defaultValue || ''); setConfirmingDiscard(false); setHoldBusy(false); setItem(it);
+  }, []);
 
   useEffect(() => {
-    _present = (it) => {
-      clearTimeout(exitTimer.current); exitTimer.current = null; setClosing(false);
-      // Synced here as well as in the effect: a close that lands before that
-      // effect runs must still find the item to resolve.
-      itemRef.current = it;
-      setValue(it.defaultValue || ''); setConfirmingDiscard(false); setItem(it);
-    };
-    if (_queue.length) _present(_queue.shift());
+    _present = (it) => { if (it) _queue.push(it); showNext(); };
+    _present();     // the calls made before the host mounted
     return () => { _present = null; clearTimeout(exitTimer.current); };
-  }, []);
+  }, [showNext]);
 
   const close = useCallback((result) => {
     const cur = itemRef.current;
@@ -114,30 +137,41 @@ function DialogCard() {
     cur.resolve(result);
     const finish = () => {
       exitTimer.current = null;
-      setItem(null); setClosing(false); setValue('');
+      itemRef.current = null;
       // show the next queued dialog, if any
-      if (_queue.length) setTimeout(() => _present && _present(_queue.shift()), 0);
+      if (_queue.length) setTimeout(() => _present && showNext(), 0);
+      else {
+        // The last one: focus goes back to whatever had it (the button that
+        // asked), unless it has since moved somewhere else on purpose.
+        const prev = openerRef.current; openerRef.current = null;
+        const now = document.activeElement;
+        const lost = !now || now === document.body || !now.isConnected || !!cardRef.current?.contains(now);
+        if (lost && prev && prev !== document.body && prev.isConnected && typeof prev.focus === 'function') {
+          try { prev.focus({ preventScroll: true }); } catch { /* ignore */ }
+        }
+      }
+      setItem(null); setClosing(false); setValue('');
     };
     const wait = motionWait(MOTION.exit);
     if (wait === 0) { finish(); return; }
     setClosing(true);
     exitTimer.current = setTimeout(finish, wait);
-  }, []);
+  }, [showNext]);
 
-  // Focus the input (prompt) or the primary button when a dialog opens.
+  // Focus the input (prompt) or the primary button when a dialog opens, and
+  // the first button of "Save your changes?" (Keep Editing) when that shows.
   useEffect(() => {
     if (!item) return;
     const t = setTimeout(() => {
-      if (item.kind === 'prompt' && inputRef.current) inputRef.current.focus();
+      if (confirmingDiscard) cardRef.current?.querySelector('button')?.focus();
+      else if (item.kind === 'prompt' && inputRef.current) inputRef.current.focus();
       else if (okRef.current) okRef.current.focus();
     }, 30);
     return () => clearTimeout(t);
-  }, [item]);
+  }, [item, confirmingDiscard]);
 
-  if (!item) return null;
-
-  const isPrompt = item.kind === 'prompt';
-  const isAlert = item.kind === 'alert';
+  const isPrompt = item?.kind === 'prompt';
+  const isAlert = item?.kind === 'alert';
   const short = isPrompt && item.minLength > 0 && value.trim().length < item.minLength;
   const okDisabled = isPrompt && ((item.required && !value.trim()) || short);
   const confirmResult = () => close(isPrompt ? value : true);
@@ -147,17 +181,44 @@ function DialogCard() {
   // silently dropping what was typed. The prompt's own visible Cancel
   // button stays an immediate, deliberate discard.
   const dirty = isPrompt && value !== (item.defaultValue || '');
-  const requestCancel = () => { if (dirty) setConfirmingDiscard(true); else cancelResult(); };
+  const requestCancel = () => { if (holdBusy) return; if (dirty) setConfirmingDiscard(true); else cancelResult(); };
 
-  const onKeyDown = (e) => {
-    if (e.key === 'Escape') { e.preventDefault(); requestCancel(); }
+  // Heard on the window, in the capture phase: the keys do not depend on
+  // where focus sits (a click on the message leaves it on the card or the
+  // page), and an Escape never reaches the sheet under the dialog.
+  const onKey = (e) => {
+    if (!item) return;
+    const card = cardRef.current;
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      if (confirmingDiscard) setConfirmingDiscard(false); else requestCancel();
+      return;
+    }
+    if (e.key === 'Tab') { trapTabIn(card, e); return; }
+    if (e.key !== 'Enter') return;
+    const at = document.activeElement;
+    const inside = !!card && card.contains(at);
+    // Focus still on the page under the dialog (it moves in a beat after the
+    // dialog opens): the key is neither the page's nor a confirmation.
+    if (!inside && at && at !== document.body) { e.preventDefault(); e.stopPropagation(); return; }
     // A hold-to-confirm dialog is never confirmed by Enter alone (the hold
     // button takes its own Enter / Space hold).
-    else if (e.key === 'Enter' && !(isPrompt && item.multiline) && !item.hold) {
-      e.preventDefault();
-      if (!okDisabled) confirmResult();
-    }
+    if (confirmingDiscard || item.hold || (isPrompt && item.multiline)) return;
+    // A button or a link in focus has its own action: Enter presses IT
+    // (Enter on Cancel cancels), it does not confirm the dialog.
+    if (inside && at.closest('button, a[href], [role="button"]')) return;
+    e.preventDefault();
+    if (!okDisabled) confirmResult();
   };
+  useEffect(() => { keyRef.current = onKey; });
+  useEffect(() => {
+    if (!item) return undefined;
+    const onDown = (e) => keyRef.current?.(e);
+    window.addEventListener('keydown', onDown, true);
+    return () => window.removeEventListener('keydown', onDown, true);
+  }, [item]);
+
+  if (!item) return null;
 
   const btnBase = {
     padding: '9px 20px', borderRadius: 9, fontSize: 13, fontWeight: 600,
@@ -168,6 +229,7 @@ function DialogCard() {
     return (
       <div
         role="presentation"
+        data-nx-esc-layer=""
         className={`nx-overlay${closing ? ' is-closing' : ''}`}
         onMouseDown={(e) => { if (e.target === e.currentTarget) setConfirmingDiscard(false); }}
         style={{
@@ -178,10 +240,11 @@ function DialogCard() {
         }}
       >
         <div
+          ref={cardRef}
           role="dialog"
           aria-modal="true"
+          tabIndex={-1}
           className="nx-panel nx-popup"
-          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setConfirmingDiscard(false); } }}
           style={{
             background: 'var(--card, var(--paper, #fff))',
             border: '1px solid var(--line, #e6e8e2)',
@@ -211,6 +274,7 @@ function DialogCard() {
   return (
     <div
       role="presentation"
+      data-nx-esc-layer=""
       className={`nx-overlay${closing ? ' is-closing' : ''}`}
       onMouseDown={(e) => { if (e.target === e.currentTarget) requestCancel(); }}
       style={{
@@ -221,10 +285,11 @@ function DialogCard() {
       }}
     >
       <div
+        ref={cardRef}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         className="nx-panel nx-popup"
-        onKeyDown={onKeyDown}
         style={{
           background: 'var(--card, var(--paper, #fff))',
           border: '1px solid var(--line, #e6e8e2)',
@@ -288,14 +353,15 @@ function DialogCard() {
               ref={item.hold ? okRef : undefined}
               type="button"
               onClick={cancelResult}
-              style={{ ...btnBase, background: 'transparent', color: 'var(--ink, #17211c)', borderColor: 'var(--line, #e6e8e2)' }}
+              disabled={holdBusy}
+              style={{ ...btnBase, background: 'transparent', color: 'var(--ink, #17211c)', borderColor: 'var(--line, #e6e8e2)', ...(holdBusy ? { opacity: 0.5, cursor: 'not-allowed' } : null) }}
             >
               {item.cancelText || 'Cancel'}
             </button>
           )}
           {item.hold ? (
-            <HoldButton label={item.confirmText || 'Delete'} doneLabel={item.doneText || 'Done'} holdMs={item.holdMs || HOLD_MAJOR_MS}
-              icon={item.holdIcon} clickRuns onDone={() => close(true)}
+            <HoldButton key={item._id} label={item.confirmText || 'Delete'} doneLabel={item.doneText || 'Done'} holdMs={item.holdMs || HOLD_MAJOR_MS}
+              icon={item.holdIcon} clickRuns onDone={() => close(true)} onBusy={setHoldBusy}
               onConfirm={item.onConfirm && (() => item.onConfirm(isPrompt ? value : undefined))} />
           ) : (
           <button

@@ -702,7 +702,7 @@ export default function NotificationBell({ onNavigate }) {
           turned its header and its list into two sheets, each with a grab bar
           and a 92vh cap (phone pass, 11/15/2026). Height is in style.css
           (.notif-drawer, dvh) so the end of the list clears Safari's bar. */}
-      <div className="notif-drawer nx-sheet" role={open ? 'dialog' : undefined} aria-label="Notifications Panel" inert={!open} style={{
+      <div className="notif-drawer nx-sheet" role={open ? 'dialog' : undefined} aria-label="Notifications Panel" data-nx-noguard="" inert={!open} style={{
         position: 'fixed', top: 0, right: 0,
         // A little wider (Neil, 11/13/2026): 620px, from 560.
         width: 'min(620px, 94vw)',

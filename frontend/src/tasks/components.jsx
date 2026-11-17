@@ -22,7 +22,7 @@ import { usePhotoMap } from '../lib/peoplePhotos';
 import { useIsMobile } from '../lib/useIsMobile';
 import { useVisualViewport, readVisualViewport } from '../lib/useVisualViewport';
 import { useScrollLock } from '../lib/useScrollLock';
-import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
+import { useDialogFocus, dialogKeyDown, trapTab, focusables } from '../lib/useDialogFocus';
 import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
 import { canMarkUp, isPdfSource, markupSource, openMarkup } from '../lib/markup';
@@ -125,7 +125,13 @@ function isTopEscapeLayer(id) {
 }
 // onEscape(e) runs only for the layer on top. `active` false takes the layer
 // out of the stack (an overlay that stays mounted while hidden).
-export function useEscapeLayer(onEscape, active = true) {
+// `capture` (11/17/2026): a popover over a layer - the calendar, the Share
+// dialog's role menu - hears its Escape in the capture phase and stops it
+// there, the way SelectMenu and AnchoredMenu do, so the sheet around it never
+// gets the key, whatever that sheet listens with. It sits in the same stack:
+// a calendar opened from a calendar closes first, and the sheet under either
+// is not on top while one is open.
+export function useEscapeLayer(onEscape, active = true, capture = false) {
   const [id] = useState(() => { escapeLayerSeq += 1; return escapeLayerSeq; });
   const cb = useRef(onEscape);
   useEffect(() => { cb.current = onEscape; });
@@ -134,11 +140,12 @@ export function useEscapeLayer(onEscape, active = true) {
     escapeLayers.add(id);
     const onKey = (e) => {
       if (e.key !== 'Escape' || e.defaultPrevented || !isTopEscapeLayer(id)) return;
+      if (capture) e.stopPropagation();
       cb.current?.(e);
     };
-    window.addEventListener('keydown', onKey);
-    return () => { escapeLayers.delete(id); window.removeEventListener('keydown', onKey); };
-  }, [id, active]);
+    window.addEventListener('keydown', onKey, capture);
+    return () => { escapeLayers.delete(id); window.removeEventListener('keydown', onKey, capture); };
+  }, [id, active, capture]);
   return id;
 }
 
@@ -193,6 +200,11 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   const [saving, setSaving] = useState(false);
   const overlayRef = useRef(null);
   const panelRef = useRef(null);
+  const confirmRef = useRef(null);
+  // Where the press behind a scrim click began. A text selection dragged out
+  // of the sheet and let go on the scrim arrives as a click on the scrim (the
+  // browser sends it to the common ancestor): that is not a close.
+  const pressInside = useRef(false);
   const titleId = useId();
   // isBypassing(): a Discard already confirmed by the app-wide guard
   // (lib/dialogGuard.js) is replaying this close - do not ask twice.
@@ -201,8 +213,23 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   // A sheet slides out over --dur-md (220ms); a centered card pops out in 150.
   const [closing, exit] = useExit(onClose, sheet ? MOTION.md : MOTION.exit);
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else exit(); };
-  useEscapeLayer(() => requestClose());
+  // With "Save your changes?" up, Escape is Keep Editing (the phone's Back
+  // already was); it used to ask the same question again.
+  useEscapeLayer(() => { if (confirmClose) setConfirmClose(false); else requestClose(); });
   useDialogFocus(panelRef);
+  // "Save your changes?" sits outside the panel, so the panel's Tab trap never
+  // reached it: it takes focus when it appears (Keep Editing, the safe answer),
+  // keeps Tab to itself, and hands focus back when it goes.
+  useEffect(() => {
+    if (!confirmClose) return undefined;
+    const card = confirmRef.current;
+    const back = document.activeElement;
+    (focusables(card)[0] || card).focus();
+    return () => {
+      const now = document.activeElement;
+      if ((!now || now === document.body || card.contains(now)) && back && back !== document.body && back.isConnected) back.focus?.();
+    };
+  }, [confirmClose]);
   // A sheet over a sheet: the one beneath recedes until this one leaves.
   useSheetStack(panelRef, sheet, closing, zIndex);
   // The body's cascade plays only while the sheet arrives.
@@ -234,7 +261,9 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
     try { await onSave(); } finally { setSaving(false); setConfirmClose(false); }
   };
   return createPortal(
-    <div ref={overlayRef} className={`nx-tasks-portal nx-overlay${closing ? ' is-closing' : ''}`} onClick={requestClose} style={{
+    <div ref={overlayRef} className={`nx-tasks-portal nx-overlay${closing ? ' is-closing' : ''}`}
+      onMouseDown={(e) => { pressInside.current = e.target !== e.currentTarget; }}
+      onClick={(e) => { if (e.target === e.currentTarget && (!pressInside.current || isBypassing())) requestClose(); }} style={{
       position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex,
       ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }),
       // A sheet sits against the right edge and runs the full height; a
@@ -293,7 +322,7 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
         }}>{typeof footer === 'function' ? footer(exit) : footer}</div>}
       </div>
       {confirmClose && (
-        <div onClick={(e) => e.stopPropagation()} style={{
+        <div ref={confirmRef} tabIndex={-1} data-nx-esc-layer="" onKeyDown={trapTab} onClick={(e) => e.stopPropagation()} style={{
           position: 'fixed', inset: 0, zIndex: 4600, display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'rgba(17,24,39,0.25)',
         }}>
@@ -389,9 +418,15 @@ const sameYMD = (a, b) => !!a && !!b && a.getFullYear() === b.getFullYear() && a
 // flipped up when there isn't room below - so it works inside modals/sheets too.
 // `min` (YYYY-MM-DD): days before it are shown but cannot be picked, and
 // months/years wholly before it are greyed out the same way.
-function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '', max = '', repeat = null, monthOnly = false }) {
+// Keyboard (11/17/2026): `autoFocus` - the date box was opened with Enter or
+// Space - puts focus on the selected day (else today, kept inside min / max).
+// On a day the arrows move by day and by week, Page Up / Page Down by month,
+// Enter or Space picks; Tab stays inside the calendar; Escape closes it and
+// hands focus back to the date box. A mouse or a finger never moves focus.
+function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '', max = '', repeat = null, monthOnly = false, autoFocus = false }) {
   const selected = value ? isoToDate(value) : null;
   const today = new Date();
+  const today0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const minDate = min ? isoToDate(min) : null;
   const beforeMin = (d) => !!minDate && d < minDate;
   // `max` (YYYY-MM-DD): days after it are shown but cannot be picked (a time
@@ -401,7 +436,11 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   const monthBeforeMin = (y, m) => !!minDate && (y < minDate.getFullYear() || (y === minDate.getFullYear() && m < minDate.getMonth()));
   const yearBeforeMin = (y) => !!minDate && y < minDate.getFullYear();
   const disabledCell = { cursor: 'not-allowed', opacity: 0.35 };
-  const [cursor, setCursor] = useState(() => { const b = selected || today; return new Date(b.getFullYear(), b.getMonth(), 1); });
+  const clampDay = (d) => (beforeMin(d) ? minDate : afterMax(d) ? maxDate : d);
+  // The day the arrow keys are on. Only the keyboard ever sets it.
+  const [focusDay, setFocusDay] = useState(() => (autoFocus && !monthOnly ? clampDay(selected || today0) : null));
+  const keyed = useRef(autoFocus);
+  const [cursor, setCursor] = useState(() => { const b = focusDay || selected || today; return new Date(b.getFullYear(), b.getMonth(), 1); });
   // Zoom level, iOS-style: days -> months -> years. Clicking the month in the
   // title zooms out to that year's months, clicking the year zooms out to a
   // page of years, and picking one zooms straight back in. Lets you cross
@@ -423,14 +462,56 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
       if (e.target.closest?.('[data-nx-calendar]')) return;
       onClose();
     };
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
   }, [onClose, anchorRef]);
+  // Escape closes the calendar, NOT the sheet around it - it used to listen on
+  // the document beside the sheet's own listener, so one Escape closed both
+  // (or, in a form with typed work, asked to discard it with the calendar
+  // still open).
+  useEscapeLayer(() => { onClose(); anchorRef?.current?.focus?.(); }, true, true);
+  // Focus follows the keyboard: onto the day the arrows moved to...
+  useEffect(() => {
+    if (focusDay) ref.current?.querySelector(`[data-day="${dateToISO(focusDay)}"]:not(:disabled)`)?.focus();
+  }, [focusDay]);
+  // ...and, when what held it is gone (the days gave way to the months, the
+  // years or the repeat panel), onto the calendar itself, so Tab and Escape
+  // still start from inside it.
+  useEffect(() => {
+    const root = ref.current;
+    const at = document.activeElement;
+    if (!keyed.current || !root || root.contains(at) || at?.closest?.('[data-nx-calendar]')) return;
+    (root.querySelector('[data-day][tabindex="0"]') || root).focus();
+  }, [zoom, panel]);
+  // A pick or a close made from the keyboard (a click with no press behind
+  // it) hands focus back to the date box; a mouse leaves it where it fell.
+  const done = (e) => { onClose(); if (keyed.current && e?.detail === 0) anchorRef?.current?.focus?.(); };
+  const onDaysKey = (e) => {
+    const iso = e.target?.dataset?.day;
+    if (!iso || e.altKey || e.ctrlKey || e.metaKey) return;
+    const d = isoToDate(iso);
+    const by = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+    let t;
+    if (by) t = new Date(d.getFullYear(), d.getMonth(), d.getDate() + by);
+    else if (e.key === 'PageUp' || e.key === 'PageDown') {
+      // The same day a month away, or that month's last day (01/31 -> 02/28).
+      const m = new Date(d.getFullYear(), d.getMonth() + (e.key === 'PageUp' ? -1 : 1), 1);
+      t = new Date(m.getFullYear(), m.getMonth(), Math.min(d.getDate(), new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate()));
+    } else return;
+    e.preventDefault();
+    t = clampDay(t);
+    setFocusDay(t);
+    if (t.getMonth() !== cursor.getMonth() || t.getFullYear() !== cursor.getFullYear()) setCursor(new Date(t.getFullYear(), t.getMonth(), 1));
+  };
 
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const offset = first.getDay();   // Sunday-first: getDay() is already 0=Sun
   const days = Array.from({ length: 42 }, (_, i) => { const d = new Date(first); d.setDate(1 - offset + i); return d; });
+  // One day is the Tab stop (the grid is one stop, the arrows move inside it):
+  // the day the keys are on, else the selected day or today, else - when that
+  // one is not on this page - the first day of the month that can be picked.
+  const rove = focusDay || clampDay(selected || today0);
+  const tabDay = days.find((d) => sameYMD(d, rove)) || days.find((d) => d.getMonth() === cursor.getMonth() && !beforeMin(d) && !afterMax(d)) || null;
 
   const W = 300, H = 372;
   // anchorRect / innerWidth are in the OUTER space, W and H are CSS lengths in
@@ -480,7 +561,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   };
 
   return createPortal(
-    <div ref={ref} data-nx-calendar="" style={{
+    <div ref={ref} data-nx-calendar="" data-nx-esc-layer="" tabIndex={-1} onKeyDown={(e) => { keyed.current = true; trapTab(e); }} style={{
       position: 'fixed', left, width: W, ...vpos, background: NX.surface, border: `1px solid ${NX.border}`,
       borderRadius: 14, boxShadow: '0 16px 44px rgba(0,0,0,0.22)', zIndex: 5000, padding: 14, fontFamily: FONT,
     }}>
@@ -515,7 +596,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', marginBottom: 4 }}>
             {CAL_WEEK.map((w) => <div key={w} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: NX.faint, padding: '4px 0' }}>{w}</div>)}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
+          <div onKeyDown={onDaysKey} style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
             {days.map((d, i) => {
               const inMonth = d.getMonth() === cursor.getMonth();
               const isToday = sameYMD(d, today);
@@ -524,9 +605,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
               return (
                 // The full date as the name: a screen reader hears
                 // "10/28/2026", not a bare "28" (11/03/2026).
-                <button key={i} disabled={off} aria-label={fmtDate(dateToISO(d))}
+                <button key={i} disabled={off} aria-label={fmtDate(dateToISO(d))} data-day={dateToISO(d)} tabIndex={sameYMD(d, tabDay) ? 0 : -1}
                   title={beforeMin(d) ? 'Past dates cannot be picked' : afterMax(d) ? 'Later dates cannot be picked' : undefined}
-                  onClick={() => { onChange(dateToISO(d)); onClose(); }} style={{
+                  onClick={(e) => { onChange(dateToISO(d)); done(e); }} style={{
                   height: 36, borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13,
                   fontWeight: (isSel || isToday) ? 700 : 500, fontFamily: FONT,
                   background: isSel ? NX.primary : 'transparent',
@@ -547,8 +628,8 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
             const isSel = !!selected && selected.getFullYear() === cursor.getFullYear() && selected.getMonth() === i;
             const off = monthBeforeMin(cursor.getFullYear(), i);
             return (
-              <button key={label} disabled={off} onClick={() => {
-                if (monthOnly) { onChange(`${cursor.getFullYear()}-${String(i + 1).padStart(2, '0')}`); onClose(); return; }
+              <button key={label} disabled={off} onClick={(e) => {
+                if (monthOnly) { onChange(`${cursor.getFullYear()}-${String(i + 1).padStart(2, '0')}`); done(e); return; }
                 setCursor(new Date(cursor.getFullYear(), i, 1)); setZoom('days');
               }}
                 style={{ ...cellBtn, background: isSel ? NX.primary : 'transparent', color: isSel ? '#fff' : NX.ink,
@@ -573,7 +654,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, borderTop: `1px solid ${NX.border2}`, paddingTop: 8 }}>
-        {monthOnly ? <span /> : <button onClick={() => { onChange(null); onClose(); }} style={linkBtn}>Clear</button>}
+        {monthOnly ? <span /> : <button onClick={(e) => { onChange(null); done(e); }} style={linkBtn}>Clear</button>}
         {/* Repeat sits with the date it repeats from (Sagar, Oct 14 2026),
             the way Asana's date picker has it. Only where the caller can
             save a rule - due dates, not start or end dates. */}
@@ -585,9 +666,11 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
           </button>
         )}
         {monthOnly ? (
-          <button onClick={() => { onChange(dateToISO(today).slice(0, 7)); onClose(); }} style={linkBtn}>This Month</button>
-        ) : !beforeMin(new Date(today.getFullYear(), today.getMonth(), today.getDate())) ? (
-          <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
+          <button onClick={(e) => { onChange(dateToISO(today).slice(0, 7)); done(e); }} style={linkBtn}>This Month</button>
+        ) : !beforeMin(today0) && !afterMax(today0) ? (
+          // Offered only when today can be picked: inside `min` AND `max`
+          // (it used to check `min` alone, so Today went past the last day allowed).
+          <button onClick={(e) => { onChange(dateToISO(today)); done(e); }} style={linkBtn}>Today</button>
         ) : <span />}
       </div>
       </>)}
@@ -614,27 +697,37 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
   const btnRef = useRef(null);
-  const openCal = () => {
+  // Opened with Enter / Space on the box (not a mouse, not a finger): focus
+  // goes into the calendar, onto the selected day.
+  const byKey = useRef(false);
+  const [keyed, setKeyed] = useState(false);
+  const openCal = (fromKey = false) => {
     if (disabled) return;
     const r = btnRef.current?.getBoundingClientRect();
-    if (r) { setRect(r); setOpen(true); }
+    if (r) { setKeyed(fromKey); setRect(r); setOpen(true); }
   };
-  const toggle = (e) => { if (disabled) return; e.stopPropagation(); open ? setOpen(false) : openCal(); };
+  const toggle = (e) => {
+    if (disabled) return;
+    e.stopPropagation();
+    const fromKey = byKey.current; byKey.current = false;
+    open ? setOpen(false) : openCal(fromKey);
+  };
   // Tabbing on past the field closes its calendar - it only ever closed on
   // a click outside or Escape, so a keyboard user left it hanging open.
-  const onKeyDown = (e) => { if (e.key === 'Tab' && open) setOpen(false); };
+  const onKeyDown = (e) => { if (e.key === 'Tab' && open) setOpen(false); byKey.current = e.key === 'Enter' || e.key === ' '; };
+  const onPointerDown = () => { byKey.current = false; };
 
   if (compact && !value) {
     return (
       <span style={{ position: 'relative', display: 'inline-flex', ...style }}>
-        <button ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled} onClick={toggle} onKeyDown={onKeyDown}
+        <button ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled} onClick={toggle} onKeyDown={onKeyDown} onPointerDown={onPointerDown}
           style={{
             width: 24, height: 24, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
             background: 'transparent', color: NX.faint, display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: 0, cursor: disabled ? 'default' : 'pointer', flexShrink: 0,
           }}
         ><CalendarDays size={13} strokeWidth={2} /></button>
-        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} />}
+        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} autoFocus={keyed} />}
       </span>
     );
   }
@@ -643,7 +736,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
     <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, ...style }}>
       <button
         ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled}
-        onClick={toggle} onKeyDown={onKeyDown}
+        onClick={toggle} onKeyDown={onKeyDown} onPointerDown={onPointerDown}
         style={{
           flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
           textAlign: 'left', border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
@@ -657,7 +750,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
             to the label's first button, which closed it again - a flicker. */}
         {!(compact && value) && <CalendarDays size={15} strokeWidth={2} color={NX.faint} style={{ flexShrink: 0 }} aria-hidden="true" />}
       </button>
-      {open && rect && <CalendarPopover value={monthOnly && value ? `${value}-01` : value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} monthOnly={monthOnly} />}
+      {open && rect && <CalendarPopover value={monthOnly && value ? `${value}-01` : value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} monthOnly={monthOnly} autoFocus={keyed} />}
     </span>
   );
 }
@@ -758,9 +851,13 @@ const PROJECT_ROLE_ORDER = ['owner', 'editor', 'commenter', 'viewer'];
 // same technique as CalendarPopover above. The plain-nested-dropdown version
 // got clipped by the Share modal's "Who has access" list, which needs its own
 // overflow-y:auto scrollbar; a position:absolute child can never escape that.
-function RolePickerPanel({ anchorRect, value, onChange, onClose }) {
+function RolePickerPanel({ anchorRect, anchorRef, value, onChange, onClose }) {
   const ref = useRef(null);
-  useClickOutside(ref, onClose, true);
+  // The trigger is not "outside": a press on it closed the menu here and the
+  // click that followed opened it again, so it could not be closed that way.
+  useClickOutside([ref, anchorRef], onClose, true);
+  // Escape closes the menu alone, not the Share dialog around it.
+  useEscapeLayer(() => { onClose(); anchorRef?.current?.focus?.(); }, true, true);
   const W = 260, H = 260;
   // Same outer/inner split as CalendarPopover above - see rootZoom.
   const z = rootZoom();
@@ -770,7 +867,7 @@ function RolePickerPanel({ anchorRect, value, onChange, onClose }) {
     ? { bottom: (window.innerHeight - anchorRect.top + 6) / z }
     : { top: (anchorRect.bottom + 6) / z };
   return createPortal(
-    <div ref={ref} style={{
+    <div ref={ref} data-nx-esc-layer="" style={{
       position: 'fixed', left, width: W, ...vpos, background: NX.surface,
       border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
       zIndex: 4100, padding: 6, fontFamily: FONT,
@@ -813,7 +910,7 @@ function RolePicker({ value, onChange, disabled }) {
         {meta.label}{!disabled && <ChevronDown size={13} style={{ color: NX.faint }} />}
       </button>
       {open && rect && (
-        <RolePickerPanel anchorRect={rect} value={value} onChange={onChange} onClose={() => setOpen(false)} />
+        <RolePickerPanel anchorRect={rect} anchorRef={btnRef} value={value} onChange={onChange} onClose={() => setOpen(false)} />
       )}
     </>
   );
@@ -1176,7 +1273,7 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
   }, [onClose, anchorRef]);
   if (!pos) return null;
   return createPortal(
-    <div ref={ref} className="nx-scroll" style={{
+    <div ref={ref} data-nx-esc-layer="" className="nx-scroll" style={{
       position: 'fixed', left: pos.left, width: pos.width, maxHeight: pos.maxHeight,
       ...(pos.top !== undefined ? { top: pos.top } : { bottom: pos.bottom }),
       ...(pos.lift ? { transform: 'translateY(-100%)' } : null),
@@ -1785,7 +1882,7 @@ export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
   return (
     // data-no-swipe: a swipe in the viewer (panning a picture) is the
     // viewer's, never the phone ticket card's step to the next ticket.
-    <div data-no-swipe="" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
+    <div data-no-swipe="" data-nx-esc-layer="" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
       <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px', color: '#fff' }}>
         <span style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
         <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
