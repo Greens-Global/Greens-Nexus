@@ -334,7 +334,8 @@
 .nt-w-row { position: relative; display: block; width: 100%; text-align: left; border: none; background: none; padding: 6px 4px 6px 12px; cursor: pointer; font: inherit; color: var(--ink); border-radius: 6px; }
 .nt-w-row:hover { background: var(--wk-hover); }
 .nt-w-row .nt-row-rule { left: 3px; top: 8px; bottom: 8px; }
-.nt-w-label { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--wk-faint, #9699a6); margin: 2px 0 2px; }
+/* Pinned / Latest over the widget list: a quiet word, not an uppercase eyebrow (Neil, 11/17/2026). */
+.nt-w-label { font-size: 12px; font-weight: 600; color: var(--wk-faint, #9699a6); margin: 2px 0 2px; }
 
 /* ── phone ── */
 @media (max-width: 768px) {

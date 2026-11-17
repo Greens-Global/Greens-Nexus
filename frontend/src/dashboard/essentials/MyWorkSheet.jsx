@@ -14,7 +14,8 @@ import { WorkRow, WorkChips } from './MyWork.jsx';
 import { rowKey, pickRows, chipsFor, workSub, errorLine } from './myWorkModel';
 
 const ALL_ROWS = 100000;   // no cap: every row the server sent
-const sectionStyle = { fontSize: FS.meta, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', margin: '14px 8px 4px', display: 'flex', justifyContent: 'space-between' };
+// The tile's own group heading (no uppercase eyebrow - Neil, 11/17/2026).
+const sectionStyle = { fontSize: FS.label, fontWeight: 700, color: 'var(--ink)', margin: '14px 8px 4px', display: 'flex', justifyContent: 'space-between' };
 
 export default function MyWorkSheet({ data, only, onOnly, busy, mobile, onOpen, onComplete, onClose }) {
   const chips = chipsFor(data);
@@ -41,7 +42,7 @@ export default function MyWorkSheet({ data, only, onOnly, busy, mobile, onOpen, 
             <div key={s.key}>
               <div style={sectionStyle}>
                 <span>{s.label}</span>
-                <span>{s.count > s.items.length ? `${s.items.length} of ${s.count}` : s.count}</span>
+                <span style={{ color: 'var(--muted)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{s.count > s.items.length ? `${s.items.length} of ${s.count}` : s.count}</span>
               </div>
               {s.items.map((it) => (
                 <WorkRow key={rowKey(it)} it={it} overdue={s.key === 'overdue'} mobile={mobile}

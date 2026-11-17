@@ -169,7 +169,7 @@ export default function MyTeam({ phone }) {
         <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <Row Icon={p.worst?.kind === 'ticket' ? TicketIcon : ListTodo} title={p.name || p.email} meta={pushMeta(p)}
-              status="overdue" statusLabel={isMobile ? '' : 'Overdue'} onClick={() => openWorst(p)} />
+              status="overdue" statusLabel={isMobile ? '' : 'Overdue'} metaLines={2} onClick={() => openWorst(p)} />
           </div>
           <a href={teamsChatUrl(p.email)} target="_blank" rel="noreferrer" aria-label={`Message ${p.name || p.email} on Teams`} title="Message on Teams"
             style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 8, color: 'var(--muted)', flexShrink: 0 }}>

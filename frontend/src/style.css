@@ -6011,12 +6011,12 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 }
 .nx-agenda-wd { font-size: 13px; font-weight: 600; color: hsl(var(--color-blue)); line-height: 18px; white-space: nowrap; }
 .nx-agenda-day { font-size: 32px; font-weight: 500; color: var(--ink); line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
-.nx-agenda-list { flex: 1; min-width: 0; margin-top: -8px; }
+.nx-agenda-list { flex: 1; min-width: 0; margin: -8px 0; }   /* the rows' own 8px padding meets the card's at both edges */
 @container nxagenda (max-width: 300px) {
   .nx-agenda-in { flex-direction: column; gap: 2px; }
   .nx-agenda-date { width: auto; flex-direction: row; align-items: baseline; gap: 8px; }
   .nx-agenda-day { font-size: 24px; }
-  .nx-agenda-list { margin-top: 0; }
+  .nx-agenda-list { margin: 0 0 -8px; }
 }
 .dash-grid .sc-tile { container-type: size; container-name: sctile; gap: 9px; }
 .sc-tile-chip { width: 44px; height: 44px; border-radius: 12px; }
