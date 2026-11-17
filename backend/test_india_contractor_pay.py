@@ -551,13 +551,14 @@ class CardTests(Base):
         for em in (EMP_IN, CON_US):
             _worked_example(self.db, em)
         self.db.commit()
-        # Weekend pay is India only (Charmi, 11/06/2026): the US contractor
-        # keeps the old day rules but no weekend pay.
-        for em, weekend, total in ((EMP_IN, 3240.0, 57915.0), (CON_US, 0.0, 54675.0)):
+        # Weekend pay is India only (Charmi, 11/06/2026), and so are the
+        # 4 h / 2.5 h day bands (Neil, 11/18/2026): the US contractor's short
+        # day is not docked half a day - only the day with no work is.
+        for em, deduction, weekend, total in ((EMP_IN, 4050.0, 3240.0, 57915.0), (CON_US, 2700.0, 0.0, 56025.0)):
             c = self.card(em)
             self.assertNotIn("indiaPolicy", c, em)
             self.assertEqual((c["totals"]["deduction"], c["totals"]["weekendBonus"], c["totals"]["totalPay"]),
-                             (4050.0, weekend, total), em)
+                             (deduction, weekend, total), em)
             self.assertNotIn("credit", self.day(c, ABSENT))
         # The switch off for the India company: old rules for its contractor too.
         self.db.query(models.NexusSetting).delete()
