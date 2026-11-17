@@ -95,11 +95,14 @@ export const MODULE_CAPABILITIES = {
     editor: 'Same as Viewer.',
     full:   'Same as Viewer.',
   },
+  // Tenants (Neil, 11/17/2026): tenant details are no level's - below
+  // Administrator they open by a rule (backend/ops_access.py `reach`), and
+  // the rules are kept by an Administrator or Operations Full (`may_manage`).
   operations: {
-    viewer: 'Read everything - portfolio, reports, insights, CMA, rates, unit map, third parties, budget and facility work.',
+    viewer: 'Read everything - portfolio, reports, insights, CMA, rates, unit map, third parties, budget and facility work. Tenant contact details and gate codes are not part of any level: they open only by a rule under Settings > Operations > Tenants And Facility Access.',
     editor: 'Also edit rates, reports, third-party records, facility work, the unit map and CMA drafts.',
-    full:   'Also approve CMAs, revenue, the customer map and the budget, and save Operations and Cubby settings.',
-    tiers:  { supervisor: 'reads without a grant', manager: 'edits and approves', administrator: 'settings' },
+    full:   'Also approve CMAs, revenue, the customer map and the budget, save Operations and Cubby settings, and keep the Tenants And Facility Access rules.',
+    tiers:  { supervisor: 'reads without a grant', manager: 'edits and approves', administrator: 'settings, and tenant details at every facility without a rule' },
   },
   'property-asset': {
     viewer: 'The properties, vehicles and equipment they may see.',
