@@ -79,7 +79,7 @@ export function ContactCell({ name, label, contacts, onSave }) {
           }}
         >
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 1 }}>{name}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.03em', fontWeight: 700 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
             {label}
           </div>
 

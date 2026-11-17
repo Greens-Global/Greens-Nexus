@@ -64,7 +64,8 @@ const CREATE_FIELDS = {
   ],
 };
 
-const SECTION_LABEL_STYLE = { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--pine)' };
+// A group's name: type weight, no uppercase eyebrow (Neil, 11/17/2026).
+const SECTION_LABEL_STYLE = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' };
 
 /**
  * @param draft        staged values when RE-opening the add screen, e.g. after backing out
@@ -346,12 +347,12 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', ...SECTION_LABEL_STYLE }}
           >
             {advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Advanced
-            <span style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 0, color: 'var(--text-secondary)' }}>- link this property to another</span>
+            <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>- link this property to another</span>
           </button>
           {advanced && (
             <div style={{ marginTop: 12 }}>
               <div className="form-group">
-                <label htmlFor="add-asset-link">Link this property to another</label>
+                <label htmlFor="add-asset-link">Link This Property to Another</label>
                 <select id="add-asset-link" className="form-input" value={linkTargetId} onChange={(e) => setLinkTargetId(e.target.value)}>
                   <option value="">- Standalone (not linked) -</option>
                   {otherProperties.map((p) => (

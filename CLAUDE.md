@@ -1564,6 +1564,38 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   the verify lists: https://claude.ai/artifact/MZR3srrjuzCQQYHTMERgNU .
 - Equipment and vehicles pair with Item Management (`AddItemModal`) - do not
   build a second warranty/serial system there.
+- **The top menu (Neil, 11/17/2026 redesign):** the portfolio's header tabs
+  are Overview (the landing tab, `asset-overview`), Properties
+  (`asset-portfolio` - old links keep working), Fleet, Development,
+  Maintenance, Dates, Activity (`lib/navigation.js` `PORTFOLIO_TABS`). Fleet
+  and Development hide when empty, Maintenance until `useTabSignals` says the
+  person may see it; a plain number after Maintenance / Dates (ModuleTabs'
+  opt-in `count`), never a pill. Every tab's first row is "+ New" (Property /
+  Vehicle / Heavy Equipment / Import) and "..." (Trash, Import, Export as CSV);
+  only Properties puts its view's name on the left. An open asset's Back line
+  names where it came from (`useTrailCrumbs`), never a bare arrow; its tabs
+  are Overview, Maintenance, Records (a dropdown of the collections with rows
+  plus "Add ..." for the empty ones), Timeline (only with rows), Activity;
+  `AssetTitleBand` walks the list it was opened from ("< 7 of 23 >", J / K).
+- **Properties is a register, not a page of cards:** List by default (the
+  mode kept per person, `useTableValue('asset-portfolio', 'mode')`),
+  Gallery and Map one click. ONE query model, `lib/portfolioQuery.js`:
+  filters, FACETED counts, the smart search's phrase rules (no AI, like
+  sayTask), the suggested views and the presets other tabs open
+  (`goTab('properties', { preset })`), the view in the address
+  (`asset-portfolio~<encodeView>`; the search words are never written),
+  group sums. A parcel group is one row whose numbers SUM its parcels. "CA" and
+  "California" are one state; managers are matched case- and space-blind; My
+  Properties matches the signed-in name / email (`myNames`, the Overview's
+  rule). Saved views are per person (`useTableValue('asset-portfolio',
+  'views')`); sharing is Copy Link - never a shared-views store. Bulk Set
+  Company / Asset Manager / Stage goes through the store, one row save and one
+  Activity entry per asset (`lib/assetPatch.js` keeps the snapshot in step).
+  RETIRED: the Needs Attention band on the portfolio, its chips and the red
+  unseen-log badge, and the "Need a Company" chip (Neil approved) - replaced
+  by the needs line under the summary, bulk Set Company and the Company
+  filter's No Company. Data Gaps opens from the Missing Key Details view,
+  Flagged from "Review N flagged fields"; never bring the band back.
 - **Preventive maintenance (Neil, 11/03/2026, Construction plan phase 5).**
   Tickets ARE the work orders - no second queue. A preventive schedule is a
   `property_maintenance_services` row with `kind` calendar / floating /

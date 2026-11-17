@@ -50,7 +50,6 @@ export function ToastHost() {
             borderRadius: 10,
             backgroundColor: 'var(--bg-card)',
             border: '1px solid var(--border-color)',
-            borderLeft: '3px solid ' + (it.tone === 'mut' ? 'var(--text-muted)' : `hsl(var(--color-${TONE_DOT_COLOR[it.tone] || 'green'}))`),
             boxShadow: 'var(--shadow-md)',
             fontSize: 13,
             fontWeight: 600,
@@ -59,7 +58,7 @@ export function ToastHost() {
             whiteSpace: 'nowrap',
           }}
         >
-          <span style={{ display: 'inline-flex', lineHeight: 1 }}>
+          <span style={{ display: 'inline-flex', lineHeight: 1, color: it.tone === 'mut' ? 'var(--text-muted)' : `hsl(var(--color-${TONE_DOT_COLOR[it.tone] || 'green'}))` }}>
             {it.tone === 'bad' ? <AlertTriangle size={15} /> : it.tone === 'mut' ? <Trash2 size={15} /> : <Check size={15} />}
           </span>
           {it.msg}

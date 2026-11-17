@@ -19,8 +19,9 @@ activeSub wiring stay in the module. They just declare the strip through
 
     <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
 
-tabs: [{ key, label, Icon?, badge?, hint? }] - Icon optional (Accounting's pills are
-label-only); badge is an optional count pill (falsy hides it).
+tabs: [{ key, label, Icon?, badge?, hint?, count?, countTone? }] - Icon optional (Accounting's pills are
+label-only); badge is an optional count pill (falsy hides it); count is a plain
+number after the label, never a pill (opt-in, countTone 'red' for a call to act).
 
 Oct 6 (Charmi and Neil, 10/04): a tab may carry `items: [{ key, label, Icon? }]`
 - it then draws as a dropdown (Accounting's Dashboard > Overview / Cash /
@@ -137,6 +138,18 @@ export function ModuleActionsSlot() {
   return <div className="module-actions-row" ref={setActionsEl} />;
 }
 
+// A plain number after a tab's label (Asset Management, 11/17/2026: "Maintenance 12",
+// "Dates 10" in red) - opt-in through a tab's `count` (and `countTone: 'red'`). No pill,
+// no box: the number is words. Every other module's tabs are drawn exactly as before.
+function TabCount({ count, tone }) {
+  if (!count) return null;
+  return (
+    <span className="hdr-tab-count" style={{ marginLeft: 6, fontSize: 12, fontWeight: tone === 'red' ? 600 : 500, fontVariantNumeric: 'tabular-nums', color: tone === 'red' ? 'hsl(var(--color-red))' : 'var(--text-muted)' }}>
+      {count}
+    </span>
+  );
+}
+
 // The published tab strip itself: a plain strip, or the measured one with a
 // More dropdown - always measured in the top header, which it shares with
 // the search and the account menu.
@@ -147,7 +160,7 @@ function HeaderStrip({ entry, measured = false }) {
     // People's dropdown tabs keep only their own label in the bar (11/03/2026);
     // the others name their picked item as they do in the plain strip.
     const compact = !!(entry.overflow || entry.compactGroups);
-    const renderTab = ({ key, label, Icon, badge, items, landing, tone }, probe) => {
+    const renderTab = ({ key, label, Icon, badge, items, landing, tone, count, countTone }, probe) => {
       if (items && !probe) {
         return <TabGroupButton key={key} tab={{ key, label, Icon, items, landing, badge }} active={entry.active} className="hdr-tab" compact={compact} onSelect={pick} />;
       }
@@ -162,6 +175,7 @@ function HeaderStrip({ entry, measured = false }) {
           <span>{label}</span>
           {cur && cur.label !== label && <span className="tab-group-current">{cur.label}</span>}
           {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}<ChangeFlash value={badge} /></span>}
+          <TabCount count={count} tone={countTone} />
           {items && <ChevronDown size={14} className="tab-group-caret" />}
         </button>
       );
@@ -171,7 +185,7 @@ function HeaderStrip({ entry, measured = false }) {
   return (
     <nav className={`hdr-tabs${entry.compactGroups ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">
       {ink}
-      {entry.tabs.map(({ key, label, Icon, badge, items, landing, tone }) => (items ? (
+      {entry.tabs.map(({ key, label, Icon, badge, items, landing, tone, count, countTone }) => (items ? (
         <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={entry.active} className="hdr-tab" compact={!!entry.compactGroups} onSelect={pick} />
       ) : (
         <button key={key} type="button"
@@ -181,6 +195,7 @@ function HeaderStrip({ entry, measured = false }) {
           {Icon && <Icon size={16} strokeWidth={2} />}
           <span>{label}</span>
           {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}<ChangeFlash value={badge} /></span>}
+          <TabCount count={count} tone={countTone} />
         </button>
       )))}
     </nav>
@@ -228,7 +243,7 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   useEffect(() => { onChangeRef.current = onChange; });
 
   const itemsSig = (items) => (items ? ` [${items.map(i => `${i.key}:${i.label}${itemsSig(i.items)}`).join(',')}]` : '');
-  const signature = tabs.map(t => `${t.key} ${t.label} ${t.title ?? ''} ${t.badge ?? ''}${t.landing ? ` >${t.landing}` : ''}${itemsSig(t.items)}`).join('|');
+  const signature = tabs.map(t => `${t.key} ${t.label} ${t.title ?? ''} ${t.badge ?? ''}${t.count ? ` #${t.count}${t.countTone || ''}` : ''}${t.landing ? ` >${t.landing}` : ''}${itemsSig(t.items)}`).join('|');
   useEffect(() => {
     if (!setEntry) return;
     setEntry({ tabs, active, syncTitle, compactGroups, overflow, onChange: key => onChangeRef.current?.(key) });
@@ -264,7 +279,7 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   return (
     <div ref={stripRef} className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
       <TabInk key={signature} active={active} variant="line" />
-      {tabs.map(({ key, label, Icon, badge, items, landing, tone }) => (items ? (
+      {tabs.map(({ key, label, Icon, badge, items, landing, tone, count, countTone }) => (items ? (
         <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={active} onSelect={(k) => onChange?.(k)} className="module-tab-inline-btn" iconSize={16} compact={compactGroups} />
       ) : (
         <button
@@ -276,6 +291,7 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
           {/* tone: 'alarm' (Tickets, 10/31/2026) - a count that is a call to
               act (tickets nobody owns) in amber; every other count stays quiet. */}
           {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}<ChangeFlash value={badge} /></span>}
+          <TabCount count={count} tone={countTone} />
         </button>
       )))}
     </div>
@@ -430,7 +446,7 @@ export function HeaderOverflowTabs({ entry, onPick, renderTab, ink, compact = fa
   const measure = useRef(null);
   const [fit, setFit] = useState(tabs.length);
   // The active key is in it: a group tab names its picked item, so its width moves.
-  const sig = `${active}|` + tabs.map((t) => `${t.key}:${t.label}:${t.badge ?? ''}`).join('|');
+  const sig = `${active}|` + tabs.map((t) => `${t.key}:${t.label}:${t.badge ?? ''}:${t.count ?? ''}`).join('|');
   useLayoutEffect(() => {
     const box = measure.current;
     const host = box?.parentElement;
@@ -472,7 +488,7 @@ export function HeaderOverflowTabs({ entry, onPick, renderTab, ink, compact = fa
         {rest.length > 0 && (
           <TabGroupButton key="__more" className="hdr-tab" compact onSelect={onPick} active={active}
             tab={{ key: '__more', label: 'More', Icon: MoreHorizontal, badge: restBadge,
-              items: rest.map(({ key, label, Icon, badge, items }) => ({ key, label, Icon, badge, items })) }} />
+              items: rest.map(({ key, label, Icon, badge, items, count }) => ({ key, label, Icon, badge, items, ...(count ? { hint: String(count) } : {}) })) }} />
         )}
       </nav>
     </>

@@ -50,7 +50,9 @@ function ReorderArrow({ children, disabled, onClick }) {
     <button
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
+      type="button"
       title="Reorder"
+      aria-label="Reorder"
       style={{
         display: 'block',
         lineHeight: 0.85,
@@ -59,7 +61,7 @@ function ReorderArrow({ children, disabled, onClick }) {
         border: 'none',
         background: 'none',
         cursor: disabled ? 'default' : 'pointer',
-        color: disabled ? 'var(--border-color)' : 'hsl(var(--color-purple))',
+        color: disabled ? 'var(--border-color)' : 'var(--text-secondary)',
       }}
     >
       {children}
@@ -109,52 +111,22 @@ export function ParcelManager({
   parcelReveal.show = () => setReveal(true);
 
   if (!grouped && !reveal) return null;
+  const LABEL = { fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' };
 
   return (
-    <div
-      style={{
-        padding: '11px 13px',
-        marginBottom: 14,
-        borderRadius: 14,
-        border: '1px solid hsl(var(--color-purple) / 0.4)',
-        backgroundColor: 'hsl(var(--color-purple) / 0.07)',
-        boxShadow: 'var(--shadow-sm)',
-      }}
+    <section
+      aria-label={grouped ? 'Asset Group' : 'Linked Parcels'}
+      style={{ padding: '0 0 14px', marginBottom: 16, borderBottom: '1px solid var(--border-color)' }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'wrap' }}>
-        <span
-          style={{
-            flexShrink: 0,
-            width: 34,
-            height: 34,
-            borderRadius: 9,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#fff',
-            background: 'hsl(var(--color-purple))',
-          }}
-        >
-          <Link2 size={17} />
-        </span>
+        <Link2 size={16} aria-hidden="true" style={{ flexShrink: 0, color: 'var(--text-secondary)' }} />
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              color: 'hsl(var(--color-purple))',
-            }}
-          >
-            {grouped ? 'Asset Group' : 'Linked Parcels'}
-          </div>
           {grouped ? (
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
               <span
                 style={{
                   fontSize: 15,
-                  fontWeight: 700,
+                  fontWeight: 600,
                   color: 'var(--text-primary)',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -164,29 +136,22 @@ export function ParcelManager({
               >
                 {groupName}
               </span>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                {members.length} parcels{totalAcres > 0 ? ` · ~${totalAcres.toFixed(1)} ac` : ''}
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                Asset group of {members.length} parcels{totalAcres > 0 ? ` · about ${totalAcres.toFixed(1)} acres` : ''}
               </span>
             </div>
           ) : (
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-muted)' }}>
-              Not linked to other parcels
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              <b style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Linked Parcels</b> - not linked to other parcels yet
             </div>
           )}
         </div>
         <button
+          type="button"
+          className="secondary-btn"
+          aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
-          style={{
-            flexShrink: 0,
-            padding: '7px 15px',
-            borderRadius: 999,
-            fontSize: 13,
-            fontWeight: 700,
-            cursor: 'pointer',
-            border: 'none',
-            background: 'hsl(var(--color-purple))',
-            color: '#fff',
-          }}
+          style={{ flexShrink: 0 }}
         >
           {open ? 'Done' : grouped ? 'Manage' : 'Link'}
         </button>
@@ -224,7 +189,7 @@ export function ParcelManager({
           style={{
             marginTop: 13,
             paddingTop: 13,
-            borderTop: '1px solid hsl(var(--color-purple) / 0.25)',
+            borderTop: '1px solid var(--border-color)',
             display: 'flex',
             flexDirection: 'column',
             gap: 14,
@@ -233,13 +198,7 @@ export function ParcelManager({
           {grouped && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               <label
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                  color: 'var(--text-secondary)',
-                }}
+                style={LABEL}
               >
                 Group Name
               </label>
@@ -257,7 +216,7 @@ export function ParcelManager({
                 placeholder="Name this asset group"
                 style={{ width: '100%', boxSizing: 'border-box', fontSize: 13, padding: '9px 11px' }}
               />
-              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                 Renames the whole group (separate from each parcel's own name). Saves when you tap away.
               </span>
             </div>
@@ -270,23 +229,19 @@ export function ParcelManager({
                 alignItems: 'flex-start',
                 gap: 9,
                 cursor: 'pointer',
-                padding: '10px 11px',
-                borderRadius: 10,
-                border: '1px solid ' + (assembled ? 'hsl(var(--color-purple))' : 'var(--border-color)'),
-                backgroundColor: assembled ? 'hsl(var(--color-purple) / 0.08)' : 'transparent',
               }}
             >
               <input
                 type="checkbox"
                 checked={!!assembled}
                 onChange={(e) => onSetAssembled && onSetAssembled(e.target.checked)}
-                style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0, cursor: 'pointer', accentColor: 'hsl(var(--color-purple))' }}
+                style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0, cursor: 'pointer' }}
               />
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-                  Treat parcels as one assembled asset
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                  Treat Parcels as One Assembled Asset
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>
                   Fill the project detail once on the lead parcel. Other parcels keep only their own APN,
                   address, lot size, acquisition & zoning - no full detail needed on each.
                 </div>
@@ -296,15 +251,9 @@ export function ParcelManager({
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                color: 'var(--text-secondary)',
-              }}
+              style={LABEL}
             >
-              {grouped ? 'Add a parcel' : 'Link with another parcel'}
+              {grouped ? 'Add a Parcel' : 'Link With Another Parcel'}
             </span>
             {linkable.length ? (
               <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
@@ -342,36 +291,19 @@ export function ParcelManager({
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             <span
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                textTransform: 'uppercase',
-                letterSpacing: '0.04em',
-                color: 'var(--text-secondary)',
-              }}
+              style={LABEL}
             >
               Quick Start
             </span>
             <button
+              type="button"
+              className="secondary-btn"
               onClick={() => onDuplicate && onDuplicate()}
-              style={{
-                alignSelf: 'flex-start',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '9px 14px',
-                borderRadius: 999,
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-                border: '1px dashed hsl(var(--color-purple) / 0.65)',
-                background: 'transparent',
-                color: 'hsl(var(--color-purple))',
-              }}
+              style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
               <Copy size={13} /> Duplicate This Parcel
             </button>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               Copies this parcel's details into a new linked parcel - records start empty, ready to edit.
             </span>
           </div>
@@ -379,15 +311,9 @@ export function ParcelManager({
           {grouped && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                  color: 'var(--text-secondary)',
-                }}
+                style={LABEL}
               >
-                Parcels ({members.length}) - reorder with the arrows; the star marks the primary parcel
+                Parcels - {members.length} of them; reorder with the arrows, the star marks the primary parcel
               </span>
               {members.map((m, i) => {
                 const isCurrent = m.id === active.id;
@@ -398,10 +324,8 @@ export function ParcelManager({
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 7,
-                      padding: '9px 11px',
-                      borderRadius: 11,
-                      border: isCurrent ? '1px solid hsl(var(--color-purple) / 0.55)' : '1px solid var(--border-color)',
-                      backgroundColor: 'var(--bg-card)',
+                      padding: '9px 0',
+                      borderTop: '1px solid var(--border-color)',
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -413,21 +337,7 @@ export function ParcelManager({
                           <ChevronDown size={13} />
                         </ReorderArrow>
                       </div>
-                      <span
-                        style={{
-                          flexShrink: 0,
-                          width: 22,
-                          height: 22,
-                          borderRadius: 6,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: 'var(--text-secondary)',
-                          backgroundColor: 'var(--bg-secondary)',
-                        }}
-                      >
+                      <span style={{ flexShrink: 0, width: 22, textAlign: 'center', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
                         {i + 1}
                       </span>
                       <button
@@ -453,7 +363,7 @@ export function ParcelManager({
                           style={{
                             fontWeight: 600,
                             fontSize: 13,
-                            color: isCurrent ? 'hsl(var(--color-purple))' : 'var(--text-primary)',
+                            color: 'var(--text-primary)',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -462,8 +372,8 @@ export function ParcelManager({
                           {m.name}
                         </span>
                         {isCurrent ? (
-                          <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-purple))' }}>
-                            VIEWING
+                          <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
+                            (Viewing)
                           </span>
                         ) : null}
                       </button>
@@ -479,37 +389,19 @@ export function ParcelManager({
                       <button
                         onClick={() => onTogglePrimary(m.id)}
                         title={m.primary ? 'Primary - tap to unset' : 'Mark as primary'}
-                        style={{
-                          flexShrink: 0,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          padding: '5px 11px',
-                          borderRadius: 999,
-                          fontSize: 12,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          border: m.primary ? '1px solid hsl(var(--color-purple))' : '1px solid var(--border-color)',
-                          background: m.primary ? 'hsl(var(--color-purple) / 0.13)' : 'transparent',
-                          color: m.primary ? 'hsl(var(--color-purple))' : 'var(--text-muted)',
-                        }}
+                        type="button"
+                        className="secondary-btn"
+                        aria-pressed={!!m.primary}
+                        style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', fontSize: 12, color: m.primary ? 'var(--text-primary)' : 'var(--text-secondary)' }}
                       >
                         <Star size={12} fill={m.primary ? 'currentColor' : 'none'} /> Primary
                       </button>
                       <button
                         onClick={() => onUnlink(m.id)}
                         title="Remove from group"
-                        style={{
-                          flexShrink: 0,
-                          padding: '5px 11px',
-                          borderRadius: 999,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          border: '1px solid hsl(var(--color-red) / 0.45)',
-                          background: 'transparent',
-                          color: 'hsl(var(--color-red))',
-                        }}
+                        type="button"
+                        className="secondary-btn"
+                        style={{ flexShrink: 0, padding: '4px 10px', fontSize: 12, color: 'hsl(var(--color-red))' }}
                       >
                         Unlink
                       </button>
@@ -521,6 +413,6 @@ export function ParcelManager({
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 }

@@ -9,7 +9,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../../api.js';
 import { openNotificationTarget } from '../../../lib/openTarget.js';
-import { SiteModelPanel, siteModelImages } from '../../../sitemodel/SiteModelPanel.jsx';
+import { SiteModelPanel, siteModelImages, defaultStatus } from '../../../sitemodel/SiteModelPanel.jsx';
+import { countedUnits } from '../../../sitemodel/panelModel.js';
 import { usePropertyTickets } from '../../lib/propertyTickets.js';
 import { PropertyTicketComposer } from '../maintenance/ticketMounts';
 
@@ -48,22 +49,42 @@ export function matchSiteModel(list, p) {
     || null;
 }
 
-export function SiteModelSection({ p }) {
+/** Leased / vacant / out of service over the model's counted units - the same
+ *  answer the panel's own legend gives (defaultStatus). */
+export function siteModelInventory(model) {
+  const units = countedUnits(model?.units || []);
+  const by = { leased: 0, vacant: 0, bad: 0 };
+  units.forEach((u) => { const k = defaultStatus(u); if (k in by) by[k] += 1; });
+  return { total: units.length, ...by };
+}
+
+/** The property's site model: the list (to match), the matched model and its pins.
+ *  `p` null = nothing is fetched (the section was handed a loaded one). One hook so the
+ *  overview's Units block and the section below it share a single 1 MB fetch. */
+export function useSiteModel(p) {
   const [list, setList] = useState(null); const [model, setModel] = useState(null); const [pins, setPins] = useState([]); const [error, setError] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [marked, setMarked] = useState({ property: null, spots: [] }); const [mark, setMark] = useState(null);
-  const [markReset, setMarkReset] = useState(0);
-  useEffect(() => { let on = true; api.getSiteModels().then((l) => on && setList(l || [])).catch(() => on && setList([])); return () => { on = false; }; }, []);
-  // Keyed on the fields the match reads, not the property object: AssetDetailForm
-  // hands down a fresh `p` after every save and the 1 MB model must not refetch.
+  const on = !!p;
+  useEffect(() => { if (!on) return undefined; let live = true; api.getSiteModels().then((l) => live && setList(l || [])).catch(() => live && setList([])); return () => { live = false; }; }, [on]);
+  // Keyed on the fields the match reads, not the property object: the page hands
+  // down a fresh `p` after every save and the 1 MB model must not refetch.
   const pid = p?.id, papn = p?.apn, pname = p?.name;
-  const match = useMemo(() => matchSiteModel(list, { id: pid, apn: papn, name: pname }), [list, pid, papn, pname]);
+  const match = useMemo(() => (on ? matchSiteModel(list, { id: pid, apn: papn, name: pname }) : null), [on, list, pid, papn, pname]);
   const load = useCallback(() => {
     if (!match) return;
     api.getSiteModel(match.id).then(setModel).catch((e) => setError(e?.message || 'Could not load the site model'));
     api.getSiteModelMarkups(match.id).then((rows) => setPins(rows || [])).catch(() => {});
   }, [match]);
   useEffect(() => { load(); }, [load]);
+  return { listed: list !== null, match, model: match && model ? model : null, pins, setPins, error };
+}
+
+export function SiteModelSection({ p, site = null }) {
+  const own = useSiteModel(site ? null : p);
+  const { match, model, pins, setPins, error } = site || own;
+  const [pinError, setPinError] = useState('');
+  const [marked, setMarked] = useState({ property: null, spots: [] }); const [mark, setMark] = useState(null);
+  const [markReset, setMarkReset] = useState(0);
+  const pid = p?.id, pname = p?.name;
   const loadSpots = useCallback(() => {
     if (!match || !api.getTicketMapSpots) return;
     Promise.resolve(api.getTicketMapSpots(match.id)).then((r) => setMarked({ property: r?.property || null, spots: r?.spots || [] })).catch(() => {});
@@ -80,13 +101,13 @@ export function SiteModelSection({ p }) {
   const openTicket = (t) => { window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tickets' } })); openNotificationTarget({ ticketId: t.id }); };
   const pinFail = (what) => (e) => setPinError(`${what}: ${e?.message || 'request failed'}`);
   return (
-    <section style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-primary)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 15, color: 'var(--text-primary)' }}>Site Model</strong>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>To scale · every unit placed · pins mark what needs attention</span>
-        <a href={`/map/${encodeURIComponent(match.id)}`} target="_blank" rel="noreferrer" style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-green, 150 56% 28%))' }}>Customer Unit Finder ↗</a>
+    <section aria-label="Site Model">
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 12, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Site Model</h3>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>To scale, every unit placed; pins mark what needs attention.</span>
+        <a href={`/map/${encodeURIComponent(match.id)}`} target="_blank" rel="noreferrer" style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-green))' }}>Customer Unit Finder ↗</a>
       </div>
-      <div style={{ padding: 14 }}>
+      <div>
         {error ? <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{error}</div>
           : !model ? <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '40px 0', textAlign: 'center' }}>Loading the site model…</div>
           : <>

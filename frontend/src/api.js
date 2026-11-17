@@ -3922,3 +3922,7 @@ api.deleteOpsAccess = (id) => req(`/facility-ops/access/${encodeURIComponent(id)
 api.opsTenants = ({ q = '', facility = '', facilities = '', status = 'current', limit = 50, offset = 0 } = {}) =>
   req(`/facility-ops/tenants?${new URLSearchParams({ q, facility, facilities, status, limit: String(limit), offset: String(offset) })}`);
 api.opsTenantRecord = (customerId) => req(`/facility-ops/tenants/${encodeURIComponent(customerId)}`, { timeoutMs: 20_000 });
+// Asset Management > Maintenance (Neil, 11/17/2026; routers/maintenance.py):
+// tickets per property - open, all, the newest, preventive schedules and
+// overdue - walled like /maintenance/rollup (403 for anyone it is not for).
+api.getMaintenancePortfolio = () => req('/maintenance/portfolio');
