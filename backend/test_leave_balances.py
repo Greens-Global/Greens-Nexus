@@ -399,6 +399,45 @@ class LeaveBalanceTests(unittest.TestCase):
             "category": "Sick"})
         self.assertEqual(resp.status_code, 200, resp.text)
 
+    # ── Charmi, 11/17/2026 ──
+    def test_a_zero_sick_import_is_zero_not_a_fresh_grant(self):
+        """QuickBooks said 0 h sick left (all 40 used). The import skipped the
+        zero, so the yearly 40 h came back as unused. A 0 opening holds."""
+        self._cutover()
+        lb.set_opening(self.db, A, 10, 0, HR_EMAIL)
+        self.db.commit()
+        b = lb.balances(self.db, A, today=TODAY)
+        self.assertEqual(b["sick"]["available"], 0)
+        self.assertIsNone(b["sick"]["grant"])
+
+    def test_the_period_ending_on_the_start_date_is_inside_the_opening(self):
+        """Amy: the 10/04 - 10/17 accrual was added on top of the QuickBooks
+        balance that already had it. Rows from a period dated on the start
+        date are not counted again; the next period's are, and an HR
+        adjustment dated on that day still counts."""
+        self._cutover()
+        lb.set_opening(self.db, A, 50, 40, HR_EMAIL)
+        lb.add_entry(self.db, A, "vacation", 0.31, "accrual", CUT, "Earned in pay period", HR_EMAIL, "r1")
+        lb.add_entry(self.db, A, "vacation", 2.78, "accrual", "2026-09-26", "Earned in pay period", HR_EMAIL, "r2")
+        lb.add_entry(self.db, A, "vacation", 1, "adjust", CUT, "HR fix", HR_EMAIL)
+        self.db.commit()
+        self.assertEqual(lb.balances(self.db, A, today=TODAY)["vacation"]["available"], 53.78)
+
+    def test_hr_reads_balances_as_of_a_day(self):
+        self._cutover()
+        lb.set_opening(self.db, A, 50, 40, HR_EMAIL)
+        lb.add_entry(self.db, A, "vacation", 2, "accrual", "2026-09-26", "Earned", HR_EMAIL, "r1")
+        lb.add_entry(self.db, A, "vacation", 3, "accrual", "2026-10-10", "Earned", HR_EMAIL, "r2")
+        self.db.commit()
+
+        def vac(q=""):
+            r = self.client.get("/leave-balances/admin" + q)
+            self.assertEqual(r.status_code, 200, r.text)
+            return next(p for p in r.json()["people"] if p["email"] == A)["vacation"]["available"]
+        self.assertEqual(vac(), 55)
+        self.assertEqual(vac("?as_of=2026-09-30"), 52)
+        self.assertEqual(self.client.get("/leave-balances/admin?as_of=09/30/2026").status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()
