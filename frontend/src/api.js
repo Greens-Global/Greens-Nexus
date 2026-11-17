@@ -3919,6 +3919,6 @@ api.opsAccessMe = () => req('/facility-ops/access/me');
 api.opsAccess = () => req('/facility-ops/access');
 api.saveOpsAccess = (body) => req('/facility-ops/access', { method: 'PUT', body: JSON.stringify(body) });
 api.deleteOpsAccess = (id) => req(`/facility-ops/access/${encodeURIComponent(id)}`, { method: 'DELETE' });
-api.opsTenants = ({ q = '', facility = '', status = 'current', limit = 50, offset = 0 } = {}) =>
-  req(`/facility-ops/tenants?${new URLSearchParams({ q, facility, status, limit: String(limit), offset: String(offset) })}`);
+api.opsTenants = ({ q = '', facility = '', facilities = '', status = 'current', limit = 50, offset = 0 } = {}) =>
+  req(`/facility-ops/tenants?${new URLSearchParams({ q, facility, facilities, status, limit: String(limit), offset: String(offset) })}`);
 api.opsTenantRecord = (customerId) => req(`/facility-ops/tenants/${encodeURIComponent(customerId)}`, { timeoutMs: 20_000 });

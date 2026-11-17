@@ -35,7 +35,7 @@ describe('Operations > Tenants', () => {
     api.opsTenants.mockResolvedValue(page([ROW, PAID]));
     render(<Tenants many />);
     expect(await screen.findByRole('button', { name: 'Dana Whitfield' })).toBeTruthy();
-    expect(api.opsTenants).toHaveBeenCalledWith({ q: '', facility: '', status: 'current', limit: 50, offset: 0 });
+    expect(api.opsTenants).toHaveBeenCalledWith({ q: '', facility: '', facilities: '', status: 'current', limit: 50, offset: 0 });
     expect(screen.getByText('Whitfield Landscaping')).toBeTruthy();
     expect(screen.getByText('A12, B4')).toBeTruthy();
     expect(screen.getAllByText('Temecula').length).toBe(2);
@@ -56,6 +56,14 @@ describe('Operations > Tenants', () => {
     expect(api.opsTenants).toHaveBeenCalledWith(expect.objectContaining({ facility: 'fac_a' }));
     // One facility in view: the row does not repeat its name.
     expect(screen.queryByText('Temecula')).toBeNull();
+  });
+
+  it('a State choice sends that state\'s facilities, and one picked facility wins over it', async () => {
+    api.opsTenants.mockResolvedValue({ rows: [], total: 0, syncedAt: '' });
+    const { rerender } = render(<Tenants within={['fac_a', 'fac_b']} many />);
+    await waitFor(() => expect(api.opsTenants).toHaveBeenLastCalledWith(expect.objectContaining({ facility: '', facilities: 'fac_a,fac_b' })));
+    rerender(<Tenants facility={{ id: 'fac_a', name: 'Temecula' }} within={['fac_a', 'fac_b']} />);
+    await waitFor(() => expect(api.opsTenants).toHaveBeenLastCalledWith(expect.objectContaining({ facility: 'fac_a', facilities: '' })));
   });
 
   it('says a failed load failed - never "No tenants match." - and tries again', async () => {
@@ -89,7 +97,7 @@ describe('Operations > Tenants', () => {
     api.opsTenants.mockResolvedValue(page([PAID]));
     fireEvent.change(box(), { target: { value: 'rey' } });
     fireEvent.change(box(), { target: { value: 'reyes' } });
-    await waitFor(() => expect(api.opsTenants).toHaveBeenLastCalledWith({ q: 'reyes', facility: '', status: 'current', limit: 50, offset: 0 }));
+    await waitFor(() => expect(api.opsTenants).toHaveBeenLastCalledWith({ q: 'reyes', facility: '', facilities: '', status: 'current', limit: 50, offset: 0 }));
     // One question for the pause, not one per keystroke.
     expect(api.opsTenants).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Dana Whitfield' })).toBeNull());

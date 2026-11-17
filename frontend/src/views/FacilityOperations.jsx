@@ -398,7 +398,8 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {screen === 'units' && <Units data={data} many={many} focus={focus} go={go}
             />}
           {screen === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
-          {screen === 'tenants' && seesTenants && <Tenants facility={current === 'all' ? null : single} many={many} />}
+          {screen === 'tenants' && seesTenants && <Tenants facility={current === 'all' ? null : single} many={many}
+            within={stateOn ? facilities.filter((f) => !isThirdParty(f)).map((f) => f.id) : null} />}
           {screen === 'tenants' && tenantAccess === 'no' && <p className="ops-note" style={{ margin: 0 }}>You do not have access to tenant details.</p>}
           {screen === 'tenants' && tenantAccess === 'loading' && <LoadingState size="section" label="Checking your access" minHeight={160} />}
           {screen === 'tenants' && tenantAccess === 'error' && (

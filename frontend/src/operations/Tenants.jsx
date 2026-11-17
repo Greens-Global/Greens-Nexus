@@ -41,9 +41,10 @@ const stop = (e) => e.stopPropagation();
 const muted = { color: 'var(--muted)', fontSize: FS.label };
 
 // `facility` is the page's Facility choice (null = every facility the person
-// may see); `many` says more than one facility is in view, so each row names
-// its own.
-export default function Tenants({ facility = null, many = false }) {
+// may see); `within` is the page's State choice as facility ids (null = no
+// State picked); `many` says more than one facility is in view, so each row
+// names its own.
+export default function Tenants({ facility = null, within = null, many = false }) {
   const isMobile = useIsMobile();
   const [q, setQ] = useState('');
   const [term, setTerm] = useState('');
@@ -51,6 +52,7 @@ export default function Tenants({ facility = null, many = false }) {
   const [openId, setOpenId] = useState('');
   const [tries, setTries] = useState(0);
   const facilityId = facility?.id || '';
+  const withinIds = !facilityId && within?.length ? within.join(',') : '';
   const outside = !!facility && isThirdParty(facility);
 
   // Wait for a pause in typing before asking.
@@ -60,7 +62,7 @@ export default function Tenants({ facility = null, many = false }) {
   }, [q]);
 
   // The page belongs to one search: a new word, choice or facility starts at the top.
-  const filterKey = `${term}|${which}|${facilityId}`;
+  const filterKey = `${term}|${which}|${facilityId}|${withinIds}`;
   const [pageAt, setPageAt] = useState({ key: filterKey, page: 0 });
   const page = pageAt.key === filterKey ? pageAt.page : 0;
   const setPage = (p) => setPageAt({ key: filterKey, page: p });
@@ -73,13 +75,13 @@ export default function Tenants({ facility = null, many = false }) {
   useEffect(() => {
     if (outside) return;
     const mine = ++latest.current;
-    api.opsTenants({ q: term, facility: facilityId, status: which, limit: PAGE, offset })
+    api.opsTenants({ q: term, facility: facilityId, facilities: withinIds, status: which, limit: PAGE, offset })
       .then((data) => { if (mine === latest.current) setLoaded({ key, status: 'ready', data: data || {} }); })
       .catch((err) => {
         console.error('Operations: could not load the tenants', err);
         if (mine === latest.current) setLoaded({ key, status: err?.status === 403 ? 'denied' : 'error' });
       });
-  }, [key, term, facilityId, which, offset, outside, tries]);
+  }, [key, term, facilityId, withinIds, which, offset, outside, tries]);
 
   // What is on screen while the next answer is on its way: the rows already
   // there (dimmed), or the skeleton when there are none to keep.
