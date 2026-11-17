@@ -3908,3 +3908,22 @@ api.reopenExitStatement = (eid, note = '') => req(`/exit-statements/${encodeURIC
 api.exitMailboxHandover = (eid, done = true) => req(`/exit-statements/${encodeURIComponent(eid)}/mailbox-handover`, { method: 'POST', body: JSON.stringify({ done }) });
 api.exitItemOutcome = (eid, kind, rowId, outcome, body = {}) => req(`/exit-statements/${encodeURIComponent(eid)}/items/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
 api.settleReturnPending = (kind, rowId, outcome, body = {}) => req(`/items/return-pending/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
+// Accounting > Entities (Neil, 11/17/2026, routers/accounting_entities.py):
+// each entity's legal record, its structure (owners, what it owns, who
+// manages it) and its live figures; a deal's Legal line and the investor
+// profile that IS one of our entities, for Investor Relations.
+const entityPath = (code) => `/accounting/entities/${encodeURIComponent(code)}`;
+api.getLegalEntities = () => req('/accounting/entities');
+api.getLegalEntityStructure = () => req('/accounting/entities/structure');
+api.getLegalEntityFigures = (codes) => req(`/accounting/entities/figures?codes=${encodeURIComponent(codes.join(','))}`, { timeoutMs: 120_000 });
+api.getLegalEntity = (code) => req(entityPath(code));
+api.saveLegalEntity = (code, body) => req(entityPath(code), { method: 'PUT', body: JSON.stringify(body) });
+api.revealLegalEntityEin = (code) => req(`${entityPath(code)}/ein`, { method: 'POST' });
+api.getLegalEntityBooks = (code) => req(`${entityPath(code)}/books`, { timeoutMs: 90_000 });
+api.getLegalEntityAgreements = (code) => req(`${entityPath(code)}/agreements`);
+api.getLegalEntitySuggestions = (code) => req(`${entityPath(code)}/suggestions`);
+api.addLegalEntityOwner = (code, body) => req(`${entityPath(code)}/owners`, { method: 'POST', body: JSON.stringify(body) });
+api.updateLegalEntityOwner = (code, ownerId, body) => req(`${entityPath(code)}/owners/${encodeURIComponent(ownerId)}`, { method: 'PUT', body: JSON.stringify(body) });
+api.endLegalEntityOwner = (code, ownerId, until = '') => req(`${entityPath(code)}/owners/${encodeURIComponent(ownerId)}/end`, { method: 'POST', body: JSON.stringify({ until }) });
+api.getIrFundLegal = (fundId) => req(`/investor-relations/funds/${encodeURIComponent(fundId)}/legal`);
+api.linkIrInvestorEntity = (investorId, code) => req(`/investor-relations/investors/${encodeURIComponent(investorId)}/entity`, { method: 'PUT', body: JSON.stringify({ code }) });

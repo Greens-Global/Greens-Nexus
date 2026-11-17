@@ -11275,3 +11275,72 @@ select.nx-dl-chip:focus { border-color: var(--wk-brand, var(--pine)); background
   .nx-exit-foot > * { width: 100%; justify-content: center; }
   .nx-exit-foot > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
+
+/* ── Accounting > Entities (Neil, 11/17/2026) ──────────────────────────────
+   Each entity's legal record, structure chart and books. No boxes around
+   sections: hierarchy from type, whitespace and hairline rows; a state is
+   plain colored text. The chart reads its own --ec-* colors so a download
+   can swap them for print (StructureChart.jsx PRINT_VARS). */
+.ent-page { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ent-page, .ent-legend { --ec-ink: var(--text-primary); --ec-muted: var(--text-secondary); --ec-line: var(--text-muted); --ec-bg: var(--bg-card); --ec-accent: var(--wk-green, #00a25b); --ec-soft: var(--wk-green-bg, #e6f7ef); }
+.ent-muted { color: var(--text-secondary); }
+.ent-green { color: var(--wk-green, #00a25b); font-weight: 600; }
+.ent-link { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; padding: 0; font: inherit; color: var(--wk-green, #00a25b); font-weight: 600; cursor: pointer; }
+.ent-link:hover { text-decoration: underline; }
+.ent-link:focus-visible, .ent-amt:focus-visible, .ent-tabs button:focus-visible, .ent-seg button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 4px; }
+.ent-amt { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; font-variant-numeric: tabular-nums; text-decoration: underline dotted var(--text-muted); text-underline-offset: 3px; }
+.ent-amt:hover { color: var(--wk-green, #00a25b); }
+.ent-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.ent-seg { display: inline-flex; border: 1px solid var(--border-hover); border-radius: 8px; overflow: hidden; }
+.ent-seg button { background: none; border: 0; padding: 5px 12px; font: inherit; font-size: var(--fs-label, 12px); color: var(--text-secondary); cursor: pointer; }
+.ent-seg button[aria-pressed="true"] { background: var(--wk-green-bg, #e6f7ef); color: var(--text-primary); font-weight: 600; }
+.ent-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-body, 13px); color: var(--text-secondary); cursor: pointer; }
+.ent-summary { margin: 6px 0 10px; font-size: var(--fs-body, 13px); color: var(--text-secondary); }
+.ent-table-wrap { overflow-x: auto; }
+.ent-table { border-collapse: collapse; table-layout: fixed; font-size: var(--fs-body, 13px); font-variant-numeric: tabular-nums; }
+.ent-table th { position: relative; text-align: left; font-weight: 500; font-size: var(--fs-label, 12px); color: var(--text-secondary); padding: 8px 10px; border-bottom: 1px solid var(--border-hover); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ent-table td { padding: 8px 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ent-table th.acct-num, .ent-table td.acct-num { text-align: right; }
+.ent-table tbody tr { cursor: pointer; }
+.ent-table tbody tr:hover td { background: var(--sidebar-hover-bg); }
+.ent-table tbody tr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.ent-table tr.ent-loc td { font-size: var(--fs-label, 12px); color: var(--text-secondary); }
+.ent-table tr.ent-loc td:first-child { padding-left: 26px; }
+.ent-head { margin: 2px 0 10px; }
+.ent-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--border-color); margin-bottom: 18px; }
+.ent-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 0; font: inherit; font-size: var(--fs-body, 13px); color: var(--text-secondary); cursor: pointer; white-space: nowrap; }
+.ent-tabs button.is-on { color: var(--text-primary); font-weight: 600; border-bottom-color: var(--wk-green, #00a25b); }
+.ent-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 20px 44px; }
+@media (max-width: 900px) { .ent-two { grid-template-columns: minmax(0, 1fr); } }
+.ent-head3 { font-size: var(--fs-title, 15px); font-weight: 600; margin: 0 0 6px; color: var(--text-primary); }
+.ent-sub-head { font-size: var(--fs-body, 13px); font-weight: 600; margin: 14px 0 2px; color: var(--text-primary); }
+.ent-kv { margin: 0; font-size: var(--fs-body, 13px); }
+.ent-kv-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; padding: 7px 0; border-top: 1px solid var(--border-color); }
+.ent-kv-row dt { color: var(--text-secondary); }
+.ent-kv-row dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.ent-lines { font-size: var(--fs-body, 13px); }
+.ent-line { padding: 7px 0; border-top: 1px solid var(--border-color); line-height: 1.55; }
+.ent-line--split { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.ent-line-end { display: inline-flex; gap: 12px; align-items: baseline; white-space: nowrap; }
+.ent-chart { position: relative; min-width: 0; }
+.ent-chart-bar { display: flex; gap: 16px; justify-content: flex-end; margin-bottom: 6px; font-size: var(--fs-label, 12px); }
+.ent-chart-scroll { overflow: auto; max-height: 78vh; padding-bottom: 4px; }
+.ent-chart-fit svg { width: 100%; height: auto; }
+.ent-chart-node:focus { outline: none; }
+.ent-chart-node:focus-visible polygon, .ent-chart-node:focus-visible rect, .ent-chart-node:focus-visible ellipse { stroke: var(--focus-ring); stroke-width: 2.5; }
+.ent-chart-node:hover polygon, .ent-chart-node:hover rect, .ent-chart-node:hover ellipse { stroke: var(--ec-accent); }
+.ent-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: var(--fs-label, 12px); color: var(--text-secondary); }
+.ent-form { display: flex; flex-direction: column; gap: 2px; }
+.ent-form-head { font-size: var(--fs-title, 15px); font-weight: 600; margin: 18px 0 4px; }
+.ent-form-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; align-items: start; padding: 6px 0; }
+@media (max-width: 640px) { .ent-form-row, .ent-kv-row { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+.ent-form-label { font-size: var(--fs-body, 13px); color: var(--text-secondary); padding-top: 7px; }
+.ent-form-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ent-hint { font-size: var(--fs-label, 12px); color: var(--text-secondary); }
+.ent-fill { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ent-fill .secondary-btn { display: inline-flex; align-items: center; gap: 6px; }
+.ent-suggest { margin: 8px 0 4px; font-size: var(--fs-body, 13px); }
+.ent-suggest-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--border-color); }
+.ent-token { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-body, 13px); padding: 2px 0; margin-right: 8px; }
+.ent-token button, .ent-icon-btn { background: none; border: 0; padding: 2px; color: var(--text-secondary); cursor: pointer; display: inline-flex; }
+.ent-owner-form { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
