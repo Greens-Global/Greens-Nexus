@@ -4,7 +4,7 @@ import { api } from '../../../api.js';
 import { egnyteFolderProblem, normalizeEgnyteFolder, HOW_WORDS } from '../../lib/egnyteFolder.js';
 
 const inputStyle = { width: '100%', padding: '5px 9px', fontSize: 13 };
-const noteStyle = { fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.45 };
+const noteStyle = { fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.45 };
 
 /**
  * The Egnyte Folder field in edit mode (Neil, 11/03/2026): a property may pin
@@ -95,7 +95,7 @@ export function EgnyteFolderInput({ assetId, value, onChange }) {
             </>
           )}
           <button type="button" onClick={() => setFind(null)}
-            style={{ alignSelf: 'flex-start', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', fontFamily: 'inherit' }}>
+            style={{ alignSelf: 'flex-start', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', fontFamily: 'inherit' }}>
             Close
           </button>
         </div>

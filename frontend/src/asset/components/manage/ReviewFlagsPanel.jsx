@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Flag, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { normLabel } from '../../lib/format.js';
 
 /**
@@ -15,23 +15,18 @@ function FlagRow({ flag, onOpen, onClearFlag, onPushFix }) {
   const [draft, setDraft] = useState(flag.curVal || '');
 
   return (
-    <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 7 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{
-          fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
-          color: 'hsl(var(--color-orange))', backgroundColor: 'hsla(var(--color-orange), 0.14)', whiteSpace: 'nowrap',
-        }}>
-          {flag.reason || 'Needs review'}
-        </span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+    <div style={{ padding: '12px 0', borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
+        <span style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {flag.g} · {flag.f}
         </span>
+        <span style={{ fontWeight: 600, color: 'hsl(var(--color-orange))', whiteSpace: 'nowrap' }}>{flag.reason || 'Needs review'}</span>
       </div>
 
       <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
         <button
           onClick={() => onOpen && onOpen(flag.pid)}
-          style={{ border: 'none', background: 'none', padding: 0, color: 'hsl(var(--color-blue))', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}
+          style={{ border: 'none', background: 'none', padding: 0, color: 'hsl(var(--color-green))', cursor: 'pointer', fontWeight: 600, fontSize: 12, fontFamily: 'inherit' }}
         >
           {flag.name}
         </button>
@@ -93,20 +88,14 @@ export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix
   });
 
   return (
-    <div style={{ marginBottom: 18, border: '1px solid var(--border-color)', borderRadius: 12, backgroundColor: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-        <Flag size={16} style={{ color: 'hsl(var(--color-orange))' }} />
-        <strong style={{ fontSize: 15 }}>Flagged for Review</strong>
-        <span style={{
-          marginLeft: 'auto', fontSize: 12, fontWeight: 700,
-          color: flags.length ? 'hsl(var(--color-orange))' : 'var(--text-muted)',
-          backgroundColor: flags.length ? 'hsla(var(--color-orange), 0.12)' : 'var(--bg-secondary)',
-          padding: '2px 9px', borderRadius: 999,
-        }}>
-          {flags.length}
+    <section aria-label="Flagged for Review" style={{ marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, paddingBottom: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Flagged for Review</h3>
+        <span style={{ fontSize: 13, color: flags.length ? 'hsl(var(--color-orange))' : 'var(--text-secondary)', fontWeight: flags.length ? 600 : 400 }}>
+          {flags.length ? `${flags.length} ${flags.length === 1 ? 'field waits' : 'fields wait'} for a look` : 'nothing flagged'}
         </span>
         {onClose && (
-          <button type="button" className="secondary-btn" onClick={onClose} aria-label="Close Flagged for Review" style={{ padding: 6 }}><X size={15} /></button>
+          <button type="button" className="secondary-btn" onClick={onClose} aria-label="Close Flagged for Review" style={{ marginLeft: 'auto', padding: 6, alignSelf: 'center' }}><X size={15} /></button>
         )}
       </div>
 
@@ -117,10 +106,10 @@ export function ReviewFlagsPanel({ props: assets, onClearFlag, onOpen, onPushFix
           ))}
         </div>
       ) : (
-        <div style={{ padding: '18px 16px', fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center' }}>
-          No fields flagged for review. On any asset's overview, use the flag beside a field to flag it and pick a reason - it will appear here, editable and ready to push a fix.
-        </div>
+        <p style={{ margin: 0, padding: '12px 0', borderTop: '1px solid var(--border-color)', fontSize: 13, color: 'var(--text-secondary)' }}>
+          No fields flagged for review. On any asset&apos;s overview, use the flag beside a field to flag it and pick a reason - it will appear here, editable and ready to push a fix.
+        </p>
       )}
-    </div>
+    </section>
   );
 }
