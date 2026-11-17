@@ -79,7 +79,8 @@ describe('structure charts', () => {
     const { graph, beside } = withLenders(focusGraph(GRAPH, '67000'), '67000', [{ lender: 'Chase', balance: 5900000, ratePct: 5.4 }]);
     const lay = layout(graph, { beside });
     const at = Object.fromEntries(lay.nodes.map((n) => [n.id, n]));
-    expect(at['lender:0'].y + at['lender:0'].h).toBe(at['e:67000'].y + at['e:67000'].h);
+    expect(at['lender:0'].y + at['lender:0'].h / 2).toBe(at['e:67000'].y + at['e:67000'].h / 2);
+    expect(at['lender:0'].x).toBeGreaterThan(at['e:67000'].x + at['e:67000'].w);
     expect(lay.edges.find((e) => e.kind === 'lends').side).toBe(true);
   });
 

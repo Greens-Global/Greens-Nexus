@@ -209,6 +209,7 @@ def _graph(db: Session, visible: list, reach, today: str, show_investors: bool, 
                           "shape": L.shape_of(getattr(r, "entity_type", ""), getattr(r, "tax_class", "")),
                           "taxClass": L.tax_class_of(getattr(r, "entity_type", ""), getattr(r, "tax_class", "")),
                           "status": getattr(r, "status", "") or "active",
+                          "state": getattr(r, "formed_state", "") or "",
                           "deal": {"id": deal.id, "name": deal.name} if deal else None}
         return nid
 

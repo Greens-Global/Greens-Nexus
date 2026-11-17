@@ -12,6 +12,7 @@ import StructureChart from './StructureChart';
 import EntityEditSheet from './EntityEditSheet';
 import { MANAGEMENT } from './entityWords';
 import OwnersPanel from './OwnersPanel';
+import OwnershipBar from './OwnershipBar';
 import { focusGraph, groupInvestors, pctText, withLenders } from './structureModel';
 
 // One entity (Neil, 11/17/2026, plan https://claude.ai/artifact/JZmUfATX7NvH2Qq4kAkJb1):
@@ -181,14 +182,7 @@ export default function EntityPage({ code, onSubChange, onOpenEntity }) {
     <div className="ent-lines">
       {(e.owners || []).length ? (
         <>
-          {e.owners.slice(0, 6).map((o, i) => (
-            <div key={`${o.id}-${i}`} className="ent-line ent-line--split">
-              <span>{o.kind === 'entity' && o.code ? <button type="button" className="ent-link" onClick={() => openEntity(o.code)}>{o.label}</button> : o.label}
-                {o.sub && o.kind !== 'entity' ? <span className="ent-muted"> - {o.sub}</span> : null}</span>
-              <b>{pctText(o.pct)}</b>
-            </div>
-          ))}
-          {e.owners.length > 6 && <div className="ent-line"><button type="button" className="ent-link" onClick={() => setTab('structure')}>{e.owners.length - 6} more owners</button></div>}
+          <OwnershipBar owners={e.owners} onOpenEntity={openEntity} />
           <div className="ent-line ent-muted">
             {e.ownersHome === 'ir' ? `Members of the deal ${e.deal?.name} in Investor Relations` : 'Recorded on this entity'} - {pctText(e.ownersTotal) || '0%'} recorded
           </div>
@@ -196,12 +190,10 @@ export default function EntityPage({ code, onSubChange, onOpenEntity }) {
       ) : <div className="ent-line ent-muted">No owners recorded yet{e.ownersHome === 'ir' ? ' - add members\' percentages on the deal' : ''}</div>}
       {(e.lookThrough || []).some((r) => (r.via || []).length) && (
         <>
-          <div className="ent-sub-head">Look-Through</div>
-          {e.lookThrough.filter((r) => (r.via || []).length).slice(0, 6).map((r, i) => (
-            <div key={`${r.id}-${i}`} className="ent-line">
-              {r.label} holds {r.pct === null ? 'a share not yet known' : pctText(r.pct)}{r.partlyUnknown ? ' or more' : ''} of {e.name} through {r.via.join(', then ')}
-            </div>
-          ))}
+          <div className="ent-sub-head">Ultimate Owners</div>
+          <p className="ent-muted" style={{ fontSize: FS.label, margin: '0 0 4px' }}>Each chain multiplied through - who really owns {e.name}.</p>
+          <OwnershipBar onOpenEntity={openEntity}
+            owners={e.lookThrough.map((r) => ({ ...r, sub: (r.via || []).length ? `through ${r.via.join(', then ')}${r.partlyUnknown ? ' (part not known)' : ''}` : 'directly' }))} />
         </>
       )}
       {(e.owned || []).length > 0 && (
