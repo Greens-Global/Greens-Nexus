@@ -3908,3 +3908,7 @@ api.reopenExitStatement = (eid, note = '') => req(`/exit-statements/${encodeURIC
 api.exitMailboxHandover = (eid, done = true) => req(`/exit-statements/${encodeURIComponent(eid)}/mailbox-handover`, { method: 'POST', body: JSON.stringify({ done }) });
 api.exitItemOutcome = (eid, kind, rowId, outcome, body = {}) => req(`/exit-statements/${encodeURIComponent(eid)}/items/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
 api.settleReturnPending = (kind, rowId, outcome, body = {}) => req(`/items/return-pending/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
+// Asset Management > Maintenance (Neil, 11/17/2026; routers/maintenance.py):
+// tickets per property - open, all, the newest, preventive schedules and
+// overdue - walled like /maintenance/rollup (403 for anyone it is not for).
+api.getMaintenancePortfolio = () => req('/maintenance/portfolio');
