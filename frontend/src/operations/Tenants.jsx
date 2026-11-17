@@ -144,7 +144,7 @@ export default function Tenants({ facility = null, within = null, many = false }
             <p className="ops-note" style={{ margin: 0 }} aria-live="polite">No tenants match.</p>
           ) : (
             <div className="req-table-wrapper" aria-busy={waiting || undefined} style={waiting ? { opacity: 0.55 } : undefined}>
-              <table className="req-table stack-table">
+              <table className="req-table stack-table ops-plain-table">
                 <thead>
                   <tr><th>Tenant</th><th>Units</th><th>Phone</th><th>Email</th><th className="num">Balance</th><th>Paid Through</th></tr>
                 </thead>

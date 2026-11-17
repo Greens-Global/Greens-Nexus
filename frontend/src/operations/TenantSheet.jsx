@@ -66,7 +66,7 @@ function Facts({ rows }) {
 function Table({ cols, rows, label }) {
   return (
     <div className="req-table-wrapper">
-      <table className="req-table stack-table" aria-label={label}>
+      <table className="req-table stack-table ops-plain-table" aria-label={label}>
         <thead><tr>{cols.map(([head, , num]) => <th key={head} className={num ? 'num' : undefined}>{head}</th>)}</tr></thead>
         <tbody>
           {rows.map((r, i) => (

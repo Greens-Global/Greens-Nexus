@@ -530,3 +530,15 @@
   .ops-access-head { display: none; }
   .ops-access-lab { display: inline; }
 }
+
+/* Operations > Tenants and the tenant record (Neil, 11/17/2026: no boxed
+   rows, no uppercase labels). Column names read as words; on a phone each
+   row is plain lines with a hairline between rows, not a card of its own. */
+.ops-plain-table th { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 600; }
+@media (max-width: 640px) {
+  .ops-plain-table.stack-table tbody { gap: 0; }
+  .ops-plain-table.stack-table tbody tr { border: none; border-bottom: 1px solid var(--line); border-radius: 0; padding: 12px 2px; background: none; }
+  .ops-plain-table.stack-table tbody tr:last-child { border-bottom: none; }
+  .ops-plain-table.stack-table tbody tr:hover { background: none; }
+  .ops-plain-table.stack-table td::before { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; }
+}
