@@ -11,7 +11,7 @@ const days = (n) => `${n} ${n === 1 ? 'day' : 'days'}`;
  * each a link that filters to it, and Review / Hide for the dates themselves. A zero is left
  * out; nothing waiting says nothing. On a phone the sentence steps aside for the line alone.
  */
-export function PortfolioSummary({ rows, ctx, phone = false, onShow, onFix, onOpenDate, loading = false }) {
+export function PortfolioSummary({ rows, ctx, phone = false, onShow, onFix, onOpenDate, loading = false, flagCount = 0, onReviewFlags = null }) {
   const [open, setOpen] = useState(false);
   if (loading) return <div className="pt-summary"><div className="pt-skel" style={{ width: '52%', height: 22 }} /><div className="pt-skel" style={{ width: '30%', height: 14, marginTop: 10 }} /></div>;
   const needs = needsOf(rows, ctx);
@@ -19,6 +19,7 @@ export function PortfolioSummary({ rows, ctx, phone = false, onShow, onFix, onOp
   if (needs.passed) parts.push(<button key="p" type="button" className="pt-link is-red" onClick={() => onShow('passed')}>{needs.passed} {needs.passed === 1 ? 'date' : 'dates'} passed</button>);
   if (needs.noManager) parts.push(<button key="m" type="button" className="pt-link is-ink" onClick={() => onShow('no-manager')}>{needs.noManager} with no asset manager</button>);
   if (needs.mistyped) parts.push(<button key="t" type="button" className="pt-link is-live" onClick={() => onShow('mistyped')}>{needs.mistyped} {needs.mistyped === 1 ? 'date that looks' : 'dates that look'} mistyped</button>);
+  if (flagCount > 0 && onReviewFlags) parts.push(<button key="f" type="button" className="pt-link is-ink" onClick={onReviewFlags}>{flagCount} {flagCount === 1 ? 'field' : 'fields'} flagged for review</button>);
   if (needs.items.length) parts.push(<button key="r" type="button" className="pt-link" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? 'Hide' : 'Review'}</button>);
   return (
     <div className="pt-summary">

@@ -100,6 +100,8 @@ export const PERMIT_KEYS = {
   court: /ball in/i,
   expiration: /expir/i,
 };
+/** A permit status that means the permit is done - its expiration is history, not work. */
+export const PERMIT_DONE = /clos|final|expir|void|withdr|cancel|revok|supersed|^n\/?a$|not\s*req|complete/i;
 
 /**
  * Scans the full store (all assets + all collections) for date fields relevant to compliance/
@@ -160,9 +162,17 @@ export function collectCriticalDates(store) {
         { kind: 'tax', field: 'taxDue', yearly: true });
       push(p.id, 'Loan', 'Loan Maturity', snap['maturity date'], '', { kind: 'loan' });
       // Permit expirations from the permit matrix (rows have no fixed schema).
-      (p.permits || []).forEach((row, i) => push(p.id, 'Permit', 'Permit Expiration',
-        permitValue(row, PERMIT_KEYS.expiration),
-        permitValue(row, PERMIT_KEYS.type) || permitValue(row, PERMIT_KEYS.number), { kind: 'permit', recordId: String(i) }));
+      // Only a permit that is still live can need renewing: a closed, finaled,
+      // void or already-expired permit is history, and so is an expiration more
+      // than a year gone (the matrix keeps permits from 2013) - neither is work.
+      (p.permits || []).forEach((row, i) => {
+        if (PERMIT_DONE.test(permitValue(row, PERMIT_KEYS.status))) return;
+        const exp = permitValue(row, PERMIT_KEYS.expiration);
+        const d = daysUntil(exp);
+        if (Number.isFinite(d) && d < -365) return;
+        push(p.id, 'Permit', 'Permit Expiration', exp,
+          permitValue(row, PERMIT_KEYS.type) || permitValue(row, PERMIT_KEYS.number), { kind: 'permit', recordId: String(i) });
+      });
     } else {
       // Vehicles/equipment: registration + next-service-due instead of tax/loan.
       // Vehicles keep it flat (vehicleFields.js regExpiration); older ones in the snapshot.

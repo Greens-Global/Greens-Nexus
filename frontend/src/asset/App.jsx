@@ -1044,14 +1044,13 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
 
           {portTab === 'properties' && (
             <>
-              {(pview.id === 'missing' || flagCount > 0) && !panel && !phone && (
+              {pview.id === 'missing' && !panel && !phone && (
                 <div className="pt-aside-links">
-                  {pview.id === 'missing' && <button type="button" className="pt-link" onClick={() => setPanel('gaps')}>Show what each property is missing</button>}
-                  {flagCount > 0 && <button type="button" className="pt-link" onClick={() => setPanel('flags')}>Review {flagCount} flagged {flagCount === 1 ? 'field' : 'fields'}</button>}
+                  <button type="button" className="pt-link" onClick={() => setPanel('gaps')}>Show what each property is missing</button>
                 </div>
               )}
               <Portfolio assets={visibleProperties} store={store} metrics={metrics} companies={companyList.companies} canClearCompany={companyList.canClear}
-                view={{ ...pview, mode }} onView={(next) => setPview({ ...next, mode: next.mode && next.mode !== storedMode ? next.mode : '' })}
+                flagCount={flagCount} onReviewFlags={() => setPanel('flags')} view={{ ...pview, mode }} onView={(next) => setPview({ ...next, mode: next.mode && next.mode !== storedMode ? next.mode : '' })}
                 mode={mode} onMode={(k) => { setStoredMode(k); setPview((v) => ({ ...v, mode: '' })); }}
                 saved={Array.isArray(savedViews) ? savedViews : []} onSaveViews={setSavedViews} me={me}
                 openAsset={openers.properties} lastOpenedId={lastOpenedId} serverOk={serverOk} loading={loading}

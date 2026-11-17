@@ -45,6 +45,8 @@ export { plural };
 export function assetNoun(items, assetsById = {}) {
   const kinds = new Set(items.map((x) => inferAssetKind(assetsById[x.id] || {})));
   const n = new Set(items.map((x) => x.id)).size;
+  // One asset (two permits at one site the same day): name it, never "1 property".
+  if (n === 1) return items[0].assetName || assetsById[items[0].id]?.name || plural(1, 'asset');
   if (kinds.size === 1 && kinds.has('property')) return plural(n, 'property', 'properties');
   if (kinds.size === 1 && kinds.has('vehicle')) return plural(n, 'vehicle');
   if (kinds.size === 1 && kinds.has('equipment')) return plural(n, 'piece of equipment', 'pieces of equipment');
