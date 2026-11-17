@@ -576,7 +576,8 @@ keep the diff minimal.
   The bands are an INDIA rule only (Neil, 11/18/2026: "Only applies to
   India"): a salaried person who does not work in India
   (`india_contractor_pay.works_in_india`) has any worked day as a full day -
-  only a past weekday with no work at all is docked.
+  only a past weekday with no work at all is docked, and a Sick / Vacation /
+  Personal day is paid leave, never docked (Charmi, 11/18/2026).
 
 - **Hourly company holidays are unpaid** (Neil, 11/04/2026: "Holidays are
   days off for hourly employees"): `_compute_timecard` lists a holiday the

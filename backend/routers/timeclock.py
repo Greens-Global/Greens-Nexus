@@ -10461,7 +10461,8 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     # "Only applies to India"; Charmi: a US salaried person is paid the same
     # for 2 hours or 12). Anywhere else any time worked makes it a full day -
     # nothing is docked for a short day.
-    if not india_contractor_pay.works_in_india(db, em, rate_row=rr):
+    in_india = india_contractor_pay.works_in_india(db, em, rate_row=rr)
+    if not in_india:
         FULL_MIN = HALF_MIN = 1
     today = _employee_today(db, em)   # employee-LOCAL date, not UTC (boundary correctness)
 
@@ -10564,7 +10565,12 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         elif leave_cls and not is_weekend:
             status = leave_cls              # leave: the day is deducted unless they also worked it (Oct 12)
             leave_days[leave_cls] += 1
-            if work_min >= FULL_MIN:
+            if not in_india:
+                # Outside India a Sick / Vacation / Personal day is PAID leave
+                # (Charmi, 11/18/2026: Valinda's Vacation day docked $236) -
+                # it comes out of the leave balance, never off the salary.
+                deduct = 0.0
+            elif work_min >= FULL_MIN:
                 deduct = 0.0
             elif work_min >= HALF_MIN:
                 deduct = daily_d / 2.0; missed_half += 1; _missed(leave_cls, half=True)
