@@ -1185,7 +1185,7 @@ export async function uploadTaskAttachment(taskId, file, extra = {}, onProgress)
     // A video may be up to 50 MB (lib/voice.js MEDIA_MAX), like one in a note.
     url = await storeTaskFile(file, onProgress, 'tasks', kind === 'video' ? MEDIA_MAX.video : undefined);
   } catch (e) {
-    alert(`"${file.name}" couldn't be stored: ${e?.message || 'upload failed'}. Remove the attachment and try again.`);
+    dialog.alert(`"${file.name}" couldn't be stored: ${e?.message || 'upload failed'}. Remove the attachment and try again.`);
   }
   return api.addTaskAttachment(taskId, { name: file.name, size, kind, url, ...extra });
 }
@@ -1281,6 +1281,27 @@ export function fmtHours(h) {
 export function taskIdFromUrl() {
   if (typeof window === 'undefined') return '';
   return new URLSearchParams(window.location.search).get('task') || '';
+}
+
+/** Two rich-text documents that say the same thing: the same HTML, or both
+ * nothing but empty paragraphs ('' and the editor's '<p></p>'). A picture
+ * with no words is a document, so this is stricter than RichDescription's
+ * isEmptyDoc. An unchanged description must not save (11/17/2026). */
+const blankDoc = (html) => /^(?:<p>\s*<\/p>)*$/.test(String(html || ''));
+export const sameDoc = (a, b) => String(a || '') === String(b || '') || (blankDoc(a) && blankDoc(b));
+
+/** Take ?task= off the address once a view has read it (11/17/2026). Left
+ * there, the NEXT Tasks tab to mount read it too - a tab's first render runs
+ * before App rewrites the address - and reopened a task the person had just
+ * closed. Called from a layout effect, so it lands before an open drawer adds
+ * its own history entry on a phone (lib/useBackToClose.js). */
+export function clearTaskIdFromUrl() {
+  if (!taskIdFromUrl()) return;
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('task');
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  } catch { /* the address keeps the link; the drawer still opened */ }
 }
 
 /** ?project=<id> - the project a followed project's email links to (Oct 22 2026). */

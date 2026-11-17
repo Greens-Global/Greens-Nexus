@@ -1299,7 +1299,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     else setFooterVisible(true);
   };
 
-  const doSave = useCallback(({ allowEmpty = false } = {}) => {
+  // `quiet`: the save fired as the builder unmounts (below) - the same save,
+  // the same guards, and no state set on a component that is going away.
+  const doSave = useCallback(({ allowEmpty = false, quiet = false } = {}) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     // Defensive, belt-and-suspenders: even if something calls doSave directly
     // (Ctrl+S, the close-flush) before load finishes, never persist an
@@ -1330,11 +1332,12 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       return Promise.resolve();
     }
     if (!isEmptyContent(content)) lastGoodRef.current = true;
-    setSaveStatus('saving');
+    if (!quiet) setSaveStatus('saving');
     const payload = kind === 'document' ? { content, note: 'Autosave' } : { content };
     // Live: the save carries the shared state and merges a colleague's newer save first.
     return (live ? live.save(() => currentContentRef.current(), { note: 'Autosave' }) : apiUpdate(docId, payload))
       .then((res) => {
+        if (quiet) { onContentSaved?.(payload.content); return; }
         setSaveStatus('saved'); onContentSaved?.(payload.content);
         // A template's chip (Published / Unpublished Changes) follows each save.
         if (kind === 'template' && res) {
@@ -1343,8 +1346,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                              signatureRoles: res.signatureRoles } : d));
         }
       })
-      .catch(() => setSaveStatus('error'));
+      .catch(() => { if (!quiet) setSaveStatus('error'); });
   }, [docId, kind, apiUpdate, onContentSaved, live, readOnly]);
+  const doSaveRef = useRef(doSave);
+  useEffect(() => { doSaveRef.current = doSave; });
 
   // The server renders PDF/DOCX from the SAVED row, so anything that asks the
   // backend to render (Preview & Send, Export, Send for Signature) has to let
@@ -1371,7 +1376,25 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     return () => window.removeEventListener('keydown', onKey);
   }, [doSave]);
 
-  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+  // Leaving within AUTOSAVE_MS of the last keystroke another way than Close
+  // (another Files tab, a sidebar module, a bell row, Back) used to drop the
+  // pending autosave with its timer - the last words were gone, no warning.
+  // The save the timer would have fired goes out instead. A layout effect:
+  // its cleanup runs before any page editor is taken down, so the content is
+  // read whole; `quiet` sets no state. (Close has already saved: no timer.)
+  useLayoutEffect(() => () => {
+    if (!saveTimer.current) return;
+    try { doSaveRef.current({ quiet: true }); } catch { /* leaving must never fail on a save */ }
+  }, []);
+  // The tab hidden or the page going away: save now rather than in a moment.
+  // An ordinary request - the save is too large for a keepalive one (64 KB).
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden' && saveTimer.current) doSaveRef.current(); };
+    const onPageHide = () => { if (saveTimer.current) doSaveRef.current(); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onPageHide);
+    return () => { document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', onPageHide); };
+  }, []);
   const trackingRef = useRef(tracking);
   useEffect(() => { trackingRef.current = tracking; }, [tracking]);
   const setTrackingModeRef = useRef(() => {});

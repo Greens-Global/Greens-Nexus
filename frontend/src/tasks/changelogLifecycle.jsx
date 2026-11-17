@@ -18,6 +18,7 @@ import { LoadingState } from '../components/AsyncState';
 import { filesFromPaste, storeTaskFile } from './lib';
 import { toDownloadUrl } from '../lib/storageView';
 import { formatDateTime, formatFullDate } from './changelogDates';
+import { dialog } from '../ui/dialog';
 
 const label11 = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint };
 
@@ -301,7 +302,7 @@ export function IssueDialog({ entry, all, onClose, onSaved, flash }) {
   const fixes = (all || []).filter((x) => x.id !== entry.id);
   const footer = (<>
     {open && (
-      <button type="button" disabled={busy} onClick={() => window.confirm('Take this issue off the update? Its bell notices go too.')
+      <button type="button" disabled={busy} onClick={async () => await dialog.confirm('Take this issue off the update? Its bell notices go too.', { title: 'Remove Issue', confirmText: 'Remove', danger: true })
         && run(() => api.clearChangelogIssue(entry.id), 'Issue removed.')} style={{ ...btn('ghost'), color: NX.red, marginRight: 'auto' }}>
         <Trash2 size={13} />Remove
       </button>

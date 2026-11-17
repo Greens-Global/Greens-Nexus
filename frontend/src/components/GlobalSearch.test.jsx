@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
+import { __resetBackToClose } from '../lib/useBackToClose';
 
 // The search sheet: the same engine as the header bar, opened by the header's
 // phone icon (nexus:search-open) or by Ctrl/Cmd+K wherever the header bar did
@@ -44,5 +45,48 @@ describe('GlobalSearch sheet', () => {
     expect(screen.getByText('Pages', { selector: '.gs-section' })).toBeTruthy();
     fireEvent.click(screen.getByLabelText('Close search'));
     expect(screen.queryByRole('search')).toBeNull();
+  });
+
+  // Escape was the input's own key handler: with the focus on the close
+  // button or a result it did nothing.
+  it('Escape closes it wherever the focus is', () => {
+    render(<GlobalSearch />);
+    fireEvent(window, new CustomEvent('nexus:search-open'));
+    const x = screen.getByLabelText('Close search');
+    x.focus();
+    fireEvent.keyDown(x, { key: 'Escape' });
+    expect(screen.queryByRole('search')).toBeNull();
+  });
+
+  // On a phone the sheet is the whole screen, so the phone's Back closes it;
+  // it used to change the screen underneath and leave the sheet open.
+  it("on a phone, Back closes the sheet and the app's own listener never hears it", async () => {
+    const settle = () => act(() => new Promise((r) => setTimeout(r, 30)));   // jsdom runs back() asynchronously
+    const real = window.matchMedia;
+    window.matchMedia = (q) => ({ matches: q === '(max-width: 900px)', media: q, addEventListener() {}, removeEventListener() {} });
+    const appPop = vi.fn();
+    try {
+      await settle();
+      __resetBackToClose();
+      window.history.replaceState({ depth: 1, fromLabel: 'Dashboard' }, '', '/tasks');
+      window.addEventListener('popstate', appPop);
+      render(<GlobalSearch />);
+      fireEvent(window, new CustomEvent('nexus:search-open'));
+      expect(screen.getByRole('search')).toBeTruthy();
+      expect(window.history.state.nxSheet).toBeTruthy();
+      await act(async () => { window.history.back(); });
+      await settle();
+      expect(screen.queryByRole('search')).toBeNull();
+      expect(window.location.pathname).toBe('/tasks');
+      expect(window.history.state).toEqual({ depth: 1, fromLabel: 'Dashboard' });
+      expect(appPop).not.toHaveBeenCalled();
+    } finally { window.removeEventListener('popstate', appPop); window.matchMedia = real; }
+  });
+
+  it('on a computer it takes no history entry', () => {
+    window.history.replaceState({ depth: 1 }, '', '/tasks');
+    render(<GlobalSearch />);
+    fireEvent(window, new CustomEvent('nexus:search-open'));
+    expect(window.history.state).toEqual({ depth: 1 });
   });
 });

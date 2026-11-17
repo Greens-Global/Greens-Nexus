@@ -23,6 +23,7 @@ import { useToast, errText } from '../components/Toast';
 import ImportModal from './ImportModal';
 import { KB_NODES } from './extensions.jsx';
 import { PAGE_TYPES, EXPECTED_SECTIONS, goKb, blankDoc, sectionNames, isDocBlank, readAsDataUrl, fmtDateTime } from '../lib';
+import { dialog } from '../../ui/dialog';
 
 const AUTOSAVE_MS = 1500;
 
@@ -420,7 +421,7 @@ export default function Editor({ id, me }) {
           </div>
 
           {revision && <Banner kind="amber" icon={AlertTriangle}><b>Readers still see v{page.version}.</b> This revision goes live after it is approved. {revision.status === 'changes_requested' && revision.review_note ? `Reviewer asked: "${revision.review_note}"` : ''}
-            <button type="button" className="kb-btn sm ghost" style={{ marginLeft: 8 }} onClick={() => { if (window.confirm('Discard this revision? The live page is untouched.')) api.kbDiscardRevision(revision.id).then(() => goKb('page', page.id)).catch((e) => toast(errText(e), 'err')); }}><Trash2 />Discard Revision</button></Banner>}
+            <button type="button" className="kb-btn sm ghost" style={{ marginLeft: 8 }} onClick={async () => { if (await dialog.confirm('Discard this revision? The live page is untouched.', { title: 'Discard Revision', confirmText: 'Discard', danger: true })) api.kbDiscardRevision(revision.id).then(() => goKb('page', page.id)).catch((e) => toast(errText(e), 'err')); }}><Trash2 />Discard Revision</button></Banner>}
           {page.status === 'changes_requested' && page.review_note && !revision && <Banner kind="amber" icon={AlertTriangle}><b>Changes requested:</b> {page.review_note}</Banner>}
 
           <div className="kb-cols" style={{ gap: 24 }}>

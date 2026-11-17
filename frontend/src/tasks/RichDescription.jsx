@@ -164,13 +164,25 @@ export default function RichDescription({
   const dictateOk = canDictate();
   const voiceOk = !!onStageFiles && canRecord();
 
+  // What the editor held when it was last GIVEN its content (created, or
+  // re-synced from `value` below) or last committed. Leaving the box with
+  // nothing changed since is not a commit: clicking into and out of an empty
+  // description used to hand back '<p></p>' for '', which saved the task,
+  // said "Changes saved" and told its people the description had changed.
+  const settledRef = useRef(null);
+
   const editor = useEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     extensions: useMemo(() => buildExtensions(placeholder), [placeholder]),
     content: value || '',
     autofocus: autoFocus,
     onUpdate: ({ editor: ed }) => { onChange?.(ed.getHTML()); mentionScanRef.current(ed); },
-    onBlur: ({ editor: ed }) => onCommit?.(ed.getHTML()),
+    onBlur: ({ editor: ed }) => {
+      const html = ed.getHTML();
+      if (html === settledRef.current) return;
+      settledRef.current = html;
+      onCommit?.(html);
+    },
     editorProps: {
       handleKeyDown: (_view, event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && submitRef.current) {
@@ -207,7 +219,9 @@ export default function RichDescription({
     // it is every mount in development.
     if (!editor || editor.isDestroyed) return;
     const next = value || '';
-    if (next !== editor.getHTML()) editor.commands.setContent(next, { emitUpdate: false });
+    const given = next !== editor.getHTML();
+    if (given) editor.commands.setContent(next, { emitUpdate: false });
+    if (given || settledRef.current === null) settledRef.current = editor.getHTML();
   }, [value, editor]);
 
   // Inserted AFTER the current selection, never over it. An image that has

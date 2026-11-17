@@ -24,7 +24,7 @@ import { readIds, pushRecentId } from '../links/shortcutStorage';
 import { looksLikeUrl } from '../links/personalLinkModal.jsx';
 import { ModalLoading, CountSkeleton } from '../components/AsyncState';
 import { useBellLists } from '../lib/notificationCounts';
-import { MoreRow, WidgetSkeleton } from './listParts.jsx';
+import { MoreRow, WidgetSkeleton, WidgetError } from './listParts.jsx';
 import { colorForLinkCategory, PERSONAL_TILE_COLOR, useFavoriteLinks, openFavorite, FavoriteTileGrid } from './favoriteLinks.jsx';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
@@ -148,7 +148,9 @@ export function DashCard({ title, sub, action, children, onClick, style }) {
 // Stat tile - the DeskHome dk-stat anatomy (tinted icon chip top-left, hover
 // arrow top-right, big tabular numeral) so Home and the custom grid read as
 // ONE design world. The old corner watercolor blob is gone on purpose.
-function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onClick, tip, noted }) {
+// `failed`: the count did not load - a hyphen and "Couldn't load", never a
+// 0 or a placeholder that stays forever; `onRetry` reads the counts again.
+function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onClick, tip, noted, failed, onRetry }) {
   const go = onClick || (() => nav && navigate(nav.view, nav.sub));
   const clickable = !!(onClick || nav);
   const I = Icon || BarChart3;
@@ -156,15 +158,20 @@ function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onCli
     // dk-stat--tile: the grid's fixed-height cell (style.css) - the label
     // keeps to one line and the hint drops out when the tile is too short
     // for it, instead of the chip and hint spilling past the card's edges.
-    <div className={`dk-stat dk-stat--tile${hero ? ' dk-stat--hero' : ''}${noted ? ' dk-stat--noted' : ''}`} onClick={clickable ? go : undefined} role={clickable ? 'button' : undefined} title={tip || (hint ? `${label} - ${hint}` : label)}
+    <div className={`dk-stat dk-stat--tile${hero ? ' dk-stat--hero' : ''}${noted || failed ? ' dk-stat--noted' : ''}`} onClick={clickable ? go : undefined} role={clickable ? 'button' : undefined} title={tip || (hint ? `${label} - ${hint}` : label)}
       style={{ height: '100%', boxSizing: 'border-box', cursor: clickable ? 'pointer' : 'default', justifyContent: 'center' }}>
       <span className="dk-stat-top">
         <span className={`dk-chip dk-chip--${color}`}><I /></span>
         {clickable && <ArrowUpRight size={15} className="dk-stat-arrow" />}
       </span>
-      <span className="dk-stat-num">{value ?? <CountSkeleton />}</span>
+      <span className="dk-stat-num">{failed ? '-' : (value ?? <CountSkeleton />)}</span>
       <span className="dk-stat-label">{label}</span>
-      {hint && <span className="dk-stat-sub">{hintShort
+      {failed ? (
+        <span className="dk-stat-sub" role="alert" style={hero ? undefined : { color: 'hsl(var(--color-red))' }}>
+          Couldn't load.{onRetry && <> <button type="button" className="link-btn" style={{ marginTop: 0, padding: 0, fontSize: 12, color: 'inherit', textDecoration: 'underline' }}
+            onClick={(e) => { e.stopPropagation(); onRetry(); }}>Try Again</button></>}
+        </span>
+      ) : hint && <span className="dk-stat-sub">{hintShort
         ? <><span className="dk-sub-long">{hint}</span><span className="dk-sub-short">{hintShort}</span></>
         : hint}</span>}
     </div>
@@ -197,7 +204,12 @@ function useKpiValue(metric, kpis) {
   return kpis ? (kpis[metric] ?? 0) : null;
 }
 
-function KpiWidget({ config, kpis }) {
+// Did this metric's read fail? `err` is useDashboards' kpisError ({ kpis,
+// signatures }). The bell's count is never the server's, so it cannot.
+const kpiFailed = (metric, err) => !!err && (metric === 'signatures_needed' ? !!err.signatures
+  : metric !== 'unread_notifications' && !!err.kpis);
+
+function KpiWidget({ config, kpis, kpisError, reloadKpis }) {
   const { openPanel } = useNotifications();
   const metric = config?.metric;
   const value = useKpiValue(metric, kpis);
@@ -207,23 +219,25 @@ function KpiWidget({ config, kpis }) {
   const foot = FOOTNOTES[metric];
   const note = foot ? foot.note(kpis) : null;
   return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={note || meta.hint} hintShort={note ? foot.note(kpis, true) : undefined} hero={!!config?.hero} onClick={onClick}
-    tip={foot ? `${meta.label} - ${foot.rule}${note ? `. ${note}` : ''}` : undefined} noted={!!note} />;
+    tip={foot ? `${meta.label} - ${foot.rule}${note ? `. ${note}` : ''}` : undefined} noted={!!note}
+    failed={kpiFailed(metric, kpisError)} onRetry={reloadKpis} />;
 }
 
-function TeamStatWidget({ config, kpis }) {
+function TeamStatWidget({ config, kpis, kpisError, reloadKpis }) {
   const { openPanel } = useNotifications();
   const meta = KPI_CATALOG[config?.metric] || { label: config?.metric, color: 'green', Icon: Users };
   const onClick = config?.metric === 'unread_notifications' ? openPanel : undefined;
   const value = useKpiValue(config?.metric, kpis);
-  return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} onClick={onClick} />;
+  return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} onClick={onClick}
+    failed={kpiFailed(config?.metric, kpisError)} onRetry={reloadKpis} />;
 }
 
-function KpiBarWidget({ config, kpis }) {
+function KpiBarWidget({ config, kpis, kpisError, reloadKpis }) {
   const { openPanel } = useNotifications();
   const metrics = config?.metrics?.length ? config.metrics
     : ['open_tasks', 'pending_requisitions', 'my_checkouts', 'warranties_expiring'];
   const { unread } = useBellLists();
-  const rows = metrics.map(m => ({ m, v: m === 'unread_notifications' ? unread : (kpis ? (kpis[m] ?? 0) : null), meta: KPI_CATALOG[m] || { label: m, color: 'blue' } }));
+  const rows = metrics.map(m => ({ m, failed: kpiFailed(m, kpisError), v: m === 'unread_notifications' ? unread : (kpis ? (kpis[m] ?? 0) : null), meta: KPI_CATALOG[m] || { label: m, color: 'blue' } }));
   const max = Math.max(1, ...rows.map(r => r.v || 0));
   const clickFor = (r) => r.m === 'unread_notifications' ? openPanel : (r.meta.nav && (() => navigate(r.meta.nav.view, r.meta.nav.sub)));
   return (
@@ -239,7 +253,7 @@ function KpiBarWidget({ config, kpis }) {
           <div key={r.m} onClick={onClick || undefined} style={{ cursor: onClick ? 'pointer' : 'default' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, marginBottom: 3 }}>
               <span style={{ color: 'var(--muted)', fontWeight: 600, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.meta.label}>{r.meta.label}</span>
-              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.v ?? <CountSkeleton />}</strong>
+              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.failed ? '-' : (r.v ?? <CountSkeleton />)}</strong>
             </div>
             <div style={{ height: 7, background: 'var(--mist)', borderRadius: 99, overflow: 'hidden' }}>
               <div style={{ width: `${((r.v || 0) / max) * 100}%`, height: '100%', background: C(r.meta.color), borderRadius: 99 }} />
@@ -247,6 +261,7 @@ function KpiBarWidget({ config, kpis }) {
           </div>
           );
         })}
+        {rows.some(r => r.failed) && <WidgetError message="Couldn't load these counts." onRetry={reloadKpis} />}
       </div>
     </DashCard>
   );
@@ -385,6 +400,7 @@ const LINKS_FOLDER_PREVIEW_COUNT = 3;
 function LinksFolderWidget({ config }) {
   const [state, setState] = useState({ loading: true, folder: null, links: [] });
   const [showAll, setShowAll] = useState(false);
+  const [tries, setTries] = useState(0);   // Try Again after a failed load
   useEffect(() => {
     let alive = true;
     if (!config?.folderId) { setState({ loading: false, folder: null, links: [] }); return undefined; }
@@ -402,9 +418,10 @@ function LinksFolderWidget({ config }) {
         .map(i => byId.get(i.item_id))
         .filter(Boolean);
       setState({ loading: false, folder, links });
-    }).catch(() => { if (alive) setState({ loading: false, folder: null, links: [] }); });
+      // A failed load is said: it used to read "This folder no longer exists".
+    }).catch(() => { if (alive) setState({ loading: false, folder: null, links: [], error: true }); });
     return () => { alive = false; };
-  }, [config?.folderId, config?.itemType]);
+  }, [config?.folderId, config?.itemType, tries]);
 
   const open = (link) => {
     window.open(link.url, '_blank', 'noopener,noreferrer');
@@ -427,6 +444,8 @@ function LinksFolderWidget({ config }) {
       action={<FolderOpen size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
         <WidgetSkeleton />
+      ) : state.error ? (
+        <WidgetError message="Couldn't load this folder." onRetry={() => { setState(s => ({ ...s, loading: true })); setTries(n => n + 1); }} />
       ) : !state.folder ? (
         <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
           This folder no longer exists - edit this tile to pick a different one.
@@ -587,13 +606,15 @@ function PersonalLinksWidget() {
   const [showAll, setShowAll] = useState(false);
   const [composer, setComposer] = useState(null); // { initialUrl }
   const [note, setNote] = useState('');
+  const [tries, setTries] = useState(0);   // Try Again after a failed load
   useEffect(() => {
     let alive = true;
     api.getPersonalLinks()
       .then(p => { if (alive) setState({ loading: false, links: sortPersonalLinks(p || []) }); })
-      .catch(() => { if (alive) setState({ loading: false, links: [] }); });
+      // A failed load is said: it used to read as no links at all.
+      .catch(() => { if (alive) setState({ loading: false, links: [], error: true }); });
     return () => { alive = false; };
-  }, []);
+  }, [tries]);
   const closeComposer = (res) => {
     setComposer(null);
     if (res?.created) setState(s => ({ ...s, links: sortPersonalLinks([...s.links, res.created]) }));
@@ -618,6 +639,8 @@ function PersonalLinksWidget() {
         action={<Lock size={15} style={{ color: 'var(--muted)' }} />}>
         {state.loading ? (
           <WidgetSkeleton />
+        ) : state.error ? (
+          <WidgetError message="Couldn't load your links." onRetry={() => { setState(s => ({ ...s, loading: true })); setTries(n => n + 1); }} />
         ) : (
           <>
             <LinkTileGrid links={state.links} colorFor={() => PERSONAL_TILE_COLOR} onOpen={open}
@@ -997,7 +1020,8 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
                   background: n.read ? 'transparent' : C('blue') }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="task-title" style={{ fontWeight: n.read ? 500 : 600, color: n.read ? 'var(--muted)' : 'var(--ink)' }}>{n.title || 'Notification'}</div>
-                  {n.body && <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
+                  {/* Bell bodies carry **bold** markers; this one-line preview is plain text. */}
+                  {n.body && <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{String(n.body).replace(/\*\*/g, '')}</div>}
                 </div>
                 {dismiss && (
                   <button onClick={(e) => { e.stopPropagation(); dismiss(n.id); }} title="Clear" aria-label="Clear Notification"

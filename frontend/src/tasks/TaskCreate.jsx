@@ -54,6 +54,10 @@ export default function TaskCreate({ defaults = NONE, onClose, onCreated, locked
   const [phase, setPhase] = useState('quick');   // quick | full | added
   const [start, setStart] = useState(defaults);  // what the composer opens with
   const [full, setFull] = useState(null);        // the draft Details hands the full form
+  // The draft held something typed in the composer (a name, a note, a file):
+  // the full form then asks before it is closed - it used to measure "changed"
+  // against a form that already held those words, and discarded them silently.
+  const [fullTyped, setFullTyped] = useState(false);
   const [added, setAdded] = useState(null);      // { task, carry }
   const [round, setRound] = useState(0);         // a fresh composer each time
   const addedRef = useRef(null);
@@ -100,10 +104,10 @@ export default function TaskCreate({ defaults = NONE, onClose, onCreated, locked
     <>
       {phase === 'quick' && (
         <QuickCreateTask key={round} defaults={start} lockedProjectId={lockedProjectId} onClose={sheetGone} onCreated={made}
-          onFullDetails={(d) => { setFull({ ...start, ...d }); setPhase('full'); }} />
+          onFullDetails={(d, typed) => { setFull({ ...start, ...d }); setFullTyped(!!typed); setPhase('full'); }} />
       )}
       {phase === 'full' && full && (
-        <CreateTaskModal defaults={full} lockedProjectId={lockedProjectId}
+        <CreateTaskModal defaults={full} lockedProjectId={lockedProjectId} startDirty={fullTyped}
           onCreated={(t) => made(t, { dueOn: t?.dueOn, assigneeIds: t?.assigneeIds, projectId: t?.projectId, priority: t?.priority })}
           onClose={sheetGone} />
       )}

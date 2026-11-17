@@ -15,6 +15,7 @@ const getEmployees = vi.fn(() => Promise.resolve([]));
 // The HR Records probe (Oct 14): 403 for anyone who is not HR.
 const listPacketDocuments = vi.fn(() => Promise.reject(new Error('403')));
 const getFormEntries = vi.fn(() => Promise.resolve({ items: [], total: 0, page: 1, pageSize: 50 }));
+const createDocument = vi.fn(() => Promise.resolve({ id: 'new-1', title: 'Untitled Document', status: 'draft' }));
 vi.mock('../api', () => ({
   api: {
     getDocumentLibrary: (...a) => getDocumentLibrary(...a),
@@ -25,6 +26,7 @@ vi.mock('../api', () => ({
     listPacketDocuments: (...a) => listPacketDocuments(...a),
     // Form entries (Neil, 11/02/2026): the library's Form Entries view and the Forms tab.
     getFormEntries: (...a) => getFormEntries(...a),
+    createDocument: (...a) => createDocument(...a),
     getFormEntry: (id) => Promise.resolve({ id, title: 'Vehicle Check', status: 'submitted', templateId: '', answers: {} }),
     getWorkSites: () => Promise.reject(new Error('403')),
     getPeopleDirectory: () => Promise.resolve([]),
@@ -75,6 +77,31 @@ const publishedTabs = () => screen.getByTestId('published-tabs').textContent;
 
 beforeEach(() => {
   getDocumentLibrary.mockClear();
+});
+
+// 11/17/2026: after the bolt's New > Document was used once, every later
+// return to the Documents tab made and opened another "Untitled Document" -
+// the signal counter stayed non-zero and the library acted on it at each mount.
+describe('New Document from Quick Actions', () => {
+  it('makes ONE document however often the tab is left and returned to; a second click makes the next', async () => {
+    createDocument.mockClear();
+    const tree = (sub) => (
+      <HeaderTabsProvider>
+        <Documents activeSub={sub} onSubChange={() => {}} />
+        <PublishedTabs />
+      </HeaderTabsProvider>
+    );
+    const view = render(tree('documents-new'));
+    await waitFor(() => expect(createDocument).toHaveBeenCalledTimes(1));
+    view.rerender(tree('documents-browse'));       // the address goes back to the tab
+    view.rerender(tree('documents-templates'));    // another Files tab: the library unmounts
+    view.rerender(tree('documents-browse'));       // ...and back: it mounts again
+    await screen.findByRole('button', { name: 'New' });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(createDocument).toHaveBeenCalledTimes(1);
+    view.rerender(tree('documents-new'));          // New Document again
+    await waitFor(() => expect(createDocument).toHaveBeenCalledTimes(2));
+  });
 });
 
 describe('Documents module', () => {

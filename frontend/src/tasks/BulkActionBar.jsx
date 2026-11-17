@@ -11,6 +11,7 @@ import BulkDatesPanel from './BulkDatesPanel';
 import { CustomFieldInput } from './TaskDetailDrawer';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { LabelPill, canonicalLabel, labelKey, labelsInUse, mergeLabelLists, useLabelColors } from './labels';
+import { dialog } from '../ui/dialog';
 
 const emptyFor = (f) => (f?.type === 'people' || f?.type === 'multiselect' ? [] : f?.type === 'checkbox' ? false : '');
 const isBlank = (v) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
@@ -54,7 +55,7 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
     for (const t of picked) {
       await store.createTask(duplicateTaskData(t)).catch((e) => { failed.push(`"${t.title}": ${e?.message || 'could not be copied'}`); });
     }
-    if (failed.length) alert(`${failed.length} of ${picked.length} could not be duplicated:\n${failed.slice(0, 5).join('\n')}`);
+    if (failed.length) dialog.alert(`${failed.length} of ${picked.length} could not be duplicated:\n${failed.slice(0, 5).join('\n')}`);
     clearSel();
   };
   // Phones: the bar takes the floating MobileTaskBar's slot (the parent hides
@@ -185,11 +186,11 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
           <SearchSelect placeholder="Move to Section…" searchPlaceholder="Search sections…"
             buttonStyle={{ ...selStyle, minWidth: 150 }} emptyText="No sections yet."
             options={[{ id: '-', label: 'No Section' }, ...sections.sections.map((x) => ({ id: x.id, label: x.name }))]}
-            onPick={(id) => { sections.move([...selected], id).catch((e) => alert(e?.message || 'Could not move the tasks.')); clearSel(); }} />
+            onPick={(id) => { sections.move([...selected], id).catch((e) => dialog.alert(e?.message || 'Could not move the tasks.')); clearSel(); }} />
         </span>
       )}
       <button onClick={duplicate} title="Duplicate the selected tasks" style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Copy size={14} />Duplicate</button>
-      <button onClick={() => { if (confirm(`Delete ${selected.size} task(s)?`)) { const ids = [...selected]; clearSel(); deleteSelectedTasks(store, ids).catch(() => {}); } }} style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Trash2 size={15} />Delete</button>
+      <button onClick={async () => { if (await dialog.confirm(`Delete ${selected.size} task(s)?`, { title: 'Delete Tasks', confirmText: 'Delete', danger: true })) { const ids = [...selected]; clearSel(); deleteSelectedTasks(store, ids).catch(() => {}); } }} style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Trash2 size={15} />Delete</button>
       <button onClick={clearSel} title="Clear Selection" aria-label="Clear Selection" style={{ ...btn('ghost'), color: '#fff', padding: 5, flexShrink: 0 }}><X size={16} /></button>
     </div>
   );

@@ -22,9 +22,23 @@
 // class or [data-nx-backdrop], or any fixed-position element the size of
 // the viewport - which is how every inline-styled overlay in the app is
 // built, so no popup has to opt in.
+//
+// Two things a backdrop is NOT (11/17/2026):
+//   - a popup that is closed but still in the page (the bell's panel on a
+//     phone: full screen, `inert`, slid off the side). It is not open, and
+//     what was typed in it went with the close - see isShut().
+//   - a layer that takes Escape for itself, above the popup: the shared
+//     confirm dialog, a picker menu, the calendar, the attachment viewer, a
+//     sheet's own "Save your changes?" card. Each carries
+//     [data-nx-esc-layer]; while one is open the Escape is its own and this
+//     guard stands down (it used to ask about the popup UNDER the layer, and
+//     left the layer open).
 
 const BACKDROP_SEL = '.modal-overlay, .nx-tasks-portal, [data-nx-backdrop]';
 const NOGUARD_SEL = '[data-nx-noguard], input[type="search"], [role="searchbox"], input[type="checkbox"][data-nx-filter]';
+// A menu open over the dialog (components/AnchoredMenu.jsx) or any other layer
+// that owns its Escape.
+const ESC_LAYER_SEL = '.nx-anchored:not(.is-closing), [data-nx-esc-layer]';
 
 let bypass = false;
 let pending = null; // { resolve(boolean) }
@@ -61,11 +75,28 @@ function isSearchLike(el) {
   return ph.startsWith('search') || ph.startsWith('filter') || ph.startsWith('find');
 }
 
+// Closed or hidden, though still in the page. `inert` put there by the sheet
+// stack (lib/sheetStack.js, [data-nx-under]) is a sheet waiting under another
+// one - still open, its work still unsaved.
+function isShut(el) {
+  if (el.closest('[inert]:not([data-nx-under]), [hidden]')) return true;
+  const cs = getComputedStyle(el);
+  return cs.display === 'none' || cs.visibility === 'hidden';
+}
+// Still in the page and open. A shut one drops its mark: reopened, it starts clean.
+function isOpen(el) {
+  if (!el.isConnected) return false;
+  if (!isShut(el)) return true;
+  el.removeAttribute('data-nx-dirty');
+  known.delete(el);
+  return false;
+}
+
 // The topmost backdrop on screen: last in document order among the known
-// ones still attached (portals append to body, so document order is stack
-// order for every shell in the app).
+// ones still attached and open (portals append to body, so document order is
+// stack order for every shell in the app).
 function topmost() {
-  const all = [...document.querySelectorAll(BACKDROP_SEL), ...known].filter(el => el.isConnected);
+  const all = [...document.querySelectorAll(BACKDROP_SEL), ...known].filter(isOpen);
   if (!all.length) return null;
   all.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
   // The prompt itself sits on top while it is open; look under it.
@@ -190,18 +221,30 @@ export function confirmDiscard() {
 function markDirty(e) {
   if (isSearchLike(e.target)) return;
   const bd = backdropOf(e.target);
-  if (!bd || bd.hasAttribute('data-nx-prompt')) return;
+  // An Escape layer answers for itself (the shared prompt asks about its own
+  // typed text): it is never this guard's to ask about.
+  if (!bd || bd.hasAttribute('data-nx-prompt') || bd.hasAttribute('data-nx-esc-layer')) return;
   bd.setAttribute('data-nx-dirty', '1');
   known.add(bd);
 }
 
+// Where the press behind a click began. A text selection dragged out of the
+// popup and let go on the backdrop arrives as a click ON the backdrop (the
+// browser sends it to the common ancestor); nobody meant to close anything.
+let pressOn = null;
+function onPressCapture(e) { pressOn = e.target; }
+
 function onClickCapture(e) {
+  const from = pressOn;
+  pressOn = null;
   if (bypass || e.button !== 0) return;
   const bd = e.target;
   if (!isBackdrop(bd) || !bd.hasAttribute('data-nx-dirty') || bd.hasAttribute('data-nx-prompt')) return;
   if (bd !== topmost()) return;
   e.stopPropagation();
   e.preventDefault();
+  // A drag that began inside the popup: dropped, with nothing to ask.
+  if (from instanceof Node && from !== bd && bd.contains(from)) return;
   confirmDiscard().then(ok => {
     if (!ok || !bd.isConnected) return;
     bypass = true;
@@ -215,7 +258,8 @@ function onKeyCapture(e) {
   // A menu open over the dialog (components/AnchoredMenu.jsx - the phone New
   // Task's Add menu, a row's ... menu) takes this Escape for itself: it closes
   // the menu, not the dialog, so there is nothing to ask about (11/15/2026).
-  if (document.querySelector('.nx-anchored:not(.is-closing)')) return;
+  // The same for every other layer above the popup (ESC_LAYER_SEL).
+  if (document.querySelector(ESC_LAYER_SEL)) return;
   const top = topmost();
   if (!top || !top.hasAttribute('data-nx-dirty')) return;
   e.stopImmediatePropagation();
@@ -245,6 +289,7 @@ export function installDialogGuard() {
   installed = true;
   document.addEventListener('input', markDirty, true);
   document.addEventListener('change', markDirty, true);
+  document.addEventListener('mousedown', onPressCapture, true);
   document.addEventListener('click', onClickCapture, true);
   window.addEventListener('keydown', onKeyCapture, true);
   window.addEventListener('beforeunload', onBeforeUnload);

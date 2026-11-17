@@ -30,7 +30,7 @@ import { checkFormula, normalizeFormat, formulaContext, previewRows, fieldNamePr
 import { groupFieldChanges, foldBulkChanges } from './fieldHistory';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { TeamModal, deptIcon } from './TeamsView';
-import HoldButton, { HOLD_MAJOR_MS } from '../ui/HoldButton';
+import HoldButton, { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../ui/HoldButton';
 import { dialog } from '../ui/dialog';
 // Manage > Labels, rarely opened: loaded with the tab (a ring meanwhile).
 const LabelsManageTab = lazy(() => import('./LabelsManageTab'));
@@ -252,7 +252,7 @@ function TeamsTab({ store }) {
         <TeamModal
           team={editing.id ? editing : null}
           onClose={() => setEditing(null)}
-          onDelete={editing.id ? () => { if (confirm(`Delete "${editing.name}"? This can't be undone.`)) { deleteTeam(editing.id); setEditing(null); } } : null}
+          onDelete={editing.id ? () => dialog.confirm(`Delete "${editing.name}"? This can't be undone.`, { title: 'Delete Team?', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Delete Team', doneText: 'Deleted', onConfirm: async () => { await deleteTeam(editing.id); setEditing(null); } }) : null}
         />
       )}
     </div>
@@ -318,7 +318,7 @@ function RulesTab({ store }) {
           </div>
           <Toggle on={!!r.enabled} onChange={() => updateRule(r.id, { enabled: !r.enabled })} />
           <IconButton icon={Pencil} title="Edit Rule" onClick={() => setEditing(r)} />
-          <IconButton icon={Trash2} title="Delete Rule" danger onClick={() => { if (confirm(`Delete rule "${r.name}"?`)) deleteRule(r.id); }} />
+          <IconButton icon={Trash2} title="Delete Rule" danger onClick={() => dialog.confirm(`Delete rule "${r.name}"?`, { title: 'Delete Rule?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Delete', doneText: 'Deleted', onConfirm: () => deleteRule(r.id) })} />
         </RowCard>
       ))}
       {editing && (
@@ -879,15 +879,15 @@ function FieldsTab({ store }) {
   // the ones this screen did not know about) - answered the same way.
   const deleteFieldAsking = async (f) => {
     const uses = formulasUsing(customFields, f);
-    const ask = (names) => confirm(names.length
+    const ask = (names) => dialog.confirm(names.length
       ? `Delete field "${f.name}"?\n\nThese formula columns use it and will show #Error: ${names.join(', ')}.`
-      : `Delete field "${f.name}"?`);
-    if (!ask(uses.map((g) => g.name))) return;
+      : `Delete field "${f.name}"?`, { title: 'Delete Field', confirmText: 'Delete', danger: true });
+    if (!(await ask(uses.map((g) => g.name)))) return;
     try {
       await deleteCustomField(f.id, { force: uses.length > 0 });
     } catch (e) {
-      if (e?.status !== 409) { alert(e?.message || 'The field could not be deleted.'); return; }
-      if (ask(e.detail?.formulas || [])) await deleteCustomField(f.id, { force: true }).catch((err) => alert(err?.message || 'The field could not be deleted.'));
+      if (e?.status !== 409) { dialog.alert(e?.message || 'The field could not be deleted.'); return; }
+      if (await ask(e.detail?.formulas || [])) await deleteCustomField(f.id, { force: true }).catch((err) => dialog.alert(err?.message || 'The field could not be deleted.'));
     }
   };
 
@@ -1286,7 +1286,7 @@ function StatusesTab({ store }) {
             </div>
           </div>
           <IconButton icon={Pencil} title="Edit Status" onClick={() => setEditing(s)} />
-          <IconButton icon={Trash2} title="Delete Status" danger onClick={() => { if (confirm(`Delete status "${s.label}"?`)) deleteCustomStatus(s.id); }} />
+          <IconButton icon={Trash2} title="Delete Status" danger onClick={() => dialog.confirm(`Delete status "${s.label}"?`, { title: 'Delete Status?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Delete', doneText: 'Deleted', onConfirm: () => deleteCustomStatus(s.id) })} />
         </RowCard>
       ))}
       {adding && <StatusModal projects={projects} onClose={() => setAdding(false)} onSave={async (d) => { await createCustomStatus(d); setAdding(false); }} />}
@@ -1358,7 +1358,7 @@ function TemplatesTab({ store }) {
             {t.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{t.description}</div>}
           </div>
           <span style={chip(NX.dim, NX.border2)}>{(t.subtaskTitles || []).length} subtasks</span>
-          <IconButton icon={Trash2} title="Delete Template" danger onClick={() => { if (confirm(`Delete template "${t.name}"?`)) deleteTemplate(t.id); }} />
+          <IconButton icon={Trash2} title="Delete Template" danger onClick={() => dialog.confirm(`Delete template "${t.name}"?`, { title: 'Delete Template?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Delete', doneText: 'Deleted', onConfirm: () => deleteTemplate(t.id) })} />
         </RowCard>
       ))}
       {adding && <TemplateModal onClose={() => setAdding(false)} onSave={async (d) => { await createTemplate(d); setAdding(false); }} />}
@@ -1456,7 +1456,7 @@ function IntakeTab({ store }) {
               {f.targetProjectId ? ` → ${projectName(f.targetProjectId) || 'project'}` : ' · no target project'}
             </div>
           </div>
-          <IconButton icon={Trash2} title="Delete Form" danger onClick={() => { if (confirm(`Delete form "${f.title}"?`)) deleteIntakeForm(f.id); }} />
+          <IconButton icon={Trash2} title="Delete Form" danger onClick={() => dialog.confirm(`Delete form "${f.title}"?`, { title: 'Delete Form?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Delete', doneText: 'Deleted', onConfirm: () => deleteIntakeForm(f.id) })} />
         </RowCard>
       ))}
       {adding && <IntakeModal projects={projects} onClose={() => setAdding(false)} onSave={async (d) => { await createIntakeForm(d); setAdding(false); }} />}

@@ -13,6 +13,10 @@
 // the button it is on, never open a highlighted row behind it (10/31/2026
 // review). Only the page itself (document.body) and the rows (.nx-row-hover)
 // hand the keys to the list.
+// A task drawer open over the desk (a ticket's linked task) owns every key
+// (11/17/2026): it is not a dialog and takes no focus, so its keys reach the
+// page - the arrows switched the ticket underneath, which closed the task.
+// The drawer marks itself (data-nx-task-drawer) and closes on its own Escape.
 //
 // `onMove(id)` may return a promise of a boolean - the caller's dirty guard
 // (a ticket open in the pane with unsaved edits asks before it is replaced).
@@ -26,6 +30,7 @@ const CONTROL = 'button, a, select, [role="tab"], [role="menu"], [role="menuitem
 const closest = (target, sel) => !!(target && typeof target.closest === 'function' && target.closest(sel));
 function inField(target) { return closest(target, FIELD); }
 function inDialog(target) { return closest(target, '[role="dialog"]'); }
+function taskDrawerOpen() { return typeof document !== 'undefined' && !!document.querySelector('[data-nx-task-drawer]'); }
 // A control keeps its keys unless it sits inside a list row (the row's own
 // inline Status / Priority pickers still let ↑ ↓ walk the list around them).
 function onControl(target) {
@@ -81,6 +86,7 @@ export function useListKeys({ ids, enabled = true, onOpen, openId = null, onMove
     if (!enabled) return undefined;
     const onKey = (e) => {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (taskDrawerOpen()) return;
       if (inField(e.target)) return;
       if (!ownsDialog && inDialog(e.target)) return;
       if (onControl(e.target)) return;

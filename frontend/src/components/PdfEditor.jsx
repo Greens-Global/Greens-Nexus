@@ -9,6 +9,7 @@ import {
 import { isDocx } from '../lib/docxFile';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
+import { dialog } from '../ui/dialog';
 
 // ── In-browser PDF editor ──────────────────────────────────────────────────────
 // Renders pages with pdfjs (same worker pattern as PdfDoc in ESign.jsx - bytes
@@ -877,9 +878,9 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       setBusy(false);
     }
   }
-  const requestClose = () => {
+  const requestClose = async () => {
     if (busy) return;
-    if ((undoStack.length || elements.length) && !window.confirm('Discard your PDF edits?')) return;
+    if ((undoStack.length || elements.length) && !(await dialog.confirm('Discard your PDF edits?', { title: 'Discard Edits?', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true }))) return;
     onClose();
   };
 

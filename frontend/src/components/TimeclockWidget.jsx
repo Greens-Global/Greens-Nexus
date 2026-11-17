@@ -52,6 +52,23 @@ async function _localAgentPresent() {
 
 const SHOT_EVERY_MS = 5 * 60 * 1000;   // fallback until policy loads
 
+// The capsule steps aside while a popup is open (11/17/2026). It is fixed at
+// z 1190, above the class-styled .modal-overlay popups (z 500) and the
+// marketing Modal (z 50), so it sat on the right end of a sheet's footer -
+// where the primary button is (a field ticket's Save on a phone). One CSS
+// rule instead of watching the DOM: `body:has(...)` follows the overlay's own
+// lifetime to the frame, costs no render, and cannot go stale. Both overlay
+// classes (.modal-overlay, and .nx-overlay of the shared Modals and dialogs)
+// are only ever on an open popup; one that is closing no longer counts. The
+// capsule stays mounted (the engine, its timer and an open break prompt
+// carry on) - it is only not drawn. Same idiom as TimeClock.jsx's own rules.
+if (typeof document !== 'undefined' && !document.getElementById('tc-capsule-rules')) {
+  const s = document.createElement('style');
+  s.id = 'tc-capsule-rules';
+  s.textContent = 'body:has(.modal-overlay:not(.is-closing), .nx-overlay:not(.is-closing)) .tc-capsule { display: none !important; }';
+  document.head.appendChild(s);
+}
+
 export default function TimeclockWidget() {
   // The shared read (lib/useTimeStatus): this widget, Workday and the dashboard
   // tiles are one request per poll. 25s so a punch/break on ANOTHER device

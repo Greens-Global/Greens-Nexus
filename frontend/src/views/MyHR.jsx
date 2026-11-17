@@ -784,6 +784,13 @@ export function MyHROverview({ onOpenTimeOff, onOpenPurchase, clock = null, focu
               <button type="button" className={askCloseClass} onClick={() => { setAskPanel(false); setAskOpen(false); }} aria-label="Close"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
+            {/* The page's message, said INSIDE the panel while it is open
+                (11/17/2026): in the page it is drawn under this overlay, so a
+                failed Send to HR looked like nothing happened. */}
+            {toast && (
+              <div role={toast.ok ? 'status' : 'alert'} style={{ padding: '8px 18px', borderBottom: '1px solid var(--line)', fontSize: 13, fontWeight: 600,
+                color: toast.ok ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))' }}>{toast.t}</div>
+            )}
             <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px', display: 'flex', flexDirection: 'column' }}>
                     <div className="nx-fill" style={{ gap: 16 }}>
                       <HrLetterQueue queue={letters.queue} openId={letterOpen} onOpen={setLetterOpen} onChanged={letters.reloadQueue} flash={flash} />

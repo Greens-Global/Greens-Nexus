@@ -26,9 +26,10 @@ import { dialog } from '../ui/dialog';
 import { getPosition, punchPosition } from '../lib/geoPosition';
 import { askPunchPosition } from '../lib/punchLocation';
 import { MyHROverview } from './MyHR';
-import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
+import { leaveRequestDays, clockToday } from '../lib/workdayStats';
 import { formatHM, formatHoursHM } from '../lib/hoursText';
 import { timeOffLabel } from '../components/shiftScheduleLib';
+import { DateField } from '../tasks/components';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { LeaveBalanceCard, RequestBalanceHint, useMyLeaveBalance } from '../components/LeaveBalances';
@@ -115,6 +116,11 @@ const signOf = (sub) => (String(sub || '').match(/^sign:(.+)$/) || [])[1] || '';
 // the + menu, the Quick Actions dock, a bell): the Overview's Fill a Form
 // tile opens that form, or its picker.
 const formOf = (sub) => (String(sub || '').match(/^form:(.+)$/) || [])[1] || '';
+// The page message while a prompt of this page is open: the same line, fixed
+// to the top of the window above the prompt's scrim (1420 / 1440), on the
+// card's own background so it reads over the dimmed page.
+const MSG_OVER_PROMPT = { position: 'fixed', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 1460, margin: 0,
+  width: 'max-content', maxWidth: 'calc(100vw - 28px)', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' };
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13, fontWeight: 600, color: 'var(--ink)' };
 
@@ -358,6 +364,18 @@ function HoursBars({ series }) {
 }
 
 const localTime = (iso) => iso ? formatTime(iso + 'Z', '-') : '-';
+// The server stamps decisions as UTC with no zone ('2026-11-17T18:04:11'),
+// which a bare new Date() reads as LOCAL time - "Approved ... on" was off by
+// the reader's whole distance from UTC (11/17/2026). One that carries its own
+// zone is read as written.
+const asUtc = (iso) => (iso && !/(Z|[+-]\d{2}:?\d{2})$/.test(iso) ? `${iso}Z` : iso);
+// A clock-in that will not happen after all (Not Yet on Early Clock-In, the
+// beginning-of-day prompt closed, Cancel on the monitoring notice, a refused
+// punch): the screen share started for it inside the tap must not run on
+// while the person is clocked out - the same rule as the Punch tile
+// (usePunchClock's dropCapture). TimeclockWidget only stops capture on a
+// clocked-in -> clocked-out transition, which an abandoned clock-in never makes.
+const dropCapture = () => { try { window.__nexusCapture?.stop?.(); } catch { /* engine not mounted */ } };
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 
 // Break = formal Start Break time + clock-out/clock-in gaps up to 90 min (stepping
@@ -684,7 +702,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     if (!parked?.held) return;
     let stop = false, delay = 4000, timer = 0;
     const attempt = async () => {
-      if (stop || !readPending()) return;
+      if (stop) return;
+      // Nothing pending any more = another surface (the sidebar chip, the
+      // phone capsule) landed it: recoverPending clears the parked state, so
+      // the "still hasn't recorded" line goes without a reload (11/17/2026).
       const r = await recoverPending();
       if (stop || !r.stillDown) return;
       delay = Math.min(delay * 2, 60000);
@@ -695,10 +716,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const onVis = () => { if (document.visibilityState === 'visible') soon(); };
     window.addEventListener('online', soon);         // the moment the device is back
     document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('nexus:timeclock-changed', soon);   // a punch landed somewhere - maybe this one
     return () => {
       stop = true; clearTimeout(timer);
       window.removeEventListener('online', soon);
       document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('nexus:timeclock-changed', soon);
     };
     // Keyed on the parked punch's time, not the object: the object is rebuilt on
     // every render and would restart the backoff into a tight poll.
@@ -744,7 +767,14 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const toToday = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; })();
   const [toBusy, setToBusy] = useState(false);
   const [toCancelling, setToCancelling] = useState(null);
-  useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
+  // A failed load is its own state (11/17/2026): it used to become an empty
+  // list, which read "No time-off requests yet." to someone with approved leave.
+  const [toLoadFailed, setToLoadFailed] = useState(false);
+  const fetchTimeoff = useCallback(() => api.timeOffMine()
+    .then((rows) => { setTimeoff(rows); setToLoadFailed(false); })
+    .catch(() => setToLoadFailed(true)), []);
+  useEffect(() => { fetchTimeoff(); }, [fetchTimeoff]);
+  const retryTimeoff = () => { setToLoadFailed(false); fetchTimeoff(); };
   // Paid leave balances (Oct 19 2026) - shown once HR has set them up.
   const [leaveBal, reloadLeaveBal] = useMyLeaveBalance();
   // The admins' requests on/off switch (Sep 29, Shifts settings). The
@@ -793,8 +823,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     setToBusy(false);
   }
 
-  async function cancelTimeoff(id) {
+  // Asks first, like the punch-request Cancel (11/17/2026): one stray tap on
+  // the small Cancel took approved leave off the schedule with no way back.
+  async function cancelTimeoff(r) {
     if (toCancelling) return;
+    const id = r.id;
+    const when = (r.startDate === r.endDate ? toDay(r.startDate) : `${toDay(r.startDate)} - ${toDay(r.endDate)}`)
+      + (r.startTime && r.endTime ? `, ${hm12(r.startTime)} - ${hm12(r.endTime)}` : '');
+    const what = `${timeOffLabel(r.type)} time off for ${when}`;
+    if (!await dialog.confirm(r.status === 'approved'
+      ? `Cancel your approved ${what}? It comes off the schedule, and you would have to ask again to get it back.`
+      : `Cancel your request for ${what}? Your approver will not be asked to decide it.`,
+    { title: 'Cancel Request', confirmText: 'Cancel Request', cancelText: 'Keep It', danger: true })) return;
     setToCancelling(id);
     try {
       await api.timeOffCancel(id);
@@ -833,6 +873,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       const r = await recoverPending();
       setBusy('');
       if (r.stillDown) {
+        if (kind === 'in') dropCapture();
         setLostModal(true);
         toast(false, `Your ${(KIND_LABEL[held.kind] || 'punch').toLowerCase()} still hasn't recorded. `
           + `That has to go in first - ${(KIND_META[kind]?.label || 'this punch').toLowerCase()} now would lose it.`);
@@ -851,7 +892,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         const ok = await dialog.confirm(
           `You're clocking in early - your shift starts at ${when}, about ${minsEarly} minutes from now. Clock in anyway?`,
           { title: 'Early Clock-In', confirmText: 'Clock In Anyway', cancelText: 'Not Yet' });
-        if (!ok) return;
+        if (!ok) { dropCapture(); return; }
       }
     }
     // Role-flagged people (Neil, Aug 25: field workers who cannot type) skip
@@ -897,6 +938,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     setMonAgree(false);
     setMonGate({ text: detail?.text || m.text || '' });
   }
+  // The notice is only ever raised for a clock-in: backing out of it means no
+  // clock-in, so the screen share started for it stops too.
+  const cancelMonGate = () => { dropCapture(); setMonGate(null); };
   async function confirmMonitoring() {
     if (monBusy) return;
     setMonBusy(true);
@@ -972,7 +1016,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       if (res.unreachable) {
         setParked({ kind, at: clickedAt || utcStamp(), held: !!res.queued });
         setLostModal(true);
-      } else toast(false, e?.message || 'Punch failed.');
+      } else {
+        // Refused, so no clock-in: the share started for it stops. Not on a
+        // 409 - a state clash ("already clocked in" on another device), where
+        // the person may well be on the clock (usePunchClock's own rule).
+        if (kind === 'in' && e?.status !== 409) dropCapture();
+        toast(false, e?.message || 'Punch failed.');
+      }
     }
     setBusy('');
   }
@@ -988,6 +1038,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     setBusy(kind || 'retry');
     const r = readPending() ? await recoverPending() : { none: true };
     setBusy('');
+    // A copy that WAS saved on this device and is gone was landed by another
+    // surface (the sidebar chip, the phone capsule) - never send it again.
+    if (r.none && parked?.held) { setParked(null); setLostModal(false); load(); return; }
     if (r.none && kind) { setParked(null); setLostModal(false); actualPunch(kind); return; }
     if (r.stillDown) {
       toast(false, "Still can't reach Nexus. Your punch is saved on this device and goes in by itself as soon as you're back online.");
@@ -1108,10 +1161,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // tokens so a company's own accent carries through.
   const now = new Date();
   // Today's minutes so far: finished segments plus the one still running
-  // (the server counts a segment only once it closes).
-  const liveMin = clockedIn && !onBreak ? openShiftMinutes(days) : 0;
+  // (the server counts a segment only once it closes). On a break the running
+  // shift stands still at the break's start - it is not zeroed - and a shift
+  // from before midnight still shows on Today (lib/workdayStats clockToday).
+  const clockNow = clockToday({ days, todayKey, clockedIn, sessionDay, sessionInAt });
+  const liveMin = clockNow.liveMin;
   const liveDay = sessionDay || todayKey;
-  const workedToday = (todayData?.workedMin || 0) + (liveDay === todayKey ? liveMin : 0);
+  const workedToday = clockNow.workedToday;
   const periodMin = (clockPeriod?.totals?.workedMin || 0) + liveMin;
   const keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const dayOf = (k) => new Date(k + 'T12:00:00');
@@ -1132,12 +1188,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const weekDaysWorked = weekSeries.filter(x => x.min > 0).length;
   const hp = (() => {
     if (hoursView === 'today') {
-      const firstIn = (todayData?.punches || []).find(p => p.kind === 'in' && !p.voided);
       return {
-        total: workedToday, caption: 'Worked today',
+        total: workedToday, caption: clockNow.overnight ? 'Worked this shift' : 'Worked today',
         facts: [
           ['Breaks', showAllowance ? `${breakUsedMin} / 60m` : `${breakUsedMin}m`, showAllowance && breakUsedMin > 60],
-          ['First In', firstIn ? localTime(firstIn.at) : '-'],
+          ['First In', clockNow.firstInAt ? localTime(clockNow.firstInAt) : '-'],
         ],
         series: [],
       };
@@ -1371,8 +1426,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               </div>
 
               {hoursView === 'today' ? (
-                todayData?.punches?.length
-                  ? <div className="wd-hp-viz"><DayTimeline punches={todayData.punches} date={todayKey} /></div>
+                clockNow.punches.length
+                  ? <div className="wd-hp-viz"><DayTimeline punches={clockNow.punches} date={todayKey} /></div>
                   : <div className="wd-hp-viz wd-empty">No punches yet today - punch in and your day draws here.</div>
               ) : (
                 <div className="wd-hp-viz"><HoursBars series={hp.series} /></div>
@@ -1410,10 +1465,15 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
 
+      {/* While one of this page's own prompts is open (the day-message or
+          break prompt, the monitoring notice, the punch that did not record)
+          the message is drawn OVER its scrim (11/17/2026): in the page it sat
+          underneath, so "Add a short reason." looked like a dead Send button. */}
       {msg && (
-        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,
+        <div role={msg.ok ? 'status' : 'alert'} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,
           background: msg.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
-          color: msg.ok ? 'hsl(var(--color-green))' : '#b91c1c', fontSize: 13, fontWeight: 600 }}>
+          color: msg.ok ? 'hsl(var(--color-green))' : '#b91c1c', fontSize: 13, fontWeight: 600,
+          ...(bodMode || monGate || (parked && lostModal) ? MSG_OVER_PROMPT : null) }}>
           {msg.ok ? <CheckCircle size={15} /> : <AlertTriangle size={15} />} {msg.text}
         </div>
       )}
@@ -1507,7 +1567,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 {decided && r.decisionNote && <span style={{ color: r.status === 'rejected' ? 'hsl(var(--color-red))' : 'var(--ink)' }}>Approver: “{r.decisionNote}”</span>}
                 {decided && (r.decidedByName || r.decidedAt) && (
                   <span style={{ color: 'var(--muted)', fontSize: 12 }}>
-                    {r.status === 'approved' ? 'Approved' : 'Rejected'}{r.decidedByName ? ` by ${r.decidedByName}` : ''}{r.decidedAt ? ` on ${formatDateTime(r.decidedAt)}` : ''}
+                    {r.status === 'approved' ? 'Approved' : 'Rejected'}{r.decidedByName ? ` by ${r.decidedByName}` : ''}{r.decidedAt ? ` on ${formatDateTime(asUtc(r.decidedAt))}` : ''}
                   </span>
                 )}
                 <span style={{ flex: 1, minWidth: 8 }} />
@@ -1575,18 +1635,23 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 <span style={TO_LBL}>Reason</span>
                 <ReasonPicker value={toForm.type} options={REQUEST_TIMEOFF_TYPES} onChange={type => setToForm(f => ({ ...f, type }))} />
               </div>
+              {/* DateField, never a native date box (11/17/2026): that one follows
+                  the computer's region and read 20-11-2026 on an Indian laptop.
+                  The form still keeps 'YYYY-MM-DD' strings. */}
               <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
                 <span style={TO_LBL}>From</span>
-                <input className="form-input" type="date" value={toForm.start} min={toPast ? undefined : toToday}
-                  onChange={e => setToForm(f => ({ ...f, start: e.target.value, end: f.allDay ? (f.end && f.end >= e.target.value ? f.end : e.target.value) : e.target.value }))}
-                  style={{ fontSize: 13, minWidth: 0 }} />
+                <span className="form-input" style={{ display: 'flex', alignItems: 'center', fontSize: 13, minWidth: 0 }}>
+                  <DateField value={toForm.start} min={toPast ? '' : toToday} placeholder="MM/DD/YYYY" title="From" style={{ width: '100%' }}
+                    onChange={iso => { const v = iso || ''; setToForm(f => ({ ...f, start: v, end: f.allDay ? (f.end && f.end >= v ? f.end : v) : v })); }} />
+                </span>
               </label>
               <label style={{ display: 'grid', gap: 5, minWidth: 0 }}>
                 <span style={TO_LBL}>To</span>
-                <input className="form-input" type="date" value={toForm.end} disabled={!toForm.allDay} min={toForm.start || (toPast ? undefined : toToday)}
-                  title={toForm.allDay ? undefined : 'A specific-hours request is single-day only'}
-                  onChange={e => setToForm(f => ({ ...f, end: e.target.value }))}
-                  style={{ fontSize: 13, minWidth: 0, opacity: toForm.allDay ? 1 : 0.55 }} />
+                <span className="form-input" style={{ display: 'flex', alignItems: 'center', fontSize: 13, minWidth: 0, opacity: toForm.allDay ? 1 : 0.55 }}>
+                  <DateField value={toForm.end} disabled={!toForm.allDay} min={toForm.start || (toPast ? '' : toToday)} placeholder="MM/DD/YYYY"
+                    title={toForm.allDay ? 'To' : 'A specific-hours request is single-day only'} style={{ width: '100%' }}
+                    onChange={iso => setToForm(f => ({ ...f, end: iso || '' }))} />
+                </span>
               </label>
               {/* Teams' New Request "All day" switch (Pranshu, Sep 16): on = whole
                   day(s), off = a specific start/end time on that one day. */}
@@ -1685,7 +1750,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           <span style={{ flex: 1 }} />
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>Your manager decides - you get a bell notification</span>
         </div>
-        {timeoff === null && <div style={{ padding: 16 }}><SkeletonBlocks count={2} height={18} /></div>}
+        {timeoff === null && !toLoadFailed && <div style={{ padding: 16 }}><SkeletonBlocks count={2} height={18} /></div>}
+        {timeoff === null && toLoadFailed && (
+          <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '14px 16px', fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-red))' }}>
+            Couldn&apos;t load your requests.
+            <button type="button" className="secondary-btn" onClick={retryTimeoff} style={{ fontSize: 12 }}>Try Again</button>
+          </div>
+        )}
         {Array.isArray(timeoff) && timeoff.length === 0 && (
           <div style={{ padding: '18px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
             No time-off requests yet.
@@ -1715,11 +1786,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                   not already rejected/cancelled (Pranshu, Sep 16 - there was no
                   way to take a request back once filed). */}
               {(r.status === 'pending' || r.status === 'approved') && (
-                <button onClick={() => cancelTimeoff(r.id)} disabled={toCancelling === r.id}
+                <button onClick={() => cancelTimeoff(r)} disabled={toCancelling === r.id}
                   title="Cancel this request"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none',
-                    cursor: toCancelling === r.id ? 'default' : 'pointer', fontSize: 11, fontWeight: 700, color: '#b91c1c',
-                    padding: '2px 6px', opacity: toCancelling === r.id ? 0.5 : 1 }}>
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4, background: 'none', border: 'none',
+                    cursor: toCancelling === r.id ? 'default' : 'pointer', fontSize: phone ? 12 : 11, fontWeight: 700, color: '#b91c1c',
+                    // A thumb-sized target on a phone (44px), the small link on a computer.
+                    padding: phone ? '0 12px' : '2px 6px', minHeight: phone ? 44 : undefined, minWidth: phone ? 44 : undefined,
+                    opacity: toCancelling === r.id ? 0.5 : 1 }}>
                   {toCancelling === r.id ? <Spinner size={11} /> : <X size={11} />} Cancel
                 </button>
               )}
@@ -1763,7 +1836,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           : bodMode === 'eod-gate' ? async () => { await bodMarker('eod'); proceed(); }
           : proceed;
         return <BodModal mode={modalMode} required onSent={proceed} onSkip={onSkip}
-          onClose={() => { gateClickRef.current = ''; setBodMode(null); }}
+          // Closed without sending: no punch - and for a clock-in, no screen
+          // share either (a break's share stays: the shift is still open).
+          onClose={() => { if (bodMode === 'bod-gate') dropCapture(); gateClickRef.current = ''; setBodMode(null); }}
           toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />;
       })()}
 
@@ -1822,7 +1897,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Before you clock in</h3>
                 <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Please read and acknowledge how this device is monitored.</p>
               </div>
-              <button onClick={() => setMonGate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+              <button onClick={cancelMonGate} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
             </div>
             <div style={{ padding: '16px 22px', overflowY: 'auto', flex: 1, minHeight: 0, fontSize: 13, color: 'var(--ink)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
               {monGate.text || 'This is a company-owned device. While you are clocked in, Nexus records your worked time and may capture periodic screenshots of your work screen, the apps and windows you have open, and your overall activity level. This is used only to verify work time and activity - it never captures your keystrokes, and it stops the moment you clock out.'}
@@ -1834,7 +1909,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 I understand and agree
               </label>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button className="secondary-btn" onClick={() => setMonGate(null)}>Cancel</button>
+                <button className="secondary-btn" onClick={cancelMonGate}>Cancel</button>
                 <button className="primary-btn" onClick={confirmMonitoring} disabled={!monAgree || monBusy}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   {monBusy ? <Spinner size={13} /> : <CheckCircle size={14} />} Acknowledge &amp; clock in

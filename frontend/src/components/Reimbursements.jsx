@@ -389,8 +389,13 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
   const people = usePeople(open && !!form);
   // Opening lands on what needs this person first.
   const landRef = useRef(!!autoOpen);
+  // A failed read is its own state (11/17/2026): it used to become the empty
+  // list - "Nothing filed yet" - and wiped a list that had loaded. What was
+  // loaded stays; the panel says it could not load and offers Try Again.
+  const [loadFailed, setLoadFailed] = useState(false);
   const load = useCallback(() => api.getReimbursements()
     .then((d) => {
+      setLoadFailed(false);
       setData(d);
       if (landRef.current) {
         landRef.current = false;
@@ -400,8 +405,21 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
         else setTab('mine');
       }
     })
-    .catch(() => setData(EMPTY)), []);
+    .catch(() => setLoadFailed(true)), []);
   const openPanel = useCallback(() => { landRef.current = true; setOpen(true); load(); }, [load]);
+  // What an action in the panel did, or why it did not, is said INSIDE the
+  // panel (11/17/2026): the page's own message is drawn under this overlay,
+  // so a failed Send looked like nothing happened. The page still gets it too.
+  const [note, setNote] = useState(null);   // { t, ok }
+  const noteTimer = useRef(null);
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
+  const say = useCallback((...args) => {
+    const [t, ok = true] = args;
+    setNote({ t, ok });
+    clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setNote(null), 6000);
+    flash(...args);
+  }, [flash]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     // detail.newForm: the header's Create menu > New Reimbursement.
@@ -463,9 +481,13 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
             <button type="button" className={closeClass} onClick={() => setOpen(false)} aria-label="Close"
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
           </div>
+          {note && (
+            <div role={note.ok ? 'status' : 'alert'} style={{ padding: '8px 18px', borderBottom: '1px solid var(--line)', fontSize: 13, fontWeight: 600,
+              color: note.ok ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))' }}>{note.t}</div>
+          )}
           <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px', display: 'flex', flexDirection: 'column' }}>
             {form && (
-              <ClaimForm key={form === 'new' ? 'new' : form.id} people={people} editing={form === 'new' ? null : form} flash={flash}
+              <ClaimForm key={form === 'new' ? 'new' : form.id} people={people} editing={form === 'new' ? null : form} flash={say}
                 onDone={(row) => {
                   setForm(null);
                   if (!row) return;
@@ -525,13 +547,19 @@ export default function ReimbursementsTile({ autoOpen = false, flash = () => {} 
               </div>
             </div>
             <div className="nx-fill">
-            {!data ? <div style={{ padding: 20, textAlign: 'center' }}><Spinner size={16} /></div>
+            {loadFailed && (
+              <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '4px 0 12px', fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-red))' }}>
+                {data ? 'Couldn\'t load the latest - this list may be out of date.' : 'Couldn\'t load your reimbursements.'}
+                <button type="button" className="secondary-btn" onClick={load} style={{ fontSize: 12 }}>Try Again</button>
+              </div>
+            )}
+            {!data ? (loadFailed ? null : <div style={{ padding: 20, textAlign: 'center' }}><Spinner size={16} /></div>)
               : list.length === 0 ? (
                 <div style={{ fontSize: 13, color: 'var(--muted)', padding: '14px 0' }}>
                   {tab === 'approve' ? 'Nothing waiting on you.' : tab === 'hr' ? 'Nothing here.' : 'Nothing filed yet. Use New to send one.'}
                 </div>
               ) : list.map((r) => (
-                <ClaimRow key={r.id} r={r} as={tab === 'approve' ? 'approve' : tab === 'hr' ? 'hr' : 'mine'} onChanged={replace} flash={flash}
+                <ClaimRow key={r.id} r={r} as={tab === 'approve' ? 'approve' : tab === 'hr' ? 'hr' : 'mine'} onChanged={replace} flash={say}
                   onEdit={(row) => setForm(row)} />
               ))}
             </div>

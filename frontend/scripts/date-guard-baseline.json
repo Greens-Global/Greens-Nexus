@@ -194,9 +194,6 @@
   "views/Testing.jsx": {
     "type=\"date\"": 1
   },
-  "views/TimeClock.jsx": {
-    "type=\"date\"": 2
-  },
   "components/Interviews.jsx": {
     "type=\"datetime-local\"": 1
   },

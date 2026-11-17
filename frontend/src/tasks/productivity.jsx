@@ -18,6 +18,7 @@ import { recurrenceLabel } from './recurrence';
 import { CustomFieldInput } from './TaskDetailDrawer';
 import { FORMULA_FILTERS } from './formula';
 import { LabelPill, labelKey, labelsInUse, mergeLabelLists, useLabelColors } from './labels';
+import { dialog } from '../ui/dialog';
 
 const SORT_OPTIONS = [
   { key: 'manual', label: 'Manual' }, { key: 'dueOn', label: 'Due Date' },
@@ -537,7 +538,7 @@ function SavedViews({ savedViews, createSavedView, deleteSavedView, current, fil
       {savedViews.map((v) => (
         <div key={v.id} style={{ display: 'flex', alignItems: 'center' }}>
           <button onClick={() => { onApplyView(v); close(); }} style={{ ...btn('ghost'), justifyContent: 'flex-start', flex: 1 }}>{v.name}</button>
-          <button onClick={() => { if (confirm(`Delete view "${v.name}"?`)) deleteSavedView(v.id); }} title="Delete View" style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Trash2 size={13} /></button>
+          <button onClick={async () => { if (await dialog.confirm(`Delete view "${v.name}"?`, { title: 'Delete View', confirmText: 'Delete', danger: true })) deleteSavedView(v.id); }} title="Delete View" style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Trash2 size={13} /></button>
         </div>
       ))}
       <div style={{ borderTop: `1px solid ${NX.border2}`, margin: '4px 0' }} />

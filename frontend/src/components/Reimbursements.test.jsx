@@ -151,6 +151,36 @@ describe('Reimbursements', () => {
     expect(pay).toHaveBeenCalledWith('r1', expect.objectContaining({ payment_method: 'payroll', payment_ref: 'PR-1031' }));
   });
 
+  // 11/17/2026: a failed read used to become "Nothing filed yet" and wiped a
+  // list that had loaded.
+  it('a failed load says so with Try Again and keeps what was loaded', async () => {
+    overview.mockRejectedValue(new Error('down'));
+    render(<ReimbursementsTile autoOpen />);
+    expect(await screen.findByText(/Couldn't load your reimbursements/)).toBeTruthy();
+    expect(screen.queryByText(/Nothing filed yet/)).toBeNull();
+    overview.mockResolvedValue({ ...none, mine: [row()] });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Try Again' })); });
+    expect(await screen.findByText('Monitor')).toBeTruthy();
+    expect(screen.queryByText(/Couldn't load/)).toBeNull();
+    // A later read that fails leaves the list on screen and says it may be out of date.
+    overview.mockRejectedValue(new Error('down'));
+    await act(async () => { window.dispatchEvent(new CustomEvent(OPEN_REIMBURSEMENTS)); });
+    expect(await screen.findByText(/Couldn't load the latest/)).toBeTruthy();
+    expect(screen.getByText('Monitor')).toBeTruthy();
+  });
+
+  // 11/17/2026: the page's message is drawn under the panel's overlay.
+  it('says what a failed action did inside the panel, not only on the page under it', async () => {
+    overview.mockResolvedValue({ ...none, toApprove: [row()] });
+    decide.mockRejectedValue(new Error('This claim was already decided.'));
+    const flash = vi.fn();
+    render(<ReimbursementsTile autoOpen flash={flash} />);
+    const panel = await screen.findByRole('dialog', { name: 'Reimbursements' });
+    await act(async () => { fireEvent.click(await within(panel).findByRole('button', { name: /Approve/ })); });
+    expect(within(panel).getByRole('alert').textContent).toBe('This claim was already decided.');
+    expect(flash).toHaveBeenCalledWith('This claim was already decided.', false);
+  });
+
   it('People > person > Reimbursements lists their claims', async () => {
     render(<PersonReimbursements email="amy@x.com" />);
     expect(await screen.findByText('Monitor')).toBeTruthy();

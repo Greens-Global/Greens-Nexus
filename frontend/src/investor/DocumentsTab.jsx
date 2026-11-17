@@ -6,6 +6,8 @@ import { formatDate } from './lib/format';
 import { IR_BUCKET, safeFileName, uploadToSupabase } from './lib/upload';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, useIrLoad } from './lib/ui';
 import { Spinner } from '../components/AsyncState';
+import { dialog } from '../ui/dialog';
+import { HOLD_RECORD_MS } from '../ui/HoldButton';
 
 // Category → label + accent color (rendered as colored text, never a pill).
 const CATEGORY_META = {
@@ -102,16 +104,18 @@ export default function DocumentsTab() {
     }
   };
 
-  const remove = async (doc) => {
-    if (!window.confirm(`Delete "${doc.title}"? The record is removed from the register (the stored file is kept).`)) return;
-    setRowErr('');
-    try {
-      await api.deleteIrDocument(doc.id);
-      await reload();
-    } catch (err) {
-      setRowErr(err?.message || 'Delete failed.');
-    }
-  };
+  const remove = (doc) => dialog.confirm(`Delete "${doc.title}"? The record is removed from the register (the stored file is kept).`, {
+    title: 'Delete Document?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Delete', doneText: 'Deleted',
+    onConfirm: async () => {
+      setRowErr('');
+      try {
+        await api.deleteIrDocument(doc.id);
+        await reload();
+      } catch (err) {
+        throw new Error(err?.message || 'Delete failed.', { cause: err });
+      }
+    },
+  });
 
   const rows = docs || [];
 

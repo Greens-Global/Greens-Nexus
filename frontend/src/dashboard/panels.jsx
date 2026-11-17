@@ -15,7 +15,7 @@ import { formatDateTime, formatDate, formatMonthDay } from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useIsMobile }      from '../lib/useIsMobile';
 import { Spinner } from '../components/AsyncState';
-import { WidgetSkeleton, MoreRow } from './listParts.jsx';
+import { WidgetSkeleton, MoreRow, WidgetError } from './listParts.jsx';
 import { AvatarName } from '../tasks/components';
 
 // The Items handover sheet (the handover photo, then the handover; lazy so the
@@ -477,6 +477,7 @@ export function CalendarPanel({ phone = false }) {
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selected, setSelected] = useState(agendaDay(new Date()));
   const [state, setState] = useState({ loading: true, available: true, events: [] });
+  const [agendaTry, setAgendaTry] = useState(0);   // Try Again after a failed load
   const [birthdays, setBirthdays] = useState([]);   // [{name, month, day}] - whole roster, fetched once
   const [holidays, setHolidays] = useState([]);      // [{date, name, type}] - caller's own company, fetched once
   // Side-by-side (month grid | My Agenda) only makes sense with room for
@@ -557,13 +558,16 @@ export function CalendarPanel({ phone = false }) {
       if (showLoading) setState((s) => ({ ...s, loading: true }));
       api.dashAgenda(`${agendaDay(start)}T00:00:00`, `${agendaDay(end)}T00:00:00`, tz)
         .then((r) => { if (alive) setState({ loading: false, available: !!r.available, events: r.events || [] }); })
-        .catch(() => { if (alive) setState((s) => ({ ...s, loading: false })); });
+        // The month's first read failing is said in the agenda ("Nothing
+        // scheduled" was a false statement); a background refresh that fails
+        // keeps what is on screen.
+        .catch(() => { if (alive) setState((s) => ({ ...s, loading: false, ...(showLoading ? { error: true } : null) })); });
     };
     load(true);
     const stop = pollWhileVisible(() => load(false), AGENDA_REFRESH_MS);
     return () => { alive = false; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursor.getFullYear(), cursor.getMonth()]);
+  }, [cursor.getFullYear(), cursor.getMonth(), agendaTry]);
 
   const byDay = {};
   for (const ev of state.events) {
@@ -714,9 +718,10 @@ export function CalendarPanel({ phone = false }) {
             <div className="dash-scroll" style={{ flex: 1, minHeight: 0 }} tabIndex={0} aria-label="My Agenda">
               {state.loading ? (
                 <WidgetSkeleton />
-              ) : dayEvents.length === 0 ? (
+              ) : dayEvents.length === 0 && !state.error ? (
                 <div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
               ) : (<>
+                {state.error && <WidgetError message="Couldn't load your calendar." onRetry={() => setAgendaTry(n => n + 1)} />}
                 {shownEvents.map((ev, i) => {
                   const when = ev.isHoliday ? <><PartyPopper size={12} /> All day</> : ev.isBirthday ? <><CakeSlice size={12} /> All day</> : ev.isAllDay ? 'All day' : agendaTime(ev.start);
                   const until = !ev.isAllDay && ev.end ? `until ${agendaTime(ev.end)}` : '';

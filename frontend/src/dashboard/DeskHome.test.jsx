@@ -109,3 +109,62 @@ describe('DeskHome greeting (Neil, 11/04/2026)', () => {
     expect(document.querySelector('.dk-zones').compareDocumentPosition(document.querySelector('.dk-clock')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
   });
 });
+
+// 11/17/2026: "You're all caught up." stood over an Open Tasks band counting
+// work. The greeting reads the band's own number (kpis.my_open_tasks: in
+// progress, overdue or due in the next 30 days) - no new request.
+describe('DeskHome greeting line', () => {
+  const sub = () => document.querySelector('.dk-head-sub').textContent;
+
+  it('names the open tasks instead of "all caught up" when nothing else waits', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    render(<DeskHome notifications={[]} kpis={{ my_open_tasks: 3, my_checkouts: 0, my_assignments: 0 }} />);
+    await waitFor(() => expect(sub()).toBe('You have 3 open tasks.'));
+    cleanup();
+    render(<DeskHome notifications={[]} kpis={{ my_open_tasks: 1, my_checkouts: 0, my_assignments: 0 }} />);
+    await waitFor(() => expect(sub()).toBe('You have 1 open task.'));
+  });
+
+  it('says "all caught up" only with nothing waiting and no open tasks', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    render(<DeskHome notifications={[]} kpis={{ my_open_tasks: 0, my_checkouts: 0, my_assignments: 0 }} />);
+    await waitFor(() => expect(sub()).toBe("You're all caught up."));
+  });
+
+  it('the attention count still leads when something waits', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    render(<DeskHome notifications={[notif(1)]} kpis={{ my_open_tasks: 3 }} />);
+    await waitFor(() => expect(sub()).toBe('You have 1 item that need your attention today.'));
+  });
+});
+
+// 11/17/2026: a failed count read left the band on a placeholder forever (or
+// "To Sign 0"). It says so once, with Try Again.
+describe('DeskHome counts that did not load', () => {
+  it('the KPI read failed: a hyphen and one line with Try Again, no placeholder, no "all caught up"', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    const onRetryKpis = vi.fn();
+    render(<DeskHome notifications={[]} kpis={{ signatures_needed: 0 }} kpisError={{ kpis: true, signatures: false }} onRetryKpis={onRetryKpis} />);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain("Couldn't load your counts.");
+    expect(document.querySelector('.dk-hero [data-count-skeleton]')).toBeNull();
+    expect(document.querySelector('.dk-hero .dk-stat-num').textContent).toBe('-');
+    expect(await screen.findByRole('button', { name: 'To Sign 0' })).toBeTruthy();   // what did load still shows
+    expect(document.querySelector('.dk-head-sub').textContent).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
+    expect(onRetryKpis).toHaveBeenCalledTimes(1);
+  });
+
+  it('the signature read failed: "To Sign" is not 0, and Try Again reads it again', async () => {
+    apiMock.mySignatures.mockRejectedValueOnce(new Error('offline'));
+    render(<DeskHome notifications={[]} kpis={{ my_open_tasks: 0, my_checkouts: 2, my_assignments: 1 }} />);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain("Couldn't load To Sign.");
+    expect(screen.queryByRole('button', { name: /^To Sign/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Checked Out 2' })).toBeTruthy();
+    apiMock.mySignatures.mockResolvedValue([{ id: 1, title: 'Offer letter' }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
+    expect(await screen.findByRole('button', { name: 'To Sign 1' })).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});

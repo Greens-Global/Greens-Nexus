@@ -1,4 +1,4 @@
-import { useState, useRef, Suspense } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { LayoutGrid, Plus, Save, Pencil, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal, Check, ChevronDown } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
@@ -14,6 +14,9 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import { useIsMobile } from '../lib/useIsMobile';
 import AnchoredMenu from '../components/AnchoredMenu';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../ui/HoldButton';
+import { setInlineDirty } from '../lib/dialogGuard';
 
 // Portrait phones, plus phones held sideways (touch screen, short viewport).
 const PHONE_QUERY = '(max-width: 640px), (pointer: coarse) and (max-height: 500px)';
@@ -161,6 +164,7 @@ export default function CustomDashboard() {
         <Suspense fallback={<div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', overflow: 'hidden' }}><WidgetSkeleton rows={2} /></div>}>
           <Comp
             config={it.config || {}} size={{ w: it.w, h: it.h }} phone={phone} kpis={d.kpis} notifications={notifications}
+            kpisError={d.kpisError} reloadKpis={d.reloadKpis}
             markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}
             // Outside Customize a widget's own change (the Weather tile's city)
             // saves straight to the view - there is no Save button there.
@@ -199,20 +203,38 @@ export default function CustomDashboard() {
     onSubmit: wrap(name => d.publishDepartment(name), 'Published to your department'),
   });
   const makeDefault = wrap(async () => { setMenu(false); if (d.activeId) await d.setDefaultView(d.activeId); }, 'Set as your default');
-  const del = wrap(async () => {
+  // Delete View cannot be taken back: a hold in the shared dialog (a view
+  // shared with a department is the longer hold). "View deleted" follows a
+  // real delete only - Cancel used to show it too.
+  const del = async () => {
     setMenu(false);
-    if (!d.activeId) return;
-    const msg = d.activeView?.scope === 'department'
-      ? `Delete "${d.activeView?.name}" for everyone in ${d.activeView?.department || 'the department'}?`
-      : `Delete "${d.activeView?.name}"?`;
-    if (window.confirm(msg)) await d.removeView(d.activeId);
-  }, 'View deleted');
+    const id = d.activeId;
+    if (!id) return;
+    const shared = d.activeView?.scope === 'department';
+    const msg = shared
+      ? `Delete "${d.activeView?.name}" for everyone in ${d.activeView?.department || 'the department'}? This can't be undone.`
+      : `Delete "${d.activeView?.name}"? This can't be undone.`;
+    await dialog.confirm(msg, {
+      title: 'Delete View?', hold: true, holdMs: shared ? HOLD_MAJOR_MS : HOLD_RECORD_MS, confirmText: 'Delete View', doneText: 'Deleted',
+      onConfirm: async () => { await d.removeView(id); flash('View deleted'); },
+    });
+  };
 
   // Guard against silently losing unsaved layout changes.
-  const confirmDiscard = () => !d.dirty || window.confirm('You have unsaved layout changes - discard them?');
-  const guardedSwitch = (id) => { if (confirmDiscard()) d.switchView(id); };
-  const guardedNew = () => { if (confirmDiscard()) createNew(); };
-  const guardedDone = () => { if (confirmDiscard()) d.cancelEdit(); };
+  const confirmDiscard = async () => !d.dirty || dialog.confirm('You have unsaved layout changes - discard them?',
+    { title: 'Discard Changes?', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true });
+  const guardedSwitch = async (id) => { if (await confirmDiscard()) d.switchView(id); };
+  const guardedNew = async () => { if (await confirmDiscard()) createNew(); };
+  const guardedDone = async () => { if (await confirmDiscard()) d.cancelEdit(); };
+  // Leaving another way (a Dashboard tab, a sidebar module, a reload) asks
+  // too: the unsaved layout is registered with the app's own leave guard
+  // (lib/dialogGuard.js) while it is dirty, and taken off on Save, Done,
+  // Discard and unmount.
+  const layoutDirty = d.editing && d.dirty;
+  useEffect(() => {
+    setInlineDirty('dashboard-layout', layoutDirty, { labels: ['the dashboard layout'] });
+    return () => setInlineDirty('dashboard-layout', false);
+  }, [layoutDirty]);
 
   const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, fontFamily: 'var(--wk-font)', cursor: 'pointer' };
   const saveLabel = d.dirty ? 'Save' : 'Saved';
@@ -253,6 +275,15 @@ export default function CustomDashboard() {
           // scrolled page is where nobody is looking after tapping Save.
           ...(isPhone ? { position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(80px + env(safe-area-inset-bottom))',
             margin: 0, zIndex: 395, whiteSpace: 'nowrap', background: 'var(--card)', border: '1px solid var(--wk-line2)', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' } : null) }}>{toast.t}</div>
+      )}
+
+      {/* The saved views did not load: say so (they used to just be missing
+          from Customize). Not while editing - a reload would drop the edits. */}
+      {d.viewsError && !d.loading && !d.editing && (
+        <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12, fontSize: 13, color: 'hsl(var(--color-red))' }}>
+          <span>Couldn't load your saved views.</span>
+          <button type="button" className="secondary-btn" style={{ minHeight: 36, padding: '6px 14px', fontSize: 13 }} onClick={d.reload}>Try Again</button>
+        </div>
       )}
 
       {/* Controls: ONE Customize in the greeting's header-right (Neil,
@@ -328,7 +359,7 @@ export default function CustomDashboard() {
              Customize keep the widget grid untouched below. The view
              picker/Customize/... controls live in the greeting's
              header-right now, not a separate title band above it. */
-          <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} headerRight={controls} headerMenu={viewMenu} />
+          <DeskHome kpis={d.kpis} kpisError={d.kpisError} onRetryKpis={d.reloadKpis} notifications={notifications} markRead={markRead} headerRight={controls} headerMenu={viewMenu} />
         ) : (
           /* Saved views + Customize keep the page greeting - it belongs to the
              Dashboard, not to a layout, so picking a custom view (or saving one

@@ -4,6 +4,7 @@ import { api } from '../api';
 import { formatCurrency, formatDate } from './lib/format';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, StatusText, ThinBar, useIrLoad } from './lib/ui';
 import { Spinner } from '../components/AsyncState';
+import { dialog } from '../ui/dialog';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -56,7 +57,7 @@ export default function CapitalCallsTab() {
 
   const setCallStatus = async (call, status, confirmMsg) => {
     if (actionBusy) return;
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    if (confirmMsg && !(await dialog.confirm(confirmMsg))) return;
     setActionBusy(true); setActionErr('');
     try {
       await api.updateIrCapitalCall(call.id, { status });
@@ -219,7 +220,7 @@ export default function CapitalCallsTab() {
                                         Record Partial…
                                       </button>
                                       <button className="secondary-btn" disabled={actionBusy}
-                                        onClick={() => { if (window.confirm('Waive this allocation? The investor will not be asked for this capital.')) setAllocStatus(a, { status: 'waived' }); }}
+                                        onClick={async () => { if (await dialog.confirm('Waive this allocation? The investor will not be asked for this capital.', { title: 'Waive Allocation', confirmText: 'Waive' })) setAllocStatus(a, { status: 'waived' }); }}
                                         style={{ fontSize: 12, padding: '4px 10px', color: 'var(--muted)' }}>
                                         Waive
                                       </button>

@@ -16,6 +16,7 @@ import { loadTaskData, loadOlderTasks, withRecent, withOlder, taskSnapshot, reme
 import { noteStatusChanges } from './recentChanges';
 import { applyFieldUpdate } from './formula';
 import { moveUndoBody } from './lib';
+import { dialog } from '../ui/dialog';
 
 function tasksReducer(prev, v) {
   const next = typeof v === 'function' ? v(prev) : v;
@@ -170,6 +171,13 @@ export function TasksProvider({ children }) {
   const [ticketsLoaded, setTicketsLoaded] = useState(false);
   const ticketsLoadedRef = useRef(false);
   ticketsLoadedRef.current = ticketsLoaded;
+  // The first ticket load FAILED (11/17/2026): the list is empty because it
+  // could not be read, not because nothing was raised - the desk says so and
+  // offers Try Again instead of "No Tickets Yet". Cleared by any good answer.
+  const [ticketsFailed, setTicketsFailed] = useState(false);
+  // The long-done tasks (the first load's second part) are in too, so a task
+  // that is not in the list really is not there (TaskDetailDrawer).
+  const [allTasksLoaded, setAllTasksLoaded] = useState(false);
   const commentCache = useRef({});   // taskId -> comment[]
   // The caller's running task timer (Oct 2026): {entry, task} or null. One
   // per person at a time; the module bar's chip and the drawer both read it.
@@ -186,7 +194,7 @@ export function TasksProvider({ children }) {
     applyRef.current = {
       tasks: (v) => { setTasks((prev) => withRecent(prev, v?.tasks || [])); sinceRef.current = v?.serverTime || ''; },
       projects: setProjects, portfolios: setPortfolios, teams: setTeams,
-      tickets: (v) => { setTickets(v); setTicketsLoaded(true); }, ticketComponents: setTicketComponents,
+      tickets: (v, ok = true) => { setTickets(v); setTicketsLoaded(true); setTicketsFailed(!ok); }, ticketComponents: setTicketComponents,
       savedViews: setSavedViews, ticketViews: setTicketViews, rules: setRules,
       templates: setTemplates, projectTemplates: setProjectTemplates,
       customFields: setCustomFields, customStatuses: setCustomStatuses,
@@ -206,13 +214,16 @@ export function TasksProvider({ children }) {
 
   const loadCore = useCallback(async () => {
     let firstPaintLeft = FIRST_PAINT.length;
-    await loadTaskData((key, value) => {
-      applyRef.current[key]?.(value);
+    // `ok` false: that collection's fetch failed and `value` is what was held.
+    await loadTaskData((key, value, ok) => {
+      if (key === 'tickets') applyRef.current.tickets(value, ok !== false);
+      else applyRef.current[key]?.(value);
       if (FIRST_PAINT.includes(key) && --firstPaintLeft === 0) setLoading(false);
     });
     setLoading(false);
     const older = await loadOlderTasks();
     if (older.length) setTasks((prev) => withOlder(prev, older));
+    setAllTasksLoaded(true);
   }, []);
 
   const loadNotifications = useCallback(async () => {
@@ -356,6 +367,7 @@ export function TasksProvider({ children }) {
       // Already true after the first load; skipping the no-op set keeps an
       // unchanged refresh from re-rendering the module.
       if (!ticketsLoadedRef.current) setTicketsLoaded(true);
+      setTicketsFailed(false);
     } catch {
       // keep the list we have; the next tick tries again
       if (live) ticketsStaleRef.current = true;
@@ -477,6 +489,18 @@ export function TasksProvider({ children }) {
   const tasksRef = useRef(tasks);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
+  // What a failed save says - for EVERY failure (11/17/2026). A refusal (the
+  // server answered: a status) keeps its alert. A save that never reached
+  // the server has no `status` (api.js's network error) and used to say
+  // nothing at all - the change just went back, after "Completed" had
+  // already shown. That one is said in the toast's place, so a dropped
+  // connection under a bulk change is one notice and not a stack of alerts.
+  const sayNotSaved = useCallback((e, fallback) => {
+    if (e?.status === 401) return;
+    if (e?.status) dialog.alert(e.message || fallback);
+    else offerRef.current?.(`Not saved. ${e?.message || 'Try again.'}`, null);
+  }, []);
+
   // `quiet`: the caller says what went wrong itself (Move To's dialog), so
   // no alert here as well.
   const updateTask = useCallback(async (id, patch, { quiet = false } = {}) => {
@@ -510,10 +534,10 @@ export function TasksProvider({ children }) {
       // Surfaces things like a dependency-gate rejection (blocked by an
       // unfinished FS/SS/FF/SF task) - the optimistic change above was just
       // put back, so silence here would look like nothing happened.
-      if (!quiet && e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
+      if (!quiet) sayNotSaved(e, 'Could not update this task.');
       throw e;
     }
-  }, [patchLocalTask, refetchTasks, announceHeld]);
+  }, [patchLocalTask, refetchTasks, announceHeld, sayNotSaved]);
 
   // Undo toast - one at a time; label + a run() that reverses the action.
   // A null run() is a plain notice (no Undo button) in the same spot.
@@ -549,13 +573,17 @@ export function TasksProvider({ children }) {
       setTimeout(() => {
         pendingComplete.current.delete(t.id);
         const recurring = t.status === 'recurring' || !!t.recurrence?.freq;
-        offerUndo(
-          recurring
-            ? `Completed "${(t.title || '').slice(0, 40)}" - next occurrence created`
-            : `Completed "${(t.title || '').slice(0, 40)}"`,
-          () => updateTask(t.id, { completed: false }).catch(() => {}),
-        );
-        resolve(updateTask(t.id, { completed: true }).catch(() => {}));
+        // "Completed" once the save is in - it used to show first, and a save
+        // that then failed left it standing over a task put back to open.
+        resolve(updateTask(t.id, { completed: true }).then((saved) => {
+          offerUndo(
+            recurring
+              ? `Completed "${(t.title || '').slice(0, 40)}" - next occurrence created`
+              : `Completed "${(t.title || '').slice(0, 40)}"`,
+            () => updateTask(t.id, { completed: false }).catch(() => {}),
+          );
+          return saved;
+        }, () => {}));
       }, 550);
     });
   }, [updateTask, offerUndo]);
@@ -616,7 +644,7 @@ export function TasksProvider({ children }) {
     const failed = results.filter((r) => r.status === 'rejected');
     if (failed.length) {
       const why = failed[0].reason?.message || 'Try again from the Recycle Bin.';
-      alert(failed.length === ids.length && ids.length === 1
+      dialog.alert(failed.length === ids.length && ids.length === 1
         ? `Could not restore this task. ${why}`
         : `Could not restore ${failed.length} of ${ids.length} tasks. ${why}`);
     }
@@ -672,10 +700,10 @@ export function TasksProvider({ children }) {
       announceHeld(rows, patch);
       return rows;
     } catch (e) {
-      if (e?.status && e.status !== 401) alert(e.message || 'Could not update these tasks.');
+      sayNotSaved(e, 'Could not update these tasks.');
       throw e;
     }
-  }, [announceHeld]);
+  }, [announceHeld, sayNotSaved]);
 
   // Undo of a due-date move (the Calendar drag, Oct 22 2026): the server
   // takes the move out - no extension for the trip back, no second bell.
@@ -686,10 +714,10 @@ export function TasksProvider({ children }) {
       return saved;
     } catch (e) {
       refetchTasks().catch(() => {});
-      if (e?.status && e.status !== 401) alert(e.message || 'Could not undo that change.');
+      sayNotSaved(e, 'Could not undo that change.');
       throw e;
     }
-  }, [patchLocalTask, refetchTasks]);
+  }, [patchLocalTask, refetchTasks, sayNotSaved]);
 
   // The batch bar's Dates action (Oct 22 2026): the server moves each task
   // from its own date, so there is nothing to apply optimistically - the
@@ -701,10 +729,10 @@ export function TasksProvider({ children }) {
       setTasks((prev) => prev.map((t) => map[t.id] || t));
       return r;
     } catch (e) {
-      if (e?.status && e.status !== 401) alert(e.message || 'Could not change the dates.');
+      sayNotSaved(e, 'Could not change the dates.');
       throw e;
     }
-  }, []);
+  }, [sayNotSaved]);
 
   // The batch bar's Add Label / Remove Label (Oct 22 2026): merged into each
   // task's own labels on the server, under its row locks - the answer lands.
@@ -715,10 +743,10 @@ export function TasksProvider({ children }) {
       setTasks((prev) => prev.map((t) => map[t.id] || t));
       return rows;
     } catch (e) {
-      if (e?.status && e.status !== 401) alert(e.message || 'Could not change the labels.');
+      sayNotSaved(e, 'Could not change the labels.');
       throw e;
     }
-  }, []);
+  }, [sayNotSaved]);
 
   // Comments (loaded on demand, cached)
   const getComments = useCallback(async (taskId) => {
@@ -885,6 +913,7 @@ export function TasksProvider({ children }) {
       try { rows = await api.getTaskTickets(); } catch { return; }
       if (gen !== ticketGenRef.current || !Array.isArray(rows)) return;
       setTickets(rows);
+      setTicketsFailed(false);
     },
     // A task made from a ticket (Oct 14 2026): the server links both sides in
     // one save and hands both back.
@@ -1014,7 +1043,7 @@ export function TasksProvider({ children }) {
   );
 
   const value = {
-    loading, ticketsLoaded, myEmail, nameOf,
+    loading, ticketsLoaded, ticketsFailed, allTasksLoaded, refetchTasks, myEmail, nameOf,
     tasks, projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews, rules, templates,
     projectTemplates,
     customFields, customStatuses, statusMeta, statusOrder, statusOrderFor, notifications, memberRequests, intakeForms, changelog,

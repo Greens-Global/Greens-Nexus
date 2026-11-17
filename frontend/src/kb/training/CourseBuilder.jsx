@@ -20,6 +20,7 @@ import { goKb, fmtDate, blankDoc, plural } from '../lib';
 import Sessions from './Sessions';
 import { FeedbackSummary } from './CourseFeedback';
 import { importFileAsIs, baseTitle } from '../editor/importFile';
+import { dialog } from '../../ui/dialog';
 
 const newId = (p) => `${p}_${Math.random().toString(36).slice(2, 10)}`;
 const blankQuestion = () => ({ _id: newId('q'), type: 'single', q: '', options: ['', '', '', ''], answer: [], explanation: '', lessonId: '' });
@@ -210,7 +211,7 @@ export default function CourseBuilder({ id, me }) {
             <button type="button" className="kb-btn sm" onClick={() => goKb('course', data.course.id)}>Preview</button>
             <button type="button" className="kb-btn sm pri" disabled={!draft.lessons.length} onClick={() => { setPublishOpen(true); }}><Check />{data.course.status === 'published' ? `Publish v${data.course.major + 1}` : 'Publish'}</button>
           </div>
-          {data.dirty && <Banner kind="amber" icon={AlertTriangle}><b>v{data.course.major} stays live</b> while you edit. People mid-course finish the version they started. <button type="button" className="kb-btn sm ghost" onClick={() => { if (window.confirm('Discard the unpublished edits?')) api.kbDiscardCourseDraft(data.course.id).then((d) => { setData(d); setDraft(d.draft); }).catch((e) => toast(errText(e), 'err')); }}>Discard Edits</button></Banner>}
+          {data.dirty && <Banner kind="amber" icon={AlertTriangle}><b>v{data.course.major} stays live</b> while you edit. People mid-course finish the version they started. <button type="button" className="kb-btn sm ghost" onClick={async () => { if (await dialog.confirm('Discard the unpublished edits?', { title: 'Discard Edits', confirmText: 'Discard', danger: true })) api.kbDiscardCourseDraft(data.course.id).then((d) => { setData(d); setDraft(d.draft); }).catch((e) => toast(errText(e), 'err')); }}>Discard Edits</button></Banner>}
           {/* Keeps Up (Neil, 11/07/2026): What's New released something about a module this course teaches since it was last reviewed. */}
           {data.course.review_flag?.changes?.length > 0 && (
             <Banner kind="amber" icon={AlertTriangle}>
@@ -252,7 +253,7 @@ export default function CourseBuilder({ id, me }) {
                   <section className="kb-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <input className="kb-input" style={{ fontSize: 18, fontWeight: 600 }} value={lesson.title} onChange={(e) => patchLesson(lesson._id, { title: e.target.value })} aria-label="Lesson title" />
-                      <button type="button" className="kb-ibtn" aria-label="Delete lesson" onClick={() => { if (window.confirm('Remove this lesson?')) { patch({ lessons: draft.lessons.filter((L) => L._id !== lesson._id) }); setCur(''); } }}><Trash2 /></button>
+                      <button type="button" className="kb-ibtn" aria-label="Delete lesson" onClick={async () => { if (await dialog.confirm('Remove this lesson?', { title: 'Remove Lesson', confirmText: 'Remove', danger: true })) { patch({ lessons: draft.lessons.filter((L) => L._id !== lesson._id) }); setCur(''); } }}><Trash2 /></button>
                     </div>
                     {lesson.type === 'page' && (
                       <>

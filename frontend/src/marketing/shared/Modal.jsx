@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { isBypassing } from '../../lib/dialogGuard'
+import { focusables, trapTab } from '../../lib/useDialogFocus'
 import { useExit, MOTION } from '../../lib/motion'
 import { useIsMobile } from '../../lib/useIsMobile'
 import { useSheetStack, useSheetEntering, SHEET_SHADOW, SHEET_EDGE } from '../../lib/sheetStack'
@@ -31,21 +33,44 @@ export default function Modal({ title, onClose, children, width, isDirty = false
   const isMobile = useIsMobile()
   const sheet = !isMobile && placement === 'sheet'
   const panelRef = useRef(null)
+  const confirmRef = useRef(null)
+  // Where the press behind a scrim click began: a text selection dragged out
+  // of the sheet and let go on the scrim arrives as a click on the scrim (the
+  // browser sends it to the common ancestor), and that is not a close.
+  const pressInside = useRef(false)
   // Exit motion (lib/motion.js): a close the Modal performs itself plays the
   // exit first - a sheet's slide-out runs --dur-md (220ms), a card's 150.
   const [closing, exit] = useExit(onClose, sheet ? MOTION.md : MOTION.exit)
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirming(true); else exit() }
-  // z 50 is this overlay's own (below the app's 3500+ drawers and Modals).
-  useSheetStack(panelRef, sheet, closing, 50)
+  // z 4000, the shared Modal's (tasks/components.jsx). It was 50 and inside
+  // the page, under the app header (z 110) and the left menu (z 100), which
+  // covered the title row and the X and stayed clickable.
+  useSheetStack(panelRef, sheet, closing, 4000)
   // The body's cascade plays only while the sheet arrives.
   const entering = useSheetEntering(sheet)
   useEffect(() => {
     function onKeyDown(e) {
-      if (e.key === 'Escape') requestClose()
+      if (e.key !== 'Escape') return
+      // With "Save your changes?" up, Escape is Keep Editing; it used to ask
+      // the same question again.
+      if (confirming) setConfirming(false); else requestClose()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onClose, isDirty])
+  }, [onClose, isDirty, confirming])
+  // "Save your changes?" takes focus when it appears (Keep Editing, the safe
+  // answer), keeps Tab to itself and hands focus back when it goes - a
+  // keyboard had no way to reach it.
+  useEffect(() => {
+    if (!confirming) return undefined
+    const card = confirmRef.current
+    const back = document.activeElement
+    ;(focusables(card)[0] || card).focus()
+    return () => {
+      const now = document.activeElement
+      if ((!now || now === document.body || card.contains(now)) && back && back !== document.body && back.isConnected) back.focus?.()
+    }
+  }, [confirming])
   const saveAndClose = async () => {
     if (!onSave) { setConfirming(false); exit(); return }
     setSaving(true)
@@ -57,13 +82,18 @@ export default function Modal({ title, onClose, children, width, isDirty = false
   // token only matters when it asks for something bigger (max-w-4xl and up).
   const tokenWidth = MAX_W[width] || 0
 
-  return (
+  // Portaled to <body>, like the shared Modal: inside the page it sat in the
+  // Marketing screen's own stacking layer, so no z-index could lift it over
+  // the app header. The wrapper keeps the Marketing button and field styles
+  // (.mktg-root) the forms are drawn with, without the page's fade-in.
+  return createPortal(
+    <div className="mktg-root" style={{ animation: 'none' }}>
     <div
       className={`nx-overlay${closing ? ' is-closing' : ''}`}
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 50,
+        zIndex: 4000,
         display: 'flex',
         alignItems: sheet ? 'stretch' : 'center',
         justifyContent: sheet ? 'flex-end' : 'center',
@@ -71,7 +101,8 @@ export default function Modal({ title, onClose, children, width, isDirty = false
         padding: sheet ? 0 : 16,
         fontFamily: FONT,
       }}
-      onClick={requestClose}
+      onMouseDown={(e) => { pressInside.current = e.target !== e.currentTarget }}
+      onClick={(e) => { if (e.target === e.currentTarget && (!pressInside.current || isBypassing())) requestClose() }}
     >
       <div
         ref={panelRef}
@@ -127,7 +158,8 @@ export default function Modal({ title, onClose, children, width, isDirty = false
         <div className={sheet ? 'nx-cascade' : undefined} style={{ padding: 20, flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>{children}</div>
       </div>
       {confirming && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', background: alpha(C.black, 0.2) }}
+        <div ref={confirmRef} tabIndex={-1} data-nx-esc-layer="" onKeyDown={trapTab}
+          style={{ position: 'fixed', inset: 0, zIndex: 4600, display: 'flex', alignItems: 'center', justifyContent: 'center', background: alpha(C.black, 0.2) }}
           onClick={(e) => e.stopPropagation()}>
           <div className="nx-popup" style={{ background: C.white, borderRadius: 14, padding: 20, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: C.gray900, marginBottom: 6 }}>Save your changes?</div>
@@ -147,5 +179,7 @@ export default function Modal({ title, onClose, children, width, isDirty = false
         </div>
       )}
     </div>
+    </div>,
+    document.body,
   )
 }

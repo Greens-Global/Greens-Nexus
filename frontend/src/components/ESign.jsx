@@ -23,7 +23,7 @@ import { MOTION, motionWait, prefersReducedMotion, useReducedMotion } from '../l
 import BreakAttestModal, { BreakStatement } from './BreakAttestModal';
 import { PersonSelect, Modal } from '../tasks/components';
 import { dialog } from '../ui/dialog';
-import { HOLD_MAJOR_MS } from '../ui/HoldButton';
+import { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../ui/HoldButton';
 import SignTextField from './esign/SignTextField';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
@@ -4195,11 +4195,13 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                     Resume <ChevronRight size={13} />
                   </button>
                   <button title="Delete this draft"
-                    onClick={async () => {
-                      if (!window.confirm(`Delete the draft "${d.title}"? This can't be undone.`)) return;
-                      try { await api.deleteSignDraft(d.id); loadDrafts(); toastOk('Draft deleted.'); }
-                      catch (e) { toastErr(e?.message || 'Could not delete that draft.'); }
-                    }}
+                    onClick={() => dialog.confirm(`Delete the draft "${d.title}"? This can't be undone.`, {
+                      title: 'Delete Draft?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Delete', doneText: 'Deleted',
+                      onConfirm: async () => {
+                        try { await api.deleteSignDraft(d.id); loadDrafts(); toastOk('Draft deleted.'); }
+                        catch (e) { throw new Error(e?.message || 'Could not delete that draft.', { cause: e }); }
+                      },
+                    })}
                     style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
                 </div>
               ))}

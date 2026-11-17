@@ -16,6 +16,7 @@ import ProjectIcon from './ProjectIcon';
 import { projectLook } from './projectLook';
 import ProgressTrack, { countTrackState } from '../ui/ProgressTrack';
 import { ProjectStatusChip, useProjectStatusEditor } from './projectStatus';
+import { dialog } from '../ui/dialog';
 
 // Columns in grid order, with the sort key each header drives. A portfolio's
 // name is elastic; the rollup columns are fixed until someone drags one.
@@ -426,7 +427,7 @@ export default function PortfoliosView({ onNavigate, actions }) {
               await moveProjectsToPortfolio([...picked], portfolioId);
               setPicked(new Set());
             } catch (e) {
-              alert('Could not move those projects.');
+              dialog.alert('Could not move those projects.');
             } finally { setMoving(false); }
           }}
         />
@@ -757,20 +758,20 @@ function PortfolioModal({ portfolio, defaultParentId = '', people, projects, onC
       if (isEdit) await onUpdate(portfolio.id, data);
       else await onCreate(data);
       onClose();
-    } catch (e) { setBusy(false); alert('Could not save portfolio.'); }
+    } catch (e) { setBusy(false); dialog.alert('Could not save portfolio.'); }
   };
 
   const toggleArchive = async () => {
     setBusy(true);
     try { await onUpdate(portfolio.id, { archived: !portfolio.archived }); onClose(); }
-    catch (e) { setBusy(false); alert('Could not update portfolio.'); }
+    catch (e) { setBusy(false); dialog.alert('Could not update portfolio.'); }
   };
 
   const remove = async () => {
-    if (!confirm(`Delete portfolio “${portfolio.name}”? Projects are kept, only the grouping is removed.`)) return;
+    if (!(await dialog.confirm(`Delete portfolio "${portfolio.name}"? Projects are kept, only the grouping is removed.`, { title: 'Delete Portfolio', confirmText: 'Delete', danger: true }))) return;
     setBusy(true);
     try { await onDelete(portfolio.id); afterDelete(); }
-    catch (e) { setBusy(false); alert('Could not delete portfolio.'); }
+    catch (e) { setBusy(false); dialog.alert('Could not delete portfolio.'); }
   };
 
   const label = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -866,7 +867,7 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
   const saveIds = async (nextIds) => {
     setBusy(true);
     try { await updatePortfolio(pf.id, { projectIds: nextIds }); }
-    catch (e) { alert('Could not update projects.'); }
+    catch (e) { dialog.alert('Could not update projects.'); }
     finally { setBusy(false); }
   };
 

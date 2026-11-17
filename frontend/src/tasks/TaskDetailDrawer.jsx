@@ -19,7 +19,7 @@ import { useTasks } from './TasksContext';
 import { formulaEngineFor } from './formula';
 import { FormulaValue } from './FormulaColumn';
 import { isAudioAttachment } from './lib';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, uploadTaskAttachmentVersion, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInProject, fieldOption, uploadTaskAttachment, uploadTaskAttachmentVersion, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData, threadComments, taskRoleFor, roleAtLeast, richBodyHtml, sameDoc } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
@@ -42,6 +42,7 @@ import { draftKey, getDraft, hasWords, useTaskDraft, useTaskDrafts, clearDraftsF
 import { isBypassing } from '../lib/dialogGuard';
 import { useExit, MOTION } from '../lib/motion';
 import { useSheetStack } from '../lib/sheetStack';
+import { useBackToClose } from '../lib/useBackToClose';
 import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
 import { openNotificationTarget } from '../lib/openTarget';
@@ -70,6 +71,8 @@ import { groupFieldChanges, historyFieldName } from './fieldHistory';
 import { STOP_VOICE_FIRST } from '../lib/voice';
 import LocalTimeHint from '../components/LocalTimeHint';
 
+// A box someone types in - what Escape is looked at against (the drawer below).
+const TYPING_BOX = 'input:not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable]:not([contenteditable="false"])';
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const VIEW_ONLY_TITLE = 'You can view this task but not change it';
 // An approval state as a Title Case chip ("changes_requested" -> "Changes Requested").
@@ -134,7 +137,7 @@ function Row({ label, children, history, historyLabel }) {
         <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{label}</span>
         {history && <span style={{ marginTop: -1 }}><FieldHistoryButton field={history} label={historyLabel || label} /></span>}
       </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>{children}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>{children}</div>
     </div>
   );
 }
@@ -149,11 +152,12 @@ function Chip({ color, tint, children }) {
 // Portaled (AnchoredMenu) so the drawer's scrolling body can't clip it, and
 // kept inside the viewport - a trigger near the edge (the header's "more
 // actions") used to push the panel off-screen, unreachable on a phone.
-function Pop({ trigger, children, width = 200 }) {
+// `style`: the wrapper's own (the field boxes size themselves through it).
+function Pop({ trigger, children, width = 200, style = null }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   return (
-    <div ref={ref} style={{ display: 'inline-flex' }}>
+    <div ref={ref} style={{ display: 'inline-flex', ...style }}>
       {trigger(() => setOpen((o) => !o))}
       <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)}
         style={{ width, maxWidth: 'calc(100vw - 16px)', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
@@ -331,6 +335,57 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     setActiveId(to);
   };
 
+  // Escape and the phone's Back button leave the drawer (11/17/2026), as
+  // they leave a Modal: the header Close's own step - back to the task
+  // stepped in from, else closed, asking first about unsent words.
+  // Escape goes to the layer on top only. A dialog opened from here (Share,
+  // Move To, the unsent prompt) takes a later number in useEscapeLayer, and
+  // menus, people pickers and the attachment viewer stop the key themselves.
+  // What closes on Escape WITHOUT stopping it is noted on the key's way
+  // down, before it has acted: an open date calendar, and a box outside the
+  // drawer (the header search). A box that answered Escape by going away (a
+  // checklist line being renamed) has had its Escape too.
+  const leave = () => {
+    if (!task) { exitNow(); return; }
+    if (trail.length) goBack(); else requestClose();
+  };
+  const escNote = useRef({ held: false, box: null });
+  useEffect(() => {
+    const note = (e) => {
+      if (e.key !== 'Escape') return;
+      const box = e.target?.matches?.(TYPING_BOX) ? e.target : null;
+      escNote.current = {
+        held: !!document.querySelector('[data-nx-calendar]') || (!!box && !asideRef.current?.contains(box)),
+        box,
+      };
+    };
+    window.addEventListener('keydown', note, true);
+    return () => window.removeEventListener('keydown', note, true);
+  }, []);
+  useEscapeLayer(() => {
+    const { held, box } = escNote.current;
+    if (held || (box && !box.isConnected)) return;
+    leave();
+  });
+  // Back with the unsent prompt up answers it Keep Editing, as Escape does.
+  useBackToClose(isMobile, () => { if (asking) keepEditing(); else leave(); });
+
+  // A task that is not in the list (11/17/2026): a bell, a search result or
+  // a link can name one made a moment ago, one deleted, or one that is not
+  // this person's to see. The server is asked once for what changed before
+  // the drawer says it is not there - it used to render nothing at all.
+  const [looked, setLooked] = useState(null);   // the id that was asked about
+  const { refetchTasks } = store;
+  const missing = !task && !store.loading && store.allTasksLoaded !== false;
+  useEffect(() => {
+    if (!missing || looked === activeId) return undefined;
+    let alive = true;
+    Promise.resolve(refetchTasks?.()).catch(() => {}).then(() => { if (alive) setLooked(activeId); });
+    return () => { alive = false; };
+  }, [missing, looked, activeId, refetchTasks]);
+  // Deleted from this drawer: it is on its way out, with nothing to say.
+  const [deletedHere, setDeletedHere] = useState(null);
+
   // Mark Complete from the header closes the drawer once the completion has
   // played out - the task is done, so there is nothing left to do in it. The
   // store holds the save ~550ms for the unicorn (TasksContext.toggleComplete);
@@ -391,20 +446,32 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   if (!task) {
     // Opened before the task list has arrived (a link from an email, header
     // search, a ticket's linked task): show the drawer opening rather than
-    // nothing, so a click visibly did something. Once loading is done a
-    // missing task still renders nothing, exactly as before.
-    if (!store.loading) return null;
+    // nothing, so a click visibly did something. Once the list is in and the
+    // server has been asked, a task that still is not there says so, with a
+    // way out (the ticket drawer's "not in your list any more").
+    if (deletedHere === activeId) return null;
+    const gone = missing && looked === activeId;
     return createPortal(
-      <div className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) exitNow(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
-        <aside role="status" aria-live="polite" aria-busy="true" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
+      <div data-nx-task-drawer="" className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) exitNow(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
+        <aside role={gone ? 'alert' : 'status'} aria-live={gone ? undefined : 'polite'} aria-busy={gone ? undefined : 'true'} style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 14px', borderBottom: `1px solid ${NX.border}` }}>
             <button onClick={exitNow} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><X size={16} /></button>
           </div>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
-            <Spinner size="section" />
-            <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>Opening task…</div>
-            <div style={{ fontSize: 13, color: NX.faint }}>Getting the task details ready.</div>
-          </div>
+          {gone ? (
+            <div data-testid="task-not-found" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>Task Not Found</div>
+              <div style={{ fontSize: 13, color: NX.dim, maxWidth: 420, lineHeight: 1.5 }}>
+                This task is not in your list any more - it may have been deleted, or you may no longer have access to it.
+              </div>
+              <button type="button" onClick={exitNow} style={{ ...btn('primary'), marginTop: 6 }}>Close</button>
+            </div>
+          ) : (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24, textAlign: 'center' }}>
+              <Spinner size="section" />
+              <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>Opening task…</div>
+              <div style={{ fontSize: 13, color: NX.faint }}>Getting the task details ready.</div>
+            </div>
+          )}
         </aside>
       </div>,
       document.body,
@@ -456,7 +523,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
       setTrail([]);
       setActiveId(copy.id);
     } catch (e) {
-      alert(`Could not duplicate the task: ${e?.message || e}`);
+      dialog.alert(`Could not duplicate the task: ${e?.message || e}`);
     }
   };
 
@@ -543,7 +610,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const draftTabs = new Set(unsent.filter((d) => d.taskId === activeId).map((d) => (DRAFT_TAB[d.kind] === 'checklist' ? 'overview' : DRAFT_TAB[d.kind])));
 
   return createPortal(
-    <div className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
+    <div data-nx-task-drawer="" className={`nx-tasks-portal${closing ? ' is-closing' : ''}`} onMouseDown={(e) => { if (e.target === e.currentTarget) requestClose(); }} style={{ position: 'fixed', inset: 0, zIndex, fontFamily: FONT }}>
       <aside ref={asideRef} className="nx-sheet-right" style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
         {/* drag handle */}
         {!isMobile && (
@@ -597,13 +664,19 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   {canEdit && <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark Milestone' : 'Mark as Milestone'}
                   </MenuItem>}
-                  {canEdit && <MenuItem danger icon={<Trash2 size={14} />} onClick={() => {
+                  {canEdit && <MenuItem danger icon={<Trash2 size={14} />} onClick={async () => {
                     close();
                     const sub = !!task.parentTaskId;
-                    if (!window.confirm(sub ? `Delete subtask "${task.title}"?` : `Delete "${task.title}" and its subtasks?`)) return;
+                    if (!(await dialog.confirm(sub ? `Delete subtask "${task.title}"?` : `Delete "${task.title}" and its subtasks?`, { title: sub ? 'Delete Subtask' : 'Delete Task', confirmText: 'Delete', danger: true }))) return;
                     const gone = activeId;
+                    const name = task.title;
                     clearDraftsFor([gone]);
-                    deleteTask(gone);
+                    setDeletedHere(gone);
+                    // A refused delete puts the task back in the list
+                    // (TasksContext) - said here, it used to come back with no word.
+                    Promise.resolve(deleteTask(gone)).catch((e) => {
+                      dialog.alert(`"${name}" was not deleted.${e?.message ? ` ${e.message}` : ''}`, { title: sub ? 'Subtask Not Deleted' : 'Task Not Deleted' });
+                    });
                     goBack(gone);
                   }}>
                     {task.parentTaskId ? 'Delete Subtask' : 'Delete Task'}
@@ -1316,6 +1389,10 @@ function RecurrencePicker({ value, seedDate, onChange, subtask = false, mainRule
 // Every field control on the Overview is this wide at least, so the column of
 // boxes lines up (Neil, Oct 14 2026: "this is too small, make it wider").
 const FIELD_W = 300;
+// The box around Assignee / Collaborators / Projects: FIELD_W wide where the
+// row has the room, never wider than the row - on a phone the row is about
+// 246px, and a fixed 300 ran the box and its arrow off the screen.
+const FIELD_BOX = { minWidth: `min(${FIELD_W}px, 100%)`, maxWidth: '100%' };
 const sameValue = (x, y) => JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
 
 /** A real dropdown for Status / Priority / Team: an outlined box, the value's
@@ -1369,9 +1446,9 @@ function ProjectsField({ task, projects, teams, myEmail, projectName, patch }) {
   };
   const toggle = (id) => set(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
   return (
-    <Pop width={320} trigger={(t) => (
+    <Pop width={320} style={FIELD_BOX} trigger={(t) => (
       <button type="button" onClick={t} aria-label="Projects"
-        style={{ ...btn('outline'), minWidth: FIELD_W, maxWidth: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
+        style={{ ...btn('outline'), flex: 1, minWidth: 0, justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', minWidth: 0 }}>
           {ids.length === 0 && <span style={{ color: NX.faint, fontWeight: 400 }}>No project</span>}
           {ids.map((id, i) => (
@@ -1474,7 +1551,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {/* Same column and gap as the tab body, so locking moves nothing. */}
       <FieldsLock readOnly={readOnly} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <Row label="Assignee" history="assigneeIds" historyLabel="Assignees">
-        <div style={{ minWidth: FIELD_W }}>
+        <div style={FIELD_BOX}>
           {/* Several people can hold one task; any of them completing it
               completes it for all (one row, one flag). */}
           <PersonMultiSelect value={taskAssignees(task)} people={people} addTitle="Add assignee"
@@ -1507,10 +1584,10 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
       {/* The same box as Assignee - chips, the dashed add, a chevron (Neil,
           Oct 14 2026: the two rows looked like different kinds of control). */}
       <Row label="Collaborators">
-        <Pop width={240} trigger={(t) => (
+        <Pop width={240} style={FIELD_BOX} trigger={(t) => (
           <button type="button" onClick={t} aria-label="Collaborators"
-            style={{ ...btn('outline'), minWidth: FIELD_W, justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+            style={{ ...btn('outline'), flex: 1, minWidth: 0, justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', minWidth: 0 }}>
               {followers.length === 0 && <span style={{ color: NX.faint, fontWeight: 400 }}>No collaborators</span>}
               {followers.map((em) => (
                 <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 7px 2px 2px', fontSize: 12, color: NX.ink, fontWeight: 400 }}>
@@ -1684,7 +1761,7 @@ function OverviewTab({ task, patch, readOnly = false, canComment = true, canEdit
             : <div style={{ fontSize: 13, color: NX.faint }}>No description.</div>
         ) : (
           <DescriptionInput task={task} value={task.description || ''} refresh={refresh}
-            onCommit={(v) => v !== (task.description || '') && patch({ description: v })} />
+            onCommit={(v) => !sameDoc(v, task.description) && patch({ description: v })} />
         )}
       </Section>
 
@@ -1988,11 +2065,24 @@ function UnsentPrompt({ drafts, taskById, activeId, onKeep, onDiscard, onSent })
   );
 }
 
+// What the line under a comment box says when the comment did not post.
+const commentFailure = (e) => `Your comment did not post. ${e?.message || 'Try again.'}`;
+// A "did not post" / "was not added" line under a box. It belongs to the task
+// it was said on: stepping to another task (a subtask, its main task) shows
+// that task's box without it.
+function useFailureLine(taskId) {
+  const [failed, setFailed] = useState(null);   // { taskId, text }
+  const set = useCallback((text) => setFailed(text ? { taskId, text } : null), [taskId]);
+  return [failed?.taskId === taskId ? failed.text : '', set];
+}
+
 function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAll, canComment = true, canPin = true }) {
   // The same draft as the Comments tab's box (useCommentDraft).
   const { body, setBody, pending, setPending, assignTo, setAssignTo, clear: clearComment } = useCommentDraft(task.id);
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
+  // Why the comment did not post - said under the box, the words stay in it.
+  const [postError, setPostError] = useFailureLine(task.id);
   // A voice note still recording in the box: Comment waits for Stop.
   const [voiceRec, setVoiceRec] = useState(false);
   const people = usePeople();
@@ -2007,14 +2097,24 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
   const submit = async () => {
     if (isEmptyDoc(body) || busy) return;
     setBusy(true);
+    setPostError('');
+    let c;
     try {
-      const c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {});
+      c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {});
+    } catch (e) {
+      // Nothing else says so (the store does not): "Posting..." used to
+      // flip back with no word.
+      setPostError(commentFailure(e));
+      setBusy(false);
+      return;
+    }
+    try {
       // Cleared once it posted - a refused comment keeps its words.
       const files = pending;
       clearComment();
       if (files.length) await uploads.upload(c.id, files);
       load();
-    } catch { /* surfaced by the store */ } finally { setBusy(false); }
+    } catch { /* a failed upload is listed under the box (FailedUploads) */ } finally { setBusy(false); }
   };
 
   // Same pin/edit/delete shape as the full Comments tab (CommentsTab) - this is
@@ -2070,6 +2170,7 @@ function QuickComment({ task, addComment, getComments, nameOf, myEmail, onViewAl
       </div>}
       <PendingAttachments files={pending} setFiles={setPending} />
       <FailedUploads failed={uploads.failed} onRetry={uploads.retry} onDismiss={uploads.dismiss} />
+      {postError && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 6 }}>{postError}</div>}
       {canComment && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, gap: 8 }}>
           <span style={{ fontSize: 11, color: NX.faint }}>
@@ -2191,13 +2292,17 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
   const reload = () => getComments(task.id).then(setComments).catch(() => setComments([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
+  const [postError, setPostError] = useFailureLine(task.id);
   const submit = async () => {
     if (isEmptyDoc(body)) return;
     const sent = { text: body, assignTo, files: pending };
     clearComment();
-    const c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {}).catch(() => null);
-    // Refused: the words come back into the box instead of vanishing.
-    if (!c) { restore(sent); return; }
+    setPostError('');
+    let why = null;
+    const c = await addComment(task.id, body, assignTo ? { assignee_email: assignTo } : {}).catch((e) => { why = e; return null; });
+    // Refused: the words come back into the box instead of vanishing, and
+    // the line under it says it did not post.
+    if (!c) { restore(sent); setPostError(commentFailure(why)); return; }
     if (sent.files.length) await uploads.upload(c.id, sent.files);
     reload();
   };
@@ -2215,6 +2320,7 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
           onStageFiles={(fs) => setPending((p) => [...p, ...fs])} onRecordingChange={setVoiceRec} />
         <PendingAttachments files={pending} setFiles={setPending} />
         <FailedUploads failed={uploads.failed} onRetry={uploads.retry} onDismiss={uploads.dismiss} />
+        {postError && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 6 }}>{postError}</div>}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
           <span style={{ fontSize: 11, color: NX.faint }}>
             Type <b>@</b> to mention someone - they'll get an email.
@@ -2240,13 +2346,16 @@ function CommentsTab({ task, nameOf, myEmail, getComments, addComment, focusComm
 // `canComment` / `canPin`: a reply is a new comment (commenter and up) and
 // pinning takes a project editor (edit_comment) - without them the thread
 // simply does not offer Reply / Pin (CommentThread hides an absent handler).
+// A reply or an edit that fails REJECTS: the thread (CommentThread) keeps the
+// box open with the words in it and says so there - it used to show an alert
+// and then clear the draft and close the box all the same.
 function useCommentHandlers(task, addComment, reload, { canComment = true, canPin = true } = {}) {
-  const quiet = (p) => p.catch((e) => { if (e?.message) window.alert(e.message); });
+  const quiet = (p) => p.catch((e) => { if (e?.message) dialog.alert(e.message); });
   const all = {
     onPin: async (c) => { await quiet(api.editTaskComment(c.id, { pinned: !c.pinned })); reload(); },
-    onEdit: async (c, text) => { await quiet(api.editTaskComment(c.id, { body: text })); reload(); },
-    onDelete: async (c) => { if (!window.confirm('Delete this comment?')) return; await quiet(api.deleteTaskComment(c.id)); reload(); },
-    onReply: async (root, html) => { await quiet(addComment(task.id, html, { parent_id: root.id })); reload(); },
+    onEdit: async (c, text) => { await api.editTaskComment(c.id, { body: text }); reload(); },
+    onDelete: async (c) => { if (!(await dialog.confirm('Delete this comment?', { title: 'Delete Comment', confirmText: 'Delete', danger: true }))) return; await quiet(api.deleteTaskComment(c.id)); reload(); },
+    onReply: async (root, html) => { await addComment(task.id, html, { parent_id: root.id }); reload(); },
     onReact: async (c, emoji) => { await quiet(api.reactTaskComment(c.id, emoji)); reload(); },
     onResolve: async (c, v) => { await quiet(api.editTaskComment(c.id, { resolved: v })); reload(); },
     onAssign: async (c, email) => { await quiet(api.editTaskComment(c.id, { assignee_email: email })); reload(); },
@@ -2666,16 +2775,27 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
   // with the main task's assignees, collaborators, project, team, priority
   // and field values (the Entity), and repeats with it - all changeable on
   // the subtask afterwards. No due date unless one is picked here.
+  // One add at a time (a ref: Enter twice lands before the first render),
+  // and the row empties only once the subtask is in - a refused add keeps
+  // the name, date, people and priority, and says so under the row.
+  const adding = useRef(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useFailureLine(task.id);
   const add = async () => {
-    const t = title.trim(); if (!t) return;
-    await createTask({
-      title: t, parentTaskId: task.id, projectId: task.projectId, teamId: task.teamId,
-      followerIds: [...(task.followerIds || [])],
-      customFieldValues: { ...(task.customFieldValues || {}) },
-      assigneeIds: forWhom, dueOn, status: rec.freq ? 'recurring' : 'not_started', priority: pri, type: 'task',
-      ...(rec.freq || rec.skip ? { recurrence: rec } : {}),
-    }).catch((e) => alert(e?.message || 'Could not add the subtask.'));
-    setTitle(''); setDueOn(''); setAssignees(null); setPriority(''); setRec({});
+    const t = title.trim(); if (!t || adding.current) return;
+    adding.current = true; setAddBusy(true); setAddError('');
+    try {
+      await createTask({
+        title: t, parentTaskId: task.id, projectId: task.projectId, teamId: task.teamId,
+        followerIds: [...(task.followerIds || [])],
+        customFieldValues: { ...(task.customFieldValues || {}) },
+        assigneeIds: forWhom, dueOn, status: rec.freq ? 'recurring' : 'not_started', priority: pri, type: 'task',
+        ...(rec.freq || rec.skip ? { recurrence: rec } : {}),
+      });
+      setTitle(''); setDueOn(''); setAssignees(null); setPriority(''); setRec({});
+    } catch (e) {
+      setAddError(`The subtask was not added. ${e?.message || 'Try again.'}`);
+    } finally { adding.current = false; setAddBusy(false); }
   };
 
   // Manual order: drag a row by its handle (or focus the handle and press Up /
@@ -2804,8 +2924,9 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
           <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} compact noPast title="Due Date"
             repeat={subRepeat(rec, (r) => setRec(r || {}), dueOn)} />
         </span>
-        <button onClick={add} style={{ ...btn('primary'), padding: '6px 10px', fontSize: 12 }}>Add</button>
+        <button onClick={add} disabled={addBusy} style={{ ...btn('primary'), padding: '6px 10px', fontSize: 12, opacity: addBusy ? 0.6 : 1 }}>{addBusy ? 'Adding…' : 'Add'}</button>
       </div>}
+      {canAdd && addError && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 6 }}>{addError}</div>}
       {!canAdd && subtasks.length === 0 && <div style={{ fontSize: 13, color: NX.faint }}>No subtasks.</div>}
     </div>
   );
@@ -3046,7 +3167,9 @@ export function CustomFieldInput({ field, value, onChange }) {
   }
   return (
     <input type={field.type === 'number' ? 'number' : 'text'} value={v}
-      onChange={(e) => setV(e.target.value)} onBlur={() => onChange(v)}
+      onChange={(e) => setV(e.target.value)}
+      // Leaving the box with nothing changed saves nothing (5 and "5" are the same number).
+      onBlur={() => { if (String(v ?? '') !== String(value ?? '')) onChange(v); }}
       style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '6px 9px', fontSize: 13 }} />
   );
 }

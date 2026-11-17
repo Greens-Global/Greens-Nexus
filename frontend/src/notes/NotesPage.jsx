@@ -509,9 +509,13 @@ class LiveBoundary extends Component {
 }
 
 // The open note.
-function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail, onDuplicate, backTo, onOpen }) {
+function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail, onDuplicate, backTo, onOpen, onMediaBusy }) {
   const collabRef = useRef(null);
   const sync = useNoteSync(id, { onSaved, collabRef });
+  // A recording under way or a clip still uploading in this note's editor
+  // (NoteEditor's onBusy): the page asks before it closes or switches notes.
+  const mediaBusy = useCallback((_working, losing) => onMediaBusy?.(!!losing), [onMediaBusy]);
+  useEffect(() => () => onMediaBusy?.(false), [onMediaBusy]);
   const { note, status, conflict, restored } = sync;
   const nameOf = useCallback((email) => {
     const e = (email || '').toLowerCase();
@@ -955,12 +959,12 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
               ? (
                 <LiveBoundary key={`live:${collab.epoch}`} onCrash={collab.fail}>
                   <NoteEditor collab={collab} readOnly={readOnly} people={people} noteId={note.id} meeting={clock} starters={!meetingNote}
-                    onEditor={(ed) => { editorRef.current = ed; }}
+                    onEditor={(ed) => { editorRef.current = ed; }} onBusy={mediaBusy}
                     onChange={(html) => sync.edit({ body: html })} onRemoteChange={sync.seeRemote} onMakeTask={readOnly ? undefined : makeTask} />
                 </LiveBoundary>
               )
               : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people} noteId={note.id} meeting={clock} starters={!meetingNote}
-                  onEditor={(ed) => { editorRef.current = ed; }}
+                  onEditor={(ed) => { editorRef.current = ed; }} onBusy={mediaBusy}
                   onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />}
           {/* The other notes that link here with [[ (Record Links, 11/06/2026); nothing when none. */}
           {!board && !trashed && (
@@ -1048,16 +1052,36 @@ export default function NotesPage({ activeSub, onSubChange }) {
   useEffect(() => {
     if (selectedId) setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === selectedId && x.unseen ? { ...x, unseen: false } : x)) } : d));
   }, [selectedId, data?.notes?.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  const select = useCallback((id) => onSubChange?.(id ? `notes:${id}` : 'notes'), [onSubChange]);
+  const go = useCallback((id) => onSubChange?.(id ? `notes:${id}` : 'notes'), [onSubChange]);
+  // A voice note, photo or video still being recorded or uploaded in the
+  // open note finishes after its editor is gone and is never put in - so
+  // closing the note or switching to another asks first (11/17/2026).
+  const mediaBusy = useRef(false);
+  const setMediaBusy = useCallback((b) => { mediaBusy.current = b; }, []);
+  const selectedRef = useRef(selectedId);
+  useEffect(() => { selectedRef.current = selectedId; }, [selectedId]);
+  const select = useCallback(async (id) => {
+    if (mediaBusy.current && (id || '') !== selectedRef.current) {
+      const leave = await dialog.confirm('A voice note, photo or video is still being added to this note. If you leave now, it will be lost.',
+        { title: 'Leave This Note?', confirmText: 'Leave', cancelText: 'Stay' });
+      if (!leave) return;
+    }
+    go(id);
+  }, [go]);
 
   useEffect(() => { const t = setTimeout(() => setQ(qLive.trim()), 250); return () => clearTimeout(t); }, [qLive]);
 
   const byMonth = view === 'all' && !q && !tag;
+  // Only the latest request's answer is shown: an older, slower one (typing
+  // "bud" then "budget", Pinned then All) used to land last and show its notes.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     try {
       const r = await api.notesList({ view, q, tag, month: byMonth ? month : '', today });
+      if (seq !== loadSeq.current) return;
       setData(r); setError('');
-    } catch (e) { setError(e.message || 'Could not load your notes'); }
+    } catch (e) { if (seq === loadSeq.current) setError(e.message || 'Could not load your notes'); }
   }, [view, q, tag, month, byMonth, today]);
   useEffect(() => { load(); }, [load]);
 
@@ -1066,9 +1090,9 @@ export default function NotesPage({ activeSub, onSubChange }) {
     setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === n.id ? { ...x, ...n, preview: isBoard(n) ? '' : htmlToText(n.body).slice(0, 220) } : x)) } : d));
   }, []);
   const onTrashChanged = useCallback((n, what) => {
-    if (what === 'delete') select('');
+    if (what === 'delete') go('');   // the note is gone: nothing to ask about
     load();
-  }, [load, select]);
+  }, [load, go]);
 
   const newNote = async (extra = {}) => {
     try {
@@ -1373,7 +1397,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
           : (
             <NotePane key={selectedId || 'none'} id={selectedId} focusPin={focusPin} people={people} onBack={() => select('')} onSaved={onSaved}
               onTrashChanged={onTrashChanged} full={full} onToggleFull={() => setFull((f) => !f)} isPhone={isPhone} toast={toast} myEmail={myEmail}
-              onDuplicate={duplicateNote} backTo={backTo} onOpen={select} />
+              onDuplicate={duplicateNote} backTo={backTo} onOpen={select} onMediaBusy={setMediaBusy} />
           ))}
       </div>
       {toastNode}

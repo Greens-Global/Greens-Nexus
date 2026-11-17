@@ -51,6 +51,8 @@ import {
 } from './changelogLifecycle';
 import KnownIssuesBanner from '../support/KnownIssues';
 import PageTrail, { useTrailCrumbs } from '../components/PageTrail';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../ui/HoldButton';
 
 // ── Change-type / environment / status metadata (ported from changelogMeta.ts) ──
 const CHANGE_TYPE_META = {
@@ -458,7 +460,7 @@ export default function Changelog({ activeSub = null, onSubChange } = {}) {
           {managing && (
             <ManageTab entries={sorted} nameOf={nameOf} myEmail={myEmail} onSetStatus={setStatus} onEdit={setEditing} flash={flash}
               onGenerate={handleGenerate} onPublish={publishEntry} onPublishAll={publishAll} onBulk={bulk}
-              onDelete={async (id) => { if (window.confirm('Delete this entry? This cannot be undone.')) await deleteEntry(id).catch(() => {}); }} />
+              onDelete={(id) => dialog.confirm('Delete this entry? This cannot be undone.', { title: 'Delete Entry?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Delete', doneText: 'Deleted', onConfirm: () => deleteEntry(id) })} />
           )}
         </div>
       </div>
@@ -1834,7 +1836,9 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onGenerate, 
           </select>
           {bulkCategory && <button type="button" onClick={async () => { if (await onBulk([...picked], 'category', bulkCategory)) { setPicked(new Set()); setBulkCategory(''); } }} style={{ ...btn('outline'), padding: '4px 10px' }}>Apply</button>}
           <button type="button" onClick={async () => {
-            if (window.confirm(`Delete ${plural(picked.size, 'update')}? This cannot be undone.`) && await onBulk([...picked], 'delete')) setPicked(new Set());
+            const ids = [...picked];
+            if (await dialog.confirm(`Delete ${plural(ids.length, 'update')}? This cannot be undone.`, { title: 'Delete Updates?', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Delete', doneText: 'Deleted',
+              onConfirm: async () => { if (!await onBulk(ids, 'delete')) throw new Error('Could not delete.'); } })) setPicked(new Set());
           }} style={{ ...btn('outline'), padding: '4px 10px', color: NX.red }}><Trash2 size={13} />Delete</button>
           <button type="button" onClick={() => setPicked(new Set())} style={{ ...btn('ghost'), padding: '4px 6px', marginLeft: 'auto', color: NX.dim }}>Clear</button>
         </div>

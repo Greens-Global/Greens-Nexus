@@ -15,6 +15,7 @@ import { api } from '../api';
 import { ErrorBanner, SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { SettingCard, SettingRow, SwitchRow } from '../components/settings/SettingsUI';
 import { formatDateTime } from '../lib/datetime';
+import { dialog } from '../ui/dialog';
 
 const note = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 };
 
@@ -45,8 +46,8 @@ export default function CubbyTasksSettings({ toastOk, toastErr }) {
     } finally { setBusy(''); }
   };
   const flipOn = (next) => save('on', { on: next }, next ? 'Cubby Tasks is on' : 'Cubby Tasks is off');
-  const flipClose = (next) => {
-    if (next && !window.confirm('Close tasks in Cubby from Nexus? When someone completes or reopens a Cubby task in Nexus, Nexus will do the same in Cubby.')) return;
+  const flipClose = async (next) => {
+    if (next && !(await dialog.confirm('Close tasks in Cubby from Nexus? When someone completes or reopens a Cubby task in Nexus, Nexus will do the same in Cubby.', { title: 'Close Tasks in Cubby?', confirmText: 'Turn On' }))) return;
     save('close', { closeInCubby: next }, next ? 'Close Tasks in Cubby is on' : 'Close Tasks in Cubby is off');
   };
   const pickProject = (facilityId, projectId) => {

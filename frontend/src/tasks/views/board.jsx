@@ -39,6 +39,8 @@ import {
 import { awaitingFirstDate, clearingStopsSeries, moveTaskToDay } from '../calendarMove';
 import CardPreview from '../CardPreview';
 import { LabelPill, LabelStrip, labelKey, useLabelColors } from '../labels';
+import { dialog } from '../../ui/dialog';
+import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 const SECTION_PALETTE = ['#4573fa', '#8b6bf0', '#14a76c', '#e8a33d', '#e0844e', '#e8384f', '#29a8ab', '#db2777'];
 const PRIORITY_LANE_ORDER = ['urgent', 'high', 'medium', 'low'];
@@ -216,12 +218,13 @@ export default function BoardView({
     setSectionName(''); setAddingSection(false);
   };
 
-  const deleteSection = (status) => {
-    if (window.confirm(`Delete "${statusMeta(status).label}"? Tasks in it move back to Not Started.`)) {
+  const deleteSection = (status) => dialog.confirm(`Delete "${statusMeta(status).label}"? Tasks in it move back to Not Started.`, {
+    title: 'Delete Column?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Delete', doneText: 'Deleted',
+    onConfirm: async () => {
       for (const t of visible.filter((x) => x.status === status)) store.setStatus(t.id, 'not_started');
-      store.deleteCustomStatus(status).catch(() => {});
-    }
-  };
+      await store.deleteCustomStatus(status);
+    },
+  });
 
   // Swimlane rows - derived from the visible tasks so no people directory needed.
   const lanes = useMemo(() => {
@@ -404,7 +407,7 @@ export default function BoardView({
     if (extra.assigneeIds && defaultAssigneeId) task.assigneeIds = [...new Set([...extra.assigneeIds, defaultAssigneeId])];
     // Required custom fields: the full Create form instead (see richlist's AddTaskInline).
     if (onFullCreate && requiredFieldsFor(store.customFields, task.projectId).length) onFullCreate(task);
-    else store.createTask(task).catch((e) => alert(e?.message || 'Could not add the task.'));
+    else store.createTask(task).catch((e) => dialog.alert(e?.message || 'Could not add the task.'));
     setAddIn(null);
   };
 

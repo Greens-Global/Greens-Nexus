@@ -148,6 +148,60 @@ describe('Tickets in search', () => {
   });
 });
 
+// A task pick used to send `nexus:open-task` alone. The Tasks module is lazy:
+// on its first visit of the page load nothing was listening yet, so the pick
+// landed on My Tasks with nothing open. It now leaves the note the module
+// drains on mount (lib/pendingOpen.js), like tickets and documents.
+describe('Tasks in search', () => {
+  const tasks = (total = 1) => vi.fn(() => Promise.resolve({ tasks: [{ id: 't1', title: 'Fix the gate motor' }], totals: { tasks: total } }));
+
+  it('a task leaves the note for a module that is not up yet, then sends the event', async () => {
+    state.api.searchTaskModule = tasks();
+    const nav = heard('nexus:navigate');
+    const opened = heard('nexus:open-task');
+    open('gate');
+    fireEvent.click(await screen.findByText('Fix the gate motor'));
+    expect(nav.seen).toEqual([{ view: 'tasks', sub: 'mine' }]);
+    await waitFor(() => expect(opened.seen).toEqual([{ taskId: 't1' }]));
+    expect(takePendingOpen('task')).toBe('t1');   // nobody took the event: the note waits for the mount
+    nav.stop(); opened.stop();
+  });
+
+  it('a module that is up takes the event, and the note is dropped', async () => {
+    state.api.searchTaskModule = tasks();
+    const took = [];
+    const onOpen = (e) => { took.push(e.detail.taskId); e.detail.handled = true; };   // views/Tasks.jsx
+    window.addEventListener('nexus:open-task', onOpen);
+    open('gate');
+    fireEvent.click(await screen.findByText('Fix the gate motor'));
+    await waitFor(() => expect(took).toEqual(['t1']));
+    expect(takePendingOpen('task')).toBeNull();   // a later visit must not reopen it
+    window.removeEventListener('nexus:open-task', onOpen);
+  });
+
+  it('a saved task reopens the same way', async () => {
+    __setTablePrefsCache({ search: { data: { favorites: [], recents: [
+      { key: 'task:t1', kind: 'task', title: 'Fix the gate motor', detail: '', to: { task: 't1' } },
+    ] } } });
+    render(<GlobalSearch />);
+    fireEvent(window, new CustomEvent('nexus:search-open'));
+    fireEvent.click(await screen.findByText('Fix the gate motor'));
+    expect(takePendingOpen('task')).toBe('t1');
+  });
+
+  it('"See all" leaves the words for the Tasks workspace', async () => {
+    state.api.searchTaskModule = tasks(30);
+    const nav = heard('nexus:navigate');
+    const asked = heard('nexus:tasks-search');
+    open('gate');
+    fireEvent.click(await screen.findByText('See all 30 tasks'));
+    expect(nav.seen).toEqual([{ view: 'tasks', sub: 'mine' }]);
+    expect(takePendingOpen('tasks-search')).toBe('gate');
+    await waitFor(() => expect(asked.seen).toEqual([{ q: 'gate' }]));
+    nav.stop(); asked.stop();
+  });
+});
+
 describe('Notes and documents in search', () => {
   it('finds notes and boards and opens one on Dashboard > Notes', async () => {
     state.api.searchNotes = vi.fn(() => Promise.resolve({ notes: [

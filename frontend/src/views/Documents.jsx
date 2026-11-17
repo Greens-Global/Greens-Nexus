@@ -117,6 +117,16 @@ export default function Documents({ activeSub, onSubChange }) {
   // bumped counter (not a bool) so a second click while already there re-triggers it.
   const [browseCreateSignal, setBrowseCreateSignal] = useState(0);
   const [browseSheetSignal, setBrowseSheetSignal] = useState(0);
+  // A signal is acted on once. What the library has taken is kept HERE, not
+  // in the library: it is unmounted on another tab, and coming back with the
+  // same counter used to make another "Untitled Document" (or sheet) each time.
+  const browseSignalsTaken = useRef({ create: 0, sheet: 0 });
+  const takeBrowseSignal = (kind, signal) => {
+    const taken = browseSignalsTaken.current;
+    if (!signal || taken[kind] === signal) return false;
+    taken[kind] = signal;
+    return true;
+  };
   const [createSeenSub, setCreateSeenSub] = useState(null);
   if (activeSub !== createSeenSub) {
     setCreateSeenSub(activeSub);
@@ -186,8 +196,11 @@ export default function Documents({ activeSub, onSubChange }) {
     api.markTourSeen(DOCUMENTS_TOUR_ID).catch(() => {});
   };
 
-  const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
-  const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
+  // One timer: an earlier toast's timer used to clear a later toast early.
+  const toastTimer = useRef(null);
+  const showToast = (msg, kind, ms) => { clearTimeout(toastTimer.current); setToast({ msg, kind }); toastTimer.current = setTimeout(() => setToast(null), ms); };
+  const toastErr = msg => showToast(msg, 'error', 5000);
+  const toastOk  = msg => showToast(msg, 'ok', 4000);
 
   // Employees + entities feed the Send wizard's internal-signer picker. A
   // documents-only grant (no HR access) may 403 these - degrade to external
@@ -243,7 +256,7 @@ export default function Documents({ activeSub, onSubChange }) {
 
       <div data-tour={`documents-screen-${sub}`}>
       {sub === 'documents-browse' && (
-        <DocumentsBrowser openCreateSignal={browseCreateSignal} openSheetSignal={browseSheetSignal} initialView={activeSub === 'documents-hr-records' ? 'hr' : ''}
+        <DocumentsBrowser openCreateSignal={browseCreateSignal} openSheetSignal={browseSheetSignal} takeSignal={takeBrowseSignal} initialView={activeSub === 'documents-hr-records' ? 'hr' : ''}
           employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} />
       )}
 

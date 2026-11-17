@@ -114,7 +114,7 @@ export function CommentAttachments({ items }) {
   );
 }
 
-function CommentBody({ c, nameOf, editing, text, setText, onSave, onCancel, attachments, recordLinks = false }) {
+function CommentBody({ c, nameOf, editing, text, setText, onSave, onCancel, attachments, recordLinks = false, error = '' }) {
   const [zoomImage, zoomViewer] = useImageZoom();
   const imported = parseImportedAuthor(c.body);
   const displayBody = imported ? imported.text : c.body;
@@ -123,6 +123,7 @@ function CommentBody({ c, nameOf, editing, text, setText, onSave, onCancel, atta
       <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <RichDescription value={text} onChange={setText} minHeight={56} recordLinks={recordLinks} />
+          {error && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>{error}</div>}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <button onClick={onSave} style={{ ...btn('primary'), padding: '5px 10px', fontSize: 12 }}>Save</button>
@@ -158,6 +159,18 @@ function CommentRow({ c, taskId = '', isReply, nameOf, myEmail, people, attachme
   const [editing, setEditing] = useState(() => hasWords(getDraft(editKey)));
   const text = edit.text ?? displayBody;
   const setText = (v) => setEdit({ text: v });
+  // The edit box closes only once the edit is saved: a refused save keeps
+  // the box open with the words in it and says so under it.
+  const [editError, setEditError] = useState('');
+  const saving = useRef(false);
+  const saveEdit = async () => {
+    if (saving.current) return;
+    saving.current = true;
+    setEditError('');
+    try { await onEdit(text); clearEdit(); setEditing(false); }
+    catch (e) { setEditError(`Your edit was not saved. ${e?.message || 'Try again.'}`); }
+    finally { saving.current = false; }
+  };
   const [hover, setHover] = useState(false);
   const mine = c.authorId === myEmail;
   const resolved = !!c.resolvedAt;
@@ -204,7 +217,7 @@ function CommentRow({ c, taskId = '', isReply, nameOf, myEmail, people, attachme
           </div>
         </div>
         <CommentBody c={c} nameOf={nameOf} editing={editing} text={text} setText={setText} attachments={attachments} recordLinks={recordLinks}
-          onSave={() => { onEdit(text); clearEdit(); setEditing(false); }} onCancel={() => { clearEdit(); setEditing(false); }} />
+          error={editError} onSave={saveEdit} onCancel={() => { clearEdit(); setEditError(''); setEditing(false); }} />
         <CommentReactions reactions={c.reactions} myEmail={myEmail} nameOf={nameOf} onToggle={(e) => onReact?.(c, e)} />
       </div>
     </div>
@@ -216,14 +229,20 @@ function ReplyComposer({ taskId = '', rootId, people, onPost, onCancel, recordLi
   const body = draft.text || '';
   const setBody = (v) => setDraft({ text: v });
   const [busy, setBusy] = useState(false);
+  // A reply that did not post stays in the box, with the reason under it.
+  const [error, setError] = useState('');
   const post = async () => {
     if (isEmptyDoc(body) || busy) return;
     setBusy(true);
-    try { await onPost(body); clearDraft(); onCancel(); } finally { setBusy(false); }
+    setError('');
+    try { await onPost(body); clearDraft(); onCancel(); }
+    catch (e) { setError(`Your reply did not post. ${e?.message || 'Try again.'}`); }
+    finally { setBusy(false); }
   };
   return (
     <div style={{ marginLeft: 28, marginTop: 4, paddingLeft: 10, borderLeft: `2px solid ${NX.border}` }} data-testid="reply-composer">
       <RichDescription value={body} onChange={setBody} onSubmit={post} mentionPeople={people} minHeight={48} autoFocus recordLinks={recordLinks} />
+      {error && <div role="alert" style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
         <span style={{ fontSize: 11, color: NX.faint }}>Everyone in this thread is told. ⌘/Ctrl+Enter to post.</span>
         <button onClick={() => { clearDraft(); onCancel(); }} style={{ ...btn('ghost'), marginLeft: 'auto', padding: '5px 10px', fontSize: 12 }}>Cancel</button>

@@ -169,9 +169,20 @@ function DocumentRowPanel({ row, folders = [], onClose, onEdit, onOrganize, onCh
   };
 
   // The sealed copy reaches a party by their own route, HR by the record's.
+  // The tab is opened in the tap itself and pointed at the copy once its link
+  // lands: a tab opened after the request is a pop-up to Safari and the
+  // iPhone, which block it without a word. When no tab could be opened the
+  // link is shown in the panel instead (sealedUrl).
+  const [sealedUrl, setSealedUrl] = useState('');
   const openSealed = async () => {
-    const { url } = await api.downloadSign(row.signRequestId);
-    window.open(url, '_blank', 'noopener');
+    const tab = window.open('', '_blank');
+    if (tab) tab.opener = null;
+    let url;
+    try { ({ url } = await api.downloadSign(row.signRequestId)); }
+    catch (e) { tab?.close(); throw e; }
+    if (!url) { tab?.close(); throw new Error('Could not open the signed copy.'); }
+    if (tab && !tab.closed) { tab.location.replace(url); setSealedUrl(''); }
+    else setSealedUrl(url);
   };
   const previewLoad = () => {
     if (isHr) return api.packetDocumentPdf(row.eventId, row.documentId);
@@ -257,6 +268,12 @@ function DocumentRowPanel({ row, folders = [], onClose, onEdit, onOrganize, onCh
         )}
         {isHr && row.templateId && <button type="button" className="secondary-btn" onClick={openTemplate}>Open Template</button>}
       </div>
+
+      {sealedUrl && (
+        <div className="nx-dl-muted" role="status">
+          Your browser blocked the new tab. <a href={sealedUrl} target="_blank" rel="noopener noreferrer">Open Signed Copy</a>
+        </div>
+      )}
 
       {shareDoc && (
         <Suspense fallback={null}>

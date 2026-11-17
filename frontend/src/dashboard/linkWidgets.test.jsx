@@ -174,3 +174,24 @@ describe('Quick Actions tile', () => {
     expect(configValid('links-folder', {})).toBe(false);
   });
 });
+
+// 11/17/2026: a failed load used to read as "no links" / "this folder no
+// longer exists". It says so, with Try Again.
+describe('Link widgets that did not load', () => {
+  it('My Personal Links says so and Try Again reads them again', async () => {
+    apiMock.getPersonalLinks.mockReset().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(personal);
+    mount('personal-links');
+    expect((await screen.findByRole('alert')).textContent).toContain("Couldn't load your links.");
+    expect(screen.queryByText('Add Link')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
+    expect(await screen.findByText('Lunch Menu')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('a Links Folder says so instead of "This folder no longer exists"', async () => {
+    apiMock.getLinkLayout.mockReset().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(layout);
+    mount('links-folder', { folderId: 'f1', itemType: 'external' });
+    expect((await screen.findByRole('alert')).textContent).toContain("Couldn't load this folder.");
+    expect(screen.queryByText(/no longer exists/)).toBeNull();
+  });
+});

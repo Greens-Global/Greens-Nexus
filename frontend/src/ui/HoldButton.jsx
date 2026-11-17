@@ -40,7 +40,7 @@ const hintWord = (label) => `Hold to ${String(label || 'confirm').toLowerCase().
 
 export default function HoldButton({
   label, doneLabel = 'Done', onConfirm, onDone, holdMs = HOLD_RECORD_MS, icon: Icon = Trash2,
-  size = 'md', disabled = false, fallbackMessage, clickRuns = false, ariaLabel, autoFocus = false, style, className = '',
+  size = 'md', disabled = false, fallbackMessage, clickRuns = false, ariaLabel, autoFocus = false, style, className = '', onBusy,
 }) {
   const [phase, setPhase] = useState('idle');       // idle | holding | working | done
   const [hint, setHint] = useState('');
@@ -57,7 +57,13 @@ export default function HoldButton({
   const live = useRef(true);
   const reduced = useRef(false);
 
-  useEffect(() => () => { live.current = false; clearTimeout(timer.current); clearInterval(stepper.current); }, []);
+  // Set inside the effect, not only at declaration: StrictMode runs mount ->
+  // cleanup -> mount in development, and a ref that is only ever cleared
+  // stayed false after the re-run, so a hold never finished (lib/motion.js).
+  useEffect(() => {
+    live.current = true;
+    return () => { live.current = false; clearTimeout(timer.current); clearInterval(stepper.current); };
+  }, []);
 
   const announce = (t) => { setSaid(''); setTimeout(() => { if (live.current) setSaid(t); }, 30); };
 
@@ -65,6 +71,9 @@ export default function HoldButton({
     if (firing.current) return;
     firing.current = true;
     setPhase('working'); setHint(''); setError('');
+    // `onBusy(true)` from here until the action failed or the button reset:
+    // the shared dialog holds Cancel, Escape and the scrim meanwhile.
+    onBusy?.(true);
     try {
       const r = await onConfirm?.();
       if (!live.current) return;
@@ -77,11 +86,11 @@ export default function HoldButton({
       }
       // onDone (the shared dialog closes on it) after the check has been seen.
       if (onDone) setTimeout(() => { if (live.current) onDone(r); }, 650);
-      setTimeout(() => { if (live.current) { setPhase('idle'); firing.current = false; } }, DONE_MS);
+      setTimeout(() => { if (live.current) { setPhase('idle'); firing.current = false; onBusy?.(false); } }, DONE_MS);
     } catch (e) {
       firing.current = false;
       if (!live.current) return;
-      setPhase('idle');
+      setPhase('idle'); onBusy?.(false);
       const msg = e?.message || 'That did not go through.';
       setError(msg); announce(msg);
     }
@@ -125,7 +134,7 @@ export default function HoldButton({
   async function onClick(e) {
     e.preventDefault();
     if (e.detail !== 0 || Date.now() - lastPress.current < 600 || disabled || firing.current) return;
-    // Inside the shared dialog the dialog already asked (a second dialog would replace it).
+    // Inside the shared dialog the dialog already asked (a second dialog would only wait behind it).
     if (clickRuns) { run(); return; }
     const { dialog } = await import('./dialog');
     const ok = await dialog.confirm(fallbackMessage || `${label}? This cannot be undone.`, { danger: true, confirmText: label });

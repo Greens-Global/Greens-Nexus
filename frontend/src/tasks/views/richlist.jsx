@@ -38,6 +38,7 @@ import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
 import { StatusLabel, PrioritySignal, PriorityMark } from '../../components/StatusLabel';
 import { useRowColor, rowColorAttrs, boldTitleStyle, srOnly, onTint } from '../rowColorState';
+import { dialog } from '../../ui/dialog';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -1098,7 +1099,7 @@ function AddTaskInline({ store, defaults, lockedProjectId, onFullCreate }) {
     // title-only task - the server refuses it - so the full Create form
     // opens with the title already in, to fill in the rest.
     if (onFullCreate && requiredFieldsFor(store.customFields, projectId).length) onFullCreate(task);
-    else store.createTask(task).catch((e) => alert(e?.message || 'Could not add the task.'));
+    else store.createTask(task).catch((e) => dialog.alert(e?.message || 'Could not add the task.'));
     setTitle('');
   };
   return (

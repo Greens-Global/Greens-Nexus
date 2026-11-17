@@ -9,6 +9,7 @@ const api = { getCubbyTaskSettings: vi.fn(), saveCubbyTaskSettings: vi.fn(), run
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => (...a) => api[k](...a) }) }));
 
 const { default: CubbyTasksSettings } = await import('./CubbyTasksSettings');
+const { dialog } = await import('../ui/dialog');
 
 const BASE = {
   on: false, closeInCubby: false, projects: {}, updatedBy: '', updatedAt: '',
@@ -51,11 +52,13 @@ describe('Cubby Tasks settings', () => {
   it('closing in Cubby asks first and warns when the Manager key is missing', async () => {
     api.getCubbyTaskSettings.mockResolvedValue({ ...BASE, on: true });
     api.saveCubbyTaskSettings.mockResolvedValue({ ...BASE, on: true, closeInCubby: true });
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const confirm = vi.spyOn(dialog, 'confirm').mockResolvedValue(true);
     render(<CubbyTasksSettings />);
     fireEvent.click(await screen.findByRole('switch', { name: 'Close Tasks in Cubby' }));
     await waitFor(() => expect(api.saveCubbyTaskSettings).toHaveBeenCalledWith({ closeInCubby: true }));
     expect(await screen.findByText(/no Cubby key \(CUBBY_MANAGER_API_KEY or CUBBY_API_KEY\)/)).toBeTruthy();
+    expect(confirm).toHaveBeenCalled();
+    confirm.mockRestore();
   });
 
   it('summarizes the last run, what was skipped, and the queue', async () => {
