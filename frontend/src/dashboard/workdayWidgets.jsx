@@ -18,7 +18,7 @@ import { DashCard, navigate } from './widgets.jsx';
 import { MoreRow, WidgetError, WidgetSkeleton } from './listParts.jsx';
 import { openSession } from './essentials/punchMath.js';
 
-export const noteStyle = { fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
+export const noteStyle = { fontSize: 13, color: 'var(--muted)', padding: 'var(--dash-empty-pad, 24px 8px)', textAlign: 'center', lineHeight: 1.5 };
 const fmtH = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
 const DAY_MS = 86400000;
 // Local calendar date as YYYY-MM-DD - the key the time clock's `days` map uses.

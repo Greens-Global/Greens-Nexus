@@ -13,7 +13,7 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@gre
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil Kadakia', username: 'neil@greensglobal.com' }] }) }));
 vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 
-import DashboardGrid, { fitTops, FIT_MIN_PX } from './DashboardGrid';
+import DashboardGrid, { fitTops, FIT_MIN_PX, PHONE_FIT_FLOOR_PX } from './DashboardGrid';
 import { defaultLayoutFor } from './useDashboards';
 import { WIDGETS, widgetHidden } from './widgets.jsx';
 import { TicketQueueWidget } from './teamWidgets.jsx';
@@ -105,12 +105,12 @@ describe('DashboardGrid phone stack sizing', () => {
     const fav = cellOf('fav').style;
     expect(fav.height).toBe('');
     expect(fav.maxHeight).toBe(`${5 * 72}px`);
-    expect(fav.minHeight).toBe('150px');
+    expect(fav.minHeight).toBe(`${PHONE_FIT_FLOOR_PX}px`);
     expect(fav.gridTemplateRows).toBe('minmax(0, 1fr)');
     const wx = cellOf('wx').style;
     expect(wx.height).toBe('');
     expect(wx.maxHeight).toBe('');
-    expect(wx.minHeight).toBe('150px');
+    expect(wx.minHeight).toBe(`${PHONE_FIT_FLOOR_PX}px`);
     expect(cellOf('kpi').style.height).toBe(`${2 * 72}px`);   // a stat tile keeps its box
   });
 
@@ -120,10 +120,37 @@ describe('DashboardGrid phone stack sizing', () => {
     expect(cellOf('wx').style.height).toBe(`${6 * 72}px`);
   });
 
+  it('makes a compact tile with no partner one row; a pair keeps its boxes; the hero stays the hero', () => {
+    const board = [
+      { i: 'lone', type: 'kpi', x: 0, y: 0, w: 3, h: 2, config: { metric: 'my_open_tasks' } },
+      { i: 'list', type: 'favorites', x: 0, y: 2, w: 4, h: 5 },
+      { i: 'p1', type: 'team-attendance', x: 0, y: 7, w: 3, h: 2 },
+      { i: 'p2', type: 'time-off', x: 3, y: 7, w: 3, h: 2 },
+      { i: 'hero', type: 'kpi', x: 0, y: 9, w: 8, h: 2, config: { metric: 'my_open_tasks', hero: true } },
+    ];
+    const seen = {};
+    render(<DashboardGrid layout={board} editing={false} stacked onLayoutChange={() => {}}
+      renderWidget={(it, ctx) => { seen[it.i] = ctx; return <div data-testid={`w-${it.i}`} />; }}
+      compactFor={(it) => !!WIDGETS[it.type]?.compact} phoneFitFor={phoneFitFor}
+      rowsFor={(it, ctx) => WIDGETS[it.type]?.phoneRowsWhen?.(it.config, ctx)} />);
+    expect(cellOf('lone').style.height).toBe('72px');
+    expect(cellOf('lone').className).toContain('dash-lone');
+    expect(seen.lone).toEqual({ phone: true, lone: true });
+    for (const id of ['p1', 'p2']) {
+      expect(cellOf(id).style.height).toBe(`${2 * 72}px`);
+      expect(cellOf(id).className).not.toContain('dash-lone');
+      expect(seen[id].lone).toBe(false);
+    }
+    expect(cellOf('hero').style.height).toBe(`${2 * 72}px`);
+  });
+
   it('marks the tiles that scroll inside their box, and Weather as content', () => {
     for (const k of ['favorites', 'approvals', 'who-has-what', 'team-time', 'notes']) expect(WIDGETS[k].phoneFit).toBe('shrink');
     expect(WIDGETS.weather.phoneFit).toBe('content');
-    for (const k of ['kpi', 'action', 'clock', 'my-time', 'time-clock']) expect(WIDGETS[k].phoneFit).toBeFalsy();
+    for (const k of ['my-time', 'find-transaction']) expect(WIDGETS[k].phoneFit).toBe('shrink');
+    // Size-contained tiles (container-type: size) cannot measure their content.
+    for (const k of ['kpi', 'action', 'shortcut', 'clock', 'time-clock']) expect(WIDGETS[k].phoneFit).toBeFalsy();
+    expect(WIDGETS.clock.phoneRowsWhen()).toBe(2);
   });
 });
 

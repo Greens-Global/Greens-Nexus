@@ -17,6 +17,8 @@ import { useIsMobile }      from '../lib/useIsMobile';
 import { Spinner } from '../components/AsyncState';
 import { WidgetSkeleton, MoreRow, WidgetError } from './listParts.jsx';
 import { AvatarName } from '../tasks/components';
+import PhoneAgenda from './PhoneAgenda.jsx';
+import { eventsByDay, byStart } from './agendaModel';
 
 // The Items handover sheet (the handover photo, then the handover; lazy so the
 // dashboard does not load the Items module) - Items redesign, 11/02/2026.
@@ -357,7 +359,7 @@ export function WhoHasWhatPanel({ phone = false }) {
       )}
 
       {filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--muted)', fontSize: 13 }}>
+        <div style={{ textAlign: 'center', padding: 'var(--dash-empty-pad, 28px 0)', color: 'var(--muted)', fontSize: 13 }}>
           No assets currently checked out{dept !== 'All' ? ` for ${dept}` : ''}.
         </div>
       ) : (
@@ -528,11 +530,15 @@ export function CalendarPanel({ phone = false }) {
   // behind the real day was the actual bug).
   const pickedRef = useRef(false);
   const pick = (key) => { pickedRef.current = true; setSelected(key); };
+  // The minute, for the phone list: a meeting that has ended leaves it and
+  // Join appears ten minutes before a Teams meeting starts.
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Re-check the real date once a minute (and whenever the tab regains
   // focus) so a long-lived tab notices midnight passing.
   useEffect(() => {
     const sync = () => {
+      setNowMs(Date.now());
       const now = agendaDay(new Date());
       setSelected((cur) => {
         if (pickedRef.current) return cur;
@@ -571,11 +577,9 @@ export function CalendarPanel({ phone = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cursor.getFullYear(), cursor.getMonth(), agendaTry]);
 
-  const byDay = {};
-  for (const ev of state.events) {
-    const key = (ev.start || '').slice(0, 10);
-    (byDay[key] ||= []).push(ev);
-  }
+  // An all-day event is on every day it covers (a trip shows on each day of
+  // it, not only the first); a timed one on the day it starts.
+  const byDay = eventsByDay(state.events);
   const birthdaysByMD = {};
   for (const b of birthdays) (birthdaysByMD[monthDay(b.month, b.day)] ||= []).push(b.name);
   // Unlike birthdays, a holiday is a fixed date (not a recurring month/day) -
@@ -587,15 +591,17 @@ export function CalendarPanel({ phone = false }) {
 
   const today = agendaDay(new Date());
   const selDate = new Date(selected + 'T00:00:00');
-  const selBirthdays = birthdaysByMD[monthDay(selDate.getMonth() + 1, selDate.getDate())] || [];
-  const selHolidays = holidaysByDate[selected] || [];
-  // Holidays and birthdays sort first (they're all-day, same as Outlook
-  // all-day events), then the real agenda in start-time order.
-  const dayEvents = [
-    ...selHolidays.map(h => ({ isHoliday: true, isAllDay: true, subject: h.name, holidayType: h.type })),
-    ...selBirthdays.map(name => ({ isBirthday: true, isAllDay: true, subject: `${name}'s Birthday` })),
-    ...(byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || '')),
-  ];
+  // A day's items: holidays and birthdays first (they're all-day, same as
+  // Outlook all-day events), then the real agenda, all-day before timed.
+  const itemsFor = (key) => {
+    const d = new Date(key + 'T00:00:00');
+    return [
+      ...(holidaysByDate[key] || []).map(h => ({ isHoliday: true, isAllDay: true, subject: h.name, holidayType: h.type })),
+      ...(birthdaysByMD[monthDay(d.getMonth() + 1, d.getDate())] || []).map(name => ({ isBirthday: true, isAllDay: true, subject: `${name}'s Birthday` })),
+      ...(byDay[key] || []).slice().sort(byStart),
+    ];
+  };
+  const dayEvents = itemsFor(selected);
   const shownEvents = allFor === selected ? dayEvents : dayEvents.slice(0, AGENDA_SHOWN);
   // ‹ Today › steps the SELECTED day, not the visible month (Pranshu, Sep 4:
   // "when i click it... it should change the date in that current month") -
@@ -633,6 +639,16 @@ export function CalendarPanel({ phone = false }) {
   // one line that says why.
   const unavailable = !state.available && !state.loading;
 
+  // A phone: the Outlook-widget glance (PhoneAgenda.jsx) - today ahead, then
+  // tomorrow - instead of the month grid and the agenda under it.
+  if (stackedLayout && !unavailable) {
+    return (
+      <PhoneAgenda todayKey={today} today={itemsFor(today)} tomorrow={itemsFor(agendaDay(addDays(new Date(`${today}T00:00:00`), 1)))}
+        nowMs={nowMs} loading={state.loading && !state.events.length} error={!!state.error && !state.events.length}
+        onRetry={() => setAgendaTry(n => n + 1)} />
+    );
+  }
+
   return (
     <Card
       title="Calendar"
@@ -655,7 +671,7 @@ export function CalendarPanel({ phone = false }) {
       )}
     >
       {unavailable ? (
-        <div data-widget-unavailable style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+        <div data-widget-unavailable style={{ fontSize: 13, color: 'var(--muted)', padding: 'var(--dash-empty-pad, 24px 8px)', textAlign: 'center', lineHeight: 1.5 }}>
           Your calendar isn't connected - this widget shows the Outlook calendar of Microsoft 365 accounts.
         </div>
       ) : (

@@ -155,7 +155,7 @@ describe('Weather widget', () => {
     const mid = render(<WeatherWidget config={place} phone size={{ w: 4, h: 4 }} />);
     expect(await screen.findByText('67°')).toBeTruthy();
     expect(screen.getByLabelText('Hourly')).toBeTruthy();
-    expect(screen.getByText('Humidity')).toBeTruthy();
+    expect(screen.getByLabelText('Details').textContent).toContain('Humidity 81%');
     expect(screen.queryByLabelText('Daily forecast')).toBeNull();
     mid.unmount();
     render(<WeatherWidget config={place} phone size={{ w: 4, h: 6 }} />);

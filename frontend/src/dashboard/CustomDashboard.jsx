@@ -142,7 +142,7 @@ export default function CustomDashboard() {
   // functional state updates queue in order so this clears the whole list.
   const clearAllNotifs = () => { markAllRead(); clearRead(); };
 
-  const renderWidget = (it, { phone = false } = {}) => {
+  const renderWidget = (it, { phone = false, lone = false } = {}) => {
     const def = WIDGETS[it.type];
     if (!def) return <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: 16 }}>This widget is no longer available.</div>;
     // Role-gated widget in a layout the user inherited (e.g. a dept template):
@@ -156,6 +156,9 @@ export default function CustomDashboard() {
       );
     }
     const Comp = def.render;
+    // A phone may give the tile another height than the board's (a lone
+    // compact tile is one row) - the widget is told the size it really has.
+    const phoneRows = phone ? def.phoneRowsWhen?.(it.config, { lone }) : undefined;
     // Each tile has its own boundary (Oct 14): a render crash - or a lazy
     // chunk that 404s right after a deploy - used to reach the view's
     // boundary and turn the whole dashboard into one error card.
@@ -163,7 +166,7 @@ export default function CustomDashboard() {
       <WidgetBoundary name={`dashboard:${it.type}`} resetKey={`${it.i}:${it.type}`} fallback={<WidgetCrashCard title={def.title} />}>
         <Suspense fallback={<div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', overflow: 'hidden' }}><WidgetSkeleton rows={2} /></div>}>
           <Comp
-            config={it.config || {}} size={{ w: it.w, h: it.h }} phone={phone} kpis={d.kpis} notifications={notifications}
+            config={it.config || {}} size={{ w: it.w, h: phoneRows ?? it.h }} phone={phone} kpis={d.kpis} notifications={notifications}
             kpisError={d.kpisError} reloadKpis={d.reloadKpis}
             markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}
             // Outside Customize a widget's own change (the Weather tile's city)
@@ -383,7 +386,7 @@ export default function CustomDashboard() {
               canConfigure={(it) => !!WIDGETS[it.type]?.configurable}
               limitsFor={(it) => limitsOf(it.type, it.config)}
               compactFor={(it) => !!WIDGETS[it.type]?.compact}
-              rowsFor={(it) => WIDGETS[it.type]?.phoneRowsWhen?.(it.config)}
+              rowsFor={(it, ctx) => WIDGETS[it.type]?.phoneRowsWhen?.(it.config, ctx)}
               fitFor={(it) => !!WIDGETS[it.type]?.fit}
               phoneFitFor={(it) => WIDGETS[it.type]?.phoneFit || null}
               stacked={isPhone}

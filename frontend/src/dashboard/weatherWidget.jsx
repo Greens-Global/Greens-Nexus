@@ -49,7 +49,7 @@ const WIDE_MIN_W = 520;
 const DAY_COL_W = 62;
 
 const STRIP_FADE_END = 'linear-gradient(90deg, #000 calc(100% - 24px), transparent)';
-const STRIP_FADE_BOTH = 'linear-gradient(90deg, transparent, #000 20px, #000 calc(100% - 28px), transparent)';
+const STRIP_FADE_BOTH = 'linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 28px), transparent)';
 
 const deg = (v) => (v == null ? '-' : `${Math.round(v)}°`);
 // The place's own wall clock ("2026-09-28T06:40") -> "6:40 AM", never moved
@@ -377,10 +377,10 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
   const hoursEl = hours.length > 0 && (
       // The strip fades out at its edge, so an hour that runs under it reads
       // as "more this way", not as a column cut in half. On a phone it runs
-      // out to the card's edges (the card's 20px padding) like a native strip.
+      // out to the card's edges (the phone card's 16px padding) like a native strip.
       <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, flexShrink: 0, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch',
         ...(phone
-          ? { margin: '0 -20px', padding: '0 20px 2px', scrollPaddingInline: 20, maskImage: STRIP_FADE_BOTH, WebkitMaskImage: STRIP_FADE_BOTH }
+          ? { margin: '0 -16px', padding: '0 16px 2px', scrollPaddingInline: 16, maskImage: STRIP_FADE_BOTH, WebkitMaskImage: STRIP_FADE_BOTH }
           : { maskImage: STRIP_FADE_END, WebkitMaskImage: STRIP_FADE_END }) }} aria-label="Hourly">
         {hours.map((h, i) => {
           const hs = sky(h.code, h.isDay);
@@ -426,16 +426,27 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
   );
 
   // ── Phone: content-sized, by the size the tile has on the board ──
+  // Tight the way a phone's own weather widget is (11/17/2026): the
+  // details are one quiet line, whole facts wrapping between them, and the
+  // sunrise / "Updated" footer is left to the Forecast popup a tap away.
   if (phone) {
     const level = phoneLevel(size);
+    const facts = [
+      `Wind ${Math.round(c.wind ?? 0)} ${u.wind} ${compass(c.windDir)}`.trim(),
+      `Humidity ${Math.round(c.humidity ?? 0)}%`,
+      t.uvMax != null && `UV ${Math.round(t.uvMax)}`,
+    ].filter(Boolean);
     return shell(
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
         {header}
         {nowEl}
-        {level >= 2 && detailsEl}
+        {level >= 2 && (
+          <div aria-label="Details" style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 14px', fontSize: 13, color: 'var(--muted)' }}>
+            {facts.map((f) => <span key={f} style={{ whiteSpace: 'nowrap' }}>{f}</span>)}
+          </div>
+        )}
         {level >= 2 && hoursEl}
         {level >= 3 && dayList(Math.min(7, days.length))}
-        {level >= 2 && footerEl}
       </div>,
     );
   }

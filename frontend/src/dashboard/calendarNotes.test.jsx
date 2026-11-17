@@ -51,11 +51,14 @@ describe('Calendar agenda', () => {
     expect(box.style.height).toBe('100%');
   });
 
-  it('stacks the agenda under a full-width month grid on a phone', async () => {
+  // 11/17/2026 (Neil: "should work like iPhone outlook calendar widget"):
+  // a phone shows today's date and what is still ahead, not the month grid.
+  it('on a phone is the Outlook-style glance: the date, what is ahead, no month grid', async () => {
     render(<CalendarPanel phone />);
-    const list = await screen.findByLabelText('My Agenda');
-    expect(list.parentElement.parentElement.style.flexDirection).toBe('column');
-    expect(await screen.findByText('Meeting 1')).toBeTruthy();
+    expect(await screen.findByLabelText('Calendar')).toBeTruthy();
+    expect(screen.queryByLabelText('My Agenda')).toBeNull();
+    expect(screen.queryByLabelText('Month')).toBeNull();
+    expect(screen.getByRole('button', { name: /open the day in Outlook/ })).toBeTruthy();
   });
 
   // 11/17/2026: a failed read used to fall through to "Nothing scheduled.".
