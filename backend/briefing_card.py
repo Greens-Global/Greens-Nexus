@@ -6,7 +6,7 @@ click-to-toggle trick, so the HTML briefing's collapsible sections only work
 in Apple Mail and Gmail. An Outlook Actionable Message (Adaptive Card) is the
 one format Outlook runs interactively in every client (classic desktop, new
 Outlook, web, mobile): Action.ToggleVisibility gives real collapse, and
-Action.Http runs Approve / Comment / Toggle Completion in the email itself.
+Action.Http runs Approve / Comment / Mark Done in the email itself.
 
 The card is the WHOLE briefing, not a card stacked on top of the HTML
 (hideOriginalBody: True). The Sep 23 attempt (PR #329, reverted in #331) put
@@ -120,10 +120,13 @@ def _task_actions(ctx: dict, row: dict) -> list:
                               kind="task", token=tok, action="react")],
         }},
     ]
-    # Toggle Completion, no Change Status (Neil, 10/01). The body is the state
-    # the reader saw, so a repeat click never flips the task back.
+    # The completion switch, no Change Status (Neil, 10/01). The body is the
+    # state the reader saw, so a repeat click never flips the task back. It
+    # says what it does, as the email does (11/17/2026, was "Toggle
+    # Completion"): Mark Done on an open task, Reopen on a finished one.
     if row.get("task_open") or row.get("task_done"):
-        out.append(_post(ctx, "Toggle Completion", "open" if row.get("task_done") else "done",
+        out.append(_post(ctx, "Reopen" if row.get("task_done") else "Mark Done",
+                         "open" if row.get("task_done") else "done",
                          kind="task", token=tok, action="toggle"))
     return out
 

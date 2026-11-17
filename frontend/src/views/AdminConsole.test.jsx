@@ -238,7 +238,7 @@ describe('AdminConsole', () => {
     const onSubChange = vi.fn();
     render(<AdminConsole activeSub="emails" onSubChange={onSubChange} />);
     expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
-    for (const t of ['Task Notifications', 'Daily Briefing', 'Weekly Digest', 'Workforce Scorecard', 'HR & Compliance Reminders', 'Equipment Reminders']) {
+    for (const t of ['Task Notifications', 'Daily Briefing', 'Weekly Briefing', 'Workforce Scorecard', 'HR & Compliance Reminders', 'Equipment Reminders']) {
       expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
     }
     // Nothing to expand: the panels are already there.
@@ -931,7 +931,7 @@ describe('AdminConsole', () => {
     fireEvent.change(box, { target: { value: 'no-show' } });
     expect(screen.getByRole('region', { name: 'Attendance' })).toBeInTheDocument();
     fireEvent.change(box, { target: { value: 'mail' } });
-    for (const t of ['Email Appearance', 'Task Notifications', 'Daily Briefing', 'Weekly Digest', 'HR & Compliance Reminders']) {
+    for (const t of ['Email Appearance', 'Task Notifications', 'Daily Briefing', 'Weekly Briefing', 'HR & Compliance Reminders']) {
       expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
     }
   });

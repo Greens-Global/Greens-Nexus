@@ -301,6 +301,20 @@ keep the diff minimal.
 
 ## Frontend conventions
 
+- **No "Claude rectangle" design - anywhere, ever (Neil, 11/17/2026: "Never
+  want to see this design").** It applies to every screen, email, PDF, mockup
+  and artifact made for Nexus, and it outranks any older rule that calls for
+  pills, chips or cards. Never: a colored bar, rail or stripe beside or on top
+  of a heading, card, row or section (a left or top border used as an
+  accent); stat tiles or KPI boxes (a grid of boxed numbers, colored top
+  edges); a bordered box or tinted panel around each section or list ("one
+  card per section"); a boxed info strip ("Today", callouts); a pill or tag
+  box around a count or a state ("Waiting 4 Days", "Due Today"); uppercase
+  eyebrows. Instead: hierarchy from type size and weight, whitespace, and
+  hairline dividers between rows; numbers as words in a sentence or one quiet
+  line ("9 need your action - 2 overdue - 3 due this week"); a state as plain
+  colored text in the row's own line ("24 days overdue" in red). Buttons stay
+  buttons. Check every mockup against this list before showing it.
 - All server calls go through `frontend/src/api.js` — add new endpoints there.
   It already retries idempotent GETs on 5xx/network with backoff and debounces
   the "reconnecting" banner; do not add a second retry layer on top.

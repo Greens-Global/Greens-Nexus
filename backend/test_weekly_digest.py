@@ -282,7 +282,6 @@ class HolidayTests(_Case):
         html = self.sent[0]["html"]
         # Upcoming Time Off and Upcoming Holidays share Coming Up (Nov 15 2026).
         self.assertIn("Coming Up", html)
-        self.assertIn(">Holidays<", html)
         self.assertIn("Friday, 10/02/2026 - Half Day - This Week", html)
         self.assertIn("the holidays coming up", html)
 
@@ -348,7 +347,7 @@ class DueThisWeekTests(_Case):
         self._scan()
         html = self.sent[0]["html"]
         self.assertIn("Due This Week", html)
-        self.assertIn(">Thursday, 10/01/2026<", html)   # a heading per day (Nov 15 2026)
+        self.assertIn("Thu 10/01/2026", html)   # the day leads the task's line (11/17/2026)
 
     def test_the_daily_briefing_puts_tasks_due_today_under_action_required_once(self):
         import daily_briefing
@@ -405,14 +404,14 @@ class ContentTests(_Case):
         self._scan()
         mail = self.sent[0]
         # The subject says what is waiting (Nov 15 2026).
-        self.assertEqual(mail["subject"], "Weekly Digest - 1 Overdue - Week of 09/28/2026")
+        self.assertEqual(mail["subject"], "Weekly Briefing - 1 Overdue - Week of 09/28/2026")
         html = mail["html"]
         # The opening line counts what is waiting, not "the tasks you have
         # overdue" (Neil, 10/01).
-        self.assertIn("Here is your week: 1 task is overdue.", html)
+        self.assertRegex(html, r">1</span> overdue")   # the counts line (11/17/2026)
         self.assertNotIn("These are the tasks you have overdue", html)
-        self.assertIn("Due 09/20/2026<", html)
-        self.assertIn(">8 Days Overdue<", html)   # the red tag
+        self.assertIn("Due 09/20/2026&nbsp;&nbsp; ", html)
+        self.assertIn(">8 days overdue</span>", html)   # plain red words (11/17/2026)
         self.assertIn(">Extend</a>", html)
         self.assertIn("do=extend", html)
         self.assertNotIn('type="checkbox"', html)        # every section is simply open
@@ -476,7 +475,7 @@ class StillToDoTests(_Case):
         self.assertEqual(len(self.sent), 1)
         html = self.sent[0]["html"]
         self.assertIn("Needs Your Attention", html)
-        self.assertIn("Here is your week: 1 needs your attention.", html)
+        self.assertRegex(html, r">1</span> needs your attention")
         self.assertNotIn("Overdue Tasks", html)
 
     def test_a_test_copy_carries_no_one_click_decisions(self):
@@ -505,7 +504,8 @@ class DailyUnchangedTests(_Case):
                                        "task_id": "t1", "action_email": AMY, "task_open": True}]}
         subject, html = daily_briefing.render_email("Amy", "2026-09-28", sections, greeting="Good morning")
         self.assertEqual(subject, "Daily Briefing - All Caught Up - Monday, 09/28/2026")
-        self.assertIn("Nothing needs you today. Here is what changed since your last briefing.", html)
+        self.assertIn("Good morning, Amy.</div>", html)
+        self.assertRegex(html, r">1</span> update")
         self.assertIn("You receive one briefing a day", html)
         self.assertIn(">Open</a>", html)
         self.assertIn(">Mark Done<", html)
@@ -638,7 +638,7 @@ class SendTestTests(_Case):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["overdueCount"], 1)
         self.assertEqual([s["to"] for s in self.sent], [["qa@greensglobal.com"]])
-        self.assertEqual(self.sent[0]["subject"], f"[TEST -> {AMY}] Weekly Digest - 1 Overdue - Week of 09/28/2026")
+        self.assertEqual(self.sent[0]["subject"], f"[TEST -> {AMY}] Weekly Briefing - 1 Overdue - Week of 09/28/2026")
         self.assertNotIn("do=extend", self.sent[0]["html"])
         self.assertEqual(self._logs(), [])   # the real weekly send is unaffected
 

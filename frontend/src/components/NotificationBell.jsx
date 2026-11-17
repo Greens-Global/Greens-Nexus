@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles, ArrowRight, Flag, Award, PenLine, Users, BookOpen, Unlock, Camera } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
@@ -670,6 +671,12 @@ export default function NotificationBell({ onNavigate }) {
         )}
       </button>
 
+      {/* The backdrop and the panel live on <body> (11/17/2026): inside the
+          header they were placed against the header, not the screen - its
+          -webkit-backdrop-filter makes it the frame for anything fixed inside
+          it in Safari, so on a phone the panel's top (title, close) sat above
+          the screen and the page showed under its foot. */}
+      {createPortal(<>
       {/* Backdrop */}
       <div onClick={() => setOpen(false)} style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
@@ -1038,6 +1045,7 @@ export default function NotificationBell({ onNavigate }) {
           )}
         </div>
       </div>
+      </>, document.body)}
       {raising && <RaiseNotice onClose={() => setRaising(false)} myEmail={myEmail} />}
       {handOverFor && (
         <Suspense fallback={null}>
