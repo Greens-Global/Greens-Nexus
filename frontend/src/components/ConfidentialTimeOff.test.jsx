@@ -50,6 +50,11 @@ describe('planner requests line', () => {
 // default when the full suite runs in parallel.
 const SLOW = 20000;
 
+// Dates from tomorrow, never a fixed day: the form refuses a start in the past,
+// so a fixed 11/16/2026 failed from 11/17 on (11/17/2026).
+const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const D1 = day(1), D2 = day(2);
+
 describe('request form', () => {
   it('sends confidential: true when the box is ticked', async () => {
     const TimeClock = (await import('../views/TimeClock')).default;
@@ -57,12 +62,12 @@ describe('request form', () => {
     const box = await screen.findByRole('checkbox', { name: /Keep this confidential/ });
     fireEvent.click(box);
     const dates = document.querySelectorAll('input[type="date"]');
-    fireEvent.change(dates[0], { target: { value: '2026-11-16' } });
-    fireEvent.change(dates[1], { target: { value: '2026-11-16' } });
+    fireEvent.change(dates[0], { target: { value: D1 } });
+    fireEvent.change(dates[1], { target: { value: D1 } });
     fireEvent.change(screen.getByLabelText('Note'), { target: { value: '  Surgery follow-up ' } });
     fireEvent.click(screen.getByRole('button', { name: /^Request$/ }));
     await waitFor(() => expect(calls.timeOffCreate?.length).toBe(1));
-    expect(calls.timeOffCreate[0][0]).toMatchObject({ type: 'personal', confidential: true, start_date: '2026-11-16', note: 'Surgery follow-up' });
+    expect(calls.timeOffCreate[0][0]).toMatchObject({ type: 'personal', confidential: true, start_date: D1, note: 'Surgery follow-up' });
   }, SLOW);
 
   it('sends without a note - the Reason says why, the Note is optional (Neil, Oct 1)', async () => {
@@ -71,11 +76,11 @@ describe('request form', () => {
     await screen.findByRole('checkbox', { name: /Keep this confidential/ });
     expect(screen.queryByText(/optional/i)).toBeNull();
     const dates = document.querySelectorAll('input[type="date"]');
-    fireEvent.change(dates[0], { target: { value: '2026-11-16' } });
-    fireEvent.change(dates[1], { target: { value: '2026-11-17' } });
+    fireEvent.change(dates[0], { target: { value: D1 } });
+    fireEvent.change(dates[1], { target: { value: D2 } });
     fireEvent.click(screen.getByRole('button', { name: /^Request$/ }));
     await waitFor(() => expect(calls.timeOffCreate?.length).toBe(1));
-    expect(calls.timeOffCreate[0][0]).toMatchObject({ type: 'personal', end_date: '2026-11-17', note: '' });
+    expect(calls.timeOffCreate[0][0]).toMatchObject({ type: 'personal', end_date: D2, note: '' });
   }, SLOW);
 });
 
@@ -85,8 +90,8 @@ describe('request form totals and types (Neil, Sep 30)', () => {
     render(<TimeClock initialTab="timeoff" activeSub="timeoff" onSubChange={() => {}} />);
     await screen.findByRole('checkbox', { name: /Keep this confidential/ });
     const dates = document.querySelectorAll('input[type="date"]');
-    fireEvent.change(dates[0], { target: { value: '2026-11-16' } });
-    fireEvent.change(dates[1], { target: { value: '2026-11-16' } });
+    fireEvent.change(dates[0], { target: { value: D1 } });
+    fireEvent.change(dates[1], { target: { value: D1 } });
     fireEvent.click(screen.getByRole('switch'));
     const times = document.querySelectorAll('input[type="time"]');
     fireEvent.change(times[0], { target: { value: '08:30' } });
