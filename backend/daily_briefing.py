@@ -39,13 +39,13 @@ import asyncio
 import json
 import re
 import uuid
-from datetime import datetime, timezone, timedelta, time as dtime
+from datetime import datetime, timezone, timedelta, date, time as dtime
 from html import escape
 from urllib.parse import urlencode
 
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import func, text
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
 import models
@@ -217,10 +217,120 @@ def save_settings(db: Session, patch: dict, actor_email: str) -> dict:
 # ── Trigger + dedupe ──────────────────────────────────────────────────────
 
 def _last_log(db: Session, email: str):
+    """The last briefing actually SENT - a day logged without a send (nothing
+    to say, a holiday, time off) never moves the "since" window, so what
+    happened that day comes in the next email (Nov 17 2026: the newest row,
+    sent or not, used to reset the window to the 48-hour fallback)."""
     return (db.query(models.NexusDailyBriefingLog)
-            .filter(models.NexusDailyBriefingLog.employee_email == email)
+            .filter(models.NexusDailyBriefingLog.employee_email == email,
+                    models.NexusDailyBriefingLog.sent_at != "")
             .order_by(models.NexusDailyBriefingLog.created_at.desc())
             .first())
+
+
+# ── Days with no briefing (Neil, 11/17/2026) ────────────────────────────────
+# A company holiday on the person's calendar (a Day Off - a half day or an
+# optional holiday still sends) skips everyone; a full day of the person's own
+# approved time off skips them unless they manage someone. The send time comes
+# from shift_expect, which knows neither, so a 3:30 AM "before your shift"
+# email used to arrive on Thanksgiving and every day of a vacation.
+
+def holiday_off(db: Session, emp: "models.NexusEmployee", iso: str) -> bool:
+    if not emp or not emp.company:
+        return False
+    import holiday_policies
+    rows = (db.query(models.HrCompanyHoliday)
+            .filter(models.HrCompanyHoliday.company_id == emp.company, models.HrCompanyHoliday.date == iso).all())
+    if not rows:
+        return False
+    country = holiday_policies.person_country(
+        emp, holiday_policies.company_countries(db, [emp.company]).get(emp.company, ""))
+    h = holiday_policies.holidays_by_date(rows, country).get(iso)
+    return bool(h) and (h.get("type") or "mandatory") == "mandatory"
+
+
+def on_time_off(db: Session, email: str, iso: str) -> bool:
+    """A FULL day of approved time off (a request with hours is part of a day)."""
+    return (db.query(models.TimeOffRequest.id)
+            .filter(func.lower(models.TimeOffRequest.employee_email) == (email or "").lower(),
+                    models.TimeOffRequest.status == "approved",
+                    models.TimeOffRequest.start_date <= iso,
+                    or_(models.TimeOffRequest.end_date >= iso,
+                        and_(func.coalesce(models.TimeOffRequest.end_date, "") == "",
+                             models.TimeOffRequest.start_date == iso)),
+                    func.coalesce(models.TimeOffRequest.start_time, "") == "").first()) is not None
+
+
+def manages_anyone(db: Session, email: str) -> bool:
+    return (db.query(models.NexusEmployee.id)
+            .filter(func.lower(models.NexusEmployee.manager_email) == (email or "").lower()).first()) is not None
+
+
+def skip_reason(db: Session, emp: "models.NexusEmployee", iso: str) -> str:
+    """'holiday' / 'time_off' when this person gets no briefing on `iso`."""
+    if holiday_off(db, emp, iso):
+        return "holiday"
+    if on_time_off(db, emp.work_email, iso) and not manages_anyone(db, emp.work_email):
+        return "time_off"
+    return ""
+
+
+def _log_skip(db: Session, emp: "models.NexusEmployee", briefing_date: str, mode: str) -> None:
+    """A row for a day with no email, so the scan does not ask again today."""
+    db.add(models.NexusDailyBriefingLog(
+        id=str(uuid.uuid4()), employee_email=emp.work_email, briefing_date=briefing_date, sent_at="", mode=mode,
+        red_count=0, amber_count=0, blue_count=0, green_count=0, created_at=_now_iso()))
+    db.commit()
+
+
+def _clock(hhmm: str) -> str:
+    """'08:00' -> '8:00 AM'."""
+    try:
+        t = datetime.strptime((hhmm or "")[:5], "%H:%M")
+    except ValueError:
+        return ""
+    return t.strftime("%I:%M %p").lstrip("0")
+
+
+def today_line_for(db: Session, email: str, iso: str) -> str:
+    """'Your shift 8:00 AM - 4:30 PM, Round Rock' - the one expected-shift rule
+    (shift_expect), the published shift's label as its place. '' when no shift."""
+    try:
+        import shift_expect
+        exp = shift_expect.expected_start(db, email, date.fromisoformat(iso))
+    except Exception:
+        return ""
+    if not exp or not exp.get("start"):
+        return ""
+    start, end = _clock(exp.get("start")), _clock(exp.get("end") or "")
+    if not start:
+        return ""
+    label = ""
+    if exp.get("source") == "scheduled":
+        row = (db.query(models.ScheduledShift.label)
+               .filter(func.lower(models.ScheduledShift.employee_email) == (email or "").lower(),
+                       models.ScheduledShift.work_date == iso, models.ScheduledShift.published == 1)
+               .order_by(models.ScheduledShift.start_hhmm).first())
+        label = ((row[0] if row else "") or "").strip()
+    text = f"Your shift {start} - {end}" if end else f"Your shift starts at {start}"
+    return f"{text}, {label}" if label else text
+
+
+def since_label_for(since_iso: str, briefing_date: str, local_now: datetime) -> str:
+    """'Tuesday, 11/24/2026' when the last briefing sent was before yesterday -
+    the first one back after days off says how far back it reaches."""
+    if not since_iso or not briefing_date:
+        return ""
+    try:
+        sent = datetime.strptime(since_iso[:19], "%Y-%m-%dT%H:%M:%S")
+        day = date.fromisoformat(briefing_date)
+    except ValueError:
+        return ""
+    if local_now is not None:
+        sent = sent + (local_now - datetime.now(timezone.utc).replace(tzinfo=None))
+    if (day - sent.date()).days < 2:
+        return ""
+    return f"{sent.strftime('%A')}, {sent.strftime('%m/%d/%Y')}"
 
 
 def _leave_labeler(db: Session, recipient: str):
@@ -1409,7 +1519,25 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
                            + _blue_rows_my_manager(db, email, briefing_date),
         "completed":       _green_rows(db, email, since_iso),
     }
+    stamp_waiting(sections["action_required"], briefing_date)
     return {k: v for k, v in sections.items() if v}
+
+
+def stamp_waiting(rows: list, briefing_date: str) -> None:
+    """`waiting_days` on each row that knows when it started waiting (`since`),
+    for the email's Waiting N Days tag and its longest-first order (Neil,
+    11/17/2026). A row that waited less than a day gets none."""
+    try:
+        today = date.fromisoformat(briefing_date[:10])
+    except (TypeError, ValueError):
+        return
+    for r in rows:
+        try:
+            days = (today - date.fromisoformat(str(r.get("since") or "")[:10])).days
+        except ValueError:
+            continue
+        if days >= 1:
+            r["waiting_days"] = days
 
 
 # ── Render (email-safe: inline styles, Segoe UI stack, table layout) ──────
@@ -1465,7 +1593,7 @@ _SECTION_META = {
     "holidays_ahead":  ("Upcoming Holidays",                  _INK,   "Holidays Ahead"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
-_TAG = {"red": ("#fdecec", "#991b1b"), "yellow": ("#fef6d8", "#854d0e")}
+_TAG = {"red": ("#fdecec", "#991b1b"), "yellow": ("#fef6d8", "#854d0e"), "gray": ("#f1f3f5", "#374151")}
 
 _MODULE_META = {
     "tasks":    "Tasks",
@@ -1723,6 +1851,10 @@ def _row_tag(row: dict) -> str:
         return _tag("Due Today", "yellow")
     if row.get("overdue_count"):
         return _tag(f"{row['overdue_count']} Overdue", "red")
+    if row.get("waiting_days"):
+        # How long a decision has waited on you: gray, yellow from 3 days, red from 7.
+        n = row["waiting_days"]
+        return _tag(f"Waiting {n} Day{'' if n == 1 else 's'}", "red" if n >= 7 else "yellow" if n >= 3 else "gray")
     return ""
 
 
@@ -1813,7 +1945,9 @@ def _group_by_module(rows: list) -> list:
     """[(module_key, label, rows), ...] in _MODULE_ORDER, any untagged module
     appended after in first-seen order so it still renders rather than vanish."""
     buckets: dict = {}
-    for r in rows:
+    # Inside a module: the one-button rows (your own Time Sheet) first, then
+    # the longest waiting, so the oldest decision is never at the bottom.
+    for r in sorted(rows, key=lambda r: (not r.get("cta"), -(r.get("waiting_days") or 0))):
         buckets.setdefault(r.get("module") or "other", []).append(r)
     order = [m for m in _MODULE_ORDER if m in buckets] + [m for m in buckets if m not in _MODULE_ORDER]
     return [(m, _MODULE_META.get(m, m.replace("_", " ").title()), buckets[m]) for m in order]
@@ -1837,7 +1971,7 @@ def _group_head_html(label: str, n: int, first: bool) -> str:
             f"<span style='font-weight:400'>&nbsp;&nbsp;{n}</span></td></tr>")
 
 
-def _section_html(key: str, rows: list, expanded: bool = True, note: str = "") -> str:
+def _section_html(key: str, rows: list, expanded: bool = True, note: str = "", cap: int = None) -> str:
     """One section: its heading with the section's short color bar, an
     optional line of text, then ONE card - a divider row per module (or day)
     and a row per item. `expanded` is kept for old callers: every section is
@@ -1852,7 +1986,8 @@ def _section_html(key: str, rows: list, expanded: bool = True, note: str = "") -
         if not bare:
             body += _group_head_html(label, len(grows), first)
             first = False
-        shown, hidden = grows[:_MODULE_ROW_CAP], grows[_MODULE_ROW_CAP:]
+        lim = cap or _MODULE_ROW_CAP
+        shown, hidden = grows[:lim], grows[lim:]
         draw = _done_row_html if key == "completed" else _item_row_html
         for i, r in enumerate(shown):
             body += draw(r, first and i == 0)
@@ -1866,7 +2001,7 @@ def _section_html(key: str, rows: list, expanded: bool = True, note: str = "") -
       <a name="nx-sec-{key}" id="nx-sec-{key}"></a>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
         <td width="4" bgcolor="{accent}" style="width:4px;background:{accent};font-size:0;line-height:0">&nbsp;</td>
-        <td style="padding:0 0 0 10px;font-size:17px;font-weight:600;line-height:1.3;color:{_INK}">{escape(heading)}
+        <td role="heading" aria-level="2" style="padding:0 0 0 10px;font-size:17px;font-weight:600;line-height:1.3;color:{_INK}">{escape(heading)}
           <span style="font-weight:400;color:{_MUTED}">&nbsp;{len(rows)}</span></td>
       </tr></table>
       <div style="height:12px;line-height:12px;font-size:0">&nbsp;</div>
@@ -1880,7 +2015,7 @@ def _summary_html(sections: dict, order: list = None) -> str:
     """White tiles, at most three to a row (six in one row pushed the Weekly
     Digest wider than a phone), each a link to its section. The number takes
     the section's color: red only where something needs the reader."""
-    present = [k for k in (order or _ORDER) if sections.get(k)]
+    present = [k for k in (order or _ORDER) if sections.get(k) and k not in ("coming_up",)][:6]
     if not present:
         return f"<div style='font-size:13.5px;color:{_MUTED}'>Nothing new since your last briefing.</div>"
     rows = [present[i:i + 3] for i in range(0, len(present), 3)]
@@ -1903,6 +2038,37 @@ def _summary_html(sections: dict, order: list = None) -> str:
         out.append(f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
                    f"style='border-collapse:separate{';margin-top:8px' if ri else ''}'><tr>{gap.join(cells)}</tr></table>")
     return "".join(out)
+
+
+_BODY_BUDGET = 80_000          # the sections; the frame and styles add ~15 KB -> under 95 KB
+_FYI_SECTIONS = ("completed", "needs_to_know", "coming_up", "team_overdue")
+
+
+def _today_html(line: str) -> str:
+    """The day at a glance under the greeting: your shift, its site, a holiday."""
+    if not line:
+        return ""
+    return (f"<table role='presentation' cellpadding='0' cellspacing='0' style='margin-top:12px'><tr>"
+            f"<td bgcolor='{_SOFT}' style='background:{_SOFT};border:1px solid {_LINE};border-radius:6px;"
+            f"padding:8px 12px;font-size:13.5px;color:{_INK}'><span style='font-weight:600'>Today</span>"
+            f"<span style='color:{_MUTED}'>&nbsp;&nbsp;&middot;&nbsp;&nbsp;</span>{escape(line)}</td></tr></table>")
+
+
+def _recap_html(lines) -> str:
+    """Last Week (Weekly Briefing): a few plain lines, no table."""
+    if not lines:
+        return ""
+    body = "".join(f"<div style='font-size:13.5px;line-height:1.6;color:{_BODY};padding:2px 0'>{escape(t)}</div>"
+                   for t in lines)
+    return f"""
+    <tr><td class="nx-pad" style="padding:30px 32px 0">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+        <td width="4" bgcolor="{_GREEN}" style="width:4px;background:{_GREEN};font-size:0;line-height:0">&nbsp;</td>
+        <td role="heading" aria-level="2" style="padding:0 0 0 10px;font-size:17px;font-weight:600;line-height:1.3;color:{_INK}">Last Week</td>
+      </tr></table>
+      <div style="height:10px;line-height:10px;font-size:0">&nbsp;</div>
+      {body}
+    </td></tr>"""
 
 
 _DAILY_FOOTER = ("You receive one briefing a day, before your shift starts (or at a set time on a day without "
@@ -1972,7 +2138,8 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
                  intro: str = None, subject: str = "", preheader: str = None,
                  footer: str = _DAILY_FOOTER, order: list = None, expanded: bool = True,
                  cta_label: str = "Open My Briefing", cta_path: str = "/briefing",
-                 cta_hint: str = "", notes: dict = None, stop_kind: str = "daily_briefing") -> tuple:
+                 cta_hint: str = "", notes: dict = None, stop_kind: str = "daily_briefing",
+                 today_line: str = "", since_label: str = "", recap: list = None) -> tuple:
     """The briefing email. The keyword-only arguments exist for the Weekly
     Digest (weekly_digest.py), which reuses this layout with its own sections;
     their defaults are the daily email exactly. `subject`, `intro` and
@@ -1993,15 +2160,29 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
                    else f"{title} - All Caught Up - {weekday_date}")
     if intro is None:
         intro = (f"{_plural(n_act, 'thing')} need{'s' if n_act == 1 else ''} you today." if n_act else
-                 "Nothing needs you today. Here is what changed since your last briefing.")
+                 "Nothing needs you today.")
+        intro += f" Here is what changed since {since_label}." if since_label else (
+            "" if n_act else " Here is what changed since your last briefing.")
     if preheader is None:
         preheader = daily_preheader(sections)
     logo = (f"<img src='{escape(logo_url)}' alt='Greens Global' height='26' style='display:block;border:0'>"
             if logo_url else
             "<span style='color:#ffffff;font-size:14px;font-weight:700;letter-spacing:.18em'>GREENS GLOBAL</span>")
     salutation = f"{greeting}, {escape(first_name)}." if first_name else f"{greeting}."
-    body_sections = "".join(_section_html(k, sections[k], True, (notes or {}).get(k, ""))
-                            for k in order if sections.get(k))
+    # Gmail clips a message past ~102 KB and hides the rest, the Stop These
+    # Emails link included. Action Required always lists in full; the FYI
+    # sections list fewer rows (with View All) until the email fits 95 KB.
+    caps = {}
+
+    def _body():
+        return "".join(_section_html(k, sections[k], True, (notes or {}).get(k, ""), caps.get(k))
+                       for k in order if sections.get(k))
+    body_sections = _body()
+    for lim in (10, 6, 3):
+        if len(body_sections.encode()) <= _BODY_BUDGET:
+            break
+        caps = {k: lim for k in _FYI_SECTIONS}
+        body_sections = _body()
     # The preview line, then filler so the client does not pull body text in
     # after it. Hidden everywhere, Outlook desktop included (mso-hide).
     pre = (f"<div style='display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;"
@@ -2040,12 +2221,14 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
     </tr>
     <tr>
       <td class="nx-pad" style="padding:28px 32px 0">
-        <div style="font-size:22px;font-weight:600;color:{_INK}">{escape(title)}</div>
+        <div role="heading" aria-level="1" style="font-size:22px;font-weight:600;color:{_INK}">{escape(title)}</div>
         <div style="font-size:14.5px;line-height:1.55;color:{_BODY};margin-top:6px">{salutation} {escape(intro)}</div>
+        {_today_html(today_line)}
       </td>
     </tr>
     <tr><td class="nx-pad" style="padding:18px 32px 0">{_summary_html(sections, order)}</td></tr>
     {body_sections}
+    {_recap_html(recap)}
     <tr>
       <td class="nx-pad" style="padding:32px 32px 28px">
         {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", brand, pad="10px 22px", size="13.5px")])}
@@ -2196,13 +2379,29 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     if not since_iso:
         since_iso = (datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    sections = build_sections(db, emp.work_email, since_iso, briefing_date)
+    built = build_sections(db, emp.work_email, since_iso, briefing_date)
+    sections = built
     first_name = (emp.first_name or "").strip()
-    greeting = _greeting(local_now or _recipient_local_now(db, emp.work_email))
+    local_now = local_now or _recipient_local_now(db, emp.work_email)
+    greeting = _greeting(local_now)
     logo_url = _logo_url(db)
-    subject, html = render_email(first_name, briefing_date, sections, greeting=greeting, logo_url=logo_url)
-
     mode = cfg.get("mode", "off")
+    # A day with nothing to act on and no updates sends nothing (Neil,
+    # 11/17/2026): its completed rows come in the next email, which starts
+    # from the last one sent (_last_log).
+    if not sections.get("action_required") and not sections.get("needs_to_know"):
+        sections = {}
+    # Monday is ONE email (Neil, 11/17/2026): the first briefing of the week
+    # on or after the Weekly Briefing's send day carries the week's sections
+    # and stands in for the separate one (weekly_digest.combine_into_daily).
+    import weekly_digest
+    week = weekly_digest.combine_into_daily(db, emp, date.fromisoformat(briefing_date), mode)
+    extra = {"today_line": today_line_for(db, emp.work_email, briefing_date),
+             "since_label": since_label_for(since_iso if last and last.sent_at else "", briefing_date, local_now)}
+    if week:
+        sections, extra = weekly_digest.combined(built, week, briefing_date, extra)
+    subject, html = render_email(first_name, briefing_date, sections, greeting=greeting, logo_url=logo_url, **extra)
+
     # Stopped from the email's own link or Profile (email_optout.py): no
     # live email for them; the page and the bell are unchanged.
     import email_optout
@@ -2232,6 +2431,9 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
                 sent_at = _now_iso()
             except graph_mail.GraphMailError as e:
                 print(f"[daily-briefing] send failed for {emp.work_email}: {e}")
+    if week and sent_at:
+        # The week went out with this one - the separate send skips this week.
+        weekly_digest.log_combined(db, emp, date.fromisoformat(briefing_date), mode, week, sent_at)
 
     db.add(models.NexusDailyBriefingLog(
         id=str(uuid.uuid4()), employee_email=emp.work_email, briefing_date=briefing_date,
@@ -2305,6 +2507,9 @@ def _scan_once() -> int:
                     due, briefing_date, local_now = _no_shift_due(db, emp.work_email, cfg)
                 if not due:
                     db.rollback()
+                    continue
+                if skip_reason(db, emp, briefing_date):
+                    _log_skip(db, emp, briefing_date, cfg.get("mode", "off"))
                     continue
                 _send_one(db, emp, cfg, briefing_date, local_now)
                 sent += 1

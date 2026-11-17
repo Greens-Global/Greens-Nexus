@@ -141,7 +141,7 @@ class WeeklyLayoutTests(unittest.TestCase):
                                             {"sendDay": 1})
 
     def test_subject_opening_and_preview(self):
-        self.assertEqual(self.subject, "Weekly Digest - 1 Needs Your Attention, 1 Overdue - Week of 11/16/2026")
+        self.assertEqual(self.subject, "Weekly Briefing - 1 Needs Your Attention, 1 Overdue - Week of 11/16/2026")
         self.assertIn("Here is your week: 1 needs your attention, 1 task is overdue and 2 are due this week.",
                       self.html)
         self.assertEqual(wk._preheader(self._sections()),
@@ -149,9 +149,9 @@ class WeeklyLayoutTests(unittest.TestCase):
                          "Thanksgiving Day is Thursday next week.")
 
     def test_tiles_are_at_most_three_to_a_row(self):
-        # Five sections -> two rows (3 + 2, padded), never one row of five.
+        # Five sections, Coming Up without a tile (11/17/2026) -> 3 + 1, never one row of four.
         rows = re.findall(r"<tr>(<td class='nx-kpi'.*?)</tr></table>", self.html, re.S)
-        self.assertEqual([r.count("class='nx-kpi'") for r in rows], [3, 2])
+        self.assertEqual([r.count("class='nx-kpi'") for r in rows], [3, 1])
 
     def test_due_this_week_has_a_heading_per_day(self):
         self.assertIn(">Monday, 11/16/2026<", self.html)

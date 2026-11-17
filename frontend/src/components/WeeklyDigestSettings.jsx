@@ -30,8 +30,8 @@ const fieldLabel = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.
 
 const MODES = [
   { key: 'off', label: 'Off', hint: 'Scans and logs on the send day, but never sends mail.' },
-  { key: 'test', label: 'Test', hint: 'Builds every employee’s real digest, but sends each one to the test recipients below.' },
-  { key: 'live', label: 'Live', hint: 'Sends each employee their own digest, to their own inbox.' },
+  { key: 'test', label: 'Test', hint: 'Builds every employee’s real Weekly Briefing, but sends each one to the test recipients below.' },
+  { key: 'live', label: 'Live', hint: 'Sends each employee their own Weekly Briefing, to their own inbox.' },
 ];
 // ISO weekday numbers, as stored by the backend (1 = Monday .. 7 = Sunday).
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -84,7 +84,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
     if (mode === cfg.mode || modeLocked) return;
     if (mode === 'live') {
       const ok = await dialog.confirm(
-        'Everyone with an overdue task or other work waiting gets their digest on the next send day. Check Test mode with a few real people first.',
+        'Everyone with an overdue task or other work waiting gets their Weekly Briefing on the next send day. Check Test mode with a few real people first.',
         { title: 'Send to Every Employee?', confirmText: 'Turn On Live', danger: true },
       );
       if (!ok) return;
@@ -105,7 +105,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
     setSaving(true); setErr('');
     try {
       setCfg(await api.updateWeeklyDigestConfig(body));
-      say(true, 'Weekly Digest saved.');
+      say(true, 'Weekly Briefing saved.');
       return true;
     } catch (e) {
       setErr(e.message || String(e));
@@ -117,7 +117,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
   if (!can('administrator')) {
     return (
       <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13 }}>
-        Administrator access is required to view Weekly Digest settings.
+        Administrator access is required to view Weekly Briefing settings.
       </div>
     );
   }
@@ -127,7 +127,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
     <div style={{ fontFamily: FONT, color: NX.ink }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
         <CalendarDays size={18} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 18, fontWeight: 700 }}>Weekly Digest</div>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>Weekly Briefing</div>
       </div>
       <div style={{ fontSize: 13, color: NX.dim, marginBottom: 14 }}>
         One email a week listing each employee's overdue tasks with their due dates, and a button to extend each
@@ -180,7 +180,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
               Live: every employee in the company gets a real email
             </div>
             <div style={{ fontSize: 12, color: NX.dim, marginTop: 3 }}>
-              Everyone with an overdue task or other work waiting gets their digest on the next send day. Switch to Test or Off to stop it.
+              Everyone with an overdue task or other work waiting gets their Weekly Briefing on the next send day. Switch to Test or Off to stop it.
             </div>
           </div>
         </div>
@@ -219,7 +219,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
       <div style={{ marginBottom: 16 }}>
         <SettingCard>
           <SwitchRow id="weekly-digest-card" title="Outlook Card"
-            desc="Approve and reject in Outlook, on top of the digest. The card refreshes each time the email is opened, so anything already decided drops off. Shown only on a person's own copy, in Outlook, where Actionable Messages are set up - everyone else gets the email alone."
+            desc="Approve and reject in Outlook, on top of the Weekly Briefing. The card refreshes each time the email is opened, so anything already decided drops off. Shown only on a person's own copy, in Outlook, where Actionable Messages are set up - everyone else gets the email alone."
             checked={cfg.outlookCard !== false}
             onChange={(on) => instant({ outlookCard: on }, 'Outlook card')} />
         </SettingCard>
@@ -243,7 +243,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
             <input id="weekly-digest-recipients" value={draft.recipients} onChange={(e) => editDraft({ recipients: e.target.value })} readOnly={modeLocked}
               placeholder="you@company.com, another@company.com" style={inputStyle} />
             <div style={{ fontSize: 12, color: NX.dim, marginTop: 4 }}>
-              Comma-separated. Each employee's digest is built from their own tasks and sent here instead, with a
+              Comma-separated. Each employee's Weekly Briefing is built from their own tasks and sent here instead, with a
               "[TEST -&gt; original]" subject prefix.
             </div>
           </div>
@@ -294,14 +294,14 @@ function SendTestDigest({ testRecipients }) {
       const r = await api.sendTestWeeklyDigest(email);
       const where = (r.recipients || []).join(', ');
       if (!r.sent) setResult({ ok: true, text: `${r.employeeEmail} has nothing overdue or waiting right now, so there is nothing to send.` });
-      else setResult({ ok: true, text: `Sent ${r.employeeEmail}'s digest (${r.overdueCount} overdue${r.pendingCount ? `, ${r.pendingCount} needing attention` : ''}${r.teamCount ? `, ${r.teamCount} team` : ''}) to ${where}.` });
+      else setResult({ ok: true, text: `Sent ${r.employeeEmail}'s Weekly Briefing (${r.overdueCount} overdue${r.pendingCount ? `, ${r.pendingCount} needing attention` : ''}${r.teamCount ? `, ${r.teamCount} team` : ''}) to ${where}.` });
     } catch (e) { setResult({ ok: false, text: e.message || String(e) }); }
     finally { setBusy(false); }
   };
 
   return (
     <div data-nx-noguard="" style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${NX.border}` }}>
-      <label style={fieldLabel} htmlFor="weekly-digest-test-who">Send Test Digest</label>
+      <label style={fieldLabel} htmlFor="weekly-digest-test-who">Send Test Weekly Briefing</label>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <input id="weekly-digest-test-who" list="weekly-digest-people" value={who} onChange={(e) => setWho(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
@@ -314,8 +314,8 @@ function SendTestDigest({ testRecipients }) {
         </button>
       </div>
       <div style={{ fontSize: 12, color: NX.dim, marginTop: 6 }}>
-        Builds this person's real digest now and sends it to {testRecipients.length ? testRecipients.join(', ') : 'you'}, whatever
-        the mode or day. Nothing is logged and nobody else is emailed. Only a test of your own digest includes Extend Due Date and
+        Builds this person's real Weekly Briefing now and sends it to {testRecipients.length ? testRecipients.join(', ') : 'you'}, whatever
+        the mode or day. Nothing is logged and nobody else is emailed. Only a test of your own Weekly Briefing includes Extend Due Date and
         the other task buttons, since those act as the person.
       </div>
       {result && (
