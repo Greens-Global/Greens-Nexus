@@ -147,6 +147,30 @@ describe('leave balances', () => {
     await screen.findByText(/No changes yet/);
   });
 
+  it('shows the list, Search and As Of when only a company has a start date (11/18/2026)', async () => {
+    leaveAdmin.mockResolvedValue({
+      cutover: '', canSetup: true, defaults: ['us-ca'], policies: [POLICY],
+      companies: [{ id: 'osm', name: 'Oversite Management', cutover: '2026-10-17', own: true }],
+      people: [{ email: 'alice@greensglobal.com', name: 'Alice Test', ...BAL }],
+    });
+    render(<LeaveBalancesAdmin toastOk={() => {}} toastErr={() => {}} />);
+    await screen.findByText('Alice Test');
+    expect(screen.getByLabelText('Search people')).toBeTruthy();
+    expect(screen.getByText('As Of')).toBeTruthy();
+  });
+
+  it('shows the list, Search and As Of when only a company has a start date (11/18/2026)', async () => {
+    leaveAdmin.mockResolvedValue({
+      cutover: '', canSetup: true, defaults: ['us-ca'], policies: [POLICY],
+      companies: [{ id: 'osm', name: 'Oversite Management', cutover: '2026-10-17', own: true }],
+      people: [{ email: 'alice@greensglobal.com', name: 'Alice Test', ...BAL }],
+    });
+    render(<LeaveBalancesAdmin toastOk={() => {}} toastErr={() => {}} />);
+    await screen.findByText('Alice Test');
+    expect(screen.getByLabelText('Search people')).toBeTruthy();
+    expect(screen.getByText('As Of')).toBeTruthy();
+  });
+
   it('shows nothing to someone who is not HR', async () => {
     leaveAdmin.mockReset().mockRejectedValue(Object.assign(new Error('no'), { status: 403 }));
     const { container } = render(<LeaveBalancesAdmin />);
