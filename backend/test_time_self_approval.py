@@ -199,6 +199,21 @@ class OfflinePunchTests(SelfTimeCase):
             models.NexusNotification.recipient == EMP,
             models.NexusNotification.title.like("Offline Punch%")).count())
 
+    def test_a_replay_of_a_punch_that_already_landed_is_not_a_second_copy(self):
+        # Valinda, 11/05-11/06/2026: the clock-out committed on the web, the
+        # answer never reached her phone, and the queue replayed it the next
+        # afternoon - two identical clock-outs on the card.
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        out_at = now - timedelta(hours=2)
+        self.assertEqual(self._offline("in", now - timedelta(hours=3)).status_code, 200)
+        self.db.add(models.TimePunch(id="web-out", employee_email=EMP, kind="out", at=_iso(out_at),
+                                     local_date=out_at.date().isoformat(), tz_offset_min=0,
+                                     source="web", created_at=_iso(out_at)))
+        self.db.commit()
+        res = self._offline("out", out_at)
+        self.assertEqual(res.status_code, 409, res.text)
+        self.assertEqual(sorted(p.kind for p in self._emp_punches()), ["in", "out"])
+
     def test_without_the_queue_flag_it_is_a_punch_fix_request(self):
         at = datetime.now(timezone.utc) - timedelta(hours=1)
         res = self._offline("in", at, offline_queue=False)
