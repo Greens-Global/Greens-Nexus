@@ -388,7 +388,7 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
   );
 }
 
-export default function DocumentsBrowser({ openCreateSignal, openSheetSignal, initialView = '', employees = [], entities = [], toastOk, toastErr }) {
+export default function DocumentsBrowser({ openCreateSignal, openSheetSignal, takeSignal, initialView = '', employees = [], entities = [], toastOk, toastErr }) {
   const isMobile = useIsMobile();
   const [folders, setFolders] = useState([]);
   const [rows, setRows] = useState(null);
@@ -477,7 +477,10 @@ export default function DocumentsBrowser({ openCreateSignal, openSheetSignal, in
     if (e.key === 'Escape') { setSelectedId(''); return; }
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
-    const next = e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
+    // The "This Week / Older" divider rows are not documents: step over them.
+    const step = (el) => (e.key === 'ArrowDown' ? el.nextElementSibling : el.previousElementSibling);
+    let next = step(e.currentTarget);
+    while (next && !next.dataset.row) next = step(next);
     if (next) { next.focus(); if (selectedId) setSelectedId(next.dataset.row); }
   };
 
@@ -505,7 +508,19 @@ export default function DocumentsBrowser({ openCreateSignal, openSheetSignal, in
     }
   };
   // The header's + > New Document lands here: the same blank draft, at once.
-  useEffect(() => { if (openCreateSignal) newDocument(); }, [openCreateSignal]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // A signal is acted on ONCE. The caller says whether this one is still to be
+  // taken (`takeSignal(kind, signal)` - it remembers what was, for as long as
+  // IT lives), so this library mounting again with the same counter - leaving
+  // the tab and coming back - makes nothing, while a new click (a higher
+  // counter) still does. With no caller to ask, this mount remembers.
+  const ownTaken = useRef({ create: 0, sheet: 0 });
+  const take = (kind, signal) => {
+    if (takeSignal) return takeSignal(kind, signal);
+    if (!signal || ownTaken.current[kind] === signal) return false;
+    ownTaken.current[kind] = signal;
+    return true;
+  };
+  useEffect(() => { if (take('create', openCreateSignal)) newDocument(); }, [openCreateSignal]);   // eslint-disable-line react-hooks/exhaustive-deps
   // New Sheet, or a spreadsheet file picked in Import: a sheet row, then open it.
   const newSheet = async (file = null) => {
     setMakingSheet(true);
@@ -523,7 +538,7 @@ export default function DocumentsBrowser({ openCreateSignal, openSheetSignal, in
     }
   };
   // Quick Actions > New > Sheet lands here: the same blank sheet as + New > Sheet.
-  useEffect(() => { if (openSheetSignal) newSheet(); }, [openSheetSignal]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (take('sheet', openSheetSignal)) newSheet(); }, [openSheetSignal]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (editingSheet) return (
     <Suspense fallback={<SkeletonBlocks count={8} height={36} />}>

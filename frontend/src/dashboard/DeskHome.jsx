@@ -12,7 +12,7 @@ row.
 FORM: category standard played straight at full fidelity (user's canon call,
 Jul 28); craft bar monday.com.
 */
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useMsal } from '@azure/msal-react';
 import {
   ArrowUpRight, CheckCircle2, CheckSquare, ChevronRight, House,
@@ -103,27 +103,37 @@ const timeAgo = (ts) => {
 // their own (checked out, equipment, to sign) as small stat items, each a
 // button to where its tile's arrow went. The band is a div so the count
 // buttons are not buttons inside a button.
-function Stat({ i, label, value, sub, tip, chip, Icon, onGo, links = [] }) {
+// `failed`: the big count did not load; a link with `failed` did not either.
+// Those show a hyphen / are left out and ONE line says so with Try Again -
+// never a 0, and never a placeholder that stays forever.
+function Stat({ i, label, value, sub, tip, chip, Icon, onGo, links = [], failed = false, onRetry }) {
   const n = useCountUp(value ?? 0);
   const loaded = value != null;   // a placeholder until the count is in, never a 0
+  const anyFailed = failed || links.some((l) => l.failed);
   return (
     <div className="dk-stat dk-stat--hero dk-hero dk-rise" style={{ '--i': i }}>
       <button type="button" className="dk-hero-main" onClick={onGo} title={tip}>
         <span className={`dk-chip dk-chip--${chip}`}><Icon /></span>
         <span className="dk-hero-text">
-          <span className="dk-stat-num">{loaded ? n : <CountSkeleton />}</span>
+          <span className="dk-stat-num">{loaded ? n : failed ? '-' : <CountSkeleton />}</span>
           <span className="dk-stat-label">{label}</span>
           <span className="dk-stat-sub">{sub}</span>
         </span>
         <ArrowUpRight size={15} className="dk-stat-arrow" />
       </button>
       <span className="dk-hero-links">
-        {links.map((l) => (
+        {links.filter((l) => !l.failed).map((l) => (
           <button key={l.label} type="button" className="dk-hero-link" onClick={l.go} title={l.tip}>
             <span className="dk-hero-k">{l.label}</span>
             <span className="dk-hero-n">{l.value == null ? <CountSkeleton /> : l.value}</span>
           </button>
         ))}
+        {anyFailed && (
+          <span className="dk-hero-k" role="alert">
+            Couldn't load {failed ? 'your counts' : links.filter((l) => l.failed).map((l) => l.label).join(', ')}.
+            {onRetry && <> <button type="button" className="dk-hero-link" style={{ display: 'inline', fontWeight: 600, textDecoration: 'underline' }} onClick={onRetry}>Try Again</button></>}
+          </span>
+        )}
       </span>
     </div>
   );
@@ -260,7 +270,7 @@ function FavoritesCard({ myEmail }) {
   );
 }
 
-export default function DeskHome({ kpis = {}, notifications = [], markRead, headerRight = null, headerMenu = null }) {
+export default function DeskHome({ kpis = {}, kpisError = null, onRetryKpis, notifications = [], markRead, headerRight = null, headerMenu = null }) {
   const { can, myEmail } = useRole();
   const now = useNow();
   // `|| {}`: null outside NotificationProvider (render tests).
@@ -273,11 +283,18 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
   // (lib/useTimeStatus - one request for both, and for the floating timer).
   const { status } = useTimeStatus();
   const [sigs, setSigs] = useState(null);   // null = not read yet
+  const [sigsFailed, setSigsFailed] = useState(false);   // the read failed: "To Sign" is unknown, not 0
   const [teamKpis, setTeamKpis] = useState(null);
+  const loadSigs = useCallback(() => {
+    api.mySignatures().then(r => { setSigsFailed(false); setSigs(Array.isArray(r) ? r : (r?.requests || r?.items || [])); })
+      .catch(() => { setSigsFailed(true); setSigs([]); });
+  }, []);
   useEffect(() => {
-    api.mySignatures().then(r => setSigs(Array.isArray(r) ? r : (r?.requests || r?.items || []))).catch(() => setSigs([]));
+    loadSigs();
     if (can('supervisor')) api.dashKpis('team').then(r => setTeamKpis(r?.kpis || null)).catch(() => {});
-  }, [can]);
+  }, [can, loadSigs]);
+  const countsFailed = !!kpisError?.kpis;
+  const retryCounts = () => { if (countsFailed) onRetryKpis?.(); if (sigsFailed) loadSigs(); };
 
   const last = status?.lastPunch;
   // Stale open shift (clock-in >16h, server treats it as closed) reads as clocked out here too.
@@ -344,16 +361,22 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
   const hiddenNotifs = allActionable.length - queue.filter(r => r.key.startsWith('ntf-')).length;
   const viewAll = () => { if (hiddenNotifs > 0 && openPanel) openPanel(); else navTo('myhr'); };
 
+  // "All caught up" only when it is true: not while the band below counts
+  // open tasks (the same number, kpis.my_open_tasks: in progress, overdue or
+  // due in the next 30 days), and not when a count did not load.
+  const openTasks = Number(kpis.my_open_tasks) || 0;
   const summary = attentionTotal > 0
     ? <>You have <b>{attentionTotal} item{attentionTotal === 1 ? '' : 's'}</b> that need your attention today.</>
-    : <>You're all caught up.</>;
+    : openTasks > 0
+      ? <>You have <b>{openTasks} open task{openTasks === 1 ? '' : 's'}</b>.</>
+      : (countsFailed || sigsFailed) ? null : <>You're all caught up.</>;
 
   const counts = [
     // `value` stays undefined until /kpis (or the signature fetch) lands, so
     // the band shows a CountSkeleton there, never a placeholder 0.
-    { label: 'Checked Out', value: kpis.my_checkouts, tip: 'Checked-Out Items - with you right now', go: () => navTo('inventory', 'checkouts') },
-    { label: 'Equipment', value: kpis.my_assignments, tip: 'My Equipment - permanently assigned', go: () => navTo('inventory') },
-    { label: 'To Sign', value: pendingSigs, tip: 'Signatures Needed - waiting on you', go: () => navTo('myhr') },
+    { label: 'Checked Out', value: kpis.my_checkouts, failed: countsFailed, tip: 'Checked-Out Items - with you right now', go: () => navTo('inventory', 'checkouts') },
+    { label: 'Equipment', value: kpis.my_assignments, failed: countsFailed, tip: 'My Equipment - permanently assigned', go: () => navTo('inventory') },
+    { label: 'To Sign', value: pendingSigs, failed: sigsFailed, tip: 'Signatures Needed - waiting on you', go: () => navTo('myhr') },
   ];
 
   return (
@@ -368,7 +391,7 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
         <div className="dk-col">
         <Stat i={1} label="Open Tasks" value={kpis.my_open_tasks} sub={myTasksFootnote(kpis) || 'Due soon or in progress'}
           tip={`Open Tasks - ${MY_TASKS_RULE}${myTasksFootnote(kpis) ? `. ${myTasksFootnote(kpis)}` : ''}`}
-          chip="blue" Icon={CheckSquare} onGo={() => navTo('tasks')} links={counts} />
+          chip="blue" Icon={CheckSquare} onGo={() => navTo('tasks')} links={counts} failed={countsFailed} onRetry={retryCounts} />
         <div className="dk-card dk-queue dk-rise" style={{ '--i': 2 }}>
           {/* No count badge, no "newest first" (Neil, 11/08/2026): the
               greeting already says how many need you. */}

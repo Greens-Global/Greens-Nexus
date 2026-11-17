@@ -17,7 +17,7 @@ import NoteEditor from './NoteEditor';
 import { useNoteSync } from './useNoteSync';
 import { createTaskFrom, openTask } from './notesTasks';
 import { EDITED } from './noteMedia';
-import { localDay, lastNoteId, noteTitle, writeDraft, editedLabel, quickNoteKeys } from './notesModel';
+import { localDay, lastNoteId, noteTitle, writeDraft, clearDraft, editedLabel, quickNoteKeys } from './notesModel';
 import { newBoardFromAnywhere } from './newBoard';
 import './notes.css';
 
@@ -52,6 +52,20 @@ function FirstWrite({ day, people, onMade, onNote, onMakeTask, onEditor }) {
   const loaded = !!madeId && sync.status !== 'loading' && !!sync.note;
   const [error, setError] = useState('');
   useEffect(() => { if (madeId) onNote({ note: sync.note, status: sync.status }); }, [madeId, sync.note, sync.status, onNote]);
+  // Closed before the new note took over here (it was still being made, or
+  // still loading): what was typed after the first keystroke is only in the
+  // local draft, and the Notes list kept the first letter. Send it then; the
+  // draft stays on the device if that fails, and comes back on the next open.
+  const madeWith = useRef('');   // the body the note was created with
+  const loadedRef = useRef(false);
+  useEffect(() => { loadedRef.current = loaded; }, [loaded]);
+  const gone = useRef(false);
+  const sendLate = () => {
+    const m = made.current;
+    if (!m || loadedRef.current || latest.current === madeWith.current) return;
+    api.noteUpdate(m.id, { rev: m.rev, body: latest.current }).then(() => clearDraft(m.id)).catch(() => {});
+  };
+  useEffect(() => { gone.current = false; return () => { gone.current = true; sendLate(); }; }, []);
   const onChange = async (html) => {
     latest.current = html;
     if (loaded) { sync.edit({ body: html }); return; }
@@ -61,8 +75,10 @@ function FirstWrite({ day, people, onMade, onNote, onMakeTask, onEditor }) {
     try {
       const n = await api.noteCreate({ kind: 'daily', day, body: html });
       made.current = { id: n.id, rev: n.rev, title: n.title };
+      madeWith.current = html;
       // Whatever was typed while it was being made is saved when it loads.
       writeDraft(n.id, { ...made.current, body: latest.current });
+      if (gone.current) sendLate();   // closed meanwhile: nothing loads it here to save it
       setMadeId(n.id);
       onMade(n.id);
     } catch (e) {

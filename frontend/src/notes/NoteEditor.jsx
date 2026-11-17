@@ -26,7 +26,7 @@
 // notes, tasks, jobs and Knowledge Base pages and puts a chip that opens the
 // record; Link to a Record sits in the toolbar, the phone bar's Aa row and
 // the "/" menu.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { buildExtensions } from './noteExtensions';
@@ -42,7 +42,8 @@ import {
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
-import { useKeyboardInset, keyboardUp } from '../lib/useVisualViewport';
+import { useKeyboardInset, keyboardUp, readVisualViewport } from '../lib/useVisualViewport';
+import { setInlineDirty } from '../lib/dialogGuard';
 import BoardPicker from './board/BoardPicker';
 import { useRecordSearch, recordContent, RECORD_META } from './recordLink';
 import { boxesKey, syncBoxesFromTasks, listenForBoxTicks } from './checklistTasks';
@@ -352,7 +353,19 @@ export default function NoteEditor({
   const onBusyRef = useRef(onBusy);
   useEffect(() => { onBusyRef.current = onBusy; }, [onBusy]);
   const working = live || !!busy;
-  useEffect(() => { onBusyRef.current?.(working); }, [working]);
+  // What leaving now would lose: a recording under way, or a clip still
+  // uploading - it finishes after the editor is gone and is never put in
+  // (dictated words are already in the note). The parent hears it as
+  // onBusy's second argument and holds its own close / switch; leaving the
+  // page another way (the sidebar, a bell row, Back, a reload) asks through
+  // the app's leave guard (lib/dialogGuard.js).
+  const losing = voice.recording || !!busy;
+  useEffect(() => { onBusyRef.current?.(working, losing); }, [working, losing]);
+  const guardKey = `note-media-${useId()}`;
+  useEffect(() => {
+    setInlineDirty(guardKey, losing);
+    return () => setInlineDirty(guardKey, false);
+  }, [guardKey, losing]);
   const err = mediaErr || voice.error || dictation.error;
   const clearErr = () => { setMediaErr(''); voice.setError(''); dictation.setError(''); };
   const toggleVoice = () => { clearErr(); if (voice.recording) voice.stop(); else voice.start(); };
@@ -526,8 +539,18 @@ export default function NoteEditor({
     try {
       const c = editor.view.coordsAtPos(Math.min(menu.from, editor.state.doc.content.size));
       const w = menu.kind === 'record' ? 320 : 260, h = Math.min(Math.max(1, items.length) * 44 + 12, 340);
-      const vw = window.innerWidth, vh = window.innerHeight;
-      menuPos = { left: Math.max(8, Math.min(c.left, vw - w - 8)), top: c.bottom + h + 8 > vh ? Math.max(8, c.top - h - 6) : c.bottom + 6, width: w };
+      // Placed in what can be SEEN (the visual viewport), not the window: on
+      // a phone the keyboard covers the bottom of the window and the menu
+      // used to open under it. Below the caret when it fits there, else on
+      // the side with more room, never taller than that room.
+      const vp = readVisualViewport();
+      const vw = window.innerWidth;
+      const vTop = vp ? vp.top : 0;
+      const vBottom = vp ? vp.top + vp.height - (vp.clear || 0) : window.innerHeight;
+      const below = vBottom - c.bottom - 8, above = c.top - vTop - 8;
+      const down = h <= below || below >= above;
+      const mh = Math.min(h, Math.max(88, down ? below : above));
+      menuPos = { left: Math.max(8, Math.min(c.left, vw - w - 8)), top: down ? c.bottom + 6 : Math.max(vTop + 8, c.top - mh - 6), width: w, maxHeight: mh < h ? mh : undefined };
     } catch { menuPos = null; }
   }
 
@@ -691,7 +714,7 @@ export default function NoteEditor({
       )}
       {menuPos && createPortal(
         <div className="nt-menu" role="listbox" aria-label={menu.kind === 'mention' ? 'Mention someone' : menu.kind === 'record' ? 'Link to a record' : 'Insert a block'}
-          style={{ left: menuPos.left, top: menuPos.top, width: menuPos.width }}>
+          style={{ left: menuPos.left, top: menuPos.top, width: menuPos.width, maxHeight: menuPos.maxHeight }}>
           {menu.kind === 'record' && !items.length && (
             <div className="nt-menu-empty" role="status">
               {records.loading ? 'Looking…' : menu.query.trim() ? `Nothing matches "${menu.query.trim()}"` : 'Type to find a note, task, job or page'}

@@ -7,6 +7,7 @@ import { ViewLoading } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
 import { useRole } from '../contexts/RoleContext';
 import { useActionCounts, tabCount } from '../lib/useActionCounts';
+import { askToLeave, hasUnsavedWork } from '../lib/dialogGuard';
 
 // External Links is a large, fully self-contained view (its own header,
 // filters, Manage modal, etc.) - lazy so its chunk only loads when that tab
@@ -76,7 +77,14 @@ export default function Dashboard({ activeSub, onSubChange }) {
         // 'dashboard' clears activeSub (not a literal 'dashboard' string) so
         // the address bar returns to the clean "/" home path instead of
         // picking up a redundant "/dashboard/dashboard".
-        onChange={key => onSubChange?.(key === 'dashboard' ? null : key)}
+        // The tab strip changes the sub directly, not through App's
+        // navigate(), so unsaved work (Edit Layout's changes -
+        // lib/dialogGuard.js) is asked about here.
+        onChange={key => {
+          const go = () => onSubChange?.(key === 'dashboard' ? null : key);
+          if (key !== tab && hasUnsavedWork()) askToLeave().then(ok => { if (ok) go(); });
+          else go();
+        }}
       />
 
       {/* ── Persistent overdue alerts (personal tab only) ── */}
