@@ -29,6 +29,18 @@ export function daySegments(punches) {
 }
 
 const HOUR = 3600000;
+// The window around [a, b] padded out to WHOLE HOURS ON THE READER'S CLOCK -
+// the clock the labels and the hover times are written in. Snapping to whole
+// UTC hours put every tick on the half hour in a half-hour zone (India,
+// UTC+5:30) under a label that names the hour only, so each label read 30
+// minutes early (11/17/2026). `offsetOf` is Date#getTimezoneOffset for a
+// moment (minutes, positive west of UTC) - read per end, so a day that
+// crosses a clock change still lands on whole hours.
+const zoneOffset = (t) => new Date(t).getTimezoneOffset();
+function hourWindow(a, b, offsetOf = zoneOffset) {
+  const lo = offsetOf(a) * 60000, hi = offsetOf(b) * 60000;
+  return { min: Math.floor((a - lo) / HOUR) * HOUR + lo, max: Math.ceil((b - hi) / HOUR) * HOUR + hi };
+}
 const fmtT = (t) => new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 const fmtDur = (ms) => {
   const m = Math.round(ms / 60000);
@@ -65,9 +77,8 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
     s.open ? { ...s, b: Math.min(s.b, cap), dangling: !isToday } : s);
   if (!segs.length) return null;
 
-  // Zoom to the actual punched window, padded to whole hours.
-  const min = Math.floor(Math.min(...segs.map(s => s.a)) / HOUR) * HOUR;
-  const max = Math.ceil(Math.max(...segs.map(s => s.b)) / HOUR) * HOUR;
+  // Zoom to the actual punched window, padded to whole hours on the reader's clock.
+  const { min, max } = hourWindow(Math.min(...segs.map(s => s.a)), Math.max(...segs.map(s => s.b)));
   const span = Math.max(max - min, HOUR);
   const pct = (t) => ((t - min) / span) * 100;
   const live = segs.some(s => s.open);

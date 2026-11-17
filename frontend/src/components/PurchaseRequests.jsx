@@ -9,7 +9,7 @@
 //     fulfills it, reject with a reason, mark ordered, fulfill without adding,
 //     or Received - Add to Items (the inventory Add Item form, prefilled).
 // The assigned fulfiller gets the procurement actions on their rows too.
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { ClipboardList, CheckCircle, XCircle, Send, Package, Plus, FileText, Link2, X, ShoppingCart, ArrowRight, ChevronDown } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { useRequisitions } from '../contexts/RequisitionContext';
@@ -498,6 +498,18 @@ export default function PurchaseRequests({ toast, openNewKey = 0 }) {
 export function PurchaseRequestsPanel({ onClose, toast, openNewKey = 0 }) {
   const phone = useIsMobile('(max-width: 640px)');
   const { nudge, popupClass, closeClass } = usePopupNudge();   // a click outside nudges, not closes
+  // What an action here did, or why it did not, is said INSIDE the panel
+  // (11/17/2026): the page's own message is drawn under this overlay, so a
+  // failed Approve looked like nothing happened. The page still gets it too.
+  const [note, setNote] = useState(null);   // { text, ok }
+  const noteTimer = useRef(null);
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
+  const say = useCallback((text, kind) => {
+    setNote({ text, ok: kind !== 'error' });
+    clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setNote(null), 6000);
+    toast?.(text, kind);
+  }, [toast]);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
@@ -521,8 +533,12 @@ export function PurchaseRequestsPanel({ onClose, toast, openNewKey = 0 }) {
           </div>
           <button type="button" className={closeClass} onClick={onClose} aria-label="Close" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex' }}><X size={16} /></button>
         </div>
+        {note && (
+          <div role={note.ok ? 'status' : 'alert'} style={{ padding:'8px 18px', borderBottom:'1px solid var(--line)', fontSize:13, fontWeight:600,
+            color: note.ok ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))' }}>{note.text}</div>
+        )}
         <div style={{ flex:1, minHeight:0, overflowY:'auto', padding:'14px 18px 18px' }}>
-          <PurchaseRequests toast={toast} openNewKey={openNewKey} />
+          <PurchaseRequests toast={say} openNewKey={openNewKey} />
         </div>
       </div>
     </div>

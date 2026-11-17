@@ -556,7 +556,7 @@ function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addL
       }}
       style={{ fontSize: 12, width: '100%', minWidth: 150, resize: 'vertical', fontFamily: 'inherit', padding: '5px 7px' }} />
   );
-  const who = note?.by ? `\n- ${note.by}${note.at ? `, ${formatDate(note.at)}` : ''}` : '';
+  const who = note?.by ? `\n- ${note.by}${note.at ? `, ${noteDay(note.at)}` : ''}` : '';
   return (
     <button type="button" className="ts-note-btn" onClick={() => !locked && setEditing(true)} disabled={locked}
       title={saved ? `${saved}${who}` : (locked ? '' : placeholder)}
@@ -611,7 +611,7 @@ function EmployeeNoteLine({ note }) {
   const text = note?.employeeNote || '';
   if (!text) return null;
   return (
-    <div title={`${text}${note.employeeNoteAt ? `\n- employee, ${formatDate(note.employeeNoteAt)}` : ''}`}
+    <div title={`${text}${note.employeeNoteAt ? `\n- employee, ${noteDay(note.employeeNoteAt)}` : ''}`}
       style={{ fontSize: 11, lineHeight: 1.35, color: 'var(--muted)', fontStyle: 'italic', maxWidth: 220, overflow: 'hidden', whiteSpace: 'normal', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word', marginTop: 2 }}>
       Employee: {text}
     </div>
@@ -1427,7 +1427,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const hNote = (r) => (
     <div className="ts-note">
       {!self && notes[r.ds]?.employeeNote && (
-        <span title={`${nameFor(email)}${notes[r.ds].employeeNoteAt ? `, ${formatDate(notes[r.ds].employeeNoteAt)}` : ''}`}>
+        <span title={`${nameFor(email)}${notes[r.ds].employeeNoteAt ? `, ${noteDay(notes[r.ds].employeeNoteAt)}` : ''}`}>
           <b>Note by employee:</b> {notes[r.ds].employeeNote}
         </span>
       )}
@@ -2717,6 +2717,11 @@ function TimeColorKey() {
 // it was rounded to, where the punch came from (app, browser, a manager's
 // entry) with its site and IP, who entered or changed it and when.
 const _z = (iso) => iso ? formatDateTime(iso + (iso.endsWith('Z') ? '' : 'Z')) : '';
+// The day a note was written, in the reader's own zone: the server stamps
+// notes as UTC with no zone ('2026-11-17T02:10:00'), which a bare new Date()
+// reads as LOCAL time - an evening note read as the next day's (11/17/2026).
+// A stamp that carries its own zone is read as written.
+function noteDay(iso) { return iso ? formatDate(/(Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`) : ''; }
 const punchHistory = (meta, rounded) => !meta ? '' : [
   `${{ in: 'Clock-in', out: 'Clock-out', break_start: 'Break start', break_end: 'Break end' }[meta.kind] || meta.kind} at ${t12s(meta.at)}`
     + (rounded && t12(rounded) !== t12(meta.at) ? ` - counted as ${t12(rounded)} (rounded)` : ''),
@@ -2949,6 +2954,11 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
     return anchor ? utcToInput(anchor) : `${day.date}T12:00`;
   });
   const [reason, setReason] = useState('');
+  // A missing reason or a refused save says why INSIDE the form, like
+  // PunchEditModal (11/17/2026): on a person's own Time Sheet the toast is an
+  // in-page message behind this dialog, so Send Request looked dead.
+  const [err, setErr] = useState('');
+  const fail = (m) => { setErr(m); toastErr?.(m); };
   const label = kind === 'break_end' ? 'End Break' : 'Start Break';
   // Delete a break (Charmi, Oct 15 2026): a break punched by mistake, or one
   // that should never have counted. A manager voids its punches on the spot
@@ -2978,7 +2988,7 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
       toastOk?.(self ? 'Request sent - your approver decides whether the break comes off.' : 'Break deleted - the time sheet is updated.');
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       onDone();
-    } catch (e) { toastErr?.(e?.message || 'Could not delete the break.'); }
+    } catch (e) { fail(e?.message || 'Could not delete the break.'); }
     setBusy(false);
   }
 
@@ -2990,7 +3000,8 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
     day.shift?.out && { kind: 'out', at: utcToInput(day.shift.out) }].filter(Boolean);
 
   async function save(opts) {
-    if (!reason.trim()) { toastErr?.(self ? 'Add a reason so your approver can confirm it.' : 'Add a reason - it is kept on record.'); return; }
+    setErr('');
+    if (!reason.trim()) { fail(self ? 'Add a reason so your approver can confirm it.' : 'Add a reason - it is kept on record.'); return; }
     if (isDelete) { await removeBreak(); return; }
     const confirmLong = opts?.confirmLong === true;
     if (!confirmLong) {
@@ -3000,7 +3011,7 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
     }
     setLongWarn(null);
     if (kind === 'both') {
-      if (new Date(endAt) <= new Date(at)) { toastErr?.('The break end has to be after the break started.'); return; }
+      if (new Date(endAt) <= new Date(at)) { fail('The break end has to be after the break started.'); return; }
       setBusy(true);
       try {
         await api.timeAddPunch({ employee_email: email, kind: 'break_start', at: inputToUtc(at), tz_offset_min: tzFor(at), note: reason.trim() });
@@ -3008,14 +3019,14 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
         toastOk?.('Break added - the time sheet is updated.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
         onDone();
-      } catch (e) { toastErr?.(e?.message || 'Could not add the break.'); }
+      } catch (e) { fail(e?.message || 'Could not add the break.'); }
       setBusy(false);
       return;
     }
     // An end that isn't after its start can't be approved (the server re-checks
     // the sequence), so catch it here rather than after a round trip.
     if (kind === 'break_end' && unended?.start && new Date(at) <= new Date(utcToInput(unended.start))) {
-      toastErr?.('The break end has to be after the break started.'); return;
+      fail('The break end has to be after the break started.'); return;
     }
     setBusy(true);
     try {
@@ -3029,7 +3040,7 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
       }
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       onDone();
-    } catch (e) { toastErr?.(e?.message || 'Could not send the request.'); }
+    } catch (e) { fail(e?.message || 'Could not send the request.'); }
     setBusy(false);
   }
 
@@ -3107,6 +3118,9 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
             )}
           </label>
         </div>
+        {err && (
+          <div role="alert" style={{ marginTop: 12, color: 'hsl(var(--color-red))', fontSize: 13, fontWeight: 600 }}>{err}</div>
+        )}
         <LongShiftWarning issue={longWarn} manager={!self} busy={busy}
           onFix={() => setLongWarn(null)}
           onUseSuggestion={(w) => { if (kind === 'both' && w.index === 1) setEndAt(w.suggest); else setAt(w.suggest); }}

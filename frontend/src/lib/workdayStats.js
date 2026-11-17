@@ -128,3 +128,33 @@ export function openShiftMinutes(days, now = Date.now()) {
   if (span <= 0 || now - inAt > 16 * 3600000) return 0;
   return Math.max(0, Math.floor((span - brk) / 60000));
 }
+
+// The Workday clock card's Today view (views/TimeClock.jsx), kept pure so it
+// is unit tested. Two things it must get right (11/17/2026):
+// - A break does not zero the running shift. The server counts a shift only
+//   at clock-out and openShiftMinutes already freezes it at the break's
+//   start, so "Worked today" holds still through a break instead of dropping
+//   to 0h 00m and jumping back at End Break.
+// - A shift that started BEFORE midnight is still the running shift after
+//   it: Today shows its time, its clock-in as First In and its punches,
+//   never "0h 00m / No punches yet today" beside a dial that says Clocked In.
+//   The week and pay period bars keep the minutes on the day the shift
+//   started (`sessionDay`), the way the server will count them.
+// `sessionDay` / `sessionInAt`: the day key and time of the open shift's
+// clock-in ('' / null when it is not known).
+export function clockToday({ days, todayKey, clockedIn, sessionDay = '', sessionInAt = null, now = Date.now() } = {}) {
+  const today = (days || {})[todayKey];
+  const liveMin = clockedIn ? openShiftMinutes(days, now) : 0;
+  const overnight = !!clockedIn && !!sessionDay && sessionDay !== todayKey;
+  const todays = today?.punches || [];
+  const carried = overnight && sessionInAt
+    ? ((days || {})[sessionDay]?.punches || []).filter(p => p && p.at >= sessionInAt)
+    : [];
+  const firstIn = todays.find(p => p.kind === 'in' && !p.voided);
+  return {
+    liveMin, overnight,
+    workedToday: (today?.workedMin || 0) + liveMin,
+    firstInAt: firstIn?.at || (overnight ? sessionInAt || '' : ''),
+    punches: [...carried, ...todays],
+  };
+}
