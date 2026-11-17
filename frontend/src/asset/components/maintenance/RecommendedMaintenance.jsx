@@ -10,15 +10,15 @@ export function RecommendedMaintenance({ p: asset }) {
   if (!schedule || !schedule.items || !schedule.items.length) return null;
 
   return (
-    <div style={{ marginBottom: 16, border: '1px solid var(--border-color)', borderRadius: 12, backgroundColor: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
         <strong style={{ fontSize: 15, color: 'var(--text-primary)' }}>Recommended Maintenance</strong>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>Factory schedule · reference only</span>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>Factory schedule · reference only</span>
       </div>
 
       <div>
         {schedule.items.map((it, i) => (
-          <div key={i} style={{ padding: '9px 16px', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
+          <div key={i} style={{ padding: '9px 0', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
             {/*
               IMPORTANT: this row must WRAP, not clip. Interval text can be long
               (e.g. "Every 30,000 miles or 24 months, whichever comes first") and a
@@ -38,7 +38,7 @@ export function RecommendedMaintenance({ p: asset }) {
       </div>
 
       {(schedule.source || schedule.researchedOn) && (
-        <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)', fontSize: 11, color: 'var(--text-muted)' }}>
+        <div style={{ padding: '8px 0', borderTop: '1px solid var(--border-color)', fontSize: 12, color: 'var(--text-muted)' }}>
           {schedule.source || '-'}
           {schedule.researchedOn ? ` · researched ${formatDate(schedule.researchedOn, schedule.researchedOn)}` : ''}
         </div>

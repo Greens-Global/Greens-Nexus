@@ -3,7 +3,8 @@
 //   - the Add/Edit modal's form fields
 //   - the list-view table's columns
 //   - default sort order
-//   - the summary strip shown above the list (e.g. "Records / Last Service / Total Spend")
+//   - the one summary sentence above the list (`sentence`, e.g. "7 utilities on file ·
+//     none has an account number") - counts as words, never stat tiles (Neil, 11/17/2026)
 //
 // All of these collections are flat arrays in the data store, each record carrying a
 // `propertyId` foreign key that points at ANY asset's id - property, vehicle, or equipment.
@@ -34,9 +35,34 @@ const totalSpend = (rows) => rows.reduce((sum, r) => {
 
 const statusChip = (status) => {
   if (!status) return '-';
-  const tone = status === 'Completed' ? 'green' : status === 'Scheduled' ? 'blue' : status === 'In Progress' ? 'gold' : status === 'Needs Attention' ? 'red' : 'blue';
+  const tone = status === 'Completed' ? 'green' : status === 'Scheduled' ? 'blue' : status === 'In Progress' ? 'live' : status === 'Needs Attention' ? 'red' : 'blue';
   return <StatusBadge tone={tone}>{status}</StatusBadge>;
 };
+
+// Sentence parts: a string, or { text, tone } for a part that carries a state's color.
+const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
+const lastDate = (rows, key = 'date') => rows.map((r) => r[key]).filter(Boolean).sort().pop();
+/** The log sentence of maintenance and service records: count, last service, spend. */
+export function logSentence(rows, noun = 'record') {
+  if (!rows.length) return [];
+  const last = lastDate(rows);
+  const total = totalSpend(rows);
+  return [plural(rows.length, noun), last && `last service ${formatDate(last)}`, total > 0 && `${formatMoney(total)} spent`].filter(Boolean);
+}
+/** A summary given as [label, value] pairs (the maintenance log's own, kept per currency)
+ *  read as one sentence: "3 records · last service 10/02/2026 · $420.00 spent". */
+export function pairsSentence(pairs) {
+  const out = [];
+  (pairs || []).forEach(([label, value]) => {
+    const v = String(value ?? '').trim();
+    if (!v || v === '-' || v === '0') return;
+    const l = String(label).toLowerCase();
+    if (l === 'records') out.push(plural(Number(v) || 0, 'record'));
+    else if (l === 'total spend') out.push(`${v} spent`);
+    else out.push(`${l} ${v}`);
+  });
+  return out;
+}
 
 export const RECORD_TYPES = {
   // Property maintenance log - one-line "Quick add a maintenance note" bar feeds this directly.
@@ -64,15 +90,10 @@ export const RECORD_TYPES = {
       { label: 'Cost', plain: (r) => costText(r.cost) },
       { label: 'Status', chip: (r) => statusChip(r.status) },
       { label: 'Next Due', mono: (r) => r.nextDue ? formatDate(r.nextDue) : '-' },
-      { label: 'Doc', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '-') },
+      { label: 'Document', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '-') },
     ],
     sort: byDateDesc,
-    summary: (rows) => {
-      const dates = rows.map((r) => r.date).filter(Boolean).sort();
-      const last = dates[dates.length - 1];
-      const total = totalSpend(rows);
-      return [['Records', String(rows.length)], ['Last Service', last ? formatDate(last) : '-'], ['Total Spend', total > 0 ? formatMoney(total) : '-']];
-    },
+    sentence: (rows) => logSentence(rows),
   },
 
   // Vehicle/equipment service log - same "quick add" pattern, plus a "Recommended Maintenance"
@@ -107,15 +128,10 @@ export const RECORD_TYPES = {
       { label: 'Cost', plain: (r) => costText(r.cost) },
       // `active` is the asset the table is for (CollectionTable passes it); miles only on a vehicle.
       { label: 'Next Due', mono: (r, active) => [r.nextDue ? formatDate(r.nextDue) : '', r.nextMileage && inferAssetKind(active) === 'vehicle' ? formatNumber(r.nextMileage) + ' mi' : ''].filter(Boolean).join(' or ') || '-' },
-      { label: 'Doc', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '-') },
+      { label: 'Document', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : '-') },
     ],
     sort: byDateDesc,
-    summary: (rows) => {
-      const dates = rows.map((r) => r.date).filter(Boolean).sort();
-      const last = dates[dates.length - 1];
-      const total = totalSpend(rows);
-      return [['Records', String(rows.length)], ['Last Service', last ? formatDate(last) : '-'], ['Total Spend', total > 0 ? formatMoney(total) : '-']];
-    },
+    sentence: (rows) => logSentence(rows, 'service record'),
   },
 
   odometer: {
@@ -133,12 +149,15 @@ export const RECORD_TYPES = {
       { label: 'Notes', plain: (r) => r.notes || '-' },
     ],
     sort: byDateDesc,
-    summary: (rows) => {
-      const dates = rows.map((r) => r.date).filter(Boolean).sort();
-      const last = dates[dates.length - 1];
+    sentence: (rows) => {
+      if (!rows.length) return [];
+      const last = lastDate(rows);
       const days = last ? Math.floor((Date.now() - new Date(last).getTime()) / 864e5) : null;
-      const status = days == null ? 'No reading on file' : days > 365 ? `Overdue (${days}d)` : `Current (${days}d ago)`;
-      return [['Readings', String(rows.length)], ['Last Reading', last ? formatDate(last) : '-'], ['Annual Status', status]];
+      return [
+        plural(rows.length, 'reading'),
+        last && `last read ${formatDate(last)}`,
+        days != null && days > 365 ? { text: `the yearly reading is ${days - 365} days late`, tone: 'red' } : days != null ? 'the yearly reading is current' : null,
+      ].filter(Boolean);
     },
   },
 
@@ -162,6 +181,7 @@ export const RECORD_TYPES = {
       { label: 'File', plain: (r) => r.docFileName || (r.docFile ? 'Attached' : r.location || '-') },
     ],
     sort: (a, b) => String(b.dateOf || '').localeCompare(String(a.dateOf || '')),
+    sentence: (rows) => (rows.length ? [plural(rows.length, 'document') + ' on file'] : []),
   },
 
   warranties: {
@@ -190,15 +210,21 @@ export const RECORD_TYPES = {
       { label: 'Scope', main: (r) => r.scope || (r.party ? r.party : 'Incomplete warranty'), sub: (r) => (r.scope ? r.kind : warrantyMissing(r)) },
       { label: 'Party', main: (r) => r.party || '-', sub: (r) => [r.contactName, r.phone].filter(Boolean).join(' · ') },
       { label: 'Expires', mono: (r) => (r.expiration ? formatDate(r.expiration) : '') },
-      { label: 'Status', chip: (r) => (r.expiration ? expirationStatus(daysUntil(r.expiration)) : <StatusBadge tone="mut">Incomplete</StatusBadge>) },
+      { label: 'Status', chip: (r) => (r.expiration ? expirationStatus(daysUntil(r.expiration)) : <StatusBadge tone="orange">Incomplete</StatusBadge>) },
     ],
     sort: (a, b) => (a.expiration || '9999') < (b.expiration || '9999') ? -1 : 1,
-    summary: (rows) => [
-      ['Active', rows.filter((r) => daysUntil(r.expiration) > 90).length],
-      ['Expiring in 90d', rows.filter((r) => { const d = daysUntil(r.expiration); return d != null && d >= 0 && d <= 90; }).length],
-      ['Expired', rows.filter((r) => daysUntil(r.expiration) != null && daysUntil(r.expiration) < 0).length],
-      ['Incomplete', rows.filter((r) => warrantyMissing(r)).length],
-    ],
+    sentence: (rows) => {
+      const active = rows.filter((r) => daysUntil(r.expiration) > 90).length;
+      const soon = rows.filter((r) => { const d = daysUntil(r.expiration); return d != null && d >= 0 && d <= 90; }).length;
+      const expired = rows.filter((r) => daysUntil(r.expiration) != null && daysUntil(r.expiration) < 0).length;
+      const incomplete = rows.filter((r) => warrantyMissing(r)).length;
+      return [
+        active && `${active} active`,
+        soon && { text: `${soon} expiring in 90 days`, tone: 'orange' },
+        expired && `${expired} expired`,
+        incomplete && { text: `${incomplete} missing a scope or an expiration`, tone: 'orange' },
+      ].filter(Boolean);
+    },
   },
 
   inspections: {
@@ -219,16 +245,22 @@ export const RECORD_TYPES = {
     cols: [
       { label: 'Inspection', main: (r) => r.type, sub: (r) => [r.frequency, r.ahjRequired === 'Yes' && 'AHJ required'].filter(Boolean).join(' · ') },
       { label: 'Vendor', main: (r) => r.vendor || '-', sub: (r) => r.vendorPhone || '' },
-      { label: 'Last', mono: (r) => formatDate(r.lastCompleted) },
+      { label: 'Last Done', mono: (r) => formatDate(r.lastCompleted) },
       { label: 'Next Due', mono: (r) => formatDate(r.nextDue) },
       { label: 'Status', chip: (r) => dueDateStatus(daysUntil(r.nextDue)) },
     ],
     sort: (a, b) => (a.nextDue || '9999') < (b.nextDue || '9999') ? -1 : 1,
-    summary: (rows) => [
-      ['Overdue', rows.filter((r) => daysUntil(r.nextDue) != null && daysUntil(r.nextDue) < 0).length],
-      ['Due in 30d', rows.filter((r) => { const d = daysUntil(r.nextDue); return d != null && d >= 0 && d <= 30; }).length],
-      ['Current', rows.filter((r) => daysUntil(r.nextDue) == null || daysUntil(r.nextDue) > 30).length],
-    ],
+    sentence: (rows) => {
+      const overdue = rows.filter((r) => daysUntil(r.nextDue) != null && daysUntil(r.nextDue) < 0).length;
+      const soon = rows.filter((r) => { const d = daysUntil(r.nextDue); return d != null && d >= 0 && d <= 30; }).length;
+      const current = rows.length - overdue - soon;
+      return [
+        rows.length && plural(rows.length, 'inspection') + ' on file',
+        overdue && { text: `${overdue} overdue`, tone: 'red' },
+        soon && { text: `${soon} due in 30 days`, tone: 'orange' },
+        current && current !== rows.length && `${current} current`,
+      ].filter(Boolean);
+    },
   },
 
   documents: {
@@ -251,6 +283,7 @@ export const RECORD_TYPES = {
       { label: 'Location', mono: (r) => r.location || '-' },
     ],
     sort: (a, b) => (a.category || '') < (b.category || '') ? -1 : 1,
+    sentence: (rows) => (rows.length ? [plural(rows.length, 'document') + ' indexed'] : []),
   },
 
   ahj: {
@@ -272,10 +305,19 @@ export const RECORD_TYPES = {
     cols: [
       { label: 'Authority', main: (r) => r.authority, sub: (r) => r.jurisdiction },
       { label: 'Contact', main: (r) => r.contactName || '-', sub: (r) => [r.phone, r.email].filter(Boolean).join(' · ') },
-      { label: 'Account / Permit', mono: (r) => r.accountOrPermit || '-' },
-      { label: 'Renewal', chip: (r) => r.renewalDate ? renewalCellFromDate(r.renewalDate) : <StatusBadge tone="mut">N/A</StatusBadge> },
+      { label: 'Account / Permit', mono: (r) => r.accountOrPermit || '', empty: 'Not set' },
+      { label: 'Renewal', chip: (r) => r.renewalDate ? renewalCellFromDate(r.renewalDate) : null },
     ],
     sort: (a, b) => (a.authority || '') < (b.authority || '') ? -1 : 1,
+    sentence: (rows) => {
+      const lapsed = rows.filter((r) => daysUntil(r.renewalDate) != null && daysUntil(r.renewalDate) < 0).length;
+      const soon = rows.filter((r) => { const d = daysUntil(r.renewalDate); return d != null && d >= 0 && d <= 60; }).length;
+      return [
+        rows.length && plural(rows.length, 'authority', 'authorities') + ' on file',
+        lapsed && { text: `${lapsed} renewal${lapsed === 1 ? '' : 's'} lapsed`, tone: 'red' },
+        soon && { text: `${soon} renewing in 60 days`, tone: 'orange' },
+      ].filter(Boolean);
+    },
   },
 
   utilities: {
@@ -295,13 +337,25 @@ export const RECORD_TYPES = {
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     cols: [
-      { label: 'Service', main: (r) => r.service, sub: (r) => r.provider },
-      { label: 'Account #', mono: (r) => r.accountNumber || '-' },
-      { label: 'Meter', mono: (r) => r.meterNumber || '-' },
+      { label: 'Service', main: (r) => r.service },
+      { label: 'Provider', plain: (r) => r.provider || '-' },
+      { label: 'Account', mono: (r) => r.accountNumber || '', sub: (r) => (r.meterNumber ? `Meter ${r.meterNumber}` : ''), empty: 'Not set' },
+      { label: 'Phone', mono: (r) => r.contactPhone || '-' },
       { label: 'Autopay', plain: (r) => r.autopay || '-' },
-      { label: 'Avg / Mo', mono: (r) => formatMoney(r.avgMonthly) },
+      { label: 'Average a Month', mono: (r) => formatMoney(r.avgMonthly) },
+      { label: 'Notes', plain: (r) => r.notes || '-', clip: true },
     ],
     sort: (a, b) => (a.service || '') < (b.service || '') ? -1 : 1,
+    sentence: (rows) => {
+      if (!rows.length) return [];
+      const noAcct = rows.filter((r) => !String(r.accountNumber || '').trim()).length;
+      const monthly = rows.reduce((sum, r) => sum + (parseFloat(String(r.avgMonthly || '').replace(/[^0-9.]/g, '')) || 0), 0);
+      return [
+        plural(rows.length, 'utility', 'utilities') + ' on file',
+        noAcct && { text: noAcct === rows.length ? (rows.length === 1 ? 'it has no account number' : 'none has an account number') : `${noAcct} without an account number`, tone: 'orange' },
+        monthly > 0 && `about ${formatMoney(monthly)} a month`,
+      ].filter(Boolean);
+    },
   },
 
   vendors: {
@@ -325,8 +379,17 @@ export const RECORD_TYPES = {
       { label: 'Contact', main: (r) => r.contactName || '-', sub: (r) => [r.phone, r.email].filter(Boolean).join(' · ') },
       { label: 'Contract', mono: (r) => formatDate(r.contractStart) + ' - ' + formatDate(r.contractEnd) },
       { label: 'COI', chip: (r) => r.coiExpiration ? renewalCellFromDate(r.coiExpiration) : <StatusBadge tone="red">Missing</StatusBadge> },
-      { label: '$ / mo', mono: (r) => formatMoney(r.monthlyCost) },
+      { label: 'Monthly', mono: (r) => formatMoney(r.monthlyCost) },
     ],
     sort: (a, b) => (a.company || '') < (b.company || '') ? -1 : 1,
+    sentence: (rows) => {
+      const noCoi = rows.filter((r) => !String(r.coiExpiration || '').trim()).length;
+      const lapsed = rows.filter((r) => daysUntil(r.coiExpiration) != null && daysUntil(r.coiExpiration) < 0).length;
+      return [
+        rows.length && plural(rows.length, 'vendor') + ' on file',
+        noCoi && { text: `${noCoi} without a COI on file`, tone: 'red' },
+        lapsed && { text: `${lapsed} COI${lapsed === 1 ? '' : 's'} lapsed`, tone: 'red' },
+      ].filter(Boolean);
+    },
   },
 };

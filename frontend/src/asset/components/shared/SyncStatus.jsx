@@ -61,7 +61,7 @@ export function SyncStatus() {
         alignItems: 'center',
         gap: 7,
         padding: '6px 12px',
-        borderRadius: 999,
+        borderRadius: 10,
         backgroundColor: 'var(--bg-card)',
         border: '1px solid var(--border-color)',
         boxShadow: 'var(--shadow-sm)',

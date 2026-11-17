@@ -10,9 +10,9 @@
 // Writes go through the property ticket endpoints (backend property_tickets.py);
 // nothing here writes the Asset Management workspace.
 import { Suspense, lazy, useState } from 'react';
-import { ChevronDown, CornerDownRight, Plus, QrCode } from 'lucide-react';
-import { StatusLabel } from '../../../components/StatusLabel.jsx';
+import { ChevronDown, CornerDownRight, Plus, QrCode, CalendarClock, Inbox } from 'lucide-react';
 import { api } from '../../../api.js';
+import { DateField } from '../../../tasks/components.jsx';
 import { formatDate } from '../../../lib/datetime.js';
 import { filesFromPaste } from '../../../tasks/lib';
 import { uploadTicketEvidence } from '../../../tickets/evidenceUpload';
@@ -72,8 +72,9 @@ function ScheduleFields({ value, onChange, optional = true }) {
   const unitLabel = UNITS.find(([v]) => v === value.unit)?.[1] || '';
   return (<>
     <Field label="Next Service Due" req={!optional}>
-      <input type="date" className="form-input" min={todayYmd()} value={value.nextDue || ''}
-        onChange={(e) => set('nextDue', e.target.value)} style={{ fontSize: 13 }} />
+      <div className="form-input" role="group" aria-label="Next Service Due" style={{ display: 'flex', alignItems: 'center', fontSize: 13 }}>
+        <DateField value={value.nextDue || ''} min={todayYmd()} noPast onChange={(v) => set('nextDue', v || '')} title="Next Service Due" style={{ flex: 1 }} />
+      </div>
     </Field>
     <Field label="Repeats">
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -205,14 +206,19 @@ export function AddToMaintenanceModal({ propertyId, t, onClose, onSaved }) {
 
 export function NeedsActionPanel({ data, onOpen, onAdd }) {
   const rows = data?.needsAction || [];
-  if (!rows.length) return <EmptyState>Nothing waiting. Resolved tickets at this property land here to be added to the maintenance record.</EmptyState>;
-  return rows.map((t) => {
+  if (!rows.length) return <EmptyState icon={Inbox} title="Nothing waiting">Resolved tickets at this property land here to be added to the maintenance record.</EmptyState>;
+  return (
+    <div>
+      <p style={{ margin: '0 0 4px', fontSize: 13, color: 'var(--text-primary)' }}>
+        <span style={{ color: 'hsl(var(--color-red))', fontWeight: 600 }}>{rows.length} resolved {rows.length === 1 ? 'ticket waits' : 'tickets wait'}</span> to be added to the maintenance record.
+      </p>
+      {rows.map((t) => {
     const [sLabel, sTone] = TICKET_STATUS[t.status] || [t.status, 'mut'];
     return (
-      <div key={t.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '12px 14px', marginBottom: 8, border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-card)' }}>
+      <div key={t.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
         <button type="button" onClick={() => onOpen(t)} style={{ flex: '1 1 260px', textAlign: 'left', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{t.codeLabel}</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, fontSize: 13 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{t.codeLabel}</span>
             <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t.subject}</span>
             <StatusBadge tone={sTone}>{sLabel}</StatusBadge>
             {t.parentTicketId && <StatusBadge tone="blue">Recurring Service</StatusBadge>}
@@ -226,7 +232,9 @@ export function NeedsActionPanel({ data, onOpen, onAdd }) {
         {data?.canManage && <button className="primary-btn" onClick={() => onAdd(t)}>Add to Maintenance Record</button>}
       </div>
     );
-  });
+      })}
+    </div>
+  );
 }
 
 function EditScheduleModal({ propertyId, svc, onClose, onSaved }) {
@@ -266,9 +274,16 @@ function scheduleLine(s) {
   return bits.filter(Boolean).join(' · ');
 }
 
-export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) {
+// `startNew` (a changing number): the Maintenance empty state's Set Up Preventive
+// Maintenance opens a new schedule here.
+export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged, startNew = 0 }) {
   const [editing, setEditing] = useState(null);
   const [scheduling, setScheduling] = useState(null);   // {} = a new preventive schedule, else the one being edited
+  const [startSeen, setStartSeen] = useState(0);
+  if (startNew && startNew !== startSeen) {
+    setStartSeen(startNew);
+    if (data?.canManage) setScheduling({});
+  }
   const [tagging, setTagging] = useState(false);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
@@ -278,8 +293,8 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
   const header = data?.canManage || pm.open ? (
     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginRight: 'auto', fontSize: 13, color: 'var(--text-secondary)' }}>
-        {pm.open ? <span>{pm.open} preventive ticket{pm.open === 1 ? '' : 's'} open</span> : <span>Preventive tickets are filed by the schedules below.</span>}
-        {pm.overdue > 0 && <StatusLabel label={`${pm.overdue} Overdue`} color="#dc2626" size="sm" />}
+        {pm.open ? <span style={{ color: 'var(--text-primary)' }}>{pm.open} preventive ticket{pm.open === 1 ? '' : 's'} open</span> : <span>Preventive tickets are filed by the schedules below.</span>}
+        {pm.overdue > 0 && <span style={{ color: 'hsl(var(--color-red))', fontWeight: 600 }}><span aria-hidden="true" style={{ color: 'var(--text-muted)', fontWeight: 400, marginRight: 8 }}>·</span>{pm.overdue} overdue</span>}
       </div>
       {data?.canManage && (<>
         <button type="button" className="secondary-btn" onClick={() => setTagging(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><QrCode size={14} /> Print Tags</button>
@@ -305,7 +320,9 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
   if (!services.length) {
     return (<>
       {header}
-      <EmptyState>No preventive schedules yet. Add one with New Schedule - every month on the 1st, a set time after each completion, or by a vehicle's or equipment's meter. A resolved ticket added to the maintenance record can also set its Next Service Due.</EmptyState>
+      <EmptyState icon={CalendarClock} title="No preventive schedules yet">
+        Every month on the 1st, a set time after each completion, or by a vehicle's or equipment's meter - each schedule files its own ticket when the work comes due. A resolved ticket added to the maintenance record can also set its Next Service Due.
+      </EmptyState>
       {sheets}
     </>);
   }
@@ -314,21 +331,21 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
     try { await fn(); onChanged(); } catch (e) { setErr(e.message || 'That did not work.'); }
     setBusy('');
   };
-  const th = { textAlign: 'left', padding: '6px 10px', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.03em' };
+  const th = { textAlign: 'left', padding: '6px 10px', fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' };
   const td = { padding: '8px 10px', fontSize: 13, color: 'var(--text-primary)', borderTop: '1px solid var(--border-color)' };
   return (<>
     {header}
     {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 8 }}>{err}</div>}
     {services.map((s) => (
-      <div key={s.id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-card)', marginBottom: 12, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '12px 14px' }}>
+      <section key={s.id} aria-label={s.subject} style={{ borderTop: '1px solid var(--border-color)', padding: '16px 0 8px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, paddingBottom: 8 }}>
           <div style={{ flex: '1 1 260px' }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{s.subject}</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 10, fontSize: 13 }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{s.subject}</span>
               <StatusBadge tone={s.active ? 'green' : 'mut'}>{s.active ? (s.kind ? s.scheduleLabel : s.recurrenceLabel) : 'Stopped'}</StatusBadge>
-              {s.openCount > 0 && <StatusLabel label={`${s.openCount} Open`} color="#64748b" size="sm" />}
-              {s.overdueCount > 0 && <StatusLabel label={`${s.overdueCount} Overdue`} color="#dc2626" size="sm" />}
-              {s.attentionLabel && <StatusLabel label={s.attentionLabel} color="#b45309" size="sm" />}
+              {s.openCount > 0 && <span style={{ color: 'var(--text-secondary)' }}>{s.openCount} open</span>}
+              {s.overdueCount > 0 && <span style={{ color: 'hsl(var(--color-red))', fontWeight: 600 }}>{s.overdueCount} overdue</span>}
+              {s.attentionLabel && <span style={{ color: 'hsl(var(--color-orange))', fontWeight: 600 }}>{s.attentionLabel}</span>}
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
               {s.kind ? scheduleLine(s) : <>{s.system} · from {s.parentCodeLabel}{s.active ? ` · Next service ${formatDate(s.nextDue)}` : ''}</>}
@@ -371,7 +388,7 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
     ))}
     {editing && <EditScheduleModal propertyId={propertyId} svc={editing} onClose={() => setEditing(null)}
       onSaved={() => { setEditing(null); onChanged(); }} />}
