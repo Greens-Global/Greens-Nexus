@@ -192,7 +192,7 @@ class SinceOnRowsTests(_Case):
         self.assertNotIn(T1, html)
         self.assertNotIn(T2, html)
         # Beside Approve / Reject the email drops the "Approve:" (Nov 15 2026).
-        self.assertIn(">Budget</div>", html)
+        self.assertIn(">Budget</a></div>", html)
 
 
 class MyBriefingPageTests(_Case):

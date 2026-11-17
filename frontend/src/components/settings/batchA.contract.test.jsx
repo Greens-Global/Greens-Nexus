@@ -54,7 +54,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 const PANELS = [
   ['Daily Briefing', () => <DailyBriefingSettings />, 'Minutes before shift start'],
-  ['Weekly Digest', () => <WeeklyDigestSettings />, 'Minutes before shift start'],
+  ['Weekly Briefing', () => <WeeklyDigestSettings />, 'Minutes before shift start'],
   ['Workforce Scorecard', () => <WorkforceScorecardSettings />, 'On Track threshold'],
   ['Task Notifications', () => <TaskNotifySettings />, 'Shared Mailbox (Sender)'],
 ];

@@ -57,7 +57,9 @@ class DailyLayoutTests(unittest.TestCase):
 
     def test_subject_and_opening_say_what_is_waiting(self):
         self.assertEqual(self.subject, "Daily Briefing - 6 Need Your Action - Monday, 11/16/2026")
-        self.assertIn("Good morning, Amy. 6 things need you today.", self.html)
+        # The greeting, then ONE line of counts - words, not tiles (11/17/2026).
+        self.assertIn("Good morning, Amy.</div>", self.html)
+        self.assertRegex(self.html, r">6</span> need your action")
         one = {"action_required": _sections()["action_required"][:1]}
         self.assertEqual(daily.render_email("Amy", "2026-11-16", one)[0],
                          "Daily Briefing - 1 Needs Your Action - Monday, 11/16/2026")
@@ -66,8 +68,7 @@ class DailyLayoutTests(unittest.TestCase):
 
     def test_the_inbox_preview_line_is_hidden_and_counts_by_kind(self):
         self.assertEqual(daily.daily_preheader(_sections()),
-                         "Submit your Time Sheet, 3 decisions waiting, 1 task due today, 1 more to do, "
-                         "1 update, 1 done.")
+                         "Submit your Time Sheet, 3 decisions waiting, 1 task due today, 1 more to do.")
         self.assertRegex(self.html, r"<div style='display:none;[^']*mso-hide:all[^']*'>Submit your Time Sheet")
         self.assertEqual(daily.daily_preheader({}), "Nothing new since your last briefing.")
 
@@ -77,10 +78,12 @@ class DailyLayoutTests(unittest.TestCase):
         for heading in ("Action Required", "Updates for You", "Completed Since Your Last Briefing"):
             self.assertIn(heading, self.html)
 
-    def test_tiles_link_to_their_sections(self):
-        for key in daily._ORDER:
-            self.assertIn(f"href='#nx-sec-{key}'", self.html)
-            self.assertIn(f'id="nx-sec-{key}"', self.html)
+    def test_no_rectangles(self):
+        # Neil, 11/17/2026: no stat tiles, no colored side bars, no box per
+        # section, no tag boxes - CLAUDE.md "No Claude rectangle design".
+        for gone in ("nx-kpi", "border-top:3px", "border-radius:3px", "width='4' bgcolor", "class='nx-card'",
+                     "border-radius:8px;border-collapse:separate"):
+            self.assertNotIn(gone, self.html)
 
     def test_rows_are_their_own_tables(self):
         # A card's rows never share columns - the widest actions of one row and
@@ -91,19 +94,19 @@ class DailyLayoutTests(unittest.TestCase):
                                         self.html)), items)
 
     def test_decision_rows_drop_the_approve_word_others_keep_their_title(self):
-        self.assertIn(">Fence repair</div>", self.html)
-        self.assertIn(">Checkout: Drill</div>", self.html)
-        self.assertIn(">Bo&#x27;s Time Off (Vacation)</div>", self.html)
+        self.assertIn(">Fence repair</a></div>", self.html)
+        self.assertIn(">Checkout: Drill</a></div>", self.html)
+        self.assertIn(">Bo&#x27;s Time Off (Vacation)</a></div>", self.html)
         self.assertNotIn("Approve: ", self.html)
-        self.assertIn(">Submit Your Time Sheet</div>", self.html)
+        self.assertIn(">Submit Your Time Sheet</a></div>", self.html)
 
     def test_mark_done_reopen_and_tags(self):
         self.assertEqual(self.html.count(">Mark Done<"), 2)
         self.assertEqual(self.html.count(">Reopen<"), 1)
         self.assertNotIn("Toggle Completion", self.html)
-        self.assertIn(">Due Today<", self.html)
-        self.assertIn(">Facilities</div>", self.html)          # the date is in the tag, not repeated
-        self.assertIn(">#1042 - Assigned to you - Open</div>", self.html)
+        self.assertIn(">Due today</span>", self.html)          # plain colored words, no tag box
+        self.assertIn("Facilities&nbsp;&nbsp; ", self.html)          # the date is in the state, not repeated
+        self.assertIn("#1042 - Assigned to you - Open</div>", self.html)
 
     def test_bundle_all_buttons_sit_under_the_requests(self):
         m = re.search(r"All 2 Requests</td>.*?</tr>", self.html, re.S)
@@ -141,21 +144,21 @@ class WeeklyLayoutTests(unittest.TestCase):
                                             {"sendDay": 1})
 
     def test_subject_opening_and_preview(self):
-        self.assertEqual(self.subject, "Weekly Digest - 1 Needs Your Attention, 1 Overdue - Week of 11/16/2026")
-        self.assertIn("Here is your week: 1 needs your attention, 1 task is overdue and 2 are due this week.",
-                      self.html)
+        self.assertEqual(self.subject, "Weekly Briefing - 1 Needs Your Attention, 1 Overdue - Week of 11/16/2026")
+        self.assertRegex(self.html, r">1</span> needs your attention")
         self.assertEqual(wk._preheader(self._sections()),
                          "1 needs your attention, 1 task is overdue and 2 are due this week. "
                          "Thanksgiving Day is Thursday next week.")
 
-    def test_tiles_are_at_most_three_to_a_row(self):
-        # Five sections -> two rows (3 + 2, padded), never one row of five.
-        rows = re.findall(r"<tr>(<td class='nx-kpi'.*?)</tr></table>", self.html, re.S)
-        self.assertEqual([r.count("class='nx-kpi'") for r in rows], [3, 2])
+    def test_counts_are_one_line_of_words(self):
+        self.assertNotIn("nx-kpi", self.html)
+        self.assertRegex(self.html, r">1</span> overdue")
+        self.assertRegex(self.html, r">2</span> due this week")
 
-    def test_due_this_week_has_a_heading_per_day(self):
-        self.assertIn(">Monday, 11/16/2026<", self.html)
-        self.assertIn(">Wednesday, 11/18/2026<", self.html)
+    def test_due_this_week_puts_the_day_in_each_line(self):
+        # One line per task, its day first - a heading per day made it long (11/17/2026).
+        self.assertIn("Mon 11/16/2026 - Facilities", self.html)
+        self.assertIn(">Wed 11/18/2026</div>", self.html)
         self.assertNotIn("Due Mon", self.html)
 
     def test_time_off_and_holidays_are_coming_up(self):
@@ -169,11 +172,11 @@ class WeeklyLayoutTests(unittest.TestCase):
         self.assertEqual(len(email[wk.COMING_SECTION]), 2)
 
     def test_overdue_tag_and_team_list(self):
-        self.assertIn(">17 Days Overdue<", self.html)
-        self.assertIn(">Due 10/30/2026 - Compliance</div>", self.html)
-        self.assertIn(">Sam Rivera</div>", self.html)
-        self.assertIn(">6 Overdue<", self.html)
-        self.assertIn("&bull;&nbsp; and 3 more", self.html)
+        self.assertIn(">17 days overdue</span>", self.html)
+        self.assertIn("Due 10/30/2026 - Compliance&nbsp;&nbsp; ", self.html)
+        self.assertIn(">Sam Rivera</a></div>", self.html)
+        self.assertIn(">6 overdue</span>", self.html)
+        self.assertIn("a - b - c - and 3 more", self.html)
         self.assertIn(">Extend<", self.html)
 
 
