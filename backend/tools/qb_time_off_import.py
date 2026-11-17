@@ -247,7 +247,10 @@ def run(company: str, xlsx: Path, commit: bool) -> int:
             print(f"  {note:<110}  {label}  -> {email}")
             if commit:
                 try:
-                    lb.set_opening(db, email, vac if vac else None, sick if sick else None, actor)
+                    # A 0 is a balance too (11/18/2026): skipping it left no sick
+                    # opening for people who had used all 40 h, and the policy's
+                    # yearly grant came back on top - 40 h shown as unused.
+                    lb.set_opening(db, email, vac, sick, actor)
                     written += 1
                 except Exception as e:
                     print(f"    ! {email}: {e}")

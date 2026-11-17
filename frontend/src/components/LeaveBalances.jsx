@@ -74,7 +74,7 @@ const KIND = { opening: 'Opening Balance', accrual: 'Earned', used: 'Used', adju
 function yearEndHint(b, bucket, policy) {
   const y = b?.yearEnd?.[bucket];
   if (!y) return bucket === 'sick' ? `Use by ${day(b?.sick?.expiresOn)} - it doesn't carry over.` : '';
-  if (y.exempt) return 'It carries over - California vacation does not expire.';
+  if (y.exempt) return 'Unused time carries over.';
   if (y.effectiveMode === 'carry_all') return 'Unused time carries over.';
   if (y.effectiveMode === 'carry_cap') return `Up to ${fmtLeave(y.capHours, policy)} carries past ${day(y.nextClosing)}; the rest expires.`;
   return `Use by ${day(y.nextClosing)} - unused time expires.`;
@@ -226,12 +226,16 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
   const [open, setOpen] = useState('');            // 'import' | 'policies' | ''
   const [q, setQ] = useState('');
   const [person, setPerson] = useState(null);      // expanded email
+  // As Of (Charmi, 11/17/2026): balances as they stood at the end of a day -
+  // the last pay date matches the QuickBooks pay stub while the newest
+  // finalized period is not paid yet. '' = today.
+  const [asOf, setAsOf] = useState('');
 
   const load = useCallback(() => {
     setErr('');
-    return api.leaveAdmin().then(d => { setData(d); setCut(d.cutover || ''); setCutCo(''); })
+    return api.leaveAdmin(asOf).then(d => { setData(d); setCut(d.cutover || ''); setCutCo(''); })
       .catch(e => { setErr(e?.status === 403 ? '' : (e?.message || 'Could not load leave balances.')); setData(e?.status === 403 ? false : null); });
-  }, []);
+  }, [asOf]);
   useEffect(() => { load(); }, [load]);
 
   if (data === false) return null;                 // not HR - nothing to show
@@ -339,6 +343,10 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
                 style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 10, border: '1px solid var(--line)', fontSize: 13, background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit' }} />
             </div>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{people.length} people</span>
+            <span style={{ flex: 1 }} />
+            <span style={LBL}>As Of</span>
+            <DateField value={asOf} onChange={(v) => setAsOf(v || '')} title="Balances as of" placeholder="Today" />
+            {asOf && <button className="secondary-btn" onClick={() => setAsOf('')} style={{ fontSize: 12 }}>Today</button>}
           </div>
           <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
             <div style={{ ...ROW, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', background: 'var(--mist)' }}>
