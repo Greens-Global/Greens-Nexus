@@ -30,6 +30,29 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); createTask.mockReset(); window.matchMedia = realMatchMedia; });
 
+// Opened from the composer's Details with words already typed (11/17/2026):
+// closing asks first - the form used to discard them with no question.
+describe('CreateTaskModal holding what the composer typed', () => {
+  const draft = { title: 'Replace gate battery', description: '<p>Front gate</p>', dueOn: '2099-01-02' };
+
+  it('asks before it closes, and Keep Editing stays', () => {
+    const onClose = vi.fn();
+    render(<CreateTaskModal onClose={onClose} defaults={draft} startDirty />);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }));
+    expect(screen.getByRole('dialog', { name: 'New Task' })).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('the same form opened clean closes straight away', () => {
+    const onClose = vi.fn();
+    render(<CreateTaskModal onClose={onClose} defaults={draft} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('CreateTaskModal on a phone', () => {
   it('a new task: groups with what they hold, a short text toolbar, and no red before Create', () => {
     render(<CreateTaskModal onClose={() => {}} defaults={{ title: 'Order keypad', dueOn: '2099-01-02', projectId: 'p1' }} />);

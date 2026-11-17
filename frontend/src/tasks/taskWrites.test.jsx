@@ -12,6 +12,7 @@ import { render, screen, act, fireEvent } from '@testing-library/react';
 
 const api = vi.hoisted(() => ({
   updateTask: vi.fn(), deleteTask: vi.fn(), restoreTask: vi.fn(), createTask: vi.fn(), getTasksDelta: vi.fn(), useTaskTemplate: vi.fn(),
+  bulkUpdateTasks: vi.fn(),
 }));
 vi.mock('../api', () => ({
   api: new Proxy({}, {
@@ -81,6 +82,70 @@ describe('a refused save', () => {
     await mount();
     await act(async () => { await live.store.updateTask('a', { priority: 'urgent' }); });
     expect(rows()).toBe('a:urgent,b:low,c:low');
+  });
+});
+
+// A save that never reached the server (11/17/2026): api.js's network error
+// carries no `status`, and the change used to go back with no word at all -
+// after "Completed" had already shown.
+describe('a save that did not reach the server', () => {
+  const offline = () => Object.assign(new Error("Can't reach Nexus right now. Check your connection and try again."), { isNetworkError: true });
+
+  it('puts the field back and says it was not saved, in the toast, with no alert', async () => {
+    api.updateTask.mockRejectedValue(offline());
+    await mount();
+    await act(async () => { await live.store.updateTask('a', { priority: 'urgent' }).catch(() => {}); });
+    expect(rows()).toBe('a:low,b:low,c:low');
+    expect(screen.getByText("Not saved. Can't reach Nexus right now. Check your connection and try again.")).toBeTruthy();
+    expect(screen.queryByText('Undo')).toBeNull();
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet for a caller that says so itself, and for a signed-out session', async () => {
+    await mount();
+    api.updateTask.mockRejectedValue(offline());
+    await act(async () => { await live.store.updateTask('a', { priority: 'urgent' }, { quiet: true }).catch(() => {}); });
+    api.updateTask.mockRejectedValue(Object.assign(new Error('Signed out'), { status: 401 }));
+    await act(async () => { await live.store.updateTask('a', { priority: 'urgent' }).catch(() => {}); });
+    expect(screen.queryByText(/Not saved/)).toBeNull();
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+
+  it('a bulk change says so too', async () => {
+    api.bulkUpdateTasks.mockRejectedValue(offline());
+    await mount();
+    await act(async () => { await live.store.bulkUpdate(['a', 'b'], { priority: 'urgent' }).catch(() => {}); });
+    expect(screen.getByText(/^Not saved\. Can't reach Nexus/)).toBeTruthy();
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+});
+
+describe('Complete', () => {
+  const complete = async (id) => {
+    vi.useFakeTimers();
+    try {
+      let done;
+      act(() => { done = live.store.toggleComplete(live.store.tasks.find((t) => t.id === id)); });
+      await act(async () => { vi.advanceTimersByTime(600); await done; });
+    } finally { vi.useRealTimers(); }
+  };
+
+  it('says Completed, with Undo, once the save is in', async () => {
+    api.updateTask.mockImplementation((id, body) => Promise.resolve({ ...SEED.find((t) => t.id === id), ...body }));
+    await mount();
+    await complete('a');
+    expect(api.updateTask).toHaveBeenCalledWith('a', { completed: true });
+    expect(screen.getByText('Completed "Alpha"')).toBeTruthy();
+    expect(screen.getByText('Undo')).toBeTruthy();
+  });
+
+  it('never says Completed for a save that failed - it says the task was not saved', async () => {
+    api.updateTask.mockRejectedValue(new Error("Can't reach Nexus right now."));
+    await mount();
+    await complete('a');
+    expect(screen.queryByText('Completed "Alpha"')).toBeNull();
+    expect(screen.getByText("Not saved. Can't reach Nexus right now.")).toBeTruthy();
+    expect(live.store.tasks.find((t) => t.id === 'a').completed).toBeFalsy();
   });
 });
 

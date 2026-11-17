@@ -161,7 +161,14 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   // that answered "their tasks" and nothing else, with no name, role or teams.
   useEffect(() => {
     // `handled`: tells a sender (tasks/openTask.js) the module took it, so it need not navigate here.
-    const openTask = (e) => { const id = e.detail?.taskId; if (id) { setSearchTaskId(id); e.detail.handled = true; } };
+    const openTask = (e) => {
+      const id = e.detail?.taskId;
+      if (!id) return;
+      setSearchTaskId(id); e.detail.handled = true;
+      // Served live - drop the note the sender left for a later mount, or
+      // coming back to Tasks within its 30 seconds reopened a closed task.
+      takePendingOpen('task');
+    };
     const openPerson = (e) => {
       const email = e.detail?.email;
       if (email) { setPerson({ email, name: e.detail?.name || email, fromOutside: !!e.detail?.fromOutside }); setPersonTasks(false); }
@@ -169,7 +176,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     };
     // Header search "and N more": the dropdown caps at 20, so the full result
     // set lives here - the workspace with the same words in its search box.
-    const openSearch = (e) => { const q = (e.detail?.q || '').trim(); if (q) setSearchAll(q); };
+    const openSearch = (e) => { const q = (e.detail?.q || '').trim(); if (q) setSearchAll(q); takePendingOpen('tasks-search'); };   // served live - drop the note
     // Fired by the profile dropdown's "Tour" row (TopHeader), shown only while
     // the Task module is the active view.
     const openTour = () => setTour(true);
@@ -182,6 +189,9 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     // (lib/personTasksNav.js).
     const who = takePendingOpen(PERSON_TASKS_KIND);
     if (who?.email) { setPerson({ email: who.email, name: who.name || who.email, fromOutside: !!who.fromOutside }); setPersonTasks(false); }
+    // Header search "See all N tasks" picked before this lazy module mounted.
+    const allFor = takePendingOpen('tasks-search');
+    if (allFor) setSearchAll(allFor);
     window.addEventListener('nexus:tasks-person', openPerson);
     window.addEventListener('nexus:tasks-search', openSearch);
     window.addEventListener('nexus:tasks-tour', openTour);

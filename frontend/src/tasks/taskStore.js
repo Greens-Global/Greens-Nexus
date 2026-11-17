@@ -52,6 +52,10 @@ const emptyAll = () => Object.fromEntries(COLLECTION_KEYS.map((k) => [k, emptyFo
 let cache = null;          // last known value per collection
 let complete = false;      // a full load has finished at least once
 const inflight = new Map();  // key -> promise, so a prefetch and a mount share one request
+// Collections whose LAST fetch failed (11/17/2026). What is held for one of
+// them is the value from before (empty on a first load), so a caller can tell
+// "could not be read" from "nothing there" - loadTaskData hands it to onPart.
+const failed = new Set();
 
 // A failed collection keeps whatever we had rather than blanking the screen -
 // same spirit as the .catch(() => []) the provider used to do inline.
@@ -59,18 +63,20 @@ function fetchOne(key) {
   const running = inflight.get(key);
   if (running) return running;
   const p = SOURCES[key]()
-    .then((v) => { cache[key] = v ?? emptyFor(key); })
-    .catch(() => { /* keep the previous value */ })
+    .then((v) => { cache[key] = v ?? emptyFor(key); failed.delete(key); })
+    .catch(() => { failed.add(key); /* keep the previous value */ })
     .then(() => { inflight.delete(key); return cache[key]; });
   inflight.set(key, p);
   return p;
 }
 
-/** Load every collection at once. `onPart(key, value)` fires as each lands, so
- *  a caller can paint as soon as FIRST_PAINT is in. Resolves when all are done. */
+/** Load every collection at once. `onPart(key, value, ok)` fires as each
+ *  lands, so a caller can paint as soon as FIRST_PAINT is in; `ok` is false
+ *  when that collection's fetch failed and `value` is what was held before.
+ *  Resolves when all are done. */
 export function loadTaskData(onPart) {
   if (!cache) cache = emptyAll();
-  return Promise.all(COLLECTION_KEYS.map((k) => fetchOne(k).then((v) => { onPart?.(k, v); })))
+  return Promise.all(COLLECTION_KEYS.map((k) => fetchOne(k).then((v) => { onPart?.(k, v, !failed.has(k)); })))
     .then(() => { complete = true; });
 }
 

@@ -1,11 +1,11 @@
 // Task Module - the Tasks workspace: toolbar (search / group / view-kind) + the
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useLayoutEffect, useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin, Palette, Upload } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, projectRoleWithTeams, roleAtLeast, withSubtasks, topLevel, taskInProject, importedSubtaskFilter } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, taskStats, taskIdFromUrl, clearTaskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, projectRoleWithTeams, roleAtLeast, withSubtasks, topLevel, taskInProject, importedSubtaskFilter } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
 import { EmptyState, usePeople, useIsMobile, ProjectAccessButton, ExportMenu } from './components';
 import TaskCreate from './TaskCreate';
@@ -158,6 +158,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [templating, setTemplating] = useState(false);   // Save as Template dialog
   const [duplicating, setDuplicating] = useState(false);  // Duplicate Project dialog
   const [openId, setOpenId] = useState(taskIdFromUrl);
+  // The link is used once: off the address, so another tab does not open it again.
+  useLayoutEffect(clearTaskIdFromUrl, []);
   // The Custom grouping's sections (sec, above): this project's own, shared
   // by everyone on it (customSections.js) - the Board's Section columns too.
   // New task: TaskCreate.jsx picks the form - the quick composer on a phone,

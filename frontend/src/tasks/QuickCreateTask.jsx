@@ -261,7 +261,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails,
         }} />
       <span style={{ flex: 1 }} />
       <button type="button" aria-label="Full Details" title="Open the full form: start date, repeat, labels, subtasks and more"
-        onClick={() => onFullDetails(draft())} disabled={voiceRec}
+        onClick={() => onFullDetails(draft(), dirty)} disabled={voiceRec}
         style={{ ...btn('ghost'), minHeight: 44, padding: '0 10px', color: NX.primary, fontWeight: 600, opacity: voiceRec ? 0.5 : 1 }}>Details</button>
       <button type="button" aria-label="Create Task" onClick={submit} disabled={!canPress} title={voiceRec ? STOP_VOICE_FIRST : undefined}
         style={{ ...btn('primary'), minHeight: 44, padding: '0 18px', opacity: canPress ? 1 : 0.5 }}>{busy ? 'Creating...' : 'Create'}</button>

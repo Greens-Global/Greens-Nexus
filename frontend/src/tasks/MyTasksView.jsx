@@ -3,10 +3,10 @@
 // A dedicated personal view: "Tasks" header, List/Board/Calendar/
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
-import { Fragment, Suspense, lazy, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus, Clock, Palette, Sun } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate, todayISO, fieldsForProject } from './lib';
+import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, clearTaskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate, todayISO, fieldsForProject } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle, isMissed, MISSED_TITLE } from './theme';
 import { Avatar, EmptyState, useIsMobile, DateField, TaskCountBadges, SearchSelect, ExportMenu, usePeople } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
@@ -348,19 +348,25 @@ export default function MyTasksView({ onNavigate }) {
     [nameOf, store.projectName, store.teamName],
   );
   const [openId, setOpenId] = useState(taskIdFromUrl);
+  // The link is used once: off the address, so another tab does not open it again.
+  useLayoutEffect(clearTaskIdFromUrl, []);
   // New task: TaskCreate.jsx picks the form (the phone composer or the full form).
   const [creating, setCreating] = useState(null);
   const isMobile = useIsMobile();
   // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
   const openCreate = (defs) => setCreating({ ...(defs || {}) });
 
-  // People directory for collaborator pickers (excludes me - I'm the assignee).
+  // People for a row's collaborator picker: the curated Nexus People list,
+  // the one the bulk bar uses (minus me - I'm the assignee). It used to be
+  // only whoever was already on a task or a project, so most colleagues
+  // could not be found there (11/17/2026). Someone already on a task who is
+  // not in the list stays in it, so they can still be taken off.
+  const directory = usePeople();
   const people = useMemo(() => {
-    const seen = new Map();
+    const seen = new Map(directory.map((u) => [u.email, u]));
     for (const t of tasks) for (const em of (t.followerIds || [])) if (em && !seen.has(em)) seen.set(em, { email: em, name: nameOf(em) });
-    for (const p of projects) for (const em of (p.memberIds || [])) if (em && !seen.has(em)) seen.set(em, { email: em, name: nameOf(em) });
     return [...seen.values()].filter((u) => u.email !== myEmail);
-  }, [tasks, projects, myEmail, nameOf]);
+  }, [directory, tasks, myEmail, nameOf]);
 
   const filter = { ...filters, assigneeIds: myEmail ? [myEmail] : [] };
   // My Tasks is a to-do list, so finished work is hidden by default. Asking for
@@ -417,11 +423,16 @@ export default function MyTasksView({ onNavigate }) {
   // range, ctrl+click to add; see rowSelection.js) and the same bulk bar.
   // Only rows still on screen count: a filter or a completed task that drops a
   // row out of view drops it out of the batch too, so the bar never acts on
-  // something the person can no longer see.
-  const directory = usePeople();
+  // something the person can no longer see. A folded group's rows are not
+  // on screen either: Select All used to take them too, so a bulk Complete,
+  // Delete or reassign hit rows nobody was looking at (11/17/2026).
+  // Collapsed group keys, persisted per person like the rest of this table's
+  // settings (view/group/sort) - see richlist.jsx's identical pattern.
+  const [collapsedList, setCollapsedList] = useTableSetting('mytasks', 'collapsed', []);
+  const collapsed = useMemo(() => new Set(collapsedList), [collapsedList]);
   const [picked, setPicked] = useState(() => new Set());
   const [anchor, setAnchor] = useState({ anchorId: null, focusId: null });
-  const visibleIds = useMemo(() => groups.flatMap((g) => g.tasks.map((t) => t.id)), [groups]);
+  const visibleIds = useMemo(() => groups.flatMap((g) => (collapsed.has(g.key) ? [] : g.tasks.map((t) => t.id))), [groups, collapsed]);
   const selected = useMemo(() => {
     const onScreen = new Set(visibleIds);
     return new Set([...picked].filter((id) => onScreen.has(id)));
@@ -452,10 +463,6 @@ export default function MyTasksView({ onNavigate }) {
   const globalFields = useMemo(() => fieldsForProject(store.customFields || [], ''), [store.customFields]);
   const [colorsOpen, setColorsOpen] = useState(false);
 
-  // Collapsed group keys, persisted per person like the rest of this table's
-  // settings (view/group/sort) - see richlist.jsx's identical pattern.
-  const [collapsedList, setCollapsedList] = useTableSetting('mytasks', 'collapsed', []);
-  const collapsed = useMemo(() => new Set(collapsedList), [collapsedList]);
   const toggleGroup = (k) => {
     const n = new Set(collapsed);
     n.has(k) ? n.delete(k) : n.add(k);

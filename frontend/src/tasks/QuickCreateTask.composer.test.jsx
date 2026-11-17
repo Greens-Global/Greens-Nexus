@@ -118,6 +118,15 @@ describe('QuickCreateTask composer', () => {
       title: 'Replace gate battery', projectId: 'p1', priority: 'high', dueOn: '2099-01-01',
       description: '<p>Front gate</p><p>Use the 9V</p>',
     });
+    // Something was typed here: the full form opens holding unsaved work.
+    expect(onFullDetails.mock.calls[0][1]).toBe(true);
+  });
+
+  it('Details with nothing typed hands over a clean draft', async () => {
+    const onFullDetails = vi.fn();
+    await open({ onFullDetails, defaults: { dueOn: '2099-01-01' } });
+    await tap('Full Details');
+    expect(onFullDetails.mock.calls[0][1]).toBe(false);
   });
 
   it('a seeded description shows as words and is saved as it came when left alone', async () => {

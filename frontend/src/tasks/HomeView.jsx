@@ -6,7 +6,7 @@
 // ahead, By priority, Teams...), arranged in the person's profile. Its one
 // page-level control, Customize, is portaled up into the module bar next to
 // Manage rather than rendered here.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChevronDown, ChevronRight, SlidersHorizontal, Plus, Circle, X, GripVertical, Check, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { DeletedTasksTab as RecycleBinPanel } from './ManageView';
-import { taskIdFromUrl, taskAssignees } from './lib';
+import { taskIdFromUrl, clearTaskIdFromUrl, taskAssignees } from './lib';
 import { NX, FONT, btn, PRIORITY_META } from './theme';
 import { useIsMobile, DateField, notPast } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
@@ -168,6 +168,8 @@ export default function HomeView({ onNavigate, actions }) {
   useEffect(() => () => clearTimeout(noteTimer.current), []);
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
+  // Why the typed task was not added - said under the row, the name back in it.
+  const [createError, setCreateError] = useState('');
   // The add row reads the sentence Say It reads (11/13/2026, useTypedTask.js):
   // what it understood shows as chips under the name and only those are
   // applied. A date picked in the row's own calendar is never read over.
@@ -180,6 +182,8 @@ export default function HomeView({ onNavigate, actions }) {
   const titleRef = useRef(null);
   const creatingTask = useRef(false);
   const [openId, setOpenId] = useState(taskIdFromUrl);
+  // The link is used once: off the address, so another tab does not open it again.
+  useLayoutEffect(clearTaskIdFromUrl, []);
   // An update opens its task at the comment it is about ({ id, threadId, taskId }).
   const [openComment, setOpenComment] = useState(null);
   const openUpdate = (taskId, comment) => { setOpenComment(comment || null); setOpenId(taskId); };
@@ -426,7 +430,7 @@ export default function HomeView({ onNavigate, actions }) {
     if (n.taskId) setOpenId(n.taskId);
   };
 
-  const cancelCreate = () => { setCreating(false); setNewTitle(''); setNewDue(null); };
+  const cancelCreate = () => { setCreating(false); setNewTitle(''); setNewDue(null); setCreateError(''); };
   const commitCreate = async (openDetails) => {
     // The name as typed, or without the words a chip stands for.
     const title = typedTask.title;
@@ -437,9 +441,21 @@ export default function HomeView({ onNavigate, actions }) {
     creatingTask.current = true;
     const dueOn = newDue || typedTask.dueOn || '';
     const assigneeIds = typedTask.assigneeIds.length ? typedTask.assigneeIds : (myEmail ? [myEmail] : []);
-    setNewTitle(''); setNewDue(null);
-    const t = await createTask({ title, assigneeIds, dueOn, status: 'not_started', priority: typedTask.priority || 'medium', type: 'task' }).catch(() => null);
+    // What was typed, as typed - it goes back in the row if the save fails.
+    const typed = newTitle; const typedDue = newDue;
+    setNewTitle(''); setNewDue(null); setCreateError('');
+    let failure = null;
+    const t = await createTask({ title, assigneeIds, dueOn, status: 'not_started', priority: typedTask.priority || 'medium', type: 'task' }).catch((e) => { failure = e || true; return null; });
     creatingTask.current = false;
+    if (failure) {
+      // The row emptied with no word (11/17/2026): the name comes back -
+      // unless another was typed meanwhile - and the line under it says why.
+      setCreating(true);
+      setNewTitle((cur) => cur || typed);
+      setNewDue((cur) => cur || typedDue);
+      setCreateError(`"${title}" was not added. ${failure.message || 'Try again.'}`);
+      return;
+    }
     // A task for someone else is not in this card (it lists mine) - say where it went.
     if (t && myEmail && !assigneeIds.includes(myEmail)) noteAdded(`Task added for ${assigneeIds.map((e) => nameOf(e) || e).join(', ')}`);
     if (openDetails && t) { setCreating(false); setOpenId(t.id); }
@@ -642,6 +658,7 @@ export default function HomeView({ onNavigate, actions }) {
         ) : (
           <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>
         )}
+        {createError && <div role="alert" style={{ fontSize: 13, color: NX.red, padding: '2px 0 6px' }}>{createError}</div>}
         {addedNote && <div role="status" style={{ fontSize: 13, color: NX.green, fontWeight: 600, padding: '2px 0 6px' }}>{addedNote}</div>}
         {several && (
           <AddSeveralModal defaults={{ text: several.text, dueOn: several.dueOn, assigneeIds: myEmail ? [myEmail] : [], source: 'paste' }}

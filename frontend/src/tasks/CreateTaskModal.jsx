@@ -86,7 +86,10 @@ function buildRecurrence(form) {
 
 // `onCreated(task)` runs after a successful create (Forms' Make a Task, 11/02/2026);
 // `defaults.description` seeds the description (HTML, one <p> per line).
-export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '', onCreated = null }) {
+// `startDirty`: the form opens already holding something the person typed
+// (the phone composer's Details, TaskCreate.jsx) - closing it asks first,
+// though nothing has changed since the form itself opened.
+export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '', onCreated = null, startDirty = false }) {
   const store = useTasks();
   const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail, customFields = [] } = store;
   const people = usePeople(true);   // assignee/collaborators - see TaskDetailDrawer
@@ -156,7 +159,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   // what was actually loaded into the form.
   const [initialForm] = useState(() => form);
   const [initialSubtasks] = useState(() => subtasks);
-  const dirty = JSON.stringify(form) !== JSON.stringify(initialForm)
+  const dirty = startDirty
+    || JSON.stringify(form) !== JSON.stringify(initialForm)
     || JSON.stringify(subtasks) !== JSON.stringify(initialSubtasks)
     || attachments.length > 0;
 
@@ -298,7 +302,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
       let parentId = taskId;
       let created = null;
       if (isEdit) {
-        await updateTask(taskId, core);
+        // quiet: the catch below says what went wrong - once, not once here
+        // and once more from the store.
+        await updateTask(taskId, core, { quiet: true });
         const kept = subtasks.filter((s) => s.id).map((s) => s.id);
         for (const t of tasks.filter((t) => t.parentTaskId === taskId)) if (!kept.includes(t.id)) await deleteTask(t.id).catch(() => {});
         for (const s of subtasks) if (s.id) { if (store.taskById[s.id]?.title !== s.title) await updateTask(s.id, { title: s.title }).catch(() => {}); }

@@ -22,7 +22,9 @@
 //             so "lunch for May 5" is a date, not a person called May. A
 //             date already gone (this year's March 2 in October) is left in
 //             the name, never moved to next year - due dates are never in
-//             the past (DateField noPast).
+//             the past (DateField noPast). A possessive ("tomorrow's
+//             meeting", "this week's report", "Monday's call") is part of
+//             the name, never a date.
 //   Priority  urgent / urgently where they end a phrase ("fix the gate,
 //             urgent" - but "urgent care visit" stays the name), "it's an
 //             emergency", asap, as soon as possible, right away -> Urgent;
@@ -126,6 +128,9 @@ function placed(lower, m) {
   if (STRONG_LEAD.test(m[0])) return true;
   return /^\s*(?:[,.;:!?]|$)/.test(lower.slice(m.index + m[0].length));
 }
+
+// What follows a date word when it is a possessive ('s, straight or curly).
+const POSSESSIVE = /^['\u2019]s\b/;
 
 const PRIORITY_RULES = [
   // "urgent" only where it ends a phrase ("fix the gate, urgent") - "urgent
@@ -241,6 +246,9 @@ export function parseSpokenTask(text, { people = [], today, myEmail = '', ignore
       while ((m = g.exec(lower))) {
         if (!m[0]) { g.lastIndex += 1; continue; }
         if (!free(m.index, m.index + m[0].length) || (strict && !placed(lower, m))) continue;
+        // A possessive ("tomorrow's meeting", "this week's report",
+        // "Monday's call") is part of the name, never a due date.
+        if (POSSESSIVE.test(lower.slice(m.index + m[0].length))) continue;
         const d = fn(re.exec(m[0]), day);
         if (!d || d < day) continue;
         out.dueOn = iso(d);

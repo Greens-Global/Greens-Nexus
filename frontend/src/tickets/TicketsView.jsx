@@ -58,6 +58,7 @@ import { TicketDrawer } from './TicketDrawer';
 import { TicketBoard } from './TicketBoard';
 import PreventiveRollup from '../maintenance/PreventiveRollup';
 import PageTrail from '../components/PageTrail';
+import { SkeletonBlocks } from '../components/AsyncState';
 import NewButton from '../components/NewButton';
 
 // Re-exported: tests and other modules import these from TicketsView.
@@ -110,8 +111,20 @@ export default function TicketsView() {
   // re-renders once they land - see that file for why a mutate-in-place +
   // event pattern instead of turning these constants into fetched state.
   useTicketConfig();
-  const { tickets, ticketViews = [], createTicketView, deleteTicketView,
+  const { tickets, ticketsLoaded, ticketsFailed, reloadTickets, ticketViews = [], createTicketView, deleteTicketView,
     myEmail, nameOf, updateTicket, deleteTicket } = useTasks();
+  // The first load (11/17/2026): an empty list that has not arrived yet, or
+  // could not be read, is not "No Tickets Yet". Rows of sheen until the list
+  // lands; a failed load says so with Try Again. A list already held (an
+  // earlier visit) shows at once, as before.
+  const [retrying, setRetrying] = useState(false);
+  const retryLoad = () => {
+    setRetrying(true);
+    Promise.resolve(reloadTickets?.()).catch(() => {}).finally(() => setRetrying(false));
+  };
+  const firstLoad = tickets.length ? null
+    : (ticketsLoaded === false || retrying) ? 'loading'
+      : ticketsFailed ? 'failed' : null;
   const people = usePeople();
   // For the list's own inline State/Priority dropdown (TicketRow) - mirrors
   // the drawer's canWorking gate exactly, see inlineCanWorking below.
@@ -797,6 +810,16 @@ export default function TicketsView() {
         paddingTop: view === 'board' ? 12 : 16, paddingLeft: view === 'board' ? 12 : 16, paddingRight: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 8 : 76 }}>
         {view === 'reports' ? (
           <TicketReports listFilters={reportFilters} filterLabels={reportFilterLabels} companies={companies} />
+        ) : firstLoad === 'loading' ? (
+          <div role="status" aria-busy="true" aria-label="Loading tickets" data-testid="tickets-loading">
+            <SkeletonBlocks count={8} height={44} borderRadius={8} />
+          </div>
+        ) : firstLoad === 'failed' ? (
+          <div role="alert" data-testid="tickets-failed" style={{ textAlign: 'center', padding: '56px 20px' }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: NX.red }}>Tickets Could Not Be Loaded</div>
+            <div style={{ fontSize: 13, color: NX.dim, marginTop: 5 }}>Nothing is lost - the list just did not arrive. Check your connection and try again.</div>
+            <button type="button" onClick={retryLoad} style={{ ...btn('outline'), marginTop: 14 }}>Try Again</button>
+          </div>
         ) : view === 'board' ? (
           <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={moveOnBoard} mobile={isMobile}
             canMove={(t) => ticketRights(t, myEmail, privileged).canEditStatus} />

@@ -18,11 +18,12 @@ vi.mock('./QuickCreateTask', () => ({ default: (p) => {
       <button type="button" onClick={() => { p.onCreated({ id: 't1', dueOn: '2099-01-02' }, { dueOn: '2099-01-02', assigneeIds: ['bob@x.com'], projectId: 'p2', priority: 'high' }); p.onClose(); }}>Composer Create</button>
       <button type="button" onClick={() => p.onClose()}>Composer Close</button>
       <button type="button" onClick={() => p.onFullDetails({ title: 'Drafted', projectId: 'p2' })}>Composer Details</button>
+      <button type="button" onClick={() => p.onFullDetails({ title: 'Typed here', projectId: 'p2' }, true)}>Composer Details Typed</button>
     </div>
   );
 } }));
 vi.mock('./CreateTaskModal', () => ({ default: (p) => (
-  <div data-testid="full-form" data-defaults={JSON.stringify(p.defaults)} data-locked={p.lockedProjectId}>
+  <div data-testid="full-form" data-defaults={JSON.stringify(p.defaults)} data-locked={p.lockedProjectId} data-start-dirty={String(!!p.startDirty)}>
     <button type="button" onClick={() => { p.onCreated?.({ id: 't2', dueOn: '2099-02-02', assigneeIds: ['me@x.com'], projectId: 'p2', priority: 'low' }); p.onClose(true); }}>Full Create</button>
     <button type="button" onClick={() => p.onClose(false)}>Full Cancel</button>
   </div>
@@ -85,6 +86,25 @@ describe('TaskCreate', () => {
     render(<TaskCreate defaults={{}} onClose={onClose} />);
     await click('Composer Close');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  // The full form measured "changed" against a form that already held the
+  // composer's words, so closing it threw them away with no question (11/17/2026).
+  it('Details with something typed in the composer opens the full form as unsaved work', async () => {
+    render(<TaskCreate defaults={{}} onClose={() => {}} />);
+    await click('Composer Details Typed');
+    expect(screen.getByTestId('full-form').dataset.startDirty).toBe('true');
+    expect(JSON.parse(screen.getByTestId('full-form').dataset.defaults)).toMatchObject({ title: 'Typed here' });
+  });
+
+  it('Details with nothing typed opens it clean, and a computer never starts unsaved', async () => {
+    const { unmount } = render(<TaskCreate defaults={{}} onClose={() => {}} />);
+    await click('Composer Details');
+    expect(screen.getByTestId('full-form').dataset.startDirty).toBe('false');
+    unmount();
+    PHONE = false;
+    render(<TaskCreate defaults={{ title: 'Seeded' }} onClose={() => {}} />);
+    expect(screen.getByTestId('full-form').dataset.startDirty).toBe('false');
   });
 
   it('Details opens the full form with the draft; made there, the message shows too', async () => {
