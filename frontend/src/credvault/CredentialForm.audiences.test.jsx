@@ -60,7 +60,7 @@ describe('Company, then Department', () => {
     fireEvent.click(groupsBox().getByRole('button', { name: 'Night Crew' }));         // keep it to the Night Crew
     fireEvent.change(screen.getByLabelText('Add a person'), { target: { value: 'ben@x.com' } });
     fillBasics();
-    fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Login' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     const saved = onSave.mock.calls[0][0];
     expect(saved).toMatchObject({ dept: 'IT', companyId: 'co-a' });                          // the first ones picked
@@ -82,7 +82,7 @@ describe('Company, then Department', () => {
     fireEvent.click(companiesBox().getByRole('button', { name: 'All Companies' }));        // + Greens Nexus, still All
     expect(companiesBox().getByRole('button', { name: 'All Companies' }).getAttribute('aria-pressed')).toBe('true');
     fillBasics();
-    fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Login' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     expect(onSave.mock.calls[0][0].audiences).toEqual([
       { kind: 'company', value: 'co-a', level: 'open' },
@@ -111,7 +111,7 @@ describe('Company, then Department', () => {
     await waitFor(() => expect(companiesBox().getByRole('button', { name: 'Greens Nexus' }).getAttribute('aria-pressed')).toBe('true'));
     expect(deptsBox().getByRole('button', { name: 'IT' }).getAttribute('aria-pressed')).toBe('true');
     fillBasics();
-    fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Login' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     expect(onSave.mock.calls[0][0]).toMatchObject({ companyId: 'co-b', dept: 'IT', audiences: [{ kind: 'department', value: 'co-b:IT', level: 'open' }] });
   });
@@ -132,7 +132,7 @@ describe('Checks and dates', () => {
     form({ onSave });
     await waitFor(() => expect(companiesBox().getByRole('button', { name: 'Greens' })).toBeTruthy());
     fireEvent.change(screen.getByPlaceholderText('https://…'), { target: { value: 'portal.example.com' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Login' }));
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByText('Give the login a name.')).toBeTruthy();
     expect(screen.getByText('Pick at least one company.')).toBeTruthy();
@@ -151,7 +151,7 @@ describe('Checks and dates', () => {
     fireEvent.click(companiesBox().getByRole('button', { name: 'Greens' }));
     fireEvent.click(deptsBox().getByRole('button', { name: 'IT' }));
     fillBasics();
-    fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Login' }));
     expect(await screen.findByText('This password is weak - use 12 or more characters.')).toBeTruthy();
     expect(screen.getByPlaceholderText('Enter or generate a password').className).toContain('cv-ipt-error');
     fireEvent.change(screen.getByPlaceholderText('Enter or generate a password'), { target: { value: 'Another-Strong-1!' } });
@@ -176,7 +176,7 @@ describe('Checks and dates', () => {
     fireEvent.click(companiesBox().getByRole('button', { name: 'Greens' }));
     fireEvent.click(deptsBox().getByRole('button', { name: 'IT' }));
     fillBasics();
-    fireEvent.click(screen.getByRole('button', { name: 'Save Credential' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Login' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     expect(onSave.mock.calls[0][0]).toMatchObject({ rotationMax: 60, expiresAt: own });
   });

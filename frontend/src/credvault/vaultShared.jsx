@@ -29,15 +29,8 @@ export const iconFor = (n) => DEPT_ICONS[n] || Building2;
 export const DEFAULT_DEPTS = Object.keys(DEPT_ICONS);
 export const TIERS = ["Standard", "High", "Critical"];
 // A tier is how closely a login is guarded, not something wrong with it
-// (11/13/2026: a red Critical read as an error) - a calm shield, never red.
-export function TierChip({ tier, xs = false }) {
-  if (!tier || tier === "Standard") return null;
-  return (
-    <span className={`cv-chip${xs ? " cv-chip-xs" : ""} tone-info`} title={tier === "Critical" ? "Critical: only named people open it" : "High: closely guarded"}>
-      <ShieldCheck size={xs ? 10 : 12} /> {tier}
-    </span>
-  );
-}
+// (11/13/2026: a red Critical read as an error): it is a plain word on the
+// row and in the sheet, never red and never a tag.
 export const TYPES = ["Password", "API key", "Access key", "Certificate"];
 
 
@@ -61,11 +54,10 @@ const ACTION_COLORS = {
   Created: "indigo", Imported: "indigo", Recovered: "emerald", Rotated: "emerald",
   Removed: "rose", Requested: null, Denied: "rose", Revoked: "rose", Transferred: "violet", Offboarded: "amber",
 };
-export const actionStyle = (a) => {
+/** The action as a colored word (Neil, 11/17/2026: no tag box around a state). */
+export const actionTone = (a) => {
   const c = ACTION_COLORS[a];
-  return c
-    ? { background: `var(--cv-${c}-bg)`, color: `var(--cv-${c})` }
-    : { background: "var(--bg-secondary)", color: "var(--text-secondary)" };
+  return { color: c ? `var(--cv-${c})` : "var(--text-secondary)", fontWeight: 600 };
 };
 
 // CSV helpers (ported verbatim)

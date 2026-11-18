@@ -32,7 +32,7 @@ MODULES: list[tuple[str, str]] = [
     ("documents", "Documents & E-Sign"),
     ("knowledge", "Knowledge Base"),
     ("marketing", "Marketing"),
-    ("vault", "Credentials"),
+    ("vault", "Passwords"),
     ("investors", "Investor Relations"),
     ("purchasing", "Purchasing"),
     ("settings", "Settings & Admin"),
