@@ -1,18 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { vi } from 'vitest';
 import { collectCriticalDates, parseStoredDate, isSuspectDate } from './criticalItems.js';
 import {
   collectDates, itemsForMode, groupDates, missingByKind, rollYear, rollPatch, datesSummary, bucketOf, relativeDays,
 } from './datesModel.js';
 
-// Today is fixed: 11/17/2026. Set here, at the top of the file, and again
-// before the tests run: several describe blocks below build their rows while
-// the file is being collected, which is BEFORE any beforeAll - with the clock
-// frozen only there, those rows counted from the real date and the file passed
-// only on 11/17/2026 itself.
-const freeze = () => { vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 10, 17, 9, 0, 0)); };
-freeze();
-beforeAll(freeze);
+// Today is fixed: 11/17/2026 - set when the file loads, not in beforeAll: the describe blocks
+// build their dates while they are collected, before any beforeAll runs (11/18/2026: built on
+// the real clock, 12/10 read "In 22 days").
+vi.useFakeTimers();
+vi.setSystemTime(new Date(2026, 10, 17, 9, 0, 0));
 afterAll(() => { vi.useRealTimers(); });
 
 const P = (id, extra = {}) => ({ id, kind: 'property', name: `Property ${id}`, ...extra });
