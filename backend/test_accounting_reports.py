@@ -201,7 +201,7 @@ class SavedReportKeysTests(unittest.TestCase):
         text = src.read_text(encoding="utf-8")
         block = text[text.index("export const REPORTS = ["):]
         block = block[:block.index("];")]
-        keys = re.findall(r"key:\s*'([a-z-]+)'", block)
+        keys = re.findall(r"key:\s*'([a-z0-9-]+)'", block)   # the tax forms carry digits (tax-1065, 11/19/2026)
         self.assertIn("flux", keys)
         self.assertIn("cash-flow", keys)
         self.assertEqual(sorted(keys), sorted(accounting_saved._REPORTS))

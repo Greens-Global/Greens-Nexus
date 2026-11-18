@@ -128,9 +128,32 @@ class TaxLineTests(unittest.TestCase):
         _as(EDITOR)
         self.assertEqual(self._put("", [("60100", "99")]).status_code, 400)
         self.assertEqual(self._put("", [("", "8")]).status_code, 400)
-        self.assertEqual(self._put("", [("60100", "8")], form="form_1120").status_code, 400)
+        self.assertEqual(self._put("", [("60100", "8")], form="form_1120s").status_code, 400)
+        # A line of another form is refused (11/19/2026).
+        self.assertEqual(self._put("", [("60100", "k5")], form="form_1120").status_code, 400)
         self.assertEqual(self._put("bad code!", [("60100", "8")]).status_code, 400)
         self.assertEqual(self.client.get("/accounting/tax-lines?form=nope").status_code, 400)
+
+    def test_every_tax_form_keeps_its_own_mapping(self):
+        """11/19/2026 (Charmi): Schedule E, 1065 (with Schedule K / L lines),
+        1120, CA 568 and the 1040's entity rows, each under its own form."""
+        _as(EDITOR)
+        self.assertEqual(self._put("", [("40100", "3"), ("60100", "11")], form="schedule_e").status_code, 200)
+        self.assertEqual(self._put("", [("80100", "k5"), ("10100", "l1"), ("40100", "r2")], form="form_1065").status_code, 200)
+        self.assertEqual(self._put("", [("40100", "6")], form="form_1120").status_code, 200)
+        self.assertEqual(self._put("", [("40100", "rent")], form="ca_568").status_code, 200)
+        self.assertEqual(self._put("15000", [("return", "schedule_e")], form="form_1040").status_code, 200)
+        bad = self._put("15000", [("return", "8")], form="form_1040")
+        self.assertEqual(bad.status_code, 400, bad.text)
+        _as(VIEWER)
+        by_form = {f: {x["accountNo"]: x["line"] for x in self.client.get(f"/accounting/tax-lines?form={f}&entity=15000").json()["lines"]}
+                   for f in ("schedule_c", "schedule_e", "form_1065", "form_1120", "ca_568", "form_1040")}
+        self.assertEqual(by_form["schedule_c"], {})
+        self.assertEqual(by_form["schedule_e"], {"40100": "3", "60100": "11"})
+        self.assertEqual(by_form["form_1065"], {"80100": "k5", "10100": "l1", "40100": "r2"})
+        self.assertEqual(by_form["form_1120"], {"40100": "6"})
+        self.assertEqual(by_form["ca_568"], {"40100": "rent"})
+        self.assertEqual(by_form["form_1040"], {"return": "schedule_e"})
 
     def test_limited_caller_stays_inside_their_entities(self):
         _as(LIMITED)
