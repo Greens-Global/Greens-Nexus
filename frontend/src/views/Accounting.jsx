@@ -178,9 +178,18 @@ const BASE_TABS = [
       // Oct 23 (Neil, CR-09): QuickBooks' Payroll Summary, from the PYRJ import.
       { key: 'payroll-summary', label: 'Payroll Summary', Icon: ReceiptText },
     ] },
-    // 10/27 item 18 (Neil, Viral): tax forms from the ledger - Schedule C first.
+    // 10/27 item 18 (Neil, Viral): tax forms from the ledger - Schedule C
+    // first; the rest 11/19/2026 (Charmi: "We need Sch C, Sch E, 1040, 1065,
+    // form 568, 1120"), one engine (accounting/taxForms/).
     { key: 'grp-tax', label: 'Tax', Icon: Landmark, items: [
       rpt('schedule-c', 'Schedule C (Draft)', FileText),
+      rpt('schedule-e', 'Schedule E (Draft)', FileText),
+      rpt('tax-1040', 'Form 1040 (Draft)', FileText),
+      rpt('tax-1065', 'Form 1065 (Draft)', FileText),
+      rpt('tax-1065-l', 'Form 1065 Schedule L (Draft)', FileText),
+      rpt('tax-568', 'CA Form 568 (Draft)', FileText),
+      rpt('tax-1120', 'Form 1120 (Draft)', FileText),
+      rpt('tax-1120-l', 'Form 1120 Schedule L (Draft)', FileText),
     ] },
   ] },
   // 11/11/2026 (picture 2): the day-to-day working tools, not reports - full

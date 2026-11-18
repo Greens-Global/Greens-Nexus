@@ -257,7 +257,9 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Credit Card Activity', 'Bank Activity', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Budget vs. Actual', 'Spend by Vendor', 'Schedule C (Draft)']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Credit Card Activity', 'Bank Activity', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Budget vs. Actual', 'Spend by Vendor', 'Schedule C (Draft)',
+      // 11/19/2026 (Charmi): the rest of the tax forms.
+      'Schedule E (Draft)', 'Form 1065 (Draft)', 'Form 1065 Schedule L (Draft)', 'Form 1120 (Draft)', 'Form 1120 Schedule L (Draft)', 'CA Form 568 (Draft)', 'Form 1040 (Draft)']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
