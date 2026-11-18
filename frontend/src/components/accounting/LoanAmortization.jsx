@@ -39,7 +39,9 @@ import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 // object with id, lender, balance, rate/ratePct, maturity, monthlyPi);
 // `month` is the YYYY-MM the ledger balance is as of (default this month).
 
-const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
+// 11/19/2026 Loans clean-up (Charmi: "very hard to work with"): no bordered box
+// around each part - a hairline above it, the page's own background.
+const card = { borderTop: '1px solid var(--border-color)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const warn = { fontSize: 13, color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' };
 const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
@@ -58,7 +60,8 @@ function Chip({ tone = 'muted', children, title }) {
     wait: { fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
-  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
+  // 11/19/2026 Loans clean-up (no pills - CLAUDE.md): a state is plain colored text in its row.
+  return <span title={title} style={{ fontSize: 12, fontWeight: 600, color: tones.fg, whiteSpace: 'nowrap' }}>{children}</span>;
 }
 
 /** Months from the first payment to the maturity, inclusive (the term a
