@@ -52,7 +52,8 @@ export function Chip({ tone = 'muted', children, title }) {
     wait: { fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
-  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
+  // 11/19/2026 Loans clean-up (no pills - CLAUDE.md): a state is plain colored text in its row.
+  return <span title={title} style={{ fontSize: 12, fontWeight: 600, color: tones.fg, whiteSpace: 'nowrap' }}>{children}</span>;
 }
 
 /** Which rows start ticked: the new External ones (Charmi, Oct 7 default). */

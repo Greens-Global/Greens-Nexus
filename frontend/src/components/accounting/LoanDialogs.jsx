@@ -53,7 +53,8 @@ const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, 
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 };
 const hint = { fontSize: 11, color: 'var(--text-muted)', marginTop: 3 };
 const full = { ...control, width: '100%' };
-const section = { fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 4 };
+// Title Case at the title size, no uppercase eyebrow (11/19/2026 Loans clean-up).
+const section = { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginTop: 4 };
 
 export const LOAN_TYPES = [['term', 'Term Loan'], ['line_of_credit', 'Line of Credit']];
 export const loanTypeLabel = (t) => (LOAN_TYPES.find(([k]) => k === t) || [null, 'Term Loan'])[1];
