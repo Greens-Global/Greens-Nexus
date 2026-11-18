@@ -87,7 +87,7 @@ vi.mock('../../api', () => ({
   },
 }));
 
-import LoansTab, { SetupDialog, _test, dscrCovenantText } from './LoansTab';
+import LoansTab, { SetupDialog, _test, dscrCovenantText, missingTerms } from './LoansTab';
 import { rateHint } from './LoanDialogs';
 import { resetAccountingPrefs } from './prefs';
 import { api } from '../../api';
@@ -909,5 +909,56 @@ describe('loan wording helpers (UX pass)', () => {
     expect(dscrCovenantText({ dscr: 1.12, belowCovenant: true, covenantMin: 1.25 })).toBe('1.12x - Below 1.25x');
     expect(dscrCovenantText({ dscr: 1.5, belowCovenant: false, covenantMin: 1.25 })).toBe('1.50x');
     expect(dscrCovenantText({ dscr: null })).toBe('-');
+  });
+});
+
+// Charmi, Teams 11/19/2026 ("Can you clean the UI for loans and finance ...
+// it is very hard to work with"): the loan opens as a sheet from the right,
+// the missing terms are one click away and read "Add", flags are words.
+describe('LoansTab, the 11/19 clean-up', () => {
+  it('opens a loan as a sheet: the terms, the period, the wiring and the two tools', async () => {
+    render(<LoansTab canEdit />);
+    fireEvent.click(await rowOf('F&M Bank'));
+    const sheet = await screen.findByRole('dialog', { name: 'F&M Bank' });
+    expect(within(sheet).getByRole('heading', { name: 'Terms' })).toBeTruthy();
+    expect(within(sheet).getByRole('button', { name: 'Change Rate of F&M Bank' })).toBeTruthy();
+    expect(within(sheet).getByLabelText('Details of F&M Bank')).toBeTruthy();
+    expect(within(sheet).getByRole('button', { name: 'Amortization Schedule' })).toBeTruthy();
+    expect(within(sheet).getByRole('button', { name: 'Stress Test' })).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole('button', { name: /Change Loan/ }));
+    expect(await screen.findByRole('dialog', { name: /Change Loan/ })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'F&M Bank' })).toBeTruthy();   // the sheet stays under it
+  });
+
+  it('Missing Terms shows only the loans with a term not typed, and the empty term reads Add', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    const toggle = screen.getByRole('button', { name: /Missing Terms/ });
+    expect(toggle.textContent).toMatch(/1$/);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.queryByText('F&M Bank')).toBeNull());
+    const ic = await rowOf('Greens Global, Inc.');
+    const add = within(ic).getByRole('button', { name: 'Change Monthly Payment of Greens Global, Inc.' });
+    expect(add.textContent).toBe('Add');
+    fireEvent.click(add);
+    const box = within(ic).getByLabelText('Monthly Payment of Greens Global, Inc.');
+    fireEvent.change(box, { target: { value: '1,500' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(api.updateLoan).toHaveBeenCalledWith('FL3', '', { monthlyPayment: 1500 }));
+    expect(await screen.findByText('Saved the monthly payment of Greens Global, Inc.')).toBeTruthy();
+  });
+
+  it('a viewer gets no Add, only the dash', async () => {
+    render(<LoansTab />);
+    const ic = await rowOf('Greens Global, Inc.');
+    expect(within(ic).queryByText('Add')).toBeNull();
+  });
+
+  it('missingTerms: any of the three not typed, never a closed loan', () => {
+    expect(missingTerms(loan())).toBe(false);
+    expect(missingTerms(loan({ ratePct: null }))).toBe(true);
+    expect(missingTerms(loan({ maturity: '' }))).toBe(true);
+    expect(missingTerms(loan({ monthlyPayment: null }))).toBe(true);
+    expect(missingTerms(loan({ monthlyPayment: null, closed: true }))).toBe(false);
   });
 });

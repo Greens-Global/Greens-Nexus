@@ -36,7 +36,8 @@ import { headStyle } from './columnStyles';
 
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const muted = { color: 'var(--text-muted)' };
-const head = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' };
+// Section titles in Title Case at the title size - no uppercase eyebrows (11/19/2026 Loans clean-up).
+const head = { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' };
 export const INTEREST_SOURCE = {
   wired: 'wired on this loan',
   matched: 'matched by the account titles',
@@ -140,7 +141,8 @@ function useHistory(loan, from, to, enabled) {
   return state.key === key ? state : { data: null, error: '' };
 }
 
-export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null, extras = null, canEdit = false, onSaved = null }) {
+// `plain` (11/19/2026): inside the loan's sheet - no grey panel of its own.
+export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null, extras = null, canEdit = false, onSaved = null, plain = false }) {
   // Wire a folder right here (Charmi, 10/07: "Browse" by "No documents
   // folder") - the same Files picker and the same save as Change Loan.
   const [picking, setPicking] = useState(null);       // 'docs' | 'statements'
@@ -195,7 +197,8 @@ export default function LoanDetail({ loan, from, to, onOpenEntry, onDrill = null
     ? loan.interestAccounts.map((a, i) => <span key={a.code}>{i ? ', ' : ''}{accountLink(a.code, a.title, `GL ${a.code}${a.title ? ` ${a.title}` : ''}`)}</span>)
     : interestText;
   return (
-    <div style={{ display: 'grid', gap: 12, padding: '12px 14px 14px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)' }} aria-label={`Details of ${loan.lender || loan.loanNo}`}>
+    <div style={plain ? { display: 'grid', gap: 18 } : { display: 'grid', gap: 12, padding: '12px 14px 14px', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-color)' }} aria-label={`Details of ${loan.lender || loan.loanNo}`}>
+      {plain && <h4 style={{ ...head, margin: 0 }}>Wiring and Folders</h4>}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 24px' }}>
         {fact('Principal Account', loan.wiring === 'ok' ? accountLink(loan.glAccount, loan.glTitle, principalText) : principalText, loan.wiring === 'missing' ? 'This account has no lines in this entity on the ledger - check the wiring under Change Loan.' : undefined)}
         {fact('Interest Account', interestValue, INTEREST_SOURCE[loan.interestSource] ? `From ${INTEREST_SOURCE[loan.interestSource]}.` : undefined)}
