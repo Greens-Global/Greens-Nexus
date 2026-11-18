@@ -276,7 +276,7 @@ export function presetRange(key, now = new Date()) {
     case 'last-quarter': return [new Date(y, q - 3, 1), new Date(y, q, 0)];
     case 'this-year': return [new Date(y, 0, 1), new Date(y, 11, 31)];
     case 'last-year': return [new Date(y - 1, 0, 1), new Date(y - 1, 11, 31)];
-    // CR-06 (Neil, 23 Oct): the last T12_MONTHS full months, the month in progress left out.
+    // CR-06 (Neil, 11/05/2026): the last T12_MONTHS (13) full months, the month in progress left out.
     case 't12m': return [new Date(y, m - T12_MONTHS, 1), T12_INCLUDE_CURRENT_MONTH ? today : endOfMonth(y, m - 1)];
     default: return [new Date(y, 0, 1), today];
   }

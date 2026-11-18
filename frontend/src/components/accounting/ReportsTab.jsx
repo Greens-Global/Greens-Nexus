@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, FolderUp, Info, Loader2, Mail, Maximize2, Minimize2, Pencil, RotateCcw, Search, Share2, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react';
+import { Check, FolderUp, Funnel, Info, Loader2, Mail, Maximize2, Minimize2, Pencil, RotateCcw, Search, Share2, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
@@ -22,11 +22,36 @@ import {
   SavedReportsMenu, control, ControlBar, SyncButton, fitSelect, widest,
 } from './reportControls';
 import { useTableSync } from './tableSync';
+import { Panels, preloadPanels } from './tableView/load';
+import { distinctValues, pickHit } from './tableView/model';
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
   reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, STATEMENT_KEYS, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
   viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity, needsEntityList, countDims,
 } from './reportModel';
+
+// A report heading's funnel: the Accounting tables' value list (tableView's
+// panel, loaded on first use), over the report's lines (Priyanka, 11/05/2026).
+function HeadFunnel({ view, col }) {
+  const ref = useRef(null);
+  const [open, setOpen] = useState(false);
+  if (!col) return null;
+  const p = view.state.picks[col.key];
+  const on = !!p && (Array.isArray(p.in) || (Array.isArray(p.out) && p.out.length > 0));
+  return (
+    <span ref={ref} style={{ display: 'inline-flex' }}>
+      <button type="button" className={`acct-vh-funnel acct-report-funnel${on ? ' on' : ''}`} onClick={() => { preloadPanels(); setOpen((o) => !o); }} onPointerEnter={preloadPanels}
+        aria-haspopup="dialog" aria-expanded={open} aria-label={`Filter ${col.label} by value${on ? ' (on)' : ''}`} title={on ? `${col.label} is filtered` : `Pick ${col.label} values to show`}>
+        <Funnel size={11} />
+      </button>
+      {open && (
+        <Suspense fallback={null}>
+          <Panels kind="values" view={view} col={col} anchor={ref} onClose={() => setOpen(false)} onKind={() => setOpen(false)} />
+        </Suspense>
+      )}
+    </span>
+  );
+}
 
 // 10/27 item 18: the Schedule C line mapping editor, loaded when opened.
 const ScheduleCMapping = lazy(() => import('./ScheduleCMapping'));
@@ -576,14 +601,35 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // operator (=, >, <, >=, <=, Between) and a value - { op, a, b }; a text
   // column keeps "contains".
   const [colFilters, setColFilters] = useState({});
-  useEffect(() => { setColFilters({}); }, [config.report]);
+  // Priyanka, Teams 11/05/2026 ("In all reports, only the sorting option is
+  // available. The filter option is missing, unlike in MRI, MRE, and AMA"):
+  // each heading also carries the funnel of the Accounting tables - the SAME
+  // value list (tableView's panel and pick rule), Excel style. A pick keeps
+  // the lines whose cell reads one of the ticked values; it stacks with the
+  // boxes, and headings and totals stay as they do for the boxes.
+  const [picks, setPicks] = useState({});
+  useEffect(() => { setColFilters({}); setPicks({}); }, [config.report]);
   const isNumCol = (c) => c.type === 'amount' || c.type === 'variance' || c.type === 'pct';
   const filterSet = (v) => (typeof v === 'string' ? !!v.trim() : !!v && (String(v.a ?? '').trim() || String(v.b ?? '').trim()));
-  const filterOn = Object.values(colFilters).some(filterSet);
+  const pickSet = (p) => !!p && (Array.isArray(p.in) || (Array.isArray(p.out) && p.out.length > 0));
+  // The value list's columns: what each heading's cell reads on a line. The
+  // first column reads the heading a line sits under when it has one (the
+  // vendor on Spend by Vendor), else its code and name.
+  const pickCols = useMemo(() => (shown ? [{ key: '__label', label: shown.labelHead || shown.glLabel || 'Account' }, ...shown.columns] : []).map((c, i) => {
+    if (i === 0) return { key: c.key, label: c.label, text: (r) => (r.match || `${r.code || ''} ${r.title || r.label || ''}`).trim() };
+    const at = i - 1;
+    const txt = (r) => String(cellText(r, c, r.values?.[at]) ?? '');
+    if (!isNumCol(c)) return { key: c.key, label: c.label, text: txt };
+    return { key: c.key, label: c.label, type: 'amount', value: (r) => (typeof r.values?.[at] === 'number' ? r.values[at] : null), text: txt };
+  }), [shown]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pickOn = Object.values(picks).some(pickSet);
+  const filterOn = Object.values(colFilters).some(filterSet) || pickOn;
   const visibleRows = useMemo(() => {
     const rows = shown?.rows || [];
     if (!filterOn) return rows;
     const wants = Object.entries(colFilters).filter(([, v]) => filterSet(v));
+    const picked = pickCols.filter((c) => pickSet(picks[c.key])).map((c) => [picks[c.key], c]);
+    const picksHit = (r) => picked.every(([p, c]) => pickHit(p, c, r));
     const textOf = (r, k) => {
       // `match`: the heading a row sits under (a vendor on Spend by Vendor), so its name finds it.
       if (k === '__label') return `${r.code || ''} ${r.title || r.label || ''} ${r.match || ''}`;
@@ -601,12 +647,22 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       const cell = textOf(r, k).toLowerCase();
       return cell.includes(k === '__label' ? v : v.replace(/,/g, '')) || cell.includes(v);
     });
-    const matched = rows.filter((r) => (r.kind === 'account' || r.kind === 'line') && hit(r));
+    const matched = rows.filter((r) => (r.kind === 'account' || r.kind === 'line') && hit(r) && picksHit(r));
     const keepSections = new Set(matched.map((r) => r.section).filter(Boolean));
     const keepGroups = new Set(matched.map((r) => r.group).filter(Boolean));
     const keep = new Set(matched);
-    return rows.filter((r) => keep.has(r) || (r.kind === 'section' && (keepSections.has(r.section) || hit(r))) || (r.kind === 'group' && keepGroups.has(r.group)) || r.kind === 'grand');
-  }, [shown, colFilters, filterOn]);
+    return rows.filter((r) => keep.has(r) || (r.kind === 'section' && (keepSections.has(r.section) || (!picked.length && hit(r)))) || (r.kind === 'group' && keepGroups.has(r.group)) || r.kind === 'grand');
+  }, [shown, colFilters, filterOn, picks, pickCols]); // eslint-disable-line react-hooks/exhaustive-deps
+  // What the funnel panel reads: the lines, the values the other picks let through.
+  const pickView = useMemo(() => {
+    const lines = (shown?.rows || []).filter((r) => r.kind === 'account' || r.kind === 'line');
+    const state = { rules: [], match: 'all', picks };
+    return {
+      state, all: lines, rows: lines,
+      distinct: (key) => distinctValues(lines, pickCols, state, key),
+      setPick: (key, p) => setPicks((all) => ({ ...all, [key]: p })),
+    };
+  }, [shown, picks, pickCols]);
   // Urmi, Teams 11/05/2026 ("Sorting ... on every column header is not
   // showing"): a heading sorts the lines inside each section and group -
   // ascending, descending, then back to the report's order - so headings,
@@ -632,7 +688,35 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       if (leaf) run.push(r); else { flush(); out.push(r); }
     });
     flush();
-    return out;
+    // Priyanka, Teams 11/05/2026 ("we can sort expenses, but we cannot sort
+    // vendors"): the groups move too - each group heading with its lines and
+    // its total, ordered by the heading's name or by the group's figure in
+    // the column, inside the section it belongs to.
+    if (!out.some((r) => r.kind === 'group')) return out;
+    const groupVal = (blk) => {
+      const head = blk[0];
+      if (i < 0) return String(head.label || head.title || '').toLowerCase();
+      const v = head.totals?.[i] ?? blk.find((r) => r.kind === 'subtotal')?.values?.[i];
+      return typeof v === 'number' ? v : Number(v) || 0;
+    };
+    const cmpBlk = (a, b) => {
+      const x = groupVal(a); const y = groupVal(b);
+      if (typeof x === 'number' || typeof y === 'number') return ((Number(x) || 0) - (Number(y) || 0)) * sort.dir;
+      return String(x).localeCompare(String(y), 'en-US', { numeric: true }) * sort.dir;
+    };
+    const res = [];
+    let blocks = [];
+    const flushBlocks = () => { blocks.sort(cmpBlk).forEach((b) => res.push(...b)); blocks = []; };
+    out.forEach((r) => {
+      const cur = blocks[blocks.length - 1];
+      if (r.kind === 'group') {
+        if (cur && cur[0].section !== r.section) flushBlocks();
+        blocks.push([r]);
+      } else if (cur && r.group != null && r.group === cur[0].group) cur.push(r);
+      else { flushBlocks(); res.push(r); }
+    });
+    flushBlocks();
+    return res;
   }, [visibleRows, sort, shown]);
   const matchedCount = filterOn ? visibleRows.filter((r) => r.kind === 'account' || r.kind === 'line').length : 0;
 
@@ -649,7 +733,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   // The financial statements are never split over pages - a Balance Sheet reads top to bottom; ledger-line reports keep paging.
   const unpaged = STATEMENT_KEYS.has(config.report);
   const paged = useMemo(() => reportPages(openRows, unpaged ? 0 : custom.pageSize), [openRows, custom.pageSize, unpaged]);
-  const pageKey = `${key}|${custom.pageSize}|${JSON.stringify(colFilters)}|${config.report}|${sort.key}${sort.dir}`;
+  const pageKey = `${key}|${custom.pageSize}|${JSON.stringify(colFilters)}|${JSON.stringify(picks)}|${config.report}|${sort.key}${sort.dir}`;
   const [pageState, setPageState] = useState({ page: 1, key: pageKey });
   let page = pageState.page;
   if (pageState.key !== pageKey) { page = 1; setPageState({ page: 1, key: pageKey }); }
@@ -978,6 +1062,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
                           {c.label}
                           <span aria-hidden="true" className={`acct-sort-mark${sort.key === c.key ? (sort.dir === 1 ? ' on asc' : ' on desc') : ''}`} />
                         </button>
+                        <HeadFunnel view={pickView} col={pickCols[i]} />
                         <ColumnResizer {...widths.resizer(c.key, c.label)} />
                       </th>
                     );
@@ -1033,7 +1118,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           {filterOn && (
             <div role="status" style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <span>Filtered to {matchedCount.toLocaleString('en-US')} {matchedCount === 1 ? 'row' : 'rows'}. Section and grand totals are for the whole report.</span>
-              <button type="button" onClick={() => setColFilters({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
+              <button type="button" onClick={() => { setColFilters({}); setPicks({}); }} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
             </div>
           )}
           <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>

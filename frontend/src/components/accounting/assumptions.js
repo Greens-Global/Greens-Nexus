@@ -119,16 +119,16 @@ export const BUILDER_PUBLISH_SHARES = false;
 // Accrual, the book every other statement opens on.
 export const TRIAL_BALANCE_DEFAULT_BOOK = 'accrual';
 
-// CR-06 (confirmed by team, 23 Oct): T12 = the last 12 FULL months (the
-// month in progress left out), one column each. Read (assumption, Charmi to
-// confirm) "it should show 13" as the 12 month columns plus the Total column
-// - 13 columns. The Income Statement's T12 quick view, the "Trailing 12
+// CR-06, settled (Neil, 11/05/2026, Accounting chat: "Yes 13 full months on
+// a t12"): Trailing 12 Months = the last 13 FULL months (the month in
+// progress left out), one column each, plus the Total - on 11/19/2026 that
+// is 10/01/2025 - 10/31/2026, so the same month last year sits beside the
+// latest one. The Income Statement's T12 quick view, the "Trailing 12
 // Months" period of every report and the Report Builder all use this one
 // definition (reportModel presetRange 't12m'). A month with no postings
 // still gets its column.
-export const T12_MONTHS = 12;
-// CR-06 (assumption, Charmi to confirm): the other reading of "13" - the 12
-// full months AND the current month to date as a 13th column. Off.
+export const T12_MONTHS = 13;
+// The current month to date is never a column of its own (Neil, 11/05/2026).
 export const T12_INCLUDE_CURRENT_MONTH = false;
 
 // ── CR-09 Payroll Summary ───────────────────────────────────────────────────

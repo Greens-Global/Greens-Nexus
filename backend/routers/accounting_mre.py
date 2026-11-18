@@ -216,10 +216,53 @@ def in_force(line: dict, year: int, month: int) -> bool:
     return not (line.get("status") == "ended" and not end)
 
 
+def clean_changes(raw) -> list[dict]:
+    """A line's amount changes as kept: each {"from": "YYYY-MM-DD", "amount":
+    float} or {"from": ..., "tenantPays": True}, oldest first, one per date
+    (the last one typed for a date wins), at most 60."""
+    by_day: dict[str, dict] = {}
+    for c in raw if isinstance(raw, list) else []:
+        if not isinstance(c, dict) or not _ISO.match(str(c.get("from") or "")):
+            continue
+        day = str(c["from"])[:10]
+        if c.get("tenantPays"):
+            by_day[day] = {"from": day, "tenantPays": True}
+            continue
+        try:
+            amount = float(c.get("amount"))
+        except (TypeError, ValueError):
+            continue
+        if amount < 0 or amount != amount:
+            continue
+        by_day[day] = {"from": day, "amount": _r2(amount)}
+    return [by_day[d] for d in sorted(by_day)][:60]
+
+
+def amount_in(line: dict, year: int, month: int) -> tuple[float, bool]:
+    """What the line expects in a month, and whether the tenant pays it then
+    (Charmi, 11/18/2026). THE one place a month's amount is worked out: the
+    line's Expected Amount until its first change, then the latest change
+    dated in or before the month (a change applies to its whole month)."""
+    amount, tenant = _r2(line.get("expectedAmount") or 0), False
+    key = f"{year}-{month:02d}"
+    for c in line.get("amountChanges") or []:
+        if (c.get("from") or "")[:7] <= key:
+            if c.get("tenantPays"):
+                tenant = True
+            else:
+                amount, tenant = _r2(c.get("amount") or 0), False
+    return amount, tenant
+
+
+def tenant_pays(line: dict, year: int, month: int) -> bool:
+    return amount_in(line, year, month)[1]
+
+
 def due_in_month(line: dict, year: int, month: int) -> bool:
     """Whether the line falls due in this calendar month: inside its start /
-    end, and on its frequency counted from the start month."""
-    if not in_force(line, year, month):
+    end, on its frequency counted from the start month, and not a month the
+    tenant pays it (11/18/2026)."""
+    if not in_force(line, year, month) or tenant_pays(line, year, month):
         return False
     start = line.get("startDate") or ""
     step = step_months(line)
@@ -256,15 +299,15 @@ def period_cells(line: dict, paid: list[float], year: int, this_month: str) -> l
     A period whose due month is outside the line's start / end expects
     nothing, as before."""
     step = step_months(line)
-    amount = _r2(line["expectedAmount"])
     variance = line.get("variancePct") or 0
     out: list[dict] = []
     for first in range(1, 13, step):
         block = list(range(first, min(first + step, 13)))
         span = {"from": f"{year}-{block[0]:02d}", "to": f"{year}-{block[-1]:02d}"}
-        live = [m for m in block if in_force(line, year, m)]
+        live = [m for m in block if in_force(line, year, m) and not tenant_pays(line, year, m)]
         anchor = next((m for m in live if due_in_month(line, year, m)), None)
         hits = [m for m in live if paid[m - 1] > _POSTED] if anchor else []
+        amount = amount_in(line, year, hits[0] if hits else (anchor or first))[0]
         got = _r2(sum(paid[m - 1] for m in live))
         ended = bool(live) and f"{year}-{live[-1]:02d}" < this_month
         if hits:
@@ -326,11 +369,13 @@ def grid(lines: list[dict], payments: dict, year: int, today: date, unread: Opti
                     extra["period"] = plan[m - 1]["period"]
             else:
                 due = due_in_month(line, year, m)
-                expected = _r2(line["expectedAmount"]) if due else 0.0
+                expected = amount_in(line, year, m)[0] if due else 0.0
                 if pair in unread:
                     status = "upcoming" if key > this_month else ("unknown" if due else "none")
                 else:
                     status = month_status(due, expected, paid, key, this_month, line.get("variancePct") or 0)
+            if in_force(line, year, m) and tenant_pays(line, year, m):
+                extra["tenantPays"] = True      # 11/18/2026: kept on the sheet, never expected, never Missed
             cells.append({"month": key, "due": due, "expected": expected, "paid": paid, "status": status, **extra})
             paid_year = _r2(paid_year + paid)
             totals[m - 1]["expected"] = _r2(totals[m - 1]["expected"] + expected)
@@ -363,6 +408,7 @@ def _line_out(r: models.RecurringExpense) -> dict:
         "status": r.status or "active", "notes": r.notes or "", "source": r.source or "manual",
         "updatedBy": r.updated_by or "", "updatedAt": r.updated_at or "",
         "egnyteFolder": getattr(r, "egnyte_folder", "") or "", "egnyteUrl": _egnyte_url(getattr(r, "egnyte_folder", "") or ""),
+        "amountChanges": clean_changes(getattr(r, "amount_changes", None)),
         "possiblyEnded": ({"since": r.stale_since, "lastPaid": r.stale_last_paid or "", "taskId": r.stale_task_id or ""}
                           if getattr(r, "stale_since", "") else None),
     }
@@ -393,6 +439,8 @@ class LineBody(BaseModel):
     contactInfo: Optional[str] = ""
     # Oct 22 (Neil): the vendor's Egnyte folder. None (an older screen) keeps what is saved.
     egnyteFolder: Optional[str] = None
+    # 11/18/2026 (Charmi): amount changes and Paid by Tenant months. None (an older screen) keeps what is saved.
+    amountChanges: Optional[list[dict[str, Any]]] = None
 
 
 def _clean(body: LineBody) -> dict:
@@ -431,6 +479,7 @@ def _clean(body: LineBody) -> dict:
         "account_number": (body.accountNumber or "").strip()[:100], "account_details": (body.accountDetails or "").strip()[:1000],
         "contact_info": (body.contactInfo or "").strip()[:1000],
         **({} if body.egnyteFolder is None else {"egnyte_folder": _folder(body.egnyteFolder)}),
+        **({} if body.amountChanges is None else {"amount_changes": clean_changes(body.amountChanges)}),
     }
 
 
@@ -1052,44 +1101,89 @@ def _norm_words(s: str) -> list[str]:
 
 def folder_score(vendor: str, folder_name: str) -> float:
     """How well a folder's name matches the vendor's: 1 the same name
-    (case, punctuation and Inc. / LLC aside), 0.85 one inside the other,
+    (case, spaces, punctuation and Inc. / LLC aside - "Amerigas" is
+    "AmeriGas"), 0.85 one inside the other ("Anthem" for "Anthem Blue Cross"),
     else the share of words in common."""
     a, b = _norm_words(vendor), _norm_words(folder_name)
     if not a or not b:
         return 0.0
-    if a == b:
-        return 1.0
     ja, jb = " ".join(a), " ".join(b)
+    ca, cb = "".join(a), "".join(b)
+    if a == b or ca == cb:
+        return 1.0
     if f" {ja} " in f" {jb} " or f" {jb} " in f" {ja} ":
+        return 0.85
+    short, long_ = sorted((ca, cb), key=len)
+    if len(short) >= 4 and long_.startswith(short):
         return 0.85
     common = set(a) & set(b)
     return round(len(common) / len(set(a) | set(b)), 2)
 
 
-def rank_folders(vendor: str, folders: list[dict], limit: int = 5) -> list[dict]:
+ENTITIES_ROOT = "/Shared/#Entities"
+
+
+def vendor_folder_of(path: str) -> Optional[dict]:
+    """The vendor folder a hit sits in: for ".../Financials/Vendors/Amerigas/
+    2026/bill.pdf" that is ".../Financials/Vendors/Amerigas" - a file deep in
+    another entity's vendor folder still names the folder (11/18, Urmi)."""
+    parts = [x for x in (path or "").split("/") if x]
+    for i in range(len(parts) - 1):
+        if parts[i].lower() == "vendors" and i + 1 < len(parts):
+            return {"name": parts[i + 1], "path": "/" + "/".join(parts[: i + 2])}
+    return None
+
+
+def rank_folders(vendor: str, folders: list[dict], limit: int = 8, prefer: str = "") -> list[dict]:
     """The best-named folders first, one per path, those sharing at least a
-    third of their words."""
+    third of their words. On a tie a folder under `prefer` (the line's own
+    entity folder) leads, then a folder inside a Vendors folder, then the
+    shorter path."""
     seen, out = set(), []
+    pre = (prefer or "").rstrip("/").lower()
     for f in folders:
         p = f.get("path") or ""
         if not p or p.lower() in seen:
             continue
         seen.add(p.lower())
-        sc = folder_score(vendor, f.get("name") or p.rstrip("/").rsplit("/", 1)[-1])
+        name = f.get("name") or p.rstrip("/").rsplit("/", 1)[-1]
+        sc = folder_score(vendor, name)
         if sc >= 0.34:
-            out.append({"path": p, "name": f.get("name") or p.rstrip("/").rsplit("/", 1)[-1], "score": sc})
-    return sorted(out, key=lambda x: (-x["score"], len(x["path"])))[:limit]
+            out.append({"path": p, "name": name, "score": sc,
+                        "_own": bool(pre) and p.lower().startswith(pre + "/"),
+                        "_vendors": "/vendors/" in p.lower()})
+    out.sort(key=lambda x: (-x["score"], not x["_own"], not x["_vendors"], len(x["path"])))
+    return [{k: v for k, v in x.items() if not k.startswith("_")} for x in out[:limit]]
+
+
+def search_terms(vendor: str) -> list[str]:
+    """What Egnyte is searched for: the name as written, and its first word
+    when that is a word of its own ("Anthem" for "Anthem Blue Cross" - the
+    folder is often the short name)."""
+    name = (vendor or "").strip()
+    words = _norm_words(name)
+    out = [name] if name else []
+    if len(words) > 1 and len(words[0]) >= 4 and words[0] not in out:
+        out.append(words[0])
+    return out
 
 
 @router.get("/egnyte-suggest")
-async def egnyte_suggest(vendor: str, user: dict = Depends(_edit)):
+async def egnyte_suggest(vendor: str, entity: str = "", user: dict = Depends(_edit)):
     """The Egnyte folder a vendor's contracts most likely live in (Neil, Oct
     21: "each vendor linked to its contract / document folder; auto-find it,
     allow change"): the folders under the configured root (the settings'
     egnyteRoot) and Egnyte's own search for the vendor's name, ranked by how
     well the folder's name matches. Read as the caller's own Egnyte identity
     (routers/egnyte._browse_token), so nobody sees a folder they cannot open.
-    Only proposes - nothing is saved until the person picks one."""
+    Only proposes - nothing is saved until the person picks one.
+
+    11/18 (Urmi, 11/06: AmeriGas missed OSM's "Amerigas", Anthem Blue Cross
+    missed OSM's "Anthem"): the search covers every entity (#Entities), not
+    only the root, by the full name and by its first word; a hit inside any
+    entity's Financials/Vendors folder names that vendor folder; and with the
+    line's `entity` named, that entity's own Vendors folder is looked in
+    first and its folders lead the list."""
     import recurring_stale
     from routers import egnyte as eg
     from services import egnyte as svc
@@ -1098,6 +1192,14 @@ async def egnyte_suggest(vendor: str, user: dict = Depends(_edit)):
         return {"root": "", "suggestions": []}
     settings = await asyncio.to_thread(recurring_stale.load_settings)
     root = settings["egnyteRoot"]
+    entity = (entity or "").strip()[:200]
+
+    def soft(fn, *args, **kwargs):
+        # One extra look failing (busy, missing, not yours) never sinks the rest.
+        try:
+            return eg._call(fn, *args, **kwargs)
+        except HTTPException:
+            return None
 
     def work():
         db = SessionLocal()
@@ -1118,11 +1220,30 @@ async def egnyte_suggest(vendor: str, user: dict = Depends(_edit)):
             except HTTPException as e:
                 if e.status_code != 404:
                     raise
-        for r in eg._call(svc.search, name, root, 25, token=tok):
-            if r.get("isFolder"):
-                found.append({"name": r.get("name"), "path": r.get("path")})
-            elif r.get("path"):
-                parent = r["path"].rsplit("/", 1)[0]
-                found.append({"name": parent.rsplit("/", 1)[-1], "path": parent})
-        return rank_folders(name, found)
+        own = ""
+        if entity:
+            listing = soft(svc.list_folder, ENTITIES_ROOT, token=tok) or {}   # the ordinary list timeout: these looks only add, never wait 50 s
+            best = max(((folder_score(entity, f.get("name") or ""), f.get("path") or "") for f in listing.get("folders") or []), default=(0, ""))
+            if best[0] >= 0.5 and best[1]:
+                own = best[1].rstrip("/")
+                for term in search_terms(name):
+                    probe = f"{own}/Financials/Vendors/{term}"
+                    hit = soft(svc.list_folder, probe, token=tok, count=1)
+                    if hit is not None:
+                        real = (hit.get("path") or probe).rstrip("/")   # Egnyte's own spelling
+                        found.append({"name": real.rsplit("/", 1)[-1], "path": real})
+        scopes = [ENTITIES_ROOT] + ([root] if root and not root.lower().startswith(ENTITIES_ROOT.lower()) else [])
+        for scope in scopes:
+            for term in search_terms(name):
+                for r in soft(svc.search, term, scope, 100, token=tok) or []:
+                    p = r.get("path") or ""
+                    vf = vendor_folder_of(p)
+                    if vf:
+                        found.append(vf)
+                    if r.get("isFolder"):
+                        found.append({"name": r.get("name"), "path": p})
+                    elif p:
+                        parent = p.rsplit("/", 1)[0]
+                        found.append({"name": parent.rsplit("/", 1)[-1], "path": parent})
+        return rank_folders(name, found, prefer=own)
     return {"root": root, "suggestions": await asyncio.to_thread(work)}

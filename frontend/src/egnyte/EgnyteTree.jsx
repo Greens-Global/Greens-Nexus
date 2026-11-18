@@ -99,7 +99,7 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
         setFrom(d);
         // Expanding a node warms its children, so the next expand or open is
         // instant - the "no delay" feel is this line.
-        prefetchChildren(d, 16);
+        prefetchChildren(d, 8);
       })
       .catch(() => {
         setChildren(prev => new Map(prev).set(key, 'error'));

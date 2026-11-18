@@ -178,6 +178,8 @@ def mre_candidates(lines: list[dict], today: date, months: int) -> list[tuple[di
     for l in lines:
         if l["status"] != "active" or (l["endDate"] and l["endDate"] < today.isoformat()) or not l["vendorId"]:
             continue
+        if accounting_mre.tenant_pays(l, today.year, today.month):
+            continue        # 11/18/2026: the tenant pays it now - nothing posting is expected, never Possibly Ended
         win = mre_window(today, months, accounting_mre.step_months(l))
         if in_force_since(l["startDate"], win):
             out.append((l, win))
@@ -222,7 +224,7 @@ async def _mri_results(today: date, months: int) -> list[dict]:
     back_all = sorted({m for _l, win in cands for m in lookback(today, win)})
     receipts: dict = {}
     for year in sorted({int(m[:4]) for m in back_all}):
-        receipts.update(await leasing._receipts(_SCOPE, [l for l, _w in cands], year, every=rows))
+        receipts.update(await leasing._receipts(_SCOPE, [l for l, _w in cands], year, every=rows, untagged=False))
     out = []
     for l, win in cands:
         back = lookback(today, win)

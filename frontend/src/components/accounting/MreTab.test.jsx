@@ -19,7 +19,7 @@ const grid = {
   rows: [
     { line: line(), months: months(S, P), paidTotal: 3280, expectedYear: 4920, expectedToDate: 3690, paidToDate: 3280, balance: 410, monthsMissed: 1, unread: false, vendorInactive: false },
     { line: line({ id: 'L2', vendorId: 'V-MSFT', vendorName: 'Microsoft', category: 'software', entityCode: '56000', entityName: 'MCD Services, Inc.', expectedAmount: 99 }), months: months(Array(12).fill('none'), []), paidTotal: 99, expectedYear: 0, expectedToDate: 0, paidToDate: 0, balance: 0, monthsMissed: 0, unread: false, vendorInactive: false },
-    { line: line({ id: 'L3', vendorId: 'V-OLD', vendorName: 'Old Phone Co', status: 'ended', endDate: '2026-03-31' }), months: months(Array(12).fill('none'), []), paidTotal: 50, expectedYear: 0, expectedToDate: 0, paidToDate: 0, balance: 0, monthsMissed: 0, unread: false, vendorInactive: false },
+    { line: line({ id: 'L3', vendorId: 'V-OLD', vendorName: 'Old Phone Co', status: 'ended', endDate: '2025-12-31' }), months: months(Array(12).fill('none'), []), paidTotal: 0, expectedYear: 0, expectedToDate: 0, paidToDate: 0, balance: 0, monthsMissed: 0, unread: false, vendorInactive: false },
   ],
   totals: Array.from({ length: 12 }, (_v, i) => ({ month: `2026-${String(i + 1).padStart(2, '0')}`, expected: 410, paid: P[i] || 0 })),
   summary: { lines: 2, expectedToDate: 3690, paidToDate: 3280, balance: 410, missed: 1 },

@@ -186,12 +186,12 @@ describe('runBuilder', () => {
     expect(r.rows.at(-1).values).toEqual([1250, 1000, 2250]);
   });
 
-  it('Trailing 12 Months is the last twelve full months: twelve month columns and a Total (CR-06)', async () => {
+  it('Trailing 12 Months is the last thirteen full months: thirteen month columns and a Total (CR-06, Neil 11/05/2026)', async () => {
     const api = { getAccountingBuckets: vi.fn(async () => ({ labels: {}, rows: [{ account_no: '61000', title: 'Advertising', section: 'expense', bucket: '2026-09-01', debit: 10, credit: 0 }] })) };
     const r = await runBuilder(api, resolveBuilder({ preset: 't12m', cols: 'month' }, NOW));
-    expect(api.getAccountingBuckets.mock.calls[0][0]).toMatchObject({ from: '2025-10-01', to: '2026-09-30', by: 'month' });
-    expect(r.columns).toHaveLength(13);
-    expect([r.columns[0].label, r.columns[11].label, r.columns[12].label]).toEqual(['Sep 2026', 'Oct 2025', 'Total']);
+    expect(api.getAccountingBuckets.mock.calls[0][0]).toMatchObject({ from: '2025-09-01', to: '2026-09-30', by: 'month' });
+    expect(r.columns).toHaveLength(14);
+    expect([r.columns[0].label, r.columns[12].label, r.columns[13].label]).toEqual(['Sep 2026', 'Sep 2025', 'Total']);
   });
 
   it('as of a date: balance sheet accounts to the date, income and expense for the year', async () => {

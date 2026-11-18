@@ -5739,6 +5739,19 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .egx-layout { grid-template-columns: minmax(0, 1fr); }
   .egx-tree-pane, .egx-divider { display: none; }
 }
+/* The folder PICKER (EgnyteFolderPick with the tree, 11/18): a fixed-height
+   card whose two panes scroll on their own, so picking a folder never scrolls
+   the card and Use This Folder stays in reach. Scoped to the picker - the
+   Files screen keeps the page-scrolling layout above (the Aug 11 stall was a
+   sticky pane with max-height 100vh in the page grid; nothing here is sticky). */
+.egx-picker > .egx-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.egx-picker .egx-layout { flex: 1 1 auto; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr); }
+.egx-picker .egx-tree-pane,
+.egx-picker .egx-list-pane { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.egx-picker > .egx-wrap > .egx-list-pane { flex: 1 1 auto; }
+/* Audit 11/19: the folder header (breadcrumb, search, Use This Folder) stays
+   pinned at the top of its pane while a long file list scrolls under it. */
+.egx-picker .egx-list-pane > :first-child { position: sticky; top: 0; z-index: 2; }
 
 /* Tree rows */
 .egx-tree-row { display: flex; align-items: center; border-radius: 6px; min-width: 0; }
