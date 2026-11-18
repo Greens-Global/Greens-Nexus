@@ -339,12 +339,12 @@ export function CredentialForm({ cred, people, myEmail, nameOf, onClose, onSave,
   }
 
   return (
-    <Modal title={editing ? "Edit Credential" : "Add Credential"} onClose={onClose} isDirty={dirty} onSave={save}
+    <Modal title={editing ? "Edit Login" : "Add Login"} onClose={onClose} isDirty={dirty} onSave={save}
       width="clamp(480px, 56vw, 760px)"
       footer={<>
         {error && <span style={{ color: "var(--cv-bad)", fontSize: 13, marginRight: "auto" }} role="status">{error}</span>}
         <button type="button" className="cv-btn" onClick={onClose}>Cancel</button>
-        <button type="button" className="cv-btn-dark" onClick={save} disabled={saving}>{saving ? "Saving…" : editing ? "Save Changes" : "Save Credential"}</button>
+        <button type="button" className="cv-btn-dark" onClick={save} disabled={saving}>{saving ? "Saving…" : editing ? "Save Changes" : "Save Login"}</button>
       </>}>
       <div className="cv-root" style={{ gap: 0, animation: "none" }}>
         <div className="cv-form-stack">
@@ -379,7 +379,7 @@ export function CredentialForm({ cred, people, myEmail, nameOf, onClose, onSave,
             ) : (
               <input value={form.totpSecret} onChange={(e) => { set("totpSecret", e.target.value); set("clearTotp", false); }} className="cv-ipt" placeholder="The text under the site's QR code, or the otpauth:// link" autoComplete="off" />
             )}
-            <p className="cv-hint" style={{ marginTop: 4 }}>For logins with two-step sign-in: whoever can open this credential gets the current 6-digit code too, so nobody waits on one person's phone.</p>
+            <p className="cv-hint" style={{ marginTop: 4 }}>For logins with two-step sign-in: whoever can open this login gets the current 6-digit code too, so nobody waits on one person's phone.</p>
           </Field>
           <Field label="Notes"><textarea value={form.note} onChange={(e) => set("note", e.target.value)} className="cv-ipt" placeholder="Recovery hints, who to call, what this login is for. Shown only to people who can open the password." /></Field>
           <div className="cv-form-grid">
@@ -413,7 +413,7 @@ export function CredentialForm({ cred, people, myEmail, nameOf, onClose, onSave,
           <p className="cv-hint">
             {form.tier === "Critical"
               ? "Critical: only the owners, the department head, admins and the people named above open it. Everyone else asks, and the owner (or the head, or an admin) approves timed access."
-              : "Everyone else with Credentials can see that this login exists and ask for timed access. The department's head and backup head manage it along with the owners."}
+              : "Everyone else with Passwords can see that this login exists and ask for timed access. The department's head and backup head manage it along with the owners."}
           </p>
         </div>
       </div>
@@ -603,7 +603,7 @@ export function ImportWizard({ depts, sites = [], departments = [], people, myEm
                 <span><b>{result.refused.length} left out:</b> {result.refused.map((r) => `${r.name} (${r.reason})`).join("; ")}.</span>
               </div>
             )}
-            <p className="cv-hint" style={{ marginTop: 12 }}>They are in My Logins now, owned by you{backupOwner ? ` with ${nameOf(backupOwner)} as backup` : ""}. The spreadsheet can go: delete it, and tell the team the vault is the place from now on.</p>
+            <p className="cv-hint" style={{ marginTop: 12 }}>They are on the list now, owned by you{backupOwner ? ` with ${nameOf(backupOwner)} as backup` : ""}. The spreadsheet can go: delete it, and tell the team the vault is the place from now on.</p>
           </div>
         )}
       </div>
@@ -735,7 +735,7 @@ export function ShareModal({ cred, people, nameOf, onClose, onSubmit }) {
         <Field label="For"><DurationPicker value={dur} onChange={setDur} /></Field>
         {tooLong && <span className="cv-field-error">A share with someone outside Nexus lasts 7 days at most - pick a shorter time.</span>}
         <div className="cv-callout">
-          <span>People in Nexus see it on their own My Logins {dur ? (dur.custom ? dur.label.toLowerCase() : `for ${dur.label.toLowerCase()}`) : ""}, then it leaves their list; they need the Credentials grant, and each gets a bell.
+          <span>People in Nexus see it on their own list {dur ? (dur.custom ? dur.label.toLowerCase() : `for ${dur.label.toLowerCase()}`) : ""}, then it leaves their list; they need the Passwords grant, and each gets a bell.
             {out.length > 0 && <> People outside Nexus get an email link; they see the username, link and password only after a one-time code we send them, and only until it ends. When it ends, you and the department head are asked to change the password.</>}
             {cred.tier === "Critical" && out.length > 0 && <> This is a Critical login: sharing it outside needs a Super Administrator&apos;s code.</>}
           </span>

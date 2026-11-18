@@ -1557,14 +1557,17 @@ def _partner_changes(db: Session, user: dict, ctx: dict) -> list:
     return out
 
 
-# ── Access: Credential Vault share requests (routers/credvault.py) ───────────
+# ── Access: requests for a login (Passwords, routers/credvault.py) ───────────
 
-@source("credvault_request", "Credential Requests", "access")
+@source("credvault_request", "Password Requests", "access")
 def _credvault_requests(db: Session, user: dict, ctx: dict) -> list:
     """Share requests the caller may decide (credvault.list_requests: the
-    credential's owner or backup owner, or an admin, inside the company
-    wall), behind the vault's own grant. Approving goes through the vault's
-    code step, so it opens Credential Vault > Approvals; Deny runs inline."""
+    login's owner or backup owner, or an admin, inside the company wall),
+    behind the vault's own grant. Decided HERE since 11/18/2026 (Neil): the
+    vault's own Approvals tab is gone. Approve runs in place - the screen
+    asks for the vault's code first (lib/approvalActions.js PREFLIGHT) and
+    the vault's approve route still checks it; Deny runs in place too. The
+    row's link opens the login itself."""
     from auth import require_module_grant
     from routers.credvault import list_requests
     u = require_module_grant("credvault")(user={**user}, db=db)
@@ -1577,11 +1580,11 @@ def _credvault_requests(db: Session, user: dict, ctx: dict) -> list:
         to = (r.get("sharedToEmail") or "").lower()
         when = (datetime.fromtimestamp(r["ts"] / 1000, tz=timezone.utc).isoformat() if r.get("ts") else "")
         out.append(row("credvault_request", r["id"], person_email=who, person_name=r.get("requestedBy") or "",
-                       title=f"Credential Access - {r.get('cred') or 'Credential'} ({r.get('duration') or '1 Hour'})",
+                       title=f"Password Access - {r.get('cred') or 'Login'} ({r.get('duration') or '1 Hour'})",
                        detail=f"For {_name(db, ctx, to)}." if to and to != who else "",
-                       created_at=when, actions=(a_open("Review"), A_DENY),
-                       link={"view": "credvault", "sub": "approvals"},
-                       facts=(("Credential", r.get("cred") or ""), ("Department", r.get("dept") or ""),
+                       created_at=when, actions=(A_APPROVE, A_DENY),
+                       link={"view": "credvault", "sub": f"cred-{r['credId']}" if r.get("credId") else ""},
+                       facts=(("Login", r.get("cred") or ""), ("Department", r.get("dept") or ""),
                               ("Duration", r.get("duration") or ""),
                               ("Access For", _name(db, ctx, to) if to and to != who else ""))))
     return out

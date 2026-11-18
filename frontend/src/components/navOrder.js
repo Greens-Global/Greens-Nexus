@@ -64,3 +64,10 @@ export function railSections(items, kickers) {
   flush();
   return out;
 }
+
+// On the left rail? `menuOnly` never is (it opens from a module or the profile
+// menu). `dashTab` (Neil, 11/18/2026 - Passwords) is a Dashboard tab for
+// everyone inside the company, so it leaves their rail; an outside guest has
+// no Dashboard and keeps the row. Either way the item stays in NAV, so header
+// search still finds the screen and its grant is still what shows it.
+export const onRail = (item, isExternal) => !item.menuOnly && !(item.dashTab && !isExternal);

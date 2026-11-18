@@ -352,7 +352,7 @@ const GROUPS = [
   // Security
   { id: 'sign-in-sessions', subject: 'security', face: 'org', scope: 'org', icon: ShieldCheck, title: 'Sign-In & Sessions',
     needs: { role: 'administrator' },
-    sub: 'How long web, Act As and Credentials sessions last, and guest sign-in codes.',
+    sub: 'How long web, Act As and Passwords sessions last, and guest sign-in codes.',
     keywords: 'session timeout idle act as vault unlock guest partner code lockout invite security' },
   { id: 'signin-policy', subject: 'security', face: 'org', scope: 'org', icon: FileCheck, title: 'Sign-In Policy',
     needs: { role: 'administrator' },

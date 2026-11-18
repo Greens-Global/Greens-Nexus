@@ -156,9 +156,9 @@ export const MODULE_CAPABILITIES = {
     tiers:  { manager: 'Editor without a grant', super: 'deletes without a grant' },
   },
   credvault: {
-    viewer: 'Open Credentials, use the shared logins their department or a share opens, and ask for the rest.',
-    editor: 'Also add and import credentials.',
-    full:   'Also manage every credential on their side of the company wall - edit, share, hand over, trash, recover and delete for good.',
+    viewer: 'Open Passwords (a Dashboard tab), use the shared logins their department or a share opens, and ask for the rest.',
+    editor: 'Also add and import logins.',
+    full:   'Also manage every login on their side of the company wall - edit, share, hand over, trash, recover and delete for good.',
     tiers:  { administrator: 'the whole activity log' },
   },
   testing: {

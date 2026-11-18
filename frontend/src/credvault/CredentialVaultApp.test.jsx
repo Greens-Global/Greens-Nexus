@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
-// Render smoke for Credentials (Oct 29 2026 tabs): My Logins lists what the
-// API lets me open and copies from the row, a row I cannot open sits folded
-// with Request Access, Approvals shows what is waiting, Overview carries the
-// numbers and the full list, and the deep link "cred-<id>" opens the drawer.
+// Render smoke for Passwords, the one list (Neil, 11/18/2026): what the API
+// lets me open with copy on the row, a row I cannot open folded with Request
+// Access, the sentence as the menu, the login as a sheet, and everything the
+// five old tabs did still reachable - Personal (a section), the collections
+// (the sentence's phrases), Trash / Activity / the audit export / bulk trash
+// (the "..." menu), requests to approve (Dashboard > Approvals; a guest's
+// own sheet), and every old deep link.
 
 const calls = {
   cvCredentials: vi.fn(), cvRequests: vi.fn(), cvLogs: vi.fn(), cvOtpStatus: vi.fn(), cvAccess: vi.fn(),
@@ -16,14 +19,12 @@ vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({ myEmail: 'olive@x.com', can: () => false, canAccessModule: () => true }),
 }));
 vi.mock('../lib/useNameResolver', () => ({ useNameResolver: () => (e) => ({ 'olive@x.com': 'Olive Owner', 'ben@x.com': 'Ben Builder' }[e] || e) }));
-vi.mock('../components/ModuleTabs', () => ({
-  default: ({ tabs, active, onChange }) => (
-    <div role="tablist">{tabs.map((t) => <button key={t.key} role="tab" aria-selected={active === t.key} onClick={() => onChange(t.key)}>{t.label}{t.badge ? ` (${t.badge})` : ''}</button>)}</div>
-  ),
-  ModuleActions: ({ children }) => children,
-}));
+vi.mock('../components/ModuleTabs', () => ({ default: () => null, ModuleActions: ({ children }) => children }));
+const exportAudit = vi.hoisted(() => vi.fn());
+vi.mock('./auditExport', () => ({ exportAudit }));
 
 const { default: CredentialVaultApp } = await import('./CredentialVaultApp');
+const { DialogHost } = await import('../ui/dialog');
 
 const mine = { id: 'c1', name: 'Stripe', dept: 'Accounting', type: 'Password', tier: 'Standard', username: 'pay@x.com', url: 'https://stripe.com', note: 'Finance login',
   owner: 'olive@x.com', backupOwner: '', strength: 'strong', reused: false, rotatedAt: '2026-10-01T00:00:00+00:00', rotatedDays: 13, rotationMax: 90, customExpiry: false,
@@ -47,23 +48,31 @@ beforeEach(() => {
   try { localStorage.clear(); } catch { /* none */ }
 });
 
-describe('Credentials', () => {
-  // An owner lands on Overview (Pranshu, Oct 29 2026); the list is one tab away.
-  const toLogins = async () => { fireEvent.click(await screen.findByRole('tab', { name: 'My Logins' })); await waitFor(() => expect(row('c1')).toBeTruthy()); };
+const more = async (name) => {
+  fireEvent.click(screen.getByRole('button', { name: 'More' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: new RegExp(name) }));
+};
+const sentence = () => document.querySelector('[data-sentence]');
 
-  it('an owner lands on Overview first, with My Logins next to it', async () => {
+describe('Passwords', () => {
+  const ready = async () => { await waitFor(() => expect(row('c1')).toBeTruthy()); };
+
+  it('is one list: no tabs, no tiles, the sentence on top and everyone lands on it', async () => {
     render(<CredentialVaultApp />);
-    expect(await screen.findByText('No Backup Owner', { selector: '.cv-kpi-label' })).toBeTruthy();
-    expect(within(screen.getAllByRole('tablist')[0]).getAllByRole('tab').map((t) => t.textContent)).toEqual(['Overview', 'My Logins', 'Personal', 'Approvals (1)', 'Activity']);
+    await ready();
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(document.querySelector('.cv-kpi, .cv-chip, .cv-health')).toBeNull();
+    // Olive owns Stripe (no backup owner); Ben asks for it; Jira is not hers to open.
+    expect(sentence().textContent).toBe('1 you can open - 1 yours - 1 has no backup owner - 1 request waiting');
+    expect(screen.getByText(/Verified until/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Personal/ })).toBeTruthy();               // folded and locked, in the same list
   });
 
-  it('My Logins: what I can open, copy from the row, the drawer on a click', async () => {
+  it('copies from the row, never shows the password, and opens the login as a sheet', async () => {
     const writeText = vi.fn().mockResolvedValue();
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     render(<CredentialVaultApp />);
-    await toLogins();
-    expect(screen.getByText(/Verified until/)).toBeTruthy();
-    expect(screen.getByText('Copy from the row, or open a login')).toBeTruthy();       // the empty pane
+    await ready();
     expect(row('c2')).toBeNull();                                                      // folded: not mine to open
     expect(screen.getByRole('button', { name: /Not shared with you/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Copy password for Stripe' }));
@@ -73,12 +82,14 @@ describe('Credentials', () => {
     expect(await screen.findByText(/Clipboard clears in/)).toBeTruthy();
     expect(screen.queryByText('Corr3ct-Horse!')).toBeNull();                          // copied, never shown
     fireEvent.click(screen.getByRole('button', { name: 'Stripe details' }));
-    const dlg = await screen.findByRole('region', { name: 'Stripe' });
+    const dlg = await screen.findByRole('dialog', { name: 'Stripe' });
     expect(within(dlg).getByText('pay@x.com')).toBeTruthy();
     expect(within(dlg).getByText('Finance login')).toBeTruthy();
     fireEvent.click(within(dlg).getByRole('button', { name: 'Reveal Password' }));
     expect(await within(dlg).findByText('Corr3ct-Horse!')).toBeTruthy();
     expect(within(dlg).getByRole('button', { name: 'Edit' })).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Stripe' })).toBeNull());
     // Recently Used remembers the copy.
     expect(screen.getByText('Recently Used')).toBeTruthy();
   });
@@ -88,7 +99,7 @@ describe('Credentials', () => {
     calls.cvOtpStatus.mockResolvedValue({ verified: false, until: null, windowSec: 900 });
     calls.cvCredentials.mockResolvedValue([{ ...mine, homeDept: true }, { ...mine, id: 'c3', name: 'Payroll', dept: 'HR', homeDept: false }]);
     render(<CredentialVaultApp />);
-    await toLogins();
+    await ready();
     fireEvent.click(screen.getByRole('button', { name: 'Copy password for Stripe' }));
     await waitFor(() => expect(calls.cvReveal).toHaveBeenCalledWith('c1'));
     expect(screen.queryByText('Verify Your Identity')).toBeNull();
@@ -99,7 +110,7 @@ describe('Credentials', () => {
 
   it('a row I cannot open sits folded, hides the username and asks instead of revealing', async () => {
     render(<CredentialVaultApp />);
-    await toLogins();
+    await ready();
     fireEvent.click(screen.getByRole('button', { name: /Not shared with you/ }));
     expect(within(row('c2')).queryByRole('button', { name: /Copy password/ })).toBeNull();
     fireEvent.click(within(row('c2')).getByRole('button', { name: 'Request access to Jira Admin' }));
@@ -108,52 +119,128 @@ describe('Credentials', () => {
     await waitFor(() => expect(calls.cvRequest).toHaveBeenCalledWith('c2', { durationMs: 14400000, durationLabel: '4 Hours' }));
     expect(await screen.findByText(/Asked Ben Builder for Jira Admin/)).toBeTruthy();
     fireEvent.click(within(row('c2')).getByRole('button', { name: 'Jira Admin details' }));
-    const dlg = await screen.findByRole('region', { name: 'Jira Admin' });
+    const dlg = await screen.findByRole('dialog', { name: 'Jira Admin' });
     expect(within(dlg).queryByRole('button', { name: 'Reveal Password' })).toBeNull();
     expect(within(dlg).queryByRole('button', { name: 'Edit' })).toBeNull();
   });
 
-  it('shows waiting requests on Approvals and approves inside the verified window', async () => {
+  it('search is the filter, and it finds what I cannot open too', async () => {
     render(<CredentialVaultApp />);
-    await screen.findByText('No Backup Owner', { selector: '.cv-kpi-label' });
-    fireEvent.click(screen.getByRole('tab', { name: /^Approvals/ }));
-    const who = await screen.findByText('Ben Builder', { selector: 'strong' });
-    expect(who.closest('p').textContent).toMatch(/asks for 4 hours of access/);
+    await ready();
+    const box = screen.getByRole('textbox', { name: 'Search logins' });
+    fireEvent.change(box, { target: { value: 'accounting olive' } });                  // department AND the owner's name
+    expect(row('c1')).toBeTruthy();
+    fireEvent.change(box, { target: { value: 'jira' } });
+    expect(row('c1')).toBeNull();
+    expect(row('c2')).toBeTruthy();                                                   // the fold opens for a search
+    fireEvent.keyDown(box, { key: 'Enter' });                                         // Enter opens the first result
+    expect(await screen.findByRole('dialog', { name: 'Jira Admin' })).toBeTruthy();
+  });
+
+  it('the sentence is the menu: a phrase filters the list and a second click clears it', async () => {
+    calls.cvCredentials.mockResolvedValue([mine, { ...mine, id: 'c4', name: 'Bank', owner: 'ben@x.com', backupOwner: 'ben@x.com', access: 'department', canEdit: false, rotatedDays: 120 }, theirs]);
+    render(<CredentialVaultApp />);
+    await ready();
+    expect(sentence().textContent).toBe('2 you can open - 1 yours - 1 needs attention - 1 has no backup owner - 1 request waiting');
+    expect(within(row('c4')).getByText('rotation 30 days overdue').className).toContain('tone-bad');   // a state is words on the row
+    fireEvent.click(screen.getByRole('button', { name: '1 needs attention' }));
+    expect(row('c1')).toBeNull();
+    expect(row('c4')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Personal/ })).toBeNull();            // a filtered list is company logins only
+    fireEvent.click(screen.getByRole('button', { name: '1 needs attention' }));
+    expect(row('c1')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '1 yours' }));
+    expect(row('c4')).toBeNull();
+    expect(row('c1')).toBeTruthy();
+  });
+
+  it('a request to approve points at Dashboard > Approvals, where it is decided now', async () => {
+    const heard = [];
+    const h = (e) => heard.push(e.detail);
+    window.addEventListener('nexus:navigate', h);
+    try {
+      render(<CredentialVaultApp />);
+      await ready();
+      fireEvent.click(screen.getByRole('button', { name: '1 request waiting' }));
+      expect(heard).toEqual([{ view: 'dashboard', sub: 'approvals:access' }]);
+      expect(screen.queryByRole('dialog', { name: 'Requests' })).toBeNull();
+    } finally { window.removeEventListener('nexus:navigate', h); }
+  });
+
+  it('an outside guest has no Dashboard: the same request is decided in their own Requests sheet', async () => {
+    render(<CredentialVaultApp standalone />);
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: '1 request waiting' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Requests' });
+    expect(within(dlg).getByText('Ben Builder', { selector: 'strong' }).closest('p').textContent).toMatch(/asks for 4 hours of access/);
     calls.cvApproveRequest.mockResolvedValue({ ok: true });
-    fireEvent.click(screen.getByRole('button', { name: /Approve/ }));
+    fireEvent.click(within(dlg).getByRole('button', { name: /Approve/ }));
     await waitFor(() => expect(calls.cvApproveRequest).toHaveBeenCalledWith('r1'));
   });
 
-  it('Overview carries the numbers, the health table and the full list with its collections', async () => {
-    render(<CredentialVaultApp activeSub="cred-c2" />);
-    expect(await screen.findByRole('region', { name: 'Jira Admin' })).toBeTruthy();      // a deep link lands in My Logins, open
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    expect(screen.getByText('Copy from the row, or open a login')).toBeTruthy();
-    fireEvent.click(screen.getByRole('tab', { name: 'Overview' }));
-    expect(await screen.findByText('Needs Attention', { selector: '.cv-kpi-label' })).toBeTruthy();
-    expect(screen.getByText('No Backup Owner', { selector: '.cv-kpi-label' })).toBeTruthy();
-    const table = document.querySelector('.cv-health');
-    expect(within(table).getByText('Accounting')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Export to Excel/ })).toBeTruthy();
-    // Not an admin: the Overview covers what they manage - Ben's Jira is not in it, and there is no All Credentials.
-    expect(document.getElementById('cred-row-c2')).toBeNull();
-    expect(screen.queryByRole('tab', { name: /All Credentials/ })).toBeNull();
-    expect(screen.getByRole('tab', { name: /Owned by Me/ }).getAttribute('aria-selected')).toBe('true');
-    expect(document.getElementById('cred-row-c1')).toBeTruthy();
-    expect(screen.getByText('Logins You Manage', { selector: '.cv-kpi-label' })).toBeTruthy();
+  it('"..." holds Activity, Trash, the audit export, bulk trash and the sorts', async () => {
+    calls.cvCredentials.mockResolvedValue([mine, { ...mine, id: 'c9', name: 'Old Portal', deletedAt: '2026-11-01T00:00:00Z', deletedBy: 'ben@x.com' }, theirs]);
+    calls.cvBulkDelete = vi.fn().mockResolvedValue({ ok: true });
+    render(<><DialogHost /><CredentialVaultApp /></>);
+    await ready();
+    expect(row('c9')).toBeNull();                                                      // the trash is not on the list
+    await more('Activity');
+    const act = await screen.findByRole('dialog', { name: 'Activity' });
+    expect(within(act).getByText('Created', { selector: 'span' })).toBeTruthy();
+    fireEvent.click(within(act).getByRole('button', { name: /Olive Owner/ }));          // a row opens its login
+    expect(await screen.findByRole('dialog', { name: 'Stripe' })).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Activity' })).toBeNull();
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Stripe' })).getByRole('button', { name: 'Close' }));
+    await more('Trash');
+    expect(row('c9')).toBeTruthy();
+    expect(row('c1')).toBeNull();
+    expect(sentence().textContent).toMatch(/^Trash - 1 login/);
+    fireEvent.click(screen.getByRole('button', { name: 'Back to All' }));
+    await more('Export for an Audit');
+    expect(exportAudit).toHaveBeenCalledTimes(1);
+    expect(exportAudit.mock.calls[0][0].map((c) => c.id)).toEqual(['c1']);            // what she manages: not Ben's Jira, not the trash
+    await more('Select Several');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Stripe' }));
+    fireEvent.click(screen.getByRole('button', { name: /Move to Trash/ }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Move to Trash' }));
+    await waitFor(() => expect(calls.cvBulkDelete).toHaveBeenCalledWith(['c1']));
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    expect((await screen.findAllByRole('menuitemradio')).map((r) => [r.textContent, r.getAttribute('aria-checked')]))
+      .toEqual([['Sort by Name', 'true'], ['Sort by Department', 'false'], ['Sort by Owner', 'false'], ['Sort by Oldest Rotation', 'false'], ['Sort by Needs Attention First', 'false']]);
   });
 
-  it('on a phone an owner lands on My Logins, and the detail opens as a full-screen sheet', async () => {
+  it('"+ New" starts a company login, a personal one or an import; Personal unlocks first', async () => {
+    render(<CredentialVaultApp />);
+    await ready();
+    fireEvent.click(screen.getByRole('button', { name: 'New' }));
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.querySelector('.nx-new-label').textContent)).toEqual(['Login', 'Personal Login', 'Import From a Spreadsheet...']);
+    fireEvent.click(screen.getByRole('menuitem', { name: /Personal Login/ }));
+    expect(await screen.findByText(/Personal Vault/, { selector: 'h3' })).toBeTruthy();   // the unlock comes first
+  });
+
+  it('every old deep link still lands: a login, a collection, the trash, Activity', async () => {
+    const { rerender } = render(<CredentialVaultApp activeSub="cred-c2" />);
+    expect(await screen.findByRole('dialog', { name: 'Jira Admin' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    rerender(<CredentialVaultApp activeSub="nobackup" />);
+    expect(screen.getByRole('button', { name: '1 has no backup owner' }).getAttribute('aria-pressed')).toBe('true');
+    rerender(<CredentialVaultApp activeSub="trash" />);
+    expect(sentence().textContent).toMatch(/^Trash/);
+    rerender(<CredentialVaultApp activeSub="activity" />);
+    expect(await screen.findByRole('dialog', { name: 'Activity' })).toBeTruthy();
+    // A repeat click on a bell arrives as an event while the address does not change.
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Activity' })).getByRole('button', { name: 'Close' }));
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'dashboard', sub: 'passwords:cred-c1' } }));
+    expect(await screen.findByRole('dialog', { name: 'Stripe' })).toBeTruthy();
+  });
+
+  it('on a phone it is the same list and the login opens as the same sheet', async () => {
     const real = window.matchMedia;
     window.matchMedia = (q) => ({ matches: /max-width: 900px/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
     try {
       render(<CredentialVaultApp />);
-      // The everyday list first (11/15/2026 phone pass); Overview is one tab away.
-      await waitFor(() => expect(row('c1')).toBeTruthy());
-      expect(screen.getByRole('tab', { name: 'My Logins' }).getAttribute('aria-selected')).toBe('true');
-      expect(screen.getByText(/^Until \d/)).toBeTruthy();                            // the verified window, short
-      expect(screen.queryByText(/Verified until/)).toBeNull();
-      expect(screen.queryByText('Copy from the row, or open a login')).toBeNull();     // no inline pane on a phone
+      await ready();
+      expect(document.activeElement).not.toBe(screen.getByRole('textbox', { name: 'Search logins' }));   // no keyboard popping up on arrival
       fireEvent.click(screen.getByRole('button', { name: 'Stripe details' }));
       const dlg = await screen.findByRole('dialog', { name: 'Stripe' });
       expect(within(dlg).getByText('pay@x.com')).toBeTruthy();
