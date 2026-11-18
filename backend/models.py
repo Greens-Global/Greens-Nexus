@@ -4654,6 +4654,10 @@ class IrInvestor(Base):
     created_by                 = Column(String, default="")
     created_at                 = Column(String, default="")
     updated_at                 = Column(String, default="")
+    # When this investor is one of our own entities (Greens Global Inv 1,
+    # LLC investing in a deal), its Intacct entity code - the step that lets
+    # Accounting > Entities draw ownership through it (Neil, 11/17/2026).
+    legal_entity_code          = Column(String, default="")
 
 
 class IrCommitment(Base):
@@ -10549,3 +10553,78 @@ class OpsAccessRule(Base):
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
     __table_args__ = (UniqueConstraint("subject_type", "subject_id", name="ux_ops_access_rules_subject"),)
+
+class LegalEntity(Base):
+    """One legal entity's own record in Accounting > Entities (Neil, 11/17/2026).
+
+    Keyed by the Intacct entity (location) code - the key Investor Relations,
+    Loans, Management Fees, Leasing and Construction already share. Holds only
+    what the books do not: the legal facts (type, tax classification, state
+    and date formed, status, EIN, registered agent, managers, signers), the
+    properties it owns, the person accountable for it (`steward_email`) and
+    its Egnyte folder. The books name, parent and every figure are read live
+    from the accounting app, never copied. When `company_id` points at a
+    Nexus company (Settings > Companies), that company's legal name, EIN,
+    address and signatory are THE values and these columns stay blank, so a
+    legal fact is never kept twice. The EIN is encrypted (`ein_enc`, the
+    secret_box `enc:` value); only its last four are kept readable. New
+    table - create_all builds it; RLS on dev and prod (main.py line too)."""
+    __tablename__ = "legal_entities"
+    code             = Column(String, primary_key=True)    # Intacct entity code, e.g. 67000
+    kind             = Column(String, default="")          # '' = by the code (a "-1" code is a location) | entity | location
+    company_id       = Column(String, default="")          # hr_entities.id when it is also a Nexus company
+    legal_name       = Column(String, default="")
+    dba              = Column(String, default="")
+    entity_type      = Column(String, default="")          # legal_entities.ENTITY_TYPES
+    tax_class        = Column(String, default="")          # legal_entities.TAX_CLASSES ('' = from the type)
+    formed_state     = Column(String, default="")          # two-letter state (or a country code)
+    formed_on        = Column(String, default="")          # YYYY-MM-DD
+    status           = Column(String, default="active")    # active | inactive | dissolved | sold
+    ended_on         = Column(String, default="")          # YYYY-MM-DD, when dissolved or sold
+    ein_enc          = Column(String, default="")          # encrypted EIN, never returned whole
+    ein_last4        = Column(String, default="")
+    fiscal_year_end  = Column(String, default="")          # MM-DD ('' = 12-31)
+    address          = Column(String, default="")          # principal address
+    registered_agent = Column(String, default="")
+    agent_renews_on  = Column(String, default="")          # YYYY-MM-DD
+    foreign_states   = Column(JSON, default=list)          # [{state, registeredOn}]
+    management       = Column(String, default="")          # member | manager | board | trustee
+    manager_code     = Column(String, default="")          # the managing entity's code, when it is one of ours
+    manager_name     = Column(String, default="")          # else who manages it (a person, an outside firm)
+    signers          = Column(JSON, default=list)          # [{name, title, email}]
+    steward_email    = Column(String, default="")          # the Nexus person accountable for it
+    property_ids     = Column(JSON, default=list)          # Asset Management properties it owns
+    egnyte_folder    = Column(String, default="")          # /Shared/#Entities/<name>
+    notes            = Column(Text, default="")
+    rev              = Column(Integer, default=1)
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class LegalEntityOwner(Base):
+    """One owner of an entity that is NOT an Investor Relations deal (Neil,
+    11/17/2026 - a deal's members stay on its commitments in Investor
+    Relations, so every entity's ownership has exactly one home; the routes
+    refuse a row for a deal's entity). The owner is one of our entities
+    (`owner_code`), an Investor Relations profile (`investor_id`) or a person
+    or outside party by name. An owner who leaves is ENDED (`until`), never
+    overwritten or deleted, so the history of who owned it stays. New table -
+    create_all builds it; RLS on dev and prod (main.py line too)."""
+    __tablename__ = "legal_entity_owners"
+    id          = Column(String, primary_key=True)
+    entity_code = Column(String, nullable=False, index=True)   # the entity owned
+    owner_kind  = Column(String, default="person")             # entity | investor | person
+    owner_code  = Column(String, default="", index=True)       # when owner_kind = entity
+    investor_id = Column(String, default="")                   # when owner_kind = investor
+    owner_name  = Column(String, default="")                   # when owner_kind = person (or a note of the name)
+    pct         = Column(Float, nullable=True)                 # 0-100; None = not known
+    owner_class = Column(String, default="")                   # e.g. Class A, Managing Member
+    since       = Column(String, default="")                   # YYYY-MM-DD
+    until       = Column(String, default="")                   # YYYY-MM-DD; '' = current
+    notes       = Column(String, default="")
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_by  = Column(String, default="")
+    updated_at  = Column(String, default="")

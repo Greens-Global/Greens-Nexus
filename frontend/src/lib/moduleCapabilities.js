@@ -11,9 +11,9 @@
 
 export const MODULE_CAPABILITIES = {
   accounting: {
-    viewer: 'The Accounting screen - Profit & Loss, ledgers and every report.',
-    editor: 'Also record and edit entries, budgets, loans, leases, flux and saved reports, and run imports.',
-    full:   'Also allocations, the compensation sub-ledger, liability reconciliation, the month-end close and saved-report administration. Entity access still limits which entities they read.',
+    viewer: 'The Accounting screen - Profit & Loss, ledgers, every report and each entity\'s record and structure chart.',
+    editor: 'Also record and edit entries, budgets, loans, leases, flux and saved reports, run imports, and edit an entity\'s legal record and owners.',
+    full:   'Also allocations, the compensation sub-ledger, liability reconciliation, the month-end close, saved-report administration, showing an entity\'s whole EIN and marking an entity Dissolved or Sold. Entity access still limits which entities they read.',
     tiers:  { administrator: 'opens the screen without a grant' },
   },
   'accounting-app': {
