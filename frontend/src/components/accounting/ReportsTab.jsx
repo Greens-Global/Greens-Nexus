@@ -26,7 +26,7 @@ import { Panels, preloadPanels } from './tableView/load';
 import { distinctValues, pickHit } from './tableView/model';
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
-  reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, STATEMENT_KEYS, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
+  reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, STATEMENT_KEYS, TAX_REPORT_KEYS, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
   viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity, needsEntityList, countDims,
 } from './reportModel';
 
@@ -833,9 +833,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts}
             kinds={DIM_COL_KINDS[cols].kinds} label={DIM_COL_KINDS[cols].label} onChange={(dims) => patch({ dims })} />
         )}
-        {/* Item 18: which Schedule C line each account adds into. */}
-        {config.report === 'schedule-c' && (
-          <button type="button" onClick={() => setMapping(true)} disabled={!shown?.mapRows} title="Which Schedule C line each account adds into"
+        {/* Item 18: which line of the form each account adds into (every tax form, 11/19/2026). */}
+        {TAX_REPORT_KEYS.has(config.report) && (
+          <button type="button" onClick={() => setMapping(true)} disabled={!shown?.mapRows} title={config.report === 'tax-1040' ? 'Which schedule each entity files on' : 'Which line of the form each account adds into'}
             style={{ ...control, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: shown?.mapRows ? 'pointer' : 'default', fontWeight: 600 }}>
             <Pencil size={13} /> Line Mapping{shown?.mapRows?.some((r) => !r.line) ? ` (${shown.mapRows.filter((r) => !r.line).length} Not Mapped)` : ''}
           </button>
@@ -963,7 +963,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
       {mapping && shown?.mapRows && (
         <Suspense fallback={null}>
-          <ScheduleCMapping rows={shown.mapRows} entity={shown.mapEntity || ''} entityLabel={entityLabel} canEdit={canEdit}
+          <ScheduleCMapping rows={shown.mapRows} entity={shown.mapEntity || ''} entityLabel={entityLabel} canEdit={canEdit} taxForm={shown.taxForm}
             onClose={() => setMapping(false)} onSaved={() => { setMapping(false); setReload((n) => n + 1); }} />
         </Suspense>
       )}

@@ -47,7 +47,9 @@ router = APIRouter(
 # (10/02) and the Statement of Cash Flows (item 26c, 10/07) included.
 # 10/27 triage items 17 and 18: Spend by Vendor and Schedule C (Draft) memorize like the others.
 _REPORTS = ("pnl", "balance-sheet", "trial-balance", "general-ledger", "card-activity", "bank-activity", "cash-position", "flux", "cash-flow", "budget",
-            "vendor-spend", "schedule-c")
+            "vendor-spend", "schedule-c",
+            # 11/19/2026 (Charmi): the rest of the tax forms.
+            "schedule-e", "tax-1065", "tax-1065-l", "tax-1120", "tax-1120-l", "tax-568", "tax-1040")
 _CONFIG_MAX = 8000     # characters of JSON - filters, never figures
 # Oct 23 (Neil, 10/22 call, items 05 / 11): a Report Builder definition is a
 # memorized report too - `kind: "builder"` with a `version` - so it is listed,
