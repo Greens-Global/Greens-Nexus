@@ -8,25 +8,25 @@ const now = new Date(2026, 9, 22); // 10/22/2026
 const open = (key) => resolveConfig({ ...viewConfig(key, now) }, now);
 
 describe('report quick views', () => {
-  // CR-06 (Neil, 23 Oct): "T12 should mean the last 12 full months, meaning it should show 13" - 12 months and the Total.
-  it('T12 is the last twelve complete months, one column each, as the Trailing 12 Months period', () => {
+  // CR-06 (Neil, 11/05/2026): "Yes 13 full months on a t12" - 13 month columns and the Total.
+  it('T12 is the last thirteen complete months, one column each, as the Trailing 12 Months period', () => {
     const c = open('pnl-t12');
-    expect([c.report, c.preset, c.from, c.to, c.cols]).toEqual(['pnl', 't12m', '2025-10-01', '2026-09-30', 'month']);
-    // Memorized, it keeps moving: opened a month later it is Nov through Oct.
+    expect([c.report, c.preset, c.from, c.to, c.cols]).toEqual(['pnl', 't12m', '2025-09-01', '2026-09-30', 'month']);
+    // Memorized, it keeps moving: opened a month later it is Oct through Oct.
     const later = resolveConfig({ report: 'pnl', preset: 't12m', cols: 'month' }, new Date(2026, 10, 3));
-    expect([later.from, later.to]).toEqual(['2025-11-01', '2026-10-31']);
+    expect([later.from, later.to]).toEqual(['2025-10-01', '2026-10-31']);
   });
 
-  it('gives T12 thirteen columns - every month, a quiet one too, and the Total', async () => {
+  it('gives T12 fourteen columns - every month, a quiet one too, and the Total', async () => {
     const rows = [
       { account_no: '41000', title: 'Rent', section: 'revenue', bucket: '2025-10-01', debit: 0, credit: 100 },
       { account_no: '41000', title: 'Rent', section: 'revenue', bucket: '2026-09-01', debit: 0, credit: 100 },
     ];
     const api = { getAccountingBuckets: async () => ({ rows, labels: {} }) };
     const r = await runReport(api, open('pnl-t12'));
-    expect(r.columns).toHaveLength(13);
+    expect(r.columns).toHaveLength(14);
     expect(r.columns.at(-1).label).toBe('Total');
-    expect(monthKeys('2025-10-01', '2026-09-30')).toHaveLength(12);
+    expect(monthKeys('2025-09-01', '2026-09-30')).toHaveLength(13);
   });
 
   it('opens the Trial Balance on Accrual and offers Cash and both books (CR-06)', () => {
