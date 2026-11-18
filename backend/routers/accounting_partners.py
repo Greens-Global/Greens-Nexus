@@ -45,7 +45,6 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -156,7 +155,7 @@ def _kind(v: str) -> str:
 # ── The records, from the accounting app ─────────────────────────────────────
 
 def _get_sync(params: dict) -> list:
-    r = httpx.get(f"{acct._ACCT_BASE}{_PATH}", params=params, headers={"x-internal-api-key": acct._ACCT_KEY}, timeout=30)
+    r = acct.acct_get(f"{acct._ACCT_BASE}{_PATH}", params=params, headers={"x-internal-api-key": acct._ACCT_KEY}, timeout=30)
     if r.status_code == 404:
         raise HTTPException(status_code=501, detail=_NOT_READY)
     if r.status_code != 200:

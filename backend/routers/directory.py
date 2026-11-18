@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 
 import auth
 import cache
+import person_zone
 from database import get_db
 from models import (HrCompanyHoliday, HrDepartment, HrEntity, HrLeaveRequest, NexusEmployee,
                     ScheduledShift, TimeOffRequest, TimePunch)
@@ -90,9 +91,17 @@ _PUNCH_LABEL = {"in": "On Shift", "break": "On Break", "out": "Off Shift"}
 _RECENT_PUNCH_DAYS = 30
 
 
-def _tz_name(emp, punch_offset_min) -> str:
+def _tz_name(emp, punch_offset_min, punch_at: str | None = None) -> str:
     """IANA zone for a person. The punch offset is exact but has no name;
-    the map gives a name whose offset agrees with it when one is known."""
+    the map gives a name whose offset agrees with it when one is known.
+    The offset is compared AT THE PUNCH'S INSTANT: an October punch in
+    California (PDT, 420) read after the November switch to PST must still
+    name Los Angeles, not the zone that is UTC-7 today (Phoenix).
+    A zone the person set for themselves (My Profile > Date & Time,
+    nexus_employees.time_zone, 11/13/2026) wins over every guess."""
+    own = person_zone.of(emp)
+    if own:
+        return own
     state = (emp.state or "").strip()
     code = state.upper() if len(state) == 2 else _STATE_NAMES.get(state.lower(), "")
     country = (emp.country or "").strip().upper()
@@ -102,7 +111,7 @@ def _tz_name(emp, punch_offset_min) -> str:
     # JS getTimezoneOffset() is minutes BEHIND UTC (PDT = 420). Prefer the
     # guessed zone when it agrees; otherwise find any mapped zone that does.
     want = -int(punch_offset_min)
-    now = datetime.now(timezone.utc)
+    now = _punch_instant(punch_at)
     for name in [guess, *_US_STATE_TZ.values(), *_COUNTRY_TZ.values()]:
         try:
             off = now.astimezone(ZoneInfo(name)).utcoffset()
@@ -111,6 +120,44 @@ def _tz_name(emp, punch_offset_min) -> str:
         if off is not None and int(off.total_seconds() // 60) == want:
             return name
     return guess
+
+
+def inferred_zone(db: Session, emp) -> str:
+    """What the directory works out for a person who has set no zone of
+    their own: state / country and their latest punch's offset, as
+    _availability does. My Profile shows it to the person as "Detected"."""
+    email = (getattr(emp, "work_email", "") or "").lower()
+    pu = None
+    if email:
+        since = (datetime.now(timezone.utc) - timedelta(days=_RECENT_PUNCH_DAYS)).isoformat()
+        pu = (db.query(TimePunch.tz_offset_min, TimePunch.at)
+                .filter(TimePunch.at >= since, TimePunch.voided == 0)
+                .filter(func.lower(TimePunch.employee_email) == email)
+                .order_by(TimePunch.at.desc()).first())
+    guess = _Emp({"state": getattr(emp, "state", "") or "", "country": (getattr(emp, "country", "") or "").upper()})
+    return _tz_name(guess, pu[0] if pu else None, pu[1] if pu else None)
+
+
+def picker_zone(emp) -> str:
+    """A person's zone for the people pickers (/myhr/directory, cached per
+    company wall): the one they set, else the state / country guess - and
+    '' when there is nothing to guess from (the punch offset is live data
+    and stays out of that cache), so nothing is said about their clock."""
+    own = person_zone.of(emp)
+    if own:
+        return own
+    if not ((emp.state or "").strip() or (emp.country or "").strip()):
+        return ""
+    return _tz_name(_Emp({"state": emp.state or "", "country": (emp.country or "").upper()}), None)
+
+
+def _punch_instant(at: str | None) -> datetime:
+    """The punch's moment as an aware UTC datetime; now when unreadable."""
+    try:
+        dt = datetime.fromisoformat((at or "").replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return datetime.now(timezone.utc)
 
 
 def _local_now(tz: str) -> datetime:
@@ -203,6 +250,11 @@ def _roster(db: Session, scope) -> dict:
             "photoUrl": e.photo_url or "",
             "status": e.status or "active",                    # onboarding | active | inactive
             "employmentType": e.employment_type or "",
+            # Their own working hours, "HH:MM" in their zone ('' = not set) -
+            # so a colleague can tell it is late for them before reaching out.
+            "workStart": e.work_start or "",
+            "workEnd": e.work_end or "",
+            "_tz": person_zone.of(e),                          # the zone they set; `timeZone` is stamped per call
             "_id": e.id,                                       # for the leave join; stripped before send
             "_m365": e.m365_id or "",                          # for Teams presence; stripped before send
         })
@@ -241,7 +293,8 @@ def _availability(db: Session, people: list) -> None:
 
     for p in people:
         pu = last_punch.get(p["email"])
-        p["timeZone"] = _tz_name(_Emp(p), pu.tz_offset_min if pu else None)
+        p["timeZone"] = _tz_name(_Emp(p), pu.tz_offset_min if pu else None,
+                                 pu.at if pu else None)
         p["today"] = _local_now(p["timeZone"]).date().isoformat()
         p["availability"] = None
 
@@ -302,12 +355,19 @@ def _availability(db: Session, people: list) -> None:
 
     # Company holiday today - unless the person is working anyway (a punch or
     # a published shift on the day says so).
+    # The ONE holiday rule (holiday_policies, Oct 30 2026): a country-tagged
+    # holiday is only for people in that country (their own, else their
+    # company's), and several on one day merge strongest first.
+    import holiday_policies as hp
     hols = db.query(HrCompanyHoliday).filter(HrCompanyHoliday.date.in_(window)).all()
-    hol_by = {}
+    hol_rows: dict = {}
     for h in hols:
-        hol_by.setdefault((h.company_id, h.date), h.name)
+        hol_rows.setdefault((h.company_id, h.date), []).append(h)
+    co_country = hp.company_countries(db, {p["company"] for p in people})
     for p in people:
-        name = hol_by.get((p["company"], p["today"]))
+        rows = hol_rows.get((p["company"], p["today"]))
+        hit = hp.merge_day(rows, hp.person_country(_Emp(p), co_country.get(p["company"], ""))) if rows else None
+        name = hit["name"] if hit else ""
         if name and (p["availability"] is None or p["availability"]["state"] == "out"):
             p["availability"] = {"state": "holiday", "label": "Company Holiday", "detail": name}
 
@@ -319,12 +379,14 @@ def _availability(db: Session, people: list) -> None:
 
 
 class _Emp:
-    """Duck-typed view of a roster dict for _tz_name (state / country)."""
-    __slots__ = ("state", "country")
+    """Duck-typed view of a roster dict for _tz_name (state / country, and
+    the zone the person set for themselves)."""
+    __slots__ = ("state", "country", "time_zone")
 
     def __init__(self, p: dict):
         self.state = p.get("state", "")
         self.country = p.get("country", "")
+        self.time_zone = p.get("_tz", "")
 
 
 def _in_zone(iso: str, tz: str) -> str:
@@ -370,6 +432,7 @@ def contact_directory(user: dict = Depends(get_current_user), db: Session = Depe
     for p in people:
         p.pop("_id", None)
         p.pop("_m365", None)
+        p.pop("_tz", None)
     out = {
         "people": people,
         "departments": roster["departments"],

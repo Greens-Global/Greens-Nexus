@@ -52,7 +52,7 @@ export function Notice({ tone = 'error', children, onDismiss }) {
   };
   const t = tones[tone] || tones.error;
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: t.bg, color: t.fg, borderRadius: 'var(--wk-r)', padding: '9px 12px', fontSize: 12.5, lineHeight: 1.5 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: t.bg, color: t.fg, borderRadius: 'var(--wk-r)', padding: '9px 12px', fontSize: 13, lineHeight: 1.5 }}>
       <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{children}</span>
       {onDismiss && (
         <button onClick={onDismiss} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: 0, flexShrink: 0 }}>
@@ -71,7 +71,7 @@ export function NotConnected({ compact = false, error = '', onRetry }) {
       <div style={{ width: 46, height: 46, borderRadius: 12, background: 'var(--wk-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
         <CloudOff size={22} style={{ color: 'var(--wk-faint)' }} />
       </div>
-      <div style={{ ...HEADING, fontSize: compact ? 15 : 17, marginBottom: 8 }}>Egnyte Is Not Connected Yet</div>
+      <div style={{ ...HEADING, fontSize: compact ? 15 : 18, marginBottom: 8 }}>Egnyte Is Not Connected Yet</div>
       <div style={{ ...BODY, maxWidth: 420, margin: '0 auto' }}>
         This module reads and writes files straight from Egnyte, so nothing is stored twice.
         It stays empty until an administrator adds the Egnyte domain and API token to the
@@ -228,7 +228,7 @@ export function EgnyteDialog({ title, children, footer, onClose, width = 420, is
       >
         <div className="egx-pop nx-popup" role="dialog" aria-modal="true" aria-label={title}
           style={{ ...CARD, width: `max(60vw, ${width}px)`, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ ...HEADING, fontSize: 14.5 }}>{title}</div>
+          <div style={{ ...HEADING, fontSize: 15 }}>{title}</div>
           <div style={{ ...BODY, fontSize: 13 }}>{children}</div>
           {footer && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>{footer}</div>}
         </div>
@@ -265,7 +265,7 @@ export function ConnectRequired() {
   return (
     <div style={{ ...CARD, padding: '28px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
       <Link2 size={26} style={{ color: 'var(--wk-dim)' }} />
-      <div style={{ ...HEADING, fontSize: 14.5 }}>Connect Your Egnyte Account</div>
+      <div style={{ ...HEADING, fontSize: 15 }}>Connect Your Egnyte Account</div>
       <div style={{ ...BODY, maxWidth: 420 }}>
         Files here are shown with your own Egnyte permissions - connect your Egnyte account
         once and you will see exactly the folders you have access to.

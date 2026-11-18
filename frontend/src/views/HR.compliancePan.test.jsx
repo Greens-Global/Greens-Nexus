@@ -7,7 +7,7 @@ import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/re
 // in place since 11/03/2026 (people/ComplianceTab.jsx) and is the PAN's one
 // editable home.
 
-const LEO = { id: 'e2', firstName: 'Leo', lastName: 'Low', workEmail: 'leo@x.com', status: 'active',
+const LEO = { id: 'e2', firstName: 'Leo', lastName: 'Low', workEmail: 'leo@x.com', status: 'active', workCountry: 'IN',
   employmentType: 'contractor', compliance: { workAuth: 'citizen' }, contractor: {}, personal: {} };
 
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
@@ -41,14 +41,21 @@ describe('Compliance - PAN (India)', () => {
     expect(updateEmployee).not.toHaveBeenCalled();
   }, 20000);
 
-  it('saves a valid PAN uppercased with the rest of the record', async () => {
+  it('saves a valid PAN uppercased - only the changed key; the server merges the rest (11/11/2026)', async () => {
     const { input, onSaved } = await open();
     fireEvent.change(input, { target: { value: 'abcde 1234f' } });
     expect(save().disabled).toBe(false);
     fireEvent.click(save());
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
     const body = updateEmployee.mock.calls[0][1];
-    expect(body.compliance.pan).toBe('ABCDE1234F');
-    expect(body.compliance.workAuth).toBe('citizen');
+    expect(body.compliance).toEqual({ pan: 'ABCDE1234F' });
+  }, 20000);
+
+  it('offers no PAN to a person in the US, reading or editing (11/12/2026)', async () => {
+    const { default: ComplianceTab } = await import('../people/ComplianceTab');
+    render(<ComplianceTab e={{ ...LEO, workCountry: 'US' }} canEdit onSaved={() => {}} toastErr={() => {}} />);
+    expect(screen.queryByText('PAN (India)')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Edit$/ }));
+    expect(screen.queryByLabelText('PAN (India)')).toBeNull();
   }, 20000);
 });

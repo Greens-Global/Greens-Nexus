@@ -1,6 +1,16 @@
 import { useState, useEffect, useId } from 'react';
 import { Upload, FileText, Plus, X } from 'lucide-react';
 import { storeAssetDocument } from '../../lib/upload.js';
+import { DateField } from '../../../tasks/components.jsx';
+
+// A stored date reads either way (records kept MM/DD/YYYY before the date box
+// wrote YYYY-MM-DD); the box takes the ISO day. Anything else is left as typed.
+export function toIsoDay(v) {
+  const t = String(v ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : '';
+}
 
 // Format free typing into mm/dd/yyyy as the user goes; validate the final shape.
 // A native <input type="date"> was rejected here: its displayed format follows the
@@ -52,7 +62,7 @@ export function MultiDateInput({ value, onChange, readOnly }) {
               value={r}
               readOnly={readOnly}
               onChange={(e) => setRow(i, fmtMdy(e.target.value))}
-              style={{ fontSize: '0.85rem', flex: 1, ...(invalid ? { borderColor: 'hsl(var(--color-red))' } : {}) }}
+              style={{ fontSize: 13, flex: 1, ...(invalid ? { borderColor: 'hsl(var(--color-red))' } : {}) }}
             />
             {!readOnly && (rows.length > 1 || r) && (
               <button type="button" className="secondary-btn" onClick={() => removeRow(i)}
@@ -65,7 +75,7 @@ export function MultiDateInput({ value, onChange, readOnly }) {
       })}
       {!readOnly && (
         <button type="button" className="secondary-btn" onClick={addRow}
-          style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', fontSize: '0.78rem' }}>
+          style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', fontSize: 13 }}>
           <Plus size={13} /> Add Date
         </button>
       )}
@@ -97,7 +107,7 @@ export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
     'aria-describedby': error ? id + '-err' : undefined,
     placeholder: f.placeholder || undefined,
     style: {
-      fontSize: '0.85rem',
+      fontSize: 13,
       ...(error ? { borderColor: 'hsl(var(--color-red))' } : {}),
       ...(f.readOnly ? { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'not-allowed' } : {}),
     },
@@ -109,7 +119,7 @@ export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
       {f.req ? <span style={{ color: 'hsl(var(--color-red))' }}> *</span> : ''}
     </label>
   );
-  const errorLine = error ? <div id={id + '-err'} role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div> : null;
+  const errorLine = error ? <div id={id + '-err'} role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{error}</div> : null;
 
   // File upload: the file goes to the private asset-files bucket and the record
   // keeps its URL (f.k), plus the original filename on a sibling key (f.nameKey)
@@ -157,24 +167,24 @@ export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
               }}
             />
           </label>
-          <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
           {value && (
             <a
               href={value}
               target="_blank"
               rel="noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.82rem', color: 'hsl(var(--color-blue))', fontWeight: 600 }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'hsl(var(--color-blue))', fontWeight: 600 }}
             >
               <FileText size={14} /> View Document
             </a>
           )}
           {value && (
-            <button type="button" className="secondary-btn" onClick={() => onChange(f.k, '')} style={{ padding: '5px 11px', fontSize: '0.76rem' }}>
+            <button type="button" className="secondary-btn" onClick={() => onChange(f.k, '')} style={{ padding: '5px 11px', fontSize: 12 }}>
               Clear
             </button>
           )}
         </div>
-        {uploadError && <div role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{uploadError}</div>}
+        {uploadError && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{uploadError}</div>}
         {errorLine}
       </div>
     );
@@ -197,8 +207,24 @@ export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
     );
   } else if (f.type === 'textarea') {
     control = <textarea {...baseProps} rows={2} />;
-  } else if (f.type === 'date') {
-    control = <input type="date" {...baseProps} />;
+  } else if (f.type === 'date' && (!String(value ?? '').trim() || toIsoDay(value))) {
+    // The Nexus date box (DateField), never a native one: that follows the
+    // computer's region (Neil, Oct 19). A stored value it cannot read keeps the
+    // plain text box below, so nothing is hidden or lost.
+    return (
+      <div className={f.full ? 'form-group form-group-full' : 'form-group'}>
+        <label id={id + '-label'}>
+          {f.label}
+          {f.req ? <span style={{ color: 'hsl(var(--color-red))' }}> *</span> : ''}
+        </label>
+        <div role="group" aria-labelledby={id + '-label'} data-field={f.k} tabIndex={-1} className="form-input"
+          aria-invalid={error ? true : undefined} aria-describedby={error ? id + '-err' : undefined}
+          style={{ display: 'flex', alignItems: 'center', fontSize: 13, ...(error ? { borderColor: 'hsl(var(--color-red))' } : {}), ...(f.readOnly ? { backgroundColor: 'var(--bg-secondary)' } : {}) }}>
+          <DateField value={toIsoDay(value)} onChange={(v) => onChange(f.k, v || '')} disabled={f.readOnly} title={f.label} style={{ flex: 1 }} />
+        </div>
+        {errorLine}
+      </div>
+    );
   } else if (f.type === 'dates') {
     control = <MultiDateInput value={value} readOnly={f.readOnly} onChange={(v) => onChange(f.k, v)} />;
   } else if (f.type === 'number') {

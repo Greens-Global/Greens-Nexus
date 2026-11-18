@@ -17,7 +17,7 @@ import { useMsal } from '@azure/msal-react';
 import {
   X, Search, ChevronRight, ChevronLeft, ArrowUpRight, Home as HomeIcon, MessageSquare, CircleHelp,
   BookOpen, ListChecks, Layers, Lightbulb, ShieldCheck, FileText, GraduationCap, Send, Ticket as TicketIcon,
-  Compass, PlayCircle, Sparkles, Maximize2, Minimize2,
+  Compass, PlayCircle, Sparkles, Maximize2, Minimize2, Keyboard,
 } from 'lucide-react';
 import { api } from '../api';
 import { DOCS, DOC_GROUPS } from './docsContent';
@@ -39,6 +39,8 @@ import { KnownIssuesNotice } from './KnownIssues';
 import { useSearchMissLogger } from './helpLog';
 import { ticketSeedFor } from './ticketSeed';
 import ExpectReply from './ExpectReply';
+import ShortcutsPage from './ShortcutsPage';
+import { isPhone } from '../lib/keys';
 
 const HELP_TABS = [
   { key: 'home', label: 'Home', Icon: HomeIcon },
@@ -58,6 +60,10 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), [tabi
 
 const nav = (view, sub) => window.dispatchEvent(
   new CustomEvent('nexus:navigate', { detail: sub ? { view, sub } : { view } }));
+
+// Help > Keyboard Shortcuts (11/13/2026): read in the panel like an article,
+// drawn by ShortcutsPage from lib/shortcutList.js.
+const SHORTCUTS_ARTICLE = { kind: 'shortcuts', title: 'Keyboard Shortcuts' };
 
 // A guide page as an article the widget can show (same shape as a search result).
 const moduleArticle = (d) => ({ source: 'guide', kind: 'module', docId: d.id, docName: d.name, title: d.name, anchor: null, body: [] });
@@ -113,7 +119,7 @@ function HomeTab({ firstName, pageDoc, liveTour, otherTours, onSearch, onAsk, on
     <div className="hw-scroll">
       <div className="hw-hero">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="dk-mark hw-mark" aria-hidden="true">N</div>
+          <img className="dk-mark hw-mark" src="/brand/nexus-n.png" alt="" aria-hidden="true" />
           <button type="button" className="hw-close hw-close-light" onClick={onClose} aria-label="Close help"><X size={18} /></button>
         </div>
         <div className="hw-hello">Hi {firstName || 'there'}!</div>
@@ -157,6 +163,17 @@ function HomeTab({ firstName, pageDoc, liveTour, otherTours, onSearch, onAsk, on
             <span className="hw-card-text">
               <span className="hw-card-title" style={{ fontSize: 13 }}>Take the Tour</span>
               <span className="hw-card-sub">A guided walk through {liveTour ? liveTour.label : pageDoc.name}</span>
+            </span>
+            <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+          </button>
+        )}
+        {/* Keyboard Shortcuts (11/13/2026) - not on a phone, which has no keyboard. */}
+        {!isPhone() && (
+          <button type="button" className="hw-card hw-card-quiet" onClick={() => onOpenArticle(SHORTCUTS_ARTICLE)}>
+            <Keyboard size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+            <span className="hw-card-text">
+              <span className="hw-card-title" style={{ fontSize: 13 }}>Keyboard Shortcuts</span>
+              <span className="hw-card-sub">Search, Help, New Task, Quick Note and more</span>
             </span>
             <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
           </button>
@@ -342,7 +359,7 @@ function HelpTab({ autoFocus, allowed, allow, query, setQuery, onPick, onOpenArt
                 onClick={() => onOpenArticle(moduleArticle(gettingStarted))}>
                 <Compass size={16} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
                 <span className="hw-card-text">
-                  <span className="hw-card-title" style={{ fontSize: 13.5 }}>Getting Started</span>
+                  <span className="hw-card-title" style={{ fontSize: 13 }}>Getting Started</span>
                   <span className="hw-card-sub">{gettingStarted.tagline}</span>
                 </span>
                 <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -416,7 +433,7 @@ function Article({ a, onBack, onOpenArticle, onOpenFull }) {
             {doc.features.map((f) => (
               <div key={f.name} className="hw-feature">
                 <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>{f.name}</div>
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>{f.desc}</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>{f.desc}</div>
               </div>
             ))}
           </>
@@ -556,7 +573,7 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
       role="dialog" aria-label="Help" ref={panelRef} onKeyDown={onKeyDown}>
       {tab !== 'home' && (
         <div className="hw-bar">
-          <div className="dk-mark hw-mark-sm" aria-hidden="true">N</div>
+          <img className="dk-mark hw-mark-sm" src="/brand/nexus-n.png" alt="" aria-hidden="true" />
           <div className="hw-bar-title">{title}</div>
           {(big || canGrow) && (
             <button type="button" className="hw-size" aria-pressed={big}
@@ -579,7 +596,9 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
           onClose={() => onClose(true)} />
       )}
       {tab === 'messages' && <MessagesTab onAsk={() => onAsk?.()} onOpenTicket={openTicket} />}
-      {tab === 'help' && (article ? (
+      {tab === 'help' && (article?.kind === 'shortcuts' ? (
+        <ShortcutsPage onBack={() => setTrail((t) => t.slice(0, -1))} />
+      ) : article ? (
         <Article key={`${article.docId}-${article.title}-${trail.length}`} a={article}
           onBack={() => setTrail((t) => t.slice(0, -1))}
           onOpenArticle={openArticle} onOpenFull={openFull} />

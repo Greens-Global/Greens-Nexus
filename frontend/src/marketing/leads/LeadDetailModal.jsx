@@ -126,11 +126,11 @@ export default function LeadDetailModal({ lead, onClose, onChangeStage, onAssign
                   <span style={{ fontSize: 12, fontWeight: 500, color: C.gray700 }}>{n.author}</span>
                   <span style={{ fontSize: 11, color: C.gray400 }}>{formatDateLabel(n.date)}</span>
                 </div>
-                <div style={{ fontSize: 12.5, color: C.gray600, background: C.gray50, borderRadius: 8, padding: '8px 10px' }}>{n.text}</div>
+                <div style={{ fontSize: 13, color: C.gray600, background: C.gray50, borderRadius: 8, padding: '8px 10px' }}>{n.text}</div>
               </div>
             </div>
           ))}
-          {lead.notes.length === 0 && <div style={{ fontSize: 12.5, color: C.gray400, textAlign: 'center', padding: '12px 0' }}>No activity yet.</div>}
+          {lead.notes.length === 0 && <div style={{ fontSize: 13, color: C.gray400, textAlign: 'center', padding: '12px 0' }}>No activity yet.</div>}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <input

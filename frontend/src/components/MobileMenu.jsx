@@ -1,20 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, ChevronRight, ChevronLeft, ChevronDown, LogOut, Moon, Sun, CircleHelp, Scale } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, ChevronDown, LogOut, Moon, Sun } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
-import { useRole, EXTERNAL_ROLE_META } from '../contexts/RoleContext';
-import TierMark from './TierMark';
-import { usePersonPhoto } from '../lib/peoplePhotos';
+import { useRole } from '../contexts/RoleContext';
 import { NAV } from './Sidebar';
-import { orderNav, railSections, KICKERS } from './navOrder';
-import { useTimeclock, openTimeClock } from '../lib/timeclockStore';
-import { SessionChip } from '../dashboard/SessionChip';
+import { orderNav, railSections, KICKERS, onRail } from './navOrder';
+import SidebarClock from './SidebarClock';
 import { useActionCounts, moduleCount, countText, countDetail } from '../lib/useActionCounts';
 import NavCount from './NavCount';
 import NavMore from './NavMore';
 import { useOffscreenCounts } from '../lib/useOffscreenCounts';
 import { WORKFORCE_GRANTS } from '../lib/workforceAccess';
 import { clearOfflineReadCache } from '../lib/offline/read';
+import { useBackToClose } from '../lib/useBackToClose';
+import { tabsFor } from '../inventory/model/routes';
 
 // Sub-screens per module - the same sub ids the views' tab strips use, so a
 // tap deep-links exactly where the in-page tab would. Modules absent here
@@ -29,12 +28,14 @@ import { clearOfflineReadCache } from '../lib/offline/read';
  * listed for someone without one of them. `role` is useRole().
  */
 export function visibleSubs(view, role) {
-  const entry = SUBMENUS[view];
+  const entry = typeof SUBMENUS[view] === 'function' ? SUBMENUS[view](role) : SUBMENUS[view];
   if (!entry) return null;
   const list = Array.isArray(entry) ? entry : (role?.can?.('manager') ? entry.manager : entry.employee);
   const mayOpen = (s) => !!s.grants && s.grants.some((g) => !!role?.canAccessModule?.(g, 'administrator', 'viewer'));
   // An external (B2B guest) gets only the granted tabs - in Team, Workforce
-  // Analytics alone (views/Shifts.jsx draws the same).
+  // Analytics alone (views/Shifts.jsx draws the same). The list may come back
+  // EMPTY (a guest in a module with no granted tab): callers then open the
+  // module itself - an empty panel was a dead end.
   return list.filter((s) => (role?.isExternal ? mayOpen(s) : !s.grants || mayOpen(s)));
 }
 
@@ -57,19 +58,15 @@ export const SUBMENUS = {
       { sub: 'analytics', label: 'Workforce Analytics', grants: WORKFORCE_GRANTS },
     ],
   },
-  inventory: {
-    manager: [
-      { sub: 'myitems',      label: 'My Items' },
-      { sub: 'catalog',      label: 'Catalog' },
-      { sub: 'manage',       label: 'Manage' },
-      { sub: 'checkouts',    label: 'Checkouts' },
-      { sub: 'whohasit',     label: 'Who Has What' },
-      { sub: 'audit',        label: 'Audit Log' },
-    ],
-    employee: [
-      { sub: 'catalog', label: 'Catalog' },
-      { sub: 'myitems', label: 'My Items' },
-    ],
+  // Item Management's own tabs and rule (inventory/model/routes.js tabsFor,
+  // Items redesign 11/02/2026): My Stuff and Borrow for everyone, Requests
+  // for items managers and supervisors, Inventory for items managers - read
+  // as views/InventoryManagement.jsx reads them. (Someone below supervisor
+  // who is only the allocator on a checkout reaches Requests from the
+  // module's own tabs: the menu does not hold the checkouts.)
+  inventory: (role) => {
+    const isManager = !!role?.canAccessModule?.('inventory', 'manager', 'editor');
+    return tabsFor({ isManager, isAllocator: !!role?.can?.('supervisor') }).map((t) => ({ sub: t.key, label: t.label }));
   },
   ops: [
     { sub: 'construction-dashboard', label: 'Project Dashboard' },
@@ -86,6 +83,7 @@ export const SUBMENUS = {
     { sub: 'portfolio',   label: 'Portfolio' },
     { sub: 'site-map',    label: 'Site Map' },
     { sub: 'pricing',     label: 'Pricing Insights' },
+    { sub: 'tenants',     label: 'Tenants' },
   ],
   hr: [
     { sub: 'hr-people', label: 'People' },
@@ -144,34 +142,22 @@ function saveOpenGroups(list) {
 export default function MobileMenu({ open, onClose, onNavigate, activeView, theme, onThemeToggle }) {
   const { instance, accounts } = useMsal();
   const role = useRole();
-  const { can, myGrantedModules, isExternal, myTier, myTitle } = role;
+  const { can, myGrantedModules, isExternal } = role;
   const counts = useActionCounts();
-  const account  = accounts[0];
-  const name     = account?.name ?? 'User';
-  const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
-  // The person's own photo from the Nexus People directory (Sep 22) - the
-  // same picture the header pill shows, so the menu's card matches it. ''
-  // while it loads and for anyone HR hasn't given a photo; initials remain
-  // the fallback.
-  const photo    = usePersonPhoto(account?.username ?? '');
-  // Under the name: the person's JOB TITLE, never the Nexus tier (Neil,
-  // 11/02/2026 - "it should not say global admin here under my name"); no
-  // title = nothing there. External guests with no title still read
-  // "External" (Visesh, Aug 18). The tier is the small mark after the name.
-  const subtitle = myTitle || (isExternal ? EXTERNAL_ROLE_META.label : '');
+  const account  = accounts[0];   // signing out names the account
 
   const [subPanel,   setSubPanel]   = useState(null); // { view, label }
   const [subClosing, setSubClosing] = useState(false);
   const [closing,    setClosing]    = useState(false);
   const [openGroups, setOpenGroups] = useState(readOpenGroups);
-  useEffect(() => { if (!open) { setSubPanel(null); setSubClosing(false); setClosing(false); } }, [open]);
+  // The group holding the page you are on, folded by a tap - for this visit.
+  const [shutActive, setShutActive] = useState(null);
+  useEffect(() => { if (!open) { setSubPanel(null); setSubClosing(false); setClosing(false); setShutActive(null); } }, [open]);
 
   // A busy module below the fold gets a "3 waiting below" pill (NavMore).
   // Above the early return: hooks run on every render.
   const menuRef = useRef(null);
   const [offscreen, reveal] = useOffscreenCounts(menuRef, [counts, open]);
-  const clock = useTimeclock();   // the time clock chip under the person (nothing for an exempt person)
-  if (!open) return null;
 
   // X slides the whole menu back out to the left before unmounting
   // (a transformed ancestor carries the fixed submenu along with it)
@@ -179,6 +165,29 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
     setClosing(true);
     setTimeout(onClose, 340);
   };
+  const closeSub = () => {
+    setSubClosing(true);
+    setTimeout(() => { setSubPanel(null); setSubClosing(false); }, 260);
+  };
+  // The phone's Back and Escape take the top layer off - the sub-panel, then
+  // the menu - like every other sheet (lib/useBackToClose.js). Back used to
+  // change the screen underneath and leave the menu standing over it.
+  const stepBack = () => (subPanel ? closeSub() : requestClose());
+  useBackToClose(open, stepBack);
+  const stepBackRef = useRef(stepBack);
+  useEffect(() => { stepBackRef.current = stepBack; });
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      // A popup over the menu (the clock's own dialogs) keeps its Escape.
+      if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('[aria-modal="true"]:not(.mobile-menu):not(.mobile-submenu)')) return;
+      e.preventDefault();
+      stepBackRef.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+  if (!open) return null;
 
   const subsFor = view => visibleSubs(view, role);
 
@@ -196,13 +205,13 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   // an item's `grants` list means any one of them opens it (Oct 10).
   const granted = item => (item.grants || [item.grant || item.view]).some(g => myGrantedModules?.has(g));
   // The rail's groups and labels, in the rail's order (Neil, 11/07/2026).
-  const visible = railSections(orderNav(NAV).filter(item => !item.menuOnly).filter(item => isExternal
+  const visible = railSections(orderNav(NAV).filter(item => onRail(item, isExternal)).filter(item => isExternal
     ? (!item.divider && granted(item))
     : (item.divider || !item.minRole || can?.('administrator') || granted(item))), KICKERS);
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };
   const openRow = item => {
     const subs = subsFor(item.view);
-    if (subs) setSubPanel({ view: item.view, label: item.label, subs });
+    if (subs?.length) setSubPanel({ view: item.view, label: item.label, subs });
     else go(item.view);
   };
   const toggleGroup = (name) => setOpenGroups((list) => {
@@ -210,6 +219,11 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
     saveOpenGroups(next);
     return next;
   });
+  // The group holding the page you are on opens by itself, so the saved list
+  // does not decide it: a tap folds and unfolds it (it used to change only
+  // the saved list, and nothing moved).
+  const holdsActive = (g) => g.items.some((it) => it.view === activeView);
+  const tapGroup = (g) => (holdsActive(g) ? setShutActive((cur) => (cur === g.name ? null : g.name)) : toggleGroup(g.name));
 
   // The rail's groups as sections: { name, items, idx }.
   const groups = [];
@@ -222,7 +236,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   const shownGroups = groups.filter((g) => g.items.length);
   const moduleRows = shownGroups.reduce((n, g) => n + g.items.length, 0);
   const folds = (g) => moduleRows > FOLD_AT && g.idx >= 2 && g.items.length > 1 && !!g.name;
-  const isOpenGroup = (g) => openGroups.includes(g.name) || g.items.some((it) => it.view === activeView);
+  const isOpenGroup = (g) => (holdsActive(g) ? shutActive !== g.name : openGroups.includes(g.name));
 
   const renderRow = (item) => (
     <button key={item.view} className={`mobile-menu-row${activeView === item.view ? ' active' : ''}${moduleCount(counts, item.view) ? ' has-count' : ''}`} onClick={() => openRow(item)}
@@ -233,7 +247,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         <span>{item.label}</span>
       </span>
       <NavCount n={moduleCount(counts, item.view)} />
-      {subsFor(item.view) ? <ChevronRight size={17} /> : null}
+      {subsFor(item.view)?.length ? <ChevronRight size={17} /> : null}
     </button>
   );
 
@@ -252,7 +266,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         aria-expanded={openNow}
         data-count={!openNow && waiting ? waiting : undefined}
         aria-label={!openNow && waiting ? `${g.name}, ${countText(waiting)} waiting on you` : g.name}
-        onClick={() => toggleGroup(g.name)}>
+        onClick={() => tapGroup(g)}>
         <span>{g.name}</span>
         {!openNow && <span className="mm-group-icons" aria-hidden="true">{g.items.slice(0, 4).map((it) => <span key={it.view}>{renderIcon(it, 14)}</span>)}</span>}
         <span className="mm-group-line" aria-hidden="true" />
@@ -263,33 +277,25 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
     ];
   };
 
-  const closeSub = () => {
-    setSubClosing(true);
-    setTimeout(() => { setSubPanel(null); setSubClosing(false); }, 260);
-  };
-
   return (<>
     {/* The page stays in view on the right (Neil, 11/10/2026: 75/25, the
         backdrop darker) - a tap there closes the menu like the X does. */}
     <div className={`mobile-menu-scrim${closing ? ' closing' : ''}`} onClick={requestClose} aria-hidden="true" />
     <div ref={menuRef} className={`mobile-menu${closing ? ' closing' : ''}`} role="dialog" aria-modal="true" aria-label="Menu">
+      {/* No brand, no photo, name or title (Neil, 11/13/2026: "Not adding
+          any value just adding bloat"): the menu opens on the time clock
+          and the close button, then the modules. The header's own photo
+          is still the way to your profile. */}
       <div className="mobile-menu-head">
-        <div className="mobile-menu-brand"><span className="dk-mark" aria-hidden="true">N</span>Nexus</div>
+        {/* The web's own clock (Neil, 11/13/2026: "use a similar time clock
+            style as the web app with the icons"): the sidebar's ClockChip -
+            the state, the live ring and times, Punch In / Break / Punch Out as
+            icons - the same component, never a phone copy. Nothing for an
+            exempt person. */}
+        <div className="mobile-menu-clock">
+          <SidebarClock />
+        </div>
         <button className="mobile-menu-close" onClick={requestClose} aria-label="Close menu"><X size={22} /></button>
-      </div>
-      <div className="mobile-menu-user">
-        <div className="mobile-menu-avatar">
-          {photo
-            ? <img src={photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-            : initials}
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="mobile-menu-name">{name}<TierMark tier={myTier} /></div>
-          {subtitle && <div className="mobile-menu-role">{subtitle}</div>}
-        </div>
-      </div>
-      <div className="mobile-menu-clock">
-        <SessionChip mine={clock} onOpen={() => { onClose(); openTimeClock(); }} />
       </div>
       <div className="mobile-menu-rows">
         {shownGroups.map(renderGroup)}
@@ -297,15 +303,10 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
       <div className="mobile-menu-divider" />
       <div className="mobile-menu-rows secondary">
         {/* Dark mode moved to the profile dropdown (avatar, top-right) - Neil */}
-        {/* Help: the header's "?" button has no room on a phone, so the same
-            Help menu (support/HelpMenu.jsx) opens from here. */}
-        <button className="mobile-menu-row"
-          onClick={() => { onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:help-open')), 0); }}>
-          <span className="mobile-menu-row-label"><CircleHelp style={{ width: 19, height: 19, flexShrink: 0 }} /><span>Help</span></span>
-        </button>
-        <button className="mobile-menu-row" onClick={() => go('legal', 'privacy')}>
-          <span className="mobile-menu-row-label"><Scale style={{ width: 19, height: 19, flexShrink: 0 }} /><span>Legal</span></span>
-        </button>
+        {/* No Help or Legal rows (Neil, 11/16/2026: "I don't think help and
+            legal are needed in the main navigation on mobile"): Legal lives in
+            the profile dropdown (the header's photo), and Help Center stays a
+            module above. Never add them back here. */}
         <button className="mobile-menu-row signout"
           onClick={() => (BFF_MODE ? bffLogout() : clearOfflineReadCache().then(() => instance.logoutRedirect({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname })))}>
           <span>Sign Out</span>

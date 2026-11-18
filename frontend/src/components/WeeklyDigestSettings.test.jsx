@@ -111,19 +111,19 @@ describe('WeeklyDigestSettings', () => {
 
   it('sends a test digest for one employee and says where it went', async () => {
     render(<WeeklyDigestSettings />);
-    const box = await screen.findByLabelText('Send Test Digest');
+    const box = await screen.findByLabelText('Send Test Weekly Briefing');
     const send = screen.getByText('Send Test').closest('button');
     expect(send.disabled).toBe(true);
     fireEvent.change(box, { target: { value: 'amy@greensglobal.com' } });
     fireEvent.click(send);
     await waitFor(() => expect(sendTestWeeklyDigest).toHaveBeenCalledWith('amy@greensglobal.com'));
-    expect(await screen.findByText("Sent amy@greensglobal.com's digest (3 overdue, 1 team) to qa@greensglobal.com.")).toBeTruthy();
+    expect(await screen.findByText("Sent amy@greensglobal.com's Weekly Briefing (3 overdue, 1 team) to qa@greensglobal.com.")).toBeTruthy();
   });
 
   it('says so when the person has nothing overdue', async () => {
     sendTestWeeklyDigest.mockResolvedValue({ sent: false, overdueCount: 0, teamCount: 0, recipients: ['me@x.com'], employeeEmail: 'bob@greensglobal.com' });
     render(<WeeklyDigestSettings />);
-    fireEvent.change(await screen.findByLabelText('Send Test Digest'), { target: { value: 'bob@greensglobal.com' } });
+    fireEvent.change(await screen.findByLabelText('Send Test Weekly Briefing'), { target: { value: 'bob@greensglobal.com' } });
     fireEvent.click(screen.getByText('Send Test'));
     expect(await screen.findByText(/has nothing overdue or waiting right now/)).toBeTruthy();
   });

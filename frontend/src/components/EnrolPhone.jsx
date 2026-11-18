@@ -74,17 +74,17 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
       <div className="nx-popup" style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <Smartphone size={18} style={{ color: 'var(--pine)' }} />
-          <strong style={{ fontSize: 16 }}>Enroll a Phone</strong>
+          <strong style={{ fontSize: 15 }}>Enroll a Phone</strong>
           <div style={{ flex: 1 }} />
           <button onClick={guard.requestClose} style={{ background: 'none', border: 0, cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
 
         {!pairing ? (
           <>
-            <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.55 }}>
+            <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.55 }}>
               Generate a pairing QR for the Nexus Fields app. Scanning it sets up the phone with no typing.
             </p>
-            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>Worker email</label>
+            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Worker email</label>
             <input className="form-input" list="enrol-emp" value={email} placeholder="worker@greensglobal.com"
               onChange={e => setEmail(e.target.value)} style={{ width: '100%', marginTop: 4, fontSize: 13 }} />
             <datalist id="enrol-emp">
@@ -94,10 +94,10 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
                 return <option key={em} value={em}>{nm}</option>;
               })}
             </datalist>
-            <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginTop: 12 }}>Server URL (baked into the QR)</label>
+            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginTop: 12 }}>Server URL (baked into the QR)</label>
             <input className="form-input" value={serverUrl} onChange={e => setServerUrl(e.target.value)}
               style={{ width: '100%', marginTop: 4, fontSize: 13 }} />
-            {err && <p style={{ fontSize: 11.5, color: '#b91c1c', margin: '10px 0 0' }}>{err}</p>}
+            {err && <p style={{ fontSize: 12, color: '#b91c1c', margin: '10px 0 0' }}>{err}</p>}
             <button className="primary-btn" onClick={enrol} disabled={busy}
               style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy ? <Spinner size={13} /> : <KeyRound size={13} />}
@@ -106,7 +106,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
           </>
         ) : (
           <>
-            <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.55 }}>
+            <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.55 }}>
               In the <strong>Nexus Fields</strong> app tap <strong>Scan pairing QR</strong> and point it here.
               This code is shown once - generate a new one per phone.
             </p>
@@ -116,7 +116,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
                     style={{ borderRadius: 12, border: '1px solid var(--line)', background: '#fff', padding: 8 }} />
                 : <div style={{ width: 260, height: 260, display: 'grid', placeItems: 'center', color: 'var(--muted)' }}>Generating…</div>}
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', textAlign: 'center', wordBreak: 'break-all' }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center', wordBreak: 'break-all' }}>
               {email.trim().toLowerCase()} · {serverUrl.trim().replace(/\/$/, '')}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
@@ -128,17 +128,17 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
 
         {/* Enrolled phones */}
         <div style={{ marginTop: 20, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
             Enrolled Phones
           </div>
           {devices === null ? <LoadingState compact />
-            : devices.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No phones enrolled yet.</div>
+            : devices.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No phones enrolled yet.</div>
             : devices.map(d => (
               <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
-                <span style={{ flex: 1, fontSize: 12.5 }}>{d.name || d.email}</span>
+                <span style={{ flex: 1, fontSize: 13 }}>{d.name || d.email}</span>
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>{d.lastSeen ? `seen ${formatDate(d.lastSeen.slice(0, 10))}` : 'never seen'}</span>
                 <button onClick={() => revoke(d.id)} title="Revoke"
-                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: '#b91c1c', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5 }}>
+                  style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: '#b91c1c', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
                   <Ban size={12} /> Revoke
                 </button>
               </div>

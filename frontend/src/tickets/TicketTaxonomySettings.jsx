@@ -28,7 +28,7 @@ import { TICKET_TYPE_META, TICKET_TYPE_KEYS, TICKET_TYPE_ORDER, FIRST_RESPONSE_H
 import DragList from '../ui/ReorderList';
 import { refreshTicketConfig } from './ticketConfig';
 
-const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+const fieldLabel = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
 const PRIORITIES = [['urgent', 'Urgent'], ['high', 'High'], ['medium', 'Medium'], ['low', 'Low']];
 const FIELD_KINDS = [
@@ -42,7 +42,7 @@ function Field({ label, hint, children }) {
     <div style={field}>
       <label style={fieldLabel}>{label}</label>
       {children}
-      {hint && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>{hint}</div>}
     </div>
   );
 }
@@ -86,7 +86,7 @@ function FieldEditor({ typeKey, fields, onChange }) {
   return (
     <div style={{ paddingLeft: 4 }}>
       {fields.length === 0 && (
-        <div style={{ fontSize: 12.5, color: NX.faint, padding: '6px 0 10px' }}>No intake questions for this type yet.</div>
+        <div style={{ fontSize: 13, color: NX.faint, padding: '6px 0 10px' }}>No intake questions for this type yet.</div>
       )}
       <DragList items={fields} getKey={(f) => f.key} onReorder={onChange} label="question" gap={8}
         renderItem={(f, handle, i) => (
@@ -97,10 +97,10 @@ function FieldEditor({ typeKey, fields, onChange }) {
             <select value={f.type} onChange={(e) => set(i, { type: e.target.value })} style={{ ...inputStyle, width: 140 }}>
               {FIELD_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
             </select>
-            <label title="Required" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
+            <label title="Required" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
               <Toggle on={!!f.req} onChange={() => set(i, { req: !f.req })} title="Required" /> Req
             </label>
-            <label title="Retired questions stay visible on tickets that already answered them, but are no longer asked" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
+            <label title="Retired questions stay visible on tickets that already answered them, but are no longer asked" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
               <Toggle on={!!f.retired} onChange={() => set(i, { retired: !f.retired })} title="Retired" /> Retired
             </label>
           </div>
@@ -125,7 +125,7 @@ function FieldEditor({ typeKey, fields, onChange }) {
           <button onClick={() => { setAdding(false); setNewLabel(''); }} style={{ ...btn('ghost'), padding: '7px 12px' }}>Cancel</button>
         </div>
       ) : (
-        <button onClick={() => setAdding(true)} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '6px 10px', marginTop: 8 }}>
+        <button onClick={() => setAdding(true)} style={{ ...btn('ghost'), display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '6px 10px', marginTop: 8 }}>
           <Plus size={13} /> Add Question
         </button>
       )}
@@ -150,7 +150,7 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, handle = null, form, req
         <input value={label} aria-label={`${meta.label} label`} onChange={(e) => onChangeForm({ label: e.target.value })} style={{ ...inputStyle, width: 200 }} />
         <input value={hint} aria-label={`${meta.label} hint`} onChange={(e) => onChangeForm({ hint: e.target.value })} placeholder="Hint shown under the type picker"
           style={{ ...inputStyle, flex: 1 }} />
-        <label title="Shown at intake" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
+        <label title="Shown at intake" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim, fontWeight: 600, whiteSpace: 'nowrap' }}>
           <Toggle on={shown} onChange={onToggleShown} label={`Offered on Submit a Ticket: ${meta.label}`} disabled={busy}
             title={shown ? 'On - offered on Submit a Ticket' : 'Off - not offered on Submit a Ticket'} /> Intake
         </label>
@@ -166,13 +166,13 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, handle = null, form, req
           <Toggle on={requiresApproval} onChange={onToggleApproval} disabled={busy}
             label={`Requires Approval: ${meta.label}`} title="Requires Approval" /> Requires Approval
         </label>
-        <span style={{ fontSize: 11.5, color: NX.faint }}>
+        <span style={{ fontSize: 12, color: NX.faint }}>
           New tickets of this type wait for an approver's sign-off before they can be assigned. Tickets already raised keep their current state.
         </span>
       </div>
       {open && (
         <div style={{ borderTop: `1px solid ${NX.border}`, padding: '12px 14px', background: NX.surface2 }}>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginBottom: 8 }}>
             The questions - with their Required and Retired marks - are part of the draft: they save with the Save button below.
           </div>
           <FieldEditor typeKey={typeKey} fields={fields} onChange={(next) => onChangeForm({ fields: next })} />
@@ -249,7 +249,7 @@ export default function TicketTaxonomySettings() {
 
   if (myLevel < 3) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>
         Manager access or above is required to view ticket SLA & type settings.
       </div>
     );
@@ -328,7 +328,7 @@ export default function TicketTaxonomySettings() {
           fixed 2-up grid. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginBottom: 18 }}>
         <div style={{ ...card, padding: 18, flex: '1 1 380px', maxWidth: 560 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>SLA Target Hours</div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>SLA Target Hours</div>
           <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
             How many hours after a ticket is raised its SLA due date lands, by priority. Saved here, it takes effect
             immediately, server-side - no redeploy.
@@ -360,13 +360,13 @@ export default function TicketTaxonomySettings() {
         <div style={{ ...card, padding: 18, flex: '1 1 380px', maxWidth: 560 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Building2 size={15} style={{ color: NX.dim }} />
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Company Field at Intake</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Company Field at Intake</div>
           </div>
           <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
             Off by default - a ticket is silently filed under the requester's own company (from their People record),
             same as always. Turn this on to let them pick instead, from whichever companies you enable below. Saves as you change it.
           </div>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: NX.ink, fontWeight: 600, marginBottom: cfg.companyField.enabled ? 14 : 0 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, fontWeight: 600, marginBottom: cfg.companyField.enabled ? 14 : 0 }}>
             <Toggle on={cfg.companyField.enabled} disabled={busy} label="Let the requester choose the company"
               onChange={() => setCompanyField({ enabled: !cfg.companyField.enabled })} />
             Let the requester choose the company
@@ -379,20 +379,20 @@ export default function TicketTaxonomySettings() {
                 <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, letterSpacing: '.04em', marginBottom: 8 }}>OFFERED AT INTAKE</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {companies.map((c) => (
-                    <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, color: NX.ink, cursor: 'pointer' }}>
+                    <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, color: NX.ink, cursor: 'pointer' }}>
                       <input type="checkbox" disabled={busy} checked={cfg.companyField.companyIds.includes(c.id)} onChange={() => toggleCompanyId(c.id)} />
                       {c.name}
                     </label>
                   ))}
                 </div>
                 {cfg.companyField.companyIds.length === 0 && (
-                  <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 8 }}>
+                  <div style={{ fontSize: 12, color: NX.faint, marginTop: 8 }}>
                     Nothing checked yet - with none offered, the field stays hidden and every ticket still
                     files under the requester's own company.
                   </div>
                 )}
                 {cfg.companyField.companyIds.length === 1 && (
-                  <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 8 }}>
+                  <div style={{ fontSize: 12, color: NX.faint, marginTop: 8 }}>
                     Only one company checked - it's used automatically, no picker shown. Check a second to
                     make it an actual choice.
                   </div>
@@ -405,7 +405,7 @@ export default function TicketTaxonomySettings() {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <ListTree size={15} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>Ticket Types & Intake Questions</div>
+        <div style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>Ticket Types & Intake Questions</div>
         <SavedCheck show={saved} />
       </div>
       <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
@@ -431,7 +431,7 @@ export default function TicketTaxonomySettings() {
         </>
       )}
 
-      {err && <div role="alert" style={{ color: NX.red, fontSize: 12.5, fontWeight: 600, marginTop: 14 }}>{err}</div>}
+      {err && <div role="alert" style={{ color: NX.red, fontSize: 13, fontWeight: 600, marginTop: 14 }}>{err}</div>}
       <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={reset}
         note="Saves the SLA hours, the type labels and hints, and the intake questions." />
     </div>

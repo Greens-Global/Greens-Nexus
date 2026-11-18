@@ -32,7 +32,7 @@ const GROUPS = [
         desc: 'A browser that has not used Nexus for this long is signed out. Lowering it signs out anyone already idle longer, on their next visit.' },
       { key: 'actAsMinutes', label: 'Act As Session Length',
         desc: 'How long an Act As session lasts before it ends on its own. Applies to sessions started after the change.' },
-      { key: 'vaultOtpUnlockSec', label: 'Credentials Unlock (Code)',
+      { key: 'vaultOtpUnlockSec', label: 'Passwords Unlock (Code)',
         desc: 'How long a verified text or email code unlocks revealing and sharing company vault credentials.' },
       { key: 'vaultPersonalUnlockSec', label: 'Personal Vault Unlock',
         desc: 'The longest a Personal Vault stays unlocked after the password is entered. The screen still locks itself sooner when idle.' },
@@ -265,7 +265,7 @@ export default function SecuritySettings({ toastOk, toastErr, groups = GROUPS })
                         aria-invalid={!!errors[f.key]} aria-label={f.label} aria-describedby={`${inputId}-desc`}
                         onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value === '' ? '' : Number(e.target.value) }))}
                         style={{ width: 96 }} />
-                      <span style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.unit}{said ? ` (${said})` : ''}</span>
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.unit}{said ? ` (${said})` : ''}</span>
                     </>
                   )}>
                   <span className={`nx-set-badge${shownSource === 'saved' ? ' is-own' : ''}`}>{SOURCE_LABEL[shownSource]}{(f.key in changes) ? ' (Unsaved)' : ''}</span>

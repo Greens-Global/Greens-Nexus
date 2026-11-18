@@ -75,7 +75,7 @@ export default function RailVersions({ workflow, onRestored }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', gap: 6, alignItems: 'center' }}>
                     Version {n}
-                    {current && <span style={{ ...chip, fontSize: 10.5, padding: '1px 6px' }}>Current</span>}
+                    {current && <span style={{ ...chip, fontSize: 11, padding: '1px 6px' }}>Current</span>}
                   </div>
                   <div style={hint}>{v.publishedByName || v.publishedBy || ''}{v.publishedAt ? ` - ${formatDateTime(v.publishedAt)}` : ''}{v.note ? ` - ${v.note}` : ''}</div>
                 </div>

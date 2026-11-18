@@ -49,7 +49,7 @@ export function SimpleRowModal({ title, fields, row, onSave, onDelete, onClose }
         <>
           {row && onDelete && confirmDelete && (
             <span style={{ marginRight: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '0.84rem', fontWeight: 600 }}>Delete this row?</span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Delete this row?</span>
               <button className="secondary-btn" onClick={() => setConfirmDelete(false)}>Keep</button>
               <button className="primary-btn" onClick={onDelete} style={{ backgroundColor: 'hsl(var(--color-red))' }}>Delete</button>
             </span>

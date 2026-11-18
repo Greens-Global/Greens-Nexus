@@ -276,7 +276,7 @@ export function OutTodayWidget() {
               {/* Names wrap rather than ellipsize: a busy day used to hide
                   everyone past the tile's width with no way to see them. */}
               {state.upcoming.map(u => (
-                <div key={u.date} title={`${dayLabel(u.date)}: ${u.names.join(', ')}`} style={{ display: 'flex', gap: 10, padding: '4px 8px', fontSize: 12.5, lineHeight: 1.4 }}>
+                <div key={u.date} title={`${dayLabel(u.date)}: ${u.names.join(', ')}`} style={{ display: 'flex', gap: 10, padding: '4px 8px', fontSize: 13, lineHeight: 1.4 }}>
                   <span style={{ color: 'var(--muted)', flexShrink: 0, width: 92 }}>{dayLabel(u.date)}</span>
                   <span style={{ color: 'var(--ink)', minWidth: 0, overflowWrap: 'anywhere' }}>{u.names.join(', ')}</span>
                 </div>

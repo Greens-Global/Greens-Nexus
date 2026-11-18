@@ -52,8 +52,9 @@ const doc = () => ({
 });
 
 /** Mount, wait for the document to hydrate, and hand back its live editor. */
+let view;   // the last mountBuilder()'s render, for the tests that unmount it
 async function mountBuilder() {
-  render(<DocumentBuilder docId="d1" kind="document" onClose={() => {}} toastErr={() => {}} />);
+  view = render(<DocumentBuilder docId="d1" kind="document" onClose={() => {}} toastErr={() => {}} />);
   await waitFor(() => expect(getDocument).toHaveBeenCalled());
   await waitFor(() => expect(document.querySelector('.doc-page .ProseMirror')).toBeTruthy());
   // TipTap hangs its editor instance off the ProseMirror DOM node, which is
@@ -108,6 +109,44 @@ describe('DocumentBuilder autosave', () => {
       if (!payload.content) continue;
       expect(payload.content.pages.length).toBeGreaterThan(0);
     }
+  });
+});
+
+// 11/17/2026: only Close flushed the debounced autosave. Leaving any other
+// way within AUTOSAVE_MS of the last keystroke (another Files tab, a sidebar
+// module, a bell row, Back) cleared the timer and the last words were gone.
+describe('DocumentBuilder leaving with a save pending', () => {
+  it('unmounted inside the autosave wait: what was typed is saved, once', async () => {
+    const editor = await mountBuilder();
+    editor.commands.insertContent(' - last words');
+    expect(updateDocument).not.toHaveBeenCalled();      // still waiting on the timer
+    view.unmount();
+    expect(updateDocument).toHaveBeenCalledTimes(1);
+    const content = lastSavedContent();
+    expect(content.pages).toHaveLength(1);
+    expect(savedText(content)).toContain('REAL BODY');
+    expect(savedText(content)).toContain('last words');
+    await vi.advanceTimersByTimeAsync(3000);            // the old timer is gone: nothing a second time
+    expect(updateDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it('nothing waiting to save: leaving sends nothing', async () => {
+    const editor = await mountBuilder();
+    editor.commands.insertContent('x');
+    await vi.advanceTimersByTimeAsync(2000);            // the autosave has gone out
+    await waitFor(() => expect(updateDocument).toHaveBeenCalled());
+    updateDocument.mockClear();
+    view.unmount();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(updateDocument).not.toHaveBeenCalled();
+  });
+
+  it('the page going away with a save pending: it goes out at once', async () => {
+    const editor = await mountBuilder();
+    editor.commands.insertContent(' - last words');
+    fireEvent(window, new Event('pagehide'));
+    await waitFor(() => expect(updateDocument).toHaveBeenCalledTimes(1));
+    expect(savedText(lastSavedContent())).toContain('last words');
   });
 });
 

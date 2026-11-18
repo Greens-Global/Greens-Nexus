@@ -4,9 +4,9 @@
 .cm-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; }
 .cm-toolbar:first-child { justify-content: flex-start; }
 .cm-rings { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.cm-label { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-right: 4px; }
+.cm-label { font-size: 13px; font-weight: 600; color: var(--muted); margin-right: 4px; }
 .cm-chip {
-  font: inherit; font-size: 12.5px; font-weight: 500; padding: 5px 11px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 500; padding: 5px 11px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--line); background: var(--card); color: var(--muted);
 }
 .cm-chip.on { border-color: #14532d; background: rgba(20, 83, 45, 0.1); color: var(--ink, inherit); font-weight: 600; }
@@ -19,7 +19,7 @@
 .cm-pick { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); padding: 0 4px 0 10px; }
 .cm-pick span { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .cm-pick select { font: 600 13px/1.2 'Inter', sans-serif; color: var(--ink); background: transparent; border: none; padding: 7px 4px; cursor: pointer; max-width: 200px; }
-.cm-link { font: 600 12.5px/1.2 'Inter', sans-serif; color: var(--ops-s1, #2a78d6); background: none; border: none; padding: 4px 0; cursor: pointer; }
+.cm-link { font: 600 13px/1.2 'Inter', sans-serif; color: var(--ops-s1, #2a78d6); background: none; border: none; padding: 4px 0; cursor: pointer; }
 .cm-updating { font-size: 12px; color: var(--muted); }
 .cm-coverage { margin: 0; }
 
@@ -32,7 +32,7 @@
 /* The basemap in soft gray: the data carries the only color. */
 .cm-map .cm-tiles { filter: grayscale(1) brightness(1.06) contrast(0.88); }
 [data-theme="dark"] .cm-map .cm-tiles { filter: grayscale(1) brightness(0.92) contrast(0.9); }
-.cm-map-failed { position: absolute; top: 10px; left: 10px; z-index: 500; margin: 0; font-size: 12.5px; font-weight: 600; color: #b91c1c; }
+.cm-map-failed { position: absolute; top: 10px; left: 10px; z-index: 500; margin: 0; font-size: 13px; font-weight: 600; color: #b91c1c; }
 .cm-placing { padding: 80px 20px; }
 
 /* Legend: on the map, bottom left. */
@@ -40,7 +40,7 @@
   position: absolute; left: 10px; bottom: 22px; z-index: 450; max-width: calc(100% - 20px);
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 7px 10px;
   background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-  font-size: 11.5px; color: var(--muted);
+  font-size: 12px; color: var(--muted);
 }
 .cm-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .cm-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
@@ -61,7 +61,7 @@
 .cm-dot-icon { background: none; border: none; }
 .cm-dot, .cm-cluster {
   display: flex; align-items: center; justify-content: center; box-sizing: border-box; border-radius: 50%;
-  border: 1.5px solid #fff; opacity: 0.88; color: #fff; font: 700 10.5px/1 'Inter', sans-serif;
+  border: 1.5px solid #fff; opacity: 0.88; color: #fff; font: 700 11px/1 'Inter', sans-serif;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); text-shadow: 0 0 2px rgba(0, 0, 0, 0.45);
 }
 .cm-dot.zip { border-style: dashed; border-color: #1f2937; opacity: 0.7; }
@@ -74,10 +74,10 @@
   border-radius: 8px; border: 2.5px solid #fff; color: #fff; font: 800 13px/1 'Inter', sans-serif;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
-.cm-fac-pin.other .cm-pin { width: 18px; height: 18px; border-radius: 5px; border-width: 2px; font-size: 9px; background: #64748b; opacity: 0.85; }
+.cm-fac-pin.other .cm-pin { width: 18px; height: 18px; border-radius: 5px; border-width: 2px; font-size: 11px; background: #64748b; opacity: 0.85; }
 .cm-pin-name {
   position: absolute; left: 50%; top: 29px; transform: translateX(-50%); white-space: nowrap;
-  font: 700 11.5px/1 'Inter', sans-serif; color: #14532d; padding: 3px 6px; border-radius: 5px;
+  font: 700 12px/1 'Inter', sans-serif; color: #14532d; padding: 3px 6px; border-radius: 5px;
   background: rgba(255, 255, 255, 0.92); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .cm-comp-pin { background: none; border: none; }
@@ -90,7 +90,7 @@
 }
 .cm-tooltip { padding: 0; border-radius: 8px; }
 .cm-tip { padding: 8px 10px; font: 400 12px/1.45 'Inter', sans-serif; min-width: 200px; }
-.cm-tip b { display: block; font-size: 12.5px; margin-bottom: 4px; }
+.cm-tip b { display: block; font-size: 13px; margin-bottom: 4px; }
 .cm-tip div { display: flex; justify-content: space-between; gap: 14px; }
 .cm-tip div span:first-child { color: #6b7280; }
 .cm-tip div span:last-child { font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -104,9 +104,9 @@
 .cm-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .cm-tiles-3 { grid-template-columns: 1fr 1fr 1fr; }
 .cm-tiles div { border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.cm-tiles span { font-size: 11.5px; color: var(--muted); }
+.cm-tiles span { font-size: 12px; color: var(--muted); }
 .cm-tiles b { font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
-.cm-sub { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-top: 4px; }
+.cm-sub { font-size: 13px; font-weight: 600; color: var(--ink); margin-top: 4px; }
 .cm-dist { display: flex; flex-direction: column; gap: 4px; }
 .cm-dist-row { display: grid; grid-template-columns: 62px minmax(0, 1fr) 48px 36px; align-items: center; gap: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .cm-dist-l { color: var(--muted); }
@@ -115,7 +115,7 @@
 .cm-dist-n { text-align: right; color: var(--ink); font-weight: 600; }
 .cm-dist-p { text-align: right; color: var(--muted); }
 .cm-big { margin: 0; font-size: 24px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
-.cm-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; }
+.cm-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
 .cm-list li { display: flex; justify-content: space-between; gap: 8px; }
 .cm-list b { font-variant-numeric: tabular-nums; }
 .cm-hint { font-size: 12px; color: var(--muted); margin: 0; }

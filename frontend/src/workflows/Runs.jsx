@@ -110,7 +110,7 @@ export default function Runs({ go, openRunId = null, initialWorkflow = '' }) {
           <DateField value={from} onChange={setFrom} placeholder="From" title="From date" max={to || ''} />
           <span>to</span>
           <DateField value={to} onChange={setTo} placeholder="To" title="To date" />
-          {(from || to) && <LinkButton onClick={() => { setFrom(''); setTo(''); }} style={{ fontSize: 12.5 }}>Clear</LinkButton>}
+          {(from || to) && <LinkButton onClick={() => { setFrom(''); setTo(''); }} style={{ fontSize: 13 }}>Clear</LinkButton>}
         </span>
       </div>
 
@@ -155,7 +155,7 @@ function RunRow({ run, onOpen, isMobile }) {
   return (
     <button type="button" onClick={onOpen}
       style={{ ...(isMobile ? { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '2px 10px' } : RUN_GRID), width: '100%', textAlign: 'left', padding: '10px 16px',
-        border: 'none', borderTop: '1px solid var(--line)', background: 'none', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', fontFamily: FONT, fontSize: 13.5 }}>
+        border: 'none', borderTop: '1px solid var(--line)', background: 'none', cursor: 'pointer', font: 'inherit', color: 'var(--ink)', fontFamily: FONT, fontSize: 13 }}>
       <span style={{ fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{run.workflowName}{run.version ? <Muted> v{run.version}</Muted> : null}</span>
       {isMobile ? <StatusLabel label={m.label} color={m.color} size="sm" /> : null}
       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--muted)' }} title={run.summary || ''}>
@@ -173,12 +173,12 @@ function ActionRow({ row, onOpen, isMobile }) {
   const sent = Array.isArray(row.sent) ? row.sent : [];
   const affected = Array.isArray(row.affected) ? row.affected : [];
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) auto', gap: '4px 12px', padding: '10px 16px', borderTop: '1px solid var(--line)', fontSize: 13.5 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) auto', gap: '4px 12px', padding: '10px 16px', borderTop: '1px solid var(--line)', fontSize: 13 }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <strong>{row.actionLabel || row.action}</strong>
           <StatusLabel label={m.label} color={m.color} size="sm" />
-          <LinkButton onClick={onOpen} style={{ fontSize: 12.5 }}>{row.workflowName}</LinkButton>
+          <LinkButton onClick={onOpen} style={{ fontSize: 13 }}>{row.workflowName}</LinkButton>
         </div>
         {row.line && <div style={{ marginTop: 2, overflowWrap: 'anywhere' }}>{row.line}</div>}
         {sent.length > 0 && <Muted>To {sent.join(', ')}</Muted>}
@@ -186,7 +186,7 @@ function ActionRow({ row, onOpen, isMobile }) {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
             {affected.map((a, i) => (
               a.link?.view
-                ? <LinkButton key={`${a.entity}:${a.id}:${i}`} onClick={() => goTo(a.link)} style={{ fontSize: 12.5 }}>{a.label || `${a.entity} ${a.id}`}</LinkButton>
+                ? <LinkButton key={`${a.entity}:${a.id}:${i}`} onClick={() => goTo(a.link)} style={{ fontSize: 13 }}>{a.label || `${a.entity} ${a.id}`}</LinkButton>
                 : <Muted key={`${a.entity}:${a.id}:${i}`}>{a.label || `${a.entity} ${a.id}`}</Muted>
             ))}
           </div>

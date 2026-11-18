@@ -60,7 +60,7 @@ In Nexus Accounting every amount on every report opens the ledger lines that mak
     { "kind": "sheet", "title": "11/19/2026 · APJ", "text": "Repairs and Maintenance - Debit 640.00 - Memo: #4830 gate operator service - Vendor: Gate Pro", "buttons": ["Open Full", "?"], "n": 3 }
   ],
   "callouts": [
-    { "n": 1, "text": "Reports > Financial > Income Statement. Click any amount." },
+    { "n": 1, "text": "Reports > Financial Statements > Income Statement - Last 12 Months. Click any amount." },
     { "n": 2, "text": "The ledger lines behind it, with a running Balance." },
     { "n": 3, "text": "A line opens its entry beside the list. The question mark at a line's end asks My Accountant." }
   ]

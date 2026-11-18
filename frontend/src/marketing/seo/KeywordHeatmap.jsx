@@ -9,7 +9,7 @@ export default function KeywordHeatmap({ keywords }) {
   return (
     <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900 }}>Keyword Volume Heatmap</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900 }}>Keyword Volume Heatmap</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.gray400 }}>
           Low
           <span style={{ display: 'flex', gap: 2, borderRadius: 9999, border: `1px solid ${C.gray100}`, padding: 2 }}>
@@ -24,7 +24,7 @@ export default function KeywordHeatmap({ keywords }) {
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ color: C.gray400, fontSize: 10.5, textTransform: 'uppercase' }}>
+            <tr style={{ color: C.gray400, fontSize: 11, textTransform: 'uppercase' }}>
               <th style={{ textAlign: 'left', fontWeight: 500, padding: '6px 8px', paddingLeft: 0, whiteSpace: 'nowrap' }}>Keyword</th>
               {MONTH_LABELS.map((m) => (
                 <th key={m} style={{ fontWeight: 500, padding: '6px 0', textAlign: 'center', width: 46 }}>

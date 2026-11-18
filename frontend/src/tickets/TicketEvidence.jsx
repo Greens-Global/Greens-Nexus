@@ -84,10 +84,10 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
               cue this button promises. */}
           <button ref={recordBtnRef} type="button" disabled={disabled || recording} onClick={() => { primeReturnCue(); setMenu((m) => !m); }}
             style={quiet ? {
-              ...btn('ghost'), fontSize: 12.5, fontWeight: 600, color: NX.ink, padding: '5px 8px',
+              ...btn('ghost'), fontSize: 13, fontWeight: 600, color: NX.ink, padding: '5px 8px',
               display: 'inline-flex', alignItems: 'center', gap: 6,
             } : compact ? {
-              ...btn('outline'), fontSize: 12.5, fontWeight: 600, color: NX.red,
+              ...btn('outline'), fontSize: 13, fontWeight: 600, color: NX.red,
               borderColor: 'rgba(220,38,38,0.45)', display: 'inline-flex', alignItems: 'center', gap: 6,
             } : {
               ...btn('primary'), background: NX.red, borderColor: NX.red,
@@ -111,15 +111,15 @@ function RecordUploadButtons({ onFile, disabled, showRecord = true, onRecordingC
       )}
       <button type="button" disabled={disabled} onClick={() => fileRef.current?.click()}
         style={quiet
-          ? { ...btn('ghost'), fontSize: 12.5, fontWeight: 600, color: NX.ink, padding: '5px 8px', display: 'inline-flex', alignItems: 'center', gap: 6 }
-          : { ...btn('outline'), fontSize: compact ? 12.5 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          ? { ...btn('ghost'), fontSize: 13, fontWeight: 600, color: NX.ink, padding: '5px 8px', display: 'inline-flex', alignItems: 'center', gap: 6 }
+          : { ...btn('outline'), fontSize: compact ? 13 : 12, fontWeight: compact ? 600 : undefined, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         {quiet ? <Paperclip size={14} /> : <UploadIcon size={13} />} {quiet ? 'Attach File' : 'Upload Attachment'}
       </button>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }}
         onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; files.forEach(onFile); }} />
       {voiceNote && (
         <VoiceNoteButton onFile={onFile} disabled={disabled} onRecordingChange={onVoiceRecordingChange}
-          style={quiet ? { border: 'none', background: 'transparent', height: 'auto', padding: '5px 8px', fontSize: 12.5 } : { height: 30, fontSize: 12.5 }} />
+          style={quiet ? { border: 'none', background: 'transparent', height: 'auto', padding: '5px 8px', fontSize: 13 } : { height: 30, fontSize: 13 }} />
       )}
     </div>
   );

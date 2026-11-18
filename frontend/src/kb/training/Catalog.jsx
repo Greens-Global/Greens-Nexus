@@ -5,8 +5,9 @@
 // the courses shelved by department, each shelf a list. One search box and
 // one row of filters; everything filters on the client from GET /kb/catalog.
 import { useEffect, useMemo, useState } from 'react';
-import { Search, GraduationCap, Compass, Plus } from 'lucide-react';
+import { Search, GraduationCap, Compass } from 'lucide-react';
 import { api } from '../../api';
+import NewButton from '../../components/NewButton';
 import AsyncSection from '../../components/AsyncState';
 import { errText } from '../components/Toast';
 import { goKb, plural, PATH_KINDS, LEVELS } from '../lib';
@@ -73,7 +74,7 @@ export default function Catalog({ me, initialQuery = '' }) {
                 <optgroup label="Level">{Object.values(LEVELS).map((l) => <option key={l.key} value={`l:${l.key}`}>{l.label}</option>)}</optgroup>
               </select>
             </div>
-            {me?.can_author && <span className="kb-catalog-actions"><button type="button" className="kb-btn" onClick={() => goKb('plans')}>Learning Paths</button><button type="button" className="kb-btn pri" onClick={() => goKb('builder', 'new')}><Plus />New Course</button></span>}
+            {me?.can_author && <span className="kb-catalog-actions"><button type="button" className="kb-btn" onClick={() => goKb('plans')}>Learning Paths</button><NewButton className="kb-btn pri" items={[{ key: 'course', label: 'Course' }]} onPick={() => goKb('builder', 'new')} /></span>}
           </div>
 
           {forMe.length > 0 && (

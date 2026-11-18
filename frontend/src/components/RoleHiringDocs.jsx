@@ -16,9 +16,9 @@ import { Spinner } from './AsyncState';
 
 const lbl = { display: 'block', fontSize: 12, fontWeight: 700, margin: '14px 0 6px' };
 const hint = { fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginTop: 4 };
-const pill = (on) => ({ padding: '5px 14px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600,
+const pill = (on) => ({ padding: '5px 14px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 13, fontWeight: 600,
   cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: on ? 'var(--pine)' : 'var(--card)', color: on ? '#fff' : 'var(--ink)' });
-const iconBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 };
+const iconBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 };
 
 // The role's job description as a FILE (Neil, 11/03/2026): a PDF, or a Word
 // file the server turns into one exactly as it looks. It goes out after the
@@ -79,7 +79,7 @@ function JdFile({ role, onSaved, toastOk, toastErr }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
         <FileText size={18} style={{ color: 'var(--pine)', flexShrink: 0 }} />
         <div style={{ flex: '1 1 200px', minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 600, wordBreak: 'break-word' }}>{f.name}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, wordBreak: 'break-word' }}>{f.name}</div>
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
             {f.pages} {f.pages === 1 ? 'page' : 'pages'}{f.uploadedAt ? ` - uploaded ${formatDate(f.uploadedAt)}` : ''}
           </div>
@@ -225,7 +225,7 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
         </div>
         {copyOptions.length > 0 && (
           <select aria-label="Copy job description from" className="form-input" value="" disabled={busy}
-            onChange={e => copyFrom(e.target.value)} style={{ marginLeft: 'auto', flex: '0 1 300px', minWidth: 0, fontSize: 12.5 }}>
+            onChange={e => copyFrom(e.target.value)} style={{ marginLeft: 'auto', flex: '0 1 300px', minWidth: 0, fontSize: 13 }}>
             <option value="">Copy From Another Role</option>
             {copyOptions.map(s => <option key={s.id} value={s.id}>{sourceLabel(s)}{s.file ? ` (${s.file})` : ''}</option>)}
           </select>
@@ -262,11 +262,11 @@ export default function RoleHiringDocs({ role, onSaved, toastOk, toastErr }) {
           {offerDocs.map((d, i) => (
             <div key={d.kind === 'jd' ? 'jd' : `doc-${i}`} role="listitem" data-offer-row={d.kind === 'jd' ? 'jd' : d.templateId || 'new'}
               style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
-              <span style={{ width: 18, color: 'var(--muted)', fontWeight: 700, fontSize: 12.5 }}>{i + 2}</span>
+              <span style={{ width: 18, color: 'var(--muted)', fontWeight: 700, fontSize: 13 }}>{i + 2}</span>
               {d.kind === 'jd' ? (
-                <span style={{ flex: '2 1 200px', display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 600 }}>
+                <span style={{ flex: '2 1 200px', display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
                   <BookOpen size={15} style={{ color: 'var(--pine)' }} /> Job Description
-                  <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: 12.5 }}>- with the page they tick to say they read it</span>
+                  <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: 13 }}>- with the page they tick to say they read it</span>
                 </span>
               ) : (
                 <select aria-label={`Offer document ${i + 2}`} className="form-input" style={{ flex: '2 1 200px', minWidth: 0 }} value={d.templateId}

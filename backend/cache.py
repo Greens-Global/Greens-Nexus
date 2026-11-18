@@ -125,16 +125,21 @@ timesheet_waiting = TTLCache("timesheet_waiting", ttl=60)  # /timesheet-review/w
                                                               # 11/04 those held the pooler's connections for up to a
                                                               # minute and every other save timed out. The screen asks
                                                               # with fresh=1 after its own Approve / Send Back.
+timesheet_due    = TTLCache("timesheet_due",    ttl=60)   # timesheet_due.due_cached - per email: a person's own
+                                                              # Time Sheets waiting on them (Daily Briefing, My Day).
+                                                              # Each row's hours cost a time card computation and
+                                                              # My Day reloads often; any commit to the tables
+                                                              # below drops it, so a Submit shows at once.
 
 # Watched model -> caches to drop when a commit touches it. HrEntity feeds the
 # directory's company names; group/member rows feed the grant map; employees
 # also feed the approver/allocator lists (filtered against nexus_employees).
 _WATCHED = {
-    "NexusEmployee":    (people_directory, role_holders, dashboard_birthdays, contact_directory, timesheet_waiting),
+    "NexusEmployee":    (people_directory, role_holders, dashboard_birthdays, contact_directory, timesheet_waiting, timesheet_due),
     "HrEntity":         (people_directory, contact_directory),
     "HrDepartment":     (contact_directory,),
-    "NexusGroup":       (module_grants,),
-    "NexusGroupMember": (module_grants,),
+    "NexusGroup":       (module_grants, timesheet_due),
+    "NexusGroupMember": (module_grants, timesheet_due),
     "NexusSetting":     (settings_config,),
     "EgnyteWiring":     (egnyte_wirings,),
     "EgnyteFolderGroup": (egnyte_wirings,),
@@ -142,7 +147,7 @@ _WATCHED = {
     "NexusRole":        (role_holders, timesheet_waiting),
     "Task":             (dashboard_insights,),
     "TaskTicket":       (dashboard_insights,),
-    "TimePunch":        (dashboard_insights, timesheet_waiting),
+    "TimePunch":        (dashboard_insights, timesheet_waiting, timesheet_due),
     "AgentDevice":      (dashboard_insights,),
     "KbDocument":       (dashboard_insights,),
     "Document":         (dashboard_insights,),
@@ -162,10 +167,13 @@ _WATCHED = {
     "VaultCredential":  (dashboard_insights,),
     "VaultShareRequest": (dashboard_insights,),
     "DocFormEntry":     (dashboard_insights,),
-    "TimesheetReview":  (timesheet_waiting,),
+    "TimesheetReview":  (timesheet_waiting, timesheet_due),
     "HrSignParty":      (timesheet_waiting,),
-    "TimeApproval":     (timesheet_waiting,),
+    "TimeApproval":     (timesheet_waiting, timesheet_due),
     "ApprovalDelegation": (timesheet_waiting,),
+    "PunchRequest":     (timesheet_due,),
+    "PayrollRate":      (timesheet_due,),
+    "ExtraTimeClaim":   (timesheet_due,),
 }
 
 

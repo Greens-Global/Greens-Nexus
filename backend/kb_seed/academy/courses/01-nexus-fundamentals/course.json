@@ -102,14 +102,14 @@
           "q": "You are on the Time Sheet tab and want to start a new note without leaving the page. Where do you go?",
           "options": [
             "The Dashboard, then the Notes tab",
-            "The +, then New Note",
+            "The bolt in the header, then New Note",
             "Your profile menu, then Profile",
             "Help Center, then Documentation"
           ],
           "answer": [
             1
           ],
-          "explanation": "The + in the header starts common things, such as a New Note, a New Ticket or Request an Item, from any screen. The Notes tab works too, but you leave the page you are on to get there.",
+          "explanation": "The bolt in the header (Quick Actions) starts common things, such as a New Note, a New Ticket or a request for an item, from any screen. The Notes tab works too, but you leave the page you are on to get there.",
           "lesson": "02-getting-around.md"
         },
         {

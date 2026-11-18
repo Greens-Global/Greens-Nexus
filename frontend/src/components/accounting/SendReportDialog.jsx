@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Folder, FolderPlus, X } from 'lucide-react';
 import { api } from '../../api';
@@ -7,6 +7,7 @@ import { control } from './reportControls';
 import { csvRows, reportFileName } from './reportModel';
 import FolderPickModal from '../../egnyte/EgnyteFolderPick';
 import { PersonSelect } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
 
 // Export -> Email / Save to Egnyte / Share (Charmi, call of 09/29). The
 // statement on screen becomes a file here (PDF or Excel, exactly what the
@@ -29,8 +30,8 @@ import { PersonSelect } from '../../tasks/components';
 // breadcrumb as the Files screen - instead of a one-level list. The same
 // dialog takes ledger lines from a drill-down (makeFile + baseName).
 
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const TITLES = { email: 'Email This Statement', egnyte: 'Save to Files', share: 'Share With a Teammate' };
 const EXTS = { pdf: 'pdf', excel: 'xlsx', csv: 'csv' };
 const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -74,6 +75,22 @@ export default function SendReportDialog({ mode, result, entities, title, config
   const [offerCreate, setOfferCreate] = useState(false);   // the save failed because the folder is not there
   // The file's name without its extension, editable (Charmi: "give us the option to rename").
   const [base, setBase] = useState(() => baseName || reportFileName(result, entities, 'pdf').replace(/\.pdf$/, ''));
+  const [firstBase] = useState(base);
+  // A click outside or Escape asks before what was typed is lost.
+  const dirty = !!(to.trim() || message.trim() || recipient) || subject !== title || name !== title || base !== firstBase;
+  const asking = useRef(false);
+  const tryClose = async () => {
+    if (asking.current) return;
+    if (dirty && !busy) {
+      asking.current = true;
+      const ok = await dialog.confirm('Discard what you typed?', { title: 'Discard Changes?', confirmText: 'Discard', danger: true });
+      asking.current = false;
+      if (!ok) return;
+    }
+    onClose();
+  };
+  const closeRef = useRef(tryClose);
+  closeRef.current = tryClose;
   const fileName = `${safeName(base) || 'Report'}.${EXTS[format]}`;
   const buildFile = async () => {
     const f = makeFile ? await makeFile(format, fileName) : await statementFile(result, entities, title, format);
@@ -82,10 +99,10 @@ export default function SendReportDialog({ mode, result, entities, title, config
   const dest = cleanFolder(folder || DEFAULT_FOLDER);
   useEffect(() => {
     // Escape closes the folder picker first, then the dialog.
-    const onKey = (e) => { if (e.key === 'Escape') { if (browsing) setBrowsing(false); else onClose(); } };
+    const onKey = (e) => { if (e.key === 'Escape') { if (browsing) setBrowsing(false); else closeRef.current(); } };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, browsing]);
+  }, [browsing]);
   useEffect(() => {
     if (mode !== 'share') return;
     // The curated Nexus People list, never M365.
@@ -138,7 +155,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
       <label style={label} htmlFor="send-file-name">File Name</label>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input id="send-file-name" type="text" value={base} maxLength={180} onChange={(e) => setBase(e.target.value)} style={{ ...control, flex: 1, minWidth: 0 }} />
-        <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>.{EXTS[format]}</span>
+        <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>.{EXTS[format]}</span>
       </div>
     </div>
   );
@@ -156,12 +173,12 @@ export default function SendReportDialog({ mode, result, entities, title, config
     </div>
   );
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={tryClose} role="presentation">
       <form className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={TITLES[mode]} onClick={(e) => e.stopPropagation()} onSubmit={send}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>{TITLES[mode]}</h3>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
               {mode === 'email' ? 'Sent from your own mailbox, with the statement attached exactly as it is on screen.'
                 : mode === 'egnyte' ? `The ${what} as ${what === 'lines' ? 'they are' : 'it is'} on screen, saved into a folder in Files. The folder is remembered.`
                   : 'Memorizes this view, shares it with the accounting team, and tells the person on their bell.'}
@@ -194,9 +211,9 @@ export default function SendReportDialog({ mode, result, entities, title, config
                 <label style={label} htmlFor="send-folder">Folder</label>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input id="send-folder" type="text" value={folder} onChange={(e) => { setFolder(e.target.value); setOfferCreate(false); }} autoFocus placeholder={DEFAULT_FOLDER} style={{ ...control, flex: 1, minWidth: 0 }} />
-                  <button type="button" className="secondary-btn" onClick={() => setBrowsing(true)} aria-haspopup="dialog" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 10px' }}><Folder size={14} /> Browse</button>
+                  <button type="button" className="secondary-btn" onClick={() => setBrowsing(true)} aria-haspopup="dialog" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 10px' }}><Folder size={14} /> Browse</button>
                 </div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Browse opens Files, or type the path starting with /Shared or /Private. The folder is remembered for next time.</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>Browse opens Files, or type the path starting with /Shared or /Private. The folder is remembered for next time.</div>
               </div>
               {browsing && createPortal(
                 <FolderPickModal startPath={dest} showTree title="Save to Files - Pick a Folder"
@@ -206,7 +223,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
               )}
               {nameField}
               {formatPicker}
-              <div role="status" aria-label="Where the file will be saved" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 10px', wordBreak: 'break-all' }}>
+              <div role="status" aria-label="Where the file will be saved" style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 10px', wordBreak: 'break-all' }}>
                 Will be saved as <strong style={{ color: 'var(--text-primary)' }}>{dest}/{fileName}</strong>
               </div>
             </>
@@ -232,7 +249,7 @@ export default function SendReportDialog({ mode, result, entities, title, config
             <div style={bad}>
               {error}
               {offerCreate && (
-                <button type="button" className="secondary-btn" onClick={(e) => send(e, true)} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.74rem', padding: '3px 10px', marginLeft: 10 }}><FolderPlus size={13} /> Create Folder and Save</button>
+                <button type="button" className="secondary-btn" onClick={(e) => send(e, true)} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '3px 10px', marginLeft: 10 }}><FolderPlus size={13} /> Create Folder and Save</button>
               )}
             </div>
           )}

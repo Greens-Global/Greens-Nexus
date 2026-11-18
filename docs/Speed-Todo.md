@@ -57,7 +57,7 @@ Targets: shell under 1.5s, any screen under 1s data-complete, no response over 5
       Add rules: `@tiptap|prosemirror` -> vendor-editor; `@supabase/` (not just supabase-js) -> vendor-supabase;
       `@reduxjs|react-redux|immer|es-toolkit` -> vendor-charts; rename catch-all to vendor-misc.
 - [ ] Add a post-build assertion that the entry's static imports contain no vendor-charts/exif/pdf/heic.
-- [ ] `index.html`: `defer` on `guard.js`; self-host or trim the 3-family/12-weight Google Fonts request.
+- [ ] `index.html`: `defer` on `guard.js`. (Fonts: done 11/12/2026 - Inter is bundled, no Google Fonts request.)
 - [ ] Drop `react-router-dom` and move `@tanstack/react-query-devtools` to devDependencies (both unused in prod).
 
 ## 4. Backend floor (small branch, no UI risk)

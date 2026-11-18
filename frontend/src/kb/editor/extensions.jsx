@@ -77,7 +77,7 @@ function StepView({ node, updateAttributes, deleteNode, editor, getPos }) {
         <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { addPhotos(e.target.files); e.target.value = ''; }} />
         {!a.warning && <button type="button" className="kb-btn sm ghost" onClick={() => updateAttributes({ warning: ' ' })}><AlertTriangle />Warning</button>}
         {!a.tip && <button type="button" className="kb-btn sm ghost" onClick={() => updateAttributes({ tip: ' ' })}><Lightbulb />Tip</button>}
-        <label className="kb-check" style={{ fontSize: 12.5 }}><input type="checkbox" checked={!!a.photoRequired} onChange={(e) => updateAttributes({ photoRequired: e.target.checked })} />Photo required as a task</label>
+        <label className="kb-check" style={{ fontSize: 13 }}><input type="checkbox" checked={!!a.photoRequired} onChange={(e) => updateAttributes({ photoRequired: e.target.checked })} />Photo required as a task</label>
         <button type="button" className="kb-btn sm ghost" style={{ marginLeft: 'auto' }} onClick={addStepAfter}><Plus />Step After</button>
         <button type="button" className="kb-btn sm ghost danger" aria-label="Delete step" onClick={deleteNode}><Trash2 /></button>
       </div>
@@ -294,7 +294,7 @@ function FigureView({ node, updateAttributes, deleteNode }) {
     <NodeViewWrapper className="kb-figure-node" data-figure="" contentEditable={false}>
       <Figure kind={node.attrs.kind} data={node.attrs.data} />
       <div className="kb-step-tools" style={{ marginTop: 6 }}>
-        <select className="kb-select" style={{ width: 'auto', padding: '4px 8px', fontSize: 12.5 }} value={node.attrs.kind} aria-label="Figure kind" onChange={(e) => updateAttributes({ kind: e.target.value, data: FIGURE_TEMPLATES[e.target.value] })}>
+        <select className="kb-select" style={{ width: 'auto', padding: '4px 8px', fontSize: 13 }} value={node.attrs.kind} aria-label="Figure kind" onChange={(e) => updateAttributes({ kind: e.target.value, data: FIGURE_TEMPLATES[e.target.value] })}>
           {FIGURE_KINDS.map((k) => <option key={k} value={k}>{k[0].toUpperCase() + k.slice(1)}</option>)}
         </select>
         <button type="button" className="kb-btn sm" onClick={start}>Edit Figure</button>
@@ -303,7 +303,7 @@ function FigureView({ node, updateAttributes, deleteNode }) {
       {open && (
         <div className="kb-card soft" style={{ marginTop: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div className="kb-meta">The figure's data. Keys: title, caption, items (label, note, at, tone, value, low, text, name, w, h), columns (name, note, facts), regions (label, note, x, y, w, h, tone), unit, max, cols, rows.</div>
-          <textarea className="kb-textarea" style={{ minHeight: 220, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5 }} value={text} onChange={(e) => setText(e.target.value)} aria-label="Figure JSON" />
+          <textarea className="kb-textarea" style={{ minHeight: 220, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13 }} value={text} onChange={(e) => setText(e.target.value)} aria-label="Figure JSON" />
           {err && <div className="kb-meta" style={{ color: '#b91c1c' }}>{err}</div>}
           <div style={{ display: 'flex', gap: 8 }}><button type="button" className="kb-btn sm pri" onClick={save}>Apply</button><button type="button" className="kb-btn sm" onClick={() => setOpen(false)}>Cancel</button></div>
         </div>

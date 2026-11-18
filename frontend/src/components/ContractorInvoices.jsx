@@ -20,7 +20,7 @@ export const money = (n, cur = 'INR') => `${moneyPrefix(cur)}${Number(n || 0).to
 
 function StatusChip({ status }) {
   const s = INVOICE_STATUS[status] || { label: status, bg: 'var(--wk-hover)', color: 'var(--muted)' };
-  return <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>{s.label}</span>;
+  return <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>{s.label}</span>;
 }
 
 // The PDF in a modal iframe (PacketReview's DocPreview): fetched as a blob
@@ -79,14 +79,14 @@ export function InvoiceCard({ invoice, toastOk, toastErr, onSent }) {
   return (
     <div data-testid="invoice-card" style={{ border: '1px solid var(--wk-line2)', borderRadius: 14, padding: '12px 16px', margin: '10px 0 14px', background: 'var(--card)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 13 }}>
       <div style={{ flex: 1, minWidth: 200 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>Invoice</div>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>Invoice</div>
         <span style={{ color: inv ? 'var(--ink)' : 'var(--muted)' }}>{text}</span>
       </div>
-      {btn && <button type="button" className="secondary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>{btn}</button>}
+      {btn && <button type="button" className="secondary-btn" onClick={() => setOpen(true)} style={{ fontSize: 13 }}>{btn}</button>}
       {canSend && (
         <button type="button" className="primary-btn" onClick={send} disabled={sending || noRecipients}
           title={noRecipients ? `No recipients set for ${inv.companyName || 'this company'} - add Contractor Invoice Recipients in Settings > Companies.` : undefined}
-          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: noRecipients ? 0.55 : 1 }}>
+          style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: noRecipients ? 0.55 : 1 }}>
           {sending ? <Spinner size={13} /> : <Send size={13} />} Approve &amp; Send
         </button>
       )}
@@ -143,7 +143,7 @@ export default function ContractorInvoices({ toastOk, toastErr, onChanged }) {
       {error && <div style={{ marginBottom: 12 }}><ErrorBanner message={error} onRetry={load} /></div>}
       {rows === null && <SkeletonBlocks count={3} height={48} />}
       {rows !== null && rows.length === 0 && !error && (
-        <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>No invoices yet.</div>
+        <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 13, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>No invoices yet.</div>
       )}
       {rows?.length > 0 && (
         <div style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)' }}>
@@ -154,25 +154,25 @@ export default function ContractorInvoices({ toastOk, toastErr, onChanged }) {
                 const noRecipients = !(inv.recipients || []).length;
                 return (
                   <tr key={inv.id}>
-                    <td style={td}><div style={{ fontWeight: 600 }}>{inv.employeeName || inv.employeeEmail}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{inv.employeeEmail}</div></td>
+                    <td style={td}><div style={{ fontWeight: 600 }}>{inv.employeeName || inv.employeeEmail}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>{inv.employeeEmail}</div></td>
                     <td style={td}>{inv.companyName || '-'}</td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>{formatDate(inv.periodStart)} - {formatDate(inv.periodEnd)}</td>
                     <td style={td}>{inv.number}</td>
                     <td style={{ ...td, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{money(inv.amount, inv.currency)}</td>
-                    <td style={td}><StatusChip status={inv.status} />{inv.status === 'sent' && inv.sentAt && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>{formatDateTime(inv.sentAt)}</div>}</td>
+                    <td style={td}><StatusChip status={inv.status} />{inv.status === 'sent' && inv.sentAt && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{formatDateTime(inv.sentAt)}</div>}</td>
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
-                        <button type="button" className="secondary-btn" onClick={() => setPreview(inv)} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Eye size={13} /> Preview</button>
+                        <button type="button" className="secondary-btn" onClick={() => setPreview(inv)} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Eye size={13} /> Preview</button>
                         {inv.status === 'draft' && (
                           <button type="button" className="primary-btn" disabled={noRecipients || busy === inv.id} onClick={() => send(inv)}
                             title={noRecipients ? `No recipients set for ${inv.companyName || 'this company'} - add Contractor Invoice Recipients in Settings > Companies.` : `To: ${(inv.recipients || []).join(', ')}`}
-                            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: noRecipients ? 0.55 : 1 }}>
+                            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: noRecipients ? 0.55 : 1 }}>
                             <Send size={13} /> Approve & Send
                           </button>
                         )}
                       </div>
                       {inv.status === 'draft' && noRecipients && (
-                        <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 4, whiteSpace: 'normal', maxWidth: 260, textAlign: 'right' }}>
+                        <div style={{ fontSize: 12, color: '#b45309', marginTop: 4, whiteSpace: 'normal', maxWidth: 260, textAlign: 'right' }}>
                           No recipients set for {inv.companyName || 'this company'} - add Contractor Invoice Recipients in Settings &gt; Companies.
                         </div>
                       )}

@@ -100,5 +100,8 @@ def hr_anywhere(db: Session, user_or_email) -> bool:
         return False
     if wide_hr(db, user):
         return True
-    return (db.query(HrEntity.id)
-            .filter(func.lower(HrEntity.hr_contact_email).contains(me)).first()) is not None
+    # A comma list: match whole entries, never a substring (ann@x.com is not
+    # HR because joann@x.com is).
+    rows = (db.query(HrEntity.hr_contact_email)
+            .filter(func.lower(HrEntity.hr_contact_email).contains(me)).all())
+    return any(me in [e.strip().lower() for e in (raw or "").split(",")] for (raw,) in rows)

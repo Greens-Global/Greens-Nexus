@@ -16,8 +16,8 @@ import { requestReportDrill } from './drill';
 // option"; "make sure this is also all resizable"). One panel for every
 // Accounting report that is not a statement (the statements open their lines
 // on the Reports screen itself): the ledger lines the figure adds up - date,
-// entry, account, vendor / customer / employee, description and amount, with
-// their total - in the module's side panel (SidePanel: Open Full, the list
+// entry, doc, account, vendor / customer / employee, description, entity,
+// department, debit / credit and the running balance, with their totals - in the module's side panel (SidePanel: Open Full, the list
 // still beside it). Each entry number opens the whole entry; Open in Reports
 // takes the same search to the General Ledger lines (drill.js), with every
 // filter and the export. The columns drag wider or narrower, the widths kept
@@ -35,17 +35,30 @@ import { requestReportDrill } from './drill';
 // With `keep` every page of each search is read (readAllLines), so the kept
 // lines are complete, never the first page of them. `figure` (optional): the
 // amount the lines stand behind - the panel says whether they add up to it.
+// `load` (optional): a reader of its own in place of the ledger search,
+// () => Promise<{ lines, more }> - the Compensation report's lines, matched to
+// people by the server (11/12/2026). `children` sits above the lines (a Back
+// link, a note); `after(lines)` below them.
 
 export const LINES_LIMIT = 500;
 
+// The house ledger columns (CLAUDE.md, Accounting drill-down rule): Doc,
+// Description (the memo when there is none), Entity, Department, Debit /
+// Credit and the running Balance, oldest line first.
 export const LINE_COLUMNS = [
   { key: 'date', label: 'Date', width: 92 },
   { key: 'entry', label: 'Entry', width: 108 },
+  { key: 'doc', label: 'Doc', width: 100 },
   { key: 'account', label: 'Account', width: 210 },
   { key: 'name', label: 'Name', width: 190 },
-  { key: 'description', label: 'Description', width: 260 },
-  { key: 'amount', label: 'Amount', width: 112, num: true },
+  { key: 'description', label: 'Description', width: 240 },
+  { key: 'entity', label: 'Entity', width: 170 },
+  { key: 'department', label: 'Department', width: 140 },
+  { key: 'debit', label: 'Debit', width: 104, num: true },
+  { key: 'credit', label: 'Credit', width: 104, num: true },
+  { key: 'balance', label: 'Balance', width: 112, num: true },
 ];
+const named = (name, id) => name || id || '';
 
 const numbered = (name, id) => (id && name && name !== id ? `${id} ${name}` : name || id || '');
 /** The vendor, customer or employee on a line ("V00412 Home Depot"), as the ledger lines read it. */
@@ -91,8 +104,9 @@ async function readAllLines(queries) {
   return { lines, more: answers.some((d) => d.more) };
 }
 
-export default function LinesPanel({ title, caption = '', queries, report = null, widthsKey = 'lines', label = 'Ledger lines', keep = null, figure = null, onClose }) {
-  const key = JSON.stringify(queries || []);
+export default function LinesPanel({ title, caption = '', queries, report = null, widthsKey = 'lines', label = 'Ledger lines', keep = null, figure = null, load = null, loadKey = '', children = null, after = null, onClose }) {
+  const key = load ? `load:${loadKey}` : JSON.stringify(queries || []);
+  const loadRef = useRef(load);   // read with loadKey: a new figure = a new key
   const [state, setState] = useState({ key: '', lines: null, more: false, error: '' });
   const [entry, setEntry] = useState(null);
   const entryOpen = useRef(false);
@@ -101,7 +115,7 @@ export default function LinesPanel({ title, caption = '', queries, report = null
   const cols = useColumnWidths(`lines-panel:${widthsKey}`, Object.fromEntries(LINE_COLUMNS.map((c) => [c.key, c.width])), { min: 60 });
   useEffect(() => {
     let alive = true;
-    (keepRef.current ? readAllLines : readLines)(JSON.parse(key))
+    (loadRef.current ? loadRef.current() : (keepRef.current ? readAllLines : readLines)(JSON.parse(key)))
       .then((d) => { if (alive) setState({ key, ...d, lines: keepRef.current ? d.lines.filter(keepRef.current) : d.lines, error: '' }); })
       .catch((e) => { if (alive) setState({ key, lines: [], more: false, error: e?.message || 'Could not read the ledger lines.' }); });
     return () => { alive = false; };
@@ -113,6 +127,12 @@ export default function LinesPanel({ title, caption = '', queries, report = null
   }, [onClose]);
   const lines = state.key === key ? state.lines : null;
   const total = useMemo(() => (lines || []).reduce((s, l) => s + lineAmount(l), 0), [lines]);
+  // Oldest first, each with the running balance carried down the page (Intacct's General Ledger).
+  const ordered = useMemo(() => {
+    let run = 0;
+    return [...(lines || [])].reverse().map((l) => { run = Math.round((run + lineAmount(l)) * 100) / 100; return { l, balance: run }; });
+  }, [lines]);
+  const sum = (k) => (lines || []).reduce((s, l) => s + (Number(l[k]) || 0), 0);
   const toReports = report ? () => { requestReportDrill(report); onClose(); } : null;
   const head = (c) => (
     <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined} style={headStyle(cols.width(c.key))}>
@@ -124,33 +144,41 @@ export default function LinesPanel({ title, caption = '', queries, report = null
       <SidePanel label={label} title={title} caption={caption} onClose={onClose}
         footer={toReports ? (
           <div className="modal-footer" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ flex: 1, fontSize: '0.74rem', color: 'var(--text-muted)' }}>{state.more ? `The first ${LINES_LIMIT} lines of each search are here; Reports has them all.` : 'The same lines on the General Ledger, with every filter and the export.'}</span>
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--text-muted)' }}>{state.more ? `The first ${LINES_LIMIT} lines of each search are here; Reports has them all.` : 'The same lines on the General Ledger, with every filter and the export.'}</span>
             <button type="button" className="secondary-btn" onClick={toReports} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><ExternalLink size={13} /> Open in Reports</button>
           </div>
         ) : null}>
+        {children}
         {lines === null ? <SkeletonBlocks count={3} /> : state.error ? (
-          <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{state.error}</div>
+          <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>{state.error}</div>
         ) : !lines.length ? (
-          <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>Nothing posted for this figure.</div>
+          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nothing posted for this figure.</div>
         ) : (
           <div className="acct-report-wrap" style={{ background: 'var(--bg-card)', borderRadius: 8 }}>
             <table className="acct-report" aria-label={`${title} - ledger lines`}>
               <thead><tr>{LINE_COLUMNS.map(head)}</tr></thead>
               <tbody>
-                {lines.map((l, i) => (
+                {ordered.map(({ l, balance }, i) => (
                   <tr key={`${l.line_id || l.entry_id || l.entry_no || 'x'}-${i}`}>
                     <td style={cellStyle(cols.width('date'))}>{l.entry_date ? formatDate(l.entry_date) : '-'}</td>
                     <td style={cellStyle(cols.width('entry'))}>
                       {l.entry_id ? <button type="button" className="acct-drill" onClick={() => setEntry({ id: l.entry_id, no: l.entry_no })} title="Open this journal entry">{l.entry_no || 'Open'}</button> : (l.entry_no || '-')}
                     </td>
+                    <td style={cellStyle(cols.width('doc'))} title={l.doc || ''}>{l.doc || '-'}</td>
                     <td style={cellStyle(cols.width('account'))} title={lineAccount(l)}>{lineAccount(l) || '-'}</td>
                     <td style={cellStyle(cols.width('name'))} title={lineName(l)}>{lineName(l) || '-'}</td>
                     <td style={cellStyle(cols.width('description'))} title={l.description || l.memo || ''}>{l.description || l.memo || '-'}</td>
-                    <td className="acct-num" style={cellStyle(cols.width('amount'))}><Amount value={lineAmount(l)} /></td>
+                    <td style={cellStyle(cols.width('entity'))} title={named(l.location_name, l.location)}>{named(l.location_name, l.location) || '-'}</td>
+                    <td style={cellStyle(cols.width('department'))} title={named(l.department_name, l.department)}>{named(l.department_name, l.department) || '-'}</td>
+                    <td className="acct-num" style={cellStyle(cols.width('debit'))}><Amount value={Number(l.debit) || 0} zero="dash" /></td>
+                    <td className="acct-num" style={cellStyle(cols.width('credit'))}><Amount value={Number(l.credit) || 0} zero="dash" /></td>
+                    <td className="acct-num" style={cellStyle(cols.width('balance'))}><Amount value={balance} /></td>
                   </tr>
                 ))}
                 <tr className="acct-grand">
-                  <td colSpan={LINE_COLUMNS.length - 1} className="acct-label">Total - {lines.length} {lines.length === 1 ? 'line' : 'lines'}{state.more ? ' shown' : ''}</td>
+                  <td colSpan={LINE_COLUMNS.length - 3} className="acct-label">Total - {lines.length} {lines.length === 1 ? 'line' : 'lines'}{state.more ? ' shown' : ''}</td>
+                  <td className="acct-num"><Amount value={sum('debit')} zero="dash" /></td>
+                  <td className="acct-num"><Amount value={sum('credit')} zero="dash" /></td>
                   <td className="acct-num"><Amount value={total} /></td>
                 </tr>
               </tbody>
@@ -159,17 +187,18 @@ export default function LinesPanel({ title, caption = '', queries, report = null
         )}
         {lines && !state.error && figure != null && (
           Math.abs(total - Number(figure)) < 0.005 ? (
-            <div data-lines-check="ok" style={{ marginTop: 8, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            <div data-lines-check="ok" style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
               {lines.length} {lines.length === 1 ? 'line adds' : 'lines add'} up to the figure, {formatAmount(figure)}.
             </div>
           ) : (
-            <div data-lines-check="short" role="status" style={{ marginTop: 8, fontSize: '0.78rem', fontWeight: 600, color: 'var(--bad-fg, #dc2626)' }}>
+            <div data-lines-check="short" role="status" style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: 'var(--bad-fg, #dc2626)' }}>
               These {lines.length} {lines.length === 1 ? 'line adds' : 'lines add'} up to {formatAmount(total)}; the figure is {formatAmount(figure)}.{state.more ? ' There are more lines than shown here - Open in Reports for every one.' : ''}
             </div>
           )
         )}
+        {lines && !state.error && after ? after(lines) : null}
       </SidePanel>
-      {entry && <EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} />}
+      {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
     </>
   );
 }

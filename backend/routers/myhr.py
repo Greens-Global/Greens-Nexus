@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import person_zone
 from database import get_db
 from auth import get_current_user
 from models import (NexusEmployee, HrEntity, HrSignRequest, HrSignParty, HrDocument,
@@ -60,7 +61,20 @@ def _profile_dict(e: NexusEmployee, db: Session) -> dict:
         "jobTitle": e.job_title, "department": e.department, "employmentType": e.employment_type,
         "startDate": e.start_date, "manager": manager or "", "photoUrl": e.photo_url,
         "location": e.location, "status": e.status, "personal": personal,
+        # My Profile > Date & Time (11/13/2026): the zone and working hours the
+        # person set ('' = not set) and, beside them, what the Contact
+        # Directory works out for them until they do.
+        "timeZone": person_zone.of(e), "workStart": e.work_start or "", "workEnd": e.work_end or "",
+        "detectedTimeZone": _detected_zone(db, e),
     }
+
+
+def _detected_zone(db: Session, e: NexusEmployee) -> str:
+    try:
+        from routers.directory import inferred_zone
+        return inferred_zone(db, e)
+    except Exception:   # noqa: BLE001 - a label on the profile, never a failed load
+        return ""
 
 
 @router.get("/profile")
@@ -74,18 +88,40 @@ class ProfileIn(BaseModel):
     emergency_name: Optional[str] = None
     emergency_relationship: Optional[str] = None
     emergency_phone: Optional[str] = None
+    # My Profile > Date & Time (11/13/2026, person_zone.py): the person's own
+    # IANA zone ('' = not set, keep inferring) and working hours, "HH:MM".
+    time_zone: Optional[str] = None
+    work_start: Optional[str] = None
+    work_end: Optional[str] = None
 
 
 @router.put("/profile")
 def save_profile(body: ProfileIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Self-service subset only: contact details + emergency contact. Anything
-    else (name, job, department, bank, …) goes through HR."""
+    """Self-service subset only: contact details + emergency contact, and the
+    person's own time zone and working hours. Anything else (name, job,
+    department, bank, …) goes through HR."""
     e = _me(db, user["email"])
     em_before = dict((e.personal or {}).get("emergency") or {})
     before = {"personal_email": e.personal_email or "", "phone": e.phone or "",
               "emergency_name": em_before.get("name") or "",
               "emergency_relationship": em_before.get("relationship") or "",
-              "emergency_phone": em_before.get("phone") or ""}
+              "emergency_phone": em_before.get("phone") or "",
+              "time_zone": e.time_zone or "", "work_start": e.work_start or "", "work_end": e.work_end or ""}
+    # Checked before anything is changed: a bad zone or half a pair of hours
+    # refuses the whole save.
+    try:
+        zone = person_zone.clean_zone(body.time_zone) if body.time_zone is not None else None
+        hours = None
+        if body.work_start is not None or body.work_end is not None:
+            hours = person_zone.clean_hours(
+                body.work_start if body.work_start is not None else e.work_start,
+                body.work_end if body.work_end is not None else e.work_end)
+    except ValueError as err:
+        raise HTTPException(400, str(err))
+    if zone is not None:
+        e.time_zone = zone
+    if hours is not None:
+        e.work_start, e.work_end = hours
     if body.personal_email is not None:
         e.personal_email = body.personal_email.strip()[:200]
     if body.phone is not None:
@@ -109,7 +145,8 @@ def save_profile(body: ProfileIn, user: dict = Depends(get_current_user), db: Se
     after = {"personal_email": e.personal_email or "", "phone": e.phone or "",
              "emergency_name": em_after.get("name") or "",
              "emergency_relationship": em_after.get("relationship") or "",
-             "emergency_phone": em_after.get("phone") or ""}
+             "emergency_phone": em_after.get("phone") or "",
+             "time_zone": e.time_zone or "", "work_start": e.work_start or "", "work_end": e.work_end or ""}
     changes = {k: [before[k][:120], after[k][:120]] for k in after if before[k] != after[k]}
     if changes:
         from models import AuditLog
@@ -856,6 +893,16 @@ def _person_name(e) -> str:
     return (e.display_name or "").strip() or f"{e.first_name} {e.last_name}".strip() or e.work_email
 
 
+def may_see_externals(user: dict, db: Session) -> bool:
+    """Who may see guests' and externals' addresses (Sep 22, 2026): an
+    external's work email is the personal address they were invited with, so
+    only callers who can assign work to them - managers and above, or an
+    editor-or-better Tasks grant. The directory and the person card share it."""
+    import auth
+    return (int(user.get("level") or 0) >= auth._LEVELS["manager"]
+            or auth._module_level(user["email"], "tasks", db) >= auth._MODULE_LEVEL_RANK["editor"])
+
+
 @router.get("/directory")
 def people_directory(include_external: bool = False,
                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -891,11 +938,8 @@ def people_directory(include_external: bool = False,
     Everyone else gets the same list as if they had not asked (Neil's
     security-debt list: the whole company could pull those addresses)."""
     import cache, auth
-    if include_external:
-        can_assign = (int(user.get("level") or 0) >= auth._LEVELS["manager"]
-                      or auth._module_level(user["email"], "tasks", db) >= auth._MODULE_LEVEL_RANK["editor"])
-        if not can_assign:
-            include_external = False
+    if include_external and not may_see_externals(user, db):
+        include_external = False
     scope = auth.company_scope(user, db)
     # An Administrator (walled once the switch is on) still sees the people with
     # no company - the guests / externals they manage and untagged People
@@ -934,7 +978,13 @@ def people_directory(include_external: bool = False,
     ent_names = {en.id: en.name for en in db.query(HrEntity).all()}
     # The tier mark beside the name (Neil, 11/02/2026) - auth.tier_of, one query.
     tiers = auth.tiers_by_email(db)
+    # Each person's clock and working hours (11/13/2026) - three short contact
+    # fields, so a picker can say "It is 9:40 PM for Priya" before work is
+    # handed over. The zone is the one they set, else the state / country
+    # guess; '' when nothing says.
+    from routers.directory import picker_zone
     out = [{"email": e.work_email, "name": _person_name(e), "photoUrl": e.photo_url or "",
+            "timeZone": picker_zone(e), "workStart": e.work_start or "", "workEnd": e.work_end or "",
             "company": e.company or "", "companyName": ent_names.get(e.company or "", ""),
             "department": e.department or "", "title": e.job_title or "",
             "tier": tiers.get((e.work_email or "").lower(), ""),
@@ -954,7 +1004,26 @@ def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session
     if len(q) < 2:
         raise HTTPException(400, "q too short")
     match = None
-    for e in db.query(NexusEmployee).filter(NexusEmployee.status != "offboarded").all():
+    # The company wall, exactly as /myhr/directory applies it (People review,
+    # 11/11/2026): a hover card never names someone the caller's pickers hide.
+    import auth
+    from sqlalchemy import false, or_
+    pq = db.query(NexusEmployee).filter(NexusEmployee.status != "offboarded")
+    scope = auth.company_scope(user, db)
+    if scope is not None:
+        blank = or_(NexusEmployee.company.is_(None), NexusEmployee.company == "")
+        if auth.admits_blank(scope):
+            pq = pq.filter(or_(NexusEmployee.company.in_(list(scope)), blank) if scope else blank)
+        else:
+            pq = pq.filter(NexusEmployee.company.in_(list(scope))) if scope else pq.filter(false())
+    # Guests and externals follow the directory's rule (People pass,
+    # 11/16/2026): their "work email" is a personal address, so a caller who
+    # may not see externals finds one only by the exact address they already
+    # have - never by a name or a piece of an address (q=gmail.com).
+    hide_ext = not may_see_externals(user, db)
+    for e in pq.all():
+        if hide_ext and (e.identity_type or "") in ("guest", "external") and q != (e.work_email or "").lower():
+            continue
         # Both spellings are searchable: people type the Teams name they see,
         # but older links and emails still carry the first+last form.
         names = {f"{e.first_name} {e.last_name}".strip().lower(), _person_name(e).lower()} - {""}
@@ -965,7 +1034,6 @@ def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session
             match = e
     if not match:
         raise HTTPException(404, "No matching person")
-    import auth
     return {"name": _person_name(match),
             "jobTitle": match.job_title, "department": match.department,
             "photoUrl": match.photo_url, "workEmail": match.work_email,

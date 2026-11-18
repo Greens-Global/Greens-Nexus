@@ -25,6 +25,7 @@ import { BoardEmbed } from './board/BoardEmbed';
 import { RecordLink } from './recordLink';
 import { Callout, Toggle } from './noteBlocks';
 import { LiveList } from './liveList';
+import { MeetingClock } from './meetings/meetingClock';
 
 const ALIGN = ['left', 'center', 'right', 'justify'];
 const SafeTextAlign = TextAlign.extend({
@@ -120,6 +121,9 @@ export function buildExtensions(placeholder, collab = null, { strict = false } =
     Callout, Toggle,
     // Live task lists (11/07/2026, liveList.jsx).
     LiveList,
+    // A meeting note line's stamp (Meeting Notes, 11/12/2026, meetings/meetingClock.js) -
+    // in every schema so it survives co-typing; it stamps only where a meeting is set.
+    MeetingClock,
     ...(collab?.extensions || []),
   ];
 }

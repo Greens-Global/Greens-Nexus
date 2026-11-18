@@ -46,10 +46,10 @@ export default function SheetHistoryDialog({ docId, canRestore, nameOf, onClose,
           <div className="nx-fill" style={{ overflowY: 'auto', minHeight: 0, border: '1px solid var(--line)', borderRadius: 10 }}>
             {rows.length === 0 && <div style={{ padding: 14, fontSize: 13, color: 'var(--muted)' }}>No earlier copies yet.</div>}
             {rows.map((v, i) => (
-              <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderTop: i ? '1px solid var(--line)' : 0, fontSize: 13.5 }}>
+              <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderTop: i ? '1px solid var(--line)' : 0, fontSize: 13 }}>
                 <div style={{ flex: '1 1 auto', minWidth: 0 }}>
                   <div style={{ fontWeight: 600 }}>Version {v.versionNo}{i === 0 ? ' - Latest' : ''}</div>
-                  <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>
+                  <div style={{ color: 'var(--muted)', fontSize: 13 }}>
                     {formatDateTime(v.editedAt)} - {nameOf?.(v.editedBy) || v.editedBy}{v.note ? ` - ${v.note}` : ''}
                   </div>
                 </div>

@@ -10,7 +10,7 @@ export function BatchTabs({ tab, onTab }) {
     <button onClick={() => k !== tab && onTab(k)}
       style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 14px', borderRadius:8,
         border:'1px solid', borderColor: tab === k ? 'var(--pine)' : 'var(--line)', cursor:'pointer',
-        fontFamily:'Inter,sans-serif', fontSize:12.5, fontWeight:700,
+        fontFamily:'Inter,sans-serif', fontSize:13, fontWeight:700,
         background: tab === k ? 'var(--pine)' : 'transparent', color: tab === k ? '#fff' : 'var(--muted)' }}>
       <Icon size={13} /> {label}
     </button>

@@ -13,31 +13,25 @@ export function VserviceSection({ p: asset, rows, filters, setFilters, highlight
   const [tab, setTab] = useState('log');
 
   const tabBtn = (value, label) => (
-    <button
-      key={value}
-      onClick={() => setTab(value)}
+    <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}
       style={{
-        padding: '7px 14px',
-        borderRadius: 8,
-        fontSize: '0.82rem',
-        fontWeight: 600,
-        cursor: 'pointer',
-        border: 'none',
-        background: tab === value ? 'var(--bg-card)' : 'transparent',
+        padding: '8px 0', marginBottom: -1, border: 'none', background: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+        fontFamily: 'inherit', fontSize: 13, fontWeight: tab === value ? 600 : 500,
         color: tab === value ? 'var(--text-primary)' : 'var(--text-secondary)',
-        boxShadow: tab === value ? 'var(--shadow-sm)' : 'none',
-      }}
-    >
+        borderBottom: tab === value ? '2px solid var(--text-primary)' : '2px solid transparent',
+      }}>
       {label}
     </button>
   );
 
   return (
     <>
-      <div style={{ display: 'inline-flex', gap: 4, padding: 4, borderRadius: 10, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', marginBottom: 14 }}>
-        {tabBtn('log', 'Service Log')}
-        {hasSchedule && tabBtn('recommended', 'Recommended Maintenance')}
-      </div>
+      {hasSchedule && (
+        <div role="tablist" aria-label="Service" style={{ display: 'flex', gap: 22, borderBottom: '1px solid var(--border-color)', marginBottom: 4 }}>
+          {tabBtn('log', 'Service Log')}
+          {tabBtn('recommended', 'Recommended Maintenance')}
+        </div>
+      )}
 
       {tab === 'recommended' && hasSchedule ? (
         <RecommendedMaintenance p={asset} />

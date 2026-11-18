@@ -438,7 +438,7 @@ describe('Actual vs Budget (item 43)', () => {
     expect(canUseDims(c)).toBe(false);
     expect(canPickAccounts(c)).toBe(true);
     const r = await runReport(api, c);
-    expect(r.def.label).toBe('Actual vs Budget');
+    expect(r.def.label).toBe('Budget vs. Actual');
     expect(r.columns.map((x) => x.label)).toEqual(['Actual', 'Budget (Nexus)', 'Variance $', 'Variance %']);
     const by = Object.fromEntries(r.rows.filter((x) => x.code).map((x) => [x.code, x.values]));
     expect(by['41000']).toEqual([1200, 1000, 200, '20.0%']);
@@ -448,7 +448,7 @@ describe('Actual vs Budget (item 43)', () => {
     expect(r.notes[0]).toMatch(/saved in Nexus/);
     // The export carries the Budget column, filled.
     const csv = csvRows(r);
-    expect(csv[0]).toEqual(['Actual vs Budget (Accrual Book)']);
+    expect(csv[0]).toEqual(['Budget vs. Actual (Accrual Book)']);
     const head = csv.find((row) => row[0] === 'Section');
     expect(head.slice(3)).toEqual(['Actual', 'Budget (Nexus)', 'Variance $', 'Variance %']);
     expect(csv.find((row) => row[1] === '62500').slice(3)).toEqual([0, 250, -250, '(100.0%)']);

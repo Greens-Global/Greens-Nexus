@@ -137,7 +137,7 @@ class RequestRateLimit(unittest.TestCase):
     def test_credential_taking_routes_are_all_listed(self):
         listed = mh.RequestRateLimit.SENSITIVE_PREFIXES + mh.RequestRateLimit.SHARED_SOURCE_PREFIXES
         for path in ("/auth/login", "/external-auth/verify", "/esign/public/abc", "/mail-actions/card",
-                     "/briefing-actions/page", "/webhooks/github", "/qa/ci-results", "/qa/e2e-specs",
+                     "/briefing-actions/page", "/webhooks/github", "/webhooks/teams/kudos", "/qa/ci-results", "/qa/e2e-specs",
                      "/timeclock/agent/self-enroll", "/timeclock/agent/release"):
             self.assertTrue(path.startswith(listed), path)
 

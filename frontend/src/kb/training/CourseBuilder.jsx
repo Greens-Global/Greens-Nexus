@@ -20,6 +20,7 @@ import { goKb, fmtDate, blankDoc, plural } from '../lib';
 import Sessions from './Sessions';
 import { FeedbackSummary } from './CourseFeedback';
 import { importFileAsIs, baseTitle } from '../editor/importFile';
+import { dialog } from '../../ui/dialog';
 
 const newId = (p) => `${p}_${Math.random().toString(36).slice(2, 10)}`;
 const blankQuestion = () => ({ _id: newId('q'), type: 'single', q: '', options: ['', '', '', ''], answer: [], explanation: '', lessonId: '' });
@@ -183,7 +184,7 @@ export default function CourseBuilder({ id, me }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><button type="button" className="kb-ibtn" style={{ width: 30, height: 30 }} aria-label="Back" onClick={() => goKb('training')}><ArrowLeft /></button><span className="kb-meta">Training / New Course</span></div>
         <h1 className="kb-h1" style={{ margin: 0 }}>New Course</h1>
         <div className="kb-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="kb-field"><label>Title</label><input className="kb-input" autoFocus style={{ fontSize: 17 }} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Site Safety Basics" onKeyDown={(e) => { if (e.key === 'Enter') create(); }} /></div>
+          <div className="kb-field"><label>Title</label><input className="kb-input" autoFocus style={{ fontSize: 18 }} value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Site Safety Basics" onKeyDown={(e) => { if (e.key === 'Enter') create(); }} /></div>
           <div className="kb-help">You add lessons next: Library pages pinned to their version, or lessons written here. Nexus can draft lessons and a question pool from pages you pick.</div>
           <button type="button" className="kb-btn pri" style={{ alignSelf: 'flex-end' }} onClick={create}>Create Draft</button>
         </div>
@@ -204,13 +205,13 @@ export default function CourseBuilder({ id, me }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button type="button" className="kb-ibtn" style={{ width: 30, height: 30 }} aria-label="Back" onClick={() => goKb('training')}><ArrowLeft /></button>
             <span className="kb-meta">Training / Courses /</span>
-            <input className="kb-bare kb-h1" style={{ fontSize: 22, margin: 0, border: 0, background: 'transparent', color: 'inherit', flex: '1 1 240px', minWidth: 0 }} value={draft.title} onChange={(e) => patch({ title: e.target.value })} aria-label="Course title" />
+            <input className="kb-bare kb-h1" style={{ fontSize: 24, margin: 0, border: 0, background: 'transparent', color: 'inherit', flex: '1 1 240px', minWidth: 0 }} value={draft.title} onChange={(e) => patch({ title: e.target.value })} aria-label="Course title" />
             <Chip color={data.course.status === 'published' ? '#1e7b4e' : '#64748b'}>{data.course.status === 'published' ? `v${data.course.major} live` : 'Draft'}</Chip>
             <span className="kb-meta">{saving ? 'Saving' : dirty ? 'Unsaved' : 'Saved'}</span>
             <button type="button" className="kb-btn sm" onClick={() => goKb('course', data.course.id)}>Preview</button>
             <button type="button" className="kb-btn sm pri" disabled={!draft.lessons.length} onClick={() => { setPublishOpen(true); }}><Check />{data.course.status === 'published' ? `Publish v${data.course.major + 1}` : 'Publish'}</button>
           </div>
-          {data.dirty && <Banner kind="amber" icon={AlertTriangle}><b>v{data.course.major} stays live</b> while you edit. People mid-course finish the version they started. <button type="button" className="kb-btn sm ghost" onClick={() => { if (window.confirm('Discard the unpublished edits?')) api.kbDiscardCourseDraft(data.course.id).then((d) => { setData(d); setDraft(d.draft); }).catch((e) => toast(errText(e), 'err')); }}>Discard Edits</button></Banner>}
+          {data.dirty && <Banner kind="amber" icon={AlertTriangle}><b>v{data.course.major} stays live</b> while you edit. People mid-course finish the version they started. <button type="button" className="kb-btn sm ghost" onClick={async () => { if (await dialog.confirm('Discard the unpublished edits?', { title: 'Discard Edits', confirmText: 'Discard', danger: true })) api.kbDiscardCourseDraft(data.course.id).then((d) => { setData(d); setDraft(d.draft); }).catch((e) => toast(errText(e), 'err')); }}>Discard Edits</button></Banner>}
           {/* Keeps Up (Neil, 11/07/2026): What's New released something about a module this course teaches since it was last reviewed. */}
           {data.course.review_flag?.changes?.length > 0 && (
             <Banner kind="amber" icon={AlertTriangle}>
@@ -232,7 +233,7 @@ export default function CourseBuilder({ id, me }) {
                   {draft.lessons.map((L, i) => (
                     <div key={L._id} className={`kb-lesson${cur === L._id ? ' on' : ''}`} onClick={() => setCur(L._id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setCur(L._id); }}>
                       <span className="num">{i + 1}</span>
-                      <span className="kb-grow"><span style={{ fontWeight: 600, fontSize: 13.5, display: 'block' }} className="kb-ellipsis">{L.title}</span><span className="kb-meta">{L.type === 'page' ? `Library page v${L.docVersion}${L.page?.newer ? ` (now v${L.page.current_version})` : ''}` : L.type === 'checkpoint' ? `Checkpoint · ${plural((L.questions || []).length, 'question')}` : 'Written here'}</span></span>
+                      <span className="kb-grow"><span style={{ fontWeight: 600, fontSize: 13, display: 'block' }} className="kb-ellipsis">{L.title}</span><span className="kb-meta">{L.type === 'page' ? `Library page v${L.docVersion}${L.page?.newer ? ` (now v${L.page.current_version})` : ''}` : L.type === 'checkpoint' ? `Checkpoint · ${plural((L.questions || []).length, 'question')}` : 'Written here'}</span></span>
                       <span style={{ display: 'flex' }}><button type="button" className="kb-ibtn" style={{ width: 24, height: 24, border: 0 }} aria-label="Up" onClick={(e) => { e.stopPropagation(); moveLesson(i, -1); }}><ArrowUp size={12} /></button><button type="button" className="kb-ibtn" style={{ width: 24, height: 24, border: 0 }} aria-label="Down" onClick={(e) => { e.stopPropagation(); moveLesson(i, 1); }}><ArrowDown size={12} /></button></span>
                     </div>
                   ))}
@@ -251,8 +252,8 @@ export default function CourseBuilder({ id, me }) {
                 {lesson && (
                   <section className="kb-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <input className="kb-input" style={{ fontSize: 17, fontWeight: 600 }} value={lesson.title} onChange={(e) => patchLesson(lesson._id, { title: e.target.value })} aria-label="Lesson title" />
-                      <button type="button" className="kb-ibtn" aria-label="Delete lesson" onClick={() => { if (window.confirm('Remove this lesson?')) { patch({ lessons: draft.lessons.filter((L) => L._id !== lesson._id) }); setCur(''); } }}><Trash2 /></button>
+                      <input className="kb-input" style={{ fontSize: 18, fontWeight: 600 }} value={lesson.title} onChange={(e) => patchLesson(lesson._id, { title: e.target.value })} aria-label="Lesson title" />
+                      <button type="button" className="kb-ibtn" aria-label="Delete lesson" onClick={async () => { if (await dialog.confirm('Remove this lesson?', { title: 'Remove Lesson', confirmText: 'Remove', danger: true })) { patch({ lessons: draft.lessons.filter((L) => L._id !== lesson._id) }); setCur(''); } }}><Trash2 /></button>
                     </div>
                     {lesson.type === 'page' && (
                       <>

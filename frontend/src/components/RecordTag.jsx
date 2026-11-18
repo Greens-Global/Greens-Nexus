@@ -27,13 +27,13 @@ export default function RecordTag({ recs, batches = [], toastErr }) {
         return (
           <span key={r.batchId || r.reason} style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', minWidth: 0 }}
             title={[b.by ? `Entered by ${b.by}` : '', when].filter(Boolean).join(' on ') || undefined}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, color: '#1d4ed8', background: 'rgba(29,78,216,0.08)', padding: '1px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: '#1d4ed8', background: 'rgba(29,78,216,0.08)', padding: '1px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>
               <ClipboardList size={11} /> Entered By HR From Record
             </span>
             {r.reason && <span style={{ color: 'var(--muted)', fontStyle: 'italic', minWidth: 0 }}>{r.reason}</span>}
             {b.docName && (
               <button type="button" onClick={() => open(r.batchId)} title={`Open ${b.docName}`}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand, #15803d)', fontWeight: 700, font: 'inherit', fontSize: 11.5 }}>
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand, #15803d)', fontWeight: 700, font: 'inherit', fontSize: 12 }}>
                 <Paperclip size={11} /> Source Document
               </button>
             )}

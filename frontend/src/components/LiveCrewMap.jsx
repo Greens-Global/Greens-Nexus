@@ -146,7 +146,7 @@ export default function LiveCrewMap({ toastErr, employees = [], people = [], can
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap', fontSize: 13, color: 'var(--muted)' }}>
         <span><strong style={{ color: 'var(--ink)' }}>{list.length}</strong> clocked in and sharing location</span>
         {updated && <span>- updated {updated}</span>}
         <select className="form-input" aria-label="Person" value={sel} onChange={e => setSel(e.target.value)}
@@ -183,7 +183,7 @@ export default function LiveCrewMap({ toastErr, employees = [], people = [], can
                 {(trail?.punches || []).map((p, i) => {
                   const k = PUNCH[p.kind] || PUNCH.in;
                   return (
-                    <div key={`${p.at}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                    <div key={`${p.at}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                       <span style={{ width: 9, height: 9, borderRadius: '50%', background: k.color, flexShrink: 0 }} />
                       <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{k.label}</span>
                       <span style={{ color: 'var(--muted)' }}>{formatTime(utc(p.at))}{p.lat ? '' : ' - No Location'}</span>
@@ -210,7 +210,7 @@ export default function LiveCrewMap({ toastErr, employees = [], people = [], can
                   <span style={{ width: 9, height: 9, borderRadius: '50%', background: c.onBreak ? '#94a3b8' : st.color, flexShrink: 0 }} />
                   <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>{c.name}</span>
                 </div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                   {c.onBreak ? 'On Break' : st.label}{c.workSiteName ? ` - ${c.workSiteName}` : ''}{c.distanceM ? ` (${formatDistance(c.distanceM)})` : ''}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>

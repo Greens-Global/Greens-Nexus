@@ -1,6 +1,6 @@
 ---
 title: Getting Around
-summary: Find your way with the left menu, the header, search, the + menu, the Help panel, the tours and your profile menu.
+summary: Find your way with the left menu, the header, search, Quick Actions, the Help panel, the tours and your profile menu.
 ---
 
 Luis is on day three in the HR office. His manager asks for the phone number of the superintendent on a construction job, and Luis has never opened the Directory. He has it in five seconds without touching a menu. Here is how.
@@ -8,7 +8,7 @@ Luis is on day three in the HR office. His manager asks for the phone number of 
 ## The Three Parts of the Screen
 
 ```figure
-{"kind": "layout", "title": "The Three Parts of Every Nexus Screen", "cols": 12, "rows": 7, "regions": [{"label": "The left menu", "note": "My Desk, Work, Modules, System; the clock at the foot", "x": 1, "y": 1, "w": 3, "h": 7}, {"label": "The header", "note": "the module, its tabs, Search, +, the bell, ?, your profile", "x": 4, "y": 1, "w": 9, "h": 1}, {"label": "The page", "note": "the screen you are working on", "x": 4, "y": 2, "w": 9, "h": 6, "tone": "ok"}], "caption": "On a phone the left menu becomes a drawer and the tabs sit in the page."}
+{"kind": "layout", "title": "The Three Parts of Every Nexus Screen", "cols": 12, "rows": 7, "regions": [{"label": "The left menu", "note": "My Desk, Work, Modules, System; the clock at the foot", "x": 1, "y": 1, "w": 3, "h": 7}, {"label": "The header", "note": "the module, its tabs, Search, the bolt, the bell, ?, your profile", "x": 4, "y": 1, "w": 9, "h": 1}, {"label": "The page", "note": "the screen you are working on", "x": 4, "y": 2, "w": 9, "h": 6, "tone": "ok"}], "caption": "On a phone the left menu becomes a drawer and the tabs sit in the page."}
 ```
 
 **The left menu** moves you between modules, in four groups: My Desk (Dashboard, Workday, Team), Work (Tasks, Tickets, Documents and more, by grant), Modules (Item Management for everyone, other department tools by grant) and System (Help Center, and Settings by tier or grant). You only see what your tier and grants allow.
@@ -22,7 +22,7 @@ Luis is on day three in the HR office. His manager asks for the phone number of 
 | Part | What it does |
 |---|---|
 | **Search Nexus** | Finds tasks, people, items, requests and pages. Ctrl+K (Cmd+K on a Mac) or / jumps to it. |
-| **+** | Starts something new from anywhere: New Note, New Ticket, Request an Item, Fill a Form and more. |
+| **The green bolt** | Quick Actions. Starts something new from anywhere: New Task, New Ticket, New Note, New Board, a request and more. |
 | **The bell** | Your notifications (Your Dashboard and the Bell). |
 | **?** | The Help panel: Search for Help, What's New, Help with This Page and Take the Tour. |
 | **Your photo or initials** | Your profile menu: Profile, What's New, Legal and **Sign Out**. |
@@ -33,9 +33,9 @@ Search is the fastest way around. Press Ctrl+K, type a few letters and pick a re
 
 Use it before you hunt through menus. You do not need to remember which module holds a screen, only what you are looking for.
 
-## The + Menu
+## Quick Actions
 
-The **+** in the header starts the common things from wherever you are, so you never leave the page you are on to find the right module first. A **New Note** for something you want to remember, a **New Ticket** for something broken, **Request an Item** to borrow equipment, **Fill a Form** when your team uses forms. What it lists depends on your grants, like the left menu.
+The green **bolt** in the header opens **Quick Actions**, which starts the common things from wherever you are, so you never leave the page you are on to find the right module first. The top row is one click each: **New Task**, **New Ticket** for something broken, **New Note** for something you want to remember and **New Board** for a whiteboard. Under it, **New**, **Request** and **Send** each open a short list of their own. **Request** holds **Time Off**, **Item** to borrow equipment and **Fill a Form** when your team uses forms. What it lists depends on your grants, like the left menu.
 
 ## Tours and the Help Panel
 
@@ -66,7 +66,7 @@ Luis presses Ctrl+K, types the superintendent's first name and has the contact c
 
 ## Key Points
 
-- The left menu moves between modules; the header carries the module's tabs, Search, +, the bell, ? and your profile.
+- The left menu moves between modules; the header carries the module's tabs, Search, the bolt, the bell, ? and your profile.
 - Ctrl+K (Cmd+K on a Mac) opens Search from any screen.
-- The **+** menu starts a note, a ticket, an item request or a form from anywhere.
+- **Quick Actions** (the green bolt) starts a task, a ticket, a note, a request or a form from anywhere.
 - **Take the Tour** and **Help with This Page** are under **?** on every screen.

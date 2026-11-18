@@ -6,6 +6,10 @@
 // recipient's one bell grows in place; a kudos may carry one of the
 // company's values; the send form may post it to the Teams chat Settings
 // names. backend/perf_feedback.py holds the rules.
+// Kudos on Teams, both ways (Neil, 11/12/2026): the post goes to the
+// company's channel; a reaction or reply there comes back as that person's
+// thanks (their emoji beside the names), reactions from people outside Nexus
+// are a count, and Open in Teams goes to the post (backend/perf_kudos_teams.py).
 import { useCallback, useEffect, useState } from 'react';
 import { Award, Plus, EyeOff } from 'lucide-react';
 import { api } from '../api';
@@ -20,7 +24,7 @@ import { card, cardHead, HD, LBL, muted } from './lib';
 const MAX = 500;
 const NOTE_MAX = 200;
 const VALUE_COLOR = '#0f766e';
-const TEXT_BTN = { border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: 12.5, fontWeight: 600, color: 'var(--brand, #1a7f4b)', cursor: 'pointer' };
+const TEXT_BTN = { border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--brand, #1a7f4b)', cursor: 'pointer' };
 
 export function ValueLabel({ value, size = 'sm' }) {
   return value ? <StatusLabel label={value} color={VALUE_COLOR} size={size} title="The value they lived" /> : null;
@@ -37,7 +41,7 @@ export function ValuePicker({ values = [], value, onChange }) {
           const on = v === value;
           return (
             <button key={v} type="button" aria-pressed={on} onClick={() => onChange(on ? '' : v)}
-              style={{ padding: '4px 11px', borderRadius: 999, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+              style={{ padding: '4px 11px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
                 border: `1px solid ${on ? VALUE_COLOR : 'var(--line)'}`, background: on ? `${VALUE_COLOR}14` : 'transparent', color: on ? VALUE_COLOR : 'var(--ink)' }}>
               {v}
             </button>
@@ -48,7 +52,7 @@ export function ValuePicker({ values = [], value, onChange }) {
   );
 }
 
-export function GiveKudosModal({ me, to = '', onClose, onGiven, toastErr }) {
+export function GiveKudosModal({ me, to = '', onClose, onGiven, toastErr, placeholder = '' }) {
   const people = usePeople();
   const [who, setWho] = useState(to);
   const [msg, setMsg] = useState('');
@@ -56,15 +60,15 @@ export function GiveKudosModal({ me, to = '', onClose, onGiven, toastErr }) {
   const [teams, setTeams] = useState(true);
   const [busy, setBusy] = useState(false);
   // The recipient's company decides the values and the Teams chat (read once a recipient is picked).
-  const [opts, setOpts] = useState({ values: [], teamsChat: false });
+  const [opts, setOpts] = useState({ values: [], teamsChat: false, teamsPlace: '' });
   useEffect(() => {
-    if (!who) { setOpts({ values: [], teamsChat: false }); return undefined; }
+    if (!who) { setOpts({ values: [], teamsChat: false, teamsPlace: '' }); return undefined; }
     let on = true;
-    api.perfKudosOptions(who).then(o => { if (on) { setOpts({ values: o?.values || [], teamsChat: !!o?.teamsChat }); setValue(v => ((o?.values || []).includes(v) ? v : '')); } })
-      .catch(() => { if (on) setOpts({ values: [], teamsChat: false }); });
+    api.perfKudosOptions(who).then(o => { if (on) { setOpts({ values: o?.values || [], teamsChat: !!o?.teamsChat, teamsPlace: o?.teamsPlace || '' }); setValue(v => ((o?.values || []).includes(v) ? v : '')); } })
+      .catch(() => { if (on) setOpts({ values: [], teamsChat: false, teamsPlace: '' }); });
     return () => { on = false; };
   }, [who]);
-  const { values, teamsChat } = opts;
+  const { values, teamsChat, teamsPlace } = opts;
   const choices = people.filter(p => !p.external && p.email !== me);
   async function send() {
     if (!who) { toastErr?.('Pick who the kudos are for.'); return; }
@@ -89,12 +93,12 @@ export function GiveKudosModal({ me, to = '', onClose, onGiven, toastErr }) {
         <label className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
           <span style={LBL}>What They Did <span style={{ fontWeight: 400 }}>({msg.length} of {MAX})</span></span>
           <textarea className="form-input" value={msg} onChange={e => setMsg(e.target.value.slice(0, MAX))} rows={5}
-            placeholder="Stayed late to get the Escondido walkthrough ready - the client noticed." style={{ fontSize: 16, resize: 'vertical', flex: 1, minHeight: 110 }} />
+            placeholder={placeholder || 'Stayed late to get the Escondido walkthrough ready - the client noticed.'} style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, resize: 'vertical', flex: 1, minHeight: 110 }} />
         </label>
         {teamsChat && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--ink)' }}>
             <Switch checked={teams} onChange={setTeams} label="Also post to Teams" />
-            <span>Also post to Teams</span>
+            <span>Also post to Teams{teamsPlace && <span style={{ color: 'var(--muted)' }}> - {teamsPlace}</span>}</span>
           </label>
         )}
       </div>
@@ -127,14 +131,21 @@ export function ThanksRow({ k, me, onThank, onUnthank }) {
     finally { setBusy(false); }
   }
   const withNotes = (k.thanks || []).filter(t => t.note);
+  // The emoji people used on the Teams post, once each.
+  const reactions = [...new Set(others.map(t => t.reaction).filter(Boolean))].join(' ');
+  const outside = k.teams?.others || 0;
   return (
-    <div style={{ marginTop: 6, display: 'grid', gap: 4, fontSize: 12.5, color: 'var(--muted)' }}>
+    <div style={{ marginTop: 6, display: 'grid', gap: 4, fontSize: 13, color: 'var(--muted)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {others.length > 0 && (
           <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} disabled={!withNotes.length}
             style={{ ...TEXT_BTN, color: 'var(--muted)', fontWeight: 500, cursor: withNotes.length ? 'pointer' : 'default', textAlign: 'left' }}>
-            {thanksSentence(others.map(t => first(t.name)))} added their thanks
+            {reactions && <span aria-hidden="true">{reactions} </span>}{thanksSentence(others.map(t => first(t.name)))} added their thanks
           </button>
+        )}
+        {outside > 0 && <span>{outside} {outside === 1 ? 'person' : 'people'} on Teams reacted</span>}
+        {k.teams?.url && (
+          <a href={k.teams.url} target="_blank" rel="noopener noreferrer" style={{ ...TEXT_BTN, fontWeight: 500 }}>Open in Teams</a>
         )}
         {mine ? (
           <span>{recipient ? 'You said thanks' : 'You added your thanks'}{k.can?.takeBack && <> · <button type="button" style={TEXT_BTN} disabled={busy} onClick={() => onUnthank(k)}>Take Back</button></>}</span>
@@ -144,13 +155,13 @@ export function ThanksRow({ k, me, onThank, onUnthank }) {
       </div>
       {open && withNotes.length > 0 && (
         <div style={{ display: 'grid', gap: 2, paddingLeft: 8, borderLeft: '2px solid var(--line)' }}>
-          {withNotes.map(t => <div key={t.email}><strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{first(t.name)}</strong> {t.note}</div>)}
+          {withNotes.map(t => <div key={t.email}><strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{first(t.name)}</strong> {t.note}{t.via === 'teams' && <span> · on Teams</span>}</div>)}
         </div>
       )}
       {adding && (
         <form onSubmit={e => { e.preventDefault(); add(); }} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <input className="form-input" value={note} onChange={e => setNote(e.target.value.slice(0, NOTE_MAX))} autoFocus
-            placeholder="A word of your own (optional)" aria-label="Your note" style={{ fontSize: 16, flex: '1 1 200px', minWidth: 0, padding: '6px 10px' }} />
+            placeholder="A word of your own (optional)" aria-label="Your note" style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, flex: '1 1 200px', minWidth: 0, padding: '6px 10px' }} />
           <button type="submit" className="primary-btn" disabled={busy} style={{ minHeight: 32, padding: '4px 12px' }}>Add</button>
           <button type="button" className="secondary-btn" disabled={busy} onClick={() => { setAdding(false); setNote(''); }} style={{ minHeight: 32, padding: '4px 12px' }}>Cancel</button>
         </form>
@@ -171,7 +182,7 @@ export function KudosList({ items, me = '', onHide, onThank, onUnthank, empty, c
               <span><strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{k.fromName}</strong> to <strong style={{ color: 'var(--ink)', fontWeight: 600 }}>{k.toName}</strong> · {formatDate(k.createdAt)}</span>
               <ValueLabel value={k.value} />
             </div>
-            <div style={{ fontSize: 13.5, whiteSpace: compact ? 'nowrap' : 'pre-wrap', overflow: compact ? 'hidden' : undefined, textOverflow: compact ? 'ellipsis' : undefined, overflowWrap: 'anywhere', marginTop: 2 }}>
+            <div style={{ fontSize: 13, whiteSpace: compact ? 'nowrap' : 'pre-wrap', overflow: compact ? 'hidden' : undefined, textOverflow: compact ? 'ellipsis' : undefined, overflowWrap: 'anywhere', marginTop: 2 }}>
               {compact ? (k.message || '').split('\n')[0] : k.message}
             </div>
             {onThank && <ThanksRow k={k} me={me} onThank={onThank} onUnthank={onUnthank} />}
@@ -268,7 +279,7 @@ export function KudosWidget({ me = '' }) {
           <KudosList items={(data.items || []).slice(0, 6)} me={me} onThank={thank} onUnthank={unthank} compact
             empty="No kudos yet - be the first to thank someone." />
         )}
-        {note && <div role="alert" style={{ marginTop: 8, fontSize: 12.5, color: 'var(--red, #b91c1c)' }}>{note}</div>}
+        {note && <div role="alert" style={{ marginTop: 8, fontSize: 13, color: 'var(--red, #b91c1c)' }}>{note}</div>}
       </div>
     </div>
   );

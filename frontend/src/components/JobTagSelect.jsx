@@ -27,7 +27,7 @@ export default function JobTagSelect({ id = 'job-tag', value = '', onChange, lab
         {!known && <option value={value}>Linked Job</option>}
         {jobs.map((j) => <option key={j.id} value={j.id}>{j.code ? `${j.name} (${j.code})` : j.name}</option>)}
       </select>
-      {hint && <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>{hint}</p>}
+      {hint && <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 0' }}>{hint}</p>}
     </div>
   );
 }

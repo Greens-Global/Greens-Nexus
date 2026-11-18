@@ -89,19 +89,19 @@ export default function ShiftRequestDialog({ reqs, myShifts = [], shift = null, 
             <button key={k} type="button" aria-pressed={kind === k} disabled={!on} title={on ? undefined : 'Turned off by your company'}
               onClick={() => { setKind(k); setErr(''); setTargetShift(''); }}
               style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '10px 6px', borderRadius: 10, cursor: on ? 'pointer' : 'default',
-                fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, opacity: on ? 1 : 0.45,
+                fontFamily: 'inherit', fontSize: 13, fontWeight: 700, opacity: on ? 1 : 0.45,
                 border: `1px solid ${kind === k ? 'var(--wk-brand)' : 'var(--wk-line2)'}`,
                 background: kind === k ? 'var(--wk-brand-tint)' : 'var(--card)', color: kind === k ? 'var(--wk-brand)' : 'var(--ink)' }}>
               <Icon size={16} /> {label}
             </button>
           ))}
         </div>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
           {kinds.find((k) => k[0] === kind)[4]}.{kind === 'open' ? ' A manager approves it.' : kind === 'release' ? (instantRelease ? ' It goes to the open pool right away.' : ' A manager approves it.') : ' Your teammate accepts first, then a manager approves.'}
         </div>
 
         {blocked ? (
-          <div role="note" style={{ fontSize: 12.5, color: 'var(--ink)', background: 'hsla(var(--color-orange),0.1)', border: '1px solid hsla(var(--color-orange),0.4)', borderRadius: 8, padding: '9px 12px' }}>{blocked}</div>
+          <div role="note" style={{ fontSize: 13, color: 'var(--ink)', background: 'hsla(var(--color-orange),0.1)', border: '1px solid hsla(var(--color-orange),0.4)', borderRadius: 8, padding: '9px 12px' }}>{blocked}</div>
         ) : kind === 'open' ? (
           <div style={{ display: 'grid', gap: 8 }}>
             <div style={LBL}>Open shifts</div>
@@ -112,7 +112,7 @@ export default function ShiftRequestDialog({ reqs, myShifts = [], shift = null, 
                   <ShiftBlock shift={s} open style={{ marginBottom: 0 }}>
                     <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                       <span>{formatWeekday(s.date, 'short')} {formatDate(s.date)} · {s.openSlots || 1} {s.openSlots === 1 ? 'spot' : 'spots'}{s.team ? ` · ${s.team}` : ''}{s.requested ? ' · Requested' : ''}</span>
-                      {s.crossTeam && <span data-cross-team title="A shift of another team. Your company lets open shifts be claimed across teams." style={{ fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-blue))', border: '1px solid hsla(var(--color-blue),0.4)', borderRadius: 5, padding: '0 5px', lineHeight: 1.5 }}>Other Team</span>}
+                      {s.crossTeam && <span data-cross-team title="A shift of another team. Your company lets open shifts be claimed across teams." style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-blue))', border: '1px solid hsla(var(--color-blue),0.4)', borderRadius: 5, padding: '0 5px', lineHeight: 1.5 }}>Other Team</span>}
                     </div>
                   </ShiftBlock>
                 </span>
@@ -127,7 +127,7 @@ export default function ShiftRequestDialog({ reqs, myShifts = [], shift = null, 
                 {free.map((s) => <option key={s.id} value={s.id}>{span(s)}{s.label ? ` · ${s.label}` : ''}</option>)}
               </select>
             </label>
-            {mine && <ShiftBlock shift={mine} style={{ marginBottom: 0 }}><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>You · {formatDate(mine.date)}</div></ShiftBlock>}
+            {mine && <ShiftBlock shift={mine} style={{ marginBottom: 0 }}><div style={{ fontSize: 11, color: 'var(--muted)' }}>You · {formatDate(mine.date)}</div></ShiftBlock>}
             <label><div style={LBL}>Note (optional)</div>
               <input className="form-input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why, or anything a teammate should know" style={{ width: '100%' }} />
             </label>
@@ -154,15 +154,15 @@ export default function ShiftRequestDialog({ reqs, myShifts = [], shift = null, 
                     {theirs.map((s) => <option key={s.id} value={s.id}>{span(s)}{s.label ? ` · ${s.label}` : ''}</option>)}
                   </select>
                 ) : (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>They have no shared shifts coming up. Offer your shift instead, or pick someone else.</div>
+                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>They have no shared shifts coming up. Offer your shift instead, or pick someone else.</div>
                 )}
               </label>
             )}
             {mine && (kind === 'offer' || picked) && (
               <div style={{ display: 'grid', gridTemplateColumns: kind === 'swap' ? '1fr auto 1fr' : '1fr', gap: 8, alignItems: 'center' }}>
-                <ShiftBlock shift={mine} style={{ marginBottom: 0 }}><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>You · {formatDate(mine.date)}</div></ShiftBlock>
+                <ShiftBlock shift={mine} style={{ marginBottom: 0 }}><div style={{ fontSize: 11, color: 'var(--muted)' }}>You · {formatDate(mine.date)}</div></ShiftBlock>
                 {kind === 'swap' && <ArrowLeftRight size={14} color="var(--muted)" />}
-                {kind === 'swap' && picked && <ShiftBlock shift={picked} style={{ marginBottom: 0 }}><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{who(target, teammates.find((t) => t.email === target)?.name)} · {formatDate(picked.date)}</div></ShiftBlock>}
+                {kind === 'swap' && picked && <ShiftBlock shift={picked} style={{ marginBottom: 0 }}><div style={{ fontSize: 11, color: 'var(--muted)' }}>{who(target, teammates.find((t) => t.email === target)?.name)} · {formatDate(picked.date)}</div></ShiftBlock>}
               </div>
             )}
             <label><div style={LBL}>Note (optional)</div>
@@ -170,7 +170,7 @@ export default function ShiftRequestDialog({ reqs, myShifts = [], shift = null, 
             </label>
           </div>
         )}
-        {err && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginTop: 10 }}>{err}</div>}
+        {err && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginTop: 10 }}>{err}</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="primary-btn" onClick={send} disabled={!ready} style={{ opacity: ready ? 1 : 0.55 }}>

@@ -91,7 +91,7 @@ export default function PolicyGate({ children }) {
           <ShieldCheck size={22} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
           <div>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{policy.title}</h2>
-            <p style={{ margin: '2px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>Please read and accept to continue.</p>
+            <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--muted)' }}>Please read and accept to continue.</p>
           </div>
         </div>
 

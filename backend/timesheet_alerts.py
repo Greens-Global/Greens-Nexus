@@ -166,7 +166,7 @@ def _collect(db: Session, now_utc: datetime) -> dict:
     for emp in (db.query(NexusEmployee)
                 .filter(NexusEmployee.status.in_(("active", "onboarding")), NexusEmployee.work_email != "").all()):
         em = (emp.work_email or "").strip().lower()
-        if not em or em in exempt:
+        if not em or em in exempt or tr.outside_review(db, em, emp):
             continue
         today = _today(db, em, now_utc)
         approvers = None

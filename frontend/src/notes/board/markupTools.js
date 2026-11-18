@@ -24,6 +24,9 @@ export const MARKUP_TOOLS = Object.freeze([
   { key: 'sticky', label: 'Sticky Note', hint: '', engine: 'selection', locked: false },
   { key: 'arrow', label: 'Arrow', hint: 'A', engine: 'arrow', locked: true },
   { key: 'box', label: 'Box', hint: 'R', engine: 'rectangle', locked: true },
+  // A section (Neil, 11/12/2026, sections.js): the engine's frame, up from More
+  // Tools - named, and what sits on it moves with it. One drawn, back to Select.
+  { key: 'frame', label: 'Section', hint: 'F', engine: 'frame', locked: false },
   { key: 'text', label: 'Text', hint: 'T', engine: 'text', locked: false },
   { key: 'comment', label: 'Comment', hint: 'C', engine: 'selection', locked: false },
   { key: 'eraser', label: 'Eraser', hint: 'E', engine: 'eraser', locked: true },
@@ -37,7 +40,6 @@ export const MORE_TOOLS = Object.freeze([
   { key: 'diamond', label: 'Diamond', hint: 'D', engine: 'diamond', locked: false },
   { key: 'line', label: 'Line', hint: 'L', engine: 'line', locked: false },
   { key: 'image', label: 'Image', hint: '9', engine: 'image', locked: false },
-  { key: 'frame', label: 'Frame', hint: 'F', engine: 'frame', locked: false },
   { key: 'laser', label: 'Laser Pointer', hint: 'K', engine: 'laser', locked: true },
   // Measure (Neil, 11/10/2026, measure.js): taps on the stage, ours like Comment.
   { key: 'measure', label: 'Measure Length', hint: '', engine: 'selection', locked: true },

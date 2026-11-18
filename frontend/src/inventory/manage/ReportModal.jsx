@@ -41,7 +41,7 @@ export function ReportModal({ onClose, checkouts, initial }) {
     <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column', padding:28 }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom: (initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All') ? 6 : 16 }}>Export Report</h3>
+        <h3 style={{ fontSize:15, fontWeight:700, marginBottom: (initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All') ? 6 : 16 }}>Export Report</h3>
         {((initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All')) && (
           <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Pre-filled from your current filters - adjust below, then export as PDF or Excel.</p>
         )}
@@ -73,7 +73,7 @@ export function ReportModal({ onClose, checkouts, initial }) {
             <datalist id="report-people">{knownPeople.map(n => <option key={n} value={n} />)}</datalist>
           </div>
         </div>
-        {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginBottom:12 }}>{error}</p>}
+        {error && <p style={{ fontSize:13, color:'hsl(var(--color-red))', marginBottom:12 }}>{error}</p>}
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
           <button className="secondary-btn" onClick={onClose} disabled={!!exporting}>Cancel</button>
           <button className="secondary-btn" disabled={!!exporting} style={{ display:'inline-flex', alignItems:'center', gap:6 }}

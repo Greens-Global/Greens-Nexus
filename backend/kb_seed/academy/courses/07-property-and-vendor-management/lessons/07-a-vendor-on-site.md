@@ -27,7 +27,7 @@ A vendor on the property is a guest with tools.
 
 ## The Field Checklist Is a Form
 
-The visit's checklist is filled on your phone as a **Form**: open **Fill a Form** from Workday (or the + menu), pick the site's vendor-visit form, and tick each line as it happens. Photos go in the form, and it works with no signal, sending when the phone reconnects.
+The visit's checklist is filled on your phone as a **Form**: open **Fill a Form** from Workday (or the bolt in the header, under **Request**), pick the site's vendor-visit form, and tick each line as it happens. Photos go in the form, and it works with no signal, sending when the phone reconnects.
 
 ```figure
 {

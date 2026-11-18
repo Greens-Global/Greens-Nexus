@@ -52,6 +52,25 @@ const ROLE_EXTRAS = {
 
 export const defaultLayoutFor = (widgetTier) => [...DEFAULT_PERSONAL, ...(ROLE_EXTRAS[widgetTier] || [])];
 
+// A retired tile's stand-in (Neil, 11/13/2026): Action Required ('my-day')
+// is retired and My Work is the one list of what is mine, so a saved board
+// that carried Action Required WITHOUT My Work shows My Work in the same
+// place, the same size - nobody opens their board to a hole where "what
+// needs me" used to be. A board that already has My Work keeps one: the
+// retired tile just stays hidden (widgetHidden). Applied on load like
+// clampToLimits; the board's next save keeps it.
+const RETIRED_STAND_IN = { 'my-day': 'my-work' };
+export function swapRetired(items) {
+  const list = Array.isArray(items) ? items : [];
+  const have = new Set(list.map((w) => w?.type));
+  return list.map((w) => {
+    const to = RETIRED_STAND_IN[w?.type];
+    if (!to || have.has(to)) return w;
+    have.add(to);                 // two retired tiles on one board become one stand-in
+    return { ...w, type: to, config: undefined };
+  });
+}
+
 const rid = () => `w${Math.random().toString(36).slice(2, 8)}`;
 
 const COLS = 12;
@@ -196,6 +215,11 @@ export function useDashboards(widgetTier) {
   const [activeId, setActiveId] = useState(null);   // null = built-in default
   const [layout, setLayoutState] = useState(() => defaultLayoutFor(widgetTier));
   const [kpis, setKpis] = useState({});
+  // A load that failed is said, never shown as empty data: `viewsError` (the
+  // saved views did not load) and `kpisError` ({ kpis, signatures } - which
+  // of the two count reads failed, null when both landed).
+  const [viewsError, setViewsError] = useState(false);
+  const [kpisError, setKpisError] = useState(null);
   const [department, setDepartment] = useState('');
   const [canPublish, setCanPublish] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -218,25 +242,38 @@ export function useDashboards(widgetTier) {
     savedLayoutRef.current = (view && Array.isArray(view.layout) && view.layout.length) ? view.layout : null;
     // Clamping can grow a tile into its neighbor, and boards saved before
     // collisions were settled may already overlap - settle on load.
-    setLayoutState(resolveCollisions(items.map(clampToLimits)));
+    setLayoutState(resolveCollisions(swapRetired(items).map(clampToLimits)));
     setDirty(false);
+  }, [widgetTier]);
+
+  // The counts on their own, so Try Again on a tile re-reads them without
+  // touching the layout. A count that did not load is left out (and named in
+  // kpisError) - never a 0.
+  const loadKpis = useCallback(async () => {
+    const failed = { kpis: false, signatures: false };
+    const [k, sigs] = await Promise.all([
+      api.dashKpis(widgetTier !== 'employee' ? 'team' : 'self').catch(() => { failed.kpis = true; return { kpis: {} }; }),
+      // Documents waiting on my signature - the KPI catalog's
+      // signatures_needed metric (Sep 24); same count Home's tile shows.
+      api.mySignatures().catch(() => { failed.signatures = true; return []; }),
+    ]);
+    const sigList = Array.isArray(sigs) ? sigs : (sigs?.requests || sigs?.items || []);
+    setKpis({ ...(k.kpis || {}), ...(failed.signatures ? {} : { signatures_needed: sigList.length }) });
+    setKpisError(failed.kpis || failed.signatures ? failed : null);
   }, [widgetTier]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [v, k, sigs] = await Promise.all([
-        api.dashViews(TARGET).catch(() => ({ views: [] })),
-        api.dashKpis(widgetTier !== 'employee' ? 'team' : 'self').catch(() => ({ kpis: {} })),
-        // Documents waiting on my signature - the KPI catalog's
-        // signatures_needed metric (Sep 24); same count Home's tile shows.
-        api.mySignatures().catch(() => []),
+      let viewsFailed = false;
+      const [v] = await Promise.all([
+        api.dashViews(TARGET).catch(() => { viewsFailed = true; return { views: [] }; }),
+        loadKpis(),
       ]);
+      setViewsError(viewsFailed);
       setViews(v.views || []);
       setDepartment(v.department || '');
       setCanPublish(!!v.canPublish);
-      const sigList = Array.isArray(sigs) ? sigs : (sigs?.requests || sigs?.items || []);
-      setKpis({ ...(k.kpis || {}), signatures_needed: sigList.length });
       const def = (v.views || []).find(x => x.isDefault && x.scope === 'personal')
         || (v.views || []).find(x => x.scope === 'personal')
         || (v.views || []).find(x => x.scope === 'department');
@@ -244,7 +281,7 @@ export function useDashboards(widgetTier) {
     } finally {
       setLoading(false);
     }
-  }, [widgetTier, applyView]);
+  }, [applyView, loadKpis]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -405,6 +442,7 @@ export function useDashboards(widgetTier) {
 
   return {
     views, activeId, activeView, layout, kpis, department, canPublish, dirty, loading, editing,
+    viewsError, kpisError, reloadKpis: loadKpis,
     setEditing, setLayout, addWidget, removeWidget, duplicateWidget, autoFit, moveWidget, updateWidgetConfig, saveWidgetConfig, canSaveInPlace, cancelEdit,
     switchView, save, saveAsNew, createNewView, publishDepartment, setDefaultView, clearDefaultView, removeView, renameView, reload: load,
   };

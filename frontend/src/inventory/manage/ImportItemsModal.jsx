@@ -99,8 +99,8 @@ export function ImportItemsModal({ onClose, onImport, onRestoreConflicts, custom
       <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column', padding:28 }}>
         {done ? (
           <>
-            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import Complete</h3>
-            <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
+            <h3 style={{ fontSize:15, fontWeight:700, marginBottom:10 }}>Import Complete</h3>
+            <p style={{ fontSize:13, color:'var(--muted)', marginBottom:20 }}>
               <strong>{done.created}</strong> items added{done.updated ? <>, <strong>{done.updated}</strong> updated</> : null}. <strong>{done.skipped}</strong> rows skipped.
               {done.added_types?.length ? <> <strong>{done.added_types.length}</strong> new type{done.added_types.length !== 1 ? 's' : ''} created: {done.added_types.join(', ')}.</> : null}
               New rows each get a Nexus serial. Re-importing the same file updates units in place - matched by <strong>Serial</strong>,
@@ -113,10 +113,10 @@ export function ImportItemsModal({ onClose, onImport, onRestoreConflicts, custom
                 list them, and offer to bring the Recycle Bin ones back. */}
             {done.conflicts?.length > 0 && (
               <div style={{ border:'1px solid var(--wk-line2, var(--line))', borderRadius:12, padding:'12px 14px', marginBottom:20 }}>
-                <div style={{ fontWeight:700, fontSize:13.5, marginBottom:6 }}>{done.conflicts.length} row{done.conflicts.length !== 1 ? 's' : ''} not imported</div>
+                <div style={{ fontWeight:700, fontSize:13, marginBottom:6 }}>{done.conflicts.length} row{done.conflicts.length !== 1 ? 's' : ''} not imported</div>
                 <ul style={{ margin:0, padding:0, listStyle:'none', display:'grid', gap:4, maxHeight:180, overflowY:'auto' }}>
                   {done.conflicts.map((c, i) => (
-                    <li key={`${c.serial}-${i}`} style={{ fontSize:12.5, color:'var(--muted)' }}>
+                    <li key={`${c.serial}-${i}`} style={{ fontSize:13, color:'var(--muted)' }}>
                       <strong style={{ color:'var(--ink)' }}>{c.name || 'Row'}</strong> · Serial {c.serial} · {c.reason}
                     </li>
                   ))}
@@ -133,7 +133,7 @@ export function ImportItemsModal({ onClose, onImport, onRestoreConflicts, custom
                     Import Again and Restore Them From the Recycle Bin
                   </button>
                 )}
-                {importErr && <p style={{ fontSize:12.5, color:'var(--bad-fg)', margin:'8px 0 0' }}>{importErr}</p>}
+                {importErr && <p style={{ fontSize:13, color:'var(--bad-fg)', margin:'8px 0 0' }}>{importErr}</p>}
               </div>
             )}
             <div style={{ display:'flex', justifyContent:'flex-end' }}><button className="primary-btn" onClick={onClose}>Done</button></div>
@@ -141,12 +141,12 @@ export function ImportItemsModal({ onClose, onImport, onRestoreConflicts, custom
         ) : (
           <>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
-              <h3 style={{ fontSize:16, fontWeight:700 }}>Import Items From CSV or Excel</h3>
+              <h3 style={{ fontSize:15, fontWeight:700 }}>Import Items From CSV or Excel</h3>
               <button onClick={() => downloadImportTemplate(customFields)} className="secondary-btn" style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
                 <Download size={13} /> Template
               </button>
             </div>
-            <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
+            <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>
               Each row = one physical item. Accepts .csv, .xlsx, and .xls. Photos are always added manually after import. Required columns: <strong>Name</strong>.
               Leave <strong>Serial</strong> blank and Nexus assigns one - keep a serial to update that exact unit on re-import.
             </p>
@@ -156,11 +156,11 @@ export function ImportItemsModal({ onClose, onImport, onRestoreConflicts, custom
               {parsing ? <><Spinner size={16} /> Reading…</> : <><UploadCloud size={16} /> Choose CSV / Excel file</>}
             </button>
 
-            {parseErr && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginBottom:12 }}>{parseErr}</p>}
+            {parseErr && <p style={{ fontSize:13, color:'hsl(var(--color-red))', marginBottom:12 }}>{parseErr}</p>}
 
             {rows && (
               <>
-                <div style={{ fontSize:12.5, color:'var(--muted)', marginBottom:10 }}>
+                <div style={{ fontSize:13, color:'var(--muted)', marginBottom:10 }}>
                   <strong style={{ color:'hsl(var(--color-green))' }}>{valid.length} valid</strong>
                   {invalid.length > 0 && <>, <strong style={{ color:'hsl(var(--color-red))' }}>{invalid.length} missing name (skipped)</strong></>}
                   {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} row{warned.length !== 1 ? 's' : ''} with a new/unknown type</strong></>}
@@ -226,7 +226,7 @@ export function ImportItemsModal({ onClose, onImport, onRestoreConflicts, custom
                     Previewing the first {PREVIEW_CAP.toLocaleString()} of {rows.length.toLocaleString()} rows - all {valid.length.toLocaleString()} valid rows will still be imported.
                   </p>
                 )}
-                {importErr && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', margin:'0 0 10px', textAlign:'right' }}>{importErr}</p>}
+                {importErr && <p style={{ fontSize:13, color:'hsl(var(--color-red))', margin:'0 0 10px', textAlign:'right' }}>{importErr}</p>}
                 <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
                   <button className="secondary-btn" onClick={onClose} disabled={importing}>Cancel</button>
                   <button className="primary-btn" disabled={!valid.length || importing}

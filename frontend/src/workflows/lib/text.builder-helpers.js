@@ -156,7 +156,7 @@ export const card = {
   background: 'var(--nx-surface)', border: '1px solid var(--nx-border)', borderRadius: 14,
   padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
 };
-export const cardTitle = { fontSize: 11.5, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--nx-faint)' };
+export const cardTitle = { fontSize: 12, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--nx-faint)' };
 export const sentence = { fontSize: 14, color: 'var(--nx-ink)', lineHeight: 1.45 };
 export const hint = { fontSize: 12, color: 'var(--nx-dim)', lineHeight: 1.4 };
 export const fieldLabel = { fontSize: 12, fontWeight: 600, color: 'var(--nx-dim)', marginBottom: 4, display: 'block' };
@@ -169,7 +169,7 @@ export const lane = { borderLeft: '2px solid var(--nx-border2)', marginLeft: 10,
 export const laneTitle = { fontSize: 12, fontWeight: 700, color: 'var(--nx-dim)' };
 export const chip = {
   display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999,
-  background: 'var(--nx-surface2)', border: '1px solid var(--nx-border)', fontSize: 12.5, color: 'var(--nx-ink)',
+  background: 'var(--nx-surface2)', border: '1px solid var(--nx-border)', fontSize: 13, color: 'var(--nx-ink)',
 };
 export const iconBtn = {
   border: 'none', background: 'transparent', color: 'var(--nx-dim)', cursor: 'pointer', padding: 4,

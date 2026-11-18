@@ -80,8 +80,8 @@ export function openTask(id) {
   setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId: id } })), 0);
 }
 
-const sectionHead = { fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', letterSpacing: 0.2, padding: '10px 8px 4px' };
-const linkBtn = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '8px 8px', minHeight: 44, fontFamily: 'var(--wk-font)' };
+const sectionHead = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: 0.2, padding: '10px 8px 4px' };
+const linkBtn = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '8px 8px', minHeight: 44, fontFamily: 'var(--wk-font)' };
 
 function Tile({ tile, count, open, onClick, mobile }) {
   const { label, color, Icon } = tile;
@@ -93,9 +93,9 @@ function Tile({ tile, count, open, onClick, mobile }) {
         cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--wk-font)', color: 'var(--ink)', width: '100%', boxSizing: 'border-box' }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
         <span className={`dk-chip dk-chip--${color}`} style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0 }}><Icon size={12} /></span>
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{label}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{label}</span>
       </span>
-      <span style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{count}</span>
+      <span style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{count}</span>
     </button>
   );
 }
@@ -169,7 +169,7 @@ export default function MyTeam({ phone }) {
         <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <Row Icon={p.worst?.kind === 'ticket' ? TicketIcon : ListTodo} title={p.name || p.email} meta={pushMeta(p)}
-              status="overdue" statusLabel={isMobile ? '' : 'Overdue'} onClick={() => openWorst(p)} />
+              status="overdue" statusLabel={isMobile ? '' : 'Overdue'} metaLines={2} onClick={() => openWorst(p)} />
           </div>
           <a href={teamsChatUrl(p.email)} target="_blank" rel="noreferrer" aria-label={`Message ${p.name || p.email} on Teams`} title="Message on Teams"
             style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 8, color: 'var(--muted)', flexShrink: 0 }}>
@@ -193,7 +193,9 @@ export default function MyTeam({ phone }) {
       {!data && people.length > 0 && pushSection}
       {data && (
         <>
-          <div data-testid="team-tiles" style={{ display: 'grid', gridTemplateColumns: `repeat(${isMobile ? 2 : tiles.length}, minmax(0, 1fr))`, gap: 8 }}>
+          {/* A phone: four tiles 2x2; three (no schedule, so no Late) one row
+              of three - a 2x2 left On Leave alone under a blank cell. */}
+          <div data-testid="team-tiles" style={{ display: 'grid', gridTemplateColumns: `repeat(${isMobile && tiles.length !== 3 ? 2 : tiles.length}, minmax(0, 1fr))`, gap: 8 }}>
             {tiles.map(t => (
               <Tile key={t.key} tile={t} count={data.counts?.[t.key] || 0} open={openBucket === t.key} mobile={isMobile}
                 onClick={() => { setOpenBucket(openBucket === t.key ? null : t.key); setBucketAll(false); }} />

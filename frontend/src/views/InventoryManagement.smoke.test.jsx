@@ -220,8 +220,11 @@ describe('Item Management smoke - managers', () => {
     await screen.findByText('Available to Borrow');
     expect([...document.querySelectorAll('.it-kpi-label')].map(k => k.textContent)).toEqual(['Available to Borrow', 'In Use', 'Overdue', 'Total Value']);
     expect(screen.getAllByRole('tab').map(t => t.textContent.trim())).toEqual(expect.arrayContaining(['Table', 'Who Has What', 'Activity']));
-    expect(screen.getByRole('button', { name: /Add Item/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Import CSV/ })).toBeTruthy();
+    // "+ New" (Neil, 11/13/2026): Item and Import From a CSV are its menu.
+    expect(screen.queryByRole('button', { name: /Add Item/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'New' }));
+    expect(await screen.findByRole('menuitem', { name: /^Item/ })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /^Import From a CSV/ })).toBeTruthy();
   });
 
   it('Who Has What and the Activity Log are views inside Inventory', async () => {

@@ -89,9 +89,9 @@ function AdminDayRow({ date, email, d, timeZone }) {
       {open && (
         <div style={{ marginTop: 8, marginLeft: 102, display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
           {(d.punches || []).length === 0 ? (
-            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>No punches this day.</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>No punches this day.</span>
           ) : (d.punches || []).map((p, i) => (
-            <span key={i} style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+            <span key={i} style={{ fontSize: 12, color: 'var(--muted)' }}>
               <span style={{ fontWeight: 700, color: 'var(--ink)', textTransform: 'capitalize' }}>{String(p.kind || '').replace(/_/g, ' ')}</span>
               {' '}{localTime(p.at, timeZone)}
             </span>
@@ -135,7 +135,7 @@ const punchReqKey = (r) => (r.action === 'add' && r.at)
 
 // Form label + card-header title (Work OS grammar - sentence case, no tracking).
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
-const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
+const HD = { fontSize: 13, fontWeight: 600, color: 'var(--ink)' };
 
 // hrPanels: People > Time shows HR's leave panels under Time Off (balances,
 // year end, approval stand-ins, the old Leave history) - they moved here when
@@ -579,7 +579,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
           return (
             <button key={key} onClick={() => setView(key)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 14px', border: 'none', background: 'none',
-                cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: on ? 700 : 600,
+                cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: on ? 700 : 600,
                 color: on ? 'var(--wk-brand)' : 'var(--muted)', whiteSpace: 'nowrap', marginBottom: -1,
                 borderBottom: on ? '2.5px solid var(--wk-brand)' : '2.5px solid transparent',
                 transition: 'color .12s, border-color .12s' }}>
@@ -633,14 +633,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {rangeControls}
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>Team total: <span style={{ color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(totalMin)}</span></span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Team total: <span style={{ color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(totalMin)}</span></span>
       </div>
       )}
 
       {view === 'timecards' && (<>
       {rows === null && <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>}
       {rows !== null && rows.length === 0 && (
-        <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
+        <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 13, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
           No punches in this range. Employees punch in from the Time Clock page in the sidebar.
         </div>
       )}
@@ -656,7 +656,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                 color: 'var(--wk-brand)', textDecoration: 'underline', textDecorationColor: 'transparent', textUnderlineOffset: 3 }}
               onMouseEnter={e => { e.currentTarget.style.textDecorationColor = 'var(--wk-brand)'; }}
               onMouseLeave={e => { e.currentTarget.style.textDecorationColor = 'transparent'; }}>{r.name}</button>
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}</span>
             {r.flagCount > 0 && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: '#b45309' }}>
                 <AlertTriangle size={11} /> {r.flagCount}
@@ -669,7 +669,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                 <Pencil size={10} /> {r.pendingEdits} to review
               </button>
             )}
-            {r.breakMin > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.breakMin}m break</span>}
+            {r.breakMin > 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{r.breakMin}m break</span>}
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', width: 62, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtMin(r.workedMin)}</span>
           </div>
 
@@ -681,13 +681,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                   <div key={date} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 12, fontWeight: 800 }}>{new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{fmtMin(d.workedMin)}{d.breakMin ? ` · ${d.breakMin}m break` : ''}</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtMin(d.workedMin)}{d.breakMin ? ` · ${d.breakMin}m break` : ''}</span>
                       {d.flags.map(f => <span key={f} style={{ fontSize: 11, fontWeight: 700, color: '#b45309' }}>{f.replace(/_/g, ' ')}</span>)}
                     </div>
                     <div style={{ margin: '5px 0 4px', maxWidth: 560 }}><DayTimeline punches={d.punches} height={18} date={date} /></div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
                       {d.punches.map(p => (
-                        <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, padding: '4px 10px', borderRadius: 10,
+                        <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 10px', borderRadius: 10,
                           background: p.voided ? 'transparent' : p.geoStatus === 'out_of_fence' ? 'rgba(180,83,9,0.1)' : 'var(--mist)',
                           border: '1px solid var(--line)', color: p.voided ? 'var(--line)' : 'var(--ink)',
                           textDecoration: p.voided ? 'line-through' : 'none' }}>
@@ -700,7 +700,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                               <MapPin size={11} />
                             </a>
                           )}
-                          {p.source !== 'web' && <span title={p.source === 'self_manual' ? `Self-corrected: ${p.note}` : p.source === 'offline' ? `Recorded offline: ${p.note}` : `Added by ${p.createdBy}`} style={{ fontSize: 10, fontWeight: 800, color: '#b45309' }}>M</span>}
+                          {p.source !== 'web' && <span title={p.source === 'self_manual' ? `Self-corrected: ${p.note}` : p.source === 'offline' ? `Recorded offline: ${p.note}` : `Added by ${p.createdBy}`} style={{ fontSize: 11, fontWeight: 800, color: '#b45309' }}>M</span>}
                           <button onClick={() => setEdit({ ...p, timeZone: r.timeZone, atInput: utcToInput(p.at, r.timeZone), adjustNote: '' })} title="Adjust / void"
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 1 }}>
                             <Pencil size={11} />
@@ -712,7 +712,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                 );
               })}
               <button className="secondary-btn" onClick={() => { setAddFor(r.email); setAddP({ kind: 'out', at: '', note: '' }); }}
-                style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                 <Plus size={11} /> Add punch
               </button>
             </div>
@@ -761,7 +761,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                   {dates.map(d => (
                     <div key={d} title={`${d} - ${fmtMin(dayTotals[d])}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
                       <div style={{ width: '70%', maxWidth: 38, height: `${Math.max(5, (dayTotals[d] / maxDay) * 110)}px`, background: 'var(--wk-brand)', borderRadius: 99 }} />
-                      <span style={{ fontSize: 9.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                         {new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}
                       </span>
                     </div>
@@ -908,7 +908,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
           const on = actKind === k;
           return (
             <button key={k} type="button" role="tab" aria-selected={on} onClick={() => setActKind(k)}
-              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12.5, fontWeight: 600,
+              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 600,
                 background: on ? 'var(--wk-card, var(--card))' : 'transparent', color: on ? 'var(--wk-ink, var(--ink))' : 'var(--wk-dim, var(--muted))',
                 boxShadow: on ? '0 1px 3px rgba(29,33,57,.12)' : 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {label}{n != null && <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--muted)', fontWeight: 700 }}>{n}</span>}
@@ -927,10 +927,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
               <div style={{ position: 'relative', flex: '0 1 260px' }}>
                 <Search size={13} style={{ position: 'absolute', left: 10, top: 9, color: 'var(--muted)' }} />
                 <input value={reqSearch} onChange={e => setReqSearch(e.target.value)} placeholder="Search by name or reason" aria-label="Search the Action Log"
-                  style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 10, border: '1px solid var(--line)', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit' }} />
+                  style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 10, border: '1px solid var(--line)', fontSize: 13, background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit' }} />
               </div>
               <select className="form-input" value={actDept} onChange={e => setActDept(e.target.value)} aria-label="Department"
-                style={{ fontSize: 12.5, width: 'auto', minWidth: 170, padding: '6px 10px' }}>
+                style={{ fontSize: 13, width: 'auto', minWidth: 170, padding: '6px 10px' }}>
                 <option value="">All Departments</option>
                 {depts.map(d => <option key={d} value={d}>{d}</option>)}
                 {all.some(g => !g.dept) && <option value="__none">No Department</option>}
@@ -943,7 +943,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                   a second row of boxes above the header. */}
               {rangePill}
               {visibleIds.length > 0 && (
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer', marginLeft: 'auto' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', marginLeft: 'auto' }}>
                   {cb(allSelected, on => toggle(visibleIds, on), 'Select every request shown')}
                   Select All Requests ({visibleIds.length})
                 </label>
@@ -952,13 +952,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
             {selected.length > 0 && (
               <div style={{ position: 'sticky', top: 8, zIndex: 3, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 14px', marginBottom: 10,
                 borderRadius: 12, background: 'var(--card)', border: '1px solid var(--wk-brand, #2b45e1)', boxShadow: 'var(--wk-shadow)' }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700 }}>{selectedFixes} request{selectedFixes === 1 ? '' : 's'} selected</span>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{selectedFixes} request{selectedFixes === 1 ? '' : 's'} selected</span>
                 <button type="button" className="secondary-btn" onClick={() => setSelReqs(new Set())} style={{ fontSize: 12, padding: '4px 10px' }}>Clear</button>
                 <div style={{ flex: 1 }} />
                 <button className="secondary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'rejected')}
                   style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject Selected</button>
                 <button className="primary-btn" disabled={bulkBusy} onClick={() => decideMany(selected, 'approved')}
-                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   {bulkBusy ? <Spinner size={13} /> : <CheckCircle size={13} />} Approve Selected
                 </button>
               </div>
@@ -970,7 +970,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
               if (decidedReqs === null) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>;
               if (!list.length) {
                 return (
-                  <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
+                  <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 13, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
                     {decidedReqs.length ? 'Nothing matches these filters.' : `No punch requests were approved or rejected for ${rangeText}.`}
                   </div>
                 );
@@ -979,15 +979,15 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                 <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', boxShadow: 'var(--wk-shadow)' }}>
                   {list.map((r, i) => (
                     <div key={r.id} data-testid="decided-request" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '6px 16px',
-                      alignItems: 'start', padding: '11px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 12.5 }}>
+                      alignItems: 'start', padding: '11px 14px', borderTop: i ? '1px solid var(--line)' : 'none', fontSize: 13 }}>
                       <div style={{ minWidth: 0 }}>
                         <AvatarName email={r.employeeEmail} name={r.employeeName || r.employeeEmail} size={22} />
-                        {r.department && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, marginLeft: 28 }}>{r.department}</div>}
+                        {r.department && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, marginLeft: 28 }}>{r.department}</div>}
                       </div>
                       <div style={{ minWidth: 0 }}>
                         <div><span title={yourTime(r.at, r.timeZone)} style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at, r.timeZone) || (r.localDate ? formatDate(r.localDate) : 'No time')}</span> <span>{verb(r)}</span></div>
                         {r.reason && <div style={{ color: 'var(--muted)', marginTop: 2 }}>Their reason: "{r.reason}"</div>}
-                        {r.createdAt && <div style={{ color: 'var(--muted)', fontSize: 11.5, marginTop: 2 }}>Asked {formatDateTime(r.createdAt)}</div>}
+                        {r.createdAt && <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 2 }}>Asked {formatDateTime(r.createdAt)}</div>}
                       </div>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 700, color: r.status === 'approved' ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))' }}>
@@ -1003,7 +1003,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
             })() : exceptions === null && punchReqs.length === 0 ? (
               <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
             ) : shown.length === 0 ? (
-              <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12,
+              <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 13, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12,
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                 <CheckCircle size={22} style={{ color: 'hsl(var(--color-green))' }} />
                 {all.length && filtered
@@ -1021,8 +1021,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                     {/* A 180px basis: on a phone the name keeps the first line and the
                         chips and buttons wrap below it, instead of squeezing it to "N..." (Oct 17). */}
                     <div style={{ minWidth: 0, flex: '1 1 180px' }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}{g.forEmail && <ForChip name={g.forName} email={g.forEmail} />}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}{g.forEmail && <ForChip name={g.forName} email={g.forEmail} />}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {g.dept || 'No department'} · {g.email}
                       </div>
                     </div>
@@ -1069,7 +1069,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                       <span style={pill('var(--wk-hover)', 'var(--ink)')}>Request</span>
                       <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
                         <span title={yourTime(r.at, r.timeZone)} style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at, r.timeZone) || 'No time'}</span>
-                        <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>{verb(r)}</span>
+                        <span style={{ fontSize: 13, color: 'var(--ink)' }}>{verb(r)}</span>
                         {rowIds.length > 1 && (
                           <span title="The employee asked for the same punch more than once. Approving or rejecting it closes every copy."
                             style={pill('var(--wk-line2)', 'var(--ink)')}>
@@ -1091,14 +1091,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                       <button className="secondary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'rejected')}
                         style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
                       <button className="primary-btn" disabled={bulkBusy} onClick={() => decidePunchReq(r.id, 'approved')}
-                        style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                         <CheckCircle size={13} /> Approve
                       </button>
                     </div>
                     );
                   })}
                   {g.missing.map((e, i) => (
-                    <div key={`m${e.date}-${e.type}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderTop: (i || g.rows.length) ? '1px solid var(--line)' : 'none', fontSize: 12.5, flexWrap: 'wrap' }}>
+                    <div key={`m${e.date}-${e.type}`} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderTop: (i || g.rows.length) ? '1px solid var(--line)' : 'none', fontSize: 13, flexWrap: 'wrap' }}>
                       <span title={e.blocking ? 'Blocks sign-off until fixed' : 'Worth a look - does not block sign-off'}
                         style={pill(e.blocking ? 'rgba(220,38,38,0.08)' : 'rgba(180,83,9,0.1)', e.blocking ? 'hsl(var(--color-red))' : '#b45309')}>
                         {e.blocking ? 'Missing' : 'Check'}
@@ -1118,7 +1118,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
               <AddTimeModal email={addTimeFor.email} name={addTimeFor.name} start={start} end={end} initialDates={addTimeFor.dates}
                 onClose={() => setAddTimeFor(null)} onDone={() => loadExceptions()} toastOk={toastOk} toastErr={toastErr} />
             )}
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
               Missing punches cover {rangeText}. A shift with no clock-out (or a clock-out with no clock-in) can't be paid until it's fixed.
               Someone still on the clock is not listed - their shift has not ended yet.
             </div>
@@ -1148,7 +1148,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                 <Avatar email={p.email} name={p.name} size={36} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 800 }}>{p.name}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {formatDate(start)} - {formatDate(end)}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{p.email} · {formatDate(start)} - {formatDate(end)}</div>
                 </div>
                 <button onClick={() => setPerson(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
               </div>
@@ -1161,7 +1161,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                     ['Flags', String(p.flagCount), p.flagCount ? '#b45309' : 'var(--muted)']].map(([l, v, c]) => (
                     <div key={l} style={{ background: 'var(--mist)', borderRadius: 10, padding: '10px 14px' }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>{l}</div>
-                      <div style={{ fontSize: 17, fontWeight: 700, color: c, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: c, fontVariantNumeric: 'tabular-nums' }}>{v}</div>
                     </div>
                   ))}
                 </div>
@@ -1176,7 +1176,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                         {dts.map(d => (
                           <div key={d} title={`${d} - ${fmtMin(p.days[d].workedMin)}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 0 }}>
                             <div style={{ width: '65%', maxWidth: 34, height: `${Math.max(5, (p.days[d].workedMin / mx) * 66)}px`, background: 'var(--wk-brand)', borderRadius: 99 }} />
-                            <span style={{ fontSize: 9, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}</span>
+                            <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })}</span>
                           </div>
                         ))}
                       </div>
@@ -1204,7 +1204,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
                       color: t.status === 'approved' ? 'hsl(var(--color-green))' : t.status === 'rejected' ? 'hsl(var(--color-red))' : '#b45309' }}>{t.status}</span>
                   </div>
                 ))}
-                <p style={{ margin: '14px 0 0', fontSize: 10.5, color: 'var(--muted)' }}>
+                <p style={{ margin: '14px 0 0', fontSize: 11, color: 'var(--muted)' }}>
                   To correct a punch, use the pencil on the Time Sheets list. Screenshots (if captured) are in Workforce Analytics.
                 </p>
               </div>
@@ -1220,12 +1220,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
           <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Clock size={14} /></span>
-              <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Adjust punch - {KIND_LABEL[edit.kind]}</h3>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Adjust punch - {KIND_LABEL[edit.kind]}</h3>
               <button onClick={editGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>
               {edit.originalAt && (
-                <p style={{ margin: 0, fontSize: 11.5, color: '#b45309' }}>Original time on record: {localTime(edit.originalAt, edit.timeZone)} (adjusted by {edit.adjustedBy})</p>
+                <p style={{ margin: 0, fontSize: 12, color: '#b45309' }}>Original time on record: {localTime(edit.originalAt, edit.timeZone)} (adjusted by {edit.adjustedBy})</p>
               )}
               <div><label style={FL}>Time{zoneTag(edit.timeZone) ? ` (${zoneTag(edit.timeZone)}, the employee's clock)` : ''}</label>
                 <input className="form-input" type="datetime-local" value={edit.atInput}
@@ -1235,7 +1235,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
               <div className="nx-fill"><label style={FL}>Reason for adjustment</label>
                 <textarea className="form-input" rows={3} placeholder="Shows in the audit trail" value={edit.adjustNote}
                   onChange={e => setEdit(x => ({ ...x, adjustNote: e.target.value }))} style={{ width: '100%', fontFamily: 'inherit' }} /></div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={!!edit.voided} onChange={e => setEdit(x => ({ ...x, voided: e.target.checked }))}
                   style={{ width: 15, height: 15, accentColor: 'hsl(var(--color-red))' }} />
                 <Ban size={13} style={{ color: 'hsl(var(--color-red))' }} /> Void this punch (kept on record, excluded from totals)
@@ -1266,7 +1266,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
           <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><CalendarOff size={14} /></span>
-              <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Request Time Off on Behalf</h3>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Request Time Off on Behalf</h3>
               <button onClick={oboGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>
@@ -1293,7 +1293,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
               <div className="nx-fill"><label style={FL}>Reason</label>
                 <textarea className="form-input" rows={3} aria-label="Reason" placeholder="Why they are off, e.g. called in sick this morning" value={obo.note}
                   onChange={e => setObo(p => ({ ...p, note: e.target.value }))} style={{ width: '100%', fontFamily: 'inherit' }} /></div>
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={!!obo.confidential} onChange={e => setObo(p => ({ ...p, confidential: e.target.checked }))} style={{ marginTop: 2 }} />
                 <span>
                   <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
@@ -1326,7 +1326,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView, hrPanels = f
           <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Plus size={14} /></span>
-              <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Add punch - {addFor}</h3>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Add punch - {addFor}</h3>
               <button onClick={addGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0, overflowY: 'auto' }}>

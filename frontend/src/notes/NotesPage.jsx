@@ -11,16 +11,18 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ChevronLeft, ChevronRight, Search, X, Plus, Upload, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
+  ChevronLeft, ChevronRight, Search, X, Pin, PinOff, Users, History, MoreHorizontal, Trash2,
   Download, Printer, Maximize2, Minimize2, ChevronsLeft, ChevronsRight, Link as LinkIcon, Palette,
-  RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, PenTool, Image as ImageIcon, FileCode2, Copy, FileJson,
-  Paperclip, ExternalLink, ArrowLeft, Presentation, ListTree, LayoutTemplate, Pencil, FolderOpen,
+  RotateCcw, Keyboard, Hash, Check, CloudOff, Loader2, StickyNote, Image as ImageIcon, FileCode2, Copy, FileJson,
+  Paperclip, ExternalLink, ArrowLeft, Presentation, ListTree, LayoutTemplate, Pencil, FolderOpen, Video,
 } from 'lucide-react';
 import { dialog } from '../ui/dialog';
+import BoardIcon from '../components/icons/BoardIcon';
+import NewMenu from './NewMenu';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate, formatDateTime, formatTime, formatWeekday } from '../lib/datetime';
 import { Modal, DateField, usePeople, Avatar, AvatarName, useEscapeLayer } from '../tasks/components';
 import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
 import { useScrollLock } from '../lib/useScrollLock';
@@ -50,6 +52,11 @@ import {
   countWords, editedLabel, htmlToMarkdown, markdownToHtml, exportFileName, downloadText, printNote, rememberLastNote, quickNoteKeys,
   noteHeadings, personShort,
 } from './notesModel';
+import MeetingsSheet from './meetings/MeetingsSheet';
+import { MeetingBand, TranscriptView, isMeetingNote, useMeetingOfNote } from './meetings/MeetingBand';
+import { meetingTimes } from './meetings/meetingModel';
+import { setTranscribeOn } from './meetings/access';
+import { EDITED } from './noteMedia';
 import './notes.css';
 
 // The whiteboard engine (board/Board.jsx, Neil 11/02/2026) is its own chunk,
@@ -502,9 +509,13 @@ class LiveBoundary extends Component {
 }
 
 // The open note.
-function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail, onDuplicate, backTo, onOpen }) {
+function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, full, onToggleFull, isPhone, toast, myEmail, onDuplicate, backTo, onOpen, onMediaBusy }) {
   const collabRef = useRef(null);
   const sync = useNoteSync(id, { onSaved, collabRef });
+  // A recording under way or a clip still uploading in this note's editor
+  // (NoteEditor's onBusy): the page asks before it closes or switches notes.
+  const mediaBusy = useCallback((_working, losing) => onMediaBusy?.(!!losing), [onMediaBusy]);
+  useEffect(() => () => onMediaBusy?.(false), [onMediaBusy]);
   const { note, status, conflict, restored } = sync;
   const nameOf = useCallback((email) => {
     const e = (email || '').toLowerCase();
@@ -537,6 +548,55 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
 
   useEffect(() => { if (id) rememberLastNote(id); }, [id]);
   useEffect(() => { setMenu(''); }, [id]);
+  // Meeting Notes (Neil, 11/12/2026, meetings/): a note taken for a Teams
+  // meeting carries the meeting band, the clock on its lines and the
+  // transcript beside it. `tx.at` is the moment a stamped line points at.
+  const meetingNote = isMeetingNote(note);
+  // Phase 3: recording in Nexus - whether it runs, its words as they come,
+  // and a reload of the meeting and its transcript when it ends.
+  const [rec, setRec] = useState({ on: false, startedAt: 0 });
+  const [liveCues, setLiveCues] = useState([]);
+  const [recReload, setRecReload] = useState(0);
+  const editorRef = useRef(null);
+  const meeting = useMeetingOfNote(id, meetingNote, recReload);
+  const [tx, setTx] = useState({ open: false, at: 0, seq: 0 });
+  useEffect(() => { setTx({ open: false, at: 0, seq: 0 }); setLiveCues([]); setRec({ on: false, startedAt: 0 }); }, [id]);
+  const jumpTo = useCallback((at) => setTx((t) => ({ open: true, at, seq: t.seq + 1 })), []);
+  const hasRecorded = !!(meeting && (meeting.kind === 'other' || meeting.kind === 'adhoc' || meeting.recorded?.exists || rec.on));
+  const clock = useMemo(() => {
+    if (!meeting) return null;
+    // While recording, every line written is stamped (any kind of meeting).
+    const times = rec.on ? { startMs: rec.startedAt - 60000, endMs: Date.now() + 4 * 3600000 } : meetingTimes(meeting);
+    return { ...times, onJump: meeting.invited || hasRecorded ? jumpTo : null };
+  }, [meeting, jumpTo, rec.on, rec.startedAt, hasRecorded]);
+  const txFocus = useMemo(() => (tx.at ? { at: tx.at, seq: tx.seq } : null), [tx.at, tx.seq]);
+  const txSources = useMemo(() => {
+    if (!meeting) return ['teams'];
+    const list = [];
+    if (meeting.invited && (meeting.kind || 'teams') === 'teams') list.push('teams');
+    if (hasRecorded) list.push('recorded');
+    return list.length ? list : ['teams'];
+  }, [meeting, hasRecorded]);
+  // The consent goes into the note itself as a line of its own.
+  const markStarted = useCallback((ms) => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed || !ed.isEditable) return;
+    const when = formatTime(new Date(ms));
+    ed.chain().setMeta(EDITED, true).insertContentAt(ed.state.doc.content.size,
+      `<p><em>Transcription started at ${when} - everyone present agreed to be transcribed.</em></p>`).run();
+  }, []);
+  const recorderProps = useMemo(() => (id ? {
+    noteId: id,
+    onStarted: markStarted,
+    onLive: setLiveCues,
+    onRecording: (on, startedAt) => {
+      setRec((r) => {
+        if (r.on && !on) setRecReload((k) => k + 1);         // ended: read the saved words and the meeting again
+        if (!r.on && on) setTx((t) => ({ ...t, open: true })); // started: show the words as they come
+        return r.on === on && r.startedAt === startedAt ? r : { on, startedAt };
+      });
+    },
+  } : null), [id, markStarted]);
   // A brand-new note starts in its title.
   useEffect(() => {
     if (note && !note.title && !note.preview && note.mine && !note.trashedAt && note.kind !== 'daily') titleRef.current?.focus();
@@ -558,7 +618,7 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
         <div className="nt-empty" style={{ margin: 'auto' }}>
           <StickyNote size={28} aria-hidden="true" style={{ color: 'var(--wk-faint)', marginBottom: 8 }} />
           <strong>Pick a note or start a new one</strong>
-          Everything you write saves by itself and follows you to Quick Note - New Note in the top bar's + menu.
+          Everything you write saves by itself and follows you to Quick Note - New Note under the bolt in the top bar.
         </div>
       </div>
     );
@@ -685,8 +745,8 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
     setMenu('');
     sync.setMeta({ template: !note.template });
     toast(note.template ? 'No longer a template'
-      : board ? 'Saved as a template - New Board lists it under Your Templates'
-        : 'Saved as a template - New From Template lists it under Your Templates');
+      : board ? 'Saved as a template - + New > Board lists it under Your Templates'
+        : 'Saved as a template - + New > Note From a Template lists it under Your Templates');
   };
   // The outline: the note's headings; a click scrolls the editor to it.
   const headings = board ? [] : noteHeadings(note.body);
@@ -852,6 +912,17 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
 
           {!board && tagEditor}
 
+          {meetingNote && (
+            <MeetingBand note={note} meeting={meeting} people={people} myEmail={myEmail} toast={toast}
+              transcriptOpen={tx.open} onTranscript={() => setTx((t) => ({ ...t, open: !t.open }))}
+              onShared={(n) => { sync.replace(n); onSaved?.(n); }} onOpenNote={onOpen}
+              recording={rec.on} recorderProps={readOnly ? null : recorderProps} />
+          )}
+          {meetingNote && isPhone && tx.open && (
+            <TranscriptView inline noteId={note.id} note={note} myEmail={myEmail} toast={toast} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))}
+              sources={txSources} liveCues={liveCues} recording={rec.on} reloadKey={recReload} />
+          )}
+
           {trashed && (
             <div className="nt-banner is-bad" role="status">
               <span className="nt-banner-text">This note is in the Trash. Restore it to edit it again.</span>
@@ -887,11 +958,13 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
             : collab.phase === 'ready'
               ? (
                 <LiveBoundary key={`live:${collab.epoch}`} onCrash={collab.fail}>
-                  <NoteEditor collab={collab} readOnly={readOnly} people={people} noteId={note.id}
+                  <NoteEditor collab={collab} readOnly={readOnly} people={people} noteId={note.id} meeting={clock} starters={!meetingNote}
+                    onEditor={(ed) => { editorRef.current = ed; }} onBusy={mediaBusy}
                     onChange={(html) => sync.edit({ body: html })} onRemoteChange={sync.seeRemote} onMakeTask={readOnly ? undefined : makeTask} />
                 </LiveBoundary>
               )
-              : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people} noteId={note.id}
+              : <NoteEditor key="saved" value={note.body || ''} readOnly={readOnly} people={people} noteId={note.id} meeting={clock} starters={!meetingNote}
+                  onEditor={(ed) => { editorRef.current = ed; }} onBusy={mediaBusy}
                   onChange={(html) => sync.edit({ body: html })} onMakeTask={readOnly ? undefined : makeTask} />}
           {/* The other notes that link here with [[ (Record Links, 11/06/2026); nothing when none. */}
           {!board && !trashed && (
@@ -918,7 +991,15 @@ function NotePane({ id, focusPin = '', people, onBack, onSaved, onTrashChanged, 
   }
   return (
     <div className="nt-pane">
-      <div className="nt-pane-scroll">{doc}</div>
+      {meetingNote ? (
+        // A meeting note: the transcript sits beside the note (one wrapper for
+        // the note's whole life, so opening it never remounts the editor).
+        <div className="nt-pane-row">
+          <div className="nt-pane-scroll">{doc}</div>
+          {tx.open && <TranscriptView noteId={note.id} note={note} myEmail={myEmail} toast={toast} focus={txFocus} onClose={() => setTx((t) => ({ ...t, open: false }))}
+            sources={txSources} liveCues={liveCues} recording={rec.on} reloadKey={recReload} />}
+        </div>
+      ) : <div className="nt-pane-scroll">{doc}</div>}
       {dialogs}
     </div>
   );
@@ -971,16 +1052,36 @@ export default function NotesPage({ activeSub, onSubChange }) {
   useEffect(() => {
     if (selectedId) setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === selectedId && x.unseen ? { ...x, unseen: false } : x)) } : d));
   }, [selectedId, data?.notes?.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  const select = useCallback((id) => onSubChange?.(id ? `notes:${id}` : 'notes'), [onSubChange]);
+  const go = useCallback((id) => onSubChange?.(id ? `notes:${id}` : 'notes'), [onSubChange]);
+  // A voice note, photo or video still being recorded or uploaded in the
+  // open note finishes after its editor is gone and is never put in - so
+  // closing the note or switching to another asks first (11/17/2026).
+  const mediaBusy = useRef(false);
+  const setMediaBusy = useCallback((b) => { mediaBusy.current = b; }, []);
+  const selectedRef = useRef(selectedId);
+  useEffect(() => { selectedRef.current = selectedId; }, [selectedId]);
+  const select = useCallback(async (id) => {
+    if (mediaBusy.current && (id || '') !== selectedRef.current) {
+      const leave = await dialog.confirm('A voice note, photo or video is still being added to this note. If you leave now, it will be lost.',
+        { title: 'Leave This Note?', confirmText: 'Leave', cancelText: 'Stay' });
+      if (!leave) return;
+    }
+    go(id);
+  }, [go]);
 
   useEffect(() => { const t = setTimeout(() => setQ(qLive.trim()), 250); return () => clearTimeout(t); }, [qLive]);
 
   const byMonth = view === 'all' && !q && !tag;
+  // Only the latest request's answer is shown: an older, slower one (typing
+  // "bud" then "budget", Pinned then All) used to land last and show its notes.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     try {
       const r = await api.notesList({ view, q, tag, month: byMonth ? month : '', today });
+      if (seq !== loadSeq.current) return;
       setData(r); setError('');
-    } catch (e) { setError(e.message || 'Could not load your notes'); }
+    } catch (e) { if (seq === loadSeq.current) setError(e.message || 'Could not load your notes'); }
   }, [view, q, tag, month, byMonth, today]);
   useEffect(() => { load(); }, [load]);
 
@@ -989,9 +1090,9 @@ export default function NotesPage({ activeSub, onSubChange }) {
     setData((d) => (d ? { ...d, notes: d.notes.map((x) => (x.id === n.id ? { ...x, ...n, preview: isBoard(n) ? '' : htmlToText(n.body).slice(0, 220) } : x)) } : d));
   }, []);
   const onTrashChanged = useCallback((n, what) => {
-    if (what === 'delete') select('');
+    if (what === 'delete') go('');   // the note is gone: nothing to ask about
     load();
-  }, [load, select]);
+  }, [load, go]);
 
   const newNote = async (extra = {}) => {
     try {
@@ -1038,6 +1139,20 @@ export default function NotesPage({ activeSub, onSubChange }) {
   // New From Template (11/06/2026): a note from a starter (noteTemplates.js)
   // or a copy of one of the person's own template notes.
   const [pickingNoteTpl, setPickingNoteTpl] = useState(false);
+  // Meetings (Neil, 11/12/2026): the day's Teams meetings; a pick opens its note.
+  const [meetingsOpen, setMeetingsOpen] = useState(false);
+  // Testers first (Neil, 11/12/2026): only the people turned on see Meetings.
+  const [meetingsOn, setMeetingsOn] = useState(false);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve(api.meetingsAccess?.()).then((r) => { if (live) { setMeetingsOn(!!r?.enabled); setTranscribeOn(!!r?.enabled); } }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const openedMeeting = async (noteId, created) => {
+    setMeetingsOpen(false);
+    if (created) await load();
+    select(noteId);
+  };
   const startNoteTemplate = async (key) => {
     setPickingNoteTpl(false);
     const t = noteTemplate(key);
@@ -1052,6 +1167,14 @@ export default function NotesPage({ activeSub, onSubChange }) {
     setPickingTemplate(false);
     if (askNewBoard) onSubChange?.('notes');
     await copyNote(row.id, (n) => n.title || '');
+  };
+
+  // "+ New"'s rows, each the flow it always opened.
+  const startNew = (key) => {
+    if (key === 'note') newNote();
+    else if (key === 'board') newBoard();
+    else if (key === 'template') setPickingNoteTpl(true);
+    else if (key === 'import') fileRef.current?.click();
   };
 
   // The list row's right-click menu.
@@ -1124,7 +1247,17 @@ export default function NotesPage({ activeSub, onSubChange }) {
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
   };
 
-  const groups = useMemo(() => groupByDay(data?.notes || []), [data]);
+  // Today keeps its place at the top of this month, lit gently, even before a
+  // note is written in it (Neil, 11/12/2026: "the current day should have a
+  // gentle highlight on it and the rest can be as they are").
+  const groups = useMemo(() => {
+    const g = groupByDay(data?.notes || []);
+    if (byMonth && month === monthOf(today) && g.length && !g.some((x) => x.day === today)) {
+      const at = g.findIndex((x) => !x.day || x.day < today);
+      g.splice(at < 0 ? g.length : at, 0, { day: today, notes: [] });
+    }
+    return g;
+  }, [data, byMonth, month, today]);
   const showList = isPhone || (listOpen && !full);
   const showPane = isPhone ? !!selectedId : true;
   const counts = data?.counts || {};
@@ -1159,16 +1292,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
                 <ShortcutsPop open={showKeys} onClose={() => setShowKeys(false)} />
               </span>
             )}
-            <button type="button" className="nt-icon-btn" aria-label="Import a Markdown or text file" title="Import (.md, .txt)" onClick={() => fileRef.current?.click()}><Upload size={17} /></button>
             <input ref={fileRef} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden
               onChange={(e) => { importFile(e.target.files?.[0]); e.target.value = ''; }} />
-            {isPhone
-              ? <button type="button" className="nt-icon-btn" aria-label="New Board" title="New Board" onClick={newBoard}><PenTool size={17} /></button>
-              : <button type="button" className="nt-text-btn is-board-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up"><PenTool size={15} /> New Board</button>}
-            {isPhone
-              ? <button type="button" className="nt-icon-btn" aria-label="New From Template" title="New From Template" onClick={() => setPickingNoteTpl(true)}><LayoutTemplate size={17} /></button>
-              : <button type="button" className="nt-text-btn" onClick={() => setPickingNoteTpl(true)} title="Start a note from a layout - meeting notes, a 1:1, a site walk"><LayoutTemplate size={15} /> From Template</button>}
-            <button type="button" className="nt-text-btn is-primary" onClick={() => newNote()}><Plus size={15} /> New Note</button>
+            {meetingsOn && (isPhone
+              ? <button type="button" className="nt-icon-btn" aria-label="Meetings" title="Meetings" onClick={() => setMeetingsOpen(true)}><Video size={17} /></button>
+              : <button type="button" className="nt-text-btn" onClick={() => setMeetingsOpen(true)} title="Your Teams meetings - take notes beside the transcript"><Video size={15} /> Meetings</button>)}
+            {/* "+ New" (Neil, 11/12/2026): one button, every way to start (NewMenu.jsx). */}
+            <NewMenu compact={isPhone} onPick={startNew} />
           </div>
         </div>
       )}
@@ -1189,12 +1319,22 @@ export default function NotesPage({ activeSub, onSubChange }) {
               {data && groups.length === 0 && (
                 <div className="nt-empty">
                   <strong>{q ? 'No notes match' : view === 'trash' ? 'The Trash is empty' : view === 'shared' ? 'Nothing shared with you yet' : view === 'pinned' ? 'No pinned notes' : view === 'today' ? 'Nothing for today yet' : view === 'boards' ? 'No boards yet' : `No notes in ${monthLabel(month)}`}</strong>
-                  {q ? 'Try fewer words.' : view === 'boards' ? 'Start one with New Board.' : view === 'all' || view === 'today' ? 'Start one with New Note or New Board, or jot something in Quick Note from the + menu in the top bar.' : ''}
+                  {q ? 'Try fewer words.' : view === 'boards' ? 'Start one with + New, then Board.' : view === 'all' || view === 'today' ? 'Start one with + New, or jot something in Quick Note under the bolt in the top bar.' : ''}
                 </div>
               )}
               {groups.map((g) => (
-                <section key={g.day || 'none'} aria-label={dayHeading(g.day, today)}>
-                  <div className="nt-day">{dayHeading(g.day, today)}</div>
+                <section key={g.day || 'none'} aria-label={dayHeading(g.day, today)} className={g.day === today ? 'nt-daygroup is-today' : 'nt-daygroup'}
+                  aria-current={g.day === today ? 'date' : undefined}>
+                  <div className="nt-day">
+                    {g.day === today
+                      ? <>Today <span className="nt-day-date">{formatWeekday(today)}, {formatDate(today)}</span></>
+                      : dayHeading(g.day, today)}
+                  </div>
+                  {g.notes.length === 0 && (
+                    <div className="nt-today-empty">
+                      Nothing written today yet. <button type="button" className="nt-link-btn" onClick={() => newNote()}>Start a Note</button>
+                    </div>
+                  )}
                   {g.notes.map((n) => (
                     <button key={n.id} type="button" className={`nt-row${n.id === selectedId ? ' is-on' : ''}`} onClick={() => select(n.id)}
                       onContextMenu={(e) => openRowMenu(e, n)} aria-current={n.id === selectedId ? 'true' : undefined}>
@@ -1211,7 +1351,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
                       {isBoard(n)
                         ? (n.thumbUrl
                           ? <img className="nt-row-thumb" src={n.thumbUrl} alt="" loading="lazy" />
-                          : <span className="nt-row-thumb is-empty" aria-hidden="true"><PenTool size={14} /></span>)
+                          : <span className="nt-row-thumb is-empty" aria-hidden="true"><BoardIcon size={14} /></span>)
                         : n.preview && <span className="nt-row-preview">{n.preview}</span>}
                       <span className="nt-row-meta">
                         {isBoard(n) ? 'Board · ' : ''}{view === 'trash' && n.trashedAt ? `Trashed ${formatDate(n.trashedAt)}` : editedLabel(n.updatedAt)}
@@ -1234,7 +1374,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
         {/* Collapsed: a slim rail with the way back, never a lost list (Neil, 11/06/2026). */}
         {!isPhone && !full && !listOpen && (
           <button type="button" className="nt-rail" aria-label="Show the list" aria-expanded="false" title="Show the List" onClick={toggleList}>
-            <ChevronsRight size={16} aria-hidden="true" /><span>Notes</span>
+            <ChevronsRight size={16} aria-hidden="true" /><span>Notes &amp; Boards</span>
           </button>
         )}
         {showPane && (view === 'boards' && !selectedId && !isPhone && groups.length > 0
@@ -1246,7 +1386,7 @@ export default function NotesPage({ activeSub, onSubChange }) {
                   <button key={n.id} type="button" role="listitem" className="nt-board-card" onClick={() => select(n.id)} onContextMenu={(e) => openRowMenu(e, n)}>
                     {n.thumbUrl
                       ? <img className="nt-board-card-pic" src={n.thumbUrl} alt="" loading="lazy" />
-                      : <span className="nt-board-card-pic is-empty" aria-hidden="true"><PenTool size={20} /></span>}
+                      : <span className="nt-board-card-pic is-empty" aria-hidden="true"><BoardIcon size={20} /></span>}
                     <span className="nt-board-card-title">{noteTitle(n)}</span>
                     <span className="nt-board-card-meta">{editedLabel(n.updatedAt)}{!n.mine && <> · <Sharer email={n.owner} people={people} size={16} /></>}</span>
                   </button>
@@ -1257,12 +1397,13 @@ export default function NotesPage({ activeSub, onSubChange }) {
           : (
             <NotePane key={selectedId || 'none'} id={selectedId} focusPin={focusPin} people={people} onBack={() => select('')} onSaved={onSaved}
               onTrashChanged={onTrashChanged} full={full} onToggleFull={() => setFull((f) => !f)} isPhone={isPhone} toast={toast} myEmail={myEmail}
-              onDuplicate={duplicateNote} backTo={backTo} onOpen={select} />
+              onDuplicate={duplicateNote} backTo={backTo} onOpen={select} onMediaBusy={setMediaBusy} />
           ))}
       </div>
       {toastNode}
       {showPicker && <TemplatePicker onPick={startBoard} onPickBoard={startFromBoard} onClose={closePicker} />}
       {pickingNoteTpl && <NoteTemplatePicker onPick={startNoteTemplate} onPickNote={startFromNote} onClose={() => setPickingNoteTpl(false)} />}
+      {meetingsOpen && <MeetingsSheet onClose={() => setMeetingsOpen(false)} onOpened={openedMeeting} />}
       {rowMenu && (
         <RowMenu at={rowMenu} onClose={closeRowMenu}>
           <button type="button" role="menuitem" className="nt-pop-row" onClick={() => select(rowMenu.n.id)}><FolderOpen size={15} /> Open</button>

@@ -11,6 +11,12 @@ import { formatTimeTz } from '../lib/displayTz';
 // figures and its Edit / Add / Log read on its first row. Display only: the
 // hours and the pay are the server's, unchanged.
 
+// A fixed clock (only Date is faked; timers stay real so findBy works): the
+// card picks its pay period from the computer's date, TODAY is California's,
+// and on CI (UTC) the two named different periods every evening Pacific time
+// on a period's last day (11/14/2026). Noon California, mid-period.
+vi.useFakeTimers({ toFake: ['Date'] });
+vi.setSystemTime(new Date('2026-11-10T20:00:00Z'));
 const now = new Date();
 // Today on the card's clock (California) - not the test machine's, which
 // runs in UTC on CI and is a day ahead every evening Pacific time.

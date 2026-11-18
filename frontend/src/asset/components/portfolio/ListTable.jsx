@@ -1,259 +1,188 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
-import { ChevronDown, ChevronUp, Link2 } from 'lucide-react';
-import { StatusLabel } from '../../../components/StatusLabel.jsx';
-import { cityRegion, typeLabel, tileStats, typeIcon, deriveCategory, stageTone } from '../../lib/portfolioCards.js';
+import { ChevronRight } from 'lucide-react';
+import { cityRegion, typeIcon } from '../../lib/portfolioCards.js';
+import { COLUMN_OPTIONS, DEFAULT_COLUMNS, measuresOf, fmtInt, fmtAcres, stageInk } from '../../lib/portfolioQuery.js';
 
-const COLUMNS = ['Asset', 'Type', 'Location', 'Stage', 'Owner', 'Asset Manager', 'Size'];
-const DEFAULT_WIDTHS = [300, 110, 110, 110, 140, 140, 100];
-const MIN_WIDTHS = [180, 80, 80, 80, 90, 90, 80];
-const COLW_STORAGE_KEY = 'nexus_list_colw_v1';
+// The Properties register as a list (Neil, 11/17/2026 - List is the default view). Flat and
+// hairline: Title Case headers, numbers right-aligned and tabular, a stage as colored text,
+// "Not set" faint. A parcel group is ONE row whose numbers SUM its parcels (the old list showed
+// the lead's alone while the card summed - they disagreed); the chevron opens its parcels.
+// Columns resize (kept per browser); a header that sorts says so (aria-sort).
 
-// Category -> row icon-badge color. Distinct from (and simpler than) StatusBadge's tone system -
-// this colors the per-row leading icon by CATEGORY, not by stage.
-const CATEGORY_COLOR = { Commercial: 'blue', Residential: 'green', Industrial: 'orange', Vehicles: 'purple', 'Heavy Equipment': 'gold' };
+const NUMERIC = new Set(['acres', 'sf', 'units', 'occupied']);
+const LABEL = Object.fromEntries(COLUMN_OPTIONS);
+const DEFAULT_W = { property: 300, type: 130, stage: 150, owner: 190, manager: 150, company: 170, acres: 84, sf: 110, units: 84, occupied: 92 };
+const MIN_W = { property: 200 };
+const SORTS = { property: 'name', acres: 'acres', sf: 'sf', units: 'units', stage: 'stage' };
+const COLW_KEY = 'nexus_asset_list_colw_v2';
 
-/** Numeric-aware comparator: compares as numbers if BOTH sides parse as one and BOTH contain a
- *  digit, otherwise falls back to locale string comparison. Powers every column's sort. */
-function compareValues(a, b) {
-  const an = parseFloat(String(a ?? '').replace(/[^0-9.-]/g, ''));
-  const bn = parseFloat(String(b ?? '').replace(/[^0-9.-]/g, ''));
-  if (!isNaN(an) && !isNaN(bn) && /\d/.test(String(a)) && /\d/.test(String(b))) return an - bn;
-  return String(a ?? '').localeCompare(String(b ?? ''));
+const readWidths = () => { try { return { ...DEFAULT_W, ...(JSON.parse(localStorage.getItem(COLW_KEY) || 'null') || {}) }; } catch { return { ...DEFAULT_W }; } };
+
+const Faint = ({ children = '-' }) => <span className="pt-faint">{children}</span>;
+
+function cellValue(col, asset, f, m) {
+  switch (col) {
+    case 'type': return f?.type || <Faint />;
+    case 'stage': return asset.devStage ? <span style={{ color: stageInk(asset.devStage), fontWeight: 500 }}>{asset.devStage}</span> : <Faint />;
+    case 'owner': return asset.entity ? asset.entity : <Faint />;
+    case 'manager': return String(asset.manager || '').trim() ? (f?.managerName || asset.manager) : <Faint>Not set</Faint>;
+    case 'company': return f?.companyName || <Faint />;
+    case 'acres': return m.acres ? fmtAcres(m.acres) : <Faint />;
+    case 'sf': return m.sf ? fmtInt(m.sf) : <Faint />;
+    case 'units': return m.units ? fmtInt(m.units) : <Faint />;
+    case 'occupied': return typeof f?.occupancy === 'number' ? `${Math.round(f.occupancy * 100)}%` : <Faint />;
+    default: return null;
+  }
 }
-
-// Per-column sort-key accessors, in COLUMNS order. "Size" sorts by the value of whichever stat
-// tileStats() puts first for that asset (its most prominent metric) - the same value shown in
-// the Size column itself, so what you see is what you sort by.
-const COLUMN_ACCESSORS = [
-  (p) => p.name || '',
-  (p) => typeLabel(p) || '',
-  (p) => cityRegion(p) || '',
-  (p) => p.devStage || 'Active',
-  (p) => p.entity || '',
-  (p) => p.manager || '',
-  (p) => { const stats = tileStats(p).filter((x) => x.v && x.v !== '-'); return stats[0] ? stats[0].v : ''; },
-];
-
-const thStyle = {
-  textAlign: 'left', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase',
-  letterSpacing: '0.05em', color: 'var(--text-secondary)', padding: '11px 16px', whiteSpace: 'nowrap',
-  overflow: 'hidden', textOverflow: 'ellipsis', borderBottom: '1px solid var(--border-color)',
-  backgroundColor: 'var(--bg-secondary)',
+const titleOf = (asset, f, col) => {
+  if (col === 'owner') return asset.entity || '';
+  if (col === 'manager') return asset.manager || '';
+  if (col === 'company') return f?.companyName || '';
+  return '';
 };
-const tdStyle = { padding: '10px 16px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'middle', overflow: 'hidden' };
-
-/** Plain-text cell: ellipsis-truncates, shows the full value on hover via `title`, "-" if empty. */
-function Cell({ value, dataLabel }) {
-  const display = (value ?? '') === '' ? '-' : value;
-  return (
-    <span
-      title={(value ?? '') === '' ? '' : String(value)}
-      data-label={dataLabel}
-      style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', fontSize: '0.82rem', color: 'var(--text-primary)' }}
-    >
-      {display}
-    </span>
-  );
-}
-
-/** Stage label cell - the same soft StatusLabel every Nexus list uses. */
-function StageChip({ devStage }) {
-  const stage = devStage || 'Active';
-  return <StatusLabel label={stage} color={`hsl(var(--color-${stageTone(stage)}))`} size="sm" />;
-}
 
 /**
- * Portfolio List-view's sortable/resizable table. Column widths are user-draggable (via the
- * resize handle on each `<th>`) and persisted to localStorage so they survive a reload. Rows for
- * a linked group's lead can be expanded in place to reveal secondary/child rows indented
- * beneath it (`childrenOf(id)` supplies a row's children; expand state is local to this table).
- *
- * Mobile (<640px): collapses into stacked cards via the `.list-table` CSS class in styles.css -
- * see that file for the nth-child-based column show/hide rules. `data-label` is set on each cell
- * for documentation/accessibility even though the current CSS keys off column position rather
- * than the label.
+ * groups:   [{ key, label, rows, sums }] from portfolioQuery.groupRows (one unlabeled group = no grouping)
+ * ctx:      the query context (per-row facts); columns: visible column keys
+ * selected: Set of ids; onToggle(id), onToggleMany(ids, on); sort / onSort(key) for the headers
  */
-export function ListTable({ rows, childrenOf, open, sortCol, setSortCol, sortDir, setSortDir }) {
-  const [expandedIds, setExpandedIds] = useState({});
+export function ListTable({ groups, ctx, columns = DEFAULT_COLUMNS, open, selected, onToggle, onToggleMany, sort = 'name', onSort, lastOpenedId = null, childrenOf }) {
+  const [expanded, setExpanded] = useState({});
+  const [widths, setWidths] = useState(readWidths);
+  useEffect(() => { try { localStorage.setItem(COLW_KEY, JSON.stringify(widths)); } catch { /* not kept this session */ } }, [widths]);
+  const drag = useRef(null);
+  const cols = COLUMN_OPTIONS.map(([k]) => k).filter((k) => columns.includes(k));
+  const textCols = cols.filter((k) => !NUMERIC.has(k));
+  const numCols = cols.filter((k) => NUMERIC.has(k));
+  const ordered = [...textCols, ...numCols];
+  const allIds = groups.flatMap((g) => g.rows.map((a) => a.id));
+  const allOn = allIds.length > 0 && allIds.every((id) => selected?.has(id));
+  const someOn = allIds.some((id) => selected?.has(id));
+  const grouped = groups.length > 1 || (groups[0] && groups[0].label);
 
-  const [colWidths, setColWidths] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(COLW_STORAGE_KEY) || 'null');
-      if (saved && saved.length === 7) return saved;
-    } catch {
-      // ignore corrupt/inaccessible localStorage
-    }
-    return DEFAULT_WIDTHS.slice();
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(COLW_STORAGE_KEY, JSON.stringify(colWidths));
-    } catch {
-      // storage full/unavailable - column widths just won't persist this session
-    }
-  }, [colWidths]);
-
-  // Column-resize drag state lives in a ref (not state) since it updates on every mousemove and
-  // doesn't need to trigger its own re-render - only setColWidths does. `moved` distinguishes a
-  // real drag from a click-without-movement, so onSortClick can ignore clicks that were actually
-  // the tail end of a resize drag (see onSortClick below).
-  const dragRef = useRef(null);
-  const onResizeDown = (colIndex, ev) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    dragRef.current = { i: colIndex, startX: ev.clientX, startW: colWidths[colIndex], moved: false };
-    const onMove = (moveEv) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      const dx = moveEv.clientX - drag.startX;
-      if (Math.abs(dx) > 2) drag.moved = true;
-      setColWidths((widths) => {
-        const next = widths.slice();
-        next[drag.i] = Math.max(MIN_WIDTHS[drag.i] || 60, drag.startW + dx);
-        return next;
-      });
+  const onResizeDown = (col, ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    drag.current = { col, x: ev.clientX, w: widths[col], moved: false };
+    const move = (e) => {
+      const d = drag.current; if (!d) return;
+      if (Math.abs(e.clientX - d.x) > 2) d.moved = true;
+      setWidths((w) => ({ ...w, [d.col]: Math.max(MIN_W[d.col] || 64, d.w + e.clientX - d.x) }));
     };
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      // Clear the drag ref on a delay so the click event that fires right after mouseup (from
-      // the same gesture) still sees `moved` and can suppress the sort-toggle it would otherwise
-      // trigger - see onSortClick.
-      setTimeout(() => { dragRef.current = null; }, 0);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); setTimeout(() => { drag.current = null; }, 0); };
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
   };
-
-  const onSortClick = (colIndex) => {
-    if (dragRef.current && dragRef.current.moved) return; // this click was the tail of a resize drag
-    if (sortCol === colIndex) setSortDir((d) => -d);
-    else { setSortCol(colIndex); setSortDir(1); }
-  };
-
-  const sortedRows = sortCol == null
-    ? rows
-    : [...rows].sort((a, b) => compareValues(COLUMN_ACCESSORS[sortCol](a), COLUMN_ACCESSORS[sortCol](b)) * sortDir);
-
-  const categoryColor = (p) => CATEGORY_COLOR[deriveCategory(p)] || 'blue';
-
-  const metric = (p) => {
-    const stats = tileStats(p).filter((x) => x.v && x.v !== '-');
-    return stats[0] ? stats[0].v + ' ' + stats[0].l : '-';
-  };
-
-  const renderRow = (asset, { kids = [], isChild = false } = {}) => {
-    const hasKids = kids.length > 0;
-    const Icon = typeIcon(asset);
-    const color = categoryColor(asset);
-    const openAsset = () => open(asset.id);
-
+  const header = (col) => {
+    const sortKey = SORTS[col];
+    const on = sortKey && sort === sortKey;
+    const label = col === 'property' ? 'Property' : LABEL[col];
     return (
-      <tr
-        key={(isChild ? 'c' : 'r') + asset.id}
-        tabIndex={0}
-        onKeyDown={(ev) => { if (ev.key === 'Enter') openAsset(); }}
-        onClick={openAsset}
-        style={{ cursor: 'pointer', transition: 'background .12s', background: isChild ? 'var(--bg-secondary)' : 'transparent' }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--sidebar-hover-bg)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = isChild ? 'var(--bg-secondary)' : 'transparent'; }}
-      >
-        <td style={{ ...tdStyle, paddingLeft: isChild ? 30 : 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-            {hasKids ? (
-              <button
-                onClick={(ev) => { ev.stopPropagation(); setExpandedIds((s) => ({ ...s, [asset.id]: !s[asset.id] })); }}
-                title="Toggle linked"
-                style={{ flexShrink: 0, border: 'none', background: 'transparent', cursor: 'pointer', padding: 2, display: 'inline-flex', color: 'var(--pine)' }}
-              >
-                <ChevronDown size={16} style={{ transition: 'transform .2s', transform: expandedIds[asset.id] ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
-              </button>
-            ) : (
-              <span style={{ flexShrink: 0, width: isChild ? 14 : 16 }} />
+      <th key={col} scope="col" aria-sort={on ? (sortKey === 'name' || sortKey === 'stage' ? 'ascending' : 'descending') : undefined}
+        className={NUMERIC.has(col) ? 'is-num' : undefined} style={{ width: widths[col] }}>
+        {sortKey && onSort ? (
+          <button type="button" className="pt-th-btn" onClick={() => { if (!drag.current?.moved) onSort(sortKey); }} title={`Sort by ${label}`}>
+            {label}
+          </button>
+        ) : <span className="pt-th-btn is-static">{label}</span>}
+        <span className="pt-col-resize" aria-hidden="true" onMouseDown={(e) => onResizeDown(col, e)} onClick={(e) => e.stopPropagation()} />
+      </th>
+    );
+  };
+
+  const row = (asset, { child = false } = {}) => {
+    const f = ctx.byId[asset.id];
+    const m = child ? measuresOf(asset, []) : (f?.measures || measuresOf(asset, []));
+    const kids = child ? [] : (childrenOf ? childrenOf(asset.id) : []);
+    const photo = (asset.images && asset.images[0]) || asset.image || '';
+    const Icon = typeIcon(asset);
+    const isOn = !child && selected?.has(asset.id);
+    const name = (!child && kids.length && asset.siteName) || asset.name || asset.siteName || 'Unnamed property';
+    const meta = [child ? 'Linked parcel' : cityRegion(asset), kids.length ? `${kids.length + 1} parcels` : ''].filter(Boolean).join(' · ');
+    const openIt = () => open(asset.id);
+    return (
+      <tr key={(child ? 'c' : 'r') + asset.id} tabIndex={0} aria-selected={isOn || undefined}
+        className={`pt-row${child ? ' is-child' : ''}${isOn ? ' is-on' : ''}${asset.id === lastOpenedId ? ' is-last' : ''}`}
+        onClick={openIt} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) openIt(); }}>
+        <td className="pt-cell-property">
+          <div className="pt-prop">
+            {child ? <span className="pt-check-space" /> : (
+              <label className="pt-check" onClick={(e) => e.stopPropagation()}>
+                <input type="checkbox" checked={!!isOn} onChange={() => onToggle?.(asset.id)} aria-label={`Select ${name}`} />
+              </label>
             )}
-            <span
-              style={{
-                flexShrink: 0, width: isChild ? 38 : 46, height: isChild ? 38 : 46, borderRadius: isChild ? 9 : 12,
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                color: `hsl(var(--color-${color}))`, backgroundColor: `hsla(var(--color-${color}), 0.13)`,
-                border: `1px solid hsla(var(--color-${color}), 0.22)`,
-              }}
-            >
-              <Icon size={isChild ? 19 : 23} strokeWidth={1.7} />
+            {kids.length ? (
+              <button type="button" className="pt-expand" aria-expanded={!!expanded[asset.id]} aria-label={`${expanded[asset.id] ? 'Hide' : 'Show'} the parcels of ${name}`}
+                onClick={(e) => { e.stopPropagation(); setExpanded((s) => ({ ...s, [asset.id]: !s[asset.id] })); }}>
+                <ChevronRight size={14} style={{ transform: expanded[asset.id] ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+              </button>
+            ) : <span className="pt-expand-space" />}
+            <span className={`pt-thumb${photo ? '' : ' is-empty'}`} aria-hidden="true">
+              {photo ? <img src={photo} alt="" loading="lazy" decoding="async" onError={(e) => { e.currentTarget.style.display = 'none'; }} /> : <Icon size={16} strokeWidth={1.6} />}
             </span>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                <strong style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {asset.name}
-                </strong>
-                {hasKids && (
-                  <span style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '0.68rem', fontWeight: 700, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)', padding: '1px 6px', borderRadius: 999 }}>
-                    <Link2 size={9} />
-                    {kids.length}
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {isChild ? 'Linked property' : cityRegion(asset) || '-'}
-              </div>
-            </div>
+            <span className="pt-prop-words">
+              <span className="pt-prop-name" title={name}>{name}</span>
+              {meta && <span className="pt-prop-meta">{meta}</span>}
+            </span>
           </div>
         </td>
-        <td style={tdStyle}><Cell value={typeLabel(asset)} dataLabel="Type" /></td>
-        <td style={tdStyle}><Cell value={cityRegion(asset)} dataLabel="Location" /></td>
-        <td style={tdStyle}><StageChip devStage={asset.devStage} /></td>
-        <td style={tdStyle}><Cell value={asset.entity} dataLabel="Owner" /></td>
-        <td style={tdStyle}><Cell value={asset.manager} dataLabel="Asset Manager" /></td>
-        <td style={{ ...tdStyle, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', textOverflow: 'ellipsis', color: 'var(--text-primary)', fontSize: '0.8rem' }} data-label="Size">
-          {metric(asset)}
-        </td>
+        {ordered.map((col) => (
+          <td key={col} className={NUMERIC.has(col) ? 'is-num' : undefined} title={titleOf(asset, f, col) || undefined}>
+            {child && (col === 'occupied') ? <Faint /> : cellValue(col, asset, f, m)}
+          </td>
+        ))}
       </tr>
     );
   };
 
+  const sumCell = (col, sums) => {
+    if (col === 'acres') return sums.acres ? fmtAcres(sums.acres) : '';
+    if (col === 'sf') return sums.sf ? fmtInt(sums.sf) : '';
+    if (col === 'units') return sums.units ? fmtInt(sums.units) : '';
+    return '';
+  };
+
   return (
-    <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 14, backgroundColor: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)' }}>
-      <table className="list-table" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+    <div className="pt-list-wrap">
+      <table className="pt-list" aria-label="Properties">
+        <colgroup>
+          <col style={{ width: widths.property }} />
+          {ordered.map((c) => <col key={c} style={{ width: widths[c] }} />)}
+        </colgroup>
         <thead>
           <tr>
-            {COLUMNS.map((label, i) => (
-              <th
-                key={i}
-                aria-sort={sortCol === i ? (sortDir > 0 ? 'ascending' : 'descending') : 'none'}
-                style={{ ...thStyle, padding: 0, width: colWidths[i], position: 'relative' }}
-              >
-                {/* The sort control is a button filling the header cell (keyboard
-                    reachable); the resize handle stays a sibling over its right edge. */}
-                <button
-                  type="button"
-                  title={`Sort by ${label}`}
-                  onClick={() => onSortClick(i)}
-                  style={{ display: 'block', width: '100%', padding: '11px 16px', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', userSelect: 'none' }}
-                >
-                  {label}
-                  {sortCol === i ? (sortDir > 0 ? <ChevronUp size={11} style={{ marginLeft: 3, verticalAlign: '-1px' }} /> : <ChevronDown size={11} style={{ marginLeft: 3, verticalAlign: '-1px' }} />) : null}
-                </button>
-                <span
-                  onMouseDown={(ev) => onResizeDown(i, ev)}
-                  onClick={(ev) => ev.stopPropagation()}
-                  style={{ position: 'absolute', top: 0, right: 0, width: 8, height: '100%', cursor: 'col-resize', zIndex: 3 }}
-                />
-              </th>
-            ))}
+            <th scope="col" style={{ width: widths.property }} aria-sort={sort === 'name' ? 'ascending' : undefined}>
+              <div className="pt-prop">
+                <label className="pt-check">
+                  <input type="checkbox" checked={allOn} aria-label={allOn ? 'Clear the selection' : 'Select every property shown'}
+                    ref={(el) => { if (el) el.indeterminate = someOn && !allOn; }}
+                    onChange={() => onToggleMany?.(allIds, !allOn)} />
+                </label>
+                <span className="pt-expand-space" />
+                <button type="button" className="pt-th-btn" onClick={() => onSort?.('name')} title="Sort by Name">Property</button>
+              </div>
+              <span className="pt-col-resize" aria-hidden="true" onMouseDown={(e) => onResizeDown('property', e)} />
+            </th>
+            {ordered.map(header)}
           </tr>
         </thead>
-        <tbody>
-          {sortedRows.map((asset) => {
-            const kids = childrenOf(asset.id);
-            return (
+        {groups.map((g) => (
+          <tbody key={g.key}>
+            {grouped && (
+              <tr className="pt-group-row">
+                <th scope="rowgroup" colSpan={1 + textCols.length}>
+                  <span className="pt-group-name">{g.label}</span>
+                  <span className="pt-group-count">{g.rows.length} {g.rows.length === 1 ? 'property' : 'properties'}</span>
+                </th>
+                {numCols.map((c) => <td key={c} className="is-num">{sumCell(c, g.sums)}</td>)}
+              </tr>
+            )}
+            {g.rows.map((asset) => (
               <Fragment key={asset.id}>
-                {renderRow(asset, { kids })}
-                {expandedIds[asset.id] ? kids.map((kid) => renderRow(kid, { isChild: true })) : null}
+                {row(asset)}
+                {expanded[asset.id] ? (childrenOf ? childrenOf(asset.id) : []).map((kid) => row(kid, { child: true })) : null}
               </Fragment>
-            );
-          })}
-        </tbody>
+            ))}
+          </tbody>
+        ))}
       </table>
     </div>
   );

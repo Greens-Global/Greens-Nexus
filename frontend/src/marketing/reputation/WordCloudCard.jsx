@@ -102,22 +102,22 @@ export default function WordCloudCard({ words, activeWord, onSelectWord }) {
   return (
     <div style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
-        <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900 }}>Word Cloud</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900 }}>Word Cloud</h3>
         {activeWord && (
           <button
             onClick={() => onSelectWord(null)}
-            style={{ fontSize: 11.5, color: C.gray500, border: 'none', background: 'transparent', cursor: 'pointer', textDecoration: 'underline' }}
+            style={{ fontSize: 12, color: C.gray500, border: 'none', background: 'transparent', cursor: 'pointer', textDecoration: 'underline' }}
           >
             Clear "{activeWord}"
           </button>
         )}
       </div>
-      <p style={{ fontSize: 11.5, color: C.gray400, marginBottom: 10 }}>
+      <p style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>
         What customers mention most across every review in this range and property. Size = frequency; red leans negative, green leans positive. Click a word to jump to the matching reviews below, highlighted.
       </p>
 
       {!box ? (
-        <div style={{ textAlign: 'center', color: C.gray400, fontSize: 12.5, padding: '24px 0' }}>No review text matches this filter.</div>
+        <div style={{ textAlign: 'center', color: C.gray400, fontSize: 13, padding: '24px 0' }}>No review text matches this filter.</div>
       ) : (
         <svg
           viewBox={`${box.minX} ${box.minY} ${box.width} ${box.height}`}

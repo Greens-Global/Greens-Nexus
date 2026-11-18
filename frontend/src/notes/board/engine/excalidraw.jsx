@@ -314,7 +314,7 @@ export const diagram = {
         roundness: null, elbowed: true, groupIds: [...shared, ...own],
         customData: { [MARKS.edge]: kind },
         start: { id: e.from }, end: { id: e.to },
-        label: e.label ? { text: e.label, fontSize: 16, fontFamily: d.currentItemFontFamily, ...(shared.length ? { groupIds: shared } : {}) } : undefined,
+        label: e.label ? { text: e.label, fontSize: 16, fontFamily: d.currentItemFontFamily, ...(shared.length ? { groupIds: shared } : {}) } : undefined, // type-ok: board text in drawing units, not screen type
       });
     });
     // A group label is measured before the board may have loaded its font, and

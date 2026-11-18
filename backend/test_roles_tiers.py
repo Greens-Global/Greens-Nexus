@@ -391,6 +391,30 @@ class SeedTests(_Base):
         self.assertEqual(roles["neil@greensglobal.com"][0], "manager")
         self.assertEqual(roles["late@greensglobal.com"][0], "owner")
 
+    def test_owner_grant_level_retired_once(self):
+        db = self._db()
+        try:
+            db.add(models.NexusGroup(id="g-old", name="Old Owners",
+                                     allowed_modules="tasks:owner,development:editor,purchase:full,hr:viewer"))
+            db.add(models.NexusGroup(id="g-bare", name="Bare", allowed_modules="it"))
+            db.add(models.NexusGroupMember(group_id="g-old", email=AEMP))
+            db.commit()
+            # Before the pass runs, a stored owner already reads as full.
+            self.assertEqual(auth._module_level(AEMP, "tasks", db), auth._MODULE_LEVEL_RANK["full"])
+            res = super_admins_seed.retire_owner_level_once(db)
+            self.assertEqual(res, {"groups": ["Old Owners"]})
+            self.assertIsNotNone(db.get(models.NexusSetting, super_admins_seed.OWNER_LEVEL_MARK))
+            self.assertEqual(db.get(models.NexusGroup, "g-old").allowed_modules, "tasks:full,hr:viewer")
+            self.assertEqual(db.get(models.NexusGroup, "g-bare").allowed_modules, "it")
+            self.assertIsNone(super_admins_seed.retire_owner_level_once(db))
+        finally:
+            db.close()
+        # A client still sending owner is stored as full.
+        self._as(SUPER)
+        r = self.client.put("/groups/g-old", json={"allowed_modules": [{"id": "tasks", "level": "owner"}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["allowed_modules"], [{"id": "tasks", "level": "full"}])
+
     def test_seed_invalidates_the_role_cache(self):
         db = self._db()
         try:

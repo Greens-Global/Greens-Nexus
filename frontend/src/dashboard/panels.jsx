@@ -15,8 +15,10 @@ import { formatDateTime, formatDate, formatMonthDay } from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useIsMobile }      from '../lib/useIsMobile';
 import { Spinner } from '../components/AsyncState';
-import { WidgetSkeleton, MoreRow } from './listParts.jsx';
+import { WidgetSkeleton, MoreRow, WidgetError } from './listParts.jsx';
 import { AvatarName } from '../tasks/components';
+import PhoneAgenda from './PhoneAgenda.jsx';
+import { eventsByDay, byStart } from './agendaModel';
 
 // The Items handover sheet (the handover photo, then the handover; lazy so the
 // dashboard does not load the Items module) - Items redesign, 11/02/2026.
@@ -39,7 +41,15 @@ const Card = ({ title, sub, action, children }) => (
 
 const fmtDate = (iso) => formatDateTime(iso, '-');
 
+// A Who Has What row: the whole row opens Item Management; hairline between.
+const whwRow = { display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 6px', minWidth: 0 };
+
 // ── Pending approvals (REAL - ported from ManagerDashboard "Pending Actions") ──
+// Each kind is a heading over its rows; an empty kind says so in one quiet
+// line (Neil, 11/17/2026: no uppercase eyebrows, no dashed box per section).
+const approvalHead = { fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '2px 0 6px' };
+const approvalNone = { fontSize: 13, color: 'var(--muted)', padding: '2px 0' };
+
 export function ApprovalsPanel({ phone = false }) {
   const { accounts } = useMsal();
   const myName = accounts[0]?.name ?? 'Manager';
@@ -65,7 +75,7 @@ export function ApprovalsPanel({ phone = false }) {
       .catch(() => setAllocatorsState('error'));
   }, [can]);
   // Phone: 36px buttons (the desktop 5px/12px pill was ~28px tall).
-  const actBtn = { padding: phone ? '8px 14px' : '5px 12px', fontSize: '0.8rem', ...(phone ? { minHeight: 36 } : null) };
+  const actBtn = { padding: phone ? '8px 14px' : '5px 12px', fontSize: 13, ...(phone ? { minHeight: 36 } : null) };
 
   const pendingReqs    = requisitions.filter(r => r.status === 'pending_manager');
   const pendingInvReqs = invRequests.filter(r => r.status === 'pending');
@@ -89,14 +99,12 @@ export function ApprovalsPanel({ phone = false }) {
 
   return (
     <Card title="Pending Approvals" sub="Purchase requisitions and inventory requests awaiting you"
-      action={total > 0 && <span className="status-badge status-pending" style={{ fontSize: '0.78rem' }}>{total} Pending</span>}>
+      action={total > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{total} Pending</span>}>
 
       {/* Purchase requisitions */}
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', margin: '2px 0 8px' }}>Purchase requisitions</div>
+      <div style={approvalHead}>Purchase Requisitions</div>
       {pendingReqs.length === 0 ? (
-        <div style={{ border: '1px dashed var(--line)', borderRadius: 8, padding: '16px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5, marginBottom: 16 }}>
-          None awaiting approval.
-        </div>
+        <div style={{ ...approvalNone, marginBottom: 16 }}>None awaiting approval.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
           {pendingReqs.map(req => (
@@ -104,18 +112,18 @@ export function ApprovalsPanel({ phone = false }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 13px', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: '0.74rem', color: 'var(--muted)', background: 'var(--mist)', padding: '2px 6px', borderRadius: 4 }}>{req.id}</span>
-                    <strong style={{ fontSize: '0.9rem' }}>{req.item}</strong>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>× {req.quantity}</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', background: 'var(--mist)', padding: '2px 6px', borderRadius: 4 }}>{req.id}</span>
+                    <strong style={{ fontSize: 15 }}>{req.item}</strong>
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>× {req.quantity}</span>
                   </div>
-                  <div style={{ marginTop: 4, fontSize: '0.8rem', color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><strong>By:</strong> <AvatarName email={req.employeeEmail} name={req.employeeName} size={20} /></span>
                     <span><strong>Dept:</strong> {req.employeeDept}</span>
                     <span><strong>Submitted:</strong> {fmtDate(req.createdAt)}</span>
                   </div>
                 </div>
                 <button onClick={() => setExpandedReq(expandedReq === req.id ? null : req.id)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.76rem' }}>
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
                   Reason <ChevronDown size={13} style={{ transform: expandedReq === req.id ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
                 </button>
                 {rejectingId !== req.id && (
@@ -132,14 +140,14 @@ export function ApprovalsPanel({ phone = false }) {
                 )}
               </div>
               {expandedReq === req.id && (
-                <div style={{ borderTop: '1px solid var(--line)', padding: '9px 13px', background: 'var(--mist)', fontSize: '0.83rem', color: 'var(--muted)' }}>
+                <div style={{ borderTop: '1px solid var(--line)', padding: '9px 13px', background: 'var(--mist)', fontSize: 13, color: 'var(--muted)' }}>
                   <strong>Reason:</strong> {req.reason || '-'}
                 </div>
               )}
               {rejectingId === req.id && (
                 <div style={{ borderTop: '1px solid var(--line)', padding: '10px 13px', background: 'hsla(0,80%,50%,0.04)' }}>
-                  <p style={{ fontSize: '0.8rem', marginBottom: 7, color: 'hsl(var(--color-red))', fontWeight: 600 }}>Enter rejection reason:</p>
-                  <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: '0.84rem' }}
+                  <p style={{ fontSize: 13, marginBottom: 7, color: 'hsl(var(--color-red))', fontWeight: 600 }}>Enter rejection reason:</p>
+                  <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
                     placeholder="Explain why this request is being rejected..."
                     value={rejectReason} onChange={e => setRejectReason(e.target.value)} autoFocus />
                   <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
@@ -157,11 +165,9 @@ export function ApprovalsPanel({ phone = false }) {
       )}
 
       {/* Inventory requests */}
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', margin: '2px 0 8px' }}>Inventory requests</div>
+      <div style={approvalHead}>Inventory Requests</div>
       {pendingInvReqs.length === 0 ? (
-        <div style={{ border: '1px dashed var(--line)', borderRadius: 8, padding: '16px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
-          None awaiting approval.
-        </div>
+        <div style={approvalNone}>None awaiting approval.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {pendingInvReqs.map(req => (
@@ -172,11 +178,11 @@ export function ApprovalsPanel({ phone = false }) {
                 </div>
                 <div style={{ flex: 1, minWidth: 180 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: '0.74rem', color: 'var(--muted)', background: 'var(--mist)', padding: '2px 6px', borderRadius: 4 }}>{req.id}</span>
-                    <strong style={{ fontSize: '0.9rem' }}>{req.itemName}</strong>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>× {req.quantity} · {req.days}d</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)', background: 'var(--mist)', padding: '2px 6px', borderRadius: 4 }}>{req.id}</span>
+                    <strong style={{ fontSize: 15 }}>{req.itemName}</strong>
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>× {req.quantity} · {req.days}d</span>
                   </div>
-                  <div style={{ marginTop: 4, fontSize: '0.8rem', color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><strong>By:</strong> <AvatarName email={req.requestedByEmail} name={req.requestedBy} size={20} /></span>
                     <span><strong>Dept:</strong> {req.department}</span>
                     <span><strong>Reason:</strong> {req.reason}</span>
@@ -197,8 +203,8 @@ export function ApprovalsPanel({ phone = false }) {
               </div>
               {approvingInvId === req.id && (
                 <div style={{ borderTop: '1px solid var(--line)', padding: '10px 13px', background: 'hsla(var(--color-green),0.04)' }}>
-                  <p style={{ fontSize: '0.8rem', marginBottom: 7, color: 'hsl(var(--color-green))', fontWeight: 600 }}>Who should hand this item over to {req.requestedBy}?</p>
-                  <select className="form-input" style={{ width: '100%', maxWidth: 280, fontSize: '0.84rem' }}
+                  <p style={{ fontSize: 13, marginBottom: 7, color: 'hsl(var(--color-green))', fontWeight: 600 }}>Who should hand this item over to {req.requestedBy}?</p>
+                  <select className="form-input" style={{ width: '100%', maxWidth: 280, fontSize: 13 }}
                     value={pickedAllocator} onChange={e => setPickedAllocator(e.target.value)} autoFocus>
                     <option value="">Select a person…</option>
                     {allocators.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
@@ -225,8 +231,8 @@ export function ApprovalsPanel({ phone = false }) {
               )}
               {rejectingInvId === req.id && (
                 <div style={{ borderTop: '1px solid var(--line)', padding: '10px 13px', background: 'hsla(0,80%,50%,0.04)' }}>
-                  <p style={{ fontSize: '0.8rem', marginBottom: 7, color: 'hsl(var(--color-red))', fontWeight: 600 }}>Enter rejection reason:</p>
-                  <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: '0.84rem' }}
+                  <p style={{ fontSize: 13, marginBottom: 7, color: 'hsl(var(--color-red))', fontWeight: 600 }}>Enter rejection reason:</p>
+                  <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
                     placeholder="Explain why this request is being rejected..."
                     value={rejectInvReason} onChange={e => setRejectInvReason(e.target.value)} autoFocus />
                   <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
@@ -316,83 +322,81 @@ export function WhoHasWhatPanel({ phone = false }) {
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Filter size={13} style={{ color: 'var(--muted)' }} />
           <select value={dept} onChange={e => setDept(e.target.value)} className="form-input"
-            style={{ padding: phone ? '7px 8px' : '5px 8px', fontSize: phone ? 16 : 12.5, height: 'auto', minHeight: phone ? 36 : undefined }}>
+            // The right padding is the chevron's room (select.form-input draws
+            // it there); a plain 8px put the arrow on top of "All".
+            style={{ width: 'auto', padding: phone ? '7px 32px 7px 10px' : '5px 30px 5px 8px', fontSize: /* type-ok: iOS zooms a field under 16px */ phone ? 16 : 13, height: 'auto', minHeight: phone ? 36 : undefined }}>
             {DEPTS.map(d => <option key={d}>{d}</option>)}
           </select>
         </span>
       }>
 
+      {/* Rows, not boxes (Neil, 11/17/2026: no rectangles): a hairline
+          between rows, the kind and the state as plain colored words in the
+          row's own line. On a phone the action sits at the row's end. */}
       {pendingAlloc.length > 0 && (
-        <div style={{ marginBottom: 14, border: '1px solid hsla(var(--color-blue),0.25)', borderRadius: 10, background: 'hsla(var(--color-blue),0.03)', padding: 10 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 2 }}>
             Pending Allocation - {pendingAlloc.length}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {pendingAlloc.map(row => (
-              <div key={row.key} onClick={() => navigate('inventory', 'checkouts')} title="Open in Item Management"
-                style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 11px', background: 'var(--card)' }}>
-                <div style={{ flex: 1, minWidth: 150 }}>
-                  <strong style={{ fontSize: 13 }}>{row.employee}</strong>
-                  <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> - {row.item}</span>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                    {row.assignedTo ? <>Assigned to {row.assignedToEmail === myEmail ? 'you' : row.assignedTo}</> : 'Unassigned'}
-                    {row.approvedAt && <> · approved {formatMonthDay(row.approvedAt)}</>}
-                  </div>
-                </div>
-                <div>
-                  <button className="primary-btn" onClick={(e) => { e.stopPropagation(); handleAllocate(row); }}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: phone ? '9px 13px' : '5px 11px', minHeight: phone ? 36 : undefined, fontSize: 12, fontWeight: 600 }}>
-                    <CheckCircle size={12} /> Hand Over
-                  </button>
+          {pendingAlloc.map((row, k) => (
+            <div key={row.key} onClick={() => navigate('inventory', 'checkouts')} title="Open in Item Management"
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }} onMouseLeave={e => { e.currentTarget.style.background = ''; }}
+              style={{ ...whwRow, borderTop: k ? '1px solid var(--line)' : 'none' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13 }}><strong>{row.employee}</strong><span style={{ color: 'var(--muted)' }}> - {row.item}</span></div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                  {row.assignedTo ? <>Assigned to {row.assignedToEmail === myEmail ? 'you' : row.assignedTo}</> : 'Unassigned'}
+                  {row.approvedAt && <> · approved {formatMonthDay(row.approvedAt)}</>}
                 </div>
               </div>
-            ))}
-          </div>
+              <button className="primary-btn" onClick={(e) => { e.stopPropagation(); handleAllocate(row); }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, padding: phone ? '9px 13px' : '5px 11px', minHeight: phone ? 36 : undefined, fontSize: 12, fontWeight: 600 }}>
+                <CheckCircle size={12} /> Hand Over
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
       {filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--muted)', fontSize: 13 }}>
+        <div style={{ textAlign: 'center', padding: 'var(--dash-empty-pad, 28px 0)', color: 'var(--muted)', fontSize: 13 }}>
           No assets currently checked out{dept !== 'All' ? ` for ${dept}` : ''}.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {filtered.map(row => (
-            <div key={row.key} onClick={() => navigate('inventory', 'checkouts')}
-              title="Open in Item Management"
-              onMouseEnter={e => e.currentTarget.style.borderColor = 'hsl(var(--color-blue))'}
-              onMouseLeave={e => e.currentTarget.style.borderColor = row.isOverdue ? 'hsla(var(--color-red),0.35)' : 'var(--line)'}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer', border: `1px solid ${row.isOverdue ? 'hsla(var(--color-red),0.35)' : 'var(--line)'}`, borderRadius: 8, padding: '9px 11px', background: row.isOverdue ? 'hsla(var(--color-red),0.03)' : 'var(--paper)' }}>
-              <div style={{ flex: 1, minWidth: 160 }}>
-                <strong style={{ fontSize: 13 }}>{row.employee}</strong>
-                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> - {row.item}</span>
-                {row.raisedBy && row.raisedBy !== row.employee && (
-                  <span style={{ fontSize: 11, color: 'var(--muted)' }}> (via {row.raisedBy})</span>
-                )}
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-                  {row.dept} · since {formatMonthDay(row.since, '-')} ·{' '}
-                  <span style={{ fontWeight: row.isOverdue ? 700 : 500, color: row.isOverdue ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
-                    {row.isOverdue && '⚠ '}due {formatDate(row.dueDate, '-')}
-                  </span>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {filtered.map((row, k) => (
+            <div key={row.key} onClick={() => navigate('inventory', 'checkouts')} title="Open in Item Management"
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }} onMouseLeave={e => { e.currentTarget.style.background = ''; }}
+              style={{ ...whwRow, borderTop: k ? '1px solid var(--line)' : 'none' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13 }}>
+                  <strong>{row.employee}</strong>
+                  <span style={{ color: 'var(--muted)' }}> - {row.item}</span>
+                  {row.raisedBy && row.raisedBy !== row.employee && (
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}> (via {row.raisedBy})</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                  <span style={{ fontWeight: 600, color: row.type === 'Temporary' ? 'hsl(var(--color-blue))' : 'hsl(var(--color-purple))' }}>{row.type}</span>
+                  {row.dept && <> · {row.dept}</>} · since {formatMonthDay(row.since, '-')}
+                  {/* A permanent item with no return date has no due part. */}
+                  {row.dueDate && row.dueDate !== '-' && (
+                    <> · <span style={{ fontWeight: row.isOverdue ? 700 : 500, color: row.isOverdue ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
+                      {row.isOverdue ? 'Overdue - due ' : 'due '}{formatDate(row.dueDate, '-')}
+                    </span></>
+                  )}
                 </div>
               </div>
-              <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                background: row.type === 'Temporary' ? 'hsla(var(--color-blue),0.1)' : 'hsla(var(--color-purple),0.1)',
-                color: row.type === 'Temporary' ? 'hsl(var(--color-blue))' : 'hsl(var(--color-purple))' }}>{row.type}</span>
-              {row.isOverdue ? (
-                alertSent[row.key] ? (
-                  <span style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <CheckCircle size={12} /> Alert Sent
-                  </span>
-                ) : (
-                  <button onClick={(e) => { e.stopPropagation(); sendOverdueAlert(row.reqId, row.employee, row.item); setAlertSent(p => ({ ...p, [row.key]: true })); }}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: phone ? '9px 13px' : '4px 10px', minHeight: phone ? 36 : undefined, borderRadius: 7, border: '1px solid hsla(var(--color-orange),0.3)', background: 'hsla(var(--color-orange),0.08)', color: 'hsl(var(--color-orange))', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-                    <Mail size={11} /> Send Alert
-                  </button>
-                )
+              {row.isOverdue && (alertSent[row.key] ? (
+                <span style={{ fontSize: 12, color: 'hsl(var(--color-green))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                  <CheckCircle size={12} /> Alert Sent
+                </span>
               ) : (
-                <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))' }}>Active</span>
-              )}
+                <button type="button" className="secondary-btn" onClick={(e) => { e.stopPropagation(); sendOverdueAlert(row.reqId, row.employee, row.item); setAlertSent(p => ({ ...p, [row.key]: true })); }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, padding: phone ? '9px 13px' : '4px 10px', minHeight: phone ? 36 : undefined, fontSize: 12, fontWeight: 600 }}>
+                  <Mail size={12} /> Send Alert
+                </button>
+              ))}
             </div>
           ))}
         </div>
@@ -417,7 +421,7 @@ export function TeamTimePanel() {
   return (
     <Card title="Team Time" sub="Your direct reports' punches, approvals and time off - HR sees the whole company under HR → Time">
       {tmsg && (
-        <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12.5, fontWeight: 600,
+        <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 13, fontWeight: 600,
           background: tmsg.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
           color: tmsg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{tmsg.t}</div>
       )}
@@ -477,6 +481,7 @@ export function CalendarPanel({ phone = false }) {
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selected, setSelected] = useState(agendaDay(new Date()));
   const [state, setState] = useState({ loading: true, available: true, events: [] });
+  const [agendaTry, setAgendaTry] = useState(0);   // Try Again after a failed load
   const [birthdays, setBirthdays] = useState([]);   // [{name, month, day}] - whole roster, fetched once
   const [holidays, setHolidays] = useState([]);      // [{date, name, type}] - caller's own company, fetched once
   // Side-by-side (month grid | My Agenda) only makes sense with room for
@@ -525,11 +530,15 @@ export function CalendarPanel({ phone = false }) {
   // behind the real day was the actual bug).
   const pickedRef = useRef(false);
   const pick = (key) => { pickedRef.current = true; setSelected(key); };
+  // The minute, for the phone list: a meeting that has ended leaves it and
+  // Join appears ten minutes before a Teams meeting starts.
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Re-check the real date once a minute (and whenever the tab regains
   // focus) so a long-lived tab notices midnight passing.
   useEffect(() => {
     const sync = () => {
+      setNowMs(Date.now());
       const now = agendaDay(new Date());
       setSelected((cur) => {
         if (pickedRef.current) return cur;
@@ -557,19 +566,20 @@ export function CalendarPanel({ phone = false }) {
       if (showLoading) setState((s) => ({ ...s, loading: true }));
       api.dashAgenda(`${agendaDay(start)}T00:00:00`, `${agendaDay(end)}T00:00:00`, tz)
         .then((r) => { if (alive) setState({ loading: false, available: !!r.available, events: r.events || [] }); })
-        .catch(() => { if (alive) setState((s) => ({ ...s, loading: false })); });
+        // The month's first read failing is said in the agenda ("Nothing
+        // scheduled" was a false statement); a background refresh that fails
+        // keeps what is on screen.
+        .catch(() => { if (alive) setState((s) => ({ ...s, loading: false, ...(showLoading ? { error: true } : null) })); });
     };
     load(true);
     const stop = pollWhileVisible(() => load(false), AGENDA_REFRESH_MS);
     return () => { alive = false; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cursor.getFullYear(), cursor.getMonth()]);
+  }, [cursor.getFullYear(), cursor.getMonth(), agendaTry]);
 
-  const byDay = {};
-  for (const ev of state.events) {
-    const key = (ev.start || '').slice(0, 10);
-    (byDay[key] ||= []).push(ev);
-  }
+  // An all-day event is on every day it covers (a trip shows on each day of
+  // it, not only the first); a timed one on the day it starts.
+  const byDay = eventsByDay(state.events);
   const birthdaysByMD = {};
   for (const b of birthdays) (birthdaysByMD[monthDay(b.month, b.day)] ||= []).push(b.name);
   // Unlike birthdays, a holiday is a fixed date (not a recurring month/day) -
@@ -581,15 +591,17 @@ export function CalendarPanel({ phone = false }) {
 
   const today = agendaDay(new Date());
   const selDate = new Date(selected + 'T00:00:00');
-  const selBirthdays = birthdaysByMD[monthDay(selDate.getMonth() + 1, selDate.getDate())] || [];
-  const selHolidays = holidaysByDate[selected] || [];
-  // Holidays and birthdays sort first (they're all-day, same as Outlook
-  // all-day events), then the real agenda in start-time order.
-  const dayEvents = [
-    ...selHolidays.map(h => ({ isHoliday: true, isAllDay: true, subject: h.name, holidayType: h.type })),
-    ...selBirthdays.map(name => ({ isBirthday: true, isAllDay: true, subject: `${name}'s Birthday` })),
-    ...(byDay[selected] || []).slice().sort((a, b) => (a.start || '').localeCompare(b.start || '')),
-  ];
+  // A day's items: holidays and birthdays first (they're all-day, same as
+  // Outlook all-day events), then the real agenda, all-day before timed.
+  const itemsFor = (key) => {
+    const d = new Date(key + 'T00:00:00');
+    return [
+      ...(holidaysByDate[key] || []).map(h => ({ isHoliday: true, isAllDay: true, subject: h.name, holidayType: h.type })),
+      ...(birthdaysByMD[monthDay(d.getMonth() + 1, d.getDate())] || []).map(name => ({ isBirthday: true, isAllDay: true, subject: `${name}'s Birthday` })),
+      ...(byDay[key] || []).slice().sort(byStart),
+    ];
+  };
+  const dayEvents = itemsFor(selected);
   const shownEvents = allFor === selected ? dayEvents : dayEvents.slice(0, AGENDA_SHOWN);
   // ‹ Today › steps the SELECTED day, not the visible month (Pranshu, Sep 4:
   // "when i click it... it should change the date in that current month") -
@@ -605,7 +617,7 @@ export function CalendarPanel({ phone = false }) {
   const yearNow = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => yearNow - 5 + i);
   const selectStyle = {
-    border: 'none', background: 'transparent', color: 'var(--muted)', fontSize: stackedLayout ? 16 : 12, fontWeight: 600,
+    border: 'none', background: 'transparent', color: 'var(--muted)', fontSize: stackedLayout ? 16 : 12, fontWeight: 600, // type-ok: iOS zooms a field under 16px
     fontFamily: 'var(--wk-font)', cursor: 'pointer', padding: '2px 0',
   };
   // ‹ Today ›: 36px targets on a phone (they were ~20px glyph buttons).
@@ -622,11 +634,25 @@ export function CalendarPanel({ phone = false }) {
   const agendaW = side ? box.w - 210 - 17 : box.w;
   const narrowAgenda = agendaW > 0 && agendaW < 260;
   const cellPad = dense ? '2px 0 3px' : '5px 0 7px';
+  // No calendar to show (not a Microsoft 365 account): the month pickers and
+  // the day steppers would move nothing, so the card is its title and the
+  // one line that says why.
+  const unavailable = !state.available && !state.loading;
+
+  // A phone: the Outlook-widget glance (PhoneAgenda.jsx) - today ahead, then
+  // tomorrow - instead of the month grid and the agenda under it.
+  if (stackedLayout && !unavailable) {
+    return (
+      <PhoneAgenda todayKey={today} today={itemsFor(today)} tomorrow={itemsFor(agendaDay(addDays(new Date(`${today}T00:00:00`), 1)))}
+        nowMs={nowMs} loading={state.loading && !state.events.length} error={!!state.error && !state.events.length}
+        onRetry={() => setAgendaTry(n => n + 1)} />
+    );
+  }
 
   return (
     <Card
       title="Calendar"
-      sub={
+      sub={unavailable ? undefined : (
         <span style={{ display: 'inline-flex', gap: 4 }}>
           <select value={cursor.getMonth()} onChange={e => setCursor(new Date(cursor.getFullYear(), +e.target.value, 1))} style={selectStyle} aria-label="Month">
             {MONTH_NAMES.map((m, i) => <option key={m} value={i}>{m}</option>)}
@@ -635,17 +661,17 @@ export function CalendarPanel({ phone = false }) {
             {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </span>
-      }
-      action={
+      )}
+      action={unavailable ? undefined : (
         <span style={{ display: 'inline-flex', gap: 2 }}>
           <button onClick={() => dayNav(-1)} className="link-btn" aria-label="Previous Day" title="Previous Day" style={navBtn}>‹</button>
           <button onClick={() => { pickedRef.current = false; setCursor(startOfMonth(new Date())); setSelected(agendaDay(new Date())); }} className="link-btn" style={{ ...navBtn, fontSize: 11 }}>Today</button>
           <button onClick={() => dayNav(1)} className="link-btn" aria-label="Next Day" title="Next Day" style={navBtn}>›</button>
         </span>
-      }
+      )}
     >
-      {!state.available && !state.loading ? (
-        <div data-widget-unavailable style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+      {unavailable ? (
+        <div data-widget-unavailable style={{ fontSize: 13, color: 'var(--muted)', padding: 'var(--dash-empty-pad, 24px 8px)', textAlign: 'center', lineHeight: 1.5 }}>
           Your calendar isn't connected - this widget shows the Outlook calendar of Microsoft 365 accounts.
         </div>
       ) : (
@@ -654,7 +680,7 @@ export function CalendarPanel({ phone = false }) {
           <div style={side ? { flex: '0 0 210px', width: 210, minHeight: 0 } : { flex: '0 0 auto', width: '100%' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center', marginBottom: dense ? 2 : 4 }}>
               {MONTH_WEEKDAYS.map((w, i) => (
-                <div key={i} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: dense ? '1px 0' : '2px 0' }}>{w}</div>
+                <div key={i} style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', padding: dense ? '1px 0' : '2px 0' }}>{w}</div>
               ))}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: dense ? 1 : 2 }}>
@@ -676,7 +702,7 @@ export function CalendarPanel({ phone = false }) {
                       fontFamily: 'var(--wk-font)',
                     }}>
                     <span style={{
-                      fontSize: 12.5, fontWeight: isToday ? 800 : 600, lineHeight: 1,
+                      fontSize: 13, fontWeight: isToday ? 800 : 600, lineHeight: 1,
                       color: isSelected ? '#fff' : !inMonth ? 'var(--wk-faint)' : isToday ? 'hsl(var(--color-blue))' : 'var(--ink)',
                     }}>{d.getDate()}</span>
                     <span style={{ display: 'inline-flex', gap: 3, height: 4 }}>
@@ -702,7 +728,7 @@ export function CalendarPanel({ phone = false }) {
             ? { flex: '1 1 0', minWidth: 0, minHeight: 0, borderLeft: '1px solid var(--line)', paddingLeft: 17, display: 'flex', flexDirection: 'column' }
             : { flex: '1 1 0', minHeight: 140, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, padding: '0 2px 8px' }}>
-              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                 My Agenda{selected !== today ? ` · ${formatMonthDay(selDate)}` : ''}
               </span>
               {!state.loading && dayEvents.length > 0 && (
@@ -714,9 +740,10 @@ export function CalendarPanel({ phone = false }) {
             <div className="dash-scroll" style={{ flex: 1, minHeight: 0 }} tabIndex={0} aria-label="My Agenda">
               {state.loading ? (
                 <WidgetSkeleton />
-              ) : dayEvents.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
+              ) : dayEvents.length === 0 && !state.error ? (
+                <div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
               ) : (<>
+                {state.error && <WidgetError message="Couldn't load your calendar." onRetry={() => setAgendaTry(n => n + 1)} />}
                 {shownEvents.map((ev, i) => {
                   const when = ev.isHoliday ? <><PartyPopper size={12} /> All day</> : ev.isBirthday ? <><CakeSlice size={12} /> All day</> : ev.isAllDay ? 'All day' : agendaTime(ev.start);
                   const until = !ev.isAllDay && ev.end ? `until ${agendaTime(ev.end)}` : '';
@@ -745,7 +772,7 @@ export function CalendarPanel({ phone = false }) {
                         )}
                       </div>
                       {!narrowAgenda && until && (
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0, paddingTop: 2, whiteSpace: 'nowrap' }}>{until}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, paddingTop: 2, whiteSpace: 'nowrap' }}>{until}</div>
                       )}
                     </div>
                   );

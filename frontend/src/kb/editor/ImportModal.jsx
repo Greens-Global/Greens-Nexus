@@ -12,7 +12,6 @@ import { useToast, errText } from '../components/Toast';
 import { PAGE_TYPES, readAsDataUrl } from '../lib';
 import { importFileAsIs, importKind, baseTitle } from './importFile';
 import { fileSize } from './extensions.jsx';
-import { loadPdfjs } from '../../lib/pdfjs';
 
 const MAX_FILE = 15 * 1024 * 1024;
 
@@ -35,7 +34,8 @@ async function extractDocx(file) {
 }
 
 async function extractPdf(file) {
-  const pdfjs = await loadPdfjs();
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/legacy/build/pdf.worker.min.mjs?url')).default;
   const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   const parts = [];
   for (let p = 1; p <= doc.numPages; p += 1) {
@@ -65,7 +65,7 @@ function FiledAs({ s, collections }) {
   const r = s.reasons || {};
   return (
     <div className="kb-card soft" style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div className="kb-title" style={{ fontSize: 13.5 }}>Filed {s.by === 'nexus' ? 'by Nexus' : 'by its contents'} - change any of it in the editor</div>
+      <div className="kb-title" style={{ fontSize: 13 }}>Filed {s.by === 'nexus' ? 'by Nexus' : 'by its contents'} - change any of it in the editor</div>
       <div className="kb-meta"><b>{PAGE_TYPES[s.page_type]?.label || 'How-To'}</b>{r.page_type ? ` · ${r.page_type}` : ''}</div>
       <div className="kb-meta"><b>{s.departments?.length ? s.departments.join(', ') : 'No department yet'}</b>{r.departments ? ` · ${r.departments}` : ''}</div>
       <div className="kb-meta"><b>{colName || 'No collection yet'}</b>{r.collection ? ` · ${r.collection}` : ''}</div>
@@ -233,7 +233,7 @@ export default function ImportModal({ onClose, onOpenInEditor, defaultCollection
               </div>
             )}
             {isFile && (
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5 }}>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
                 <input type="checkbox" checked={keepOriginal} onChange={(e) => setKeepOriginal(e.target.checked)} />
                 Keep the original file attached to the page
               </label>

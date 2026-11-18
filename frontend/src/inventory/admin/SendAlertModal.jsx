@@ -109,7 +109,7 @@ export function SendAlertModal({ onClose, toast }) {
                     <input type="checkbox" checked={checked} onChange={() => toggleUser(u.email)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                     <div style={{ flex:1 }}>
                       <div style={{ fontWeight:600, fontSize:13 }}>{u.name || u.display_name || auditName(u.email)}</div>
-                      <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.email}</div>
+                      <div style={{ fontSize:12, color:'var(--muted)' }}>{u.email}</div>
                     </div>
                   </label>
                 );

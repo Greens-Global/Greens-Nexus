@@ -24,7 +24,7 @@ function Faces({ list, people, names, off = false }) {
           <Avatar name={label(e)} photoUrl={people[e]?.photoUrl} size={24} />
         </span>
       ))}
-      {list.length > MAX && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', marginLeft: 2 }}>+{list.length - MAX}</span>}
+      {list.length > MAX && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginLeft: 2 }}>+{list.length - MAX}</span>}
     </div>
   );
 }
@@ -69,7 +69,7 @@ export default function ScheduleMonth({ days, shifts, openShifts, timeoff, holid
                 cursor: inMonth ? 'pointer' : 'default', fontFamily: 'inherit', color: 'var(--ink)', opacity: inMonth ? 1 : 0.35 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                 <span style={{ fontSize: 15, fontWeight: 800, color: isToday ? TODAY_INK : 'var(--ink)' }}>{d.getDate()}</span>
-                {hol && <span style={{ fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-blue))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{holidayNames[ds] || 'Holiday'}</span>}
+                {hol && <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-blue))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{holidayNames[ds] || 'Holiday'}</span>}
               </div>
               {st && (
                 <div style={{ display: 'grid', gap: 4, marginTop: 4, fontSize: 11 }}>

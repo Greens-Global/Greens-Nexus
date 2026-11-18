@@ -14,6 +14,7 @@ import { ErrorBanner, LoadingState } from '../../components/AsyncState';
 import { Modal, AvatarName, usePeople } from '../../tasks/components';
 import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dash, exportRows, requestId, signedUsd, usd } from './cmaModel';
+import { dialog } from '../../ui/dialog';
 
 const STATUS = {
   approved: ['pill-info', 'Approved'], pushed: ['status-approved', 'Pushed to Cubby'], entered: ['status-approved', 'Entered in Cubby'],
@@ -73,7 +74,7 @@ function PromoModal({ data, onClose, onSaved }) {
         <legend style={{ fontSize: 12, fontWeight: 600 }}>Pricing Groups</legend>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
           {data.unitTypes.map((u) => (
-            <label key={u.name} style={{ fontSize: 12.5, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            <label key={u.name} style={{ fontSize: 13, display: 'inline-flex', gap: 6, alignItems: 'center' }}>
               <input type="checkbox" checked={f.units.includes(u.name)} onChange={() => toggle(u.name)} /> {u.name}
             </label>
           ))}
@@ -386,7 +387,7 @@ export default function CmaReview({ facility, onSection, onChanged }) {
                         )}
                         {c.kind === 'rate' && ['pushed', 'entered'].includes(c.status) && !c.revertedAt && d.roles.ops_manager && (
                           <button type="button" className="secondary-btn cma-btn" disabled={!!busy} style={{ marginLeft: 6 }}
-                            onClick={() => window.confirm(pushReady ? `Push the old rates for ${c.unitType} back to Cubby now?` : `Propose the old rates for ${c.unitType} again?`) && act(() => api.revertOpsCmaChange(c.id), 'revert')}
+                            onClick={async () => await dialog.confirm(pushReady ? `Push the old rates for ${c.unitType} back to Cubby now?` : `Propose the old rates for ${c.unitType} again?`, { title: 'Revert Rates', confirmText: 'Revert' }) && act(() => api.revertOpsCmaChange(c.id), 'revert')}
                             aria-label={`Revert ${c.unitType}`}><RotateCcw size={13} aria-hidden="true" /> Revert</button>
                         )}
                       </td>

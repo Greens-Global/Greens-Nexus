@@ -16,6 +16,7 @@ import { SOURCE_NAMES } from '../../support/helpLog';
 import PeoplePick from '../components/PeoplePick';
 import ReadingReport from './ReadingReport';
 import PhotoReviews from './PhotoReviews';
+import { dialog } from '../../ui/dialog';
 
 const KIND_WORDS = { created: 'created', submitted: 'submitted for review', published: 'published', changes_requested: 'asked for changes on', archived: 'archived', restored: 'restored', verified: 'verified', flagged: 'reported a problem with', signed: 'signed', translated: 'translated', revision_opened: 'started a revision of', revision_submitted: 'submitted a revision of', revision_discarded: 'discarded a revision of', task_started: 'started a task from', flag_resolved: 'resolved a report on', withdrawn: 'withdrew',
   request_assigned: 'assigned a page request:', request_closed: 'closed a page request:', sign_sent: 'sent a signing request for', sign_declined: 'declined to sign',
@@ -57,7 +58,7 @@ function AssignModal({ request, onSave, onClose }) {
              <button type="button" className="kb-btn pri" disabled={busy || !who} onClick={save}><UserPlus />Assign</button></div>}>
       <div className="kb" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div className="kb-title">"{request.query}"</div>
-        {request.note && <div style={{ fontSize: 13.5 }}>{request.note}</div>}
+        {request.note && <div style={{ fontSize: 13 }}>{request.note}</div>}
         <div className="kb-meta">Asked by {request.user_name} on {fmtDate(request.created_at)}</div>
         <div className="kb-field"><label>Who Writes It</label><PeoplePick value={who} onChange={setWho} allowClear={false} placeholder="A Knowledge Base author" /></div>
       </div>
@@ -93,7 +94,7 @@ function MigrationModal({ onClose, onApplied }) {
   const [applying, setApplying] = useState(false);
   useEffect(() => { api.kbMigrationReport().then(setRep).catch((e) => toast(errText(e), 'err')); }, [toast]);
   const apply = async () => {
-    if (!window.confirm('Convert every old page and course now? Nothing is deleted or overwritten; the old bodies stay beside the new ones. This can take a few minutes.')) return;
+    if (!(await dialog.confirm('Convert every old page and course now? Nothing is deleted or overwritten; the old bodies stay beside the new ones. This can take a few minutes.', { title: 'Convert Everything', confirmText: 'Convert Everything' }))) return;
     setApplying(true); setBusy(true);
     try { const r = await api.kbMigrationApply(); setRep(r); toast('Migration finished'); onApplied(); } catch (e) { toast(errText(e), 'err'); } finally { setBusy(false); setApplying(false); }
   };
@@ -211,7 +212,7 @@ export default function Health({ me }) {
                     {data.flags.map((f) => (
                       <div key={f.id} className="kb-row" style={{ alignItems: 'flex-start' }}>
                         <Flag size={16} style={{ color: '#dc2626', marginTop: 3 }} />
-                        <div className="kb-grow"><div className="kb-title"><a href="#p" onClick={(e) => { e.preventDefault(); goKb('page', f.doc_id); }}>{f.title}</a> <span className="kb-meta" style={{ fontWeight: 400 }}>v{f.version}</span></div><div style={{ fontSize: 13.5 }}>"{f.text}"</div><div className="kb-meta">{f.user_name} · {fmtDateTime(f.created_at)}</div></div>
+                        <div className="kb-grow"><div className="kb-title"><a href="#p" onClick={(e) => { e.preventDefault(); goKb('page', f.doc_id); }}>{f.title}</a> <span className="kb-meta" style={{ fontWeight: 400 }}>v{f.version}</span></div><div style={{ fontSize: 13 }}>"{f.text}"</div><div className="kb-meta">{f.user_name} · {fmtDateTime(f.created_at)}</div></div>
                         <button type="button" className="kb-btn sm" onClick={() => goKb('editor', f.doc_id)}><Pencil />Fix</button>
                         <button type="button" className="kb-btn sm" onClick={() => setNoteFor({ kind: 'flag', row: f })}><Check />Resolve</button>
                       </div>
@@ -224,7 +225,7 @@ export default function Health({ me }) {
                     {data.requests.map((r) => (
                       <div key={r.id} className="kb-row" style={{ alignItems: 'flex-start' }}>
                         <Search size={16} style={{ color: 'var(--kb-dim)', marginTop: 3 }} />
-                        <div className="kb-grow"><div className="kb-title">"{r.query}"</div>{r.note && <div style={{ fontSize: 13.5 }}>{r.note}</div>}<div className="kb-meta">{r.user_name} · {fmtDateTime(r.created_at)}{r.assigned_name ? ` · assigned to ${r.assigned_name}` : ''}</div></div>
+                        <div className="kb-grow"><div className="kb-title">"{r.query}"</div>{r.note && <div style={{ fontSize: 13 }}>{r.note}</div>}<div className="kb-meta">{r.user_name} · {fmtDateTime(r.created_at)}{r.assigned_name ? ` · assigned to ${r.assigned_name}` : ''}</div></div>
                         <button type="button" className="kb-btn sm" onClick={() => goKb('editor', `new:${r.collection_id || ''}`)}><Pencil />Write It</button>
                         <button type="button" className="kb-btn sm" onClick={() => setAssignFor(r)}><UserPlus />{r.assigned_to ? 'Reassign' : 'Assign'}</button>
                         <button type="button" className="kb-btn sm ghost" onClick={() => setNoteFor({ kind: 'request', row: r })}><X />Close</button>
@@ -251,7 +252,7 @@ export default function Health({ me }) {
                   <section className="kb-card">
                     <SectionHead title="Synonyms Added" sub="search treats each group as the same word" />
                     {data.synonyms.map((g, i) => (
-                      <div key={g.join('|')} className="kb-row"><div className="kb-grow" style={{ fontSize: 13.5 }}>{g.join(' = ')}</div>
+                      <div key={g.join('|')} className="kb-row"><div className="kb-grow" style={{ fontSize: 13 }}>{g.join(' = ')}</div>
                         <button type="button" className="kb-ibtn" aria-label={`Remove ${g.join(', ')}`} onClick={() => act(() => api.kbSaveSynonyms(data.synonyms.filter((_, j) => j !== i)), 'Synonym removed')}><X size={14} /></button></div>
                     ))}
                   </section>

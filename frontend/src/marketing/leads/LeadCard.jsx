@@ -81,7 +81,7 @@ export default function LeadCard({ lead, onClick }) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: C.gray900, lineHeight: 1.25 }}>{lead.name}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: C.gray900, lineHeight: 1.25 }}>{lead.name}</span>
         <span
           style={{
             width: 20,
@@ -89,7 +89,7 @@ export default function LeadCard({ lead, onClick }) {
             borderRadius: 9999,
             background: C.gray100,
             color: C.gray600,
-            fontSize: 9.5,
+            fontSize: 11,
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
@@ -102,7 +102,7 @@ export default function LeadCard({ lead, onClick }) {
         </span>
       </div>
       <div style={{ fontSize: 11, color: C.gray500, marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.facility}</div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 10.5, color: C.gray400 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, color: C.gray400 }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ width: 6, height: 6, borderRadius: 9999, background: SOURCE_DOT[lead.source] }} />
           {lead.source}

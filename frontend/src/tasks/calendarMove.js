@@ -12,6 +12,7 @@
 // (calendarDatePatch with an empty day). The approval hold, the held start
 // date and the Undo are the same for all three.
 import { addDays, fmtDate } from './lib';
+import { dialog } from '../ui/dialog';
 
 const day = (iso) => String(iso || '').slice(0, 10);
 
@@ -112,7 +113,7 @@ export async function moveTaskToDay(store, task, iso) {
   const patch = calendarDatePatch(task, iso);
   if (!task || !patch || !store?.updateTask) return null;
   if (!patch.dueOn && clearingStopsSeries(task)) {
-    if (store.notify) store.notify(SERIES_NEEDS_DUE); else alert(SERIES_NEEDS_DUE);
+    if (store.notify) store.notify(SERIES_NEEDS_DUE); else dialog.alert(SERIES_NEEDS_DUE);
     return null;
   }
   const back = previousDates(task, patch);

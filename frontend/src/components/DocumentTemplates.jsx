@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Plus, FileText, Award, Star, ChevronDown, FileUp, Sparkles } from 'lucide-react';
-import AnchoredMenu from './AnchoredMenu';
+import { useEffect, useMemo, useState } from 'react';
+import { Search, Plus, FileText, Award, Star, FileUp, Sparkles, ArrowLeft, ChevronRight, Users, Scale, Receipt, Wrench, Handshake, Cpu, Briefcase, Mail } from 'lucide-react';
+import NewButton from './NewButton';
 import { TEMPLATE_CATEGORIES } from '../lib/templateCategories';
 import { UNTITLED_TEMPLATE } from '../lib/untitled';
 import { api } from '../api';
@@ -9,7 +9,7 @@ import DocumentBuilder from './DocumentBuilder';
 import { setPendingOpen, takePendingOpen } from '../lib/pendingOpen';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
-import { TEMPLATE_STATES, templateStatus, templateUsable } from '../lib/documentLibrary';
+import { TEMPLATE_STATES, templateStatus, templateUsable, templateCards } from '../lib/documentLibrary';
 import { PanelShell, PdfPreview, StatusWord } from './DocumentSidePanel';
 import { CreateDocModal } from './DocumentsBrowser';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
@@ -76,7 +76,7 @@ function LetterheadForm({ onSaved, onCancel, toastErr }) {
         {draft.logoPath ? <img src={draft.logoPath} alt="" style={{ height: 44, maxWidth: 120, objectFit: 'contain' }} /> : (
           <div style={{ width: 60, height: 44, borderRadius: 6, background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}><Award size={18} /></div>
         )}
-        <label style={{ fontSize: 11.5, color: 'var(--muted)', cursor: 'pointer' }}>
+        <label style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>
           Upload logo (or press Ctrl+V to paste)
           <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" style={{ display: 'none' }}
             onChange={e => { const f = e.target.files?.[0]; if (f) doUpload(f); e.target.value = ''; }} />
@@ -88,7 +88,7 @@ function LetterheadForm({ onSaved, onCancel, toastErr }) {
       <input className="form-input" aria-label="Footer text" placeholder="Footer text (e.g. registration/disclaimer - optional)" value={draft.footerText} onChange={e => patch({ footerText: e.target.value })} />
       <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} label="Add Letterhead" saveDisabled={!draft.name.trim()}
         note="A letterhead needs a name.">
-        {!dirty && <button type="button" className="secondary-btn" onClick={onCancel} style={{ fontSize: 12.5 }}>Cancel</button>}
+        {!dirty && <button type="button" className="secondary-btn" onClick={onCancel} style={{ fontSize: 13 }}>Cancel</button>}
       </SaveRow>
     </div>
   );
@@ -120,7 +120,7 @@ export function LetterheadsPanel({ toastOk, toastErr }) {
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>Only administrators can add or edit letterheads.</div>
       )}
       {letterheads.length === 0 && (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: isAdmin ? 14 : 0 }}>No letterheads yet.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: isAdmin ? 14 : 0 }}>No letterheads yet.</div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: isAdmin && letterheads.length ? 20 : 0 }}>
         {letterheads.map(l => (
@@ -153,7 +153,7 @@ export function LetterheadsPanel({ toastOk, toastErr }) {
       {isAdmin && (adding ? (
         <LetterheadForm toastErr={toastErr} onCancel={() => setAdding(false)} onSaved={() => { setAdding(false); toastOk?.('Letterhead saved'); load(); }} />
       ) : (
-        <button type="button" className="primary-btn" onClick={() => setAdding(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+        <button type="button" className="primary-btn" onClick={() => setAdding(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <Plus size={13} /> Add Letterhead
         </button>
       ))}
@@ -180,7 +180,7 @@ function DepartmentModal({ template, onClose, onSaved, toastErr }) {
           <label htmlFor="template-department" style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Which department maintains "{template.name}"?</label>
           <input id="template-department" className="form-input" autoFocus value={department} onChange={e => setDepartment(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') save(); }} placeholder="e.g. Legal" />
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>Leave blank for a company-wide template, which only an administrator can edit.</p>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>Leave blank for a company-wide template, which only an administrator can edit.</p>
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 'auto' }}>
           <button onClick={onClose} className="secondary-btn">Cancel</button>
@@ -192,6 +192,49 @@ function DepartmentModal({ template, onClose, onSaved, toastErr }) {
 }
 
 const categoryLabel = (key) => CATEGORIES.find(([v]) => v === key)?.[1] || key;
+
+// The board (Pranshu, 11/13/2026, canvas https://claude.ai/artifact/TapZUK47Diz1k3jgFh5TNW):
+// one card per category that has a template; a category with none has no card.
+const CATEGORY_META = {
+  hr: { blurb: 'Letters, joining and relieving, probation', Icon: Users },
+  legal: { blurb: 'Agreements and notices', Icon: Scale },
+  finance: { blurb: 'Invoices and statements', Icon: Receipt },
+  operations: { blurb: 'SOPs and site paperwork', Icon: Wrench },
+  sales: { blurb: 'Proposals and quotes', Icon: Handshake },
+  engineering: { blurb: 'Specifications and drawings', Icon: Cpu },
+  general: { blurb: 'Everything else', Icon: FileText },
+  job_description: { blurb: 'One per role, picked by the hiring packet', Icon: Briefcase },
+  offer_letter: { blurb: 'The one document an offer is, per kind of hire', Icon: Mail },
+  letterhead: { blurb: 'The header and footer letters print with', Icon: Award },
+};
+
+function CategoryCards({ templates, onOpen }) {
+  const cards = templateCards(templates, CATEGORIES);
+  return (
+    <div className="nx-tc-grid">
+      {cards.map((c) => {
+        const { blurb, Icon } = CATEGORY_META[c.key] || CATEGORY_META.general;
+        return (
+          <button key={c.key} type="button" className="nx-tc" onClick={() => onOpen(c.key)} aria-label={`${c.label}, ${c.rows.length} template${c.rows.length === 1 ? '' : 's'}`}>
+            <span className="nx-tc-top">
+              <span className="nx-tc-ico"><Icon size={18} aria-hidden="true" /></span>
+              <span className="nx-tc-head"><strong>{c.label}</strong><span>{blurb}</span></span>
+              <span className="nx-tc-n">{c.rows.length}</span>
+            </span>
+            <span className="nx-tc-names">
+              {c.rows.slice(0, 3).map((t) => <span key={t.id}><span>{t.name}</span><StatusWord status={templateStatus(t)} /></span>)}
+              {c.rows.length > 3 && <span className="nx-dl-muted">+ {c.rows.length - 3} more</span>}
+            </span>
+            <span className="nx-tc-foot">
+              <span className={`nx-tc-pill ${c.pending ? 'warn' : 'ok'}`}>{c.pending ? `${c.pending} Need${c.pending === 1 ? 's' : ''} Publishing` : 'All Published'}</span>
+              <span className="nx-tc-open">Open <ChevronRight size={14} aria-hidden="true" /></span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // The row a template opens beside the list: its page, one status and every action by name.
 function TemplatePanel({ template: t, onClose, onEdit, onUse, onDepartment, onChanged, toastOk, toastErr }) {
@@ -289,8 +332,6 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
   // once; closing it asks for the name and category. Its arrow holds the
   // other ways to start one and the letterheads.
   const [makingTpl, setMakingTpl] = useState(false);
-  const [tplMenuOpen, setTplMenuOpen] = useState(false);
-  const tplMenuRef = useRef(null);
   const [wordOpen, setWordOpen] = useState(false);       // New template from a Word file (Oct 14)
   // Open In Documents from an HR packet (Oct 14) lands straight in the editor.
   // ?template=<id> opens one in a new tab (Make An Offer's Preview, Neil 11/04/2026).
@@ -309,7 +350,7 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
     if (makingTpl) return;
     setMakingTpl(true);
     try {
-      const t = await api.createDocTemplate({ name: UNTITLED_TEMPLATE, category: 'general', status: 'draft' });
+      const t = await api.createDocTemplate({ name: UNTITLED_TEMPLATE, category: category && category !== 'letterhead' ? category : 'general', status: 'draft' });
       setEditingId(t.id);
     } catch (e) {
       toastErr?.(e?.message || 'Could not start the template.');
@@ -323,16 +364,18 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
   useEffect(() => { load(); }, []);
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
 
-  const visible = useMemo(() => {
+  // `current` is what the board's cards group; `visible` is one category's list.
+  const current = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return (templates || []).filter(t => {
       if (t.docType === 'form') return false;   // Documents > Forms (Neil, 11/02/2026)
       if (statusFilter === 'current' ? t.state === 'archived' : t.state !== statusFilter) return false;
-      if (category && t.category !== category) return false;
       return !needle || [t.name, categoryLabel(t.category), t.department, ...(t.tags || [])]
         .some(x => String(x || '').toLowerCase().includes(needle));
     }).sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  }, [templates, search, statusFilter, category]);
+  }, [templates, search, statusFilter]);
+  const visible = useMemo(() => (category ? current.filter(t => t.category === category) : current), [current, category]);
+  const onBoard = !category && !search.trim();
   const selected = selectedId ? (templates || []).find(t => t.id === selectedId) : null;
 
   const seedStarters = () => {
@@ -365,51 +408,43 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
     <div className={`nx-dl nx-dl-norail${selected ? ' nx-dl-open' : ''}`}>
       <div className="nx-dl-main">
         <div className="nx-dl-tools">
+          {/* No page heading (Pranshu, 11/13/2026); inside a category the one
+              line back to the cards, with the category it is in. */}
+          {category && (
+            <span className="nx-tc-crumb">
+              <button type="button" className="nx-tc-back" onClick={() => { setCategory(''); setSelectedId(''); }}>
+                <ArrowLeft size={14} aria-hidden="true" /> All Templates
+              </button>
+              <span className="nx-tc-here">{categoryLabel(category)}<span className="nx-dl-count">{visible.length}</span></span>
+            </span>
+          )}
           <div className="nx-dl-search">
             <Search size={14} aria-hidden="true" />
             <input className="form-input" placeholder="Search templates" aria-label="Search templates" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <select className="form-input" aria-label="Category" style={{ flex: '0 1 170px' }} value={category} onChange={e => setCategory(e.target.value)}>
-            <option value="">All Categories</option>
-            {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-          <select className="form-input" aria-label="Template status" style={{ flex: '0 1 190px' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select className="nx-dl-chip" aria-label="Template status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="current">Current Templates</option>
             <option value="published">{TEMPLATE_STATES.published.label}</option>
             <option value="changes">{TEMPLATE_STATES.changes.label}</option>
             <option value="draft">{TEMPLATE_STATES.draft.label}</option>
             <option value="archived">{TEMPLATE_STATES.archived.label}</option>
           </select>
-          <span className="nx-dl-split" role="group" aria-label="New Template">
-            <button className="primary-btn" data-tour="documents-new-template" disabled={makingTpl} onClick={newTemplate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Plus size={14} /> {makingTpl ? 'Opening...' : 'New Template'}
-            </button>
-            <button ref={tplMenuRef} type="button" className="primary-btn nx-dl-split-arrow" aria-label="More ways to start a template" title="More ways to start a template"
-              aria-haspopup="menu" aria-expanded={tplMenuOpen} onClick={() => setTplMenuOpen((o) => !o)}>
-              <ChevronDown size={14} />
-            </button>
-          </span>
-          <AnchoredMenu anchorRef={tplMenuRef} open={tplMenuOpen} onClose={() => setTplMenuOpen(false)} align="end"
-            className="doc-toolbar doc-ribbon doc-ribbon-panel" style={{ width: 250 }}>
-            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setTplMenuOpen(false); newTemplate(); }}>
-              <Plus size={14} /><span>Blank Template</span>
-            </button>
-            <button type="button" role="menuitem" className="doc-ribbon-item" title="Nexus reads the Word file and finds every blank and signature line"
-              onClick={() => { setTplMenuOpen(false); setWordOpen(true); }}>
-              <FileUp size={14} /><span>From a Word File...</span>
-            </button>
-            {isAdmin && templates?.length > 0 && (
-              <button type="button" role="menuitem" className="doc-ribbon-item" disabled={seeding} title="Add any starter template the library does not have yet"
-                onClick={() => { setTplMenuOpen(false); seedStarters(); }}>
-                <Sparkles size={14} /><span>{seeding ? 'Adding…' : 'Add Starter Templates'}</span>
-              </button>
-            )}
-            <div className="doc-ribbon-sep" role="separator" />
-            <button type="button" role="menuitem" className="doc-ribbon-item" title="Letterheads are under Settings > Branding & Email"
-              onClick={() => { setTplMenuOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'branding:letterheads' } })); }}>
-              <Award size={14} /><span>Letterheads</span>
-            </button>
-          </AnchoredMenu>
+          {/* "+ New", the one create button across Nexus (Neil, 11/13/2026) -
+              its menu replaces the New Template split. Template still opens
+              a blank draft at once (Neil, 11/11/2026). */}
+          <NewButton className="primary-btn nx-dl-push" dataTour="documents-new-template" busy={makingTpl ? 'Opening...' : seeding ? 'Adding...' : ''}
+            items={[
+              { key: 'blank', label: 'Template', hint: 'A blank template, named on Close', Icon: FileText },
+              { key: 'word', label: 'From a Word File...', hint: 'Nexus finds every blank and signature line', Icon: FileUp },
+              ...(isAdmin && templates?.length > 0 ? [{ key: 'starters', label: 'Add Starter Templates', hint: 'Any starter the library does not have yet', Icon: Sparkles }] : []),
+              { key: 'letterheads', label: 'Letterheads', hint: 'Under Settings > Branding & Email', Icon: Award, sep: true },
+            ]}
+            onPick={(k) => {
+              if (k === 'blank') newTemplate();
+              else if (k === 'word') setWordOpen(true);
+              else if (k === 'starters') seedStarters();
+              else window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'branding:letterheads' } }));
+            }} />
         </div>
 
         {!templates ? (
@@ -425,6 +460,8 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
               <button className="primary-btn" disabled={seeding} onClick={seedStarters}>{seeding ? 'Adding…' : 'Add Starter Templates'}</button>
             )}
           </div>
+        ) : onBoard ? (
+          <CategoryCards templates={current} onOpen={(k) => { setCategory(k); setSelectedId(''); }} />
         ) : isMobile ? (
           <div className="nx-dl-cards">
             {visible.map(t => (
@@ -438,13 +475,13 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
         ) : (
           <div className="nx-dl-table">
             <table>
-              <thead><tr><th>Template</th><th>Category</th><th>Status</th><th>Maintained By</th><th>Updated</th><th aria-label="Actions" /></tr></thead>
+              <thead><tr><th>Template</th>{!category && <th>Category</th>}<th>Status</th><th>Maintained By</th><th>Updated</th><th aria-label="Actions" /></tr></thead>
               <tbody>
                 {visible.map(t => (
                   <tr key={t.id} data-row={t.id} tabIndex={0} className={selectedId === t.id ? 'sel' : ''} aria-selected={selectedId === t.id}
                     onClick={() => setSelectedId(t.id)} onKeyDown={e => onRowKey(e, t)}>
                     <td className="nx-dl-name">{t.name}</td>
-                    <td>{categoryLabel(t.category)}</td>
+                    {!category && <td>{categoryLabel(t.category)}</td>}
                     <td><StatusWord status={templateStatus(t)} /></td>
                     <td>{t.department || 'Company-Wide'}</td>
                     <td className="nx-dl-date">{formatDate(t.updatedAt)}</td>

@@ -312,7 +312,7 @@ def _card_error(message: str, status: int) -> JSONResponse:
 
 _PAGE_TITLES = {"comment": "Add Comment", "reply": "Reply", "status": "Change Status",
                 "complete": "Mark Complete", "react": "React", "mute": "Mute This Task",
-                "extend": "Extend Due Date", "toggle": "Toggle Completion"}
+                "extend": "Extend Due Date", "toggle": "Mark Done"}
 
 
 def _page(title: str, inner: str) -> HTMLResponse:
@@ -410,7 +410,8 @@ def action_page(token: str = "", do: str = "comment"):
         elif do == "toggle":
             # Whichever way the task is NOW: complete it, or reopen it.
             done = bool(t.completed)
-            submit = "Reopen Task" if done else "Mark Complete"
+            # The words the briefing's link used (11/17/2026): Mark Done / Reopen.
+            submit = "Reopen Task" if done else "Mark Done"
             field = (f"<input type='hidden' name='text' value='{'open' if done else 'done'}'>"
                      "<p style='margin:0;font-size:14px'>"
                      + ("This task is complete. Reopen it?" if done else "Mark this task as complete?") + "</p>")
@@ -434,7 +435,7 @@ def action_page(token: str = "", do: str = "comment"):
                 f"<input type='hidden' name='token' value='{escape(token)}'>"
                 f"<input type='hidden' name='action' value='{escape(do)}'>{field}"
                 f"<p style='margin:16px 0 0'><button type='submit' style='{_BTN}'>{escape(submit)}</button></p></form>")
-        return _page(_PAGE_TITLES[do], _task_header(t) + form)
+        return _page(submit if do == "toggle" else _PAGE_TITLES[do], _task_header(t) + form)
     finally:
         db.close()
 

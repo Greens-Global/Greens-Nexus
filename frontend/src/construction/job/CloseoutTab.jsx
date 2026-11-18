@@ -26,7 +26,7 @@ import { useLoad } from '../lib/job';
 import { SetUp } from './PunchTab';
 import HandoverRecords from './HandoverRecords';
 
-const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)' };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)' };
 const SIGNOFF = { sent: ['Sent', TONE.blue], signed: ['Signed', TONE.green], declined: ['Declined', TONE.red], void: ['Void', TONE.gray] };
 
 function Signoff({ project, data, onChanged }) {
@@ -44,7 +44,7 @@ function Signoff({ project, data, onChanged }) {
   const st = so ? SIGNOFF[so.status] : null;
   return (
     <section style={{ ...CARD, marginBottom: 14 }} aria-label="Owner Sign-Off">
-      <h3 style={{ fontSize: '1.05rem', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><FileSignature size={16} />Owner Sign-Off</h3>
+      <h3 style={{ fontSize: 18, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><FileSignature size={16} />Owner Sign-Off</h3>
       <p style={{ ...quiet, margin: '0 0 12px' }}>The owner or client signs the substantial completion in Nexus Sign.</p>
       {so && st && (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
@@ -59,7 +59,7 @@ function Signoff({ project, data, onChanged }) {
           <button className="primary-btn" onClick={send} disabled={busy || !name.trim() || !email.trim()}>{busy ? 'Sending…' : 'Send for Signature'}</button>
         </div>
       )}
-      {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))', marginTop: 6 }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginTop: 6 }}>{error}</div>}
     </section>
   );
 }
@@ -85,14 +85,14 @@ export default function CloseoutTab({ project, onChanged }) {
   return (
     <div>
       <section style={{ ...CARD, marginBottom: 14 }} aria-label="Closeout Checklist">
-        <h3 style={{ fontSize: '1.05rem', marginBottom: 4 }}>Closeout Checklist</h3>
+        <h3 style={{ fontSize: 18, marginBottom: 4 }}>Closeout Checklist</h3>
         <p style={{ ...quiet, margin: '0 0 12px' }}>The closeout steps on the job's schedule (Tasks).</p>
         {data.checklist.length === 0 ? (
           project.taskProjectId ? <Empty icon={ClipboardCheck} title="No closeout steps" hint="This job's schedule has no Closeout section. Add one in Tasks to track the handover here." />
             : <SetUp view={{ canStamp: project.canEdit }} project={project} onDone={reload} />
         ) : data.checklist.map((t) => (
           <div key={t.id} data-closeout={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '9px 0', borderTop: '1px solid var(--border-color)' }}>
-            <span style={{ minWidth: 0, fontSize: '0.88rem' }}>
+            <span style={{ minWidth: 0, fontSize: 14 }}>
               <b>{t.title}</b>
               {t.checklistTotal > 0 && <span style={{ color: 'var(--text-secondary)' }}> · {t.checklistDone} of {t.checklistTotal} checked</span>}
               {t.dueOn && <span style={{ color: 'var(--text-secondary)' }}> · Due {formatDate(t.dueOn, t.dueOn)}</span>}
@@ -112,7 +112,7 @@ export default function CloseoutTab({ project, onChanged }) {
             <div style={{ fontWeight: 600 }}>{closed ? `Closed out ${formatDateTime(data.closeout.closedOutAt, '')}` : 'Close Out'}</div>
             <div style={quiet}>{closed ? (unsent.length ? `${unsent.length} record${unsent.length === 1 ? '' : 's'} still to hand over.` : 'Everything is handed over.')
               : 'Hands every record over and marks the job Complete. Nothing is deleted.'}</div>
-            {msg && <div role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{msg}</div>}
+            {msg && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{msg}</div>}
           </div>
           {!closed ? (
             <HoldButton label="Close Out" doneLabel="Closed Out" icon={ClipboardCheck} holdMs={HOLD_RECORD_MS} onConfirm={closeOut}

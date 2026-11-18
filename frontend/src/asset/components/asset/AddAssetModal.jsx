@@ -64,7 +64,8 @@ const CREATE_FIELDS = {
   ],
 };
 
-const SECTION_LABEL_STYLE = { fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--pine)' };
+// A group's name: type weight, no uppercase eyebrow (Neil, 11/17/2026).
+const SECTION_LABEL_STYLE = { fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' };
 
 /**
  * @param draft        staged values when RE-opening the add screen, e.g. after backing out
@@ -221,7 +222,7 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
                 padding: '10px 12px',
                 borderRadius: 10,
                 cursor: 'pointer',
-                fontSize: '0.85rem',
+                fontSize: 13,
                 fontWeight: 700,
                 fontFamily: 'inherit',
                 border: `1.5px solid ${active ? 'var(--pine)' : 'var(--border-color)'}`,
@@ -253,7 +254,7 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
           </>
         }
       >
-        <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 12 }}>
           {preview.fileName ? <strong style={{ color: 'var(--text-primary)' }}>{preview.fileName}</strong> : null}
           {preview.fileName ? ' - ' : ''}
           {ready} of {previewItems.length} row{previewItems.length === 1 ? '' : 's'} ready.
@@ -261,7 +262,7 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
           {' '}A blank Company leaves the asset under Needs a Company.
         </div>
         <div className="nx-fill" style={{ overflow: 'auto', border: '1px solid var(--border-color)', borderRadius: 10 }}>
-          <table data-testid="asset-import-preview" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+          <table data-testid="asset-import-preview" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--text-secondary)' }}>
                 <th style={{ padding: '8px 10px' }}>Row</th>
@@ -301,7 +302,7 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
         footer={<button className="secondary-btn" onClick={onClose}>Close</button>}
       >
         {classPicker}
-        <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 14 }}>
           Download the template for this asset class, fill one row per asset, then import it. The Company column takes a company's name or id; leave it blank to set it later. You see every row before anything is saved.
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -333,7 +334,7 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
           <FieldInput key={f.k} f={f} value={f.k === 'companyId' ? companyValue : values[f.k]} error={errors[f.k]} onChange={setField} />
         ))}
       </div>
-      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 10, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 10, lineHeight: 1.5 }}>
         Everything else - ownership, size, financials, insurance, photos - is filled on the asset. Its Overview lists what is still empty.
       </div>
 
@@ -346,12 +347,12 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', ...SECTION_LABEL_STYLE }}
           >
             {advanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Advanced
-            <span style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 0, color: 'var(--text-secondary)' }}>- link this property to another</span>
+            <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>- link this property to another</span>
           </button>
           {advanced && (
             <div style={{ marginTop: 12 }}>
               <div className="form-group">
-                <label htmlFor="add-asset-link">Link this property to another</label>
+                <label htmlFor="add-asset-link">Link This Property to Another</label>
                 <select id="add-asset-link" className="form-input" value={linkTargetId} onChange={(e) => setLinkTargetId(e.target.value)}>
                   <option value="">- Standalone (not linked) -</option>
                   {otherProperties.map((p) => (
@@ -361,7 +362,7 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
               </div>
               {linkTargetId && (
                 <div style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>Make this property the…</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>Make this property the…</div>
                   <div role="radiogroup" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                     {[
                       ['secondary', 'Secondary', `linked under "${linkTargetName}"`],
@@ -391,9 +392,9 @@ export function AddAssetModal({ draft, properties, mode = 'add', onSave, onClose
                             <span style={{ width: 15, height: 15, borderRadius: '50%', border: `2px solid ${active ? accentColor : 'var(--border-color)'}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                               {active && <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: accentColor }} />}
                             </span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: active ? accentColor : 'var(--text-primary)' }}>{label}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: active ? accentColor : 'var(--text-primary)' }}>{label}</span>
                           </div>
-                          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 4, marginLeft: 22 }}>{desc}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, marginLeft: 22 }}>{desc}</div>
                         </button>
                       );
                     })}

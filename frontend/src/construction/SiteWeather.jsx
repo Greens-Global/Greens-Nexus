@@ -66,8 +66,8 @@ export function SiteWeatherStrip({ onOpen }) {
   return (
     <div style={CARD} aria-label="Weather at each site">
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>Weather At Each Site</h3>
-        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Today at every active jobsite - open a site for its week</span>
+        <h3 style={{ fontSize: 18, margin: 0 }}>Weather At Each Site</h3>
+        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Today at every active jobsite - open a site for its week</span>
       </div>
       {data === null ? <SkeletonBlocks count={2} height={64} borderRadius={8} /> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
@@ -81,7 +81,7 @@ export function SiteWeatherStrip({ onOpen }) {
                 {sk ? <sk.Icon size={30} style={{ color: `rgb(${rgb})` }} strokeWidth={1.6} /> : <MapPin size={24} style={{ color: 'var(--text-secondary)' }} />}
                 <span style={{ minWidth: 0 }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                    <span style={{ fontWeight: 700, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                    <span style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
                     <FlagChip weather={w} />
                   </span>
                   {w ? (
@@ -131,7 +131,7 @@ export function SiteWeatherCard({ project }) {
         <CloudSun size={22} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
         <div>
           <div style={{ fontWeight: 600 }}>No weather for this site yet</div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
             {project.address ? 'Nexus is finding this address on the map; the weather appears once it has.' : 'Add the jobsite address and Nexus finds it on the map for its weather.'}
           </div>
         </div>
@@ -159,13 +159,13 @@ export function SiteWeatherCard({ project }) {
   return (
     <div style={{ ...CARD, backgroundImage: data ? `linear-gradient(160deg, rgba(${rgb},0.12), transparent 60%)` : undefined }} aria-label="Site weather">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>Weather At This Site</h3>
+        <h3 style={{ fontSize: 18, margin: 0 }}>Weather At This Site</h3>
         <FlagChip weather={site} />
-        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%' }}>
+        <span style={{ color: 'var(--text-secondary)', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%' }}>
           <MapPin size={12} style={{ flexShrink: 0 }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.address || `${project.latitude}, ${project.longitude}`}</span>
         </span>
-        {data && <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: 12.5 }} onClick={() => setOpen(true)}>Full Forecast</button>}
+        {data && <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: 13 }} onClick={() => setOpen(true)}>Full Forecast</button>}
       </div>
       {err && !data ? <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{err}</div>
         : !data ? <SkeletonBlocks count={2} height={44} borderRadius={8} /> : (
@@ -174,11 +174,11 @@ export function SiteWeatherCard({ project }) {
               <sk.Icon size={44} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.5} />
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 34, fontWeight: 800, lineHeight: 1, letterSpacing: '-.02em' }}>{deg(c.temp)}</span>
+                  <span style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.02em' }}>{deg(c.temp)}</span>
                   <span style={{ fontWeight: 700 }}>{sk.text}</span>
-                  <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>H {deg(t.high)} · L {deg(t.low)} · Wind {Math.round(c.wind ?? 0)} {data.units.wind}</span>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>H {deg(t.high)} · L {deg(t.low)} · Wind {Math.round(c.wind ?? 0)} {data.units.wind}</span>
                 </div>
-                <div data-today-rain="" style={{ fontSize: 12.5, fontWeight: 700, color: wetToday ? BLUE : 'var(--text-secondary)', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <div data-today-rain="" style={{ fontSize: 13, fontWeight: 700, color: wetToday ? BLUE : 'var(--text-secondary)', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <Umbrella size={12} /> {todayWords}
                 </div>
               </div>
@@ -189,8 +189,8 @@ export function SiteWeatherCard({ project }) {
                 const left = ((d.low - lo) / span) * 100, width = Math.max(4, ((d.high - d.low) / span) * 100);
                 const r = dayRain(d, i);
                 return (
-                  <div key={d.date} style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, alignItems: 'center', padding: '6px 0', borderTop: i ? '1px solid var(--border-color)' : 'none', fontSize: 12.5, minWidth: 0 }}>
-                    <span style={{ fontWeight: i === 0 ? 800 : 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i === 0 ? 'Today' : formatWeekday(d.date, 'short')} <span style={{ color: 'var(--text-secondary)', fontWeight: 500, fontSize: 11.5 }}>{formatDate(d.date)}</span></span>
+                  <div key={d.date} style={{ display: 'grid', gridTemplateColumns: cols, gap: 8, alignItems: 'center', padding: '6px 0', borderTop: i ? '1px solid var(--border-color)' : 'none', fontSize: 13, minWidth: 0 }}>
+                    <span style={{ fontWeight: i === 0 ? 800 : 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i === 0 ? 'Today' : formatWeekday(d.date, 'short')} <span style={{ color: 'var(--text-secondary)', fontWeight: 500, fontSize: 12 }}>{formatDate(d.date)}</span></span>
                     <ds.Icon size={16} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} aria-label={ds.text} />
                     {!isMobile && <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ds.text}</span>}
                     <span style={{ fontWeight: 700, color: r.wet ? BLUE : 'var(--text-secondary)' }}>{r.text}</span>

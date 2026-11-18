@@ -37,7 +37,7 @@ const CSS = `
 .nx-audit-bar:hover, .nx-audit-bar:focus-visible { background: var(--wk-brand, #2b45e1); }
 `;
 
-const selectStyle = { height: 34, fontSize: 12.5, minWidth: 0, width: '100%' };
+const selectStyle = { height: 34, fontSize: 13, minWidth: 0, width: '100%' };
 const fieldLabel = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 };
 
 // ── Data loading ────────────────────────────────────────────────────────────
@@ -75,7 +75,7 @@ function PersonFilter({ value, onChange, groups, nameOf, placeholder, ariaLabel 
     return (
       <div className="form-input" style={{ display: 'flex', alignItems: 'center', gap: 8, height: 34, padding: '0 8px' }}>
         <PersonAvatar email={value} name={nameOf(value)} size={20} />
-        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(value)}</span>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(value)}</span>
         <button type="button" onClick={() => onChange('')} aria-label={`Clear ${ariaLabel}`}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>
       </div>
@@ -170,7 +170,7 @@ function Filters({ f, set, legacy, facets, people, nameOf, searchRef, qInput, se
           {qInput ? (
             <button className="search-clear" onClick={() => setQInput('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>
           ) : (
-            !stacked && <kbd style={{ fontSize: 10.5, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 4, padding: '0 5px', fontFamily: 'inherit', flexShrink: 0 }} title="Press Ctrl+F or / to search">Ctrl+F</kbd>
+            !stacked && <kbd style={{ fontSize: 11, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 4, padding: '0 5px', fontFamily: 'inherit', flexShrink: 0 }} title="Press Ctrl+F or / to search">Ctrl+F</kbd>
           )}
         </div>
       ), 'q', 1.6)}
@@ -441,7 +441,7 @@ export default function AuditLog() {
           <p style={{ margin: '3px 0 0', fontSize: 13, color: 'var(--muted)' }}>
             Everything done in Nexus - who did it, who they were acting as, and what it was before.
           </p>
-          <div aria-live="polite" style={{ marginTop: 6, fontSize: 12.5, color: 'var(--ink)', fontWeight: 600 }}>
+          <div aria-live="polite" style={{ marginTop: 6, fontSize: 13, color: 'var(--ink)', fontWeight: 600 }}>
             {loading ? <span style={{ color: 'var(--muted)', fontWeight: 400 }}>Counting...</span>
               : count !== null ? `${count.toLocaleString('en-US')} event${count === 1 ? '' : 's'} ${legacy ? 'in the log' : rangePhrase(f)}`
                 : `${events.length.toLocaleString('en-US')}${nextCursor ? '+' : ''} event${events.length === 1 ? '' : 's'} ${rangePhrase(f)}`}
@@ -462,7 +462,7 @@ export default function AuditLog() {
       </div>
 
       {legacy && (
-        <div role="note" style={{ fontSize: 12.5, color: 'var(--muted)', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px', marginBottom: 12 }}>
+        <div role="note" style={{ fontSize: 13, color: 'var(--muted)', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px', marginBottom: 12 }}>
           Showing the older log. Field-by-field changes, Act As filters and more appear once the new audit service is live.
         </div>
       )}
@@ -471,18 +471,18 @@ export default function AuditLog() {
       {!isMobile && (
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
           <Filters {...filtersProps} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 10, fontSize: 12.5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 10, fontSize: 13 }}>
             {!legacy && (
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--ink)' }}>
                 <input type="checkbox" checked={f.system} onChange={e => set({ system: e.target.checked })} /> Show System Activity
               </label>
             )}
             {nActive > 0 && (
-              <button type="button" onClick={clear} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand, var(--pine))', fontWeight: 600, fontSize: 12.5, fontFamily: 'inherit' }}>
+              <button type="button" onClick={clear} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand, var(--pine))', fontWeight: 600, fontSize: 13, fontFamily: 'inherit' }}>
                 Clear Filters
               </button>
             )}
-            <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: 11.5 }}>
+            <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: 12 }}>
               <kbd>j</kbd> / <kbd>k</kbd> to move, <kbd>Enter</kbd> to open
             </span>
           </div>
@@ -524,7 +524,7 @@ export default function AuditLog() {
             No activity matches these filters.
             {nActive > 0 && (
               <div style={{ marginTop: 8 }}>
-                <button type="button" onClick={clear} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand, var(--pine))', fontWeight: 600, fontSize: 12.5, fontFamily: 'inherit' }}>Clear Filters</button>
+                <button type="button" onClick={clear} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand, var(--pine))', fontWeight: 600, fontSize: 13, fontFamily: 'inherit' }}>Clear Filters</button>
               </div>
             )}
           </div>

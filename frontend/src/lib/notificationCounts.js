@@ -43,10 +43,13 @@ export function useBellLists(all) {
   const ctx = useNotifications() || {};
   const { accounts } = useMsal();
   const role = useRole();
+  // Under Act As the rows are the acted-as person's (the server overlays the
+  // session), so they are matched to that person, not the real account.
+  const acting = role?.actingAs;
   const lists = bellLists(all ?? ctx.notifications, {
     isManager: !!role?.can?.('manager'),
-    myEmail: (accounts?.[0]?.username ?? '').toLowerCase(),
-    myName: accounts?.[0]?.name ?? '',
+    myEmail: (role?.myEmail || accounts?.[0]?.username || '').toLowerCase(),
+    myName: acting ? (acting.targetName || '') : (accounts?.[0]?.name ?? ''),
   });
   return { ...lists, unread: ctx.notificationsLoaded ? lists.unread : null };
 }

@@ -54,7 +54,7 @@ export default function FilterSheet({ filters, setFilters, clearFilters, onClose
       <div className="apv-ph-fs">
         <div className="apv-search">
           <Search size={14} aria-hidden="true" />
-          <input type="search" className="form-input" style={{ fontSize: 16, minHeight: 44 }} value={filters.query} onChange={(e) => setFilters({ query: e.target.value })}
+          <input type="search" className="form-input" style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ 16, minHeight: 44 }} value={filters.query} onChange={(e) => setFilters({ query: e.target.value })}
             placeholder="Search by name, request or detail" aria-label="Search approvals" />
         </div>
         <Seg title="Sort" options={sorts} value={sorts.some((s) => s.key === sortKey) ? sortKey : 'oldest'} onPick={setSortKey} />

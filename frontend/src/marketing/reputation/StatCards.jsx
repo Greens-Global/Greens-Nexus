@@ -32,7 +32,7 @@ function StatCard({ def, onClick }) {
       <div className="mktg-stat-head" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
         {isRating ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-            <span style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{def.value}</span>
+            <span style={{ fontSize: 18, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{def.value}</span>
             <StarRating value={def.stars} size={13} />
           </div>
         ) : (
@@ -45,12 +45,12 @@ function StatCard({ def, onClick }) {
             {def.deltaLabel.startsWith('-') ? <ArrowDown size={11} /> : <ArrowUp size={11} />}
             {def.deltaLabel.replace('-', '')}
           </span>
-          <span style={{ fontSize: 10, color: C.gray400, whiteSpace: 'nowrap' }}>vs {def.deltaSubtitle}</span>
+          <span style={{ fontSize: 11, color: C.gray400, whiteSpace: 'nowrap' }}>vs {def.deltaSubtitle}</span>
         </div>
       </div>
       <div style={{ fontSize: 12, color: C.gray500, marginBottom: 4, lineHeight: 1.25 }}>{def.label}</div>
       {!isRating && (
-        <div style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{def.value}</div>
+        <div style={{ fontSize: 18, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{def.value}</div>
       )}
     </button>
   )

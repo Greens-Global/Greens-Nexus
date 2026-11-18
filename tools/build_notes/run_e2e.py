@@ -227,7 +227,7 @@ class E2ERun:
                                    "`expect(false, 'TODO: ...')` with the pin's complaint first")
 
         main_root = stack.main_checkout(self.system, self.cwd)
-        python = main_root / "backend" / ".venv" / "bin" / "python"
+        python = stack.venv_python(main_root)
         if not python.exists():
             raise stack.StackError("No backend virtualenv at " + str(python))
         if not (main_root / "frontend" / "node_modules").is_dir():
@@ -299,7 +299,7 @@ class E2ERun:
         self.system.http_ok(api + "/roles/me", timeout=30)
 
         # Frontend: the VITE_E2E build served by vite preview.
-        vite = worktree / "frontend" / "node_modules" / ".bin" / "vite"
+        vite = stack.node_bin(worktree / "frontend", "vite")
         self.out("Building the frontend (VITE_E2E=true)...")
         self.system.run([str(vite), "build"], cwd=worktree / "frontend",
                         env=dict(build_env(self.base_env, "http://localhost:" + str(api_port)), **cache_env), timeout=BUILD_TIMEOUT)

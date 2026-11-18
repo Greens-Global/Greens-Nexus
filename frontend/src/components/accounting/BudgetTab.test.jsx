@@ -95,6 +95,35 @@ describe('BudgetTab', () => {
     expect(body).toMatchObject({ location: '13000' });
   });
 
+  it('shows a cell with separators at rest and the plain number while typing', async () => {
+    api.getAccountingBudget.mockResolvedValueOnce({ ...budget, rows: [{ ...budget.rows[0], months: [12345, ...budget.rows[0].months.slice(1)] }, budget.rows[1]] });
+    render(<BudgetTab canEdit />);
+    await screen.findByText('Rental Income');
+    const cell = screen.getByLabelText('41101 Jan');
+    expect(cell.value).toBe('12,345.00');
+    fireEvent.focus(cell);
+    expect(cell.value).toBe('12345.00');
+    fireEvent.blur(cell);
+    expect(cell.value).toBe('12,345.00');
+    expect(screen.getByRole('button', { name: /^Saved$/ })).toBeTruthy();
+  });
+
+  it('asks before another year drops unsaved edits', async () => {
+    const { dialog } = await import('../../ui/dialog');
+    dialog.confirm.mockResolvedValueOnce(false);
+    const y = new Date().getFullYear();
+    render(<BudgetTab canEdit />);
+    await screen.findByText('Rental Income');
+    const cell = screen.getByLabelText('41101 Apr');
+    fireEvent.change(cell, { target: { value: '500' } });
+    fireEvent.blur(cell);
+    fireEvent.click(screen.getByRole('button', { name: 'Next year' }));
+    await waitFor(() => expect(dialog.confirm).toHaveBeenCalledWith(expect.stringMatching(/not saved/), expect.objectContaining({ confirmText: 'Discard' })));
+    expect(api.getAccountingBudget).not.toHaveBeenCalledWith('13000', y + 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Next year' }));
+    await waitFor(() => expect(api.getAccountingBudget).toHaveBeenCalledWith('13000', y + 1));
+  });
+
   it("copies last year's actuals into the grid", async () => {
     render(<BudgetTab canEdit />);
     await screen.findByText('Rental Income');

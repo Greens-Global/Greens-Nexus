@@ -26,22 +26,25 @@
 // notes, tasks, jobs and Knowledge Base pages and puts a chip that opens the
 // record; Link to a Record sits in the toolbar, the phone bar's Aa row and
 // the "/" menu.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { buildExtensions } from './noteExtensions';
+import { meetingClockKey } from './meetings/meetingClock';
 import {
   Undo2, Redo2, Bold, Italic, Underline, Strikethrough, Highlighter, Code, Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, IndentIncrease, IndentDecrease, Quote, SquareCode, AlignLeft, AlignCenter,
   AlignRight, Link2, Table as TableIcon, Minus, CalendarDays, Pilcrow, ListPlus, Rows3, Columns3, Trash2, Check, X,
-  Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, PenTool, FileSymlink,
+  Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, FileSymlink,
   Info, Lightbulb, TriangleAlert, ListCollapse,
   ListTodo, Camera, ImagePlus, Type as TypeIcon, LayoutTemplate,
 } from 'lucide-react';
+import BoardIcon from '../components/icons/BoardIcon';
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
-import { useKeyboardInset, keyboardUp } from '../lib/useVisualViewport';
+import { useKeyboardInset, keyboardUp, readVisualViewport } from '../lib/useVisualViewport';
+import { setInlineDirty } from '../lib/dialogGuard';
 import BoardPicker from './board/BoardPicker';
 import { useRecordSearch, recordContent, RECORD_META } from './recordLink';
 import { boxesKey, syncBoxesFromTasks, listenForBoxTicks } from './checklistTasks';
@@ -189,7 +192,7 @@ function MediaStatus({ voice, dictation, busy, error, onDismiss }) {
 export default function NoteEditor({
   value, onChange, readOnly = false, people, placeholder = "Write anything. Type / for blocks, @ to mention someone, [[ to link a record.",
   onMakeTask, autoFocus = false, toolbar = true, compact = false, onBusy, collab = null, onRemoteChange, noteId = '',
-  starters = true,
+  starters = true, meeting = null, onEditor,
 }) {
   const [menu, setMenu] = useState(null);   // { kind: 'slash'|'mention'|'record', query, from, index }
   const [link, setLink] = useState(null);   // { href } while the link bar is open
@@ -273,6 +276,20 @@ export default function NoteEditor({
 
   useEffect(() => { if (editor && !editor.isDestroyed) editor.setEditable(!readOnly); }, [editor, readOnly]);
 
+  // The editor itself, for a page that writes a line in (Meeting Notes'
+  // "Transcription started at ...", 11/12/2026).
+  useEffect(() => { onEditor?.(editor && !editor.isDestroyed ? editor : null); }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Meeting Notes (11/12/2026, meetings/meetingClock.js): a meeting note's
+  // lines are stamped with the time they were written and show it; the
+  // clock reads someone else's live typing as theirs, never stamping it.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !editor.storage.meetingClock) return;
+    editor.storage.meetingClock.meeting = meeting;
+    editor.storage.meetingClock.isRemote = (tr) => !!collabRef.current?.isRemote(tr);
+    editor.view.dispatch(editor.state.tr.setMeta(meetingClockKey, 'refresh'));
+  }, [editor, meeting]);
+
   // Whether the person is in the note (the phone bar shows while they are).
   // A short grace on blur: tapping a bar button must not flicker it away.
   useEffect(() => {
@@ -337,7 +354,19 @@ export default function NoteEditor({
   const onBusyRef = useRef(onBusy);
   useEffect(() => { onBusyRef.current = onBusy; }, [onBusy]);
   const working = live || !!busy;
-  useEffect(() => { onBusyRef.current?.(working); }, [working]);
+  // What leaving now would lose: a recording under way, or a clip still
+  // uploading - it finishes after the editor is gone and is never put in
+  // (dictated words are already in the note). The parent hears it as
+  // onBusy's second argument and holds its own close / switch; leaving the
+  // page another way (the sidebar, a bell row, Back, a reload) asks through
+  // the app's leave guard (lib/dialogGuard.js).
+  const losing = voice.recording || !!busy;
+  useEffect(() => { onBusyRef.current?.(working, losing); }, [working, losing]);
+  const guardKey = `note-media-${useId()}`;
+  useEffect(() => {
+    setInlineDirty(guardKey, losing);
+    return () => setInlineDirty(guardKey, false);
+  }, [guardKey, losing]);
   const err = mediaErr || voice.error || dictation.error;
   const clearErr = () => { setMediaErr(''); voice.setError(''); dictation.setError(''); };
   const toggleVoice = () => { clearErr(); if (voice.recording) voice.stop(); else voice.start(); };
@@ -381,7 +410,7 @@ export default function NoteEditor({
       recordOk && { key: 'voice', label: 'Voice Note', hint: 'Record a clip that stays in the note', icon: AudioLines, keys: 'audio record recording mic', act: 'voice' },
       { key: 'photo', label: 'Photo', hint: 'A picture - or paste one with Ctrl+V', icon: ImagePlus, keys: 'picture image camera snap pic', act: 'photo' },
       { key: 'video', label: 'Video', hint: 'Add a clip from this computer', icon: Clapperboard, keys: 'movie clip film', act: 'video' },
-      { key: 'board', label: 'Board', hint: 'Insert one of your boards', icon: PenTool, keys: 'whiteboard drawing sketch markup', act: 'board' },
+      { key: 'board', label: 'Board', hint: 'Insert one of your boards', icon: BoardIcon, keys: 'whiteboard drawing sketch markup', act: 'board' },
     ].filter(Boolean);
     return [...SLASH, ...(live ? [] : capture)].filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 24);
   }, [menu, people, dictateOk, recordOk, live, records.rows]);
@@ -511,8 +540,18 @@ export default function NoteEditor({
     try {
       const c = editor.view.coordsAtPos(Math.min(menu.from, editor.state.doc.content.size));
       const w = menu.kind === 'record' ? 320 : 260, h = Math.min(Math.max(1, items.length) * 44 + 12, 340);
-      const vw = window.innerWidth, vh = window.innerHeight;
-      menuPos = { left: Math.max(8, Math.min(c.left, vw - w - 8)), top: c.bottom + h + 8 > vh ? Math.max(8, c.top - h - 6) : c.bottom + 6, width: w };
+      // Placed in what can be SEEN (the visual viewport), not the window: on
+      // a phone the keyboard covers the bottom of the window and the menu
+      // used to open under it. Below the caret when it fits there, else on
+      // the side with more room, never taller than that room.
+      const vp = readVisualViewport();
+      const vw = window.innerWidth;
+      const vTop = vp ? vp.top : 0;
+      const vBottom = vp ? vp.top + vp.height - (vp.clear || 0) : window.innerHeight;
+      const below = vBottom - c.bottom - 8, above = c.top - vTop - 8;
+      const down = h <= below || below >= above;
+      const mh = Math.min(h, Math.max(88, down ? below : above));
+      menuPos = { left: Math.max(8, Math.min(c.left, vw - w - 8)), top: down ? c.bottom + 6 : Math.max(vTop + 8, c.top - mh - 6), width: w, maxHeight: mh < h ? mh : undefined };
     } catch { menuPos = null; }
   }
 
@@ -568,7 +607,7 @@ export default function NoteEditor({
             active={voice.recording} danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
           <TBtn icon={ImagePlus} text="Photo" label="Add a Photo - or paste one with Ctrl+V" keep disabled={live} onClick={pickPhoto} />
           <TBtn icon={Clapperboard} text="Video" label="Add a Video" disabled={live} onClick={pickVideo} />
-          <TBtn icon={PenTool} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
+          <TBtn icon={BoardIcon} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
           <Btn icon={ListTodo} label="Live Task List - my tasks or a project, always up to date" onClick={run((c) => c.insertLiveList())} />
           {onMakeTask && <TBtn icon={ListPlus} text="Make a Task" label="Make a Task - from the selection or the current line" onClick={makeTask} />}
           </div>
@@ -644,7 +683,7 @@ export default function NoteEditor({
               <PBtn icon={FileSymlink} label="Link to a Record" onClick={() => { setMore(false); startRecordLink(); }} />
               <PBtn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
               <PBtn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
-              <PBtn icon={PenTool} label="Insert Board" active={boardPick} onClick={() => { setMore(false); openBoardPick(); }} />
+              <PBtn icon={BoardIcon} label="Insert Board" active={boardPick} onClick={() => { setMore(false); openBoardPick(); }} />
               <PBtn icon={ListTodo} label="Live Task List" onClick={run((c) => c.insertLiveList())} />
               {onMakeTask && <PBtn icon={ListPlus} label="Make a Task" onClick={makeTask} />}
               <PBtn icon={Undo2} label="Undo" disabled={!e.can().undo()} onClick={run((c) => c.undo())} />
@@ -676,7 +715,7 @@ export default function NoteEditor({
       )}
       {menuPos && createPortal(
         <div className="nt-menu" role="listbox" aria-label={menu.kind === 'mention' ? 'Mention someone' : menu.kind === 'record' ? 'Link to a record' : 'Insert a block'}
-          style={{ left: menuPos.left, top: menuPos.top, width: menuPos.width }}>
+          style={{ left: menuPos.left, top: menuPos.top, width: menuPos.width, maxHeight: menuPos.maxHeight }}>
           {menu.kind === 'record' && !items.length && (
             <div className="nt-menu-empty" role="status">
               {records.loading ? 'Looking…' : menu.query.trim() ? `Nothing matches "${menu.query.trim()}"` : 'Type to find a note, task, job or page'}

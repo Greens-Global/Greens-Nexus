@@ -128,7 +128,7 @@ export default function OrgChartLens({ people, query, me, selected, onSelect, mo
         {me && byEmail.has(me) && (
           <button type="button" className="dir-tool" style={tool} onClick={jumpToMe} title="Find yourself on the chart"><LocateFixed size={13} /> Me</button>
         )}
-        <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
+        <span style={{ fontSize: 12, color: NX.faint, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
           {people.length} {people.length === 1 ? 'person' : 'people'} · {linked} on the chart
         </span>
       </div>
@@ -142,12 +142,12 @@ export default function OrgChartLens({ people, query, me, selected, onSelect, mo
               <button key={d} type="button" aria-pressed={on} onClick={() => setActiveDiv(on ? '' : d)} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, whiteSpace: 'nowrap',
                 border: `1.5px solid ${on ? `hsl(${col})` : NX.border}`, cursor: 'pointer', fontFamily: FONT,
-                background: on ? `hsla(${col},0.12)` : NX.surface, fontSize: 11.5, fontWeight: 700,
+                background: on ? `hsla(${col},0.12)` : NX.surface, fontSize: 12, fontWeight: 700,
                 color: on ? `hsl(${col})` : NX.ink, opacity: activeDiv && !on ? 0.55 : 1, transition: 'opacity 0.12s',
               }}>
                 <span style={{ width: 9, height: 9, borderRadius: '50%', background: `hsl(${col})` }} />
                 {d}
-                <span style={{ fontSize: 10, fontWeight: 800, color: NX.faint }}>{divCounts[d] || 0}</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: NX.faint }}>{divCounts[d] || 0}</span>
               </button>
             );
           })}
@@ -211,7 +211,7 @@ export function OrgCard({ p, kids, below, collapsed, onToggle, active, me, hit, 
             {p.name}{p.email === me && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}<TierMark tier={p.tier} size={12} />
           </div>
           <div style={{ fontSize: 11, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.jobTitle || '-'}</div>
-          <div style={{ fontSize: 10, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{ fontSize: 11, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{[p.department, p.companyName].filter(Boolean).join(' · ') || '\u00a0'}</span>
             <RoleBadge role={p.departmentRole} />
           </div>

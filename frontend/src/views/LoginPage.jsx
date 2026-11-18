@@ -3,7 +3,7 @@ THESIS: signing in feels like opening a premium work OS (canon, owner-pinned:
 monday.com-grade) - a confident split hero: the product's world on the left,
 one calm action on the right.
 OWN-WORLD: Work OS (DESIGN.md) - brand panel with floating module cards
-(CSS-drawn, no fabricated numbers), white sign-in column, Figtree type, one
+(CSS-drawn, no fabricated numbers), white sign-in column, Inter type, one
 Microsoft action. Accent defaults to green (Pranshu, Jul 28) and is a Global
 Admin-configurable setting, not hardcoded - see lib/brandAccent.js and
 backend/routers/branding.py.
@@ -23,6 +23,7 @@ import { useBranding } from "../lib/queries";
 import { accentVars } from "../lib/brandAccent";
 import { BFF_MODE, clearSignedOutMarker } from "../bffAuth";
 import { externalAuthPost, useResendTimer } from "../lib/externalAuth";
+import { PREVIEW_HOST, startPreviewSignIn } from "../lib/previewSignIn";
 
 // Accent is a saved company setting, not hardcoded - see
 // backend/routers/branding.py (set in Settings > Branding & Policies > Brand
@@ -56,6 +57,7 @@ export default function LoginPage() {
     // Explicit click: lift the fresh-logout guard that suppresses AUTO re-login
     // (bffAuth.bffLogin) so the user's own sign-in is never blocked by it.
     clearSignedOutMarker();
+    if (PREVIEW_HOST) { startPreviewSignIn('/'); return; }   // a Build Mode preview signs in through the dev site
     if (BFF_MODE) {
       // Pass the last signed-in email as login_hint so Entra preselects the
       // account instead of showing "Pick an account".
@@ -141,8 +143,10 @@ export default function LoginPage() {
       <aside className="nxl-hero" aria-hidden="true">
         <div className="nxl-hero-wash" />
         <div className="nxl-hero-brand" style={{ "--i": 0 }}>
-          <span className="nxl-mark nxl-mark--inverse">N</span>
-          <span className="nxl-hero-name">Nexus</span>
+          {/* The brand lockup (Pranshu, 11/15/2026): the ring mark and the
+              white Nexus wordmark, cut from the designer's file by
+              scripts/make-brand-assets.py - no tagline. */}
+          <img className="nxl-lockup" src="/brand/nexus-lockup-white.png" alt="Nexus" />
         </div>
         {/* One column, centered in the panel (Sagar, Sep 15). The panel only
             left-padded its content before, so on a wide screen the block sat
@@ -171,7 +175,7 @@ export default function LoginPage() {
       {/* Right: one calm action */}
       <main className="nxl-stage">
         <div className="nxl-stage-inner">
-          <div className="nxl-badge" style={{ "--i": 0 }} aria-hidden="true">N</div>
+          <img className="nxl-badge" style={{ "--i": 0 }} src="/brand/nexus-mark.png" alt="" aria-hidden="true" />
 
           {partner === null && (<>
           <h1 className="nxl-title" style={{ "--i": 1 }}>Welcome to Nexus</h1>
@@ -220,10 +224,10 @@ export default function LoginPage() {
             onChange={e => setPEmail(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') partnerRequest(); }}
             style={{ width: '100%', maxWidth: 340, boxSizing: 'border-box', padding: '12px 14px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, fontFamily: 'inherit', marginBottom: 12 }} />
-          {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
+          {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
           <button className="nxl-cta" style={{ "--i": 3 }} disabled={pBusy} onClick={() => partnerRequest()}>Send Code</button>
           <button onClick={exitPartner}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
             Back to Microsoft Sign-In
           </button>
           </>)}
@@ -238,7 +242,7 @@ export default function LoginPage() {
             Continue
           </button>
           <button onClick={exitPartner}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '8px 4px' }}>
             Cancel
           </button>
           <p className="nxl-note" style={{ "--i": 4 }}>
@@ -257,19 +261,19 @@ export default function LoginPage() {
             onChange={e => setPCode(e.target.value.replace(/[^0-9A-Za-z]/g, '').toUpperCase().slice(0, 8))}
             onKeyDown={e => { if (e.key === 'Enter' && (pCode.length === 6 || pCode.length === 8)) partnerVerify(); }}
             style={{ width: '100%', maxWidth: 240, boxSizing: 'border-box', padding: '12px 14px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 24, letterSpacing: 8, textAlign: 'center', fontWeight: 700, fontFamily: 'inherit', marginBottom: 12 }} />
-          {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 12.5, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
+          {pError && <p role="alert" style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 600, color: '#b91c1c' }}>{pError}</p>}
           <button className="nxl-cta" style={{ "--i": 3 }} disabled={pBusy || !(pCode.length === 6 || pCode.length === 8)} onClick={partnerVerify}>Verify and Sign In</button>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginTop: 4 }}>
             <button disabled={pBusy || resendLeft > 0} onClick={() => partnerRequest()}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>
               {resendLeft > 0 ? `Resend in ${resendLeft}s` : 'Resend Code'}
             </button>
             <button disabled={pBusy || resendLeft > 0} onClick={() => partnerRequest('email')}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px', opacity: resendLeft ? 0.5 : 1 }}>
               Send to My Email Instead
             </button>
             <button disabled={pBusy} onClick={() => { setPartner('email'); setPError(''); }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px' }}>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#6b7280', textDecoration: 'underline', padding: '6px 4px' }}>
               Different Email
             </button>
           </div>
@@ -294,7 +298,7 @@ export default function LoginPage() {
         .nxl-page {
           position: fixed; inset: 0; overflow: hidden;
           background: #ffffff; color: #323338;
-          font-family: 'Figtree', 'Inter', sans-serif;
+          font-family: 'Inter', sans-serif;
           display: flex;
         }
 
@@ -317,7 +321,7 @@ export default function LoginPage() {
         .nxl-hero > * { position: relative; }
         .nxl-hero-inner { width: 100%; max-width: 552px; margin-inline: auto; }
         .nxl-hero-brand {
-          position: absolute; top: 26px; left: clamp(36px, 6vw, 84px);
+          position: absolute; top: 32px; left: clamp(40px, 6vw, 84px);
           display: flex; align-items: center; gap: 14px;
         }
         /* The brand lockup at ~150% (Sagar, Sep 17; Neil, Sep 22). Sized
@@ -325,13 +329,9 @@ export default function LoginPage() {
            transform: scale(), which the entrance animation below cancels
            (every hero child lands on transform: none), so the earlier
            scale(1.45) never actually showed. */
-        .nxl-mark {
-          width: 48px; height: 48px; border-radius: 13px;
-          display: inline-flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 24px;
-        }
-        .nxl-mark--inverse { background: rgba(255,255,255,.16); color: #fff; }
-        .nxl-hero-name { font-size: 27px; font-weight: 800; letter-spacing: -.01em; }
+        /* 72px: the white disc under the ring keeps it legible at this size,
+           and it sits clear of the corner (Pranshu, 11/15/2026). */
+        .nxl-lockup { height: 72px; width: auto; display: block; filter: drop-shadow(0 3px 10px rgba(0, 0, 0, .16)); }
 
         .nxl-hero-title {
           margin: 0;
@@ -375,7 +375,7 @@ export default function LoginPage() {
           display: inline-flex; align-items: center; justify-content: center;
         }
         .nxl-card-text { display: flex; flex-direction: column; min-width: 0; }
-        .nxl-card-title { font-size: 13.5px; font-weight: 700; }
+        .nxl-card-title { font-size: 13px; font-weight: 700; }
         .nxl-card-sub { font-size: 12px; color: #676879; }
 
         /* ── Right sign-in column ── */
@@ -400,12 +400,9 @@ export default function LoginPage() {
         .nxl-on .nxl-card:nth-child(3) { transform: rotate(-.6deg); }
 
         .nxl-badge {
-          width: 60px; height: 60px; border-radius: 15px;
-          background: ${P.base}; color: #fff;
-          display: flex; align-items: center; justify-content: center;
-          font-weight: 800; font-size: 28px;
-          box-shadow: 0 10px 26px ${P.shadow};
-          margin-bottom: 24px;
+          width: 84px; height: 84px; display: block;
+          filter: drop-shadow(0 10px 22px ${P.shadow});
+          margin-bottom: 22px;
         }
         .nxl-title {
           font-size: clamp(26px, 3vw, 34px);
@@ -420,8 +417,8 @@ export default function LoginPage() {
           padding: 14px 28px;
           background: #ffffff; color: #323338;
           border: 1px solid #d0d4e4; border-radius: 10px;
-          font-family: 'Figtree', 'Inter', sans-serif;
-          font-size: 15.5px; font-weight: 700;
+          font-family: 'Inter', sans-serif;
+          font-size: 15px; font-weight: 700;
           cursor: pointer;
           box-shadow: 0 4px 12px rgba(29,33,57,.07);
           transition: box-shadow .16s ease, border-color .16s ease, transform .16s ease;
@@ -456,7 +453,7 @@ export default function LoginPage() {
           .nxl-actions .nxl-cta-inner { grid-column: 2; justify-self: start; }
           .nxl-actions .nxl-note { grid-column: 1 / -1; }
         }
-        .nxl-note { margin: 16px 0 0; font-size: 12.5px; color: #9699a6; }
+        .nxl-note { margin: 16px 0 0; font-size: 13px; color: #9699a6; }
 
         /* Pinned to the page corners. The left one sits over the green panel,
            so it is light; below 880px the panel is hidden and the area behind

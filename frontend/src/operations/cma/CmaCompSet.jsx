@@ -205,7 +205,7 @@ function OverrideCard({ data, c, onSaved }) {
         <label>Use This Rate Instead ($)<input className="form-input" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="e.g. after a phone quote" /></label>
         <label>Reason<input className="form-input" value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} placeholder="Phone quote lower than site" /></label>
       </div>
-      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, marginTop: 10 }}>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, marginTop: 10 }}>
         <input type="checkbox" checked={lock} onChange={(e) => setLock(e.target.checked)} />
         Lock this value - don&apos;t overwrite on the next website sync (unlocks automatically after {data.lockDays} days)
       </label>
@@ -245,7 +245,7 @@ function AddCompetitorModal({ data, onClose, onSaved }) {
         <label>Miles Away<input className="form-input" type="number" min="0" step="0.1" value={f.distance} onChange={set('distance')} /></label>
         <label>Property Type<input className="form-input" value={f.type} maxLength={80} onChange={set('type')} placeholder="Self-Storage & RV Storage" /></label>
       </div>
-      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12.5, marginTop: 12 }}>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, marginTop: 12 }}>
         <input type="checkbox" checked={f.manual} onChange={(e) => setF({ ...f, manual: e.target.checked })} /> Manual only (no website to read)
       </label>
       {error && <p className="cma-error" role="alert">{error}</p>}

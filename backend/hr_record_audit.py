@@ -69,7 +69,8 @@ def gaps(db, emp: NexusEmployee, docs: list = None) -> list:
     exp = str(c.get("expiryDate") or "")[:10]
     if _expired(exp, today):
         out.append(f"Work authorization expired {hc.us_date(exp)}")
-    elif hc.person_country(db, emp) == "US" and c.get("status") != "verified":
+    elif (hc.person_country(db, emp) == "US" and c.get("status") != "verified"
+          and (emp.employment_type or "") != "contractor"):   # no I-9 for an independent contractor
         out.append("Work authorization not verified")
     # Any other dated document: expired unless a newer one of the same kind
     # (other than "other", which is per file) is still good.
@@ -90,7 +91,12 @@ def company_report(db, entity_id: str = None, scope=None) -> list:
     """[{id, name, company, gaps}] for everyone with a gap, by company then
     name. `scope` is hr_scope(): None = every company."""
     from routers.hr import _scoped
+    from sqlalchemy import or_
     q = db.query(NexusEmployee).filter(NexusEmployee.status.in_(STATUSES))
+    # Guests, investors and other externals are not employees: no manager,
+    # start date or picture ID is owed for them (People review, 11/11/2026).
+    q = q.filter(or_(NexusEmployee.identity_type.is_(None),
+                     NexusEmployee.identity_type.notin_(("guest", "external"))))
     if entity_id is not None:
         q = q.filter(NexusEmployee.company == entity_id)
     people = _scoped(q, scope).all()

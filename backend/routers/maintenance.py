@@ -5,6 +5,9 @@ router only reads and writes tickets through routers/tickets.py
 (file_ticket, update_ticket) so every intake rule, permission, SLA, bell and
 workflow event is the desk's own:
 
+  * GET  /maintenance/portfolio - tickets per property for Asset
+    Management's Maintenance tab (open, all, last, preventive), walled
+    like the roll-up.
   * GET  /maintenance/rollup - open and overdue preventive tickets per
     property and per company (the Tickets desk's Preventive queue header,
     Asset Management, Insights). Company walls, and only properties the
@@ -33,7 +36,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 import auth
@@ -160,6 +163,83 @@ def rollup(user: dict = Depends(get_current_user), db: Session = Depends(get_db)
         raise HTTPException(403, "The preventive maintenance roll-up is for the service desk and the Asset "
                                  "Management team.")
     return rollup_rows(db, user)
+
+
+# ── The portfolio's view of the work (Asset Management > Maintenance) ────────
+
+def portfolio_rows(db: Session, user: dict) -> dict:
+    """Tickets per property for the Asset Management Maintenance tab (Neil,
+    11/17/2026): open and all tickets, the newest ticket's day, the preventive
+    schedules set up and the preventive tickets overdue. The same walls as the
+    roll-up - the caller's company scope on each ticket's company, and only
+    properties the caller may see (private, property-asset scope rows).
+    Confidential tickets stay hidden (no opt-in). One grouped query per table:
+    tickets grouped by property, company and - for a live preventive ticket
+    only - its due day, so the overdue count reads each company's calendar."""
+    scope = auth.company_scope(user, db)
+    T_ = models.TaskTicket
+    live = ~T_.status.in_(_CLOSED)
+    preventive = (T_.service_id.isnot(None)) & (T_.service_id != "") & (T_.pm_due_on.isnot(None)) & (T_.pm_due_on != "")
+    due_key = case((live & preventive, T_.pm_due_on), else_="")
+    open_n = func.sum(case((live, 1), else_=0))
+    groups = (db.query(T_.property_asset_id, T_.company_id, due_key.label("due"),
+                       func.count(T_.id), open_n, func.max(T_.created_at))
+              .filter(T_.property_asset_id.isnot(None), T_.property_asset_id != "")
+              .group_by(T_.property_asset_id, T_.company_id, due_key).all())
+    groups = [g for g in groups if auth.company_ok(g[1] or "", scope)]
+    S_ = models.PropertyMaintenanceService
+    schedules = dict(db.query(S_.property_asset_id, func.count(S_.id))
+                     .filter(S_.kind.isnot(None), S_.kind != "", S_.property_asset_id.isnot(None),
+                             S_.property_asset_id != "")
+                     .group_by(S_.property_asset_id).all())
+    props = _assets(db, [g[0] for g in groups] + list(schedules))
+    allowed = property_links.asset_scope(db, user)
+    today_of = MS.TodayCache(db)
+
+    def seen(pid):
+        p = props.get(pid or "")
+        if p is None or not property_links.viewable(p, user) or not property_links.in_scope(p, allowed):
+            return None
+        return p
+
+    per: dict = {}
+
+    def row(p):
+        return per.setdefault(p.id, {"propertyId": p.id, "propertyName": property_links.display_name(p),
+                                     "open": 0, "total": 0, "lastCreatedAt": "",
+                                     "preventiveSchedules": 0, "preventiveOverdue": 0})
+
+    for pid, company, due, total, open_count, last in groups:
+        p = seen(pid)
+        if p is None:
+            continue
+        o = row(p)
+        o["total"] += int(total or 0)
+        o["open"] += int(open_count or 0)
+        if last and last > o["lastCreatedAt"]:
+            o["lastCreatedAt"] = last
+        if due and due < today_of(company or "").isoformat():
+            o["preventiveOverdue"] += int(open_count or 0)
+    for pid, n in schedules.items():
+        p = seen(pid)
+        if p is not None:
+            row(p)["preventiveSchedules"] = int(n or 0)
+    properties = sorted(per.values(), key=lambda o: (-o["open"], o["propertyName"].lower()))
+    return {"properties": properties,
+            "totals": {"open": sum(o["open"] for o in properties),
+                       "total": sum(o["total"] for o in properties),
+                       "properties": sum(1 for o in properties if o["total"]),
+                       "openProperties": sum(1 for o in properties if o["open"]),
+                       "preventiveSchedules": sum(o["preventiveSchedules"] for o in properties),
+                       "preventiveOverdue": sum(o["preventiveOverdue"] for o in properties)}}
+
+
+@router.get("/portfolio")
+def portfolio(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not (T._has_desk_grant(user, db) or property_links.may_walkthrough(db, user)):
+        raise HTTPException(403, "Maintenance across the portfolio is for the service desk and the Asset "
+                                 "Management team.")
+    return portfolio_rows(db, user)
 
 
 # ── Scan to Request ──────────────────────────────────────────────────────────

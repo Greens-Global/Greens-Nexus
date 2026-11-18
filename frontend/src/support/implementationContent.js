@@ -50,8 +50,8 @@ export const IMPL_CONCEPTS = [
   { term: 'Holiday Policy', text: 'A named set of holidays with its weekend rule (Settings > Time Off & Leave > Holiday Policies), applied to one or more companies. Each company’s Holiday Calendar shows its policies’ holidays and can skip or change any of them, or add its own.' },
   { term: 'Location', text: 'A physical site people punch in at, placed once in the Location Library from its Google Maps link with a geofence radius, then switched on for the companies that use it.' },
   { term: 'Job Role', text: 'What a person does: a seniority tier, a department, a bundle of modules at set levels, the time-clock exemptions, the Teams chat or channel their day messages post to, and a default approver. Giving someone a role gives them all of it at once.' },
-  { term: 'Tier', text: 'Employee, Supervisor, Manager, Administrator (Administrator) or Super Administrator (Owner). It decides what a person can approve and how far they see - a Manager with People sees their own team; Administrators grant access up to Manager; only Super Administrators manage other admins and see across company walls.' },
-  { term: 'Access Level', text: 'Each module is granted at Viewer, Editor, Full or Owner. Viewer reads, Editor creates and edits, Full runs the module, Owner also manages who else gets in.' },
+  { term: 'Tier', text: 'Employee, Supervisor, Manager, Administrator or Super Administrator. It decides what a person can approve and how far they see - a Manager with People sees their own team; Administrators grant access up to Manager; only Super Administrators manage other admins and see across company walls.' },
+  { term: 'Access Level', text: 'Each module is granted at Viewer, Editor or Full. Viewer reads, Editor creates and edits, Full runs the module. A tier check (Manager, Administrator, Super Administrator) still applies on top where the module has one.' },
   { term: 'Access Group', text: 'Extra modules on top of a job role, for a few people who need more than their role (a payroll helper who also needs Accounting). Additive only - it never takes access away.' },
   { term: 'Company Walls', text: 'When on, a person whose role belongs to a company sees only that company’s people and records. Super Administrators see across all of them. Turn it on once every person has a company.' },
   { term: 'Person', text: 'A People record: Employee (on payroll), Independent Contractor, or External (a partner-company person who signs in with an emailed code). Internal people sign in with Microsoft 365; Nexus never stores their password.' },
@@ -183,7 +183,7 @@ export const IMPL_PHASES = [
         'Edit the Policy Text, Save Draft, have it approved, then click Publish and Ask Everyone.',
       ]},
       { title: 'Sessions and Guest Sign-In', where: 'Settings > Security > Sign-In & Sessions', view: 'admin-console', sub: 'security:sign-in-sessions', items: [
-        'Set the Web Session Idle Limit, Act As Session Length and the Credentials unlock times.',
+        'Set the Web Session Idle Limit, Act As Session Length and the Passwords unlock times.',
         'Guest Sign-In: code lifetime, wrong-code attempts, lockout duration, code requests per hour and invitation link lifetime.',
       ]},
       { title: 'Email Signature', where: 'Settings > Branding & Email > Email Signature', view: 'admin-console', sub: 'branding:email-signature', items: [
@@ -513,7 +513,7 @@ export const IMPL_PHASES = [
     summary: 'Set up how work is tracked, how help is asked for, where policies live and how documents are signed and filed.',
     why: 'These are the everyday work modules. Each has a small setup that decides how it behaves for everyone: task teams and fields, ticket desks and SLAs, the SOP library and sign-offs, document templates and e-signature, and the file store.',
     decisions: [
-      'Task teams, custom fields and statuses (and which projects require each field); how often task emails are batched; who beyond Managers runs Tasks (a Tasks Owner grant opens Manage).',
+      'Task teams, custom fields and statuses (and which projects require each field); how often task emails are batched; who beyond Managers runs Tasks (a Tasks Full grant opens Manage).',
       'Which departments run a ticket desk, their agents and supervisors, response and resolution targets, help topics, and who each department or topic assigns new tickets to.',
       'Which policies need a signed acknowledgment; which trainings are required.',
       'Default document templates per type; where signed documents are filed.',
@@ -568,7 +568,7 @@ export const IMPL_PHASES = [
       { title: 'Accounting', where: 'Accounting > Tools > Access', view: 'accounting', items: [
         'Connected through Nexus Accounting (Sage Intacct). Give the Accounting grant (Editor for close work and AMA Settings, Full for Access, Allocations and Compensation), then limit which entities each person reads on Tools > Access, or click Bring From Intacct to copy Intacct’s own limits.',
         'PFS is a separate grant (Personal Financial Statements). Owners pick which PFS each person sees on the Access tab; an administrator role does not open them.',
-        'On Reports > Audit & Insights > AMA, an editor opens Settings to pick the Ask My Accountant accounts and the accountant for each entity.',
+        'On Trackers > Ask My Accountant, an editor opens Settings to pick the Ask My Accountant accounts and the accountant for each entity.',
         'On Tools > Allocations, map every work site and company to its entity and account before the first Keep Run.',
       ]},
       { title: 'Operations (Cubby)', where: 'Operations', view: 'operations', items: [
@@ -580,7 +580,7 @@ export const IMPL_PHASES = [
         'Add company links by category, department and company, or Batch Import them.',
       ]},
       { title: 'The Rest', items: [
-        'Credentials: Add Credential > Import From CSV for the shared passwords, then set owners and backup owners.',
+        'Passwords (Dashboard > Passwords): + New > Import From a Spreadsheet for the shared passwords, then set owners and backup owners.',
         'Marketing: connect Google Business Profile and Google Ads; set lead goals and budgets per property.',
         'Investor Relations, Construction, IT and Insights: give the grants to their owners and load their records.',
       ]},

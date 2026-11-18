@@ -127,6 +127,40 @@ describe('review fixes (10/30): less eager, dates before people', () => {
   });
 });
 
+describe('a possessive date word is part of the name (11/17/2026)', () => {
+  const kept = (text, title = text) => {
+    const r = say(text);
+    expect(r.title).toBe(title);
+    expect(r.dueOn).toBe('');
+    expect(r.matched).toEqual([]);
+  };
+  it("today's, tomorrow's and tonight's stay in the name and set no date", () => {
+    kept("Send agenda for tomorrow's meeting");
+    kept("Review today's numbers");
+    kept("Print tonight's guest list");
+    kept('Send agenda for tomorrow\u2019s meeting');
+  });
+  it("this week's and next week's stay in the name", () => {
+    kept("Post this week's schedule");
+    kept("Draft next week's report");
+  });
+  it("a weekday's - bare, after a due word, or with next / this - stays in the name", () => {
+    kept("Prep monday's call", "Prep monday's call");
+    kept("Book a room for Friday's review");
+    kept("Take notes on Monday's walkthrough");
+    kept("Plan next Friday's lunch");
+    kept("Confirm this Friday's delivery");
+  });
+  it('a real date beside the possessive is still read, and the possessive is not cut', () => {
+    const r = say("Send agenda for tomorrow's meeting by Friday");
+    expect(r.title).toBe("Send agenda for tomorrow's meeting");
+    expect(r.dueOn).toBe('2026-10-30');
+    const again = say("Send tomorrow's agenda tomorrow");
+    expect(again.title).toBe("Send tomorrow's agenda");
+    expect(again.dueOn).toBe('2026-10-30');
+  });
+});
+
 describe('priority', () => {
   it('reads urgent and the three levels', () => {
     expect(say('Fix the gate asap').priority).toBe('urgent');

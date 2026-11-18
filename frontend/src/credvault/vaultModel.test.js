@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  healthFlags, healthTone, inCollection, collectionsFor, filterCredentials, sortCredentials,
+  healthFlags, healthTone, inCollection, sortCredentials, sentenceCounts, listLogins, matchesQuery, flagWords, rotationRows,
   parseSub, verifiedLabel, timeLeft, logMatches, rotationDaysLeft,
 } from './vaultModel';
 
@@ -40,21 +40,47 @@ describe('collections', () => {
     cred({ id: 'c5', name: 'Hidden', owner: 'ben@x.com', access: 'request', canReveal: false, strength: 'weak' }),
   ];
   const ctx = { favorites: new Set(['c2']), myEmail: me };
-  it('counts each group and lists departments that have credentials', () => {
-    const cols = collectionsFor(rows, ctx);
-    const byKey = Object.fromEntries(cols.map((c) => [c.key, c.count]));
-    expect(byKey).toMatchObject({ all: 4, mine: 2, shared: 1, favorites: 1, attention: 1, 'dept:Accounting': 3, 'dept:IT': 1, trash: 1 });
-    expect(cols.at(-1).key).toBe('trash');
-  });
   it('needs attention only counts what you can actually open', () => {
     expect(inCollection(rows[4], 'attention', ctx)).toBe(false);
     expect(inCollection(rows[3], 'attention', ctx)).toBe(true);
   });
-  it('filters by collection, type, tier and text', () => {
-    expect(filterCredentials(rows, { collection: 'trash', ...ctx }).map((c) => c.name)).toEqual(['Old']);
-    expect(filterCredentials(rows, { collection: 'all', query: 'jira', ...ctx }).map((c) => c.name)).toEqual(['Jira']);
-    expect(filterCredentials(rows, { collection: 'all', query: 'ben@', ...ctx })).toHaveLength(3);
-    expect(filterCredentials(rows, { collection: 'all', tier: 'Critical', ...ctx })).toEqual([]);
+  it('the sentence counts each phrase over what the API returned', () => {
+    expect(sentenceCounts(rows, me)).toEqual({ open: 3, mine: 2, shared: 1, attention: 1, nobackup: 2, locked: 1, trash: 1 });
+  });
+  it('search is the filter: every word typed is found somewhere on the login', () => {
+    const nameOf = (e) => ({ 'ben@x.com': 'Ben Builder' }[e] || e);
+    const names = (query, view = 'all') => listLogins(rows, { view, query, myEmail: me, nameOf }).sections.flatMap((s) => s.rows.map((c) => c.name));
+    expect(names('jira')).toEqual(['Jira']);
+    expect(names('ben builder')).toEqual(['Jira', 'Weak']);                 // the owner's name, not just the email
+    expect(names('accounting weak')).toEqual(['Weak']);                     // department AND state
+    expect(names('it password')).toEqual(['Jira']);                         // department AND type
+    expect(names('critical')).toEqual([]);                                  // tier
+    expect(matchesQuery({ ...rows[0], companyName: 'Greens Storage', siteName: 'Austin', tier: 'Critical' }, 'austin greens critical')).toBe(true);
+    expect(listLogins(rows, { view: 'trash', myEmail: me }).sections[0].rows.map((c) => c.name)).toEqual(['Old']);
+    // What I cannot open follows the search and never mixes with what I can.
+    expect(listLogins(rows, { query: 'hidden', myEmail: me }).locked.map((c) => c.name)).toEqual(['Hidden']);
+    expect(names('hidden')).toEqual([]);
+  });
+  it('reads Favorites, Recently Used, All with nothing typed - one flat list otherwise', () => {
+    const g = listLogins(rows, { favorites: new Set(['c2']), recents: ['c4', 'c2', 'zzz'], myEmail: me });
+    expect(g.sections.map((s) => [s.title, s.rows.map((c) => c.id)])).toEqual([['Favorites', ['c2']], ['Recently Used', ['c4']], ['All', ['c1']]]);
+    expect(g.flat).toBe(false);
+    expect(listLogins(rows, { myEmail: me }).sections.map((s) => s.title)).toEqual(['']);          // nothing starred or used: no headings
+    const mine = listLogins(rows, { view: 'mine', favorites: new Set(['c2']), myEmail: me });
+    expect(mine.flat).toBe(true);
+    expect(mine.sections[0].rows.map((c) => c.name)).toEqual(['Stripe', 'Weak']);
+    expect(listLogins(rows, { view: 'attention', myEmail: me }).sections[0].rows.map((c) => c.name)).toEqual(['Weak']);
+    expect(listLogins(rows, { view: 'nobackup', myEmail: me }).sections[0].rows.map((c) => c.name)).toEqual(['Hidden', 'Stripe']);   // whatever I manage, openable or not
+    expect(listLogins(rows, { view: 'shared', myEmail: me }).sections[0].rows.map((c) => c.name)).toEqual(['Jira']);
+    expect(listLogins(rows, { sort: 'owner', myEmail: me }).flat).toBe(true);
+  });
+  it('a state reads as words, and the audit file lists what rotates next', () => {
+    const late = cred({ rotatedDays: 102 });
+    expect(healthFlags(late).map((f) => flagWords(f, late))).toEqual(['rotation 12 days overdue']);
+    const soon = cred({ rotatedDays: 89, expiresInDays: 0 });
+    expect(healthFlags(soon).map((f) => flagWords(f, soon))).toEqual(['rotation due in 1 day', 'expires today']);
+    const out = rotationRows([cred({ name: 'Fresh', rotatedDays: 5 }), late, cred({ name: 'Hidden', rotatedDays: 200, canReveal: false })]);
+    expect(out.map((r) => [r.Name, r['Days Left']])).toEqual([['Stripe', -12], ['Fresh', 85]]);
   });
   it('sorts by name, department, owner, rotation age and health', () => {
     const live = rows.filter((c) => !c.deletedAt);

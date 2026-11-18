@@ -158,7 +158,11 @@ _NOTE_ATTRS = {
     # <div>s a note keeps - <div data-type="callout" data-tone="info|tip|warning">
     # and <div data-type="toggle" data-summary="..." data-open="true|false">.
     "div": ("data-type", "data-tone", "data-summary", "data-open", "data-source", "data-show"),
-    "p": ("style",), "h1": ("style",), "h2": ("style",), "h3": ("style",), "h4": ("style",),
+    # data-at (Meeting Notes, Neil 11/12/2026, notes/meetings/meetingClock.js):
+    # when a line of a meeting note was written, Unix seconds - it finds the
+    # same moment in the Teams transcript.
+    "p": ("style", "data-at"), "h1": ("style", "data-at"), "h2": ("style", "data-at"),
+    "h3": ("style", "data-at"), "h4": ("style",),
     "td": ("colspan", "rowspan"), "th": ("colspan", "rowspan"),
 }
 _ALIGN = re.compile(r"^text-align:\s*(left|center|right|justify);?$", re.I)
@@ -174,6 +178,7 @@ _NOTE_REF = re.compile(r"^note_[A-Za-z0-9]{1,64}$")
 # The kinds are the ones the [[ picker offers (notes/recordLink.jsx); the
 # same pattern as record_links.RECORD_REF - change them together.
 _RECORD_REF = re.compile(r"^(note|task|job|kb|ticket):[A-Za-z0-9_\-.]{1,100}$")
+_AT = re.compile(r"^\d{10}$")          # a meeting note line's stamp (Unix seconds)
 
 
 _MEDIA = {"audio": ' controls preload="metadata"', "video": ' controls playsinline preload="metadata"'}
@@ -242,6 +247,8 @@ class _NoteSanitizer(_RichSanitizer):
             elif k == "data-source" and not _LIST_SOURCE.match(v):
                 continue
             elif k == "data-show" and v not in ("open", "all"):
+                continue
+            elif k == "data-at" and not _AT.match(v):
                 continue
             kept.append(f' {k}="{escape(v[:200], quote=True)}"')
         return "".join(kept)
@@ -692,6 +699,41 @@ def list_notes(view: str = "all", q: str = "", tag: str = "", month: str = "", d
     rows.sort(key=lambda n: (n.trashed_at if view == "trash" else (n.updated_at or "")), reverse=True)
     return {"notes": [_summary(n, me) for n in rows[:LIST_MAX]], "counts": counts, "tags": tags,
             "more": len(rows) > LIST_MAX}
+
+
+@router.get("/search")
+def search_notes(q: str = "", limit: int = 6, user: dict = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """The header search (11/13/2026): the caller's live notes and boards and
+    the ones shared with them - the list's own two sets, read through the
+    same _access - whose title or words hold `q`. Light on purpose: the
+    match runs in SQL over `title` and `text` (the plain words the list
+    already searches) and only the few columns a result row needs come
+    back, never a body, a drawing or the sanitizer. A trashed note is not
+    found. Ranked the search's way: a title that starts with the words, a
+    title that holds them, then a note whose words do; alphabetical inside
+    each."""
+    me = _me(user)
+    term = (q or "").strip().lower()
+    if len(term) < 2:
+        return {"notes": []}
+    limit = max(1, min(int(limit or 6), 20))
+    from sqlalchemy import func, or_
+    N = models.NexusNote
+    title, text = func.lower(func.coalesce(N.title, "")), func.lower(func.coalesce(N.text, ""))
+    rows = (db.query(N.id, N.kind, N.title, N.owner_email, N.shared_with, N.trashed_at, N.day, N.updated_at)
+            .filter(or_(N.owner_email == me, N.shared_with.like(f'%"{me}"%')))
+            .filter(or_(title.contains(term, autoescape=True), text.contains(term, autoescape=True))).all())
+
+    def rank(n) -> tuple:
+        t = (n.title or "").lower()
+        return (0 if t.startswith(term) else 1 if term in t else 2, t, n.updated_at or "")
+
+    hits = sorted((n for n in rows if not n.trashed_at and _access(n, me)), key=rank)
+    return {"notes": [{"id": n.id, "kind": n.kind or "note", "title": n.title or "", "day": n.day or "",
+                       "owner": n.owner_email, "mine": (n.owner_email or "").lower() == me,
+                       "inTitle": term in (n.title or "").lower(), "updatedAt": n.updated_at or ""}
+                      for n in hits[:limit]]}
 
 
 # ── daily scratchpad ───────────────────────────────────────────────────────

@@ -51,8 +51,8 @@ export default function KanbanBoard({ leads, onSelectLead, onChangeStage }) {
               {groups[stage].slice(0, 100).map((lead) => (
                 <LeadCard key={lead.id} lead={lead} onClick={() => onSelectLead(lead)} />
               ))}
-              {groups[stage].length > 100 && <div style={{ textAlign: 'center', fontSize: 11.5, color: C.gray400, padding: '8px 0' }}>+ {groups[stage].length - 100} more - filter to narrow down</div>}
-              {groups[stage].length === 0 && <div style={{ textAlign: 'center', fontSize: 11.5, color: C.gray300, padding: '24px 0' }}>No leads</div>}
+              {groups[stage].length > 100 && <div style={{ textAlign: 'center', fontSize: 12, color: C.gray400, padding: '8px 0' }}>+ {groups[stage].length - 100} more - filter to narrow down</div>}
+              {groups[stage].length === 0 && <div style={{ textAlign: 'center', fontSize: 12, color: C.gray300, padding: '24px 0' }}>No leads</div>}
             </div>
           </div>
         )

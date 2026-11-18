@@ -204,7 +204,7 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
   const subtaskSwitch = onToggleSubtasks && (
     <button type="button" onClick={onToggleSubtasks} aria-pressed={!!showSubtasks}
       title={showSubtasks ? 'Hide the subtasks' : 'Show each subtask under its main task'}
-      style={{ ...btn('outline'), fontSize: 12.5, color: showSubtasks ? NX.blue : NX.dim, flexShrink: 0 }}>
+      style={{ ...btn('outline'), fontSize: 13, color: showSubtasks ? NX.blue : NX.dim, flexShrink: 0 }}>
       <ListTree size={14} /> Show Subtasks {showSubtasks && <Check size={13} />}
     </button>
   );
@@ -326,7 +326,7 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
         <span ref={blRef} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <button type="button" onClick={openBaselines} aria-haspopup="menu" aria-expanded={blOpen}
             title="Save today's dates as a baseline, or compare the schedule with a saved one"
-            style={{ ...btn('outline'), fontSize: 12.5, color: baseline ? NX.blue : NX.dim }}>
+            style={{ ...btn('outline'), fontSize: 13, color: baseline ? NX.blue : NX.dim }}>
             <Layers size={14} /> {baseline ? baseline.name : 'Baseline'} <ChevronDown size={12} />
           </button>
           {baseline && !isMobile && (
@@ -392,7 +392,7 @@ export function TimelineView({ tasks, onOpen, nameOf, showSubtasks = false, onTo
                   style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 1, height: '100%', width: '100%', minWidth: 0, flex: 1, border: 'none', padding: showSubtasks ? `0 ${pad}px 0 0` : `0 ${pad}px`, textAlign: 'left', background: 'transparent', cursor: 'pointer', fontSize: 12, fontFamily: FONT }}>
                   <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.ink, ...(rc?.bold ? { fontWeight: 700, color: 'var(--rc-ink)' } : null) }}>{t.title}</span>
                   {crumb && (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, maxWidth: '100%', fontSize: 10.5, color: NX.faint, overflow: 'hidden' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, maxWidth: '100%', fontSize: 11, color: NX.faint, overflow: 'hidden' }}>
                       <CornerDownRight size={10} style={{ flexShrink: 0 }} />
                       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>in {crumb}</span>
                     </span>
@@ -510,7 +510,7 @@ function BaselineChanges({ baseline: b, nameOf, onOpen, onClose, onClear }) {
   const section = (title, rows, line) => (
     <div style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>{title} · {rows.length}</div>
-      {rows.length === 0 ? <div style={{ fontSize: 12.5, color: NX.faint }}>None</div> : rows.map((r) => (
+      {rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint }}>None</div> : rows.map((r) => (
         <button key={r.id} type="button" onClick={() => onOpen?.(r.id)} className="nx-menu-row"
           style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, width: '100%', textAlign: 'left', padding: '7px 9px', borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT }}>
           <span style={{ fontSize: 13, color: NX.ink, fontWeight: 600 }}>{r.title}</span>
@@ -523,11 +523,11 @@ function BaselineChanges({ baseline: b, nameOf, onOpen, onClose, onClear }) {
     <Modal title={`Changes Since ${b.name}`} onClose={onClose} width="min(480px, 100vw)" minHeight="auto"
       footer={(
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, width: '100%' }}>
-          <button type="button" onClick={onClear} style={{ ...btn('outline'), fontSize: 12.5 }}>Clear</button>
-          <button type="button" onClick={onClose} style={{ ...btn('primary'), fontSize: 12.5 }}>Close</button>
+          <button type="button" onClick={onClear} style={{ ...btn('outline'), fontSize: 13 }}>Clear</button>
+          <button type="button" onClick={onClose} style={{ ...btn('primary'), fontSize: 13 }}>Close</button>
         </div>
       )}>
-      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14 }}>
+      <div style={{ fontSize: 13, color: NX.dim, marginBottom: 14 }}>
         Taken {fmtDate(b.takenAt)}{b.takenBy ? ` by ${nameOf ? nameOf(b.takenBy) : b.takenBy}` : ''} · {b.unchanged} task{b.unchanged === 1 ? '' : 's'} unchanged
       </div>
       {section('Moved', b.moved || [], (m) => (

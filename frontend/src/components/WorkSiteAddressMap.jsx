@@ -161,7 +161,7 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = fal
   return (
     <div>
       {showSearch && <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-        <input className="form-input" style={{ flex: 1, fontSize: 12.5 }} value={query} aria-label="Search the location's address"
+        <input className="form-input" style={{ flex: 1, fontSize: 13 }} value={query} aria-label="Search the location's address"
           placeholder="Type the full street address, e.g. 25260 N Centre City Pkwy, Escondido, CA 92026"
           onChange={e => { setQuery(e.target.value); setMatches(null); setError(''); }}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); run(); } }} />
@@ -171,17 +171,17 @@ export default function WorkSiteAddressMap({ lat, lng, radiusM, adjustable = fal
         </button>
       </div>}
 
-      {showSearch && error && <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '0 0 8px' }}>{error}</p>}
+      {showSearch && error && <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', margin: '0 0 8px' }}>{error}</p>}
       {showSearch && matches && (
         <div role="listbox" aria-label="Address matches" style={{ border: '1px solid var(--line)', borderRadius: 10, marginBottom: 8, overflow: 'hidden' }}>
           {matches.length === 0 ? (
-            <div style={{ padding: '10px 12px', fontSize: 12.5, color: 'var(--muted)' }}>
+            <div style={{ padding: '10px 12px', fontSize: 13, color: 'var(--muted)' }}>
               No address found. Check the spelling, or try just the street and ZIP code.
             </div>
           ) : matches.map((m, i) => (
             <button key={`${m.lat},${m.lng},${i}`} type="button" role="option" aria-selected={false} onClick={() => pick(m)}
               style={{ display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none',
-                borderTop: i ? '1px solid var(--line)' : 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, color: 'var(--ink)' }}
+                borderTop: i ? '1px solid var(--line)' : 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>
               <MapPin size={13} style={{ flexShrink: 0, marginTop: 2, color: m.exact ? 'hsl(var(--color-green))' : '#b45309' }} />

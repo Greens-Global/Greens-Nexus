@@ -87,7 +87,7 @@ export function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false
         )}
         <div>
           <label style={LABEL} htmlFor="return-note">{lost ? 'Where Was It Last Seen?' : 'Condition Notes'}{!needNote && <span style={{ fontWeight: 500, color: 'var(--muted)' }}> (optional)</span>}</label>
-          <textarea id="return-note" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13.5 }}
+          <textarea id="return-note" rows={3} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }}
             placeholder={lost ? 'e.g. Left at the Austin site on 10/30/2026' : 'e.g. Minor scuff on the handle, otherwise good'}
             value={conditionNote} onChange={e => setConditionNote(e.target.value)} />
         </div>

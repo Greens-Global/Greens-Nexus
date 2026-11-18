@@ -341,6 +341,16 @@ GRAPH_CHAT_SCOPES = ("https://graph.microsoft.com/Chat.ReadBasic "
 GRAPH_CHANNEL_SCOPES = ("https://graph.microsoft.com/Team.ReadBasic.All "
                         "https://graph.microsoft.com/Channel.ReadBasic.All "
                         "https://graph.microsoft.com/ChannelMessage.Send offline_access")
+# Kudos on Teams (Neil, 11/12/2026, perf_kudos_teams.py): READING a kudos
+# post back (its reactions and thread replies), the change-notification
+# subscription on its channel or chat, and the Entra id <-> email lookups a
+# reaction and a mention need. Their OWN sets, minted separately, for the same
+# reason as the channel set above: ChannelMessage.Read.All needs admin consent,
+# and until it is granted only the kudos read-back waits - never a post.
+GRAPH_KUDOS_CHAT_READ_SCOPES = ("https://graph.microsoft.com/Chat.Read "
+                                "https://graph.microsoft.com/User.ReadBasic.All offline_access")
+GRAPH_KUDOS_CHANNEL_READ_SCOPES = ("https://graph.microsoft.com/ChannelMessage.Read.All "
+                                   "https://graph.microsoft.com/User.ReadBasic.All offline_access")
 
 
 def graph_token_for_email(db, email: str, scopes: str = GRAPH_CHAT_SCOPES) -> str:

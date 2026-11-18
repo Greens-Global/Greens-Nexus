@@ -65,23 +65,12 @@ const TABS = [
 const HIRING_TAB = { key: 'documents-hiring', label: 'Hiring Documents', Icon: Briefcase };
 const PacketsModal = lazy(() => import('../components/HiringPacket').then(m => ({ default: m.PacketsModal })));
 
+// A page, not a popup (Pranshu, 11/13/2026): the same PacketsModal drawn inline.
 function HiringDocsTab({ toastOk, toastErr }) {
-  const [open, setOpen] = useState(true);
   return (
-    <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '20px 22px', background: 'var(--card)', marginTop: 12 }}>
-      <div style={{ fontSize: 16, fontWeight: 800 }}>Hiring Documents</div>
-      <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: '6px 0 14px', maxWidth: '70ch' }}>
-        Offer letters, hiring packets, promotion letters and separation packages: which documents each company sends, for which
-        roles and kind of hire, who signs, and Ready To Send. This is the same setup as Settings &gt; Hiring &amp; Onboarding &gt;
-        Hiring Documents - a change made here is there too, and the other way round.
-      </p>
-      <button type="button" className="primary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>Open Hiring Documents</button>
-      {open && (
-        <Suspense fallback={<SkeletonBlocks count={4} height={44} />}>
-          <PacketsModal onClose={() => setOpen(false)} toastOk={toastOk} toastErr={toastErr} />
-        </Suspense>
-      )}
-    </div>
+    <Suspense fallback={<SkeletonBlocks count={4} height={44} />}>
+      <PacketsModal inline onClose={() => {}} toastOk={toastOk} toastErr={toastErr} />
+    </Suspense>
   );
 }
 // Old links, bells and emails keep landing: these tabs live in the library now.
@@ -94,7 +83,9 @@ const DOCUMENTS_TOUR_ID = 'documents';
 // The header's Create menu (Oct 29 2026): "documents-new" is the library with
 // its New Document dialog open, "documents-esign-send" is Nexus Sign with the
 // Send for Signature wizard open; the address then goes back to the tab.
-const CREATE_SUBS = { 'documents-new': 'documents-browse', 'documents-esign-send': 'documents-esign' };
+// "documents-new-sheet" (Quick Actions > New > Sheet, Neil 11/14/2026) is the
+// library making a blank sheet, the same as its own + New > Sheet.
+const CREATE_SUBS = { 'documents-new': 'documents-browse', 'documents-esign-send': 'documents-esign', 'documents-new-sheet': 'documents-browse' };
 
 // The tab strip and the tour change the sub directly, not through App's navigate(),
 // so unsaved work in PDF Tools (lib/dialogGuard.js) is asked about here.
@@ -125,10 +116,22 @@ export default function Documents({ activeSub, onSubChange }) {
   // The + menu's New Document asks the library to pop its create dialog open - a
   // bumped counter (not a bool) so a second click while already there re-triggers it.
   const [browseCreateSignal, setBrowseCreateSignal] = useState(0);
+  const [browseSheetSignal, setBrowseSheetSignal] = useState(0);
+  // A signal is acted on once. What the library has taken is kept HERE, not
+  // in the library: it is unmounted on another tab, and coming back with the
+  // same counter used to make another "Untitled Document" (or sheet) each time.
+  const browseSignalsTaken = useRef({ create: 0, sheet: 0 });
+  const takeBrowseSignal = (kind, signal) => {
+    const taken = browseSignalsTaken.current;
+    if (!signal || taken[kind] === signal) return false;
+    taken[kind] = signal;
+    return true;
+  };
   const [createSeenSub, setCreateSeenSub] = useState(null);
   if (activeSub !== createSeenSub) {
     setCreateSeenSub(activeSub);
-    if (CREATE_SUBS[activeSub] === 'documents-browse') setBrowseCreateSignal(n => n + 1);
+    if (activeSub === 'documents-new-sheet') setBrowseSheetSignal(n => n + 1);
+    else if (CREATE_SUBS[activeSub] === 'documents-browse') setBrowseCreateSignal(n => n + 1);
   }
   useEffect(() => {
     if (CREATE_SUBS[activeSub]) onSubChange?.(CREATE_SUBS[activeSub]);
@@ -193,8 +196,11 @@ export default function Documents({ activeSub, onSubChange }) {
     api.markTourSeen(DOCUMENTS_TOUR_ID).catch(() => {});
   };
 
-  const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
-  const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
+  // One timer: an earlier toast's timer used to clear a later toast early.
+  const toastTimer = useRef(null);
+  const showToast = (msg, kind, ms) => { clearTimeout(toastTimer.current); setToast({ msg, kind }); toastTimer.current = setTimeout(() => setToast(null), ms); };
+  const toastErr = msg => showToast(msg, 'error', 5000);
+  const toastOk  = msg => showToast(msg, 'ok', 4000);
 
   // Employees + entities feed the Send wizard's internal-signer picker. A
   // documents-only grant (no HR access) may 403 these - degrade to external
@@ -250,7 +256,7 @@ export default function Documents({ activeSub, onSubChange }) {
 
       <div data-tour={`documents-screen-${sub}`}>
       {sub === 'documents-browse' && (
-        <DocumentsBrowser openCreateSignal={browseCreateSignal} initialView={activeSub === 'documents-hr-records' ? 'hr' : ''}
+        <DocumentsBrowser openCreateSignal={browseCreateSignal} openSheetSignal={browseSheetSignal} takeSignal={takeBrowseSignal} initialView={activeSub === 'documents-hr-records' ? 'hr' : ''}
           employees={employees} entities={entities} toastOk={toastOk} toastErr={toastErr} />
       )}
 

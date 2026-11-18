@@ -807,9 +807,11 @@ class InboxCase(unittest.TestCase):
         self._grant("g-ai-vault", MGR, "credvault:viewer")
         rows = self._rows(MGR, "credvault_request")
         self.assertEqual([r["key"] for r in rows], ["credvault_request:vr1"])
-        self.assertEqual(rows[0]["title"], "Credential Access - AWS Root (4 Hours)")
-        self.assertEqual([(a["key"], a["note"]) for a in rows[0]["actions"]], [("open", "none"), ("deny", "none")])
-        self.assertEqual(rows[0]["link"], {"view": "credvault", "sub": "approvals"})
+        self.assertEqual(rows[0]["title"], "Password Access - AWS Root (4 Hours)")
+        # Decided in place since 11/18/2026 (the vault's own Approvals tab is gone);
+        # the link opens the login itself.
+        self.assertEqual([(a["key"], a["note"]) for a in rows[0]["actions"]], [("approve", "none"), ("deny", "none")])
+        self.assertEqual(rows[0]["link"], {"view": "credvault", "sub": "cred-v1"})
         self.assertEqual(rows[0]["createdAt"][:10], "2026-10-23")
         self.assertEqual(rows[0]["group"], "access")
 

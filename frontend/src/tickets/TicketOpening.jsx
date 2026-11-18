@@ -51,7 +51,7 @@ export default function TicketOpening({ onClose }) {
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, textAlign: 'center', marginBottom: 22 }}>
           <Spinner size="section" />
           <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>Opening your ticket…</div>
-          <div style={{ fontSize: 12.5, color: NX.faint }}>
+          <div style={{ fontSize: 13, color: NX.faint }}>
             {slow ? 'Still working on it - this is taking a little longer than usual.' : 'Getting the ticket details ready.'}
           </div>
         </div>

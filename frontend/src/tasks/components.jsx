@@ -22,7 +22,7 @@ import { usePhotoMap } from '../lib/peoplePhotos';
 import { useIsMobile } from '../lib/useIsMobile';
 import { useVisualViewport, readVisualViewport } from '../lib/useVisualViewport';
 import { useScrollLock } from '../lib/useScrollLock';
-import { useDialogFocus, dialogKeyDown } from '../lib/useDialogFocus';
+import { useDialogFocus, dialogKeyDown, trapTab, focusables } from '../lib/useDialogFocus';
 import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
 import { canMarkUp, isPdfSource, markupSource, openMarkup } from '../lib/markup';
@@ -125,7 +125,13 @@ function isTopEscapeLayer(id) {
 }
 // onEscape(e) runs only for the layer on top. `active` false takes the layer
 // out of the stack (an overlay that stays mounted while hidden).
-export function useEscapeLayer(onEscape, active = true) {
+// `capture` (11/17/2026): a popover over a layer - the calendar, the Share
+// dialog's role menu - hears its Escape in the capture phase and stops it
+// there, the way SelectMenu and AnchoredMenu do, so the sheet around it never
+// gets the key, whatever that sheet listens with. It sits in the same stack:
+// a calendar opened from a calendar closes first, and the sheet under either
+// is not on top while one is open.
+export function useEscapeLayer(onEscape, active = true, capture = false) {
   const [id] = useState(() => { escapeLayerSeq += 1; return escapeLayerSeq; });
   const cb = useRef(onEscape);
   useEffect(() => { cb.current = onEscape; });
@@ -134,11 +140,12 @@ export function useEscapeLayer(onEscape, active = true) {
     escapeLayers.add(id);
     const onKey = (e) => {
       if (e.key !== 'Escape' || e.defaultPrevented || !isTopEscapeLayer(id)) return;
+      if (capture) e.stopPropagation();
       cb.current?.(e);
     };
-    window.addEventListener('keydown', onKey);
-    return () => { escapeLayers.delete(id); window.removeEventListener('keydown', onKey); };
-  }, [id, active]);
+    window.addEventListener('keydown', onKey, capture);
+    return () => { escapeLayers.delete(id); window.removeEventListener('keydown', onKey, capture); };
+  }, [id, active, capture]);
   return id;
 }
 
@@ -167,7 +174,10 @@ export function useEscapeLayer(onEscape, active = true) {
 // Previous / Next beside Close) draws it - it must put `titleId` on its title
 // and close through `requestClose` - and may adjust the body's and footer's
 // padding. Unset, the Modal looks exactly as before.
-export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000, backToClose = true, header = null, bodyStyle = null, footerStyle = null }) {
+// `confirmText` / `saveText` (11/14/2026): a sheet whose unsaved work cannot
+// be saved from the close question (an offer half answered) passes
+// saveText={null} so the question offers Keep Editing and Discard only.
+export function Modal({ title, onClose, children, footer, width = '60vw', minHeight = '60vh', isDirty = false, onSave, placement = 'sheet', zIndex = 4000, backToClose = true, header = null, bodyStyle = null, footerStyle = null, confirmText = '', saveText = 'Save Changes' }) {
   // Phones get a full-screen sheet, the shape the task drawer already uses
   // there. A centered card sized in `vh` does not survive mobile Safari: `vh`
   // is the LARGE viewport (browser chrome hidden), so 7vh of padding plus an
@@ -190,6 +200,11 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   const [saving, setSaving] = useState(false);
   const overlayRef = useRef(null);
   const panelRef = useRef(null);
+  const confirmRef = useRef(null);
+  // Where the press behind a scrim click began. A text selection dragged out
+  // of the sheet and let go on the scrim arrives as a click on the scrim (the
+  // browser sends it to the common ancestor): that is not a close.
+  const pressInside = useRef(false);
   const titleId = useId();
   // isBypassing(): a Discard already confirmed by the app-wide guard
   // (lib/dialogGuard.js) is replaying this close - do not ask twice.
@@ -198,8 +213,23 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
   // A sheet slides out over --dur-md (220ms); a centered card pops out in 150.
   const [closing, exit] = useExit(onClose, sheet ? MOTION.md : MOTION.exit);
   const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else exit(); };
-  useEscapeLayer(() => requestClose());
+  // With "Save your changes?" up, Escape is Keep Editing (the phone's Back
+  // already was); it used to ask the same question again.
+  useEscapeLayer(() => { if (confirmClose) setConfirmClose(false); else requestClose(); });
   useDialogFocus(panelRef);
+  // "Save your changes?" sits outside the panel, so the panel's Tab trap never
+  // reached it: it takes focus when it appears (Keep Editing, the safe answer),
+  // keeps Tab to itself, and hands focus back when it goes.
+  useEffect(() => {
+    if (!confirmClose) return undefined;
+    const card = confirmRef.current;
+    const back = document.activeElement;
+    (focusables(card)[0] || card).focus();
+    return () => {
+      const now = document.activeElement;
+      if ((!now || now === document.body || card.contains(now)) && back && back !== document.body && back.isConnected) back.focus?.();
+    };
+  }, [confirmClose]);
   // A sheet over a sheet: the one beneath recedes until this one leaves.
   useSheetStack(panelRef, sheet, closing, zIndex);
   // The body's cascade plays only while the sheet arrives.
@@ -231,7 +261,9 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
     try { await onSave(); } finally { setSaving(false); setConfirmClose(false); }
   };
   return createPortal(
-    <div ref={overlayRef} className={`nx-tasks-portal nx-overlay${closing ? ' is-closing' : ''}`} onClick={requestClose} style={{
+    <div ref={overlayRef} className={`nx-tasks-portal nx-overlay${closing ? ' is-closing' : ''}`}
+      onMouseDown={(e) => { pressInside.current = e.target !== e.currentTarget; }}
+      onClick={(e) => { if (e.target === e.currentTarget && (!pressInside.current || isBypassing())) requestClose(); }} style={{
       position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex,
       ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }),
       // A sheet sits against the right edge and runs the full height; a
@@ -290,7 +322,7 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
         }}>{typeof footer === 'function' ? footer(exit) : footer}</div>}
       </div>
       {confirmClose && (
-        <div onClick={(e) => e.stopPropagation()} style={{
+        <div ref={confirmRef} tabIndex={-1} data-nx-esc-layer="" onKeyDown={trapTab} onClick={(e) => e.stopPropagation()} style={{
           position: 'fixed', inset: 0, zIndex: 4600, display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: 'rgba(17,24,39,0.25)',
         }}>
@@ -298,16 +330,16 @@ export function Modal({ title, onClose, children, footer, width = '60vw', minHei
             background: NX.surface, borderRadius: 14, padding: 20, display: 'flex', flexDirection: 'column',
             boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
           }}>
-            <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>Save your changes?</div>
-            <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 18, lineHeight: 1.5 }}>
-              You have unsaved changes. Closing now will discard them.
+            <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>Save your changes?</div>
+            <div style={{ fontSize: 13, color: NX.dim, marginBottom: 18, lineHeight: 1.5 }}>
+              {confirmText || 'You have unsaved changes. Closing now will discard them.'}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', marginTop: 'auto' }}>
               <button style={btn('ghost')} onClick={() => setConfirmClose(false)}>Keep Editing</button>
               <button style={btn('ghost')} onClick={exit}>Discard</button>
-              <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, pointerEvents: saving ? 'none' : 'auto' }} onClick={saveAndClose}>
-                {saving ? 'Saving…' : 'Save Changes'}
-              </button>
+              {saveText && <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, pointerEvents: saving ? 'none' : 'auto' }} onClick={saveAndClose}>
+                {saving ? 'Saving…' : saveText}
+              </button>}
             </div>
           </div>
         </div>
@@ -386,9 +418,15 @@ const sameYMD = (a, b) => !!a && !!b && a.getFullYear() === b.getFullYear() && a
 // flipped up when there isn't room below - so it works inside modals/sheets too.
 // `min` (YYYY-MM-DD): days before it are shown but cannot be picked, and
 // months/years wholly before it are greyed out the same way.
-function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '', max = '', repeat = null }) {
+// Keyboard (11/17/2026): `autoFocus` - the date box was opened with Enter or
+// Space - puts focus on the selected day (else today, kept inside min / max).
+// On a day the arrows move by day and by week, Page Up / Page Down by month,
+// Enter or Space picks; Tab stays inside the calendar; Escape closes it and
+// hands focus back to the date box. A mouse or a finger never moves focus.
+function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '', max = '', repeat = null, monthOnly = false, autoFocus = false }) {
   const selected = value ? isoToDate(value) : null;
   const today = new Date();
+  const today0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const minDate = min ? isoToDate(min) : null;
   const beforeMin = (d) => !!minDate && d < minDate;
   // `max` (YYYY-MM-DD): days after it are shown but cannot be picked (a time
@@ -398,12 +436,17 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   const monthBeforeMin = (y, m) => !!minDate && (y < minDate.getFullYear() || (y === minDate.getFullYear() && m < minDate.getMonth()));
   const yearBeforeMin = (y) => !!minDate && y < minDate.getFullYear();
   const disabledCell = { cursor: 'not-allowed', opacity: 0.35 };
-  const [cursor, setCursor] = useState(() => { const b = selected || today; return new Date(b.getFullYear(), b.getMonth(), 1); });
+  const clampDay = (d) => (beforeMin(d) ? minDate : afterMax(d) ? maxDate : d);
+  // The day the arrow keys are on. Only the keyboard ever sets it.
+  const [focusDay, setFocusDay] = useState(() => (autoFocus && !monthOnly ? clampDay(selected || today0) : null));
+  const keyed = useRef(autoFocus);
+  const [cursor, setCursor] = useState(() => { const b = focusDay || selected || today; return new Date(b.getFullYear(), b.getMonth(), 1); });
   // Zoom level, iOS-style: days -> months -> years. Clicking the month in the
   // title zooms out to that year's months, clicking the year zooms out to a
   // page of years, and picking one zooms straight back in. Lets you cross
   // years in two clicks instead of paging a month at a time.
-  const [zoom, setZoom] = useState('days');
+  // monthOnly (11/11/2026): a month box - opens on the months, a month is the pick.
+  const [zoom, setZoom] = useState(monthOnly ? 'months' : 'days');
   // 'repeat': the footer's Repeat button swapped the days for the repeat
   // panel the caller supplied (`repeat.render`).
   const [panel, setPanel] = useState('days');
@@ -419,14 +462,56 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
       if (e.target.closest?.('[data-nx-calendar]')) return;
       onClose();
     };
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
   }, [onClose, anchorRef]);
+  // Escape closes the calendar, NOT the sheet around it - it used to listen on
+  // the document beside the sheet's own listener, so one Escape closed both
+  // (or, in a form with typed work, asked to discard it with the calendar
+  // still open).
+  useEscapeLayer(() => { onClose(); anchorRef?.current?.focus?.(); }, true, true);
+  // Focus follows the keyboard: onto the day the arrows moved to...
+  useEffect(() => {
+    if (focusDay) ref.current?.querySelector(`[data-day="${dateToISO(focusDay)}"]:not(:disabled)`)?.focus();
+  }, [focusDay]);
+  // ...and, when what held it is gone (the days gave way to the months, the
+  // years or the repeat panel), onto the calendar itself, so Tab and Escape
+  // still start from inside it.
+  useEffect(() => {
+    const root = ref.current;
+    const at = document.activeElement;
+    if (!keyed.current || !root || root.contains(at) || at?.closest?.('[data-nx-calendar]')) return;
+    (root.querySelector('[data-day][tabindex="0"]') || root).focus();
+  }, [zoom, panel]);
+  // A pick or a close made from the keyboard (a click with no press behind
+  // it) hands focus back to the date box; a mouse leaves it where it fell.
+  const done = (e) => { onClose(); if (keyed.current && e?.detail === 0) anchorRef?.current?.focus?.(); };
+  const onDaysKey = (e) => {
+    const iso = e.target?.dataset?.day;
+    if (!iso || e.altKey || e.ctrlKey || e.metaKey) return;
+    const d = isoToDate(iso);
+    const by = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
+    let t;
+    if (by) t = new Date(d.getFullYear(), d.getMonth(), d.getDate() + by);
+    else if (e.key === 'PageUp' || e.key === 'PageDown') {
+      // The same day a month away, or that month's last day (01/31 -> 02/28).
+      const m = new Date(d.getFullYear(), d.getMonth() + (e.key === 'PageUp' ? -1 : 1), 1);
+      t = new Date(m.getFullYear(), m.getMonth(), Math.min(d.getDate(), new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate()));
+    } else return;
+    e.preventDefault();
+    t = clampDay(t);
+    setFocusDay(t);
+    if (t.getMonth() !== cursor.getMonth() || t.getFullYear() !== cursor.getFullYear()) setCursor(new Date(t.getFullYear(), t.getMonth(), 1));
+  };
 
   const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const offset = first.getDay();   // Sunday-first: getDay() is already 0=Sun
   const days = Array.from({ length: 42 }, (_, i) => { const d = new Date(first); d.setDate(1 - offset + i); return d; });
+  // One day is the Tab stop (the grid is one stop, the arrows move inside it):
+  // the day the keys are on, else the selected day or today, else - when that
+  // one is not on this page - the first day of the month that can be picked.
+  const rove = focusDay || clampDay(selected || today0);
+  const tabDay = days.find((d) => sameYMD(d, rove)) || days.find((d) => d.getMonth() === cursor.getMonth() && !beforeMin(d) && !afterMax(d)) || null;
 
   const W = 300, H = 372;
   // anchorRect / innerWidth are in the OUTER space, W and H are CSS lengths in
@@ -476,7 +561,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   };
 
   return createPortal(
-    <div ref={ref} data-nx-calendar="" style={{
+    <div ref={ref} data-nx-calendar="" data-nx-esc-layer="" tabIndex={-1} onKeyDown={(e) => { keyed.current = true; trapTab(e); }} style={{
       position: 'fixed', left, width: W, ...vpos, background: NX.surface, border: `1px solid ${NX.border}`,
       borderRadius: 14, boxShadow: '0 16px 44px rgba(0,0,0,0.22)', zIndex: 5000, padding: 14, fontFamily: FONT,
     }}>
@@ -495,8 +580,8 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
           {zoom === 'days' && (
             <button onClick={() => setZoom('months')} style={titleBtn} title="Pick a month">{CAL_MONTHS[cursor.getMonth()]}</button>
           )}
-          <button onClick={() => setZoom(zoom === 'years' ? 'days' : 'years')} style={titleBtn}
-            title={zoom === 'years' ? 'Back to days' : 'Pick a year'}>
+          <button onClick={() => setZoom(zoom === 'years' ? (monthOnly ? 'months' : 'days') : 'years')} style={titleBtn}
+            title={zoom === 'years' ? (monthOnly ? 'Back to months' : 'Back to days') : 'Pick a year'}>
             {zoom === 'years' ? `${yearStart} - ${yearStart + CAL_YEAR_PAGE - 1}` : cursor.getFullYear()}
           </button>
         </div>
@@ -511,7 +596,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', marginBottom: 4 }}>
             {CAL_WEEK.map((w) => <div key={w} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: NX.faint, padding: '4px 0' }}>{w}</div>)}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
+          <div onKeyDown={onDaysKey} style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
             {days.map((d, i) => {
               const inMonth = d.getMonth() === cursor.getMonth();
               const isToday = sameYMD(d, today);
@@ -520,9 +605,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
               return (
                 // The full date as the name: a screen reader hears
                 // "10/28/2026", not a bare "28" (11/03/2026).
-                <button key={i} disabled={off} aria-label={fmtDate(dateToISO(d))}
+                <button key={i} disabled={off} aria-label={fmtDate(dateToISO(d))} data-day={dateToISO(d)} tabIndex={sameYMD(d, tabDay) ? 0 : -1}
                   title={beforeMin(d) ? 'Past dates cannot be picked' : afterMax(d) ? 'Later dates cannot be picked' : undefined}
-                  onClick={() => { onChange(dateToISO(d)); onClose(); }} style={{
+                  onClick={(e) => { onChange(dateToISO(d)); done(e); }} style={{
                   height: 36, borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13,
                   fontWeight: (isSel || isToday) ? 700 : 500, fontFamily: FONT,
                   background: isSel ? NX.primary : 'transparent',
@@ -543,7 +628,10 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
             const isSel = !!selected && selected.getFullYear() === cursor.getFullYear() && selected.getMonth() === i;
             const off = monthBeforeMin(cursor.getFullYear(), i);
             return (
-              <button key={label} disabled={off} onClick={() => { setCursor(new Date(cursor.getFullYear(), i, 1)); setZoom('days'); }}
+              <button key={label} disabled={off} onClick={(e) => {
+                if (monthOnly) { onChange(`${cursor.getFullYear()}-${String(i + 1).padStart(2, '0')}`); done(e); return; }
+                setCursor(new Date(cursor.getFullYear(), i, 1)); setZoom('days');
+              }}
                 style={{ ...cellBtn, background: isSel ? NX.primary : 'transparent', color: isSel ? '#fff' : NX.ink,
                   boxShadow: isNow && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none', ...(off && !isSel ? disabledCell : null) }}>{label}</button>
             );
@@ -566,7 +654,7 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, borderTop: `1px solid ${NX.border2}`, paddingTop: 8 }}>
-        <button onClick={() => { onChange(null); onClose(); }} style={linkBtn}>Clear</button>
+        {monthOnly ? <span /> : <button onClick={(e) => { onChange(null); done(e); }} style={linkBtn}>Clear</button>}
         {/* Repeat sits with the date it repeats from (Sagar, Oct 14 2026),
             the way Asana's date picker has it. Only where the caller can
             save a rule - due dates, not start or end dates. */}
@@ -577,8 +665,12 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{repeat.on ? repeat.label : 'Repeat'}</span>
           </button>
         )}
-        {!beforeMin(new Date(today.getFullYear(), today.getMonth(), today.getDate())) ? (
-          <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
+        {monthOnly ? (
+          <button onClick={(e) => { onChange(dateToISO(today).slice(0, 7)); done(e); }} style={linkBtn}>This Month</button>
+        ) : !beforeMin(today0) && !afterMax(today0) ? (
+          // Offered only when today can be picked: inside `min` AND `max`
+          // (it used to check `min` alone, so Today went past the last day allowed).
+          <button onClick={(e) => { onChange(dateToISO(today)); done(e); }} style={linkBtn}>Today</button>
         ) : <span />}
       </div>
       </>)}
@@ -599,33 +691,43 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
 // displays as it is; it just cannot be moved to another past day.
 // `repeat`: { on, label, render({ back, close }) } adds a Repeat button to the
 // calendar's footer that opens the caller's repeat controls in its place.
-export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, max = '', repeat = null, min: minDate = '' }) {
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, max = '', repeat = null, min: minDate = '', monthOnly = false }) {
   // `min` (YYYY-MM-DD, Items return dates 11/02/2026): the earliest pickable day; noPast is today.
   const min = minDate && (!noPast || minDate > localTodayISO()) ? minDate : noPast ? localTodayISO() : '';
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
   const btnRef = useRef(null);
-  const openCal = () => {
+  // Opened with Enter / Space on the box (not a mouse, not a finger): focus
+  // goes into the calendar, onto the selected day.
+  const byKey = useRef(false);
+  const [keyed, setKeyed] = useState(false);
+  const openCal = (fromKey = false) => {
     if (disabled) return;
     const r = btnRef.current?.getBoundingClientRect();
-    if (r) { setRect(r); setOpen(true); }
+    if (r) { setKeyed(fromKey); setRect(r); setOpen(true); }
   };
-  const toggle = (e) => { if (disabled) return; e.stopPropagation(); open ? setOpen(false) : openCal(); };
+  const toggle = (e) => {
+    if (disabled) return;
+    e.stopPropagation();
+    const fromKey = byKey.current; byKey.current = false;
+    open ? setOpen(false) : openCal(fromKey);
+  };
   // Tabbing on past the field closes its calendar - it only ever closed on
   // a click outside or Escape, so a keyboard user left it hanging open.
-  const onKeyDown = (e) => { if (e.key === 'Tab' && open) setOpen(false); };
+  const onKeyDown = (e) => { if (e.key === 'Tab' && open) setOpen(false); byKey.current = e.key === 'Enter' || e.key === ' '; };
+  const onPointerDown = () => { byKey.current = false; };
 
   if (compact && !value) {
     return (
       <span style={{ position: 'relative', display: 'inline-flex', ...style }}>
-        <button ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled} onClick={toggle} onKeyDown={onKeyDown}
+        <button ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled} onClick={toggle} onKeyDown={onKeyDown} onPointerDown={onPointerDown}
           style={{
             width: 24, height: 24, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
             background: 'transparent', color: NX.faint, display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: 0, cursor: disabled ? 'default' : 'pointer', flexShrink: 0,
           }}
         ><CalendarDays size={13} strokeWidth={2} /></button>
-        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} />}
+        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} autoFocus={keyed} />}
       </span>
     );
   }
@@ -634,21 +736,21 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
     <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, ...style }}>
       <button
         ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled}
-        onClick={toggle} onKeyDown={onKeyDown}
+        onClick={toggle} onKeyDown={onKeyDown} onPointerDown={onPointerDown}
         style={{
-          flex: 1, textAlign: 'left', border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
+          flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+          textAlign: 'left', border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
           fontFamily: FONT, fontSize: 'inherit', fontWeight: 'inherit', whiteSpace: 'nowrap',
           color: color || (value ? NX.ink : NX.faint),
         }}
-      >{value ? fmtDate(value) : placeholder}</button>
-      {!(compact && value) && (
-        <CalendarDays
-          size={15} strokeWidth={2} color={NX.faint}
-          style={{ flexShrink: 0, cursor: disabled ? 'default' : 'pointer' }}
-          onClick={toggle}
-        />
-      )}
-      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} />}
+      >
+        <span>{value ? (monthOnly ? `${CAL_MONTHS[Number(value.slice(5, 7)) - 1]} ${value.slice(0, 4)}` : fmtDate(value)) : placeholder}</span>
+        {/* The icon is part of the button (11/13/2026): beside it, inside a <label>,
+            a click on it opened the calendar and the label passed the click on
+            to the label's first button, which closed it again - a flicker. */}
+        {!(compact && value) && <CalendarDays size={15} strokeWidth={2} color={NX.faint} style={{ flexShrink: 0 }} aria-hidden="true" />}
+      </button>
+      {open && rect && <CalendarPopover value={monthOnly && value ? `${value}-01` : value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} max={max} repeat={repeat} monthOnly={monthOnly} autoFocus={keyed} />}
     </span>
   );
 }
@@ -719,7 +821,7 @@ export function UnassignedAvatar({ size = 24, title = 'Unassigned' }) {
 export function ExternalTag() {
   return (
     <span style={{
-      flexShrink: 0, fontSize: 10, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase',
+      flexShrink: 0, fontSize: 11, fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase',
       color: NX.amber, background: 'rgba(217,119,6,0.14)', borderRadius: 5, padding: '1px 5px',
     }}>External</span>
   );
@@ -749,9 +851,13 @@ const PROJECT_ROLE_ORDER = ['owner', 'editor', 'commenter', 'viewer'];
 // same technique as CalendarPopover above. The plain-nested-dropdown version
 // got clipped by the Share modal's "Who has access" list, which needs its own
 // overflow-y:auto scrollbar; a position:absolute child can never escape that.
-function RolePickerPanel({ anchorRect, value, onChange, onClose }) {
+function RolePickerPanel({ anchorRect, anchorRef, value, onChange, onClose }) {
   const ref = useRef(null);
-  useClickOutside(ref, onClose, true);
+  // The trigger is not "outside": a press on it closed the menu here and the
+  // click that followed opened it again, so it could not be closed that way.
+  useClickOutside([ref, anchorRef], onClose, true);
+  // Escape closes the menu alone, not the Share dialog around it.
+  useEscapeLayer(() => { onClose(); anchorRef?.current?.focus?.(); }, true, true);
   const W = 260, H = 260;
   // Same outer/inner split as CalendarPopover above - see rootZoom.
   const z = rootZoom();
@@ -761,7 +867,7 @@ function RolePickerPanel({ anchorRect, value, onChange, onClose }) {
     ? { bottom: (window.innerHeight - anchorRect.top + 6) / z }
     : { top: (anchorRect.bottom + 6) / z };
   return createPortal(
-    <div ref={ref} style={{
+    <div ref={ref} data-nx-esc-layer="" style={{
       position: 'fixed', left, width: W, ...vpos, background: NX.surface,
       border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.18)',
       zIndex: 4100, padding: 6, fontFamily: FONT,
@@ -773,7 +879,7 @@ function RolePickerPanel({ anchorRect, value, onChange, onClose }) {
           <div style={{ width: 16, flexShrink: 0, paddingTop: 1 }}>{key === value && <Check size={14} style={{ color: NX.blue }} />}</div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{PROJECT_ROLES[key].label}</div>
-            <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{PROJECT_ROLES[key].description}</div>
+            <div style={{ fontSize: 12, color: NX.faint, marginTop: 1 }}>{PROJECT_ROLES[key].description}</div>
           </div>
         </div>
       ))}
@@ -804,7 +910,7 @@ function RolePicker({ value, onChange, disabled }) {
         {meta.label}{!disabled && <ChevronDown size={13} style={{ color: NX.faint }} />}
       </button>
       {open && rect && (
-        <RolePickerPanel anchorRect={rect} value={value} onChange={onChange} onClose={() => setOpen(false)} />
+        <RolePickerPanel anchorRect={rect} anchorRef={btnRef} value={value} onChange={onChange} onClose={() => setOpen(false)} />
       )}
     </>
   );
@@ -837,14 +943,14 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
           <input className="nx-inline-edit" autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
-            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: touch ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }} />
-          {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No teams match.</div>}
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', /* type-ok: iOS zooms a field under 16px */ fontSize: touch ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }} />
+          {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 13, color: NX.faint }}>No teams match.</div>}
           {shown.map((t) => (
             <div key={t.id} onClick={() => { onChange(t.id); setOpen(false); setQ(''); }}
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink }}>
               <span style={{ width: 9, height: 9, borderRadius: 3, background: t.color || NX.dim, flexShrink: 0 }} />
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
-              <span style={{ fontSize: 11.5, color: NX.faint }}>{(t.memberIds || []).length} people</span>
+              <span style={{ fontSize: 12, color: NX.faint }}>{(t.memberIds || []).length} people</span>
             </div>
           ))}
         </SelectMenu>
@@ -932,7 +1038,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
   return (
     <Modal title={`Share ${project.name}`} onClose={onClose} width={480}>
       {error && (
-        <div style={{ background: 'rgba(220,38,38,0.1)', color: '#dc2626', fontSize: 12.5, padding: '8px 10px',
+        <div style={{ background: 'rgba(220,38,38,0.1)', color: '#dc2626', fontSize: 13, padding: '8px 10px',
                      borderRadius: 8, marginBottom: 14 }}>{error}</div>
       )}
 
@@ -986,7 +1092,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
             </div>
             <div style={{ flex: 1, overflow: 'hidden' }}>
               <div style={{ fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
-              <div style={{ fontSize: 11.5, color: NX.faint }}>{(t.memberIds || []).length} people</div>
+              <div style={{ fontSize: 12, color: NX.faint }}>{(t.memberIds || []).length} people</div>
             </div>
             <RolePicker value={t.accessRole || 'editor'} onChange={(r) => setTeamRoleFor(t, r)} disabled={busy} />
             <button type="button" disabled={busy} onClick={() => removeTeam(t)} title="Remove team from this project"
@@ -1005,7 +1111,7 @@ function ShareProjectModal({ project, teams, people, onClose }) {
           </div>
         ))}
         {!projectTeams.length && !memberEmails.length && (
-          <div style={{ padding: '14px 10px', fontSize: 12.5, color: NX.faint, textAlign: 'center' }}>
+          <div style={{ padding: '14px 10px', fontSize: 13, color: NX.faint, textAlign: 'center' }}>
             Only the project admin has access so far.
           </div>
         )}
@@ -1047,7 +1153,7 @@ export function ProjectAccessButton({ project, teams, people }) {
           ))}
         </span>
         {overflow > 0 && <span style={{ marginLeft: 6, fontSize: 12, color: NX.dim, fontWeight: 600 }}>+{overflow}</span>}
-        <span style={{ marginLeft: stackShown.length ? 6 : 0, fontSize: 12.5, color: NX.dim, fontWeight: 600 }}>Share</span>
+        <span style={{ marginLeft: stackShown.length ? 6 : 0, fontSize: 13, color: NX.dim, fontWeight: 600 }}>Share</span>
       </button>
       {shareOpen && (
         <ShareProjectModal project={project} teams={teams} people={people} onClose={() => setShareOpen(false)} />
@@ -1167,7 +1273,7 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
   }, [onClose, anchorRef]);
   if (!pos) return null;
   return createPortal(
-    <div ref={ref} className="nx-scroll" style={{
+    <div ref={ref} data-nx-esc-layer="" className="nx-scroll" style={{
       position: 'fixed', left: pos.left, width: pos.width, maxHeight: pos.maxHeight,
       ...(pos.top !== undefined ? { top: pos.top } : { bottom: pos.bottom }),
       ...(pos.lift ? { transform: 'translateY(-100%)' } : null),
@@ -1185,7 +1291,7 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
 // zoom the page when it is tapped.
 const menuSearchStyle = (isMobile) => ({
   width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: isMobile ? '11px 12px' : '9px 12px',
-  fontSize: isMobile ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink,
+  fontSize: isMobile ? 16 : 13, /* type-ok: iOS zooms a field under 16px */ fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink,
 });
 // Option rows: a 40px floor on phones, so each is a comfortable tap target.
 const menuRowTall = (isMobile) => (isMobile ? { minHeight: 40, boxSizing: 'border-box' } : null);
@@ -1195,7 +1301,7 @@ const menuRowTall = (isMobile) => (isMobile ? { minHeight: 40, boxSizing: 'borde
 export function MenuCaption({ children, inset = 12 }) {
   return (
     <div role="presentation" style={{
-      padding: `9px ${inset}px 4px`, fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em',
+      padding: `9px ${inset}px 4px`, fontSize: 11, fontWeight: 700, letterSpacing: '.06em',
       textTransform: 'uppercase', color: NX.faint, cursor: 'default', userSelect: 'none',
     }}>{children}</div>
   );
@@ -1471,7 +1577,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
           {top.length > 0 ? <MenuCaption>All</MenuCaption> : (teamRows > 0 && filtered.length > 0 && <MenuCaption>People</MenuCaption>)}
           {filtered.map((p, i) => personRow(p, '', top.length + i))}
           {filtered.length === 0 && teamRows === 0 && (
-            <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+            <div style={{ padding: '10px 12px', fontSize: 13, color: NX.faint }}>
               {q ? `No people match “${q}”.` : 'No people in the directory.'}
             </div>
           )}
@@ -1559,7 +1665,7 @@ export function SearchSelect({
             style={menuSearchStyle(touch)} />
           {shown.map((o) => (o.header ? (
             <div key={o.id} style={{
-              padding: '9px 12px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em',
+              padding: '9px 12px 4px', fontSize: 11, fontWeight: 700, letterSpacing: '.06em',
               textTransform: 'uppercase', color: NX.faint, cursor: 'default', userSelect: 'none',
             }}>{o.label}</div>
           ) : (
@@ -1572,7 +1678,7 @@ export function SearchSelect({
             </div>
           )))}
           {shown.length === 0 && (
-            <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+            <div style={{ padding: '10px 12px', fontSize: 13, color: NX.faint }}>
               {query ? `No matches for “${q.trim()}”.` : emptyText}
             </div>
           )}
@@ -1655,7 +1761,7 @@ export function ChipMultiSelect({ value, onChange, options, placeholder = 'Selec
             );
           })}
           {filtered.length === 0 && (
-            <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+            <div style={{ padding: '10px 12px', fontSize: 13, color: NX.faint }}>
               {q ? `No matches for “${q}”.` : emptyText}
             </div>
           )}
@@ -1754,7 +1860,7 @@ export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
   const body = isAudio ? (
     <div style={{ background: NX.surface, borderRadius: 14, padding: '26px 28px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, width: 'min(440px, 86vw)', boxSizing: 'border-box' }}>
       <AudioLines size={30} style={{ color: NX.primary }} aria-hidden="true" />
-      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
       <audio src={att.url} controls autoPlay preload="metadata" style={{ width: '100%' }} />
     </div>
   ) : isImage ? (
@@ -1766,8 +1872,8 @@ export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
   ) : (
     <div onClick={(e) => e.stopPropagation()} style={{ background: NX.surface, borderRadius: 14, padding: '34px 44px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, maxWidth: '86vw' }}>
       <Paperclip size={30} style={{ color: NX.faint }} />
-      <div style={{ fontSize: 14.5, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
-      <div style={{ fontSize: 12.5, color: NX.dim }}>No inline preview for this file type.</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</div>
+      <div style={{ fontSize: 13, color: NX.dim }}>No inline preview for this file type.</div>
       <a href={toDownloadUrl(att.url)} download={att.name} style={{ ...btn('primary'), textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
         <Download size={14} /> Download
       </a>
@@ -1776,33 +1882,33 @@ export function AttachmentViewer({ att, onClose, markupSource: given = null }) {
   return (
     // data-no-swipe: a swipe in the viewer (panning a picture) is the
     // viewer's, never the phone ticket card's step to the next ticket.
-    <div data-no-swipe="" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
+    <div data-no-swipe="" data-nx-esc-layer="" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 5500, background: 'rgba(9,14,11,0.88)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: FONT }}>
       <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px', color: '#fff' }}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.name}</span>
         <span style={{ fontSize: 12, opacity: 0.65 }}>{att.size}</span>
         <span style={{ flex: 1 }} />
         {markable && (
           <button type="button" onClick={() => markUp(1)} disabled={marking === 'busy'} title="Mark Up - draw on a copy of this on a board"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', borderRadius: 8, padding: '5px 10px', fontFamily: FONT, fontSize: 12.5, fontWeight: 600, cursor: marking === 'busy' ? 'wait' : 'pointer' }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', color: '#fff', borderRadius: 8, padding: '5px 10px', fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: marking === 'busy' ? 'wait' : 'pointer' }}>
             <PenTool size={14} /> {marking === 'busy' ? 'Opening…' : 'Mark Up'}
           </button>
         )}
         {att.url && <a href={toDownloadUrl(att.url)} download={att.name} title="Download" style={{ color: '#fff', opacity: 0.8, display: 'flex' }}><Download size={16} /></a>}
         <button onClick={onClose} aria-label="Close viewer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', display: 'flex', padding: 4 }}><X size={19} /></button>
       </div>
-      {markErr && <div role="alert" onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', background: '#fff', color: NX.red || '#b91c1c', borderRadius: 8, padding: '6px 12px', fontSize: 12.5, fontWeight: 600 }}>{markErr}</div>}
+      {markErr && <div role="alert" onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', background: '#fff', color: NX.red || '#b91c1c', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600 }}>{markErr}</div>}
       {marking === 'pages' && (
         <div role="dialog" aria-label="Which page?" onClick={(e) => e.stopPropagation()}
           style={{ position: 'absolute', top: 52, left: '50%', transform: 'translateX(-50%)', background: NX.surface, color: NX.ink, borderRadius: 12, padding: '12px 14px', boxShadow: '0 12px 40px rgba(0,0,0,0.35)', maxWidth: 'min(520px, 92vw)' }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Which page should go on the board?</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
             {Array.from({ length: pages }, (_, i) => i + 1).map((n) => (
-              <button key={n} type="button" onClick={() => markUp(n)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12.5 }}>Page {n}</button>
+              <button key={n} type="button" onClick={() => markUp(n)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 13 }}>Page {n}</button>
             ))}
           </div>
           {pagesCapped && <div style={{ fontSize: 12, color: NX.dim, marginTop: 8 }}>Showing the first {pages} pages.</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-            <button type="button" onClick={() => setMarking('')} style={{ ...btn('ghost'), fontSize: 12.5 }}>Cancel</button>
+            <button type="button" onClick={() => setMarking('')} style={{ ...btn('ghost'), fontSize: 13 }}>Cancel</button>
           </div>
         </div>
       )}
@@ -1956,7 +2062,7 @@ export function PersonDot({ value, people = [], nameOf, onChange, disabled = fal
   const close = () => { setOpen(false); setQ(''); };
   const choose = (p) => { if (p.email) noteRecentPerson(p.email); onChange(p.email); close(); };
   const nav = useListNav(items, { open, query: q, onPick: choose, startAt: items.findIndex((p) => p.email === (value || '')) });
-  const rowBtn = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, fontFamily: FONT, fontSize: 12.5, color: NX.ink, textAlign: 'left' };
+  const rowBtn = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, fontFamily: FONT, fontSize: 13, color: NX.ink, textAlign: 'left' };
   const personRow = (p, keyPrefix, i) => (
     <button key={keyPrefix + p.email} type="button" {...nav.optionProps(i)} onClick={() => choose(p)} style={rowBtn}>
       <Avatar email={p.email} name={p.name} size={16} card={false} />
@@ -1977,7 +2083,7 @@ export function PersonDot({ value, people = [], nameOf, onChange, disabled = fal
         style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people"
           {...nav.inputProps} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); return; } nav.onKeyDown(e); }}
-          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 7, padding: '6px 8px', fontFamily: FONT, fontSize: 12.5, marginBottom: 4 }} />
+          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 7, padding: '6px 8px', fontFamily: FONT, fontSize: 13, marginBottom: 4 }} />
         <div role="listbox" style={{ maxHeight: 240, overflowY: 'auto' }}>
           {!typed && (
             <button type="button" {...nav.optionProps(0)} onClick={() => choose(NOBODY)} style={rowBtn}>

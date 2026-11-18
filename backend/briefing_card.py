@@ -6,7 +6,7 @@ click-to-toggle trick, so the HTML briefing's collapsible sections only work
 in Apple Mail and Gmail. An Outlook Actionable Message (Adaptive Card) is the
 one format Outlook runs interactively in every client (classic desktop, new
 Outlook, web, mobile): Action.ToggleVisibility gives real collapse, and
-Action.Http runs Approve / Comment / Toggle Completion in the email itself.
+Action.Http runs Approve / Comment / Mark Done in the email itself.
 
 The card is the WHOLE briefing, not a card stacked on top of the HTML
 (hideOriginalBody: True). The Sep 23 attempt (PR #329, reverted in #331) put
@@ -45,7 +45,8 @@ _MODULE_LABEL = {
     "tasks": "Tasks", "tickets": "Tickets", "documents": "Documents", "time_off": "Time Off",
     "timecard": "Time Sheet", "shifts": "Shifts", "items": "Items", "team": "Team",
 }
-_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "shifts", "items", "team"]
+# Time Sheet first, as in the email (Neil, 11/12/2026).
+_MODULE_ORDER = ["timecard", "tasks", "tickets", "documents", "time_off", "shifts", "items", "team"]
 # First rows show; the next ones sit behind "Show N More" (still in the email);
 # past that it is a link to Nexus, so one busy module can't blow up the card.
 _ROWS_SHOWN = 3
@@ -119,10 +120,13 @@ def _task_actions(ctx: dict, row: dict) -> list:
                               kind="task", token=tok, action="react")],
         }},
     ]
-    # Toggle Completion, no Change Status (Neil, 10/01). The body is the state
-    # the reader saw, so a repeat click never flips the task back.
+    # The completion switch, no Change Status (Neil, 10/01). The body is the
+    # state the reader saw, so a repeat click never flips the task back. It
+    # says what it does, as the email does (11/17/2026, was "Toggle
+    # Completion"): Mark Done on an open task, Reopen on a finished one.
     if row.get("task_open") or row.get("task_done"):
-        out.append(_post(ctx, "Toggle Completion", "open" if row.get("task_done") else "done",
+        out.append(_post(ctx, "Reopen" if row.get("task_done") else "Mark Done",
+                         "open" if row.get("task_done") else "done",
                          kind="task", token=tok, action="toggle"))
     return out
 
@@ -153,7 +157,11 @@ def _row(ctx: dict, row: dict, first: bool) -> dict:
         actions += _decision_actions(ctx, row["action_kind"], row["action_id"], row["action_email"])
     if row.get("task_id"):
         actions += _task_actions(ctx, row)
-    if row.get("url"):
+    if row.get("cta"):
+        # A Time Sheet's one button (Review and Submit, Sign Time Sheet ...).
+        label, url = row["cta"]
+        actions.append({"type": "Action.OpenUrl", "title": label, "url": url, "style": "positive"})
+    elif row.get("url"):
         actions.append({"type": "Action.OpenUrl", "title": "Open", "url": row["url"]})
     if actions:
         items.append({"type": "ActionSet", "spacing": "small", "actions": actions})

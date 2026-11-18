@@ -54,14 +54,14 @@ export default function CommitmentsTab() {
 
   const openAdd = () => {
     setFormErr('');
-    const form = { fundId: fundFilter || '', investorId: investorFilter || '', commitmentAmount: '', units: '', subscriptionDate: today(), status: 'pending' };
+    const form = { fundId: fundFilter || '', investorId: investorFilter || '', commitmentAmount: '', units: '', membershipPct: '', subscriptionDate: today(), status: 'pending' };
     setModal({ id: null, form, initialForm: form });
   };
   const openEdit = (c) => {
     setFormErr('');
     const form = {
       fundId: String(c.fundId), investorId: String(c.investorId),
-      commitmentAmount: c.commitmentAmount ?? '', units: c.units ?? '',
+      commitmentAmount: c.commitmentAmount ?? '', units: c.units ?? '', membershipPct: c.membershipPct ?? '',
       subscriptionDate: (c.subscriptionDate || '').slice(0, 10), status: c.status || 'pending',
     };
     setModal({ id: c.id, investorName: c.investorName, fundName: c.fundName, form, initialForm: form });
@@ -77,9 +77,11 @@ export default function CommitmentsTab() {
     try {
       const f = modal.form;
       const payload = {
-        fundId: Number(f.fundId), investorId: Number(f.investorId),
+        fundId: String(f.fundId), investorId: String(f.investorId),
         commitmentAmount: Number(f.commitmentAmount) || 0,
         units: f.units === '' ? null : Number(f.units),
+        membershipPct: f.membershipPct === '' ? null : Number(f.membershipPct),
+        clearMembershipPct: f.membershipPct === '' && modal.initialForm.membershipPct !== '',
         subscriptionDate: f.subscriptionDate || null,
         status: f.status,
       };
@@ -116,8 +118,8 @@ export default function CommitmentsTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Commitments</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Signed subscriptions - who committed how much, to which deal</p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Commitments</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Signed subscriptions - who committed how much, to which deal</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-select" style={{ width: 200 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -149,6 +151,7 @@ export default function CommitmentsTab() {
                 <th>Deal</th>
                 <th style={{ textAlign: 'right' }}>Commitment</th>
                 <th style={{ textAlign: 'right' }}>Units</th>
+                <th style={{ textAlign: 'right' }}>Membership</th>
                 <th>Subscription Date</th>
                 <th>Status</th>
                 <th>Subscription Doc</th>
@@ -161,12 +164,13 @@ export default function CommitmentsTab() {
                   <td data-th="Deal" style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}>{c.fundName}</td>
                   <td data-th="Commitment" style={{ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }} onClick={() => openEdit(c)}>{formatCurrency(c.commitmentAmount)}</td>
                   <td data-th="Units" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }} onClick={() => openEdit(c)}>{c.units ?? '-'}</td>
+                  <td data-th="Membership" style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }} onClick={() => openEdit(c)}>{c.membershipPct == null ? '-' : `${c.membershipPct}%`}</td>
                   <td data-th="Subscribed" style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}>{formatDate(c.subscriptionDate)}</td>
                   <td data-th="Status" style={{ cursor: 'pointer' }} onClick={() => openEdit(c)}><StatusText status={c.status} /></td>
                   <td data-th="Doc">
                     {c.signedDocUrl ? (
                       <a href={c.signedDocUrl} target="_blank" rel="noreferrer"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'hsl(var(--color-blue))', fontSize: 12.5, fontWeight: 600, textDecoration: 'none' }}>
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'hsl(var(--color-blue))', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
                         <FileText size={13} /> {c.signedDocName || 'View Document'}
                       </a>
                     ) : (
@@ -209,6 +213,10 @@ export default function CommitmentsTab() {
                 <input className="form-input" type="number" min="0" step="any" value={modal.form.units}
                   onChange={e => setF({ units: e.target.value })} />
               </FG>
+              <FG label="Membership (%)">
+                <input className="form-input" type="number" min="0" max="100" step="any" value={modal.form.membershipPct}
+                  placeholder="From the operating agreement" onChange={e => setF({ membershipPct: e.target.value })} />
+              </FG>
               <FG label="Subscription Date">
                 <input className="form-input" type="date" value={modal.form.subscriptionDate} onChange={e => setF({ subscriptionDate: e.target.value })} />
               </FG>
@@ -220,7 +228,7 @@ export default function CommitmentsTab() {
                   <option value="withdrawn">Withdrawn</option>
                 </select>
               </FG>
-              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
+              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{formErr}</div>}
             </div>
             <div className="modal-footer">
               {modal.id && (

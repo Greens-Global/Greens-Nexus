@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { orderNav, railSections, KICKERS } from './navOrder';
+import { orderNav, railSections, KICKERS, onRail } from './navOrder';
 import { useRole } from "../contexts/RoleContext";
 import { useIsMobile } from "../lib/useIsMobile";
 import SidebarClock from "./SidebarClock";
@@ -10,7 +10,7 @@ import {
   ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Handshake,
-  Settings, ChevronLeft,
+  Settings, ChevronLeft, Pin,
   HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale, TrendingUp,
   FlaskConical,
   KeyRound,
@@ -42,6 +42,8 @@ export function isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEn
   return !item.minRole || !!can?.('administrator') || granted;
 }
 
+// Which NAV items sit on the left rail is `onRail` (navOrder.js): `menuOnly`
+// and, for everyone inside the company, `dashTab` items do not.
 export const NAV = [
   { view: "dashboard", code: "HOME",         label: "Dashboard",          icon: LayoutDashboard },
   // Time Clock folded into My HR as tabs (Visesh, Sep 3 - "no need for My HR
@@ -105,9 +107,11 @@ export const NAV = [
   // Oct 13 2026: "anything to do with support or learning is right here") -
   // still baseline, the 'sop' view and its address are unchanged.
   //
-  // The Work group reads Tasks, Tickets, Files, Credentials (Neil,
-  // 11/10/2026: Files and Documents are ONE module, called Files; Workflows
-  // moved down to System). Sidebar.orderNav.test.jsx pins this order.
+  // The Work group reads Tasks, Tickets, Files (Neil, 11/10/2026: Files and
+  // Documents are ONE module, called Files; Workflows moved down to System).
+  // Credentials left it on 11/18/2026 (Neil): it is Passwords, a Dashboard
+  // tab beside Notes and Links - see `dashTab` above. Sidebar.orderNav.test.jsx
+  // pins this order.
   { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
   { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
   // Files (Neil, 11/10/2026): the Documents module took in the Egnyte
@@ -123,7 +127,7 @@ export const NAV = [
       { subview: "documents-esign", label: "Nexus Sign", icon: PenTool },
     ],
   },
-  { view: "credvault", code: "VLT", label: "Credentials", icon: KeyRound, minRole: 'supervisor' },
+  { view: "credvault", code: "VLT", label: "Passwords", icon: KeyRound, minRole: 'supervisor', dashTab: true, aka: 'credentials logins vault' },
   { divider: true },
   {
     view: "it", code: "IT", label: "IT", icon: Monitor, minRole: 'supervisor',
@@ -158,6 +162,7 @@ export const NAV = [
       { subview: "revenue",     label: "ECRI Management", icon: TrendingUp },
       { subview: "portfolio",   label: "Portfolio",       icon: Gauge },
       { subview: "site-map",    label: "Site Map",        icon: MapIcon },
+      { subview: "tenants",     label: "Tenants",         icon: Users },
     ],
   },
   // Development was removed from the nav (Neil, Aug 11) - the module isn't
@@ -256,7 +261,7 @@ function cascadeCount(visible) {
   return n;
 }
 
-const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
+const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse, pinned = false, onTogglePin }, ref) {
   const { can, myGrantedModules, isExternal } = useRole();
   const counts = useActionCounts();
   // The time clock (components/SidebarClock.jsx, Oct 14 2026) replaces the
@@ -366,7 +371,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   // list below. `cascadeRows` is how many labels get an `--i` (the "Nexus"
   // name at 0, then every kicker and module label): the beat lasts as long
   // as the last one's delay plus its 260ms slide, capped at 1.2s.
-  const shownNav = orderNav(NAV).filter(item => !item.menuOnly && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
+  const shownNav = orderNav(NAV).filter(item => onRail(item, isExternal) && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
   // Modules split into Operations / Finance / Company (11/05/2026,
   // navOrder.js railSections); the phone drawer draws the same groups.
   const visibleNav = railSections(shownNav, KICKERS);
@@ -481,14 +486,26 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           <NavTip label="Go to Dashboard" side="right">
           <a href="#dashboard" className="sidebar-brand" aria-label="Nexus - go to Dashboard"
             onClick={(e) => { e.preventDefault(); onNavigate('dashboard'); }}>
-            <span className="dk-mark" aria-hidden="true">N</span>
+            <img className="dk-mark" src="/brand/nexus-n.png" alt="" aria-hidden="true" />
             {!collapsed && <span className="company-name" style={{ '--i': 0 }}>Nexus</span>}
           </a>
           </NavTip>
+          {/* Keep Open (Neil, 11/12/2026, navigation review: "keep auto-fold, but
+              fix it"): the menu still folds when you click elsewhere, and this
+              pin - the same choice as My Profile > Appearance > Sidebar - keeps
+              it open. Only on the open rail; the folded one has no room. */}
+          {!collapsed && onTogglePin && (
+            <NavTip label={pinned ? 'Let It Fold When You Click Elsewhere' : 'Keep the Menu Open'} side="right">
+            <button type="button" className={`sidebar-pin${pinned ? ' is-on' : ''}`} onClick={onTogglePin}
+              aria-pressed={pinned} aria-label="Keep the menu open">
+              <Pin style={{ width: 14, height: 14 }} fill={pinned ? 'currentColor' : 'none'} aria-hidden="true" />
+            </button>
+            </NavTip>
+          )}
         </div>
 
         {/* ── Nav ── */}
-        <nav className="sidebar-nav" ref={navRef}>
+        <nav className="sidebar-nav" ref={navRef} aria-label="Main menu">
           {morePill('above')}
           <ul ref={listRef} className="nav-list" role="none" onPointerLeave={onListLeave}>
             {motionOn && (

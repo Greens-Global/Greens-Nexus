@@ -68,7 +68,7 @@ export function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onC
           <BatchTabs tab="fields" onTab={onSwitchTab} />
           <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
-        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>
+        <h3 style={{ margin:'0 0 6px', fontSize:15, fontWeight:700 }}>
           Edit {selectedItems.length} {usingSelection ? 'selected' : 'shown'} item{selectedItems.length !== 1 ? 's' : ''}
         </h3>
         <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>
@@ -86,7 +86,7 @@ export function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onC
                 <label style={{ display:'flex', alignItems:'center', gap:8, width:120, flexShrink:0, cursor:'pointer', userSelect:'none' }}>
                   <input type="checkbox" checked={on} onChange={() => toggleField(f.key)}
                     style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
-                  <span style={{ fontSize:12.5, fontWeight:600, color: on ? 'var(--ink)' : 'var(--muted)' }}>{f.label}</span>
+                  <span style={{ fontSize:13, fontWeight:600, color: on ? 'var(--ink)' : 'var(--muted)' }}>{f.label}</span>
                 </label>
                 {opts ? (
                   // Unticked dropdowns show blank, not a default value - otherwise it
@@ -113,14 +113,14 @@ export function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onC
         <div style={{ marginTop:14, paddingTop:14, borderTop:'1px solid var(--line)', flexShrink:0 }}>
           <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none' }}>
             <input type="checkbox" checked={assignOn} onChange={() => setAssignOn(v => !v)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
-            <span style={{ fontSize:12.5, fontWeight:700, color: assignOn ? 'var(--ink)' : 'var(--muted)' }}>Assign These Items</span>
+            <span style={{ fontSize:13, fontWeight:700, color: assignOn ? 'var(--ink)' : 'var(--muted)' }}>Assign These Items</span>
           </label>
           {assignOn && (
             <div style={{ display:'flex', flexDirection:'column', gap:9, marginTop:10 }}>
               <div style={{ display:'flex', gap:6 }}>
                 {[['location','To a location'], ['person','To a person']].map(([k, lbl]) => (
                   <button key={k} type="button" onClick={() => setAssignKind(k)}
-                    style={{ flex:1, padding:'7px 0', borderRadius:8, border:`1px solid ${assignKind === k ? 'var(--pine)' : 'var(--line)'}`, background: assignKind === k ? 'var(--pine)' : 'transparent', color: assignKind === k ? '#fff' : 'var(--muted)', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                    style={{ flex:1, padding:'7px 0', borderRadius:8, border:`1px solid ${assignKind === k ? 'var(--pine)' : 'var(--line)'}`, background: assignKind === k ? 'var(--pine)' : 'transparent', color: assignKind === k ? '#fff' : 'var(--muted)', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                     {lbl}
                   </button>
                 ))}

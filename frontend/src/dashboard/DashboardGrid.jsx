@@ -45,6 +45,9 @@ export function stackRows(ordered, isCompact) {
 // keeping any empty rows the layout left between them. `heightOf(it)` is the
 // tile's px height; returns { [id]: top px }. The saved layout is untouched.
 export const FIT_MIN_PX = 2 * ROW_H;
+// The phone stack's floor for a tile sized to its content (11/17/2026: an
+// empty list is its title and one line, ~100px - it used to be held at 150).
+export const PHONE_FIT_FLOOR_PX = 96;
 export function fitTops(items, heightOf, rowH = ROW_H) {
   const order = [...items].sort((a, b) => (a.y - b.y) || (a.x - b.x));
   const placed = [];
@@ -70,16 +73,26 @@ export function fitTops(items, heightOf, rowH = ROW_H) {
 // `renderWidget(it, { phone })` (Oct 13) tells the widget whether the board
 // is stacked right now - the grid's own decision, so a widget never has to
 // guess it from a media query of its own.
-// `rowsFor(it)` (Oct 13) lets a widget take a different height in the phone
-// stack than it has on the board - a bare icon dock is one row on a phone
-// whatever its board shape; undefined keeps the board height.
+// `rowsFor(it, { lone })` (Oct 13) lets a widget take a different height in
+// the phone stack than it has on the board - a bare icon dock is one row on a
+// phone whatever its board shape, and a compact tile with no partner to pair
+// with (`lone`, 11/17/2026) is one row; undefined keeps the board height.
 // `compactFor(it)` says which widgets pair up on a phone (see stackRows);
 // `onDuplicate(i)` adds a Duplicate control beside Configure in edit mode;
 // `emptyState` is what an empty board shows instead of a bare canvas.
 // `fitFor(it)` (11/05/2026) marks the content-fit tiles (see fitTops): sized
 // to what they show outside Customize and in the phone stack; in Customize
 // the board keeps its row grid so dragging and resizing snap as before.
-export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, onDuplicate, limitsFor, resolveLayout, alwaysResizable, stacked = false, onMove, canConfigure, compactFor, rowsFor, fitFor, emptyState = null }) {
+// `phoneFitFor(it)` (11/17/2026) sizes a tile in the phone stack only (the
+// desktop board is untouched):
+//   'content' - as tall as what it shows (the Weather tile, which lays itself
+//               out by its board size on a phone instead of measuring itself);
+//   'shrink'  - as tall as what it shows, never taller than its board height
+//               (a list that scrolls inside the tile when it is long), so a
+//               short list or an empty state is not a tall blank card.
+// Both, and the `fit` tiles, keep a floor of PHONE_FIT_FLOOR_PX - a title and
+// one line; under it a tile would read as a sliver.
+export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, onDuplicate, limitsFor, resolveLayout, alwaysResizable, stacked = false, onMove, canConfigure, compactFor, rowsFor, fitFor, phoneFitFor, emptyState = null }) {
   const ref = useRef(null);
   const [width, setWidth] = useState(1000);
   const [drag, setDrag] = useState(null);   // live drag/resize session
@@ -154,7 +167,14 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
     const ordered = [...layout].sort((a, b) => (a.y - b.y) || (a.x - b.x));
     const rows = stackRows(ordered, isCompact);
     const pos = new Map(ordered.map((it, k) => [it.i, k]));
-    const cell = (it) => (
+    // A compact tile with no partner beside it (`lone`) may take a row
+    // form of its own - one 72px line instead of a half-empty full-width box
+    // (rowsFor answers 1 for it; 11/17/2026 phone pass).
+    const cell = (it, lone = false) => {
+      const phoneFit = isFit(it) ? null : phoneFitFor?.(it);
+      const rows = rowsFor?.(it, { lone });
+      const boardPx = (rows || it.h) * ROW_H;
+      return (
       // Edit mode drops the card 16px so its control bar (which sits
       // across the top edge) never covers the card above it. A compact tile
       // keeps its own height (a one-row pill stays a pill); everything else
@@ -163,24 +183,30 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       // ([data-widget-unavailable]) shrinks to it - style.css (Oct 17).
       // A content-fit tile is as tall as its content (display grid stretches
       // the card to the 150px floor when the content is shorter).
-      <div key={it.i} className={isFit(it) ? 'dash-stack-cell dash-fit' : 'dash-stack-cell'}
-        style={isFit(it)
-          ? { display: 'grid', minHeight: 150, marginTop: editing ? 16 : 0, minWidth: 0 }
-          : { height: (rowsFor?.(it) || it.h) * ROW_H, minHeight: isCompact(it) || rowsFor?.(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
+      // 'shrink': one fr row inside a max-height - the grid sizes the row to
+      // the content and, when the content is taller, clamps it to the max,
+      // so the card gets a definite height and its list scrolls inside it.
+      <div key={it.i} className={`dash-stack-cell${isFit(it) ? ' dash-fit' : ''}${lone ? ' dash-lone' : ''}`}
+        style={isFit(it) || phoneFit === 'content'
+          ? { display: 'grid', minHeight: PHONE_FIT_FLOOR_PX, marginTop: editing ? 16 : 0, minWidth: 0 }
+          : phoneFit === 'shrink'
+          ? { display: 'grid', gridTemplateRows: 'minmax(0, 1fr)', minHeight: PHONE_FIT_FLOOR_PX, maxHeight: Math.max(PHONE_FIT_FLOOR_PX, boardPx), marginTop: editing ? 16 : 0, minWidth: 0 }
+          : { height: boardPx, minHeight: isCompact(it) || rows ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
         <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure} onDuplicate={onDuplicate}
-          renderWidget={renderWidget} startDrag={() => {}} draggable={false} canConfigure={canConfigure} stackedNow
+          renderWidget={renderWidget} startDrag={() => {}} draggable={false} canConfigure={canConfigure} stackedNow lone={lone}
           onMove={onMove} first={pos.get(it.i) === 0} last={pos.get(it.i) === ordered.length - 1} />
       </div>
-    );
+      );
+    };
     return (
       <div ref={ref} className="dash-grid" style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
         {layout.length === 0 && emptyState}
-        {rows.map(row => row.length === 1 ? cell(row[0]) : (
+        {rows.map(row => row.length === 1 ? cell(row[0], isCompact(row[0])) : (
           // repeat(2, ...) not '1fr 1fr': style.css's phone guard stacks any
           // inline "1fr 1fr", which undid this pairing and gave every small
           // tile a full-width row (Oct 17 mobile audit).
           <div key={row[0].i} style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: GAP }}>
-            {row.map(cell)}
+            {row.map((it) => cell(it))}
           </div>
         ))}
       </div>
@@ -200,13 +226,17 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
     <div ref={ref} className="dash-grid" style={{ position: 'relative', width: '100%',
       height: boardH, minHeight: '68vh',
       transition: drag ? 'none' : 'height 0.15s',
-      // Edit mode: a soft dot at every grid intersection reads as "snap points"
-      // without the noisy full-height column lines.
+      // Edit mode: the grid's own lines, one per column and one per row - the
+      // cells a tile snaps to (Neil, 11/13/2026: in edit mode the board "loses
+      // its grid lines in the back"; the dot at each corner that stood in for
+      // them all but disappeared). View mode keeps its whisper-light grid below.
       backgroundImage: editing
-        ? 'radial-gradient(circle, var(--line) 1.5px, transparent 1.5px)'
+        ? 'linear-gradient(to right, var(--line) 1px, transparent 1px), linear-gradient(to bottom, var(--line) 1px, transparent 1px)'
         : 'none',
       backgroundSize: `${unitW}px ${ROW_H}px`,
-      backgroundPosition: `${unitW / 2}px ${ROW_H / 2}px`,
+      backgroundPosition: '0 0',
+      // The last column's and row's closing lines.
+      boxShadow: editing ? 'inset -1px -1px 0 var(--line)' : undefined,
       borderRadius: 16 }}>
       {/* View mode: a whisper-light line grid so the canvas doesn't feel bare */}
       {!editing && (
@@ -272,7 +302,7 @@ const padBtn = { ...iconBtn, width: 32, height: 32, alignItems: 'center', justif
 // The cell is a transparent frame: the widget renders its OWN native card
 // (.kpi-card / .dash-card) so it looks identical to the rest of the app. In edit
 // mode we overlay a small control cluster + resize handle on top.
-function Card({ it, editing, onRemove, onConfigure, onDuplicate, renderWidget, startDrag, draggable, alwaysResizable, onMove, first, last, canConfigure, stackedNow }) {
+function Card({ it, editing, onRemove, onConfigure, onDuplicate, renderWidget, startDrag, draggable, alwaysResizable, onMove, first, last, canConfigure, stackedNow, lone = false }) {
   // A widget with no options gets no gear - it used to show one that did nothing.
   const configurable = onConfigure && (!canConfigure || canConfigure(it));
   const [coarse] = useState(coarsePointer);
@@ -280,7 +310,7 @@ function Card({ it, editing, onRemove, onConfigure, onDuplicate, renderWidget, s
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minWidth: 0 }}>
       <div style={{ width: '100%', height: '100%', pointerEvents: editing ? 'none' : 'auto' }}>
-        {renderWidget(it, { phone: !!stackedNow })}
+        {renderWidget(it, { phone: !!stackedNow, lone })}
       </div>
       {editing && (
         <div style={{ position: 'absolute', inset: 0, borderRadius: 'var(--wk-r)', pointerEvents: 'none',

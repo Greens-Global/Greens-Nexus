@@ -94,7 +94,7 @@ const LIST_CSS = `
   text-align: left; cursor: pointer; font-family: var(--wk-font); color: var(--ink); }
 .wfl-row:hover { background: var(--mist); }
 .wfl-row[aria-selected="true"] { background: var(--wk-brand-tint); box-shadow: inset 3px 0 0 var(--wk-brand); }
-.wfl-head { position: sticky; top: 0; z-index: 1; cursor: default; min-height: 32px; background: var(--card); font-size: 10.5px; font-weight: 700;
+.wfl-head { position: sticky; top: 0; z-index: 1; cursor: default; min-height: 32px; background: var(--card); font-size: 11px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .05em; color: var(--muted); white-space: nowrap; }
 .wfl-head:hover { background: var(--card); }
 .wfl-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
@@ -256,9 +256,9 @@ export default function Locations({ toastErr, embedded = false }) {
     if (next && phone) setPane('map');
   };
 
-  const selStyle = { fontSize: 12.5, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--wk-line2)', background: 'var(--card)', fontFamily: 'var(--wk-font)', color: 'var(--ink)', maxWidth: 170 };
+  const selStyle = { fontSize: 13, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--wk-line2)', background: 'var(--card)', fontFamily: 'var(--wk-font)', color: 'var(--ink)', maxWidth: 170 };
   const overlayBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px', borderRadius: 9, border: '1px solid rgba(0,0,0,.15)',
-    background: 'var(--card)', color: 'var(--ink)', fontFamily: 'var(--wk-font)', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 10px rgba(0,0,0,.25)' };
+    background: 'var(--card)', color: 'var(--ink)', fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 10px rgba(0,0,0,.25)' };
   const showMap = !phone || pane === 'map' || full;
   const showList = full ? !phone : (!phone || pane === 'list');
 
@@ -275,7 +275,7 @@ export default function Locations({ toastErr, embedded = false }) {
           return (
             <button key={key || 'all'} type="button" role="tab" aria-selected={on} onClick={() => setF(s => ({ ...s, status: key }))}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 8, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-                fontFamily: 'var(--wk-font)', fontSize: 12.5, fontWeight: 700, background: on ? 'var(--wk-brand-tint)' : 'transparent', color: on ? 'var(--wk-brand)' : 'var(--muted)' }}>
+                fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 700, background: on ? 'var(--wk-brand-tint)' : 'transparent', color: on ? 'var(--wk-brand)' : 'var(--muted)' }}>
               {dot && <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot }} />}
               {label} <span style={{ fontWeight: 600, opacity: 0.75 }}>{counts[key] || 0}</span>
             </button>
@@ -312,14 +312,14 @@ export default function Locations({ toastErr, embedded = false }) {
               <button key={p.email} type="button" className="wfl-row" data-person-row={p.email} aria-selected={active} onClick={() => pick(p.email)}
                 title={`${p.name}${p.jobTitle ? ` · ${p.jobTitle}` : ''} - show on the map`}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
-                  <span style={{ width: 28, height: 28, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: `2px solid ${c.color}`, background: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 10.5 }}>
+                  <span style={{ width: 28, height: 28, borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: `2px solid ${c.color}`, background: '#334155', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 11 }}>
                     {p.photoUrl ? <img src={p.photoUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials(p.name)}
                   </span>
                   <span style={{ minWidth: 0 }}>
                     <span className="wfl-cell" style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>
                       {p.name}{(p.department || p.companyName) && <span style={{ fontWeight: 500, color: 'var(--muted)', fontSize: 12 }}> · {[p.department, p.companyName].filter(Boolean).join(' · ')}</span>}
                     </span>
-                    <span className="wfl-cell wfl-sub" style={{ color: p.locStale ? '#b45309' : 'var(--muted)', fontSize: 11.5 }}>
+                    <span className="wfl-cell wfl-sub" style={{ color: p.locStale ? '#b45309' : 'var(--muted)', fontSize: 12 }}>
                       {where} · {ago(p.at)}
                     </span>
                   </span>
@@ -397,7 +397,7 @@ export default function Locations({ toastErr, embedded = false }) {
           {[['list', 'List', ListIcon], ['map', 'Map', MapIcon]].map(([key, label, Icon]) => (
             <button key={key} type="button" role="tab" aria-selected={pane === key} onClick={() => setPane(key)}
               style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 0', borderRadius: 8, border: 'none', cursor: 'pointer',
-                fontFamily: 'var(--wk-font)', fontSize: 13.5, fontWeight: 700, background: pane === key ? 'var(--card)' : 'transparent',
+                fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 700, background: pane === key ? 'var(--card)' : 'transparent',
                 color: pane === key ? 'var(--ink)' : 'var(--muted)', boxShadow: pane === key ? '0 1px 4px rgba(0,0,0,.12)' : 'none' }}>
               <Icon size={15} /> {label}{key === 'list' ? ` (${shown.length})` : ''}
             </button>

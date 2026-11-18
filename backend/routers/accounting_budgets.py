@@ -54,7 +54,7 @@ def _answer(r) -> dict:
 
 
 def _get_sync(params: dict) -> dict:
-    r = httpx.get(f"{acct._ACCT_BASE}{_PATH}", params=params, headers={"x-internal-api-key": acct._ACCT_KEY}, timeout=30)
+    r = acct.acct_get(f"{acct._ACCT_BASE}{_PATH}", params=params, headers={"x-internal-api-key": acct._ACCT_KEY}, timeout=30)
     return _answer(r)
 
 

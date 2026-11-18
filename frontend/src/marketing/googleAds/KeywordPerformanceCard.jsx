@@ -60,7 +60,7 @@ function KeywordTable({ rows, searchable }) {
       <div className="mktg-hscroll" style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid ' + C.gray100, color: C.gray400, fontSize: 10.5, textTransform: 'uppercase' }}>
+            <tr style={{ borderBottom: '1px solid ' + C.gray100, color: C.gray400, fontSize: 11, textTransform: 'uppercase' }}>
               {columns.map((col, i) => (
                 <th key={col.key} style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px', paddingLeft: i === 0 ? 0 : 10, whiteSpace: 'nowrap' }}>
                   <button
@@ -116,13 +116,13 @@ export default function KeywordPerformanceCard({ rows }) {
 
   return (
     <div className="mktg-card" style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Keyword Performance (Top 5)</h3>
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Keyword Performance (Top 5)</h3>
       <div style={{ flex: 1 }}>
         <KeywordTable rows={top5} />
       </div>
       <button
         onClick={() => setShowAll(true)}
-        style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 500, color: C.emerald600, marginTop: 12 }}
+        style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 500, color: C.emerald600, marginTop: 12 }}
         onMouseEnter={(e) => (e.currentTarget.style.color = C.emerald700)}
         onMouseLeave={(e) => (e.currentTarget.style.color = C.emerald600)}
       >

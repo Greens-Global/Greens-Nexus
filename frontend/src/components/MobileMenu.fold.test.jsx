@@ -29,7 +29,7 @@ const FULL = [
   { view: 'dashboard', label: 'Dashboard' }, { view: 'workday', label: 'Workday' }, { view: 'shifts', label: 'Team' },
   { divider: true },
   { view: 'tasks', label: 'Tasks' }, { view: 'tickets', label: 'Tickets' }, { view: 'files', label: 'Files' },
-  { view: 'documents', label: 'Documents' }, { view: 'credvault', label: 'Credentials' },
+  { view: 'documents', label: 'Documents' }, { view: 'credvault', label: 'Passwords', dashTab: true },
   { divider: true },
   { view: 'property-asset', label: 'Asset Management' }, { view: 'ops', label: 'Construction' }, { view: 'it', label: 'IT' },
   { view: 'inventory', label: 'Item Management' }, { view: 'operations', label: 'Operations' },
@@ -47,7 +47,7 @@ describe('mobile menu folding groups', () => {
   it('folds the groups after Work when there are more than FOLD_AT modules', () => {
     expect(FULL.filter((i) => !i.divider).length).toBeGreaterThan(FOLD_AT);
     render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="dashboard" />);
-    expect(rowLabels()).toEqual(['Dashboard', 'Workday', 'Team', 'Tasks', 'Tickets', 'Files', 'Documents', 'Credentials']);
+    expect(rowLabels()).toEqual(['Dashboard', 'Workday', 'Team', 'Tasks', 'Tickets', 'Files', 'Documents']);
     for (const name of ['Operations', 'Finance', 'Company', 'System']) {
       expect(group(name).getAttribute('aria-expanded')).toBe('false');
     }
@@ -68,6 +68,23 @@ describe('mobile menu folding groups', () => {
     render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="it" />);
     expect(group('Operations').getAttribute('aria-expanded')).toBe('true');
     expect(rowLabels()).toContain('IT');
+  });
+
+  // The group with the open page opens by itself, so the saved list did not
+  // decide it and a tap on its header changed nothing on screen.
+  it('a tap folds and unfolds the group holding the page you are on', () => {
+    const { unmount } = render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="it" />);
+    fireEvent.click(group('Operations'));
+    expect(group('Operations').getAttribute('aria-expanded')).toBe('false');
+    expect(rowLabels()).not.toContain('IT');
+    fireEvent.click(group('Operations'));
+    expect(group('Operations').getAttribute('aria-expanded')).toBe('true');
+    expect(rowLabels()).toContain('IT');
+    // Folding it is for this visit: the next time the menu opens it is open again.
+    fireEvent.click(group('Operations'));
+    unmount();
+    render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="it" />);
+    expect(group('Operations').getAttribute('aria-expanded')).toBe('true');
   });
 
   it('shows everything flat for someone with a handful of modules', () => {

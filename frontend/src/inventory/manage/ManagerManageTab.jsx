@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { Package, Plus, Search, X, ChevronDown, UploadCloud, FileSpreadsheet, Download, Pencil, Trash2, FileBarChart, ArrowUpDown, Tag, Settings2, ImageOff, QrCode } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../../components/AsyncState';
 import { api } from '../../api';
+import NewButton from '../../components/NewButton';
 import { ITEM_TYPES, displayStatus } from '../model/status';
 import { cleanField } from '../model/fields';
 import { useIsMobile } from '../ui/hooks';
@@ -238,7 +239,7 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
     const active = sortCol === col;
     return (
       <th onClick={() => toggleSort(col)} aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-        style={{ textAlign:'left', padding:'10px 14px', fontWeight:600, color: active ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap', fontSize:12.5, cursor:'pointer', userSelect:'none', background:'var(--mist)' }}>
+        style={{ textAlign:'left', padding:'10px 14px', fontWeight:600, color: active ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap', fontSize:13, cursor:'pointer', userSelect:'none', background:'var(--mist)' }}>
         <span style={{ display:'inline-flex', alignItems:'center', gap:3 }}>
           {label}
           <ArrowUpDown size={11} style={{ opacity: active ? 1 : 0.35, color: active ? 'var(--wk-brand)' : 'inherit', transform: active && sortDir === 'desc' ? 'scaleY(-1)' : 'none' }} />
@@ -280,12 +281,12 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
       {/* Action bar - one row: primary action first, everyday secondaries next,
           admin extras collected under Manage ▾ so the bar never wraps into soup. */}
       <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
-        <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
-          <Plus size={14} /> Add Item
-        </button>
-        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
-          <UploadCloud size={14} /> Import CSV
-        </button>
+        {/* "+ New", the one create button across Nexus (Neil, 11/13/2026);
+            Import rides its menu, as on Credentials and Links. */}
+        <NewButton title="Add items to the catalog" items={[
+          { key: 'item', label: 'Item', hint: 'One item, with its serial and photo', Icon: Package },
+          { key: 'import', label: 'Import From a CSV...', hint: 'Many items at once', Icon: UploadCloud },
+        ]} onPick={(k) => (k === 'item' ? onAdd() : onImport())} />
         {/* Export ▾ - two choices (Neil): every item unfiltered (CSV or PDF), or a
             custom report honoring the filters currently applied. */}
         <div style={{ position:'relative' }}>
@@ -300,7 +301,7 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
                 {/* All Items - unfiltered; pick a format */}
                 <div style={{ padding:'9px 11px' }}>
                   <span style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileSpreadsheet size={14} /> All items (CSV / PDF)</span>
-                  <span style={{ display:'block', fontSize:11.5, color:'var(--muted)', paddingLeft:21, margin:'1px 0 8px' }}>Unfiltered - every item, all {items.length}.</span>
+                  <span style={{ display:'block', fontSize:12, color:'var(--muted)', paddingLeft:21, margin:'1px 0 8px' }}>Unfiltered - every item, all {items.length}.</span>
                   <div style={{ display:'flex', gap:7, paddingLeft:21 }}>
                     <button onClick={() => { setExportMenu(false); onExport(items); }}
                       style={{ flex:1, padding:'6px 0', borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:12, fontWeight:700, color:'var(--ink)' }}
@@ -316,7 +317,7 @@ export const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoa
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
                   onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
                   <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileBarChart size={14} /> Custom report (PDF / Excel)</span>
-                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Formatted to the current filters.</span>
+                  <span style={{ fontSize:12, color:'var(--muted)', paddingLeft:21 }}>Formatted to the current filters.</span>
                 </button>
               </div>
             </>

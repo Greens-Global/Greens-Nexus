@@ -199,7 +199,7 @@ const OrgChartCanvas = forwardRef(function OrgChartCanvas({
     <button type="button" onClick={onClick} title={title} aria-label={title}
       style={{ minWidth: 30, height: 30, padding: emphasis ? '0 8px' : 0, borderRadius: 8, border: 'none',
         background: emphasis ? 'var(--mist)' : 'transparent', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit',
-        fontSize: 11.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>
+        fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontVariantNumeric: 'tabular-nums' }}>
       {icon}
     </button>
   );
@@ -240,7 +240,7 @@ const OrgChartCanvas = forwardRef(function OrgChartCanvas({
         {onFindMe && toolBtn('Find me on the chart', onFindMe, <LocateFixed size={15} />)}
       </div>
       {hint && (
-        <span style={{ position: 'absolute', left: 14, bottom: 14, right: 150, fontSize: 11.5, color: 'var(--muted)', pointerEvents: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ position: 'absolute', left: 14, bottom: 14, right: 150, fontSize: 12, color: 'var(--muted)', pointerEvents: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {hint}
         </span>
       )}

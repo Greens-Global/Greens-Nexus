@@ -37,7 +37,7 @@ from routers.task_util import (
     config_admits, config_company_for_new, assert_config_editable,
     task_visible_to, assert_person_assignable, project_role_for, PROJECT_ROLE_RANK, row_company, ParentSight,
     inherits_privacy,
-    split_people, note_dropped_people,
+    split_people, note_dropped_people, require_task_creator,
 )
 from task_notify import notify_task_event
 import task_due
@@ -3040,7 +3040,7 @@ def _new_task_row(db: Session, body: TaskCreate, *, tid: str, code: str, company
 
 @router.post("", status_code=201)
 def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
-                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+                user: dict = Depends(require_task_creator), db: Session = Depends(get_db)):
     return _create_task(body, background_tasks, user, db, check_people=True)
 
 
@@ -7369,7 +7369,7 @@ class TaskImportBody(BaseModel):
 
 @router.post("/import")
 def import_tasks(body: TaskImportBody, background_tasks: BackgroundTasks,
-                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+                 user: dict = Depends(require_task_creator), db: Session = Depends(get_db)):
     """Dry run -> the per-row report the wizard previews; otherwise create
     every row without an error in one transaction. See task_import.py."""
     import task_import   # lazy: task_import imports this module

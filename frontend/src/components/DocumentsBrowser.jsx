@@ -1,8 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import AnchoredMenu from './AnchoredMenu';
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import NewButton from './NewButton';
 import { UNTITLED_DOCUMENT, UNTITLED_SHEET } from '../lib/untitled';
 import { generateJSON } from '@tiptap/core';
-import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon, LayoutTemplate } from 'lucide-react';
+import { Search, FilePlus2, FileText, FolderPlus, X, Upload, Cloud, ChevronUp, ChevronDown, Sheet as SheetIcon, LayoutTemplate, Folder as FolderIcon, ClipboardList, Package } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -17,7 +17,7 @@ import DocumentSidePanel, { StatusWord } from './DocumentSidePanel';
 import { PersonSelect } from '../tasks/components';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { useIsMobile } from '../lib/useIsMobile';
-import { VIEWS, folderKey, mergeRows, rowFor, rowStatus, rowsInView, searchRows, sortRows, startView } from '../lib/documentLibrary';
+import { VIEWS, folderKey, mergeRows, rowFor, rowStatus, rowsInView, searchRows, sortRows, startView, PAGE_SIZE, groupLabel, rowSubline, pageOf, initials } from '../lib/documentLibrary';
 import { validateFieldValue, formatFieldValue, RESERVED_TYPES, isAutoToken } from '../lib/mergeFieldTypes';
 
 // Sheets (Neil, 11/05/2026): the workbook page and its engine load when a sheet is opened or made.
@@ -198,7 +198,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>For (optional)</label>
                   <PersonSelect value={personEmail} onChange={pickPerson} people={people} placeholder="Nobody in particular" noneLabel="Nobody in particular" ariaLabel="Who this document is for"
-                    style={{ height: 36, padding: '0 13px', borderRadius: 10, fontSize: 12.5, fontWeight: 400 }} />
+                    style={{ height: 36, padding: '0 13px', borderRadius: 10, fontSize: 13, fontWeight: 400 }} />
                 </div>
               )}
               {entities.length > 0 && (
@@ -215,7 +215,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
 
           {fieldDefs.length > 0 && !importFile && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Fill in the details</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Fill in the details</div>
               {fieldDefs.map(fd => (
                 <div key={fd.token}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>
@@ -239,7 +239,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Or Open a File</label>
             {importFile ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                 <FileText size={14} />
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{importFile.name}</span>
                 <button onClick={() => setImportFile(null)}
@@ -266,7 +266,7 @@ export function CreateDocModal({ folders = [], employees = [], entities = [], in
           </div>
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10, position: 'sticky', bottom: 0, background: 'var(--card)' }}>
-          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button className="primary-btn" disabled={busy} onClick={create} style={{ opacity: busy ? 0.6 : 1 }}>
             {busy ? (importFile ? 'Importing…' : 'Creating…') : (templateId && !importFile ? 'Make Document' : 'Create Draft')}
           </button>
@@ -297,12 +297,12 @@ function NewFolderModal({ onClose, onCreated, toastErr }) {
           <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Folder name</label>
           <input className="form-input" autoFocus value={name} onChange={e => setName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') create(); }} placeholder="e.g. Board Minutes" />
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
             Shared with everyone who can see Documents. Your own drafts can stay in Personal.
           </div>
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button className="primary-btn" disabled={!name.trim() || busy} onClick={create} style={{ opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
             {busy ? 'Creating…' : 'Create Folder'}
           </button>
@@ -352,7 +352,7 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
           Folder and Tags
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.title}</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.title}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Folder</label>
             <select className="form-input" style={{ width: '100%' }} value={folderId} onChange={e => setFolderId(e.target.value)}>
@@ -372,15 +372,15 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
               ))}
               <input className="nx-inline-edit" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onTagKey} onBlur={() => addTag(draft)}
                 aria-label="Add a tag" placeholder={tags.length ? '' : 'Add a tag and press Enter'}
-                style={{ border: 'none', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', flex: '1 1 90px', minWidth: 90 }} />
+                style={{ border: 'none', fontSize: 13, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', flex: '1 1 90px', minWidth: 90 }} />
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
               Tags are searchable from the Documents search bar. Up to 20 per document.
             </div>
           </div>
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button className="primary-btn" disabled={busy} onClick={save} style={{ opacity: busy ? 0.6 : 1 }}>{busy ? 'Saving…' : 'Save'}</button>
         </div>
       </div>
@@ -388,7 +388,7 @@ function OrganizeModal({ doc, folders, onClose, onSaved, toastErr }) {
   );
 }
 
-export default function DocumentsBrowser({ openCreateSignal, initialView = '', employees = [], entities = [], toastOk, toastErr }) {
+export default function DocumentsBrowser({ openCreateSignal, openSheetSignal, takeSignal, initialView = '', employees = [], entities = [], toastOk, toastErr }) {
   const isMobile = useIsMobile();
   const [folders, setFolders] = useState([]);
   const [rows, setRows] = useState(null);
@@ -398,6 +398,10 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   const [selectedId, setSelectedId] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState({ key: 'updatedAt', dir: 'desc' });
+  // The redesign (Pranshu, 11/13/2026): 12 rows a page, filter chips, folded empty folders.
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ company: '', status: '', type: '' });
+  const [showEmptyFolders, setShowEmptyFolders] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);   // true, or { file } from the Import button
   const importRef = useRef(null);
   const [editingDoc, setEditingDoc] = useState(null);
@@ -431,11 +435,34 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   };
 
   useEffect(() => { load(); }, []);
+  // The header search opens a document here (11/13/2026): the note above
+  // serves a library still loading, this event one already on screen - the
+  // same two-part handoff a ticket uses (lib/pendingOpen.js).
+  useEffect(() => {
+    const onOpen = (e) => {
+      const id = e.detail?.id;
+      if (!id) return;
+      takePendingOpen('document');
+      setView('all');
+      setSelectedId(id);
+    };
+    window.addEventListener('nexus:open-document', onOpen);
+    return () => window.removeEventListener('nexus:open-document', onOpen);
+  }, []);
   useEffect(() => { api.getDocFolders().then(setFolders).catch(() => setFolders([])); }, []);
 
   const all = useMemo(() => rows || [], [rows]);
-  const visible = useMemo(() => sortRows(searchRows(rowsInView(all, view), search, folders), sort.key, sort.dir),
-    [all, view, search, folders, sort]);
+  const typeOf = (r) => (r.kind === 'hr' ? 'Packet' : r.kind === 'form_entry' ? 'Form Entry' : r.docKind === 'sheet' ? 'Sheet' : 'Document');
+  const visible = useMemo(() => sortRows(searchRows(rowsInView(all, view), search, folders), sort.key, sort.dir)
+    .filter((r) => (!filters.company || r.company === filters.company) && (!filters.status || rowStatus(r).label === filters.status) && (!filters.type || typeOf(r) === filters.type)),
+    [all, view, search, folders, sort, filters]);
+  useEffect(() => { setPage(1); }, [view, search, filters, sort]);
+  const paged = useMemo(() => pageOf(visible, page, PAGE_SIZE), [visible, page]);
+  // Each option carries its count ("Signed (3)"), so a chip never reads as a row.
+  const options = useMemo(() => {
+    const tally = (read) => { const m = new Map(); all.forEach((r) => { const k = read(r); if (k) m.set(k, (m.get(k) || 0) + 1); }); return [...m].sort(([a], [b]) => a.localeCompare(b)); };
+    return { company: tally((r) => r.company), status: tally((r) => rowStatus(r).label), type: tally(typeOf) };
+  }, [all]);
   const selected = selectedId ? all.find((r) => r.id === selectedId) : null;
   const views = VIEWS.filter((v) => (!v.hrOnly || hrAccess) && (!v.formsOnly || all.some((r) => r.kind === 'form_entry')));
   const countOf = (key) => rowsInView(all, key).length;
@@ -450,7 +477,10 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
     if (e.key === 'Escape') { setSelectedId(''); return; }
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
-    const next = e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
+    // The "This Week / Older" divider rows are not documents: step over them.
+    const step = (el) => (e.key === 'ArrowDown' ? el.nextElementSibling : el.previousElementSibling);
+    let next = step(e.currentTarget);
+    while (next && !next.dataset.row) next = step(next);
     if (next) { next.focus(); if (selectedId) setSelectedId(next.dataset.row); }
   };
 
@@ -478,9 +508,19 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
     }
   };
   // The header's + > New Document lands here: the same blank draft, at once.
-  useEffect(() => { if (openCreateSignal) newDocument(); }, [openCreateSignal]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const [newMenuOpen, setNewMenuOpen] = useState(false);
-  const newMenuRef = useRef(null);
+  // A signal is acted on ONCE. The caller says whether this one is still to be
+  // taken (`takeSignal(kind, signal)` - it remembers what was, for as long as
+  // IT lives), so this library mounting again with the same counter - leaving
+  // the tab and coming back - makes nothing, while a new click (a higher
+  // counter) still does. With no caller to ask, this mount remembers.
+  const ownTaken = useRef({ create: 0, sheet: 0 });
+  const take = (kind, signal) => {
+    if (takeSignal) return takeSignal(kind, signal);
+    if (!signal || ownTaken.current[kind] === signal) return false;
+    ownTaken.current[kind] = signal;
+    return true;
+  };
+  useEffect(() => { if (take('create', openCreateSignal)) newDocument(); }, [openCreateSignal]);   // eslint-disable-line react-hooks/exhaustive-deps
   // New Sheet, or a spreadsheet file picked in Import: a sheet row, then open it.
   const newSheet = async (file = null) => {
     setMakingSheet(true);
@@ -497,6 +537,8 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
       setMakingSheet(false);
     }
   };
+  // Quick Actions > New > Sheet lands here: the same blank sheet as + New > Sheet.
+  useEffect(() => { if (take('sheet', openSheetSignal)) newSheet(); }, [openSheetSignal]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (editingSheet) return (
     <Suspense fallback={<SkeletonBlocks count={8} height={36} />}>
@@ -514,22 +556,36 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
   return (
     <div className={`nx-dl${selected ? ' nx-dl-open' : ''}`}>
       <nav className="nx-dl-rail" aria-label="Document views">
-        {views.map((v) => (
-          <button key={v.key} type="button" className={view === v.key ? 'on' : ''} aria-current={view === v.key ? 'true' : undefined} onClick={() => pickView(v.key)}>
-            <span>{v.label}</span><span className="nx-dl-count">{countOf(v.key)}</span>
-          </button>
-        ))}
-        {(folders.length > 0 || canAddFolder) && <div className="nx-dl-rail-head">Folders</div>}
-        {folders.filter((f) => f.name !== 'Archived' || countOf(folderKey(f.id)) > 0).map((f) => (
-          <button key={f.id} type="button" className={view === folderKey(f.id) ? 'on' : ''} aria-current={view === folderKey(f.id) ? 'true' : undefined} onClick={() => pickView(folderKey(f.id))}>
-            <span>{f.name}</span><span className="nx-dl-count">{countOf(folderKey(f.id))}</span>
-          </button>
-        ))}
-        {canAddFolder && (
-          <button type="button" className="nx-dl-rail-add" title="New Folder" onClick={() => setNewFolderOpen(true)}>
-            <FolderPlus size={14} /> <span>New Folder</span>
-          </button>
+        <div className="nx-dl-rail-head">Views</div>
+        {views.map((v) => {
+          const n = countOf(v.key);
+          return (
+            <button key={v.key} type="button" className={`${view === v.key ? 'on' : ''}${!n && view !== v.key ? ' zero' : ''}`} aria-current={view === v.key ? 'true' : undefined} onClick={() => pickView(v.key)}>
+              <span>{v.label}</span>
+              {v.key === 'needs' && n > 0 ? <span className="nx-dl-count nx-dl-count-hot">{n}</span> : <span className="nx-dl-count">{n}</span>}
+            </button>
+          );
+        })}
+        {(folders.length > 0 || canAddFolder) && (
+          <div className="nx-dl-rail-head">
+            <span>Folders</span>
+            {canAddFolder && <button type="button" className="nx-dl-rail-new" aria-label="New Folder" title="New Folder" onClick={() => setNewFolderOpen(true)}><FolderPlus size={12} /> New</button>}
+          </div>
         )}
+        {(() => {
+          const withCount = folders.map((f) => [f, countOf(folderKey(f.id))]);
+          const shown = withCount.filter(([f, n]) => n > 0 || view === folderKey(f.id) || showEmptyFolders);
+          const hidden = withCount.length - shown.length;
+          return (<>
+            {shown.map(([f, n]) => (
+              <button key={f.id} type="button" className={`${view === folderKey(f.id) ? 'on' : ''}${!n ? ' zero' : ''}`} aria-current={view === folderKey(f.id) ? 'true' : undefined} onClick={() => pickView(folderKey(f.id))}>
+                <span><FolderIcon size={13} aria-hidden="true" /> {f.name}</span><span className="nx-dl-count">{n}</span>
+              </button>
+            ))}
+            {hidden > 0 && <button type="button" className="nx-dl-rail-more" onClick={() => setShowEmptyFolders(true)}>Show {hidden} Empty Folder{hidden === 1 ? '' : 's'}</button>}
+            {showEmptyFolders && withCount.some(([, n]) => !n) && <button type="button" className="nx-dl-rail-more" onClick={() => setShowEmptyFolders(false)}>Hide Empty Folders</button>}
+          </>);
+        })()}
       </nav>
 
       <div className="nx-dl-main">
@@ -539,39 +595,29 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
             <input className="form-input" placeholder="Search by title, person, signer or tag" aria-label="Search documents"
               value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
+          {[['company', 'Company'], ['status', 'Status'], ['type', 'Type']].map(([k, label]) => (
+            <select key={k} className="nx-dl-chip" aria-label={label} value={filters[k]} onChange={(e) => setFilters((f) => ({ ...f, [k]: e.target.value }))}>
+              <option value="">{label}: {k === 'company' ? 'All' : 'Any'}</option>
+              {options[k].map(([o, n]) => <option key={o} value={o}>{o} ({n})</option>)}
+            </select>
+          ))}
           <input ref={importRef} type="file" accept=".docx,.doc,.pdf,.txt,.xlsx,.xls,.csv" style={{ display: 'none' }} aria-label="Import a file"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) { if (SHEET_FILE.test(f.name)) newSheet(f); else setCreateOpen({ file: f }); } e.target.value = ''; }} />
-          <button type="button" className="secondary-btn" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
+          <button type="button" className="secondary-btn nx-dl-push" onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign-send' } }))}>
             Send For Signature
           </button>
-          {/* New Document opens a blank draft at once (named on Close); its arrow
-              holds a blank sheet, a template and a file (Word, PDF, Excel...). */}
-          <span className="nx-dl-split" role="group" aria-label="New Document">
-            <button type="button" className="primary-btn" data-tour="documents-new-document" disabled={makingDoc} onClick={newDocument}>
-              <FilePlus2 size={14} /> {makingDoc ? 'Opening...' : 'New Document'}
-            </button>
-            <button ref={newMenuRef} type="button" className="primary-btn nx-dl-split-arrow" aria-label="More ways to start a document" title="More ways to start a document"
-              aria-haspopup="menu" aria-expanded={newMenuOpen} onClick={() => setNewMenuOpen((o) => !o)}>
-              <ChevronDown size={14} />
-            </button>
-          </span>
-          <AnchoredMenu anchorRef={newMenuRef} open={newMenuOpen} onClose={() => setNewMenuOpen(false)} align="end"
-            className="doc-toolbar doc-ribbon doc-ribbon-panel" style={{ width: 230 }}>
-            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); newDocument(); }}>
-              <FilePlus2 size={14} /><span>Blank Document</span>
-            </button>
-            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); newSheet(); }}>
-              <SheetIcon size={14} /><span>{makingSheet ? 'Making...' : 'Blank Sheet'}</span>
-            </button>
-            <div className="doc-ribbon-sep" role="separator" />
-            <button type="button" role="menuitem" className="doc-ribbon-item" onClick={() => { setNewMenuOpen(false); setCreateOpen(true); }}>
-              <LayoutTemplate size={14} /><span>From a Template...</span>
-            </button>
-            <button type="button" role="menuitem" className="doc-ribbon-item" title="Open a Word, PDF, text, Excel or CSV file as a new document or sheet"
-              onClick={() => { setNewMenuOpen(false); importRef.current?.click(); }}>
-              <Upload size={14} /><span>Open a File...</span>
-            </button>
-          </AnchoredMenu>
+          {/* "+ New", the one create button across Nexus (Neil, 11/13/2026:
+              "fix the document module too so it is + New too") - its menu
+              replaces the New Document split. Document still opens a blank
+              draft at once and asks its name on Close (Neil, 11/11/2026). */}
+          <NewButton dataTour="documents-new-document" busy={makingDoc ? 'Opening...' : makingSheet ? 'Making...' : ''}
+            items={[
+              { key: 'doc', label: 'Document', hint: 'A blank page, named on Close', Icon: FilePlus2 },
+              { key: 'sheet', label: 'Sheet', hint: 'A blank spreadsheet', Icon: SheetIcon },
+              { key: 'template', label: 'From a Template...', hint: 'Start from your company\'s wording', Icon: LayoutTemplate, sep: true },
+              { key: 'file', label: 'Open a File...', hint: 'Word, PDF, text, Excel or CSV', Icon: Upload, title: 'Open a Word, PDF, text, Excel or CSV file as a new document or sheet' },
+            ]}
+            onPick={(k) => { if (k === 'doc') newDocument(); else if (k === 'sheet') newSheet(); else if (k === 'template') setCreateOpen(true); else importRef.current?.click(); }} />
         </div>
 
         <AsyncSection
@@ -592,7 +638,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
         >
           {isMobile ? (
             <div className="nx-dl-cards">
-              {visible.slice(0, 500).map((r) => (
+              {paged.rows.map((r) => (
                 <button key={r.id} type="button" className="nx-dl-card" onClick={() => setSelectedId(r.id)}>
                   <strong>{r.docKind === 'sheet' && <SheetIcon size={13} aria-label="Sheet" style={{ marginRight: 5, verticalAlign: -2 }} />}{r.title}</strong>
                   {rowFor(r) && <span className="nx-dl-muted">{rowFor(r)}</span>}
@@ -612,24 +658,51 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
                         </button>
                       </th>
                     ))}
+                    <th className="nx-dl-rowact" aria-label="Actions"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visible.slice(0, 500).map((r) => (
-                    <tr key={r.id} data-row={r.id} tabIndex={0} className={selectedId === r.id ? 'sel' : ''} aria-selected={selectedId === r.id}
-                      onClick={() => setSelectedId(r.id)} onKeyDown={(e) => onRowKey(e, r)}>
-                      <td className="nx-dl-name">{r.docKind === 'sheet' && <SheetIcon size={13} aria-label="Sheet" style={{ marginRight: 6, verticalAlign: -2 }} />}{r.title}</td>
-                      <td className="nx-dl-for">{rowFor(r) || '-'}</td>
-                      <td><StatusWord status={rowStatus(r)} /></td>
-                      <td className="nx-dl-co">{r.company || '-'}</td>
-                      <td className="nx-dl-date">{formatDate(r.updatedAt)}</td>
-                    </tr>
-                  ))}
+                  {paged.rows.map((r, i) => {
+                    const group = sort.key === 'updatedAt' ? groupLabel(r) : '';
+                    const divider = group && (i === 0 || groupLabel(paged.rows[i - 1]) !== group);
+                    const Kind = r.kind === 'hr' ? Package : r.kind === 'form_entry' ? ClipboardList : r.docKind === 'sheet' ? SheetIcon : FileText;
+                    const kindClass = r.kind === 'hr' ? 'is-hr' : r.kind === 'form_entry' ? 'is-form' : r.docKind === 'sheet' ? 'is-sheet' : 'is-doc';
+                    const who = rowFor(r);
+                    return (<Fragment key={r.id}>
+                      {divider && <tr className="nx-dl-group" aria-hidden="true"><td colSpan={6}>{group}</td></tr>}
+                      <tr data-row={r.id} tabIndex={0} className={selectedId === r.id ? 'sel' : ''} aria-selected={selectedId === r.id}
+                        onClick={() => setSelectedId(r.id)} onKeyDown={(e) => onRowKey(e, r)}>
+                        <td className="nx-dl-name">
+                          <span className="nx-dl-cellrow">
+                            <span className={`nx-dl-kind ${kindClass}`}><Kind size={14} aria-hidden="true" /></span>
+                            <span className="nx-dl-name-text"><span>{r.title}</span><small>{rowSubline(r, folders)}</small></span>
+                          </span>
+                        </td>
+                        <td className="nx-dl-for">{who ? <span className="nx-dl-cellrow"><span className="nx-dl-av" aria-hidden="true">{initials(who)}</span>{who}</span> : <span className="nx-dl-muted">-</span>}</td>
+                        <td><StatusWord status={rowStatus(r)} /></td>
+                        <td className="nx-dl-co">{r.company || <span className="nx-dl-muted">-</span>}</td>
+                        <td className="nx-dl-date">{formatDate(r.updatedAt)}</td>
+                        <td className="nx-dl-rowact"><button type="button" className="secondary-btn nx-dl-quick" onClick={(e) => { e.stopPropagation(); setSelectedId(r.id); }}>Open</button></td>
+                      </tr>
+                    </Fragment>);
+                  })}
                 </tbody>
               </table>
             </div>
           )}
-          {visible.length > 500 && <p className="nx-dl-muted" style={{ marginTop: 10 }}>Showing the newest 500. Search to find the rest.</p>}
+          {paged.pages > 1 && (
+            <div className="nx-dl-pager" role="navigation" aria-label="Pages">
+              <span className="nx-dl-muted">Showing {paged.from}-{paged.to} of {visible.length} · {PAGE_SIZE} a page</span>
+              <span className="nx-dl-pages">
+                <button type="button" aria-label="Previous page" disabled={paged.page <= 1} onClick={() => setPage(paged.page - 1)}>‹</button>
+                {Array.from({ length: paged.pages }, (_, n) => n + 1).filter((n) => n === 1 || n === paged.pages || Math.abs(n - paged.page) <= 2).map((n, idx, arr) => (<Fragment key={n}>
+                  {idx > 0 && arr[idx - 1] !== n - 1 && <span className="nx-dl-muted">…</span>}
+                  <button type="button" className={n === paged.page ? 'on' : ''} aria-current={n === paged.page ? 'page' : undefined} onClick={() => setPage(n)}>{n}</button>
+                </Fragment>))}
+                <button type="button" aria-label="Next page" disabled={paged.page >= paged.pages} onClick={() => setPage(paged.page + 1)}>›</button>
+              </span>
+            </div>
+          )}
         </AsyncSection>
       </div>
 
@@ -651,7 +724,7 @@ export default function DocumentsBrowser({ openCreateSignal, initialView = '', e
 
       {newFolderOpen && (
         <NewFolderModal toastErr={toastErr} onClose={() => setNewFolderOpen(false)}
-          onCreated={(f) => { setFolders(prev => [...prev, f].sort((a, b) => a.name.localeCompare(b.name))); toastOk?.(`Folder "${f.name}" created`); }} />
+          onCreated={(f) => { setFolders(prev => [...prev, f].sort((a, b) => a.name.localeCompare(b.name))); pickView(folderKey(f.id)); toastOk?.(`Folder "${f.name}" created`); }} />
       )}
 
       {organizeDoc && (

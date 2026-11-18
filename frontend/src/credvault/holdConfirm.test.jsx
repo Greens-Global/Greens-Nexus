@@ -75,6 +75,36 @@ describe('Credential drawer holds', () => {
     await act(async () => { vi.advanceTimersByTime(200); });
     expect(onPurge).toHaveBeenCalledTimes(1);
   });
+
+  it('whoever moved it to the trash waits for the other owner to delete it for good (11/13/2026)', async () => {
+    render(detail({ deletedAt: '2026-11-13T00:00:00Z', deletedBy: 'olive@x.com', backupOwner: 'bea@x.com' }));
+    expect(await screen.findByText(/so bea@x.com or an admin confirms the permanent delete/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Delete Permanently, press and hold' })).toBeNull();
+  });
+
+  it('the other owner gets the hold', async () => {
+    render(detail({ deletedAt: '2026-11-13T00:00:00Z', deletedBy: 'bea@x.com', backupOwner: 'bea@x.com' }));
+    expect(await screen.findByRole('button', { name: 'Delete Permanently, press and hold' })).toBeTruthy();
+  });
+
+  it('a breached password says why, and Critical is a calm word, not red (states are words, never tags - 11/17/2026)', async () => {
+    const { container } = render(detail({ breached: true, tier: 'Critical' }));
+    expect(await screen.findByText(/This exact password is on public lists of leaked passwords/)).toBeTruthy();
+    const words = container.querySelector('.cv-detail-words');
+    expect(words.textContent).toMatch(/Owner - Critical - Accounting - Password - found in a breach/);
+    expect(within(words).getByText(/found in a breach/).className).toContain('tone-bad');
+    expect(words.querySelectorAll('.tone-bad')).toHaveLength(1);                     // the breach, not the tier
+    expect(container.querySelector('.cv-chip')).toBeNull();
+  });
+
+  it('Copy Password works without a reveal, and a login with a code offers Copy Code (11/18/2026)', async () => {
+    const onCopyPassword = vi.fn(), onCopyCode = vi.fn();
+    render(detail({ hasTotp: true, props: { onCopyPassword, onCopyCode } }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy Password' }));
+    expect(onCopyPassword).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy Code' }));
+    expect(onCopyCode).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('Personal Vault delete', () => {
@@ -88,7 +118,7 @@ describe('Personal Vault delete', () => {
     const btn = await screen.findByRole('button', { name: 'Delete Home Wi-Fi, press and hold' });
     await act(async () => { fireEvent.click(btn); });
     const dlg = await screen.findByRole('dialog');
-    expect(within(dlg).getByText(/There is no trash for personal credentials/)).toBeTruthy();
+    expect(within(dlg).getByText(/There is no trash for personal logins/)).toBeTruthy();
     expect(api.cvPersonalDelete).not.toHaveBeenCalled();
     await act(async () => { fireEvent.click(within(dlg).getByRole('button', { name: 'Delete' })); });
     await act(async () => {});

@@ -124,7 +124,7 @@ def _friendly(status, detail, method, path):
     if status == 409:
         hint = " - the pin's status does not allow this (it may already be building, completed, dismissed or done)"
     elif status == 413:
-        hint = " - the image is over 8 MB"
+        hint = " - the clip is over 25 MB" if "/cli/attach" in str(path) and "clip" in str(text).lower() else " - the image is over 8 MB"
     elif status == 503:
         hint = " - file storage is not configured on this API"
     return base + (": " + text if text else "") + hint

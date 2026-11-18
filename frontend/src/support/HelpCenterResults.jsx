@@ -44,7 +44,7 @@ export default function HelpCenterResults({ query, onAsk, onClose }) {
       <button type="button" role="option" aria-selected="false" onClick={onAsk} style={row} className="hc-result">
         <Sparkles size={16} style={{ color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }} />
         <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>Ask Nexus: "{q}"</span>
+          <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>Ask Nexus: "{q}"</span>
           <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>A written answer from the guides and the Knowledge Base</span>
         </span>
       </button>
@@ -54,7 +54,7 @@ export default function HelpCenterResults({ query, onAsk, onClose }) {
           <button key={r.id} type="button" role="option" aria-selected="false" onClick={() => pick(r)} style={row} className="hc-result">
             <Icon size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
             <span style={{ flex: 1, minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {r.title}
               </span>
               <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -68,7 +68,7 @@ export default function HelpCenterResults({ query, onAsk, onClose }) {
         );
       })}
       {!results.length && kb.status !== 'loading' && (
-        <div style={{ padding: '8px 12px', fontSize: 12.5, color: 'var(--muted)' }}>
+        <div style={{ padding: '8px 12px', fontSize: 13, color: 'var(--muted)' }}>
           No guide or Knowledge Base page matches "{q}". Ask Nexus above, or file a ticket.
         </div>
       )}

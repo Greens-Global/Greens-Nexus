@@ -322,3 +322,51 @@ def save_blank_job(db: Session, company_id: str, value: bool, by: str) -> bool:
     row.updated_by = by
     db.commit()
     return bool(value)
+
+
+# Old Timer header (Charmi, 11/12/2026): QuickBooks Desktop 2022 and later
+# dropped File > Utilities > Import > Timer Activities - her Accountant Desktop
+# Plus 2024 imports time only through Import > IIF Files, which reads plain
+# !TIMEACT rows. So the file now starts at !TIMEACT; a company still on
+# QuickBooks 2021 or earlier (Timer import) turns this on to get the
+# TIMERHDR lines back. Stored as {company_id: true}, off by default.
+QB_TIMER_HEADER_KEY = "quickbooks_iif_timer_header"
+
+
+def _flag_map(db: Session, key: str) -> dict:
+    row = db.query(NexusSetting).filter(NexusSetting.key == key).first()
+    try:
+        raw = json.loads(row.value) if row and row.value else {}
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): True for k, v in raw.items() if v is True}
+
+
+def timer_header_reader(db: Session):
+    """Read the setting once; returns company_id -> bool (keep the TIMERHDR lines)."""
+    on = _flag_map(db, QB_TIMER_HEADER_KEY)
+    return lambda company_id: bool(on.get(company_id or ""))
+
+
+def timer_header(db: Session, company_id: str) -> bool:
+    return timer_header_reader(db)(company_id)
+
+
+def save_timer_header(db: Session, company_id: str, value: bool, by: str) -> bool:
+    """Turn one company's old Timer header on or off. Commits."""
+    company_id = company_id or ""
+    stored = _flag_map(db, QB_TIMER_HEADER_KEY)
+    if value:
+        stored[company_id] = True
+    else:
+        stored.pop(company_id, None)
+    row = db.query(NexusSetting).filter(NexusSetting.key == QB_TIMER_HEADER_KEY).first()
+    if not row:
+        row = NexusSetting(key=QB_TIMER_HEADER_KEY)
+        db.add(row)
+    row.value = json.dumps(stored, sort_keys=True)
+    row.updated_by = by
+    db.commit()
+    return bool(value)

@@ -60,10 +60,10 @@ Lessons: Cash and Accrual, and the Period; The Close and the Three Statements; B
 
 | To see | Go to |
 |---|---|
-| Income Statement, Balance Sheet, General Ledger | Accounting > Reports > Financial |
-| Budget against actual | Accounting > Reports > Budget |
+| Income Statement, Balance Sheet, General Ledger | Accounting > Reports > Financial Statements, and Ledger & Banking for the General Ledger |
+| Budget against actual | Accounting > Reports > Budget vs. Actual |
 | A vendor's terms, ledger lines and papers | Accounting > Records > Vendors |
 | Close checklist and reconciliations | Accounting > Dashboard > Close |
-| Card and bank transactions | Accounting > Reports > Banking & Credit Cards |
+| Card and bank transactions | Accounting > Reports > Ledger & Banking |
 | What tenants owe, by age | Operations > Reports > Aged Receivables |
 | A question about a ledger line | The question mark at the line's end (Ask My Accountant) |

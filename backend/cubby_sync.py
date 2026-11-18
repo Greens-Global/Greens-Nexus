@@ -26,15 +26,28 @@ A run that never finished (the worker died) is closed as failed after
 STALE_RUN_MIN.
 
 Privacy: phone, email, address, date of birth and ID numbers are stripped
-from every tenant row BEFORE it is written (`strip_pii`); a customer is kept
-as id + name only. Error text keeps Cubby's message for a Cubby failure and
-only the exception type for anything else (a database error can quote row
-values), and never the key.
+from every row of the `cubby_*` tables BEFORE it is written (`strip_pii`),
+and a `cubby_customers` row is id + name only - so no Operations screen or
+report built on those tables carries contact details. Since 11/17/2026 (Neil)
+Nexus also keeps a READ-ONLY copy of tenant contact details, in two tables of
+their own that only Operations > Tenants reads, behind ops_access.reach:
+`ops_tenants` (name, phone, email, address, communication preferences, the
+gate code - encrypted, with a keyed hash for an exact-match search) and
+`ops_lease_extras` (a lease's alternate contacts and stored vehicle). Cubby
+stays the source of truth: both are replaced per facility on every run and
+never edited in Nexus. Date of birth, ID type / number and card or bank
+numbers are still never stored anywhere. Error text keeps Cubby's message for
+a Cubby failure and only the exception type for anything else (a database
+error can quote row values), and never the key; nothing here prints a tenant's
+contact details or gate code.
 """
 import hashlib
+import hmac
 import json
+import re
 import threading
 import uuid
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 
@@ -42,6 +55,7 @@ from sqlalchemy.exc import IntegrityError
 
 import cubby
 import job_switch
+import secret_box
 
 PAYMENTS_START = date(2026, 9, 15)   # Cubby has payments from this day on
 PAYMENT_DAYS = 45                    # re-read window for late status changes
@@ -60,6 +74,17 @@ _PII = ("email", "phone", "mobile", "address", "birth", "dob", "ssn", "license",
         "passport", "identification", "idnumber", "nationalid", "taxid", "governmentid", "contact")
 
 _FACILITY_KEYS = ("facilityId", "organizationId", "name", "internalName", "timeZone", "latitude", "longitude", "enabled")
+
+# Calls a facility's sync can do without (Operations > Tenants, Neil,
+# 11/17/2026): gate codes. The API key may not be allowed to read them (403) -
+# then tenants simply have no gate code. A failure here is a `warnings` entry
+# on the run's facility row, never an `errors` one, so it cannot fail the sync.
+OPTIONAL_CALLS = {"access_codes": ("access-codes/search", "accessCodes")}
+
+# Keyed, so a gate code cannot be worked back from its hash by trying every
+# short number. The server's signing secret (the vault key when it is set, the
+# in-repo value on a laptop only - secret_box.signing_secret).
+_GATE_SECRET = secret_box.signing_secret("nexus-ops-gate-code-DEV-ONLY-key-set-NEXUS_VAULT_KEY")
 
 
 def strip_pii(value):
@@ -231,7 +256,8 @@ def start_manual(requested_by: str) -> tuple[str | None, str]:
 def _pull_all(facilities: list[dict], since: dict[str, date]) -> dict[str, dict]:
     """{facility_id: {"today", call name -> rows..., "payments", "payments_from"} | {"error": str}}.
     Every Cubby call for every facility, WORKERS at a time; a failing call
-    fails only its own facility."""
+    fails only its own facility - except an OPTIONAL_CALLS one, which only
+    leaves a line under "warnings"."""
     jobs = []
     out: dict[str, dict] = {}
     for f in facilities:
@@ -240,6 +266,8 @@ def _pull_all(facilities: list[dict], since: dict[str, date]) -> dict[str, dict]
         out[fid] = {"today": today, "payments": [], "payments_from": since[fid]}
         calls = cubby._facility_calls(f, today)
         calls.pop("payments")
+        for name, (path, key) in OPTIONAL_CALLS.items():
+            calls[name] = (path, {"facilityId": fid}, key)
         for name, (path, where, key) in calls.items():
             jobs.append((fid, name, path, where, key))
         # Both bounds on every window (without either, Cubby answers with the last month only).
@@ -261,7 +289,7 @@ def _pull_all(facilities: list[dict], since: dict[str, date]) -> dict[str, dict]
         for (fid, name, *_), rows, err in pool.map(call, jobs):
             slot = out[fid]
             if err:
-                slot.setdefault("errors", []).append(err)
+                slot.setdefault("warnings" if name in OPTIONAL_CALLS else "errors", []).append(err)
             elif name == "payments":
                 slot["payments"] += rows or []
             else:
@@ -273,6 +301,141 @@ def _pull_all(facilities: list[dict], since: dict[str, date]) -> dict[str, dict]
 
 def _name(c: dict) -> str:
     return (c.get("name") or f"{c.get('firstName') or ''} {c.get('lastName') or ''}").strip()
+
+
+# ── Tenant details (Operations > Tenants, Neil, 11/17/2026) ───────────────────
+# A read-only copy: Cubby stays the source of truth. routers/ops_tenants.py
+# builds its live re-read with the same helpers, so a stored row reads the
+# same whichever of the two wrote it.
+
+def _text(v, cap: int = 300) -> str:
+    """A Cubby value as a short string ('' for anything that is not one)."""
+    return str(v).strip()[:cap] if isinstance(v, (str, int, float)) and not isinstance(v, bool) else ""
+
+
+def gate_code_hash(code) -> str:
+    """The keyed hash a gate code is searched by ('' for no code)."""
+    code = _text(code, 64)
+    return hmac.new(_GATE_SECRET, code.encode(), hashlib.sha256).hexdigest() if code else ""
+
+
+def gate_fields(codes: list) -> dict:
+    """The ops_tenants gate columns from a customer's access-codes rows at one
+    facility. A tenant with several codes keeps the first enabled one."""
+    rows = [c for c in codes or [] if isinstance(c, dict) and _text(c.get("code"), 64)]
+    pick = next((c for c in rows if c.get("enabled")), rows[0] if rows else None)
+    if pick is None:
+        return {"gate_code": "", "gate_code_hash": "", "gate_code_enabled": False}
+    code = _text(pick.get("code"), 64)
+    return {"gate_code": secret_box.encrypt(code), "gate_code_hash": gate_code_hash(code),
+            "gate_code_enabled": bool(pick.get("enabled"))}
+
+
+def tenant_fields(c: dict) -> dict:
+    """The ops_tenants columns a customers/search row fills. The contact block
+    is absent when the API key has no PII access: blanks then, never a
+    failure. Date of birth and ID type / number are never read."""
+    contact = c.get("contact") if isinstance(c.get("contact"), dict) else {}
+    phone = _text(contact.get("phone"), 60)
+    prefs = c.get("communicationPreferences")
+    return {"name": _text(_name(c)), "first_name": _text(c.get("firstName")), "last_name": _text(c.get("lastName")),
+            "company_name": _text(c.get("companyName")), "email": _text(contact.get("email")).lower(),
+            "phone": phone, "phone_digits": re.sub(r"\D", "", phone),
+            "address": _text(contact.get("address")), "address2": _text(contact.get("address2")),
+            "city": _text(contact.get("city"), 120), "state": _text(contact.get("state"), 60),
+            "zip": _text(contact.get("zip"), 20), "country": _text(contact.get("country"), 60),
+            "military": bool(c.get("military")), "comm_prefs": prefs if isinstance(prefs, dict) else None,
+            "cubby_updated_at": _text(c.get("updatedAt"), 40)}
+
+
+def tenant_search_text(name: str, company: str, email: str, unit_names: str, plates) -> str:
+    """What the directory's search box matches, lowercased. A plate is kept as
+    written and without its spaces and dashes, so "7ABC123" finds "7ABC 123"."""
+    parts = [name, company, email, unit_names]
+    for p in plates or []:
+        parts += [p, re.sub(r"[^A-Za-z0-9]", "", p)]
+    return " ".join(dict.fromkeys(x.strip().lower() for x in parts if x and x.strip()))[:2000]
+
+
+def _lease_extra(le: dict) -> dict:
+    """What strip_pii drops from a lease: alternate contacts and the vehicle."""
+    alts = []
+    for a in le.get("alternativeContacts") if isinstance(le.get("alternativeContacts"), list) else []:
+        if isinstance(a, dict):
+            row = {"name": _text(a.get("name")), "phone": _text(a.get("phone"), 60), "email": _text(a.get("email"))}
+            if any(row.values()):
+                alts.append(row)
+    # A vehicle left on a lease that no longer stores one is not shown in Cubby either.
+    v = le.get("vehicle") if isinstance(le.get("vehicle"), dict) and le.get("storingVehicle") is not False else {}
+    return {"alt_contacts": alts[:10], "vehicle_type": _text(v.get("type"), 60),
+            "vehicle_plate": _text(v.get("licenseNumber"), 30).upper(), "vehicle_state": _text(v.get("state"), 30)}
+
+
+def _tenant_rows(fid: str, pulled: dict, wanted: set, unit_name: dict, stamp: str) -> tuple[list, list]:
+    """(ops_tenants rows, ops_lease_extras rows) for one facility, from the
+    pulled rows as Cubby sent them. One tenant row per customer in `wanted`
+    (everyone this facility's rows point at). No I/O."""
+    today_s = pulled["today"].isoformat()
+    extras, seen = [], set()
+    active, plates = defaultdict(list), defaultdict(list)
+    for le in pulled.get("leases", []):
+        lid = _rid(le, "leaseId", "unitId", "customerId", "moveInDate")
+        if lid in seen:
+            continue
+        seen.add(lid)
+        cid, uid = str(le.get("customerId") or ""), str(le.get("unitId") or "")
+        # The screen's own rule for a live tenancy (cubby.summarize_facility):
+        # no move-out date, or one that has not come yet.
+        out = str(le.get("moveOutDate") or "")[:10]
+        if cid and not (out and out <= today_s):
+            active[cid].append(unit_name.get(uid, ""))
+        extra = _lease_extra(le)
+        if extra["vehicle_plate"]:
+            plates[cid].append(extra["vehicle_plate"])
+        if extra["alt_contacts"] or extra["vehicle_plate"] or extra["vehicle_type"]:
+            extras.append({"id": f"{fid}:{lid}", "facility_id": fid, "lease_id": lid, "customer_id": cid,
+                           "unit_id": uid, **extra, "synced_at": stamp})
+
+    by_id = {}
+    for c in pulled.get("customers", []):
+        by_id.setdefault(str(c.get("customerId") or ""), c)
+    # A customer Cubby's customers/search did not return still gets a row,
+    # under the name the rent roll or the receivables line carries.
+    named = {}
+    for r in pulled.get("rent_roll", []) + pulled.get("receivables", []):
+        if r.get("customerId") and r.get("customerName"):
+            named.setdefault(str(r["customerId"]), {"name": r.get("customerName"), "companyName": r.get("companyName")})
+    codes = defaultdict(list)
+    for a in pulled.get("access_codes") or []:
+        if isinstance(a, dict) and a.get("customerId"):
+            codes[str(a["customerId"])].append(a)
+
+    tenants = []
+    for cid in sorted({str(c) for c in wanted if c}):
+        f = tenant_fields(by_id.get(cid) or named.get(cid) or {})
+        if not f["name"]:
+            f["name"] = _text((named.get(cid) or {}).get("name"))
+        names = ", ".join(sorted(n for n in set(active.get(cid, [])) if n))
+        tenants.append({"id": f"{fid}:{cid}", "facility_id": fid, "customer_id": cid, **f, **gate_fields(codes.get(cid)),
+                        "current": cid in active, "unit_names": names,
+                        "search_text": tenant_search_text(f["name"], f["company_name"], f["email"], names, plates.get(cid)),
+                        "synced_at": stamp})
+    return tenants, extras
+
+
+def _write_tenants(db, fid: str, tenants: list, extras: list) -> dict:
+    """Replace one facility's ops_tenants and ops_lease_extras rows in the
+    open session. Plain table statements on purpose: an ORM write would put
+    every phone number and address into the change log (audit_capture), and
+    this copy is synced in - Cubby is the record."""
+    import models as m
+    for model, rows in ((m.OpsTenant, tenants), (m.OpsLeaseExtra, extras)):
+        t = model.__table__
+        db.execute(t.delete().where(t.c.facility_id == fid))
+        if rows:
+            db.execute(t.insert(), rows)
+    return {"tenants": len(tenants), "tenants_with_phone": sum(1 for t in tenants if t["phone_digits"]),
+            "lease_extras": len(extras)}
 
 
 def _write_facility(db, org: str, fac: dict, pulled: dict, stamp: str) -> dict:
@@ -388,8 +551,22 @@ def _write_facility(db, org: str, fac: dict, pulled: dict, stamp: str) -> dict:
     row.data = {k: fac.get(k) for k in _FACILITY_KEYS if k in fac}
     row.synced_at = stamp
     row.payments_synced_through = today.isoformat()
-    return {"units": len(units), "rentals": len(leases), "leads": len(leads), "receivables": len(recs),
-            "tasks": len(tasks), "customers": len(custs), "payments": len(pays)}
+    counts = {"units": len(units), "rentals": len(leases), "leads": len(leads), "receivables": len(recs),
+              "tasks": len(tasks), "customers": len(custs), "payments": len(pays)}
+
+    # Tenant details (Neil, 11/17/2026), from the UNSTRIPPED rows, in the same
+    # transaction. Behind a savepoint: an odd payload there keeps the previous
+    # tenant rows and leaves a warning - it never costs the facility the
+    # figures above, which every other Operations screen reads.
+    try:
+        rows = _tenant_rows(fid, pulled, wanted, {u["unit_id"]: u["unit_name"] for u in units}, stamp)
+        with db.begin_nested():
+            counts.update(_write_tenants(db, fid, *rows))
+    except Exception as e:  # noqa: BLE001 - the type only: the message can quote a row
+        pulled.setdefault("warnings", []).append(f"tenants: kept from the previous sync ({type(e).__name__})")
+        print(f"[cubby] tenant details not updated for {fid}: {type(e).__name__}")
+        counts.update({"tenants": 0, "tenants_with_phone": 0, "lease_extras": 0})
+    return counts
 
 
 # ── The run ───────────────────────────────────────────────────────────────────
@@ -440,6 +617,8 @@ def run_claimed(run_id: str) -> dict:
             counts = _write_facility(db, org_name, fac, got, _iso(_now()))
             db.commit()
             results[fid] = {"name": name, "status": "ok", "counts": counts}
+            if got.get("warnings"):
+                results[fid]["warnings"] = [w[:300] for w in got["warnings"]]
         except Exception as e:  # noqa: BLE001 - this facility keeps its previous rows
             db.rollback()
             results[fid] = {"name": name, "status": "failed", "error": f"Saving: {type(e).__name__}"}

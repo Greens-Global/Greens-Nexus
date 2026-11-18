@@ -17,7 +17,7 @@ export default function DonutCard({ title, data, centerValue, centerLabel }) {
         fontFamily: FONT,
       }}
     >
-      <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900, marginBottom: 8, marginTop: 0 }}>{title}</h3>
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 8, marginTop: 0 }}>{title}</h3>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ position: 'relative', width: 96, height: 96, flexShrink: 0 }}>
           <ResponsiveContainer width="100%" height="100%">
@@ -51,14 +51,14 @@ export default function DonutCard({ title, data, centerValue, centerLabel }) {
             }}
           >
             <span style={{ fontSize: 15, fontWeight: 700, color: C.gray900, lineHeight: 1.25 }}>{centerValue}</span>
-            <span style={{ fontSize: 8.5, color: C.gray500, textAlign: 'center', lineHeight: 1.25, maxWidth: 52 }}>
+            <span style={{ fontSize: 11, color: C.gray500, textAlign: 'center', lineHeight: 1.25, maxWidth: 52 }}>
               {centerLabel}
             </span>
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {data.map((d) => (
-            <div key={d.name} style={{ fontSize: 12.5, lineHeight: 1.25 }}>
+            <div key={d.name} style={{ fontSize: 13, lineHeight: 1.25 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.gray700, fontWeight: 500 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 9999, flexShrink: 0, background: d.color }} />
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>

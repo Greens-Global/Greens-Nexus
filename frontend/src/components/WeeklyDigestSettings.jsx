@@ -26,12 +26,12 @@ import SaveRow from './SaveRow';
 import { Switch } from './settings/SettingsUI';
 import { SettingCard, SwitchRow } from './settings/SettingsUI';
 
-const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+const fieldLabel = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
 const MODES = [
   { key: 'off', label: 'Off', hint: 'Scans and logs on the send day, but never sends mail.' },
-  { key: 'test', label: 'Test', hint: 'Builds every employee’s real digest, but sends each one to the test recipients below.' },
-  { key: 'live', label: 'Live', hint: 'Sends each employee their own digest, to their own inbox.' },
+  { key: 'test', label: 'Test', hint: 'Builds every employee’s real Weekly Briefing, but sends each one to the test recipients below.' },
+  { key: 'live', label: 'Live', hint: 'Sends each employee their own Weekly Briefing, to their own inbox.' },
 ];
 // ISO weekday numbers, as stored by the backend (1 = Monday .. 7 = Sunday).
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -84,7 +84,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
     if (mode === cfg.mode || modeLocked) return;
     if (mode === 'live') {
       const ok = await dialog.confirm(
-        'Everyone with an overdue task or other work waiting gets their digest on the next send day. Check Test mode with a few real people first.',
+        'Everyone with an overdue task or other work waiting gets their Weekly Briefing on the next send day. Check Test mode with a few real people first.',
         { title: 'Send to Every Employee?', confirmText: 'Turn On Live', danger: true },
       );
       if (!ok) return;
@@ -105,7 +105,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
     setSaving(true); setErr('');
     try {
       setCfg(await api.updateWeeklyDigestConfig(body));
-      say(true, 'Weekly Digest saved.');
+      say(true, 'Weekly Briefing saved.');
       return true;
     } catch (e) {
       setErr(e.message || String(e));
@@ -116,8 +116,8 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
 
   if (!can('administrator')) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13.5 }}>
-        Administrator access is required to view Weekly Digest settings.
+      <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13 }}>
+        Administrator access is required to view Weekly Briefing settings.
       </div>
     );
   }
@@ -127,9 +127,9 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
     <div style={{ fontFamily: FONT, color: NX.ink }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
         <CalendarDays size={18} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 18, fontWeight: 700 }}>Weekly Digest</div>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>Weekly Briefing</div>
       </div>
-      <div style={{ fontSize: 12.5, color: NX.dim, marginBottom: 14 }}>
+      <div style={{ fontSize: 13, color: NX.dim, marginBottom: 14 }}>
         One email a week listing each employee's overdue tasks with their due dates, and a button to extend each
         one, plus everything else still waiting on them (approvals, time off to decide, time sheet, items, tickets,
         documents to sign). Managers also see which of their reports have overdue work. Separate from the Daily Briefing.
@@ -146,11 +146,11 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
       {tab === 'log' ? <DigestDeliveryLog /> : (
       <>
       {notice && (
-        <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{notice.text}</div>
+        <div role="status" style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: notice.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{notice.text}</div>
       )}
       <div style={{ marginBottom: 16 }}>
         <label style={fieldLabel}>Mode</label>
-        {modeLocked && <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>Mode and the test recipients apply to every company - only a Super Administrator can change them.</div>}
+        {modeLocked && <div style={{ fontSize: 12, color: NX.faint, marginBottom: 8 }}>Mode and the test recipients apply to every company - only a Super Administrator can change them.</div>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {MODES.map((m) => (
             <label key={m.key} style={{
@@ -161,7 +161,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
               <input type="radio" name="weekly-digest-mode" checked={cfg.mode === m.key} disabled={modeLocked}
                 onChange={() => pickMode(m.key)} style={{ marginTop: 3 }} />
               <span>
-                <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{m.label}</div>
                 <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{m.hint}</div>
               </span>
             </label>
@@ -180,7 +180,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
               Live: every employee in the company gets a real email
             </div>
             <div style={{ fontSize: 12, color: NX.dim, marginTop: 3 }}>
-              Everyone with an overdue task or other work waiting gets their digest on the next send day. Switch to Test or Off to stop it.
+              Everyone with an overdue task or other work waiting gets their Weekly Briefing on the next send day. Switch to Test or Off to stop it.
             </div>
           </div>
         </div>
@@ -210,7 +210,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
             {withCurrent(ZONES, cfg.defaultTimeZone || 'America/Los_Angeles').map((z) => <option key={z} value={z}>{z.replace(/_/g, ' ')}</option>)}
           </select>
         </div>
-        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 6 }}>
+        <div style={{ fontSize: 12, color: NX.dim, marginTop: 6 }}>
           The default is Monday, 120 minutes before each shift, in the shift's own time zone. People with no shift
           that day get it at the time above in their shift time zone, else the one picked here.
         </div>
@@ -219,7 +219,7 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
       <div style={{ marginBottom: 16 }}>
         <SettingCard>
           <SwitchRow id="weekly-digest-card" title="Outlook Card"
-            desc="Approve and reject in Outlook, on top of the digest. The card refreshes each time the email is opened, so anything already decided drops off. Shown only on a person's own copy, in Outlook, where Actionable Messages are set up - everyone else gets the email alone."
+            desc="Approve and reject in Outlook, on top of the Weekly Briefing. The card refreshes each time the email is opened, so anything already decided drops off. Shown only on a person's own copy, in Outlook, where Actionable Messages are set up - everyone else gets the email alone."
             checked={cfg.outlookCard !== false}
             onChange={(on) => instant({ outlookCard: on }, 'Outlook card')} />
         </SettingCard>
@@ -242,14 +242,14 @@ export default function WeeklyDigestSettings({ toastOk, toastErr }) {
             <label style={fieldLabel} htmlFor="weekly-digest-recipients">Test Recipients</label>
             <input id="weekly-digest-recipients" value={draft.recipients} onChange={(e) => editDraft({ recipients: e.target.value })} readOnly={modeLocked}
               placeholder="you@company.com, another@company.com" style={inputStyle} />
-            <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 4 }}>
-              Comma-separated. Each employee's digest is built from their own tasks and sent here instead, with a
+            <div style={{ fontSize: 12, color: NX.dim, marginTop: 4 }}>
+              Comma-separated. Each employee's Weekly Briefing is built from their own tasks and sent here instead, with a
               "[TEST -&gt; original]" subject prefix.
             </div>
           </div>
         )}
 
-        {err && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: NX.red, margin: '12px 0 0' }}>
+        {err && <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.red, margin: '12px 0 0' }}>
           <AlertTriangle size={13} /> {err}
         </div>}
 
@@ -294,14 +294,14 @@ function SendTestDigest({ testRecipients }) {
       const r = await api.sendTestWeeklyDigest(email);
       const where = (r.recipients || []).join(', ');
       if (!r.sent) setResult({ ok: true, text: `${r.employeeEmail} has nothing overdue or waiting right now, so there is nothing to send.` });
-      else setResult({ ok: true, text: `Sent ${r.employeeEmail}'s digest (${r.overdueCount} overdue${r.pendingCount ? `, ${r.pendingCount} needing attention` : ''}${r.teamCount ? `, ${r.teamCount} team` : ''}) to ${where}.` });
+      else setResult({ ok: true, text: `Sent ${r.employeeEmail}'s Weekly Briefing (${r.overdueCount} overdue${r.pendingCount ? `, ${r.pendingCount} needing attention` : ''}${r.teamCount ? `, ${r.teamCount} team` : ''}) to ${where}.` });
     } catch (e) { setResult({ ok: false, text: e.message || String(e) }); }
     finally { setBusy(false); }
   };
 
   return (
     <div data-nx-noguard="" style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${NX.border}` }}>
-      <label style={fieldLabel} htmlFor="weekly-digest-test-who">Send Test Digest</label>
+      <label style={fieldLabel} htmlFor="weekly-digest-test-who">Send Test Weekly Briefing</label>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <input id="weekly-digest-test-who" list="weekly-digest-people" value={who} onChange={(e) => setWho(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
@@ -313,13 +313,13 @@ function SendTestDigest({ testRecipients }) {
           <Send size={14} /> {busy ? 'Sending…' : 'Send Test'}
         </button>
       </div>
-      <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 6 }}>
-        Builds this person's real digest now and sends it to {testRecipients.length ? testRecipients.join(', ') : 'you'}, whatever
-        the mode or day. Nothing is logged and nobody else is emailed. Only a test of your own digest includes Extend Due Date and
+      <div style={{ fontSize: 12, color: NX.dim, marginTop: 6 }}>
+        Builds this person's real Weekly Briefing now and sends it to {testRecipients.length ? testRecipients.join(', ') : 'you'}, whatever
+        the mode or day. Nothing is logged and nobody else is emailed. Only a test of your own Weekly Briefing includes Extend Due Date and
         the other task buttons, since those act as the person.
       </div>
       {result && (
-        <div role="status" style={{ fontSize: 12.5, marginTop: 8, fontWeight: 600, color: result.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>
+        <div role="status" style={{ fontSize: 13, marginTop: 8, fontWeight: 600, color: result.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>
           {result.text}
         </div>
       )}
@@ -391,8 +391,8 @@ function DigestDeliveryLog() {
           onKeyDown={(e) => { if (e.key === 'Enter') { setOffset(0); load(); } }}
           placeholder="Filter by employee email…" style={{ ...inputStyle, width: 260, maxWidth: '100%' }} />
         <button style={btn('ghost')} onClick={() => { setOffset(0); load(); }} title="Refresh" aria-label="Refresh"><RefreshCw size={14} /></button>
-        {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
-        {note && <span role="status" style={{ fontSize: 12.5, color: 'var(--nx-tag-green-fg)', fontWeight: 600 }}>{note}</span>}
+        {err && <span style={{ fontSize: 13, color: NX.red }}>{err}</span>}
+        {note && <span role="status" style={{ fontSize: 13, color: 'var(--nx-tag-green-fg)', fontWeight: 600 }}>{note}</span>}
       </div>
       {rows === null ? (
         <LoadingState compact />
@@ -404,7 +404,7 @@ function DigestDeliveryLog() {
             {rows.map((r) => {
               const meta = statusOf(r);
               return (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5, flexWrap: 'wrap' }}>
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, flexWrap: 'wrap' }}>
                   <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.employeeEmail}>{r.employeeEmail}</span>
                   <span style={{ color: NX.dim, flexShrink: 0 }} title="Week starting">{formatDate(r.weekStart)}</span>
@@ -415,7 +415,7 @@ function DigestDeliveryLog() {
                   <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, width: 120 }}>{meta.label}</span>
                   <button onClick={() => resend(r)} disabled={resendingId === r.id}
                     title="Sends this employee's weekly digest right now"
-                    style={{ ...btn('ghost'), flexShrink: 0, fontSize: 11.5, padding: '4px 8px', opacity: resendingId === r.id ? 0.5 : 1 }}>
+                    style={{ ...btn('ghost'), flexShrink: 0, fontSize: 12, padding: '4px 8px', opacity: resendingId === r.id ? 0.5 : 1 }}>
                     {resendingId === r.id ? 'Sending…' : 'Force Resend'}
                   </button>
                 </div>

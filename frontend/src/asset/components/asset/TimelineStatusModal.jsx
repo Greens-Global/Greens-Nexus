@@ -12,6 +12,7 @@
 
 import { useState } from 'react';
 import { Modal } from '../shared/Modal.jsx';
+import { DateField } from '../../../tasks/components.jsx';
 import { TIMELINE_STATUS_OPTIONS } from '../../lib/timelineFields.js';
 
 /**
@@ -21,7 +22,7 @@ import { TIMELINE_STATUS_OPTIONS } from '../../lib/timelineFields.js';
  */
 export function TimelineStatusModal({ current, onSave, onClose }) {
   const [status, setStatus] = useState(current || '');
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
   const [initialDate] = useState(date);
   const [reason, setReason] = useState('');
   const [errors, setErrors] = useState({});
@@ -34,7 +35,7 @@ export function TimelineStatusModal({ current, onSave, onClose }) {
     if (next.status || next.reason) return;
     onSave(status, date, reason.trim());
   };
-  const errLine = (k) => errors[k] ? <div role="alert" style={{ fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{errors[k]}</div> : null;
+  const errLine = (k) => errors[k] ? <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-red))', marginTop: 4 }}>{errors[k]}</div> : null;
   const dirty = status !== (current || '') || date !== initialDate || !!reason.trim();
 
   return (
@@ -62,8 +63,10 @@ export function TimelineStatusModal({ current, onSave, onClose }) {
           {errLine('status')}
         </div>
         <div className="form-group">
-          <label htmlFor="timeline-date">Date</label>
-          <input id="timeline-date" type="date" className="form-input" value={date} onChange={(e) => setDate(e.target.value)} />
+          <label id="timeline-date-label">Date</label>
+          <div className="form-input" role="group" aria-labelledby="timeline-date-label" style={{ display: 'flex', alignItems: 'center' }}>
+            <DateField value={date} onChange={(v) => v && setDate(v)} title="Date of the change" style={{ flex: 1, fontSize: 13 }} />
+          </div>
         </div>
         <div className="form-group form-group-full">
           <label htmlFor="timeline-reason">

@@ -20,7 +20,7 @@ export function teamsTargetLabel(t) {
   return t.type === 'channel' ? `${t.teamName || 'Team'} › ${t.name || 'Channel'}` : (t.name || 'Group chat');
 }
 
-const linkBtn = { border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 700, fontSize: 11.5 };
+const linkBtn = { border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 700, fontSize: 12 };
 
 export default function TeamsTargetPicker({ value, onChange, toastErr, audience = 'Members' }) {
   const v = { ...EMPTY_TEAMS_TARGET, ...(value || {}) };
@@ -80,10 +80,10 @@ export default function TeamsTargetPicker({ value, onChange, toastErr, audience 
       </div>
       {v.id ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, padding: '5px 11px', borderRadius: 9, background: 'var(--bg, var(--mist))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, padding: '5px 11px', borderRadius: 9, background: 'var(--bg, var(--mist))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {v.type === 'channel' ? <Hash size={12} /> : <MessageSquare size={12} />} {teamsTargetLabel(v)}
           </span>
-          <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} onClick={() => onChange({ ...EMPTY_TEAMS_TARGET, type: v.type })}>Change Or Clear</button>
+          <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={() => onChange({ ...EMPTY_TEAMS_TARGET, type: v.type })}>Change Or Clear</button>
         </div>
       ) : v.type === 'channel' ? (
         channelList === null ? (
@@ -91,12 +91,12 @@ export default function TeamsTargetPicker({ value, onChange, toastErr, audience 
             {loading ? <Spinner size={12} /> : <Link2 size={12} />} Bind A Channel
           </button>
         ) : channelList.length === 0 ? (
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
             No Teams channels found for your account. This list only shows channels of teams you are a member of - join the team in Microsoft Teams first, then{' '}
             <button type="button" onClick={loadChannels} disabled={loading} style={linkBtn}>refresh</button>.
           </div>
         ) : (
-          <select className="form-input" value="" aria-label="Teams channel" style={{ fontSize: 12.5, width: '100%' }}
+          <select className="form-input" value="" aria-label="Teams channel" style={{ fontSize: 13, width: '100%' }}
             onChange={(e) => {
               const c = channelList.find((x) => x.channelId === e.target.value);
               if (c) onChange({ type: 'channel', id: c.channelId, name: c.channelName, teamId: c.teamId, teamName: c.teamName });
@@ -117,18 +117,18 @@ export default function TeamsTargetPicker({ value, onChange, toastErr, audience 
           {loading ? <Spinner size={12} /> : <Link2 size={12} />} Bind A Chat
         </button>
       ) : chatList.length === 0 ? (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
           No Teams chats found for your account. This list only shows chats you are already a member of - create or join the group chat in Microsoft Teams first, then{' '}
           <button type="button" onClick={loadChats} disabled={loading} style={linkBtn}>refresh</button>.
         </div>
       ) : (
-        <select className="form-input" value="" aria-label="Teams chat" style={{ fontSize: 12.5, width: '100%' }}
+        <select className="form-input" value="" aria-label="Teams chat" style={{ fontSize: 13, width: '100%' }}
           onChange={(e) => { const c = chatList.find((x) => x.id === e.target.value); if (c) onChange({ ...EMPTY_TEAMS_TARGET, type: 'chat', id: c.id, name: c.name }); }}>
           <option value="">Pick a group chat</option>
           {chatList.map((c) => <option key={c.id} value={c.id}>{c.name}{c.chatType === 'oneOnOne' ? ' (direct)' : ''}</option>)}
         </select>
       )}
-      <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 5, lineHeight: 1.45 }}>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5, lineHeight: 1.45 }}>
         {v.type === 'channel'
           ? `${audience} must be in this team (and in the channel, if it is private) for their message to post. Each message is a new post in the channel.`
           : `${audience} must be in this chat for their message to post.`}

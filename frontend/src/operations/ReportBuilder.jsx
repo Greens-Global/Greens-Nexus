@@ -12,6 +12,7 @@ import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import ReportTable from './ReportTable';
 import { MultiPicker, SectionPicker } from './SectionPicker';
+import { dialog } from '../ui/dialog';
 
 const PRESETS = [
   { name: 'Rent per Occupied Sq Ft', spec: { dataset: 'units', dimensions: ['facility'], period: 'this-month',
@@ -403,7 +404,7 @@ export default function ReportBuilder({ scope, facilities }) {
                         <Share2 size={14} aria-hidden="true" /> Share
                       </button>
                       <button type="button" className="ops-x" aria-label={`Delete ${r.name}`}
-                        onClick={() => { if (window.confirm(`Delete ${r.name}?`)) act(() => api.deleteOpsSavedReport(r.id), `${r.name} was deleted.`); }}>
+                        onClick={async () => { if (await dialog.confirm(`Delete ${r.name}?`, { title: 'Delete Saved Report', confirmText: 'Delete', danger: true })) act(() => api.deleteOpsSavedReport(r.id), `${r.name} was deleted.`); }}>
                         <Trash2 size={15} />
                       </button>
                     </>

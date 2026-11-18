@@ -86,3 +86,18 @@ export function trapTab(e) {
   if (e.shiftKey && (active === first || active === panel)) { e.preventDefault(); last.focus(); }
   else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
 }
+
+// The same for a dialog that hears its keys on the window (ui/dialog.jsx):
+// Tab pressed with focus anywhere outside the panel comes INTO it - there is
+// no portaled child to leave alone there.
+export function trapTabIn(panel, e) {
+  if (e.key !== 'Tab' || !panel) return;
+  const list = focusables(panel);
+  if (!list.length) { e.preventDefault(); return; }
+  const active = document.activeElement;
+  const first = list[0];
+  const last = list[list.length - 1];
+  const outside = active !== panel && !panel.contains(active);
+  if (e.shiftKey && (outside || active === first || active === panel)) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && (outside || active === last)) { e.preventDefault(); first.focus(); }
+}

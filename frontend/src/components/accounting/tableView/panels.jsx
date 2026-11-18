@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, ChevronDown, ChevronRight, Eye, EyeOff, Funnel, MoveHorizontal, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import AnchoredMenu from '../../AnchoredMenu';
+import HoldButton, { HOLD_RECORD_MS } from '../../../ui/HoldButton';
 import { DateField } from '../../../tasks/components';
 import { MAX_RULES, MAX_WIDTH, MIN_WIDTH, kindOf, opOf, opsFor, ruleText } from './model';
 
@@ -17,21 +18,21 @@ import { MAX_RULES, MAX_WIDTH, MIN_WIDTH, kindOf, opOf, opsFor, ruleText } from 
 
 const panel = (width) => ({
   width, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10,
-  boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10, fontSize: '0.8rem', color: 'var(--text-primary)',
+  boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 10, fontSize: 13, color: 'var(--text-primary)',
 });
 const field = {
-  height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem',
+  height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 13,
   fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)', boxSizing: 'border-box', minWidth: 0,
 };
 const item = (on = false, disabled = false) => ({
   display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6,
-  background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '6px 8px', font: 'inherit', fontSize: '0.8rem',
+  background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '6px 8px', font: 'inherit', fontSize: 13,
   color: disabled ? 'var(--text-muted)' : 'var(--text-primary)', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1,
 });
 const link = { border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 };
 const iconBtn = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)', borderRadius: 6 };
-const head = { fontSize: '0.84rem', fontWeight: 700 };
-const hint = { fontSize: '0.72rem', color: 'var(--text-muted)' };
+const head = { fontSize: 13, fontWeight: 700 };
+const hint = { fontSize: 12, color: 'var(--text-muted)' };
 const muted = { color: 'var(--text-muted)', flexShrink: 0 };
 const done = (onClick, text = 'Done') => <button type="button" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} onClick={onClick}>{text}</button>;
 
@@ -81,7 +82,7 @@ function FilterPanel({ view, focusCol, ...menu }) {
           <div style={head}>{label}</div>
           <div style={hint}>Up to {MAX_RULES} rules. Each is a field, a condition and a value.</div>
         </div>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
           Match
           <select value={view.state.match} onChange={(e) => view.setMatch(e.target.value)} aria-label="Match all or any rule" style={field}>
             <option value="all">All</option>
@@ -109,7 +110,7 @@ function FilterPanel({ view, focusCol, ...menu }) {
               {!op.none && <RuleValue col={col} value={r.a} onChange={(v) => view.setRule(r.id, { a: v })} label={`Rule ${i + 1} value`} autoFocus={r.id === focusId} />}
               {op.two && (
                 <>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>and</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>and</span>
                   <RuleValue col={col} value={r.b} onChange={(v) => view.setRule(r.id, { b: v })} label={`Rule ${i + 1} second value`} />
                 </>
               )}
@@ -122,7 +123,7 @@ function FilterPanel({ view, focusCol, ...menu }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <button type="button" className="secondary-btn" disabled={full || !cols.length} onClick={() => view.addRule(focusCol?.key)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }} title={full ? `Up to ${MAX_RULES} rules` : 'Add a Rule'}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 10px' }} title={full ? `Up to ${MAX_RULES} rules` : 'Add a Rule'}>
           <Plus size={14} /> Add Filter
         </button>
         <span style={{ flex: 1 }} />
@@ -278,7 +279,7 @@ function ColumnMenu({ view, col, onKind, anchor, ...menu }) {
           <input type="number" min={MIN_WIDTH} max={MAX_WIDTH} step={1} value={w} onChange={(e) => setW(e.target.value)} aria-label={`${col.label} width in pixels`} autoFocus
             className="num" style={{ ...field, width: 80 }} />
           <span style={hint}>px</span>
-          <button type="submit" className="primary-btn" style={{ fontSize: '0.74rem', padding: '3px 10px' }}>Set</button>
+          <button type="submit" className="primary-btn" style={{ fontSize: 12, padding: '3px 10px' }}>Set</button>
           {view.state.widths[col.key] && <button type="button" style={link} onClick={act(() => view.setWidth(col.key, null))}>Auto</button>}
         </form>
       )}
@@ -356,7 +357,7 @@ function ViewsMenu({ view, saving = false, ...menu }) {
       {renaming === id && mine ? (
         <form onSubmit={rename} style={{ display: 'flex', gap: 6, flex: 1, padding: '3px 4px' }}>
           <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={80} aria-label="New name" autoFocus style={{ ...field, flex: 1 }} />
-          <button type="submit" className="primary-btn" style={{ fontSize: '0.74rem', padding: '3px 10px' }}>Rename</button>
+          <button type="submit" className="primary-btn" style={{ fontSize: 12, padding: '3px 10px' }}>Rename</button>
         </form>
       ) : (
         <button type="button" role="menuitemradio" aria-checked={view.activeId === id} onClick={() => { view.select(id); close(); }}
@@ -367,7 +368,9 @@ function ViewsMenu({ view, saving = false, ...menu }) {
       )}
       {mine && renaming !== id && (confirm === id ? (
         <span style={{ display: 'inline-flex', gap: 8, paddingRight: 8 }}>
-          <button type="button" style={{ ...link, color: 'var(--bad-fg, #dc2626)' }} onClick={() => { view.remove(id); setConfirm(''); }}>Delete</button>
+          {/* Hold to confirm (Neil, 10/30/2026): one record, held right on its row. */}
+          <HoldButton size="sm" label="Delete" doneLabel="Deleted" holdMs={HOLD_RECORD_MS} fallbackMessage={`Delete the view "${label}"?`}
+            onConfirm={() => { view.remove(id); setConfirm(''); }} />
           <button type="button" style={link} onClick={() => setConfirm('')}>Keep</button>
         </span>
       ) : (
@@ -388,7 +391,7 @@ function ViewsMenu({ view, saving = false, ...menu }) {
       <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 6 }}>
         {naming ? (
           <form onSubmit={save} style={{ display: 'grid', gap: 6 }}>
-            <label htmlFor={`acct-view-name-${view.key}`} style={{ fontSize: '0.78rem', fontWeight: 600 }}>Save As a New View</label>
+            <label htmlFor={`acct-view-name-${view.key}`} style={{ fontSize: 13, fontWeight: 600 }}>Save As a New View</label>
             <div style={{ display: 'flex', gap: 6 }}>
               <input id={`acct-view-name-${view.key}`} type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoFocus placeholder="e.g. Open Items Over 5,000" style={{ ...field, flex: 1 }} />
               <button type="submit" className="primary-btn" style={{ fontSize: '0.75rem', padding: '3px 12px' }} disabled={!name.trim()}>Save</button>

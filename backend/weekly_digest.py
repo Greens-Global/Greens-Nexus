@@ -49,7 +49,7 @@ import json
 import uuid
 from datetime import datetime, timezone, timedelta, date
 
-from sqlalchemy import func, text
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
 import models
@@ -83,9 +83,11 @@ PENDING_SECTION = "pending"    # everything else still waiting on them (daily "A
 DUE_SECTION = "due_week"       # their open tasks due in the coming week (Oct 2)
 TIME_OFF_SECTION = "time_off_ahead"   # who is off in the next two weeks (Oct 5)
 HOLIDAY_SECTION = "holidays_ahead"    # company holidays this week and next (Oct 29 2026)
+COMING_SECTION = "coming_up"          # the email's one section for the two above (Nov 15 2026)
 # Actions first, then tasks (Neil, 10/01: "it needs to be all actions ... not
 # just the tasks").
 ORDER = [PENDING_SECTION, SECTION, DUE_SECTION, TEAM_SECTION, TIME_OFF_SECTION, HOLIDAY_SECTION]
+EMAIL_ORDER = [PENDING_SECTION, SECTION, DUE_SECTION, TEAM_SECTION, COMING_SECTION]
 TIME_OFF_DAYS = 14
 HOLIDAY_WORDS = {"mandatory": "Day Off", "half_day": "Half Day", "optional": "Optional Holiday"}
 
@@ -177,7 +179,9 @@ def _shift_due(db: Session, email: str, cfg: dict) -> tuple:
     lead = daily.lead_minutes({"leadMinutes": cfg.get("leadMinutes", 120)})
     utc_today = datetime.now(timezone.utc).date()
     for dd in (utc_today - timedelta(days=1), utc_today, utc_today + timedelta(days=1)):
-        if dd.isoweekday() != send_day(cfg):
+        # On or after the send day (11/17/2026): a week whose Monday was a
+        # holiday or a day off goes out on the next working day instead.
+        if dd.isoweekday() < send_day(cfg):
             continue
         shift = daily._shift_start_for(db, email, dd)
         if not shift:
@@ -196,7 +200,11 @@ def _no_shift_due(db: Session, email: str, cfg: dict) -> tuple:
     catch-up window closes, in their own zone."""
     local_now = daily._shift_local_now(daily._person_zone(db, email, cfg))
     today = local_now.date()
-    if today.isoweekday() != send_day(cfg) or daily._shift_start_for(db, email, today):
+    # On the send day itself, or a later WEEKDAY (a week whose send day was off
+    # catches up on the next working day, never on a weekend - review, 11/17/2026).
+    later = today.isoweekday() != send_day(cfg)
+    if today.isoweekday() < send_day(cfg) or (later and today.isoweekday() >= 6) \
+            or daily._shift_start_for(db, email, today):
         return False, None, None
     send_at = datetime.combine(today, daily._default_send_time(cfg))
     if not (send_at <= local_now < send_at + timedelta(minutes=daily.NO_SHIFT_CATCH_UP_MIN)):
@@ -259,13 +267,16 @@ def overdue_rows(db: Session, email: str, today: date, my_reports: dict) -> tupl
                 if pids else {})
     rows, team = [], []
     for due, t in mine:
-        detail = f"Due {due.strftime('%m/%d/%Y')} - {_plural((today - due).days, 'day')} overdue"
-        if projects.get(t.project_id or ""):
-            detail += f" - {projects[t.project_id]}"
+        late = (today - due).days
+        project = f" - {projects[t.project_id]}" if projects.get(t.project_id or "") else ""
+        detail = f"Due {due.strftime('%m/%d/%Y')} - {_plural(late, 'day')} overdue{project}"
+        short = f"Due {due.strftime('%m/%d/%Y')}{project}"
         rows.append({
             # No task ID (Oct 1): the title is what a person recognizes, and
             # without a "ref" the table drops its ID column.
             "title": t.title, "detail": detail,
+            # The email says how late in a red tag (Nov 15 2026).
+            "overdue_days": late, "short_detail": short,
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email,
             # Extend Due Date (Neil) plus the usual Comment / React / Toggle
@@ -281,6 +292,9 @@ def overdue_rows(db: Session, email: str, today: date, my_reports: dict) -> tupl
         team.append({
             "title": f"{name} has {_plural(len(items), 'overdue task')}",
             "detail": "; ".join(shown) + (f"; and {len(hidden)} more" if hidden else ""),
+            # The email: the name, an "N Overdue" tag and the tasks as a short
+            # list rather than one run-on line (Nov 15 2026).
+            "name": name, "lines": shown + ([f"and {len(hidden)} more"] if hidden else []),
             "url": f"{app_url()}/tasks/mine?task={items[0][1].id}", "module": "team",
             "overdue_count": len(items),
         })
@@ -335,6 +349,7 @@ def build_sections(db: Session, email: str, today: date) -> dict:
     # task's next date shows, now that a series keeps one open occurrence.
     due = daily.due_task_rows(db, email, today.isoformat(), (today + timedelta(days=6)).isoformat())
     pending = pending_rows(db, email, my_reports, {r["task_id"] for r in own + due})
+    daily.stamp_waiting(pending, today.isoformat())
     # Upcoming Time Off (Neil, 10/01): a manager sees which reports are off,
     # and everyone sees when their own manager is - two weeks ahead, so
     # "people are not guessing".
@@ -346,29 +361,74 @@ def build_sections(db: Session, email: str, today: date) -> dict:
 
 
 def _intro(sections: dict) -> str:
-    """What the week holds, across every module - not a sentence about tasks
-    (Neil, 10/01: "the paragraph at the top should not be limited to the
-    task")."""
+    """What the week holds, in one short line (Nov 15 2026; it used to list
+    every section in one 50-word sentence, which the tiles under it already
+    say). Across every module, not only tasks (Neil, 10/01: "the paragraph at
+    the top should not be limited to the task")."""
     parts = []
-    pending = sections.get(PENDING_SECTION) or []
-    if pending:
-        modules = ", ".join(label for _, label, _ in daily._group_by_module(pending))
-        parts.append(f"{_plural(len(pending), 'item')} needing your action ({modules})")
+    if sections.get(PENDING_SECTION):
+        parts.append(f"{len(sections[PENDING_SECTION])} need{'s' if len(sections[PENDING_SECTION]) == 1 else ''} "
+                     "your attention")
     if sections.get(SECTION):
-        parts.append(_plural(len(sections[SECTION]), "overdue task"))
+        n = len(sections[SECTION])
+        parts.append(f"{_plural(n, 'task')} {'is' if n == 1 else 'are'} overdue")
     if sections.get(DUE_SECTION):
-        parts.append(f"{_plural(len(sections[DUE_SECTION]), 'task')} due this week")
-    if sections.get(TEAM_SECTION):
-        n = len(sections[TEAM_SECTION])
-        parts.append(f"{n} team member{'' if n == 1 else 's'} behind on their tasks")
-    if sections.get(TIME_OFF_SECTION):
-        parts.append("who is off in the next two weeks")
-    if sections.get(HOLIDAY_SECTION):
-        parts.append("the holidays coming up")
+        n = len(sections[DUE_SECTION])
+        parts.append(f"{n} {'is' if n == 1 else 'are'} due this week")
     if not parts:
         return "Here is your week in Nexus."
-    listed = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
-    return f"Here is everything waiting on you in Nexus this week: {listed}."
+    return "Here is your week: " + (parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]) + "."
+
+
+def _subject(sections: dict, week_of: str) -> str:
+    """The inbox line says what is waiting (Nov 15 2026)."""
+    bits = []
+    if sections.get(PENDING_SECTION):
+        n = len(sections[PENDING_SECTION])
+        bits.append(f"{n} Need{'s' if n == 1 else ''} Your Attention")
+    if sections.get(SECTION):
+        bits.append(f"{len(sections[SECTION])} Overdue")
+    return f"Weekly Briefing - {', '.join(bits) or 'Your Week'} - {week_of}"
+
+
+def _preheader(sections: dict) -> str:
+    """The inbox preview line: the opening line's counts, then the first
+    holiday coming up."""
+    line = _intro(sections)
+    line = line[len("Here is your week: "):] if line.startswith("Here is your week: ") else ""
+    hol = sections.get(HOLIDAY_SECTION) or []
+    if hol:
+        day = (hol[0].get("detail") or "").split(",")[0]
+        when = "next week" if "Next Week" in (hol[0].get("detail") or "") else "this week"
+        line = (line + " " if line else "") + f"{hol[0]['title']} is {day} {when}."
+    if not line and sections.get(TEAM_SECTION):
+        line = _team_note(sections)
+    return (line[:1].upper() + line[1:]) if line else "Your week in Nexus."
+
+
+def _for_email(sections: dict) -> dict:
+    """The sections as the email draws them: Due This Week with its day at the
+    front of each row's line ("Tue 11/24/2026 - Operations", soonest first -
+    a heading per day made the email long, 11/17/2026), Upcoming Time Off and
+    Upcoming Holidays together as Coming Up (Nov 15 2026). build_sections
+    keeps its keys - the counts, the log and the card read them."""
+    out = dict(sections)
+    if out.get(DUE_SECTION):
+        days = []
+        for r in out[DUE_SECTION]:
+            rest = r.get("short_detail") if r.get("short_detail") is not None else ""
+            try:
+                d = date.fromisoformat(r.get("due_on") or "")
+                when = f"{d.strftime('%a')} {d.strftime('%m/%d/%Y')}"
+            except ValueError:
+                when = ""
+            days.append(dict(r, short_detail=" - ".join(p for p in (when, rest) if p)))
+        out[DUE_SECTION] = days
+    coming = ([dict(r, group="Time Off") for r in out.pop(TIME_OFF_SECTION, [])] +
+              [dict(r, group="Holidays") for r in out.pop(HOLIDAY_SECTION, [])])
+    if coming:
+        out[COMING_SECTION] = coming
+    return out
 
 
 def _team_note(sections: dict) -> str:
@@ -381,21 +441,224 @@ def _team_note(sections: dict) -> str:
         return ""
     total = sum(r.get("overdue_count") or 0 for r in team)
     who = f"{len(team)} team member{'' if len(team) == 1 else 's'}"
-    return (f"{who} {'has' if len(team) == 1 else 'have'} {_plural(total, 'overdue task')} between them"
-            + (", furthest behind first." if len(team) > 1 else "."))
+    if len(team) == 1:
+        return f"{who} has {_plural(total, 'overdue task')}."
+    return f"{who} have {_plural(total, 'overdue task')} between them, furthest behind first."
 
 
-def render(first_name: str, today: date, sections: dict, greeting: str, logo_url: str, cfg: dict) -> tuple:
+def render(first_name: str, today: date, sections: dict, greeting: str, logo_url: str, cfg: dict,
+           recap: list = None, today_text: str = "") -> tuple:
     week_of = f"Week of {datetime.strptime(week_start(today), '%Y-%m-%d').strftime('%m/%d/%Y')}"
-    footer = (f"You receive the Weekly Digest every {DAY_NAMES[send_day(cfg) - 1]}, before your shift "
-              "starts. It lists everything waiting on you across Nexus - approvals and requests to decide, "
-              "your time sheet, tickets, items, documents to sign and tasks - who on your team is off, "
-              "and the holidays coming up.")
-    return daily.render_email(first_name, today.isoformat(), sections, greeting=greeting, logo_url=logo_url,
-                              title="Weekly Digest", date_label=week_of, intro=_intro(sections),
-                              footer=footer, order=ORDER, expanded=True,
+    footer = (f"You receive the Weekly Briefing every {DAY_NAMES[send_day(cfg) - 1]}, before your shift "
+              "starts. It lists everything waiting on you across Nexus, who on your team is off and the "
+              "holidays coming up.")
+    return daily.render_email(first_name, today.isoformat(), _for_email(sections), greeting=greeting,
+                              logo_url=logo_url, title="Weekly Briefing", date_label=week_of,
+                              intro="", subject=_subject(sections, week_of),
+                              preheader=_preheader(sections), footer=footer, order=EMAIL_ORDER,
+                              recap=recap, today_line=today_text,
                               cta_label="Open My Briefing", cta_path="/briefing",
                               notes={TEAM_SECTION: _team_note(sections)}, stop_kind="weekly_digest")
+
+
+# ── Last Week (Neil, 11/17/2026) ─────────────────────────────────────────
+# A few plain lines at the foot of the Weekly Briefing: what you finished and
+# the hours on your Time Sheet, and for a manager what the team finished and
+# whether its overdue work went up or down. Counts only - a zero or a number
+# that could not be read is left out, never shown as 0.
+
+def _worked_minutes(db: Session, email: str, start: date) -> int:
+    """Worked minutes on the person's own punches over the 7 days from `start`
+    (the Time Sheet's own day totals; Sick / PTO leave punches are not work)."""
+    from routers.timeclock import _day_summaries
+    from workforce_scorecard import _split_leave
+    end = start + timedelta(days=7)
+    punches = (db.query(models.TimePunch)
+               .filter(func.lower(models.TimePunch.employee_email) == email.lower(), models.TimePunch.voided == 0,
+                       models.TimePunch.local_date >= (start - timedelta(days=1)).isoformat(),
+                       models.TimePunch.local_date <= end.isoformat())
+               .order_by(models.TimePunch.at).all())
+    worked, _leave = _split_leave(punches)
+    days = _day_summaries(worked, 0, None) if worked else {}
+    return sum(int((v or {}).get("workedMin") or 0) for iso, v in days.items()
+               if start.isoformat() <= iso < end.isoformat())
+
+
+def _done_tasks(db: Session, first: str, before: str) -> list:
+    return (db.query(models.Task)
+            .filter(models.Task.completed == True,  # noqa: E712
+                    models.Task.completed_at >= first, models.Task.completed_at < before,
+                    models.Task.type != "section",
+                    (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all())
+
+
+def _joined(parts: list) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def last_week_lines(db: Session, email: str, today: date) -> list:
+    """['You finished 14 tasks, resolved 6 tickets and worked 41h 20m.',
+        'Your team finished 63 tasks. 7 are overdue, down from 12 the week before.']"""
+    email = (email or "").lower()
+    this_monday = date.fromisoformat(week_start(today))
+    first, before = (this_monday - timedelta(days=7)).isoformat(), this_monday.isoformat()
+    lines = []
+    try:
+        done = _done_tasks(db, first, before)
+        mine = sum(1 for t in done if email in set(task_assignees(t)))
+        tickets = (db.query(func.count(models.TaskTicket.id))
+                   .filter(func.lower(models.TaskTicket.assignee_email) == email,
+                           models.TaskTicket.resolved_at >= first, models.TaskTicket.resolved_at < before).scalar() or 0)
+        minutes = _worked_minutes(db, email, this_monday - timedelta(days=7))
+        parts = ([f"finished {_plural(mine, 'task')}"] if mine else []) + \
+                ([f"resolved {_plural(tickets, 'ticket')}"] if tickets else []) + \
+                ([f"worked {minutes // 60}h {minutes % 60:02d}m"] if minutes else [])
+        if parts:
+            lines.append(f"You {_joined(parts)}.")
+        reports = {(e.work_email or "").lower() for e in db.query(models.NexusEmployee)
+                   .filter(func.lower(models.NexusEmployee.manager_email) == email).all() if e.work_email} - {email}
+        if reports:
+            team_done = sum(1 for t in done if set(task_assignees(t)) & reports)
+            then = (today - timedelta(days=7)).isoformat()
+            now_iso = today.isoformat()
+            open_now = then_n = 0
+            for t in (db.query(models.Task)
+                      .filter(models.Task.due_on != "", models.Task.due_on < now_iso,
+                              or_(models.Task.completed == False, models.Task.completed_at >= then),  # noqa: E712
+                              models.Task.type != "section",
+                              (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all()):
+                if not set(task_assignees(t)) & reports:
+                    continue
+                due = (t.due_on or "")[:10]
+                if not t.completed:
+                    open_now += 1
+                if due < then and (not t.completed or (t.completed_at or "") >= then):
+                    then_n += 1
+            parts = [f"Your team finished {_plural(team_done, 'task')}."] if team_done else []
+            if open_now or then_n:
+                if open_now == 0:
+                    now_words = "Nothing is overdue"
+                elif team_done:
+                    now_words = f"{open_now} {'is' if open_now == 1 else 'are'} overdue"
+                else:
+                    now_words = f"Your team has {_plural(open_now, 'overdue task')}"
+                trend = (f", down from {then_n} the week before." if open_now < then_n else
+                         f", up from {then_n} the week before." if open_now > then_n else
+                         ", the same as the week before.")
+                parts.append(now_words + trend)
+            if parts:
+                lines.append(" ".join(parts))
+    except Exception as e:   # a recap never costs the email
+        print(f"[weekly-briefing] last week failed for {email}: {e}")
+    return lines
+
+
+# ── One email on Monday (Neil, 11/17/2026) ────────────────────────────────
+# The first Daily Briefing of the week on or after the send day carries the
+# week's sections and stands in for the separate Weekly Briefing, which then
+# skips the week (its log row is written by log_combined). Both must be in the
+# same mode (live / test); someone who stopped the weekly email, or who gets
+# no Daily Briefing, still gets the separate one as before.
+
+def daily_will_carry(db: Session, emp: "models.NexusEmployee", cfg: dict, today: date) -> bool:
+    """True when today's Daily Briefing will carry the week (same mode, the
+    person not stopped from it, a shift today or the no-shift send on), so the
+    separate Weekly Briefing steps aside whatever the two lead times are - an
+    admin setting the daily's lead below the weekly's used to make Monday two
+    emails again (review, 11/17/2026)."""
+    try:
+        dcfg = daily.get_settings(db)
+        mode = dcfg.get("mode", "off")
+        if mode == "off" or mode != cfg.get("mode", "off"):
+            return False
+        if mode == "live":
+            import email_optout
+            if email_optout.is_out(db, emp.work_email, "daily_briefing"):
+                return False
+        if daily._shift_start_for(db, emp.work_email, today):
+            return True
+        return dcfg.get("includeNoShift") is True and daily._no_shift_eligible(emp)
+    except Exception:
+        return False
+
+
+def combine_into_daily(db: Session, emp: "models.NexusEmployee", today: date, daily_mode: str):
+    try:
+        # The weekly's own per-person lock, held until the daily commits, so the
+        # two scans can never both find the week unsent and both send it.
+        acquire_employee_lock(db, emp.work_email)
+        cfg = get_settings(db)
+        mode = cfg.get("mode", "off")
+        if mode == "off" or mode != daily_mode or today.isoweekday() < send_day(cfg):
+            return None
+        if _already_logged(db, emp.work_email, week_start(today)):
+            return None
+        if mode == "live":
+            import email_optout
+            if email_optout.is_out(db, emp.work_email, "weekly_digest"):
+                return None
+        return {"sections": build_sections(db, emp.work_email, today),
+                "recap": last_week_lines(db, emp.work_email, today), "cfg": cfg}
+    except Exception as e:   # the daily still goes out on its own
+        print(f"[weekly-briefing] combine failed for {emp.work_email}: {e}")
+        return None
+
+
+def combined(daily_sections: dict, week: dict, briefing_date: str, extra: dict) -> tuple:
+    """(sections, render_email keywords) for the Monday email: the day's
+    Action Required, then Overdue, Due This Week (minus what is due today and
+    already listed), Updates, Your Team, Coming Up, Completed and Last Week."""
+    w = week["sections"]
+    action = daily_sections.get("action_required") or []
+    listed = {r.get("task_id") for r in action if r.get("task_id")}
+    wk = {k: v for k, v in w.items() if k != PENDING_SECTION}
+    # Nothing twice: a task already in Action Required (an overdue approval,
+    # a task due today) is not listed again under Overdue or Due This Week.
+    wk[SECTION] = [r for r in w.get(SECTION, []) if r.get("task_id") not in listed]
+    wk[DUE_SECTION] = [r for r in w.get(DUE_SECTION, []) if r.get("task_id") not in listed]
+    shown = _for_email({k: v for k, v in wk.items() if v})
+    sections = {"action_required": action, SECTION: shown.get(SECTION), DUE_SECTION: shown.get(DUE_SECTION),
+                "needs_to_know": daily_sections.get("needs_to_know"), TEAM_SECTION: shown.get(TEAM_SECTION),
+                COMING_SECTION: shown.get(COMING_SECTION), "completed": daily_sections.get("completed")}
+    sections = {k: v for k, v in sections.items() if v}
+    if set(sections) <= {"completed"}:
+        # Only finished items: no email (the quiet-day rule), and the week is
+        # not logged, so it goes out with the next briefing that has something.
+        return {}, extra
+    d = date.fromisoformat(briefing_date)
+    label = f"{d.strftime('%A')}, {d.strftime('%m/%d/%Y')}"
+    n, over = len(action), len(sections.get(SECTION) or [])
+    bits = ([f"{n} Need{'s' if n == 1 else ''} Your Action"] if n else []) + ([f"{over} Overdue"] if over else [])
+    pre = daily.daily_preheader(sections).rstrip(".")
+    if pre == "Nothing new since your last briefing":
+        pre = ""
+    more = ([f"{over} overdue"] if over else []) + \
+           ([f"{len(sections[DUE_SECTION])} due this week"] if sections.get(DUE_SECTION) else [])
+    pre = ", ".join([p for p in (pre, ", ".join(more)) if p])
+    hol = w.get(HOLIDAY_SECTION) or []
+    if hol:
+        day = (hol[0].get("detail") or "").split(",")[0]
+        when = "next week" if "Next Week" in (hol[0].get("detail") or "") else "this week"
+        pre = (pre + ". " if pre else "") + f"{hol[0]['title']} is {day} {when}"
+    cfg = week.get("cfg") or {}
+    footer = (f"You receive one briefing a day before your shift. On {DAY_NAMES[send_day(cfg) - 1]}s it is the "
+              "Weekly Briefing: the day plus your week - overdue work, what is due, who is off and the holidays.")
+    return sections, {**extra, "title": "Weekly Briefing",
+                      "subject": f"Weekly Briefing - {', '.join(bits) or 'All Caught Up'} - {label}",
+                      "preheader": (pre[:1].upper() + pre[1:] + ".") if pre else None,
+                      "order": ["action_required", SECTION, DUE_SECTION, "needs_to_know", TEAM_SECTION,
+                                COMING_SECTION, "completed"],
+                      "footer": footer, "notes": {TEAM_SECTION: _team_note(w)}, "recap": week.get("recap")}
+
+
+def log_combined(db: Session, emp: "models.NexusEmployee", today: date, mode: str, week: dict, sent_at: str) -> None:
+    """The week's row, so the separate Weekly Briefing skips it. Committed with
+    the daily's own log row."""
+    w = week.get("sections") or {}
+    db.add(models.NexusWeeklyDigestLog(
+        id=str(uuid.uuid4()), employee_email=emp.work_email, week_start=week_start(today), sent_at=sent_at,
+        mode=mode, overdue_count=len(w.get(SECTION, [])), team_count=len(w.get(TEAM_SECTION, [])),
+        created_at=_now_iso()))
 
 
 # ── Outlook card ──────────────────────────────────────────────────────────
@@ -450,7 +713,9 @@ def compose(db: Session, emp: "models.NexusEmployee", cfg: dict, today: date, lo
     if not actions:
         sections = _without_actions(sections)
     subject, html = render((emp.first_name or "").strip(), today, sections,
-                           daily._greeting(local_now), daily._logo_url(db), cfg)
+                           daily._greeting(local_now), daily._logo_url(db), cfg,
+                           recap=last_week_lines(db, emp.work_email, today),
+                           today_text=daily.today_line_for(db, emp.work_email, today.isoformat()))
     if actions:
         # Its buttons act as this person, so only their own copy gets one.
         html = _with_card(html, sections, emp.work_email, today, cfg)
@@ -532,6 +797,12 @@ def _scan_once() -> int:
                 due, today, local_now = trigger_due(db, emp.work_email, cfg)
                 if not due:
                     db.rollback()
+                    continue
+                if daily.skip_reason(db, emp, today.isoformat()):
+                    db.rollback()   # no row: the week goes out on the next working day
+                    continue
+                if daily_will_carry(db, emp, cfg, today):
+                    db.rollback()   # the day's Daily Briefing carries the week: one email
                     continue
                 send_one(db, emp, cfg, today, local_now)
                 sent += 1

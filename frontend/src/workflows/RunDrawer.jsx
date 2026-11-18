@@ -100,7 +100,7 @@ export default function RunDrawer({ id, onClose, onChanged, go }) {
             <>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <StatusLabel label={m.label} color={m.color} />
-                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{run.subjectLabel || (run.entity ? `${run.entity} ${run.subjectId || ''}` : '')}</span>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{run.subjectLabel || (run.entity ? `${run.entity} ${run.subjectId || ''}` : '')}</span>
                 <Muted>{run.triggerKind ? `${capital(run.triggerKind)} trigger` : ''}{run.startedBy ? ` - started by ${run.startedBy}` : ''}</Muted>
               </div>
               <Facts rows={[
@@ -155,7 +155,7 @@ function Step({ step, index, catalog }) {
     <li style={{ border: `1px solid ${failed ? 'hsla(var(--color-red),0.5)' : 'var(--line)'}`, borderRadius: 10, padding: '10px 12px', display: 'grid', gap: 6 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <Muted style={{ fontVariantNumeric: 'tabular-nums' }}>{index}.</Muted>
-        <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, minWidth: 120 }}>{step.label || step.action || capital(step.kind)}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, flex: 1, minWidth: 120 }}>{step.label || step.action || capital(step.kind)}</span>
         {step.attempt > 1 && <Muted>attempt {step.attempt}</Muted>}
         <StatusLabel label={m.label} color={m.color} size="sm" />
       </div>
@@ -191,8 +191,8 @@ function Pairs({ title, obj, labels = {} }) {
   if (!isPlain(obj) || !Object.keys(obj).length) return null;
   return (
     <div>
-      {title && <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 2 }}>{title}</div>}
-      <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'minmax(80px, max-content) minmax(0, 1fr)', gap: '2px 12px', fontSize: 12.5 }}>
+      {title && <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 2 }}>{title}</div>}
+      <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'minmax(80px, max-content) minmax(0, 1fr)', gap: '2px 12px', fontSize: 13 }}>
         {Object.entries(obj).map(([k, v]) => (
           <Pair key={k} k={labels[k] || wordsOf(k)} v={v} />
         ))}

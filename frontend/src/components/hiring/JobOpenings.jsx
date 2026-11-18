@@ -19,8 +19,9 @@
 // (New Opening, `directCompanies` from GET /hiring/headcount/meta); where
 // they are on, an opening still comes only from an approved request.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Briefcase, Copy, ExternalLink, Share2, Megaphone, Save, Plus } from 'lucide-react';
+import { Briefcase, Copy, ExternalLink, Share2, Megaphone, Save } from 'lucide-react';
 import { api } from '../../api';
+import NewButton from '../NewButton';
 import { Modal, DateField, PersonSelect } from '../../tasks/components';
 import { StatusLabel } from '../StatusLabel';
 import { SkeletonBlocks, ErrorBanner, Spinner } from '../AsyncState';
@@ -42,18 +43,21 @@ const MOVES = {
   paused: [['open', 'Reopen'], ['closed', 'Close']], filled: [['open', 'Reopen']], closed: [['open', 'Reopen']],
 };
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
-const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };
+const hint = { fontSize: 12, color: 'var(--muted)', marginTop: 4 };
 
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
-export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFilterPipeline, directCompanies = [], onCreated }) {
+// `focusId`: a headcount request's Open In Hiring - only that opening is
+// listed (Show All brings the rest back) and its editor opens.
+export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFilterPipeline, directCompanies = [], onCreated, focusId = '' }) {
   const [rows, setRows] = useState(null);
   const [links, setLinks] = useState([]);
   const [loadErr, setLoadErr] = useState(false);
-  const [openId, setOpenId] = useState(null);
-  const [show, setShow] = useState('active');
+  const [openId, setOpenId] = useState(focusId || null);
+  const [only, setOnly] = useState(focusId || '');
+  const [show, setShow] = useState(focusId ? 'all' : 'active');
   const [starting, setStarting] = useState(false);
 
   const load = useCallback(() => {
@@ -62,7 +66,8 @@ export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFi
     api.careersLinks().then(setLinks).catch(() => {});
   }, []);
   useEffect(() => { load(); }, [load]);
-  const shown = useMemo(() => (rows || []).filter(o => (show === 'active' ? ['draft', 'open', 'paused'].includes(o.status) : true)), [rows, show]);
+  const shown = useMemo(() => (rows || []).filter(o => (only ? o.id === only
+    : show === 'active' ? ['draft', 'open', 'paused'].includes(o.status) : true)), [rows, show, only]);
   const open = rows?.find(o => o.id === openId) || null;
 
   if (loadErr) return <ErrorBanner message="Couldn't load job openings right now." onRetry={load} />;
@@ -73,13 +78,18 @@ export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFi
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 4 }}>
           {[['active', 'Active'], ['all', 'All']].map(([k, label]) => (
-            <button key={k} type="button" role="tab" aria-selected={show === k} onClick={() => setShow(k)}
-              className={show === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 12.5, padding: '5px 12px' }}>{label}</button>
+            <button key={k} type="button" role="tab" aria-selected={!only && show === k} onClick={() => { setOnly(''); setShow(k); }}
+              className={!only && show === k ? 'primary-btn' : 'secondary-btn'} style={{ fontSize: 13, padding: '5px 12px' }}>{label}</button>
           ))}
         </div>
+        {only && (
+          <span style={{ fontSize: 13, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            Showing the opening from the headcount request
+            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => setOnly('')}>Show All Openings</button>
+          </span>
+        )}
         {directCompanies.length > 0
-          ? <button type="button" className="primary-btn" onClick={() => setStarting(true)}
-            style={{ marginLeft: 'auto', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> New Opening</button>
+          ? <span style={{ marginLeft: 'auto' }}><NewButton items={[{ key: 'opening', label: 'Opening' }]} onPick={() => setStarting(true)} /></span>
           : <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>New openings come from approved headcount requests.</span>}
       </div>
 
@@ -87,14 +97,14 @@ export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFi
         <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
           <Briefcase size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
           <div style={{ fontSize: 14, fontWeight: 600 }}>No job openings yet.</div>
-          <div style={{ fontSize: 12.5, marginTop: 4 }}>{directCompanies.length > 0 ? 'Start one with New Opening.' : 'An approved headcount request becomes a Draft opening here.'}</div>
+          <div style={{ fontSize: 13, marginTop: 4 }}>{directCompanies.length > 0 ? 'Start one with New Opening.' : 'An approved headcount request becomes a Draft opening here.'}</div>
         </div>
       ) : (
         <div role="list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {shown.map(o => (
             <div key={o.id} role="listitem" style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <button onClick={() => setOpenId(o.id)} style={{ flex: '1 1 260px', minWidth: 0, textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{o.title}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{o.title}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                   {[o.companyName, o.department, o.locationLine, o.employmentLabel].filter(Boolean).join(' · ')}
                 </div>
@@ -116,10 +126,10 @@ export default function JobOpenings({ toastOk, toastErr, canSeePay = false, onFi
         <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px' }}>
           <div style={{ ...FL, marginBottom: 6 }}>Careers Pages</div>
           {links.map(l => (
-            <div key={l.companyId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', flexWrap: 'wrap', fontSize: 12.5 }}>
+            <div key={l.companyId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', flexWrap: 'wrap', fontSize: 13 }}>
               <b style={{ minWidth: 140 }}>{l.name}</b>
               <a href={l.url} target="_blank" rel="noopener noreferrer" style={{ color: 'hsl(var(--color-blue))', wordBreak: 'break-all' }}>{l.url}</a>
-              <button className="secondary-btn" style={{ fontSize: 11.5, padding: '2px 8px' }}
+              <button className="secondary-btn" style={{ fontSize: 12, padding: '2px 8px' }}
                 onClick={async () => (await copyText(l.url) ? toastOk?.('Careers page link copied.') : toastErr?.('Could not copy - select the link instead.'))}>Copy Link</button>
             </div>
           ))}
@@ -207,7 +217,7 @@ export function OpeningEditor({ o, canSeePay, onClose, onSaved, toastOk, toastEr
     <Modal title={o.title || 'Job Opening'} onClose={onClose} footer={footer} isDirty={dirty} onSave={() => save()}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
         <StatusLabel label={OPENING_STATUS[o.status]?.label || o.status} color={OPENING_STATUS[o.status]?.color} />
-        <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
           {o.companyName}{o.headcountCode ? ` · from ${o.headcountCode}` : ''} · {o.counts.hired || 0} of {o.seats} hired
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -278,7 +288,7 @@ export function OpeningEditor({ o, canSeePay, onClose, onSaved, toastOk, toastEr
       <div className="nx-fill" style={{ marginTop: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
           <label style={{ ...FL, marginBottom: 0 }} htmlFor="op-desc">Job Description (Public)</label>
-          <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: 11.5, padding: '2px 10px' }} onClick={() => setPreview(p => !p)}>{preview ? 'Edit' : 'Preview'}</button>
+          <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: 12, padding: '2px 10px' }} onClick={() => setPreview(p => !p)}>{preview ? 'Edit' : 'Preview'}</button>
         </div>
         {preview
           ? <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', overflowY: 'auto', flex: 1 }}><JobDescription text={f.description} /></div>

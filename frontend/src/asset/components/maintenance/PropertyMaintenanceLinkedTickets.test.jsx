@@ -53,7 +53,7 @@ describe('Linked tickets on the property Maintenance tab', () => {
 
   it('the Open Tickets tab lists it', async () => {
     render(<PropertyMaintenanceSection {...props} />);
-    fireEvent.click(await screen.findByRole('tab', { name: 'Open Tickets (1)' }));
+    fireEvent.click(await screen.findByRole('tab', { name: 'Open Tickets 1' }));
     expect(screen.getByText('AC not working')).toBeTruthy();
   });
 });

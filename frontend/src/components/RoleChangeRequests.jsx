@@ -34,7 +34,7 @@ function Details({ r }) {
         <span style={{ padding: '5px 11px', borderRadius: 10, background: 'hsla(var(--color-green),0.1)', fontWeight: 700 }}>{r.toRoleName}</span>
       </div>
       <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>Reason</div>
-      <div style={{ fontSize: 13.5, marginTop: 3, whiteSpace: 'pre-line', lineHeight: 1.5 }}>{r.reason}</div>
+      <div style={{ fontSize: 13, marginTop: 3, whiteSpace: 'pre-line', lineHeight: 1.5 }}>{r.reason}</div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
         Asked by {person(r.requestedBy, r.requestedByName)} on {formatDateTime(r.createdAt)}.{' '}
         {r.status === 'pending'
@@ -71,26 +71,26 @@ function Actions({ r, onDone, toastErr }) {
       )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {r.canDecide && !declining && (
-          <button className="primary-btn" onClick={() => run('approve')} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <button className="primary-btn" onClick={() => run('approve')} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
             {busy === 'approve' ? <Spinner size={13} /> : <Check size={13} />} Approve
           </button>
         )}
         {r.canDecide && (declining ? (
           <>
             <button className="primary-btn" onClick={() => run('decline')} disabled={!!busy}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, background: 'hsl(var(--color-red))' }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, background: 'hsl(var(--color-red))' }}>
               {busy === 'decline' ? <Spinner size={13} /> : <Ban size={13} />} Decline Request
             </button>
-            <button className="secondary-btn" onClick={() => setDeclining(false)} disabled={!!busy} style={{ fontSize: 12.5 }}>Back</button>
+            <button className="secondary-btn" onClick={() => setDeclining(false)} disabled={!!busy} style={{ fontSize: 13 }}>Back</button>
           </>
         ) : (
           <button className="secondary-btn" onClick={() => setDeclining(true)} disabled={!!busy}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}>
             <Ban size={13} /> Decline
           </button>
         ))}
         {r.canCancel && !declining && (
-          <button className="secondary-btn" onClick={() => run('cancel')} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <button className="secondary-btn" onClick={() => run('cancel')} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
             {busy === 'cancel' ? <Spinner size={13} /> : <X size={13} />} Cancel Request
           </button>
         )}
@@ -112,7 +112,7 @@ export function RoleChangeRequestCard({ employeeId = '', email = '', refreshKey,
         <div key={r.id} style={{ marginBottom: 14, border: '1px solid hsla(var(--color-orange),0.45)', background: 'hsla(var(--color-orange),0.06)', borderRadius: 12, padding: '12px 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             <Clock size={14} style={{ color: 'hsl(var(--color-orange))' }} />
-            <b style={{ fontSize: 13.5 }}>Role Change Awaiting Approval</b>
+            <b style={{ fontSize: 13 }}>Role Change Awaiting Approval</b>
           </div>
           <Details r={r} />
           <Actions r={r} toastErr={toastErr} onDone={(out, kind) => { toastOk?.(DONE_TEXT[kind]); load(); onDecided?.(out, kind); }} />
@@ -162,7 +162,7 @@ export function RoleChangeDecisionModal({ requestId, onClose, onDecided, toastOk
         style={{ background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <Shield size={17} style={{ color: 'var(--pine)' }} />
-          <div style={{ flex: 1, fontWeight: 800, fontSize: 15.5 }}>Role Change{r ? ` - ${r.employeeName}` : ''}</div>
+          <div style={{ flex: 1, fontWeight: 800, fontSize: 15 }}>Role Change{r ? ` - ${r.employeeName}` : ''}</div>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px 20px' }}>
@@ -172,7 +172,7 @@ export function RoleChangeDecisionModal({ requestId, onClose, onDecided, toastOk
                 <>
                   <Details r={r} />
                   {r.status === 'pending' && !r.canDecide && !r.canCancel && (
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 12 }}>Only HR, an Administrator or a Super Administrator can approve this.</div>
+                    <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 12 }}>Only HR, an Administrator or a Super Administrator can approve this.</div>
                   )}
                   <Actions r={r} toastErr={toastErr} onDone={(out, kind) => { toastOk?.(DONE_TEXT[kind]); onDecided?.(out, kind); }} />
                 </>
@@ -206,17 +206,17 @@ export function RoleHistory({ employeeId = '', email = '', refreshKey }) {
   }, [employeeId, email, refreshKey]);
   return (
     <div style={{ marginTop: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>
         <Clock size={14} style={{ color: 'var(--muted)' }} /> Role History
       </div>
       {rows === null ? <div style={{ padding: 14, color: 'var(--muted)' }}><Spinner size="inline" /></div>
-        : rows.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No role changes recorded yet.</div>
+        : rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No role changes recorded yet.</div>
         : rows.map(h => {
           const tone = HISTORY_TONE[h.status] || 'gray';
           return (
             <div key={h.id} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
-                <span style={{ padding: '2px 9px', borderRadius: 6, fontSize: 11.5, fontWeight: 700,
+                <span style={{ padding: '2px 9px', borderRadius: 6, fontSize: 12, fontWeight: 700,
                   background: tone === 'gray' ? 'var(--mist)' : `hsla(var(--color-${tone}),0.12)`,
                   color: tone === 'gray' ? 'var(--muted)' : `hsl(var(--color-${tone}))` }}>{h.statusLabel}</span>
                 <span>{h.from || 'No role'}</span>
@@ -225,7 +225,7 @@ export function RoleHistory({ employeeId = '', email = '', refreshKey }) {
                 <span style={{ flex: 1 }} />
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}>{formatDateTime(h.at)}</span>
               </div>
-              {h.reason && <div style={{ fontSize: 12.5, marginTop: 6, whiteSpace: 'pre-line', lineHeight: 1.5 }}><b>Reason:</b> {h.reason}</div>}
+              {h.reason && <div style={{ fontSize: 13, marginTop: 6, whiteSpace: 'pre-line', lineHeight: 1.5 }}><b>Reason:</b> {h.reason}</div>}
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 }}>
                 Raised by {h.raisedByName || h.raisedBy ? person(h.raisedBy, h.raisedByName) : 'unknown'}{h.raisedAt && h.raisedAt !== h.at ? ` on ${formatDateTime(h.raisedAt)}` : ''}
                 {' - '}{outcome(h)}{h.effectiveDate ? `. Effective ${formatDate(h.effectiveDate)}` : ''}.

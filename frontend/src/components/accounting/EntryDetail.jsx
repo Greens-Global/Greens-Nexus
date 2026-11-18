@@ -8,6 +8,8 @@ import { useAccountingPrefs } from './prefs';
 import Amount, { formatAmount } from './Amount';
 import AskAccountantDialog, { AskButton, lineFromEntry } from './AskAccountantDialog';
 import SidePanel from './SidePanel';
+import { ColumnResizer } from './reportControls';
+import { useColumnWidths } from './tableHooks';
 
 // One journal entry, opened from the entry number on a search result or a
 // report drill-down (Charmi, Sep 24: "we should be able to click on the entry
@@ -42,7 +44,7 @@ const COLUMNS = [
   { key: 'debit', label: 'Debit', num: true, width: '7%' },
   { key: 'credit', label: 'Credit', num: true, width: '7%' },
   { key: 'department', label: 'Department', width: '9%' },
-  { key: 'location', label: 'Location', width: '11%' },
+  { key: 'location', label: 'Entity', width: '11%' },
   { key: 'memo', label: 'Memo', width: '13%' },
   { key: 'vendor', label: 'Vendor', width: '9%' },
   { key: 'project', label: 'Project-Job', width: '8%' },
@@ -62,6 +64,8 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
   // Oct 15 (Neil): "Ask My Accountant" on any line of the entry.
   const [asking, setAsking] = useState(null);
   const [asked, setAsked] = useState(null);
+  // Each column drags wider or narrower, kept per person (the Accounting report rule).
+  const cw = useColumnWidths('acct-entry-lines', {}, { min: 50 });
 
   useEffect(() => {
     let alive = true;
@@ -134,9 +138,9 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
 
   const body = (
     <div className={isPhone || panel ? undefined : 'acct-entry-body'} style={panel ? { minWidth: 0 } : { padding: isPhone ? '10px 12px 16px' : '12px 18px 16px', overflow: isPhone ? 'auto' : undefined }}>
-      {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 12 }}>{error}</div>}
+      {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: 13, marginBottom: 12 }}>{error}</div>}
       {asked && (
-        <div role="status" style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px', fontSize: '0.8rem', marginBottom: 10, color: 'var(--ok-fg, #15803d)' }}>
+        <div role="status" style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px', fontSize: 13, marginBottom: 10, color: 'var(--ok-fg, #15803d)' }}>
           {asked.merged ? 'Added to the open question on this line' : 'Question sent'} to {asked.accountantName || asked.accountant}. It is on the AMA screen under Accounting - Reporting.
         </div>
       )}
@@ -149,14 +153,14 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
             return (
               <div key={l.id} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: '0.86rem', fontWeight: 600 }}>{cell(l, g, 'account')}</span>
-                  <span style={{ fontSize: '0.86rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600 }}>{cell(l, g, 'account')}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                     {Number(l.debit) > 0 ? formatAmount(l.debit) : Number(l.credit) > 0 ? `(${formatAmount(l.credit)})` : '0.00'}
                   </span>
                   <AskButton onClick={() => ask(l, g)} />
                 </div>
                 {facts.map(([label, v]) => (
-                  <div key={label} style={{ display: 'flex', gap: 8, fontSize: '0.76rem', marginTop: 3 }}>
+                  <div key={label} style={{ display: 'flex', gap: 8, fontSize: 12, marginTop: 3 }}>
                     <span style={{ color: 'var(--text-muted)', flex: '0 0 88px' }}>{label}</span>
                     <span style={{ color: 'var(--text-secondary)', minWidth: 0, overflowWrap: 'anywhere' }}>{v}</span>
                   </div>
@@ -164,7 +168,7 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
               </div>
             );
           })}
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 12px', fontSize: '0.84rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', background: 'var(--bg-secondary)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '10px 12px', fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums', background: 'var(--bg-secondary)' }}>
             <span>Total</span>
             <span>{formatAmount(data.totals.debit)} debit · {formatAmount(data.totals.credit)} credit</span>
           </div>
@@ -174,9 +178,9 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
         <>
           {!isPhone && <div className="acct-lines-wrap acct-entry-box" data-testid="entry-lines-box" style={{ maxHeight: 'none' }}>
             <table className="acct-lines acct-entry-lines acct-sticky-head" style={{ width: '100%', minWidth: 1180 }}>
-              <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}<col style={{ width: 34 }} /></colgroup>
+              <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: cw.width(c.key) || c.width }} />)}<col style={{ width: 34 }} /></colgroup>
               <thead>
-                <tr>{COLUMNS.map((c) => <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined}>{c.label}</th>)}<th scope="col" aria-label="Ask My Accountant" /></tr>
+                <tr>{COLUMNS.map((c) => <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined}>{c.label}<ColumnResizer {...cw.resizer(c.key, c.label)} /></th>)}<th scope="col" aria-label="Ask My Accountant" /></tr>
               </thead>
               <tbody>
                 {lines.map((l) => {
@@ -198,14 +202,14 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
             </table>
           </div>}
           {Math.abs(data.totals.debit - data.totals.credit) >= 0.01 && (
-            <div style={{ marginTop: 8, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>This entry is out of balance by {formatAmount(data.totals.debit - data.totals.credit)}.</div>
+            <div style={{ marginTop: 8, fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>This entry is out of balance by {formatAmount(data.totals.debit - data.totals.credit)}.</div>
           )}
           {books.length > 1 && (
-            <div style={{ marginTop: 8, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
               Lines by book: {books.map((b) => `${BOOK_LABEL[b] || b} ${lines.filter((l) => l.book_tag === b).length}`).join(' · ')}
             </div>
           )}
-          <div style={{ marginTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
             From the Nexus Accounting ledger{intacct.length ? ` · ${intacct.length} Intacct ${intacct.length === 1 ? 'record' : 'records'}` : ''}.{isPhone || panel ? '' : ' Drag the corner of this window to resize it.'}
           </div>
         </>
@@ -222,8 +226,8 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
             <dl className="acct-entry-facts" data-testid="entry-facts" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '8px 16px', margin: 0, padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: 10, background: 'var(--bg-card)' }}>
               {facts.map(([label, v]) => (
                 <div key={label} style={{ minWidth: 0 }}>
-                  <dt style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{label}</dt>
-                  <dd style={{ margin: 0, fontSize: '0.84rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }} title={v}>{v}</dd>
+                  <dt style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</dt>
+                  <dd style={{ margin: 0, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }} title={v}>{v}</dd>
                 </div>
               ))}
             </dl>
@@ -248,7 +252,7 @@ export default function EntryDetail({ entryId, entryNo, onClose, panel = false }
             <h3 style={{ margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isPhone ? 'normal' : 'nowrap', fontSize: isPhone ? '0.98rem' : undefined }}>
               {entry ? `${formatDate(entry.entry_date)}${journal ? ` · ${journal}` : ''}${title ? ` · ${title}` : ''}` : `Journal Entry ${entryNo || ''}`}
             </h3>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>{entry ? quiet : 'Loading the entry...'}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{entry ? quiet : 'Loading the entry...'}</div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
             {!isPhone && (

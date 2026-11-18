@@ -24,6 +24,11 @@ bespoke one: require_level_or_module admits Manager/IT Admin/Global Admin by
 role today; adding 'act-as' to the frontend's MODULES list later lets a Global
 Admin grant it to specific other employees via an Access Group, no backend
 change needed.
+
+Reach (Pranshu, 11/12/2026): a caller at the Manager tier or below - the role
+or the act-as grant - may act only as people in their own reporting line
+(auth.team_emails), so the manager tier never sees a stranger's pay through
+their Time Sheet; an Administrator and above keep their company scope.
 """
 import time
 import uuid
@@ -113,6 +118,14 @@ def resolve_target(session_id: str, real_email: str, db: Session) -> Optional[di
     return result
 
 
+def _reporting_line(user: dict, db: Session):
+    """Manager tier and below (Pranshu, 11/12/2026): only their own reports,
+    all the way down. None = no such limit (Administrator and above)."""
+    if user["level"] > _LEVELS["manager"]:
+        return None
+    return auth.team_emails(db, user["email"])
+
+
 class StartIn(BaseModel):
     target_email: str
 
@@ -142,12 +155,15 @@ def eligible_targets(user: dict = Depends(_act_as_gate), db: Session = Depends(g
     # (or with no company - a guest / external): an Administrator is walled
     # whether or not the switch is on (Neil, 11/02/2026).
     scope = auth.company_scope(user, db)
+    team = _reporting_line(user, db)
     out = []
     for e in employees:
         email = (e.work_email or "").lower().strip()
         if not email or email == user["email"]:
             continue
         if not auth.company_ok(e.company or "", scope, shared_when_blank=auth.admits_blank(scope)):
+            continue
+        if team is not None and email not in team:
             continue
         role_row = roles.get(email)
         role = role_row.role if role_row else "employee"
@@ -184,8 +200,11 @@ def start_session(body: StartIn, request: Request,
     if target_email == user["email"]:
         raise HTTPException(status_code=400, detail="You can't Act As yourself")
 
-    # Outside the caller's companies: 404, as if they were not there.
+    # Outside the caller's companies or reporting line: 404, as if they were not there.
     auth.assert_person_in_scope(target_email, user, db)
+    team = _reporting_line(user, db)
+    if team is not None and target_email not in team:
+        raise HTTPException(status_code=404, detail="Not found")
     target_row = db.query(NexusRole).filter(NexusRole.email == target_email).first()
     target_role = target_row.role if target_row else "employee"
     target_level = _LEVELS.get(target_role, 1)

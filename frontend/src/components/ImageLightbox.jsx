@@ -53,10 +53,10 @@ export default function ImageLightbox({ shots, index, setIndex }) {
         style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', color: '#fff',
           opacity: shown ? 1 : 0, transition: 'opacity .2s ease .03s' }}>
         {s.at && <span style={{ fontSize: 14, fontWeight: 700 }}>{t(s.at)}</span>}
-        <span style={{ fontSize: 12.5, opacity: 0.7, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 13, opacity: 0.7, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {s.activeView || ''}{s.idleSec >= 300 ? ` · idle ${Math.round(s.idleSec / 60)}m` : ''}
         </span>
-        <span style={{ fontSize: 12.5, opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>{displayIdx + 1} / {shots.length}</span>
+        <span style={{ fontSize: 13, opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>{displayIdx + 1} / {shots.length}</span>
         <a href={s.url} target="_blank" rel="noopener noreferrer" title="Open full size in a new tab"
           style={{ color: '#fff', opacity: 0.75, display: 'flex' }}><ExternalLink size={16} /></a>
         <button onClick={() => setIndex(null)} aria-label="Close"

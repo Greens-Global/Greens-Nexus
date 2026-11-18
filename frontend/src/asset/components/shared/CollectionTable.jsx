@@ -1,17 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
-import { ChevronDown, ChevronUp, Plus, Download, CornerDownRight, FileSpreadsheet, FileText } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { ChevronDown, ChevronUp, Plus, Download, CornerDownRight, FileSpreadsheet, FileText, ListPlus } from 'lucide-react';
 import AnchoredMenu from '../../../components/AnchoredMenu';
-import { RECORD_TYPES } from '../../lib/recordTypes.jsx';
-import { Card } from './Card.jsx';
+import { RECORD_TYPES, pairsSentence } from '../../lib/recordTypes.jsx';
 import { EmptyState } from './EmptyState.jsx';
 import { MenuRow } from './MenuRow.jsx';
-
-// Small uppercase label style - shared by column headers and summary-strip labels.
-const LABEL_STYLE = { fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)' };
+import { SummarySentence, ToolbarSearch, QuickAddLine, SR_ONLY } from './Toolbar.jsx';
 
 // Quick-add config per collection: which field the single text input fills, extra defaults
 // merged into the new record, and the input's placeholder/button copy. Only collections with
-// an entry here render the quick-add bar (currently maintenance + vservice - see
+// an entry here render the quick-add line (currently maintenance + vservice - see
 // RECORD_TYPES[coll].quickAdd in lib/recordTypes.js, which this is built from).
 const QUICK_ADD_CONFIG = Object.fromEntries(
   Object.entries(RECORD_TYPES)
@@ -62,7 +59,7 @@ function exportPdf(rows, recordType, assetName) {
   const headers = keys.map(humanizeKey);
   const title = (assetName || 'Export') + ' - ' + recordType.plural;
   const bodyRows = rows.map((r) => '<tr>' + keys.map((k) => '<td>' + htmlEscape(r[k]) + '</td>').join('') + '</tr>').join('');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(title)}</title><style>body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:28px;color:#111}h1{font-size:17px;margin:0 0 14px}table{border-collapse:collapse;width:100%;font-size:11.5px}th,td{border:1px solid #d1d5db;padding:6px 9px;text-align:left;vertical-align:top}th{background:#f3f4f6;font-weight:700}</style></head><body><h1>${htmlEscape(
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(title)}</title><style>/* type-ok: printed page */body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;padding:28px;color:#111}h1{font-size:17px;margin:0 0 14px}table{border-collapse:collapse;width:100%;font-size:11.5px}th,td{border:1px solid #d1d5db;padding:6px 9px;text-align:left;vertical-align:top}th{background:#f3f4f6;font-weight:700}</style></head><body><h1>${htmlEscape(
     title
   )}</h1><table><thead><tr>${headers.map((h) => '<th>' + htmlEscape(h) + '</th>').join('')}</tr></thead><tbody>${bodyRows}</tbody></table></body></html>`;
   const win = window.open('', '_blank');
@@ -89,38 +86,37 @@ function rowIdentity(coll, row) {
   return (col.main ? col.main(row) : col.mono ? col.mono(row) : '') || RECORD_TYPES[coll].title;
 }
 
+
+const TH = { textAlign: 'left', padding: 0, fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' };
+const TD = { padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top' };
+const FAINT = { color: 'var(--text-muted)' };
+
 /**
- * Generic list/table for any RECORD_TYPES collection. Renders (top to bottom): an optional
- * collapse header, an optional quick-add bar, a summary stat strip, and either a sortable table
- * or an empty state. The table collapses into stacked labeled cards below 640px via the
- * `.coll-table` CSS class (see styles.css) reading each `<td data-label="...">`.
+ * Generic list/table for any RECORD_TYPES collection (Neil, 11/17/2026 redesign). Top to
+ * bottom: the toolbar row (the summary sentence on the left; search, Export and New on the
+ * right), an optional one-line quick add, and a hairline table - or a designed empty state.
+ * The table folds into labeled cards below 640px via `.coll-table` (asset-styles) reading
+ * each `<td data-label>`.
  *
- * Props: coll (record-type key), rows, active (the asset these records belong to - used for
- * export filenames), filters (map of coll -> free-text search string), onAdd, onEdit,
- * highlightItem (a row-identity string to scroll to + highlight), collapsible, onQuickAdd.
+ * Props: coll (record-type key), rows, active (the asset - export filenames), filters (map of
+ * coll -> search text) + setFilters, onAdd, onEdit, highlightItem (a row-identity string to
+ * scroll to and mark), onQuickAdd.
  */
 // Optional (Property Tickets, Oct 2026): a row with `_parentRowId` is shown nested, right under
 // that row (sorting and search move families together); `_readOnly` rows say View, not Edit.
-// `summaryOverride` replaces the record type's summary strip (e.g. totals kept per currency).
-// `leadColumn` ({ label, render(row) }) adds a first column; nested rows indent there.
-export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, highlightItem, collapsible, onQuickAdd, summaryOverride = null, leadColumn = null, emptyNode = null }) {
+// `summaryOverride` ([label, value] pairs) replaces the record type's sentence (e.g. totals kept
+// per currency). `leadColumn` ({ label, render(row) }) adds a first column; nested rows indent.
+// `toolbarStart` is a node at the toolbar's left, before the sentence (a section's own tabs).
+export function CollectionTable({ coll, rows, active, filters = {}, setFilters, onAdd, onEdit, highlightItem, onQuickAdd, summaryOverride = null, leadColumn = null, emptyNode = null, toolbarStart = null }) {
   const recordType = RECORD_TYPES[coll];
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef(null);   // the Export button its menu is pinned to
-  const [quickText, setQuickText] = useState('');
-  const [quickDate, setQuickDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [open, setOpen] = useState(false);
   const [sortCol, setSortCol] = useState(null);
   const [sortDir, setSortDir] = useState(1);
-
-  // If something elsewhere in the app deep-links to a specific row (highlightItem) inside a
-  // collapsible section, auto-expand so the highlighted row is actually visible.
-  useEffect(() => {
-    if (collapsible && highlightItem) setOpen(true);
-  }, [collapsible, highlightItem]);
-
-  const contentVisible = !collapsible || open;
-  const searchText = (filters[coll] || '').toLowerCase();
+  const [localQuery, setLocalQuery] = useState('');
+  const query = setFilters ? (filters[coll] || '') : localQuery;
+  const setQuery = (text) => (setFilters ? setFilters((f) => ({ ...f, [coll]: text })) : setLocalQuery(text));
+  const searchText = query.toLowerCase();
 
   let displayRows = rows.slice().sort(
     sortCol == null
@@ -147,254 +143,130 @@ export function CollectionTable({ coll, rows, active, filters, onAdd, onEdit, hi
     ]);
   }
 
-  // Summary strip always reflects the FULL collection (rows), not the filtered/sorted displayRows.
-  const summary = summaryOverride || (recordType.summary ? recordType.summary(rows) : null);
+  // The sentence always reflects the FULL collection (rows), not the search.
+  const sentence = summaryOverride ? pairsSentence(summaryOverride) : recordType.sentence ? recordType.sentence(rows, active) : [];
   const quickAdd = QUICK_ADD_CONFIG[coll];
-
-  const submitQuickAdd = () => {
-    if (!quickText.trim()) return;
-    onQuickAdd({ date: quickDate, [quickAdd.k]: quickText.trim(), ...quickAdd.extra });
-    setQuickText('');
-  };
+  const noun = recordType.plural.toLowerCase();
 
   return (
-    <Card>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          marginBottom: contentVisible ? 14 : 0,
-          flexWrap: 'wrap',
-        }}
-      >
-        {/* A collapsible section folds from its title, a real button so the
-            keyboard reaches it (the whole bar used to be a clickable div). */}
-        {collapsible ? (
-          <button
-            type="button"
-            aria-expanded={open}
-            onClick={() => setOpen((o) => !o)}
-            title={open ? 'Collapse' : 'Expand'}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', color: 'inherit', userSelect: 'none' }}
-          >
-            <ChevronDown size={18} aria-hidden="true" style={{ color: 'var(--text-secondary)', transition: 'transform 0.2s', transform: open ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
-            <strong style={{ fontSize: '1rem' }}>{recordType.plural}</strong>
-          </button>
-        ) : (
-          <strong style={{ fontSize: '1rem' }}>{recordType.plural}</strong>
-        )}
-
-        {/* The export menu is an AnchoredMenu: closes on Escape and on a tap
-            outside, its rows are buttons the keyboard reaches. */}
-        <div style={{ marginLeft: 'auto' }}>
-          <button
-            ref={exportRef}
-            type="button"
-            className="secondary-btn"
-            disabled={!displayRows.length}
-            aria-haspopup="menu"
-            aria-expanded={exportOpen}
-            onClick={() => setExportOpen((v) => !v)}
-            title="Export this list"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', fontSize: '0.8rem', opacity: displayRows.length ? 1 : 0.5 }}
-          >
-            <Download size={14} /> Export <ChevronDown size={13} style={{ opacity: 0.7 }} />
-          </button>
-          <AnchoredMenu anchorRef={exportRef} open={exportOpen} onClose={() => setExportOpen(false)} align="end" minWidth={180}
-            style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
-            <MenuRow icon={FileSpreadsheet} onClick={() => { setExportOpen(false); exportCsv(displayRows, recordType, active.name); }}>Export as CSV</MenuRow>
-            <MenuRow icon={FileText} onClick={() => { setExportOpen(false); exportPdf(displayRows, recordType, active.name); }}>Export as PDF</MenuRow>
-          </AnchoredMenu>
+    <div style={{ minWidth: 0 }}>
+      {(rows.length > 0 || onAdd || toolbarStart) && (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '12px 0', minHeight: 32 }}>
+        {toolbarStart}
+        <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+          {sentence.length > 0 && <SummarySentence parts={sentence} />}
         </div>
-
-        {onAdd && (
-          <button
-            className="primary-btn"
-            onClick={() => onAdd()}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: '0.8rem' }}
-          >
-            <Plus size={14} /> Add
-          </button>
-        )}
-      </div>
-
-      {contentVisible && (
-        <>
-          {quickAdd && onQuickAdd && (
-            <div
-              style={{
-                display: 'flex',
-                gap: 8,
-                marginBottom: 14,
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                padding: '10px 12px',
-                borderRadius: 11,
-                border: '1px solid var(--border-color)',
-                backgroundColor: 'var(--bg-secondary)',
-              }}
-            >
-              <span style={{ fontSize: '1.05rem', flexShrink: 0 }}>{'\u{1F6E0}️'}</span>
-              <input
-                className="form-input"
-                value={quickText}
-                onChange={(e) => setQuickText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submitQuickAdd();
-                }}
-                placeholder={quickAdd.placeholder}
-                style={{ flex: '1 1 240px', fontSize: '0.85rem' }}
-              />
-              <input
-                type="date"
-                className="form-input"
-                value={quickDate}
-                onChange={(e) => setQuickDate(e.target.value)}
-                title="Date"
-                style={{ fontSize: '0.82rem', width: 146, flexShrink: 0 }}
-              />
-              <button
-                className="primary-btn"
-                disabled={!quickText.trim()}
-                onClick={submitQuickAdd}
-                style={{ fontSize: '0.82rem', padding: '8px 16px', flexShrink: 0, opacity: quickText.trim() ? 1 : 0.5 }}
-              >
-                {quickAdd.button}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginLeft: 'auto' }}>
+          {rows.length > 0 && <ToolbarSearch value={query} onChange={setQuery} placeholder={`Search ${noun}`} />}
+          {/* The export menu is an AnchoredMenu: closes on Escape and on a tap
+              outside, its rows are buttons the keyboard reaches. */}
+          {rows.length > 0 && (
+            <>
+              <button ref={exportRef} type="button" className="secondary-btn" disabled={!displayRows.length}
+                aria-haspopup="menu" aria-expanded={exportOpen} onClick={() => setExportOpen((v) => !v)} title="Export this list"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', fontSize: 13 }}>
+                <Download size={14} aria-hidden="true" /> Export
               </button>
-            </div>
+              <AnchoredMenu anchorRef={exportRef} open={exportOpen} onClose={() => setExportOpen(false)} align="end" minWidth={180}
+                style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+                <MenuRow icon={FileSpreadsheet} onClick={() => { setExportOpen(false); exportCsv(displayRows, recordType, active.name); }}>Export as CSV</MenuRow>
+                <MenuRow icon={FileText} onClick={() => { setExportOpen(false); exportPdf(displayRows, recordType, active.name); }}>Export as PDF</MenuRow>
+              </AnchoredMenu>
+            </>
           )}
-
-          {summary && (
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-              {summary.map(([label, value]) => (
-                <div
-                  key={label}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}
-                >
-                  <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{value}</span>
-                  <span style={LABEL_STYLE}>{label}</span>
-                </div>
-              ))}
-            </div>
+          {onAdd && (
+            <button type="button" className="primary-btn" onClick={() => onAdd()} aria-label={`New ${recordType.title}`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 32, padding: '0 14px', fontSize: 13 }}>
+              <Plus size={14} aria-hidden="true" /> New
+            </button>
           )}
-
-          {displayRows.length ? (
-            <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
-              <table className="coll-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-                <thead>
-                  <tr>
-                    {leadColumn && (
-                      <th style={{ ...LABEL_STYLE, textAlign: 'left', padding: '10px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>{leadColumn.label}</th>
-                    )}
-                    {recordType.cols.map((col, ci) => (
-                      <th
-                        key={col.label}
-                        aria-sort={sortCol === ci ? (sortDir > 0 ? 'ascending' : 'descending') : 'none'}
-                        style={{ ...LABEL_STYLE, textAlign: 'left', padding: 0, background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}
-                      >
-                        {/* The sort control is a button filling the header cell (keyboard reachable). */}
-                        <button
-                          type="button"
-                          title={`Sort by ${col.label}`}
-                          onClick={() => {
-                            if (sortCol === ci) setSortDir((d) => -d);
-                            else {
-                              setSortCol(ci);
-                              setSortDir(1);
-                            }
-                          }}
-                          style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '10px 12px', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit', textTransform: 'inherit', letterSpacing: 'inherit', userSelect: 'none' }}
-                        >
-                          {col.label}
-                          {sortCol === ci ? (
-                            <span style={{ marginLeft: 4, color: 'hsl(var(--color-blue))', display: 'inline-flex', verticalAlign: '-2px' }}>{sortDir > 0 ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
-                          ) : null}
-                        </button>
-                      </th>
-                    ))}
-                    <th style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayRows.map((row) => {
-                    const isHighlighted = highlightItem && rowIdentity(coll, row) === highlightItem;
-                    return (
-                      <tr
-                        key={row.id}
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') onEdit(row.id);
-                        }}
-                        onClick={() => onEdit(row.id)}
-                        ref={isHighlighted ? (el) => el && el.scrollIntoView({ behavior: 'smooth', block: 'center' }) : null}
-                        style={{
-                          cursor: 'pointer',
-                          transition: 'background-color 0.3s',
-                          background: isHighlighted ? 'hsla(var(--color-gold), 0.2)' : '',
-                          boxShadow: isHighlighted ? 'inset 3px 0 0 hsl(var(--color-gold))' : 'none',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!isHighlighted) e.currentTarget.style.background = 'var(--bg-secondary)';
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isHighlighted) e.currentTarget.style.background = '';
-                        }}
-                      >
-                        {leadColumn && (
-                          <td data-label={leadColumn.label} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', whiteSpace: 'nowrap', ...(row._nested ? { paddingLeft: 30 } : null) }}>
-                            {row._nested && <CornerDownRight size={13} style={{ color: 'var(--text-secondary)', marginRight: 5, verticalAlign: '-2px' }} />}
-                            {leadColumn.render(row)}
-                          </td>
-                        )}
-                        {recordType.cols.map((col, ci) => {
-                          const chip = col.chip ? col.chip(row) : null;
-                          const sub = col.main && col.sub ? col.sub(row) : null;
-                          const text = cellText(col, row, active).trim();
-                          // A cell with nothing to say shows "-" on a desktop; the phone card
-                          // drops it (asset-styles td[data-empty]) instead of printing "SCOPE -".
-                          const empty = col.chip ? !chip : (text === '' || text === '-') && !sub;
-                          return (
-                          <td key={col.label} data-label={col.label} data-empty={empty ? '1' : undefined} style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', ...(!leadColumn && ci === 0 && row._nested ? { paddingLeft: 28 } : null) }}>
-                            {!leadColumn && ci === 0 && row._nested && <CornerDownRight size={13} style={{ color: 'var(--text-secondary)', marginRight: 4, verticalAlign: '-2px' }} />}
-                            {col.main ? (
-                              <>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{col.main(row, active) || '-'}</div>
-                                {sub ? <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 1 }}>{sub}</div> : null}
-                              </>
-                            ) : col.mono ? (
-                              <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: '0.8rem' }}>{col.mono(row, active)}</span>
-                            ) : col.chip ? (
-                              chip
-                            ) : (
-                              <span>{col.plain(row, active)}</span>
-                            )}
-                          </td>
-                          );
-                        })}
-                        <td style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', textAlign: 'right' }}>
-                          <button
-                            className="secondary-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEdit(row.id);
-                            }}
-                            style={{ padding: '4px 10px', fontSize: '0.75rem' }}
-                          >
-                            {row._readOnly ? 'View' : 'Edit'}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (emptyNode || (
-            <EmptyState action={onAdd ? `Add ${recordType.title}` : undefined} onAction={onAdd}>{recordType.empty}</EmptyState>
-          ))}
-        </>
+        </div>
+      </div>
       )}
-    </Card>
+
+      {quickAdd && onQuickAdd && (
+        <QuickAddLine placeholder={quickAdd.placeholder} button={quickAdd.button}
+          onAdd={({ date, text }) => onQuickAdd({ date, [quickAdd.k]: text, ...quickAdd.extra })} />
+      )}
+
+      {displayRows.length ? (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="coll-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr>
+                {leadColumn && <th style={{ ...TH, padding: '8px 12px' }}>{leadColumn.label}</th>}
+                {recordType.cols.map((col, ci) => (
+                  <th key={col.label} aria-sort={sortCol === ci ? (sortDir > 0 ? 'ascending' : 'descending') : 'none'} style={TH}>
+                    {/* The sort control is a button filling the header cell (keyboard reachable). */}
+                    <button type="button" title={`Sort by ${col.label}`}
+                      onClick={() => { if (sortCol === ci) setSortDir((d) => -d); else { setSortCol(ci); setSortDir(1); } }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: sortCol === ci ? 'var(--text-primary)' : 'inherit', userSelect: 'none' }}>
+                      {col.label}
+                      {sortCol === ci ? (sortDir > 0 ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />) : null}
+                    </button>
+                  </th>
+                ))}
+                <th style={TH}><span style={SR_ONLY}>Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayRows.map((row) => {
+                const isHighlighted = highlightItem && rowIdentity(coll, row) === highlightItem;
+                return (
+                  <tr key={row.id} tabIndex={0}
+                    onMouseEnter={(e) => { if (!isHighlighted) e.currentTarget.style.background = 'var(--bg-secondary)'; }}
+                    onMouseLeave={(e) => { if (!isHighlighted) e.currentTarget.style.background = ''; }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') onEdit(row.id); }}
+                    onClick={() => onEdit(row.id)}
+                    ref={isHighlighted ? (el) => el && el.scrollIntoView?.({ behavior: 'smooth', block: 'center' }) : null}
+                    style={{ cursor: 'pointer', transition: 'background-color 0.3s', background: isHighlighted ? 'hsla(var(--color-gold), 0.16)' : '' }}>
+                    {leadColumn && (
+                      <td data-label={leadColumn.label} style={{ ...TD, whiteSpace: 'nowrap', ...(row._nested ? { paddingLeft: 30 } : null) }}>
+                        {row._nested && <CornerDownRight size={13} aria-hidden="true" style={{ color: 'var(--text-secondary)', marginRight: 5, verticalAlign: '-2px' }} />}
+                        {leadColumn.render(row)}
+                      </td>
+                    )}
+                    {recordType.cols.map((col, ci) => {
+                      const chip = col.chip ? col.chip(row) : null;
+                      const sub = col.sub ? col.sub(row) : null;
+                      const text = cellText(col, row, active).trim();
+                      // A cell with nothing to say shows a faint "-" (or its own words, "Not set")
+                      // on a desktop; the phone card drops it (asset-styles td[data-empty]).
+                      const empty = col.chip ? !chip : (text === '' || text === '-') && !sub;
+                      const blank = text === '' || text === '-';
+                      return (
+                        <td key={col.label} data-label={col.label} data-empty={empty ? '1' : undefined}
+                          style={{ ...TD, ...(col.clip ? { maxWidth: 280 } : null), ...(!leadColumn && ci === 0 && row._nested ? { paddingLeft: 28 } : null) }}>
+                          {!leadColumn && ci === 0 && row._nested && <CornerDownRight size={13} aria-hidden="true" style={{ color: 'var(--text-secondary)', marginRight: 4, verticalAlign: '-2px' }} />}
+                          {col.chip ? (chip || <span style={FAINT}>-</span>)
+                            : blank && !col.main ? <span style={FAINT}>{col.empty || '-'}</span>
+                            : col.main ? <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{text || '-'}</span>
+                            : col.mono ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>{col.mono(row, active)}</span>
+                            : <span style={col.clip ? { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text-secondary)' } : null} title={col.clip ? text : undefined}>{col.plain(row, active)}</span>}
+                          {sub ? <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{sub}</div> : null}
+                        </td>
+                      );
+                    })}
+                    <td style={{ ...TD, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button type="button" className="nx-row-action" aria-label={`${row._readOnly ? 'View' : 'Edit'} ${rowIdentity(coll, row)}`}
+                        onClick={(e) => { e.stopPropagation(); onEdit(row.id); }}
+                        style={{ border: 'none', background: 'none', padding: '2px 4px', fontFamily: 'inherit', fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                        {row._readOnly ? 'View' : 'Edit'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : rows.length ? (
+        <EmptyState compact title={`No ${noun} match "${query}"`} secondary={<button type="button" className="secondary-btn" onClick={() => setQuery('')}>Clear Search</button>}>
+          Try another word, or clear the search to see all {rows.length}.
+        </EmptyState>
+      ) : (emptyNode || (
+        <EmptyState icon={recordType.icon || ListPlus} title={`No ${noun} yet`} action={onAdd ? `New ${recordType.title}` : undefined} onAction={onAdd}>{recordType.empty}</EmptyState>
+      ))}
+    </div>
   );
 }

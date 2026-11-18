@@ -13,13 +13,14 @@ import { api } from '../api';
 import { ticketNo } from '../tickets/ticketMeta';
 import { TicketLine, PhotoPicker, DictateButton } from './workUi';
 import { usePhotos, openTicket, field, box, OVERDUE_COLOR } from './workLib';
+import { PropertySelect } from '../tickets/PropertySelect';
 
 function NoAccess({ onClose }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '48px 16px', textAlign: 'center' }}>
       <span style={{ width: 48, height: 48, borderRadius: 14, display: 'grid', placeItems: 'center', background: 'var(--hover)' }}><Lock size={22} /></span>
-      <div style={{ fontSize: 16, fontWeight: 700 }}>You Do Not Have Access to This Place</div>
-      <div style={{ fontSize: 13.5, color: 'var(--muted)', maxWidth: 360 }}>This tag belongs to a property you cannot see in Nexus. Ask your manager if you should have access.</div>
+      <div style={{ fontSize: 15, fontWeight: 700 }}>You Do Not Have Access to This Place</div>
+      <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 360 }}>This tag belongs to a property you cannot see in Nexus. Ask your manager if you should have access.</div>
       <button type="button" className="secondary-btn" onClick={onClose}>Close</button>
     </div>
   );
@@ -52,7 +53,7 @@ function ReportForm({ data, onCancel, onFiled }) {
     } catch (e) { setErr(e?.message || 'That did not send - try again.'); setBusy(false); }
   };
   if (!data.topics.length) {
-    return <div style={{ fontSize: 13.5, color: 'var(--muted)', padding: '12px 0' }}>Problems here are not reported through Nexus for your company yet. Tell your manager.</div>;
+    return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>Problems here are not reported through Nexus for your company yet. Tell your manager.</div>;
   }
   return (
     <div onPaste={photos.onPaste} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -90,9 +91,29 @@ function ReportForm({ data, onCancel, onFiled }) {
   );
 }
 
-export default function PlaceSheet({ propertyId, assetId = '', onClose }) {
+// Opened with no tag (Quick Actions > Request > Report a Problem, Neil
+// 11/14/2026): the sheet asks where first - the ticket property picker, the
+// same list and the same wall as every ticket form - then opens straight on
+// Report a Problem for that place.
+function PickPlace({ onPick, onClose }) {
+  return (
+    <Modal title="Report a Problem" onClose={onClose} zIndex={4300}>
+      <label style={field}>Where Is It?
+        <PropertySelect value="" onChange={(id) => { if (id) onPick(id); }} />
+      </label>
+    </Modal>
+  );
+}
+
+export default function PlaceSheet({ propertyId: tagProperty = '', assetId = '', onClose }) {
+  const [picked, setPicked] = useState('');
+  if (!tagProperty && !picked) return <PickPlace onPick={setPicked} onClose={onClose} />;
+  return <Place propertyId={tagProperty || picked} assetId={tagProperty ? assetId : ''} startReporting={!tagProperty} onClose={onClose} />;
+}
+
+function Place({ propertyId, assetId = '', startReporting = false, onClose }) {
   const [state, setState] = useState({ status: 'loading' });
-  const [reporting, setReporting] = useState(false);
+  const [reporting, setReporting] = useState(startReporting);
   const [filed, setFiled] = useState(null);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
@@ -116,16 +137,16 @@ export default function PlaceSheet({ propertyId, assetId = '', onClose }) {
       {state.status === 'loading' && <SkeletonBlocks count={3} height={64} borderRadius={10} />}
       {state.status === 'denied' && <NoAccess onClose={onClose} />}
       {state.status === 'error' && (
-        <div style={{ padding: '24px 0', fontSize: 13.5 }}>
+        <div style={{ padding: '24px 0', fontSize: 13 }}>
           Nexus could not be reached. <button type="button" className="secondary-btn" onClick={() => { setState({ status: 'loading' }); load(); }}>Try Again</button>
         </div>
       )}
       {state.status === 'ok' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={{ fontSize: 13.5, color: 'var(--muted)' }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
             {data.asset ? `${data.asset.kind === 'vehicle' ? 'Vehicle' : 'Equipment'} at ${data.property.name}` : data.property.city || 'Property'}
           </div>
-          {filed && <div role="status" style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--hover)', fontSize: 13.5 }}>Sent - {ticketNo(filed.code) || 'your ticket'} is with the team. You will hear back on it.</div>}
+          {filed && <div role="status" style={{ padding: '10px 12px', borderRadius: 10, background: 'var(--hover)', fontSize: 13 }}>Sent - {ticketNo(filed.code) || 'your ticket'} is with the team. You will hear back on it.</div>}
           {reporting ? (
             <ReportForm data={data} onCancel={() => setReporting(false)}
               onFiled={(made) => { setReporting(false); setFiled(made); load(); }} />
@@ -141,7 +162,7 @@ export default function PlaceSheet({ propertyId, assetId = '', onClose }) {
             </div>
             {err && <div role="alert" style={{ color: OVERDUE_COLOR, fontSize: 13 }}>{err}</div>}
             {data.tickets.length === 0
-              ? <div style={{ fontSize: 13.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing open here.</div>
+              ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0' }}>Nothing open here.</div>
               : data.tickets.map((r) => (
                 <TicketLine key={r.id} row={r} onOpen={r.canOpen ? () => { onClose(); openTicket(r.id); } : null}>
                   {data.canStart && r.canOpen && r.status !== 'in_progress' && (

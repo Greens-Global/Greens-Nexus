@@ -34,7 +34,7 @@ export function ItemQuickSheet({ status, item, view, onAction, onClose, onScanAn
       )}
       {status === 'denied' && <NoAccess />}
       {status === 'error' && (
-        <div role="alert" style={{ fontSize: 13.5, color: NX.dim, lineHeight: 1.5 }}>
+        <div role="alert" style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5 }}>
           Nexus could not load this item right now. Check your connection, then open the link again.
         </div>
       )}
@@ -49,8 +49,8 @@ export function NoAccess() {
       <span style={{ width: 52, height: 52, borderRadius: 16, background: NX.surface2, border: `1px solid ${NX.border}`, color: NX.dim, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
         <Lock size={22} />
       </span>
-      <div style={{ fontSize: 17, fontWeight: 700, color: NX.ink }}>You Do Not Have Access to This Item</div>
-      <div style={{ fontSize: 13.5, color: NX.dim, lineHeight: 1.55, maxWidth: 420 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: NX.ink }}>You Do Not Have Access to This Item</div>
+      <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.55, maxWidth: 420 }}>
         It belongs to another company, or it was deleted. If you think you should see it, ask whoever manages your items.
       </div>
     </div>
@@ -60,7 +60,7 @@ export function NoAccess() {
 function Row({ label, children }) {
   if (children == null || children === '') return null;
   return (
-    <div style={{ display: 'flex', gap: 12, padding: '8px 0', borderBottom: `1px solid ${NX.border2}`, fontSize: 13.5 }}>
+    <div style={{ display: 'flex', gap: 12, padding: '8px 0', borderBottom: `1px solid ${NX.border2}`, fontSize: 13 }}>
       <div style={{ width: 110, flexShrink: 0, color: NX.dim, fontWeight: 600 }}>{label}</div>
       <div style={{ flex: 1, minWidth: 0, color: NX.ink, overflowWrap: 'anywhere' }}>{children}</div>
     </div>
@@ -82,7 +82,7 @@ function ItemBody({ item, view, onAction }) {
             <StatusBadge status={item.status} item={item} />
           </div>
           {item.serialNumber && <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, fontWeight: 600, color: NX.ink }}>{item.serialNumber}</div>}
-          {item.location && <div style={{ fontSize: 12.5, color: NX.dim, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={12} /> {item.location}</div>}
+          {item.location && <div style={{ fontSize: 13, color: NX.dim, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={12} /> {item.location}</div>}
         </div>
       </div>
 
@@ -104,7 +104,7 @@ function ItemBody({ item, view, onAction }) {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {actions.map((a) => (
             <button key={a.key} type="button" onClick={() => onAction?.(a.key)}
-              style={{ ...btn(a.primary ? 'primary' : 'outline'), minHeight: 40, padding: '9px 16px', fontSize: 13.5 }}>
+              style={{ ...btn(a.primary ? 'primary' : 'outline'), minHeight: 40, padding: '9px 16px', fontSize: 13 }}>
               {a.label}
             </button>
           ))}

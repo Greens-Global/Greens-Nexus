@@ -19,7 +19,7 @@ import { filesFromPaste, uploadJobDocument } from '../lib/upload';
 import { usd, WAIVER_KIND } from '../lib/money';
 import { VendorPicker } from './SubsTab';
 
-const quiet = { fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 };
 const KINDS = { subcontract: 'Subcontract', purchase_order: 'Purchase Order' };
 const STATUSES = { active: 'Active', closed: 'Closed', void: 'Void' };
 
@@ -39,15 +39,15 @@ function FileAttach({ projectId, url, name, onChange, label }) {
       onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); take(e.dataTransfer.files?.[0]); }}
       tabIndex={0} aria-label={label} style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {url && <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>{name || 'Open File'}</a>}
-        <label className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem', cursor: 'pointer', margin: 0 }}>
+        {url && <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>{name || 'Open File'}</a>}
+        <label className="secondary-btn" style={{ padding: '6px 10px', fontSize: 13, cursor: 'pointer', margin: 0 }}>
           <Paperclip size={13} />{busy ? 'Attaching…' : url ? 'Replace' : 'Attach'}
           <input type="file" accept="application/pdf,image/*" hidden disabled={busy} onChange={(e) => { take(e.target.files?.[0]); e.target.value = ''; }} />
         </label>
-        {url && <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }} onClick={() => onChange({ url: '', name: '' })}>Clear</button>}
+        {url && <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: 13 }} onClick={() => onChange({ url: '', name: '' })}>Clear</button>}
       </div>
-      <span style={{ ...quiet, fontSize: '0.74rem' }}>A PDF or a photo of the page - or press Ctrl+V to paste one.</span>
-      {error && <span role="alert" style={{ fontSize: '0.78rem', color: 'hsl(var(--color-red))' }}>{error}</span>}
+      <span style={{ ...quiet, fontSize: 12 }}>A PDF or a photo of the page - or press Ctrl+V to paste one.</span>
+      {error && <span role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</span>}
     </div>
   );
 }
@@ -104,12 +104,12 @@ function Waivers({ c, projectId, onChanged }) {
         <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }} data-commitment-waivers={c.id}>
           {list.length === 0 && <span style={quiet}>None received yet.</span>}
           {list.map((x) => (
-            <div key={x.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: '0.84rem', padding: '4px 0', borderTop: '1px solid var(--border-color)' }}>
+            <div key={x.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13, padding: '4px 0', borderTop: '1px solid var(--border-color)' }}>
               <span style={{ flex: '1 1 220px' }}>
                 <b>{WAIVER_KIND[x.kind] || x.kind}</b> through {formatDate(x.throughOn, x.throughOn)}{x.amount ? ` - ${usd(x.amount)}` : ''}
                 <span style={quiet}>{x.receivedOn ? ` · received ${formatDate(x.receivedOn, x.receivedOn)}` : ''}</span>
               </span>
-              {x.fileUrl && <a href={x.fileUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>{x.fileName || 'Open'}</a>}
+              {x.fileUrl && <a href={x.fileUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>{x.fileName || 'Open'}</a>}
               <HoldButton label="Remove" ariaLabel="Remove this waiver" doneLabel="Removed" holdMs={HOLD_RECORD_MS} size="sm"
                 onConfirm={() => api.removeCommitmentWaiver(c.id, x.id).then(onChanged)} fallbackMessage="Remove this waiver? It stays on the record as removed." />
             </div>
@@ -135,7 +135,7 @@ function Waivers({ c, projectId, onChanged }) {
           <div>
             <button type="button" className="primary-btn" disabled={busy || !w.throughOn} onClick={add}>{busy ? 'Keeping…' : 'Add Waiver'}</button>
           </div>
-          {error && <span role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{error}</span>}
+          {error && <span role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</span>}
         </div>
       </SettingRow>
     </SettingCard>
@@ -179,7 +179,7 @@ export default function CommitmentSheet({ project, commitment: c = null, onClose
       <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
         <SettingCard>
           {c ? (
-            <SettingRow title="Vendor" desc={`${c.kindLabel}. Intacct vendor ${c.vendorId}.`} control={<b style={{ fontSize: '0.88rem' }}>{c.vendorName}</b>} />
+            <SettingRow title="Vendor" desc={`${c.kindLabel}. Intacct vendor ${c.vendorId}.`} control={<b style={{ fontSize: 14 }}>{c.vendorName}</b>} />
           ) : (
             <>
               <SettingRow title="Kind" htmlFor="cm-kind" desc="A subcontract for labor and material by a sub; a purchase order for material from a supplier."

@@ -948,11 +948,16 @@ describe('Views, options, export, drag', () => {
 
   it('drags a shift to another person to move it, or copies with Ctrl', async () => {
     timeSchedule.mockResolvedValue(data([shift()]));
+    // The first save is slow on purpose, like a busy CI runner: while it is in
+    // flight the grid shows a live copy and marks s1 pending delete (no drag
+    // handle), so the Ctrl-drag must wait for it to settle.
+    timeSchedMove.mockImplementationOnce(() => new Promise((r) => setTimeout(() => r({ moved: true, sourcePending: false }), 100)));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     pointerDrag(blockOf('s1'), cellOf('bob@greensglobal.com'));
     await waitFor(() => expect(timeSchedMove).toHaveBeenCalledWith('s1', { employee_email: 'bob@greensglobal.com', work_date: monday, duplicate: false }));
     expect(screen.queryByRole('dialog')).toBeNull();   // the release did not open the day under it
+    await waitFor(() => expect(document.querySelector('[data-shift^="live-"]')).toBeNull());
     pointerDrag(blockOf('s1'), cellOf('bob@greensglobal.com'), { ctrlKey: true });
     await waitFor(() => expect(timeSchedMove).toHaveBeenLastCalledWith('s1', expect.objectContaining({ duplicate: true })));
     expect(toastOk).toHaveBeenCalledWith('Shift copied here as a draft.');
@@ -1391,7 +1396,7 @@ describe('Confirmations: the schedule comes to people', () => {
   });
   it('nudges one person, shows who was already nudged, and reads all-confirmed in green', async () => {
     const r = rows();
-    r.push({ email: 'cat@greensglobal.com', name: 'Cat Cole', unconfirmed: 1, publishes: [{ publishId: 'pub2', at: '2026-10-14T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: null, nudgedAt: '2026-10-14T20:00:00Z' }] });
+    r.push({ email: 'cat@greensglobal.com', name: 'Cat Cole', unconfirmed: 1, publishes: [{ publishId: 'pub2', at: '2026-10-14T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: null, nudgedAt: '2026-10-14T12:00:00Z' }] });
     timeSchedule.mockResolvedValue({ ...data([shift()]), employees: [...data([]).employees, { email: 'cat@greensglobal.com', name: 'Cat Cole' }] });
     timeSchedConfirmations.mockResolvedValue(answer(r));
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);

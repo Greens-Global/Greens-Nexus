@@ -18,7 +18,8 @@ Three layers, checked in this order:
    companies).
 3. **Access Group grants** — below Administrator, restricted screens are visible
    **only via a group grant**. A grant is `screen + level`
-   (Viewer / Editor / Full / Owner). Grants are **additive** — they can only ever
+   (Viewer / Editor / Full; Owner retired 11/12/2026, see `docs/Roles.md`).
+   Grants are **additive** — they can only ever
    widen access, never take anything away.
 
 > A manager does NOT automatically see HR or Accounting. If it's not baseline,

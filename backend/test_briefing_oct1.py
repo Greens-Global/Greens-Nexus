@@ -144,13 +144,15 @@ class ActionLineTests(_Case):
     def _html(self, row):
         return daily_briefing.render_email("Amy", "2026-09-28", {"needs_to_know": [row]})[1]
 
-    def test_one_line_comment_react_toggle_open(self):
+    def test_one_line_mark_done_comment_react_open(self):
+        # "Toggle Completion" says what it does since Nov 15 2026: Mark Done.
         html = self._html({"title": "X", "detail": "Updated", "url": "https://n/tasks/mine?task=t1",
                            "module": "tasks", "task_id": "t1", "action_email": AMY, "task_open": True})
-        for label in ("Comment", "React", "Toggle Completion", ">Open<"):
+        for label in (">Mark Done<", "Comment", "React", ">Open<"):
             self.assertIn(label, html)
         self.assertIn("do=toggle", html)
-        for gone in ("Change Status", "Mark Complete", "Open in Nexus", "do=status", "Collapse sections"):
+        for gone in ("Change Status", "Mark Complete", "Open in Nexus", "do=status", "Collapse sections",
+                     "Toggle Completion"):
             self.assertNotIn(gone, html)
         # Links, not a row of buttons: the only button is the closing one.
         self.assertEqual(html.count("class='nx-btn'"), 1)
@@ -161,19 +163,21 @@ class ActionLineTests(_Case):
         import re
         html = self._html({"title": "Approve: Budget", "detail": "Waiting", "url": "https://n/x", "module": "tasks",
                            "task_id": "t1", "action_email": AMY, "action_kind": "task_approval", "action_id": "t1"})
-        [cell] = re.findall(r"<td class='nx-td nx-act'.*?</table></td>", html, re.S)
-        self.assertEqual(cell.count("<tr>"), 1)
+        [cell] = re.findall(r"<td class='nx-td nx-act'.*?</tr></table></td></tr></table></td>", html, re.S)
+        # Links and buttons are two cells side by side in ONE row (a phone
+        # stacks them - .nx-links / .nx-btns).
+        self.assertRegex(cell, r"<td class='nx-links'[^>]*>.*?</td><td class='nx-btns'")
         for label in ("Comment", "React", ">Open<", ">Approve<", ">Reject<"):
             self.assertIn(label, cell)
-        self.assertIn(">Actions</th>", html)
-        self.assertNotIn(">Update</th>", html)
+        # No "ITEM / ACTIONS" header row per module since Nov 15 2026.
+        self.assertNotIn("</th>", html)
 
     def test_every_listed_row_carries_its_actions(self):
         # Oct 6: rows past the third used to shrink to a title and Open only.
         rows = [{"title": f"Task {i}", "detail": "Overdue", "url": f"https://n/x{i}", "module": "tasks",
                  "task_id": f"t{i}", "action_email": AMY, "task_open": True} for i in range(20)]
         html = daily_briefing.render_email("Amy", "2026-09-28", {"needs_to_know": rows})[1]
-        self.assertEqual(html.count(">Toggle Completion<"), daily_briefing._MODULE_ROW_CAP)
+        self.assertEqual(html.count(">Mark Done<"), daily_briefing._MODULE_ROW_CAP)
         self.assertIn("2 more not listed.", html)
         self.assertIn("View All 20 in Nexus", html)
         self.assertIn("&nbsp;&nbsp;<span", html)   # the dots keep their spaces without padding
@@ -186,11 +190,13 @@ class ActionLineTests(_Case):
     def test_a_finished_task_can_be_reopened_but_an_approval_is_never_toggled(self):
         done = self._html({"title": "X", "detail": "Completed", "url": "u", "module": "tasks",
                            "task_id": "t1", "action_email": AMY, "task_done": True})
-        self.assertIn("Toggle Completion", done)
+        self.assertIn(">Reopen<", done)
+        self.assertNotIn(">Mark Done<", done)
         approval = self._html({"title": "Approve: X", "detail": "Waiting", "url": "u", "module": "tasks",
                                "task_id": "t1", "action_email": AMY, "action_kind": "task_approval",
                                "action_id": "t1"})
-        self.assertNotIn("Toggle Completion", approval)
+        self.assertNotIn(">Mark Done<", approval)
+        self.assertNotIn(">Reopen<", approval)
         self.assertIn("Approve", approval)
 
     def test_completed_rows_offer_the_toggle(self):
@@ -324,8 +330,8 @@ class ShiftsAndTimesheetFixesTests(_Case):
         sections = weekly_digest.build_sections(self.db, BOSS, TODAY)
         self.assertEqual(list(sections)[0], "pending")   # actions first
         intro = weekly_digest._intro(sections)
-        self.assertEqual(intro, "Here is everything waiting on you in Nexus this week: 2 items needing your "
-                                "action (Time Off, Time Sheet) and 1 overdue task.")
+        # One short line since Nov 15 2026 - the tiles under it name the rest.
+        self.assertEqual(intro, "Here is your week: 2 need your attention and 1 task is overdue.")
 
 
 class TeamSummaryTests(_Case):

@@ -43,7 +43,7 @@ export function FormPicker({ forms, onPick, onClose }) {
         ) : !groups.length && <div style={{ fontSize: 13, color: NX.dim, padding: 20, textAlign: 'center' }}>There are no forms for you to fill yet.</div>}
         {groups.map((g) => (
           <div key={g.label} style={{ marginBottom: 18 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 700, color: NX.dim, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>{g.label}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: NX.dim, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>{g.label}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {g.forms.map((f) => (
                 <button key={f.id} type="button" onClick={() => onPick(f)}

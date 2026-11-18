@@ -38,12 +38,12 @@ export const REPORTS = [
   // capital moves between two balance sheets, investing and financing; the
   // ending cash ties to Cash Position. Mapping by account type and title.
   { key: 'cash-flow', label: 'Statement of Cash Flows', period: 'range' },
-  // Actual vs Budget (Charmi, 10/15: "Actual is what we already have. Budget
+  // Budget vs. Actual (Charmi, 10/15: "Actual is what we already have. Budget
   // is what is missing and needs to be added into the template"): the income
   // statement's Actual beside the Budget - the Intacct budget, else the one
   // saved in Nexus (Accounting > Budget) - with Variance $ and Variance %, as
   // a report of its own; the Income Statement keeps it as a Columns choice.
-  { key: 'budget', label: 'Actual vs Budget', period: 'range' },
+  { key: 'budget', label: 'Budget vs. Actual', period: 'range' },
   // Spend by Vendor (Charmi, 10/27 triage item 17: "pull a report by vendor
   // name"): what each vendor was paid for - cost of sales and expense lines
   // by the vendor on them - by period, every account a click from its lines
@@ -1824,6 +1824,9 @@ const BODY_KINDS = new Set(['section', 'account', 'line', 'group']);
  * The trailing totals (Net Income, the grand total) are `pinned`: shown under
  * every page, always over ALL rows. Returns { pages: [[rows]], pinned, total }.
  */
+// The five financial statements: shown whole, never paged (a Balance Sheet split over two pages read as missing rows).
+export const STATEMENT_KEYS = new Set(['pnl', 'balance-sheet', 'trial-balance', 'cash-flow', 'cash-position']);
+
 export function reportPages(rows, pageSize) {
   let end = rows.length;
   while (end > 0 && !BODY_KINDS.has(rows[end - 1].kind) && !rows[end - 1].section && !rows[end - 1].group) end -= 1;

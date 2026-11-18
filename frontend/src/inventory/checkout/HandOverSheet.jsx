@@ -42,7 +42,7 @@ export default function HandOverSheet({ checkoutId, onClose, onDone }) {
       <>
         <ItemSheet title="Hand Over" onClose={onClose}
           footer={<button className="secondary-btn" onClick={onClose}>Close</button>}>
-          <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: 0 }}>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
             {!known && checkoutsLoading ? 'Loading the request…'
               : !known ? 'This request is not in your list any more.'
               : 'This has already moved on - there is nothing to hand over.'}

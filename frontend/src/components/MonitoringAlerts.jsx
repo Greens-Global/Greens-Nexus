@@ -48,7 +48,7 @@ export function MonitoringAlertsPanel() {
         style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', border: 'none', background: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left', color: 'var(--ink)' }}>
         <Chevron size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
         <AlertTriangle size={15} style={{ color: RED, flexShrink: 0 }} />
-        <span style={{ fontWeight: 800, fontSize: 13.5 }}>Monitoring Alerts</span>
+        <span style={{ fontWeight: 800, fontSize: 13 }}>Monitoring Alerts</span>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>
           {alerts.length} clocked in with a quiet agent{high ? ` - ${high} not reporting at all` : ''}
         </span>
@@ -56,7 +56,7 @@ export function MonitoringAlertsPanel() {
       {open && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '0 14px 12px 38px' }}>
           {alerts.map((a) => (
-            <div key={a.email} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
+            <div key={a.email} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: a.severity === 'high' ? RED : AMBER }} />
               <strong>{a.name}</strong>
               <span style={{ fontWeight: 700, color: a.severity === 'high' ? RED : AMBER }}>{a.reason}</span>
@@ -84,7 +84,7 @@ function AlertsLine({ canOpen }) {
   if (!alerts.length) return null;
   const go = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'analytics:coverage' } }));
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12, fontSize: 12.5, color: 'var(--muted)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12, fontSize: 13, color: 'var(--muted)' }}>
       <AlertTriangle size={14} style={{ color: RED, flexShrink: 0 }} />
       <span><strong style={{ color: 'var(--ink)' }}>{alerts.length} monitoring {alerts.length === 1 ? 'alert' : 'alerts'}</strong> - clocked in with a quiet agent</span>
       {canOpen && (

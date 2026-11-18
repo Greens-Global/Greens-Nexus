@@ -52,7 +52,7 @@ const emailOf = (p) => (p.workEmail || p.work_email || p.email || '').toLowerCas
 // A zone as the picker names it, for the change-zone question.
 const zoneName = (tz) => zoneOptionLabel(tz);
 const ZonePick = ({ value, onChange, label }) => (
-  <select className="form-input" aria-label={label} value={value || 'America/Los_Angeles'} onChange={(e) => onChange(e.target.value)} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px', maxWidth: '100%' }}>
+  <select className="form-input" aria-label={label} value={value || 'America/Los_Angeles'} onChange={(e) => onChange(e.target.value)} style={{ width: 'auto', fontSize: 13, padding: '4px 30px 4px 8px', maxWidth: '100%' }}>
     {Object.entries(ZONE_GROUPS).map(([region, zones]) => (
       <optgroup key={region} label={region}>{zones.map((tz) => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}</optgroup>
     ))}
@@ -121,11 +121,11 @@ export function CompanyPicker({ value, onChange, companies, hint }) {
   return (
     <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
       <span style={{ ...LBL, marginBottom: 0 }}>Company</span>
-      <select className="form-input" aria-label="Company" value={value || ''} onChange={(e) => onChange(e.target.value)} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px', maxWidth: '100%' }}>
+      <select className="form-input" aria-label="Company" value={value || ''} onChange={(e) => onChange(e.target.value)} style={{ width: 'auto', fontSize: 13, padding: '4px 30px 4px 8px', maxWidth: '100%' }}>
         <option value="">All Companies (Default)</option>
         {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select>
-      {hint && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{hint}</span>}
+      {hint && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{hint}</span>}
     </label>
   );
 }
@@ -133,7 +133,7 @@ export function CompanyPicker({ value, onChange, companies, hint }) {
 function CompanyTag({ id, companies }) {
   const shared = !id;
   return (
-    <span title={shared ? 'Shared with every company' : 'Only this company'} style={{ fontSize: 10.5, fontWeight: 700, borderRadius: 999, padding: '1px 7px', border: '1px solid var(--line)', color: shared ? 'var(--muted)' : 'var(--wk-brand)', background: shared ? 'transparent' : 'var(--wk-brand-tint)', whiteSpace: 'nowrap' }}>
+    <span title={shared ? 'Shared with every company' : 'Only this company'} style={{ fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '1px 7px', border: '1px solid var(--line)', color: shared ? 'var(--muted)' : 'var(--wk-brand)', background: shared ? 'transparent' : 'var(--wk-brand-tint)', whiteSpace: 'nowrap' }}>
       {shared ? 'Shared' : companyNameOf(companies, id)}
     </span>
   );
@@ -143,7 +143,7 @@ function CompanySelect({ value, onChange, companies, label }) {
   return (
     <label style={{ fontSize: 11, color: 'var(--muted)', display: 'grid', gap: 4 }}>
       Company
-      <select className="form-input" aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px', maxWidth: '100%' }}>
+      <select className="form-input" aria-label={label} value={value || ''} onChange={(e) => onChange(e.target.value)} style={{ width: 'auto', fontSize: 13, padding: '4px 30px 4px 8px', maxWidth: '100%' }}>
         <option value="">Shared With Every Company</option>
         {(companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select>
@@ -642,7 +642,7 @@ export function TimeOffReasons({ toastOk, toastErr, company = '', onOverride }) 
   const add = () => { const v = draft.trim(); if (v) save([...list, v]); };
   return (
     <div>
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>Vacation, Sick, Personal, Unpaid, 1/2 Day and Other are built in. Add the company's own.</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>Vacation, Sick, Personal, Unpaid, 1/2 Day and Other are built in. Add the company's own.</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
         {list.map((r) => (
           <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, border: '1px solid var(--line)', borderRadius: 999, padding: '2px 4px 2px 10px' }}>
@@ -651,13 +651,13 @@ export function TimeOffReasons({ toastOk, toastErr, company = '', onOverride }) 
           </span>
         ))}
         <input className="form-input" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="e.g. Jury Duty" aria-label="New time off reason"
-          onKeyDown={(e) => { if (e.key === 'Enter') add(); }} style={{ width: 150, fontSize: 12.5, padding: '3px 8px' }} />
+          onKeyDown={(e) => { if (e.key === 'Enter') add(); }} style={{ width: 150, fontSize: 13, padding: '3px 8px' }} />
         <button type="button" className="secondary-btn" onClick={add} disabled={!draft.trim()} style={{ fontSize: 12 }}>Add Reason</button>
       </div>
       {company && (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {own ? 'This company has reasons of its own.' : 'Using the default reasons; a change here is this company\'s alone.'}
-          {own && <button type="button" className="secondary-btn" onClick={() => save([], true)} style={{ fontSize: 11.5 }}>Use the Default</button>}
+          {own && <button type="button" className="secondary-btn" onClick={() => save([], true)} style={{ fontSize: 12 }}>Use the Default</button>}
         </div>
       )}
     </div>
@@ -740,17 +740,17 @@ export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
       <AsyncSection loading={!shifts && !error} error={!!error} onRetry={reload} errorMessage="The shift types could not be loaded right now." skeleton={<SkeletonBlocks count={2} height={64} borderRadius={10} />}>
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: 1 }}>The shifts a manager places with one click. A person's usual hours are one of these.</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>The shifts a manager places with one click. A person's usual hours are one of these.</span>
           {canManage ? (
             <button type="button" className="secondary-btn" onClick={() => setForm({ ...BLANK, timezone: defaultTz, company_id: company || '' })} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> New Shift Type</button>
-          ) : <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Shift types are set by company administrators.</span>}
+          ) : <span style={{ fontSize: 12, color: 'var(--muted)' }}>Shift types are set by company administrators.</span>}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
-          {shifts?.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shift types yet.</div>}
+          {shifts?.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>No shift types yet.</div>}
           {(shifts || []).map((s) => (
             <div key={s.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                {s.code && <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--ink)', background: alpha(s.color || DEFAULT_SHIFT_COLOR, 0.14), borderRadius: 5, padding: '2px 6px', flexShrink: 0 }}>{s.code}</span>}
+                {s.code && <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--ink)', background: alpha(s.color || DEFAULT_SHIFT_COLOR, 0.14), borderRadius: 5, padding: '2px 6px', flexShrink: 0 }}>{s.code}</span>}
                 {!s.code && <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: '50%', background: s.color || DEFAULT_SHIFT_COLOR, flexShrink: 0 }} />}
                 <span style={{ fontSize: 13, fontWeight: 800, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
                 {canManage && <button type="button" onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin, break_min: s.breakMin || 0, company_id: s.companyId || '', group_ids: s.groupIds || [] })} aria-label={`Edit shift type ${s.name}`} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><Pencil size={12} /></button>}
@@ -798,7 +798,7 @@ export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
                 <label style={{ fontSize: 11, color: 'var(--muted)', display: 'grid', gap: 4 }}>
                   Time zone this shift runs on
                   <ZonePick label="Shift type time zone" value={form.timezone} onChange={(v) => setForm({ ...form, timezone: v })} />
-                  <span style={{ fontSize: 10.5, fontWeight: 400 }}>Start and end above are this zone's local time - the daily briefing and Late status fire against it.</span>
+                  <span style={{ fontSize: 11, fontWeight: 400 }}>Start and end above are this zone's local time - the daily briefing and Late status fire against it.</span>
                 </label>
                 {canPick && <CompanySelect label="Shift type company" value={form.company_id} onChange={(v) => setForm({ ...form, company_id: v })} companies={companies} />}
                 {teams && teams.length > 0 && (
@@ -811,7 +811,7 @@ export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
                         return <button key={g.id} type="button" aria-pressed={on} style={chip(on)} onClick={() => { if (on) set.delete(g.id); else set.add(g.id); setForm({ ...form, group_ids: teams.map((t) => t.id).filter((id) => set.has(id)) }); }}>{g.name}</button>;
                       })}
                     </div>
-                    <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>The planner offers this type only on these teams' rows. None picked = every team.</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>The planner offers this type only on these teams' rows. None picked = every team.</div>
                   </div>
                 )}
                 <div>
@@ -951,14 +951,14 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
       <AsyncSection loading={!groups && !error} error={!!error} onRetry={reload} errorMessage="The groups could not be loaded right now." skeleton={<SkeletonBlocks count={2} height={64} borderRadius={10} />}>
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: 1 }}>People scheduled together. The order here is the order on the schedule.</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>People scheduled together. The order here is the order on the schedule.</span>
           {canGroups ? (
             <button type="button" className="secondary-btn" onClick={() => openForm(null)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> New Group</button>
-          ) : <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Groups are changed by an administrator</span>}
+          ) : <span style={{ fontSize: 12, color: 'var(--muted)' }}>Groups are changed by an administrator</span>}
         </div>
         <div style={{ display: 'grid', gap: 8 }}>
-          {groups?.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No groups yet.</div>}
-          {groups?.length > 0 && visible.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No groups for {companyNameOf(companies, company)} yet.</div>}
+          {groups?.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>No groups yet.</div>}
+          {groups?.length > 0 && visible.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>No groups for {companyNameOf(companies, company)} yet.</div>}
           {visible.map((g, i) => (
             <div key={g.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               {canGroups && (
@@ -975,13 +975,13 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                   {g.department ? `Follows ${g.department} · ` : ''}{g.openShifts ? 'Open Shifts On · ' : ''}{g.members.length} member{g.members.length === 1 ? '' : 's'}{g.members.length > 0 && ` · ${g.members.slice(0, 3).map(who).join(', ')}${g.members.length > 3 ? '…' : ''}`}
                 </div>
-                <div style={{ fontSize: 11.5, marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 5, color: g.chatId ? 'var(--wk-brand)' : 'var(--muted)' }}>
+                <div style={{ fontSize: 12, marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 5, color: g.chatId ? 'var(--wk-brand)' : 'var(--muted)' }}>
                   {g.teamsTarget === 'channel' ? <Hash size={12} /> : <MessageSquare size={12} />}
                   {!g.chatId ? 'No chat or channel bound'
                     : g.teamsTarget === 'channel' ? `${g.teamName || 'Team'} › ${g.chatName || 'Channel'}`
                       : (g.chatName || 'Chat bound')}
                 </div>
-                <div style={{ fontSize: 11.5, marginTop: 3, display: 'flex', alignItems: 'center', gap: 5, color: weatherTone(g) }}>
+                <div style={{ fontSize: 12, marginTop: 3, display: 'flex', alignItems: 'center', gap: 5, color: weatherTone(g) }}>
                   <CloudRain size={12} style={{ flexShrink: 0 }} />
                   <span>{weatherLine(g)}</span>
                 </div>
@@ -1010,10 +1010,10 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                 </select>
               </label>
               {/* Open shifts are per team and off by default (Neil, Oct 28 2026). */}
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, cursor: 'pointer', marginBottom: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 12 }}>
                 <input type="checkbox" checked={form.openShifts === true} onChange={(e) => setForm({ ...form, openShifts: e.target.checked })} aria-label="Open shifts for this group" style={{ marginTop: 2 }} />
                 <span><span style={{ fontWeight: 700 }}>Open Shifts</span>
-                  <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)' }}>Post unfilled shifts on this team's schedule. Useful for Ops or retail; leave off for office teams. Ones already posted stay.</span></span>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>Post unfilled shifts on this team's schedule. Useful for Ops or retail; leave off for office teams. Ones already posted stay.</span></span>
               </label>
               <div style={{ ...LBL, display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ flex: 1 }}>Members ({form.members.length})</span></div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
@@ -1032,8 +1032,8 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                   <label key={p.email} {...memberNav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)' }}>
                     <input type="checkbox" checked={form.members.includes(p.email)} onChange={() => toggleMember(p.email)} aria-label={`Add ${p.name}`} />
                     <Avatar name={p.name} photoUrl={p.photoUrl} size={22} />
-                    <span style={{ fontSize: 12.5, fontWeight: 600 }}>{p.name}</span>
-                    {p.external && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px' }}>External</span>}
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</span>
+                    {p.external && <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px' }}>External</span>}
                   </label>
                 ))}
               </div>
@@ -1043,14 +1043,14 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                   {(form.schedulers || []).map((em) => (
                     <button key={em} type="button" style={chip(true)} aria-label={`Remove scheduler ${who(em)}`} onClick={() => setForm({ ...form, schedulers: form.schedulers.filter((x) => x !== em) })}>{who(em)} ×</button>
                   ))}
-                  <PersonSelect value={null} allowNone={false} placeholder="Add a scheduler…" ariaLabel="Add a scheduler" style={{ width: 240, fontSize: 12.5 }}
+                  <PersonSelect value={null} allowNone={false} placeholder="Add a scheduler…" ariaLabel="Add a scheduler" style={{ width: 240, fontSize: 13 }}
                     people={directory.filter((p) => !p.external && !(form.schedulers || []).includes(p.email))}
                     onChange={(em) => { if (em) setForm({ ...form, schedulers: [...(form.schedulers || []), em] }); }} />
                 </div>
               </div>
               <div style={{ marginTop: 14 }}>
                 <div style={{ ...LBL, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CloudRain size={12} /> Weather - where this group works, and who makes the weather call</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.45 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.45 }}>
                   The weather watch reads the forecast for the group's work site. Without a site the group is not watched. Deciders need Manage access to Shifts (manager and above); with none named, the schedulers and then the company's managers are told.
                 </div>
                 <div style={{ display: 'grid', gap: 10 }}>
@@ -1067,12 +1067,12 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                       {(form.weatherDeciders || []).map((em) => (
                         <button key={em} type="button" style={chip(true)} aria-label={`Remove weather decider ${who(em)}`} onClick={() => setForm({ ...form, weatherDeciders: form.weatherDeciders.filter((x) => x !== em) })}>{who(em)} ×</button>
                       ))}
-                      <PersonSelect value={null} allowNone={false} placeholder="Add a decider…" ariaLabel="Add a weather decider" style={{ width: 240, fontSize: 12.5 }}
+                      <PersonSelect value={null} allowNone={false} placeholder="Add a decider…" ariaLabel="Add a weather decider" style={{ width: 240, fontSize: 13 }}
                         people={directory.filter((p) => !(form.weatherDeciders || []).includes(p.email))}
                         onChange={(em) => { if (em) setForm({ ...form, weatherDeciders: [...(form.weatherDeciders || []), em] }); }} />
                     </div>
                   </div>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
                     <input type="checkbox" checked={form.weatherAlerts !== false} onChange={(e) => setForm({ ...form, weatherAlerts: e.target.checked })} aria-label="Watch the weather for this group" />
                     Watch the weather for this group
                   </label>
@@ -1083,7 +1083,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr, company: scoped }) {
                 {/* A job role's Teams setting comes first (Neil, 10/07: set it on
                     the role in Access); this binding covers people whose role
                     sets none. */}
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.45 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.45 }}>
                   Set this on the job role instead (Access &gt; Job Roles) - a role's chat or channel is used first. This group's binding is used only for members whose role sets none.
                 </div>
                 {/* Group chat or a channel in a team (Pranshu, 10/06) - whichever the organization runs. */}

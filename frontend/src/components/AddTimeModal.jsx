@@ -18,7 +18,7 @@ import ChoicePills from './ChoicePills';
 
 const MAX_DAYS = 31;   // the server's cap (_ADD_TIME_MAX_DAYS)
 const field = { border: '1px solid var(--line)', borderRadius: 8, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit', background: 'var(--card)', color: 'var(--ink)' };
-const lab = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'block', marginBottom: 4 };
+const lab = { fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'block', marginBottom: 4 };
 
 export default function AddTimeModal({ email, name = '', start = '', end = '', initialDates = [], onClose, onDone, toastOk, toastErr }) {
   useDisplayTz();   // times are typed in the timecard's display zone; follow a change of it
@@ -139,7 +139,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
           <CalendarPlus size={18} style={{ color: 'var(--wk-brand, #15803d)' }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 800 }}>Add Time for {who || email}</div>
+            <div style={{ fontSize: 15, fontWeight: 800 }}>Add Time for {who || email}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>Pick the days, set the hours, say why. Each day is checked the way a single added punch is.{zone ? ` Times in ${zone}.` : ''}</div>
           </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close" disabled={busy} style={{ padding: 6 }}><X size={16} /></button>
@@ -161,7 +161,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
                 </div>
               ))}
             </div>
-            {err && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5, marginTop: 10 }}>{err}</div>}
+            {err && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginTop: 10 }}>{err}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
               {done.batchId && (
                 <button type="button" className="secondary-btn" onClick={undo} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -190,7 +190,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
                       style={{ ...field, padding: '4px 8px' }} /></span>
                 </div>
                 {days === null ? <div style={{ padding: 16, display: 'flex', justifyContent: 'center' }}><Spinner /></div>
-                  : days.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No days in this range.</div> : (
+                  : days.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No days in this range.</div> : (
                   <div data-day-grid style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 6 }}>
                     {days.map((d) => {
                       const on = picked.has(d.date);
@@ -232,7 +232,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
                     </button>
                   )}
                 </div>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'var(--muted)', cursor: 'pointer' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, color: 'var(--muted)', cursor: 'pointer' }}>
                   <input type="checkbox" checked={perDay} onChange={(e) => { setPerDay(e.target.checked); touch(); }} /> Different hours per day
                 </label>
                 {perDay && chosen.length > 0 && (
@@ -241,13 +241,13 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
                       const h = hoursFor(ds);
                       const d = byDate.get(ds);
                       return (
-                        <div key={ds} data-own-row={ds} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
+                        <div key={ds} data-own-row={ds} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
                           <span style={{ width: 120, fontWeight: 700 }}>{weekday(ds)} {formatDate(ds)}</span>
                           <input type="time" aria-label={`Clock in on ${formatDate(ds)}`} value={h.in} onChange={(e) => setOwnHours(ds, 'in', e.target.value)} style={{ ...field, padding: '4px 6px' }} />
                           <span style={{ color: 'var(--muted)' }}>to</span>
                           <input type="time" aria-label={`Clock out on ${formatDate(ds)}`} value={h.out} onChange={(e) => setOwnHours(ds, 'out', e.target.value)} style={{ ...field, padding: '4px 6px' }} />
                           {(d?.shift || d?.usual) && (
-                            <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} onClick={() => { const s = d.shift || d.usual; setOwn((o) => ({ ...o, [ds]: { in: s.start, out: s.end } })); touch(); }}>
+                            <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={() => { const s = d.shift || d.usual; setOwn((o) => ({ ...o, [ds]: { in: s.start, out: s.end } })); touch(); }}>
                               {d.shift ? 'Shift' : 'Usual'} {t12((d.shift || d.usual).start)} - {t12((d.shift || d.usual).end)}
                             </button>
                           )}
@@ -257,7 +257,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
                   </div>
                 )}
                 {chosen.some((ds) => byDate.get(ds)?.state === 'has_time') && (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {chosen.filter((ds) => byDate.get(ds)?.state === 'has_time').map((ds) => (
                       <label key={ds} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
                         <input type="checkbox" checked={force.has(ds)} onChange={(e) => { setForce((f) => { const n = new Set(f); if (e.target.checked) n.add(ds); else n.delete(ds); return n; }); touch(); }} />
@@ -284,7 +284,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
               {/* Preview */}
               {preview && (
                 <div data-preview style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
-                  <div style={{ padding: '8px 12px', background: 'var(--wk-hover, var(--bg))', fontSize: 12.5, fontWeight: 700 }}>
+                  <div style={{ padding: '8px 12px', background: 'var(--wk-hover, var(--bg))', fontSize: 13, fontWeight: 700 }}>
                     What will be written{willAdd.length ? ` - ${hm(preview.totalMin)} over ${willAdd.length} day${willAdd.length === 1 ? '' : 's'}` : ' - nothing, every day was skipped'}
                   </div>
                   {previewRows.map((r) => (
@@ -296,7 +296,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
                   ))}
                 </div>
               )}
-              {err && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{err}</div>}
+              {err && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{err}</div>}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 18px', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>

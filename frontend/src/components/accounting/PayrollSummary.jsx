@@ -75,12 +75,12 @@ function EmployeePicker({ employees, value, onChange }) {
           style={{ position: 'absolute', zIndex: 30, top: 34, left: 0, width: 300, maxHeight: 360, overflowY: 'auto', ...card, padding: 8, display: 'grid', gap: 4 }}>
           <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find an employee" aria-label="Find an employee" style={{ ...control, width: '100%' }}
             {...nav.inputProps} onKeyDown={nav.onKeyDown} />
-          <div style={{ display: 'flex', gap: 8, fontSize: '0.74rem' }}>
-            <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '2px 8px' }} onClick={() => onChange([])}>All</button>
-            <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '2px 8px' }} onClick={() => onChange(shown.map((e) => e.key))}>Only These</button>
+          <div style={{ display: 'flex', gap: 8, fontSize: 12 }}>
+            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '2px 8px' }} onClick={() => onChange([])}>All</button>
+            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '2px 8px' }} onClick={() => onChange(shown.map((e) => e.key))}>Only These</button>
           </div>
           {shown.map((e, i) => (
-            <label key={e.key || '~none'} {...nav.optionProps(i)} aria-selected={value.includes(e.key)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', cursor: 'pointer' }}>
+            <label key={e.key || '~none'} {...nav.optionProps(i)} aria-selected={value.includes(e.key)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={value.includes(e.key)} onChange={() => toggle(e.key)} /> {e.name}
             </label>
           ))}
@@ -259,24 +259,24 @@ export default function PayrollSummary() {
         </div>
       </ControlBar>
 
-      <div role="note" style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', padding: '0 4px' }}>
+      <div role="note" style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '0 4px' }}>
         From the QuickBooks payroll imported into the {PAYROLL_SUMMARY_JOURNAL} journal, by pay date. Each row is a payroll item&apos;s account; what counts as gross pay, withheld, deducted or employer-paid follows the import&apos;s account mapping until Charmi&apos;s QuickBooks Payroll Summary is matched line by line.
         {hasNoEmployee && ' Lines with no employee on them are under No Employee on the Line.'}
         {res.data?.fallback ? ` ${res.data.fallback}` : ''}
       </div>
-      {res.error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', fontSize: '0.84rem' }}>{res.error}</div>}
+      {res.error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', fontSize: 13 }}>{res.error}</div>}
       {loading && !res.data && <div role="status" aria-label="Reading the payroll journal" style={{ ...card, padding: 12 }}><SkeletonBlocks count={6} /></div>}
 
       {summary && !summary.employees.length && !loading && (
-        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+        <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>
           No {PAYROLL_SUMMARY_JOURNAL} entries between {formatDate(config.from)} and {formatDate(config.to)}{config.entities.length ? ' for the entities picked' : ''}.
         </div>
       )}
 
       {table && summary.employees.length > 0 && (
         <div style={{ ...card, padding: 10, opacity: loading ? 0.6 : 1 }}>
-          <h3 style={{ margin: '0 0 6px', fontSize: '0.98rem' }}>Payroll Summary</h3>
-          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
+          <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Payroll Summary</h3>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
             {formatDate(config.from)} - {formatDate(config.to)} · {config.entities.length ? `${config.entities.length} ${config.entities.length === 1 ? 'entity' : 'entities'}` : 'All Entities'} · {summary.employees.length} {summary.employees.length === 1 ? 'employee' : 'employees'}
           </div>
           <div className="acct-report-wrap acct-scroll-box acct-fit" ref={setBox} data-testid="payroll-summary-box" style={fit}>
@@ -284,12 +284,12 @@ export default function PayrollSummary() {
           </div>
           {priorTable && (
             <>
-              <h3 style={{ margin: '14px 0 6px', fontSize: '0.98rem' }}>Prior Year</h3>
-              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 8 }}>{formatDate(yearBack(config.from))} - {formatDate(yearBack(config.to))}</div>
+              <h3 style={{ margin: '14px 0 6px', fontSize: 15 }}>Prior Year</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{formatDate(yearBack(config.from))} - {formatDate(yearBack(config.to))}</div>
               <div className="acct-report-wrap acct-scroll-box" data-testid="payroll-summary-prior">{renderTable(priorTable, yearBack(config.from), yearBack(config.to))}</div>
             </>
           )}
-          {showPrior && res.data && !priorTable && <div style={{ marginTop: 10, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No {PAYROLL_SUMMARY_JOURNAL} entries for these employees between {formatDate(yearBack(config.from))} and {formatDate(yearBack(config.to))}.</div>}
+          {showPrior && res.data && !priorTable && <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text-secondary)' }}>No {PAYROLL_SUMMARY_JOURNAL} entries for these employees between {formatDate(yearBack(config.from))} and {formatDate(yearBack(config.to))}.</div>}
         </div>
       )}
       {lines && (

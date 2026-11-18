@@ -23,11 +23,9 @@
 // open, so one control both opens and closes the menu and its current meaning
 // is legible without a label.
 import { useEffect, useRef, useState } from 'react';
-import { Plus, ListChecks, FolderKanban, Briefcase, FilePlus, Users } from 'lucide-react';
+import { Plus, ListChecks, FolderKanban, Briefcase, FilePlus, Users, ChevronDown } from 'lucide-react';
 import { NX, FONT, btn } from './theme';
-import CreateTaskModal from './CreateTaskModal';
-import QuickCreateTask from './QuickCreateTask';
-import { useIsMobile } from '../lib/useIsMobile';
+import TaskCreate from './TaskCreate';
 import { ProjectCreateModal } from './ProjectsView';
 import { PortfolioCreateModal } from './PortfoliosView';
 import { SaveTemplateModal } from './TemplatesView';
@@ -67,17 +65,14 @@ const FAB_Z = 400;
 export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60, variant = 'fab', create = '' }) {
   const [open, setOpen] = useState(false);
   const [show, setShow] = useState(null); // an ITEMS key, or null
-  // What the phone quick-add sheet hands over when "Full Details" is tapped.
-  const [fullDraft, setFullDraft] = useState(null);
+  // New task: TaskCreate.jsx - the quick composer on a phone, the full form on
+  // a computer, from the menu or the page's "+" alike (11/15/2026).
+  const [taskOpen, setTaskOpen] = useState(null);
   const ref = useRef(null);
-  const isMobile = useIsMobile();
   // A page-scoped FAB: one action, fired on click - no menu to open, so the
   // "+" never turns into an "x".
   const single = variant === 'fab' && ITEM[create] ? ITEM[create] : null;
-  // On a phone the task "+" opens the same name-first quick-add sheet as the
-  // MobileTaskBar's "+" on My Tasks, not the dense desktop form.
-  const quickTask = show === 'task' && !!single && isMobile && !fullDraft;
-  const closeTask = () => { setShow(null); setFullDraft(null); };
+  const closeTask = () => { setShow(null); setTaskOpen(null); };
 
   // Escape closes, like every other dismissible layer in the module. The scrim
   // below handles pointer dismissal, so there is no outside-click listener.
@@ -89,7 +84,7 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
   }, [open]);
 
   const inline = variant === 'inline';
-  const pick = (key) => { setOpen(false); setShow(key); };
+  const pick = (key) => { setOpen(false); setShow(key); if (key === 'task') setTaskOpen({ ...taskDefaults }); };
 
   return (
     // Inline anchors its dropdown to itself, so it needs a positioned box; the
@@ -112,7 +107,7 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
            bar, a stack of shadowed pills would read as detached from the
            button that opened it. Right-aligned: the button sits at the bar's
            right end, so a left-aligned panel would hang off the edge. */
-        <div role="menu" aria-label="Create" style={{
+        <div role="menu" aria-label="New" style={{
           position: 'absolute', top: '100%', right: 0, marginTop: 6, width: 190, zIndex: MENU_Z,
           background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
           boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4,
@@ -140,11 +135,15 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
       ))}
 
       {inline ? (
+        // "+ New", not "+ Create" (Neil, 11/13/2026: "let's stick with that
+        // instead of + Create ... consistent across Nexus"); the caret says
+        // it opens a menu, as on every other "+ New".
         <button onClick={() => setOpen((o) => !o)}
-          aria-expanded={open} aria-haspopup="menu" title="Create"
+          aria-expanded={open} aria-haspopup="menu" aria-label="New" title="Start a task, project, portfolio, template or team"
+          className="nx-new-btn"
           style={{ ...btn('primary'), flexShrink: 0, whiteSpace: 'nowrap',
                    position: 'relative', zIndex: open ? MENU_Z : undefined }}>
-          <Plus size={15} /> <span className="nx-btn-label">Create</span>
+          <Plus size={15} /> <span className="nx-btn-label">New</span><ChevronDown size={14} className="nx-new-caret" aria-hidden="true" />
         </button>
       ) : (
         <button onClick={() => (single ? pick(single.key) : setOpen((o) => !o))} className="nx-fab"
@@ -163,8 +162,7 @@ export default function CreateMenu({ onNavigate, taskDefaults = {}, bottom = 60,
         </button>
       )}
 
-      {quickTask && <QuickCreateTask defaults={taskDefaults} onClose={closeTask} onFullDetails={setFullDraft} />}
-      {show === 'task' && !quickTask && <CreateTaskModal defaults={{ ...taskDefaults, ...fullDraft }} onClose={closeTask} lockedProjectId={taskDefaults.projectId || ''} />}
+      {show === 'task' && taskOpen && <TaskCreate defaults={taskOpen} onClose={closeTask} lockedProjectId={taskDefaults.projectId || ''} />}
 
       {show === 'project' && (
         <ProjectCreateModal onClose={() => setShow(null)} onCreated={() => onNavigate && onNavigate('projects')} />

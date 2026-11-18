@@ -34,31 +34,31 @@ export default function SetGoalsModal({ facilities, leadGoalByProperty, onChange
   return (
     <Modal title="Set Goals" onClose={onClose} width="max-w-md" isDirty={dirty} onSave={error ? undefined : handleSave}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <p style={{ fontSize: 12.5, color: C.gray500 }}>Set a monthly lead goal for each property.</p>
+        <p style={{ fontSize: 13, color: C.gray500 }}>Set a monthly lead goal for each property.</p>
 
         <div style={{ borderRadius: 8, border: '1px solid ' + C.gray100, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8, padding: '8px 12px', background: C.gray50, fontSize: 11.5, fontWeight: 500, color: C.gray500 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8, padding: '8px 12px', background: C.gray50, fontSize: 12, fontWeight: 500, color: C.gray500 }}>
             <div>Property</div>
             <div>Monthly Lead Goal</div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {facilities.map((f, i) => (
               <div key={f} style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8, padding: '8px 12px', alignItems: 'center', borderTop: i > 0 ? '1px solid ' + C.gray100 : 'none' }}>
-                <div style={{ fontSize: 12.5, color: C.gray700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f}</div>
+                <div style={{ fontSize: 13, color: C.gray700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f}</div>
                 <input
                   type="number"
                   min={0}
                   step="1"
                   value={draft[f] ? String(draft[f]) : ''}
                   onChange={(e) => handleChange(f, e.target.value)}
-                  style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12.5 }}
+                  style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }}
                 />
               </div>
             ))}
           </div>
         </div>
 
-        {error && <div style={{ fontSize: 12.5, color: C.red500 }}>{error}</div>}
+        {error && <div style={{ fontSize: 13, color: C.red500 }}>{error}</div>}
 
         <div style={{ borderRadius: 8, background: C.gray50, border: '1px solid ' + C.gray100, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
           <div style={{ color: C.gray400 }}>Total Monthly Lead Goal</div>

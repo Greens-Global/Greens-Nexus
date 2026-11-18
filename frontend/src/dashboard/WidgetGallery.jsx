@@ -61,7 +61,7 @@ function LinksFolderFields({ config, onChange }) {
       {state.loading ? (
         <LoadingState compact label="Loading your folders…" />
       ) : state.folders.length === 0 ? (
-        <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+        <p style={{ fontSize: 13, color: 'var(--muted)' }}>
           You don't have any folders yet - open Links, drag a couple of apps together (or hit "New Folder" on either tab), then come back here.
         </p>
       ) : (
@@ -108,7 +108,7 @@ function ActionFields({ config, onChange }) {
                 border: `1.5px solid ${on ? 'var(--wk-brand, hsl(var(--color-blue)))' : 'var(--line)'}` }}>
               <span className={`dk-chip dk-chip--${a.color}`} style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0 }}><a.Icon size={15} /></span>
               <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', overflowWrap: 'anywhere' }}>{a.label}</span>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflowWrap: 'anywhere' }}>{a.label}</span>
                 {a.hint && <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{a.hint}</span>}
               </span>
               {on && <Check size={14} style={{ color: 'var(--wk-brand, hsl(var(--color-blue)))', flexShrink: 0 }} />}
@@ -158,7 +158,7 @@ function QuickActionsFields({ config, onChange }) {
                 border: `1.5px solid ${on ? 'var(--wk-brand, hsl(var(--color-blue)))' : 'var(--line)'}` }}>
               <QuickStylePreview style={st.key} />
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
-                <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>{st.label}</span>
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{st.label}</span>
                 {on && <Check size={14} style={{ color: 'var(--wk-brand, hsl(var(--color-blue)))', flexShrink: 0 }} />}
               </span>
               <span style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.35 }}>{st.hint}</span>
@@ -222,7 +222,7 @@ function ConfigFields({ type, config, onChange }) {
         </select>
         {/* Home keeps ONE solid focal tile (the Open Tasks hero); this makes that
             look available to any KPI tile the user wants to spotlight. */}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 12.5, color: 'var(--ink)', cursor: 'pointer' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: 'var(--ink)', cursor: 'pointer' }}>
           <input type="checkbox" checked={!!config.hero} onChange={e => onChange({ hero: e.target.checked })} />
           Hero style - the solid color card, like Home's open tasks tile
         </label>
@@ -243,7 +243,7 @@ function ConfigFields({ type, config, onChange }) {
       </div>
     );
   }
-  return <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>This widget has no options.</p>;
+  return <p style={{ fontSize: 13, color: 'var(--muted)' }}>This widget has no options.</p>;
 }
 
 // Is this widget's config complete enough to add / save? Gates the primary
@@ -348,12 +348,12 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
                         phone grid left "Notifications" ~60px and the badge
                         painted over it ("Notif", Sep 28). */}
                     <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 600, overflowWrap: 'anywhere' }}>{def.title}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, overflowWrap: 'anywhere' }}>{def.title}</span>
                       {/* The footprint in the iOS size vocabulary, so you know
                           what you are adding before it lands on the board. */}
-                      <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 500 }}>{sizeLabel(def.size)}{limitsOf(type).minH === 1 ? ' · fits one row' : ''}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}>{sizeLabel(def.size)}{limitsOf(type).minH === 1 ? ' · fits one row' : ''}</span>
                       {added && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'var(--wk-green, #00a25b)', background: 'var(--wk-green-bg, rgba(0,162,91,.1))', borderRadius: 999, padding: '2px 7px' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 700, color: 'var(--wk-green, #00a25b)', background: 'var(--wk-green-bg, rgba(0,162,91,.1))', borderRadius: 999, padding: '2px 7px' }}>
                           <Check size={10} /> Added
                         </span>
                       )}

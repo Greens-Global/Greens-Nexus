@@ -16,13 +16,14 @@
 //     hired, and the hiring packet starts by itself.
 // Problems show only when Continue is pressed, on the step they belong to.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info, RefreshCw, ExternalLink } from 'lucide-react';
+import { FileSignature, AlertTriangle, CheckCircle, ArrowRight, ArrowLeft, Check, Info, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../api';
 import { currencyOptions } from '../asset/lib/currency';
 import { useEntities, usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
-import { DateField } from '../tasks/components';
+import { DateField, TimeField, Modal } from '../tasks/components';
+import SheetHead from './hiring/SheetHead';
 import { worksInLabel } from '../lib/usStates';
 import WorksInSelect from './WorksInSelect';
 import { leadsFor } from './HiringSchedule';
@@ -43,17 +44,17 @@ const offerAfter = (role, jdFile) => {
 const openTemplate = (id) => window.open(`/documents/documents-templates?template=${encodeURIComponent(id)}`, '_blank', 'noopener');
 
 const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '18px 0 6px' };
-const hint = { fontSize: 12.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 };
-const h2 = { fontSize: 17, fontWeight: 800, margin: '22px 0 4px', color: 'var(--ink)' };
+const hint = { fontSize: 13, color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 };
+const h2 = { fontSize: 18, fontWeight: 800, margin: '22px 0 4px', color: 'var(--ink)' };
 const lead = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, margin: 0 };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 18px' };
 const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' };
 export const REPORTS_TO = 'Reports To - the person this hire reports to day to day. They become the manager on the profile.';
-const smallBtn = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 };
+const smallBtn = { fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 };
 
 function Warn({ children }) {
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, marginTop: 10 }}>
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '9px 12px', fontSize: 13, marginTop: 10 }}>
       <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} /><span>{children}</span>
     </div>
   );
@@ -66,13 +67,13 @@ function Choice({ on, onClick, title, sub, label }) {
     <button type="button" role="radio" aria-checked={on} aria-label={label || title} onClick={onClick}
       style={{ flex: '1 1 200px', textAlign: 'left', border: `1.5px solid ${on ? 'var(--pine)' : 'var(--line)'}`, borderRadius: 14, padding: '14px 16px', cursor: 'pointer',
         background: on ? 'hsla(var(--color-green),0.06)' : 'var(--card)', fontFamily: 'Inter,sans-serif', color: 'var(--ink)' }}>
-      <div style={{ fontSize: 14.5, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ width: 16, height: 16, borderRadius: 8, border: `1.5px solid ${on ? 'var(--pine)' : 'var(--line)'}`, background: on ? 'var(--pine)' : 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
           {on && <Check size={10} color="#fff" />}
         </span>
         {title}
       </div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, marginLeft: 24 }}>{sub}</div>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4, marginLeft: 24 }}>{sub}</div>
     </button>
   );
 }
@@ -322,7 +323,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
                 <div style={{ ...hint, marginTop: 8 }}>
                   {(opts.choices || []).length ? 'Pick another letter below, set one up, or ' : 'This company has no offer letters yet. '}
                   <button type="button" onClick={() => onMoveWithout(c)}
-                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12.5, color: 'hsl(var(--color-blue))', textDecoration: 'underline', fontFamily: 'Inter,sans-serif' }}>
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 13, color: 'hsl(var(--color-blue))', textDecoration: 'underline', fontFamily: 'Inter,sans-serif' }}>
                     move them to Offer without one
                   </button>.
                 </div>
@@ -386,7 +387,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           </label>
           {manager ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 600 }}>{manager.name || manager.email}</span>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{manager.name || manager.email}</span>
               <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => set('manager_email', '')}>Change</button>
             </div>
           ) : <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people }]} onPick={v => set('manager_email', v)} />}
@@ -434,15 +435,15 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
           <label style={{ ...lbl, marginTop: 26 }}>Timings</label>
           <div style={{ ...grid, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
             <div><label style={{ ...hint, marginTop: 0, marginBottom: 4, display: 'block' }} htmlFor="of-from">From</label>
-              <input id="of-from" type="time" className="form-input" style={{ width: '100%' }} value={timing.work_start} onChange={e => setTiming(t => ({ ...t, work_start: e.target.value }))} /></div>
+              <TimeField value={timing.work_start} onChange={x => setTiming(t => ({ ...t, work_start: x }))} ariaLabel="Timings from" style={{ width: '100%' }} /></div>
             <div><label style={{ ...hint, marginTop: 0, marginBottom: 4, display: 'block' }} htmlFor="of-to">To</label>
-              <input id="of-to" type="time" className="form-input" style={{ width: '100%' }} value={timing.work_end} onChange={e => setTiming(t => ({ ...t, work_end: e.target.value }))} /></div>
+              <TimeField value={timing.work_end} onChange={x => setTiming(t => ({ ...t, work_end: x }))} ariaLabel="Timings to" style={{ width: '100%' }} /></div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
             {DAYS.map(([k, l]) => {
               const on = timing.work_days.includes(k);
               return <button key={k} type="button" aria-pressed={on} onClick={() => setTiming(t => ({ ...t, work_days: on ? t.work_days.filter(x => x !== k) : [...t.work_days, k] }))}
-                style={{ padding: '5px 12px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 12.5, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                style={{ padding: '5px 12px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
                   background: on ? 'var(--pine)' : 'var(--card)', color: on ? '#fff' : 'var(--ink)' }}>{l}</button>;
             })}
           </div>
@@ -453,7 +454,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
 
       {jdFile ? (
         <div><div style={{ ...lbl, marginTop: 26 }}>Job Description</div>
-          <div style={{ fontSize: 13.5 }}>{jdFile}</div>
+          <div style={{ fontSize: 13 }}>{jdFile}</div>
           <div style={hint}>{pickedRole.name}&apos;s own file - sent after the offer letter exactly as uploaded, with a box {first} ticks to say they read it.</div></div>
       ) : (
         <div><label style={{ ...lbl, marginTop: 26 }} htmlFor="of-jd">Job Description</label>
@@ -543,57 +544,56 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
 
   const body = { who: whoStep, offer: offerStep, questions: questionsStep, preview: previewStep }[step];
   const last = step === 'preview';
-
-  return (
-    <div onClick={e => e.target === e.currentTarget && !busy && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div role="dialog" aria-label="Make An Offer" style={{ background: 'var(--card)', borderRadius: 18, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '18px 28px 0', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <FileSignature size={18} style={{ color: 'var(--pine)' }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 800, fontSize: 17 }}>Make An Offer</div>
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{name}{c.roleTitle ? ` · ${c.roleTitle}` : ''}</div>
-            </div>
-            <button onClick={onClose} disabled={busy} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-          </div>
-          <div role="tablist" aria-label="Offer steps" className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 16, borderBottom: '1px solid var(--line)', overflowX: 'auto' }}>
-            {STEPS.map(([k, label], i) => {
-              const on = k === step;
-              const done = i < stepIndex;
-              return (
-                <button key={k} type="button" role="tab" aria-selected={on} disabled={i > stepIndex} onClick={() => i < stepIndex && goTo(k)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 12px 10px', border: 'none', borderBottom: `2px solid ${on ? 'var(--pine)' : 'transparent'}`, background: 'none',
-                    cursor: i < stepIndex ? 'pointer' : 'default', fontFamily: 'inherit', fontSize: 13, fontWeight: on ? 800 : 600, color: on ? 'var(--ink)' : done ? 'var(--muted)' : 'var(--line)', whiteSpace: 'nowrap' }}>
-                  <span style={{ width: 20, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    background: on ? 'var(--pine)' : done ? 'hsla(var(--color-green),0.15)' : 'var(--mist)', color: on ? '#fff' : done ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
-                    {done ? <Check size={11} /> : i + 1}
-                  </span>
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div style={{ overflowY: 'auto', flex: 1, padding: '0 28px 24px' }}>
-          {body}
-          {shown.map(x => <Warn key={x}>{x}</Warn>)}
-        </div>
-
-        <div style={{ padding: '14px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-          {stepIndex > 0 && <button type="button" className="secondary-btn" onClick={() => goTo(STEPS[stepIndex - 1][0])} disabled={busy} style={smallBtn}><ArrowLeft size={13} /> Back</button>}
-          <span style={{ flex: 1 }} />
-          <button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          {last ? (
-            <button type="button" className="primary-btn" onClick={create} disabled={busy} style={smallBtn}>
-              {busy ? <Spinner size={14} /> : <FileSignature size={14} />} Create Offer Letter
-            </button>
-          ) : (
-            <button type="button" className="primary-btn" onClick={next} disabled={loading && step === 'who'} style={smallBtn}>Continue <ArrowRight size={13} /></button>
-          )}
-        </div>
-      </div>
+  // Anything answered here is not lost to a stray click outside (11/14/2026).
+  const dirty = step !== 'who' || !!who.worker_type || !!String(pay.base || '').trim() || Object.keys(answers).length > 0
+    || !!newDuties.trim() || !!person.address.trim() || !!chosenId;
+  const stepTabs = (
+    <div role="tablist" aria-label="Offer steps" className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 16, borderBottom: '1px solid var(--line)', overflowX: 'auto' }}>
+      {STEPS.map(([k, label], i) => {
+        const on = k === step;
+        const done = i < stepIndex;
+        return (
+          <button key={k} type="button" role="tab" aria-selected={on} disabled={i > stepIndex} onClick={() => i < stepIndex && goTo(k)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 12px 10px', border: 'none', borderBottom: `2px solid ${on ? 'var(--pine)' : 'transparent'}`, background: 'none',
+              cursor: i < stepIndex ? 'pointer' : 'default', fontFamily: 'inherit', fontSize: 13, fontWeight: on ? 800 : 600, color: on ? 'var(--ink)' : done ? 'var(--muted)' : 'var(--line)', whiteSpace: 'nowrap' }}>
+            <span style={{ width: 20, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              background: on ? 'var(--pine)' : done ? 'hsla(var(--color-green),0.15)' : 'var(--mist)', color: on ? '#fff' : done ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
+              {done ? <Check size={11} /> : i + 1}
+            </span>
+            {label}
+          </button>
+        );
+      })}
     </div>
+  );
+
+  // A sheet from the right over the candidate card (11/14/2026); a stray click
+  // outside asks before the answers are lost.
+  return (
+    <Modal onClose={onClose} zIndex={4100} isDirty={dirty && !busy} saveText={null}
+      confirmText="This offer has not been created yet. Closing now will discard everything you answered."
+      header={(titleId, requestClose) => (
+        <SheetHead titleId={titleId} onClose={requestClose} closeDisabled={busy} title="Make An Offer"
+          icon={<FileSignature size={18} style={{ color: 'var(--pine)', flexShrink: 0 }} />}
+          sub={`${name}${c.roleTitle ? ` · ${c.roleTitle}` : ''}`}>
+          {stepTabs}
+        </SheetHead>
+      )}
+      bodyStyle={{ display: 'block', padding: '0 clamp(16px, 4vw, 28px) 24px' }}
+      footer={(exit) => (<>
+        {stepIndex > 0 && <button type="button" className="secondary-btn" onClick={() => goTo(STEPS[stepIndex - 1][0])} disabled={busy} style={smallBtn}><ArrowLeft size={13} /> Back</button>}
+        <span style={{ flex: 1 }} />
+        <button type="button" className="secondary-btn" onClick={exit} disabled={busy}>Cancel</button>
+        {last ? (
+          <button type="button" className="primary-btn" onClick={create} disabled={busy} style={smallBtn}>
+            {busy ? <Spinner size={14} /> : <FileSignature size={14} />} Create Offer Letter
+          </button>
+        ) : (
+          <button type="button" className="primary-btn" onClick={next} disabled={loading && step === 'who'} style={smallBtn}>Continue <ArrowRight size={13} /></button>
+        )}
+      </>)}>
+      {body}
+      {shown.map(x => <Warn key={x}>{x}</Warn>)}
+    </Modal>
   );
 }

@@ -33,7 +33,7 @@ export function formatPolicyVersion(v) {
 
 export function PolicyText({ body }) {
   return parsePolicy(body).map((b, i) => {
-    if (b.t === 'h') return <div key={i} style={{ fontSize: 13.5, fontWeight: 800, margin: '14px 0 4px' }}>{b.text}</div>;
+    if (b.t === 'h') return <div key={i} style={{ fontSize: 13, fontWeight: 800, margin: '14px 0 4px' }}>{b.text}</div>;
     if (b.t === 'ul') {
       return (
         <ul key={i} style={{ margin: '0 0 10px', paddingLeft: 20, fontSize: 13, lineHeight: 1.6, color: 'var(--ink)' }}>

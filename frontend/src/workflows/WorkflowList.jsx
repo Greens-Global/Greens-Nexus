@@ -5,8 +5,9 @@
 // actions Pause / Resume / Duplicate / Archive / Delete, and a click opens the
 // builder (wf:<id>).
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Archive, Copy, Pause, Play, Plus, Search, Workflow as WorkflowIcon } from 'lucide-react';
+import { Archive, Copy, Pause, Play, Search, Workflow as WorkflowIcon } from 'lucide-react';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { useRole } from '../contexts/RoleContext';
@@ -118,9 +119,8 @@ export default function WorkflowList({ go }) {
           <input type="search" value={q} onChange={(e) => setQ(e.target.value)} data-slash-search="" placeholder="Search workflows" aria-label="Search workflows"
             style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', font: 'inherit', fontSize: 13 }} />
         </label>
-        <button type="button" className="primary-btn" onClick={create} disabled={busy === 'new'} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} /> New Workflow
-        </button>
+        {/* "+ New", the one create button across Nexus (Neil, 11/13/2026). */}
+        <NewButton items={[{ key: 'workflow', label: 'Workflow' }]} onPick={create} busy={busy === 'new' ? 'Creating...' : ''} />
       </div>
       {notice && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 10 }}>{notice}</div>}
 
@@ -140,7 +140,7 @@ export default function WorkflowList({ go }) {
           <div style={isMobile ? undefined : { overflowX: 'auto' }}>
             <div style={isMobile ? undefined : { minWidth: 1076 }}>
               {!isMobile && (
-                <div role="row" style={{ ...GRID, padding: '8px 16px', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
+                <div role="row" style={{ ...GRID, padding: '8px 16px', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
                   <span>Name</span><span>Trigger</span><span>Scope</span><span>Owner</span><span>Status</span><span style={{ textAlign: 'right' }}>Runs 7d</span><span>Last Run</span><span />
                 </div>
               )}
@@ -176,7 +176,7 @@ export default function WorkflowList({ go }) {
                 }
                 return (
                   <div key={w.id} role="row" tabIndex={0} onClick={open} onKeyDown={(e) => { if (e.key === 'Enter') open(); }}
-                    style={{ ...GRID, padding: '10px 16px', borderTop: '1px solid var(--line)', alignItems: 'center', cursor: 'pointer', fontSize: 13.5 }}>
+                    style={{ ...GRID, padding: '10px 16px', borderTop: '1px solid var(--line)', alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
                     <span style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 0 }}>
                       <span style={{ fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.description || ''}>{w.name}</span>
                       <ShapeStrip shape={w.shape} title={`${w.name} shape`} />
@@ -186,13 +186,13 @@ export default function WorkflowList({ go }) {
                     <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.ownerEmail || ''}>{w.ownerName || w.ownerEmail || '-'}</span>
                     <span style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
                       <StatusLabel label={m.label} color={m.color} size="sm" />
-                      {w.pausedReason && <Muted style={{ fontSize: 11.5 }}>{w.pausedReason}</Muted>}
-                      {w.companyEnabled === false && <Muted style={{ fontSize: 11.5 }}>{COMPANY_OFF}</Muted>}
+                      {w.pausedReason && <Muted style={{ fontSize: 12 }}>{w.pausedReason}</Muted>}
+                      {w.companyEnabled === false && <Muted style={{ fontSize: 12 }}>{COMPANY_OFF}</Muted>}
                     </span>
                     <span style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                       {w.runs7d ?? 0}{w.failCount > 0 && <span style={{ color: 'hsl(var(--color-red))', marginLeft: 4 }} title="Failed runs">({w.failCount})</span>}
                     </span>
-                    <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: 12.5 }}>{w.lastRunAt ? formatDateTime(w.lastRunAt) : '-'}</span>
+                    <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: 13 }}>{w.lastRunAt ? formatDateTime(w.lastRunAt) : '-'}</span>
                     {actions}
                   </div>
                 );
@@ -218,7 +218,7 @@ function IconBtn({ label, Icon, onClick, disabled }) {
   return (
     <button type="button" className="secondary-btn" onClick={onClick} disabled={disabled} title={label} aria-label={label}
       style={isMobile
-        ? { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', fontSize: 12.5 }
+        ? { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', fontSize: 13 }
         : { display: 'inline-grid', placeItems: 'center', width: 30, height: 30, padding: 0 }}>
       <Icon size={isMobile ? 13 : 15} aria-hidden="true" />{isMobile && <span>{label}</span>}
     </button>

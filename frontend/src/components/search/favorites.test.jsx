@@ -30,7 +30,7 @@ describe('Favorites and Recent', () => {
   it('nothing saved: the hint, as before', () => {
     saved({ favorites: [], recents: [] });
     open();
-    expect(screen.getByText('Pages, tasks, projects, people, items and requests.')).toBeTruthy();
+    expect(screen.getByText('Tasks, tickets, notes, documents, people, pages and actions.')).toBeTruthy();
   });
 
   it('opens on Favorites then Recent, a favorite never listed twice, a bad entry ignored', () => {

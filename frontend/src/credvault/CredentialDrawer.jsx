@@ -1,20 +1,21 @@
-// Credential Vault - one credential in full (Oct 14 2026 rebuild): sign-in
-// (username, password behind the identity check, previous password for
-// owners), details, who has access, its history, and the owner's actions.
-// On a desktop it renders in place beside the list (CredentialDetail); on a
-// phone the same content slides in as a full-screen sheet (CredentialSheet).
+// Passwords - one login in full (Oct 14 2026 rebuild): sign-in (username,
+// password behind the identity check, previous password for owners), details,
+// who has access, its history, and the owner's actions. It opens as a sheet
+// from the right on a computer and full screen on a phone (CredentialSheet;
+// Neil, 11/18/2026 - the side pane beside the list is gone, so the list has
+// the whole width). Its state reads as words, never tags (Neil, 11/17/2026).
 // The screen owns the data and the gated calls; this file only lays them out.
 import { useEffect, useRef, useState } from "react";
-import { teamsChatUrl } from '../lib/teamsLinks';
 import {
-  X, Copy, Check, Eye, EyeOff, ExternalLink, Pencil, Trash2, RefreshCw, Share2, KeyRound, Star,
-  ShieldAlert, Clock, UserMinus, Lock, Send, ShieldCheck,
+  X, Copy, Check, Eye, EyeOff, ExternalLink, Pencil, Trash2, RefreshCw, Share2, Star,
+  Clock, UserMinus, Send,
 } from "lucide-react";
 import { api } from "../api";
 import { useDialogFocus, trapTab } from "../lib/useDialogFocus";
 import { formatDate, formatDateTime } from "../lib/datetime";
-import { TeamsIcon, agoLabel, actionStyle, Pager } from "./vaultShared";
-import { ACCESS_LABEL, ACCESS_TONE, healthFlags, rotationDaysLeft, rotationDueDate, timeLeft } from "./vaultModel";
+import { agoLabel, actionTone, Pager } from "./vaultShared";
+import PersonActions from "../components/PersonActions";
+import { ACCESS_LABEL, BREACH_HINT, flagWords, healthFlags, rotationDaysLeft, rotationDueDate, secondOwners, timeLeft } from "./vaultModel";
 import { Monogram } from "./vaultCards";
 import HoldButton from "../ui/HoldButton";
 
@@ -53,8 +54,8 @@ function TotpRow({ credId, first, onCopied }) {
 }
 
 export function CredentialDetail({
-  cred, logs, myEmail, nameOf, depts = [], favorite, onToggleFavorite,
-  revealed, onReveal, onHide, onCopiedSecret,
+  cred, logs, myEmail, nameOf, depts = [], siteName = "", favorite, onToggleFavorite,
+  revealed, onReveal, onHide, onCopiedSecret, onCopyPassword, onCopyCode, done = "",
   onEdit, onTrash, onRestore, onPurge, onShare, onRequest, onClose, onChanged, sheet = false,
 }) {
   const [access, setAccess] = useState(null);
@@ -65,6 +66,8 @@ export function CredentialDetail({
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const inTrash = !!cred.deletedAt;
   const flags = healthFlags(cred);
+  // Two people agree before a login is erased (11/13/2026): whoever trashed it waits for the other owner.
+  const waitingOn = inTrash && (cred.deletedBy || "").toLowerCase() === (myEmail || "").toLowerCase() ? secondOwners(cred) : [];
 
   // The parent keys this drawer by credential id, so state starts fresh per
   // credential; this only fetches who has access (owners only).
@@ -73,7 +76,7 @@ export function CredentialDetail({
     let alive = true;
     api.cvAccess(cred.id).then((a) => { if (alive) setAccess(a); }).catch(() => {});
     return () => { alive = false; };
-  }, [cred.id, cred.canEdit, cred.sharedWith]);
+  }, [cred.id, cred.canEdit, cred.sharedWith, cred.sharedOutside]);   // an outside share does not move sharedWith
 
 
   // End access is held on the row (Neil, Oct 30 2026 - hold to confirm). A
@@ -86,6 +89,13 @@ export function CredentialDetail({
     onChanged?.();
   }
   const dropGrant = (g) => setAccess((a) => a && { ...a, grants: a.grants.filter((x) => x.id !== g.id) });
+  // An outside share (11/13/2026): ended at once; the owners are then asked to change the password.
+  async function endExternal(x) {
+    try { await api.cvEndExternal(x.id); }
+    catch (e) { throw new Error(e?.message || "Could not end this share.", { cause: e }); }
+    setAccess((a) => a && { ...a, externals: (a.externals || []).map((y) => (y.id === x.id ? { ...y, state: "ended" } : y)) });
+    onChanged?.();
+  }
 
   const left = rotationDaysLeft(cred);
   // History, 10 a page (Pranshu, Oct 29 2026).
@@ -101,14 +111,12 @@ export function CredentialDetail({
           <div style={{ flex: 1, minWidth: 0 }}>
             <h3>{cred.name}</h3>
             {cred.url && /^https?:\/\//i.test(cred.url) && <a className="cv-link cv-detail-domain" href={cred.url} target="_blank" rel="noopener noreferrer">{cred.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "")}<ExternalLink size={11} /></a>}
-            <div className="cv-drawer-chips">
-              <span className={`cv-chip tone-${ACCESS_TONE[cred.access] || "muted"}`}>{ACCESS_LABEL[cred.access] || cred.access}</span>
-              {cred.tier !== "Standard" && <span className={`cv-chip ${cred.tier === "Critical" ? "tone-bad" : "tone-warn"}`}><ShieldAlert size={12} /> {cred.tier}</span>}
-              {cred.dept && <span className="cv-chip">{cred.dept}</span>}
-              <span className="cv-chip">{cred.type}</span>
-              {inTrash && <span className="cv-chip tone-bad"><Trash2 size={12} /> In Trash</span>}
-              {flags.map((f) => <span key={f.key} className={`cv-chip tone-${f.tone}`}>{f.label}</span>)}
-            </div>
+            <p className="cv-detail-words">
+              {[ACCESS_LABEL[cred.access] || cred.access, cred.tier && cred.tier !== "Standard" ? cred.tier : "", cred.dept, siteName, cred.type].filter(Boolean).join(" - ")}
+              {inTrash && <span className="tone-bad"> - In Trash</span>}
+              {flags.map((f) => <span key={f.key} className={`tone-${f.tone}`} title={f.hint || f.label}> - {flagWords(f, cred)}</span>)}
+            </p>
+            {flags.some((f) => f.key === "breached") && <p className="cv-hint" style={{ marginTop: 6 }} data-breach-why="">{BREACH_HINT}</p>}
           </div>
           {!inTrash && (
             <button type="button" className={`cv-star${favorite ? " is-on" : ""}`} aria-label={favorite ? "Remove from Favorites" : "Add to Favorites"} aria-pressed={favorite} onClick={onToggleFavorite}>
@@ -119,6 +127,7 @@ export function CredentialDetail({
         </div>
 
         <div className="cv-drawer-body">
+          <div className="cv-detail-col">
           {/* Sign-in */}
           <section className="cv-section">
             <div className="cv-section-title">Sign-In</div>
@@ -137,13 +146,33 @@ export function CredentialDetail({
                   {!inTrash && (revealed
                     ? <button type="button" className="cv-iconbtn" title="Hide" aria-label="Hide Password" onClick={onHide}><EyeOff size={14} /></button>
                     : <button type="button" className="cv-iconbtn" title="Reveal" aria-label="Reveal Password" onClick={onReveal}><Eye size={14} /></button>)}
-                  <CopyButton text={revealed?.secret} title="Copy Password" disabled={!revealed} onCopied={onCopiedSecret} />
+                  {revealed || !onCopyPassword
+                    ? <CopyButton text={revealed?.secret} title="Copy Password" disabled={!revealed} onCopied={onCopiedSecret} />
+                    : !inTrash && (
+                      // Not on screen: copied behind the same code step, logged, never shown.
+                      <button type="button" className="cv-iconbtn" title="Copy Password" aria-label="Copy Password" onClick={onCopyPassword}>
+                        {done === `${cred.id}:p` ? <Check size={14} style={{ color: "var(--cv-ok)" }} /> : <Copy size={14} />}
+                      </button>
+                    )}
                 </div>
               </div>
               {revealed?.totp && <TotpRow credId={cred.id} first={revealed.totp} onCopied={onCopiedSecret} />}
-              {!revealed && cred.hasTotp && !inTrash && <p className="cv-hint" style={{ marginTop: -4 }}><ShieldCheck size={11} style={{ verticalAlign: -1 }} /> This login has two-step sign-in: Reveal also shows the current authenticator code.</p>}
+              {!revealed && cred.hasTotp && !inTrash && (
+                <div className="cv-field" data-totp="">
+                  <span className="cv-field-label">Code</span>
+                  <span className="cv-field-value is-secret">••• •••</span>
+                  <div className="cv-field-actions">
+                    {onCopyCode && (
+                      <button type="button" className="cv-iconbtn" title="Copy the current authenticator code" aria-label="Copy Code" onClick={onCopyCode}>
+                        {done === `${cred.id}:t` ? <Check size={14} style={{ color: "var(--cv-ok)" }} /> : <Copy size={14} />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {!revealed && cred.hasTotp && !inTrash && <p className="cv-hint">This login has two-step sign-in: Reveal also shows the current authenticator code.</p>}
               {revealed?.previousSecret && (
-                <div className="cv-field" style={{ background: "var(--bg-secondary)" }}>
+                <div className="cv-field">
                   <span className="cv-field-label">Previous</span>
                   <span className={`cv-field-value cv-mono ${showPrev ? "is-open" : "is-secret"}`}>{showPrev ? revealed.previousSecret : "••••••••••"}</span>
                   <div className="cv-field-actions">
@@ -153,15 +182,12 @@ export function CredentialDetail({
                 </div>
               )}
               {revealed?.previousSecret && revealed.prevRotatedAt && <p className="cv-hint">Previous password kept from the rotation on {formatDate(revealed.prevRotatedAt)}. It goes when the password is rotated again.</p>}
-              {!revealed && !inTrash && <p className="cv-hint"><Lock size={11} style={{ verticalAlign: -1 }} /> Revealing is logged. The first reveal asks for a code by text or email.</p>}
+              {!revealed && !inTrash && <p className="cv-hint">{cred.homeDept ? "Your department's login - it opens without a code. Revealing is logged." : "Revealing is logged. The first reveal asks for a code by text or email."}</p>}
             </>) : (
-              <div className="cv-callout tone-info">
-                <KeyRound size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-                <span>
-                  {cred.access === "view" ? "You can see this login but not its password. " : cred.tier === "Critical" ? "This is a Critical credential. " : "This credential is not shared with you. "}
-                  Ask {nameOf(cred.owner)} for timed access - they, the department head or an admin approve it, and it appears here when they do.
-                </span>
-              </div>
+              <p className="cv-hint" data-not-shared="">
+                {cred.access === "view" ? "You can see this login but not its password. " : cred.tier === "Critical" ? "This is a Critical login. " : "This login is not shared with you. "}
+                Ask {nameOf(cred.owner)} for timed access - they, the department head or an admin approve it, and it appears here when they do.
+              </p>
             )}
           </section>
 
@@ -179,6 +205,8 @@ export function CredentialDetail({
             {cred.note && <div className="cv-note" style={{ marginTop: 10 }}>{cred.note}</div>}
           </section>
 
+          </div>
+          <div className="cv-detail-col">
           {/* Access */}
           <section className="cv-section">
             <div className="cv-section-title">
@@ -187,16 +215,25 @@ export function CredentialDetail({
             </div>
             <div className="cv-person">
               <span>{nameOf(cred.owner)} <span className="cv-muted">· Owner</span></span>
-              {cred.owner && cred.owner !== myEmail && <a href={teamsChatUrl(cred.owner)} target="_blank" rel="noopener noreferrer" title={`Chat with ${nameOf(cred.owner)} on Teams`} style={{ display: "flex" }}><TeamsIcon size={18} /></a>}
+              <PersonActions email={cred.owner} name={nameOf(cred.owner)} myEmail={myEmail} />
             </div>
-            {cred.backupOwner && <div className="cv-person"><span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span></div>}
+            {cred.backupOwner && (
+              <div className="cv-person">
+                <span>{nameOf(cred.backupOwner)} <span className="cv-muted">· Backup Owner</span></span>
+                <PersonActions email={cred.backupOwner} name={nameOf(cred.backupOwner)} myEmail={myEmail} />
+              </div>
+            )}
             {access?.heads?.filter((h) => h !== cred.owner && h !== cred.backupOwner).map((h) => (
-              <div className="cv-person" key={h}><span>{nameOf(h)} <span className="cv-muted">· Department Head</span></span></div>
+              <div className="cv-person" key={h}>
+                <span>{nameOf(h)} <span className="cv-muted">· {access?.headRoles?.[h] || "Department Head"}</span></span>
+                <PersonActions email={h} name={nameOf(h)} myEmail={myEmail} />
+              </div>
             ))}
             {/* Who may open it (Oct 29 2026): the audience rows, or the old department rule when there are none. */}
             {(cred.audiences || []).filter((a) => cred.tier !== "Critical" || a.kind === "person").map((a) => (
               <div className="cv-person" key={`${a.kind}:${a.value}`}>
-                <span>{a.kind === "person" ? nameOf(a.value) : a.label} <span className="cv-muted">· {a.level === "view" ? "View only" : a.kind === "person" ? "Can open" : "Everyone in it can open"}</span></span>
+                <span>{a.kind === "person" ? nameOf(a.value) : a.label} <span className="cv-muted">· {a.level === "view" ? "View only" : a.kind === "person" ? "Can open" : a.kind === "only_group" ? "Only its members open it" : "Everyone in it can open"}</span></span>
+                {a.kind === "person" && <PersonActions email={a.value} name={nameOf(a.value)} myEmail={myEmail} />}
               </div>
             ))}
             {!(cred.audiences || []).length && cred.dept && cred.tier !== "Critical" && <div className="cv-person"><span>Everyone in {cred.dept} <span className="cv-muted">· Department</span></span></div>}
@@ -208,8 +245,15 @@ export function CredentialDetail({
                   fallbackMessage={`End ${g.name}'s access to ${cred.name} now?`} onConfirm={() => revoke(g)} onDone={() => dropGrant(g)} />
               </div>
             ))}
+            {access?.externals?.filter((x) => x.state === "active").map((x) => (
+              <div className="cv-person" key={x.id} data-external={x.email}>
+                <span>{x.email} <span className="cv-muted">· Outside Nexus · <Clock size={11} style={{ verticalAlign: -1 }} /> {timeLeft(x.until - now)} left{x.views ? ` · viewed ${x.views}x` : x.opened ? " · opened" : ""}</span></span>
+                <HoldButton size="sm" label="End Access" doneLabel="Ended" icon={UserMinus} ariaLabel={`End access for ${x.email}`}
+                  fallbackMessage={`End ${x.email}'s access to ${cred.name} now?`} onConfirm={() => endExternal(x)} />
+              </div>
+            ))}
             {access?.pending?.map((p) => (
-              <div className="cv-person" key={p.id}><span>{p.name} <span className="cv-muted">· asked for {p.duration} · {agoLabel(p.ts)}</span></span><span className="cv-chip tone-warn">Waiting</span></div>
+              <div className="cv-person" key={p.id}><span>{p.name} <span className="cv-muted">· asked for {p.duration} · {agoLabel(p.ts)}</span></span><span className="tone-warn">Waiting</span></div>
             ))}
             {cred.access === "shared" && cred.grantUntil && <div className="cv-person"><span>You <span className="cv-muted">· shared access, {timeLeft(cred.grantUntil - now)} left</span></span></div>}
             {!cred.canReveal && !inTrash && (
@@ -226,7 +270,7 @@ export function CredentialDetail({
                   <div key={e.id}>
                     <div className="cv-history-row">
                       <b>{e.actor}</b>
-                      <span style={{ ...actionStyle(e.action), borderRadius: 6, padding: "0 6px", fontSize: 11.5, fontWeight: 500 }}>{e.action}</span>
+                      <span style={actionTone(e.action)}>{e.action}</span>
                       {e.ip ? <span className="cv-muted" title={e.userAgent || ""} style={{ fontSize: 11 }}>from {e.ip}</span> : null}
                       <time title={formatDateTime(e.ts)}>{agoLabel(e.ts)}</time>
                     </div>
@@ -241,6 +285,7 @@ export function CredentialDetail({
             )}
             <Pager page={histPage} pages={histPages} total={allHistory.length} size={10} onPage={setHistPage} compact />
           </section>
+          </div>
         </div>
 
         {(cred.canEdit) && (
@@ -248,8 +293,12 @@ export function CredentialDetail({
             {inTrash ? (<>
               <button type="button" className="cv-btn" onClick={onRestore}><RefreshCw size={14} /> Recover</button>
               <span className="cv-spacer" />
-              <HoldButton size="sm" label="Delete Permanently" doneLabel="Deleted" onConfirm={onPurge}
-                fallbackMessage={`Delete ${cred.name} permanently? This cannot be undone.`} />
+              {waitingOn.length ? (
+                <span className="cv-hint" data-purge-waits="">You moved this to the trash, so {waitingOn.map(nameOf).join(" or ")} or an admin confirms the permanent delete.</span>
+              ) : (
+                <HoldButton size="sm" label="Delete Permanently" doneLabel="Deleted" onConfirm={onPurge}
+                  fallbackMessage={`Delete ${cred.name} permanently? This cannot be undone.`} />
+              )}
             </>) : (<>
               <button type="button" className="cv-btn" onClick={onEdit}><Pencil size={14} /> Edit</button>
               <span className="cv-spacer" />
@@ -261,13 +310,15 @@ export function CredentialDetail({
   );
 }
 
-/** Phone: the same detail as a full-screen sheet with its own focus and Escape. */
+/** The detail as a sheet with its own focus and Escape: from the right on a
+ *  computer, full screen on a phone. Escape is left to a popup opened on top
+ *  of it (Edit, Share, the code step). */
 export default function CredentialSheet(props) {
   const panelRef = useRef(null);
   useDialogFocus(panelRef);
   const { onClose, cred } = props;
   useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".cv-modal-overlay, .modal-overlay, .nx-overlay")) onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);

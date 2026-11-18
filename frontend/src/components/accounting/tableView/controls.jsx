@@ -13,12 +13,12 @@ import SaveNotice from './saveNotice';
 //   <thead><tr>{view.columns.map((c) => <ViewHead key={c.key} view={view} col={c} style={headStyle(c.width)} />)}</tr></thead>
 
 const btn = (active) => ({
-  height: 30, padding: '0 9px', borderRadius: 8, fontSize: '0.78rem', fontFamily: 'inherit', background: 'var(--bg-card)', boxSizing: 'border-box',
+  height: 30, padding: '0 9px', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', background: 'var(--bg-card)', boxSizing: 'border-box',
   display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', maxWidth: 260, whiteSpace: 'nowrap',
   border: `1px solid ${active ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`,
   color: active ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', fontWeight: active ? 600 : 400,
 });
-const count = { fontSize: '0.68rem', fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand, #2b45e1)', color: '#fff' };
+const count = { fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand, #2b45e1)', color: '#fff' };
 // Deeper than any screen's own More levels (they go to 6).
 const LAST_LEVEL = 9;
 
@@ -42,7 +42,7 @@ export function TableViewBar({ view, columns = true }) {
   return (
     <>
       <div ref={viewRef} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} onPointerEnter={preloadPanels}>
-        <span className="acct-bar-label" style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>View</span>
+        <span className="acct-bar-label" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>View</span>
         <button type="button" style={btn(!!view.activeId)} onClick={() => toggle('views')} aria-haspopup="menu" aria-expanded={open === 'views'}
           aria-label={`View: ${view.activeName}`} title={`View: ${view.activeName}. Your own saved filters, sort and columns for this table.`}>
           {/* As wide as "Built-in Default" whatever view is picked; a longer name is cut, in full in the tooltip (10/27 call, item 09). */}

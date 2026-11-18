@@ -28,7 +28,7 @@ function fromService(s) {
   };
 }
 
-const lbl = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' };
+const lbl = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' };
 
 export default function PreventiveScheduleSheet({ propertyId, svc = null, onClose, onSaved }) {
   const [v, setV] = useState(() => fromService(svc));
@@ -100,7 +100,7 @@ export default function PreventiveScheduleSheet({ propertyId, svc = null, onClos
           <div role="radiogroup" aria-label="How It Repeats" style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: 4, borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', alignSelf: 'flex-start' }}>
             {KINDS.map(([k, label]) => (
               <button key={k} type="button" role="radio" aria-checked={v.kind === k} onClick={() => set({ kind: k })}
-                style={{ border: 'none', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem',
+                style={{ border: 'none', borderRadius: 7, padding: '6px 12px', cursor: 'pointer', fontWeight: 600, fontSize: 13,
                   background: v.kind === k ? 'var(--bg-card)' : 'transparent', boxShadow: v.kind === k ? 'var(--shadow-sm)' : 'none',
                   color: v.kind === k ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{label}</button>
             ))}
@@ -213,7 +213,7 @@ export default function PreventiveScheduleSheet({ propertyId, svc = null, onClos
         <label className="nx-fill" style={lbl}>Details
           <textarea className="form-input" rows={4} value={v.description} onChange={(e) => set({ description: e.target.value })} placeholder="What the technician should know." aria-label="Details" style={{ minHeight: 90 }} />
         </label>
-        {err && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: '0.8rem' }}>{err}</div>}
+        {err && <div role="alert" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{err}</div>}
       </div>
     </Modal>
   );

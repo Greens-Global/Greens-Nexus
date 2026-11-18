@@ -31,7 +31,7 @@ const chip = (label, n, color, active, onClick) => (
   <button type="button" onClick={onClick} aria-pressed={active}
     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 99, cursor: 'pointer',
       border: `1px solid ${active ? color : 'var(--line)'}`, background: active ? 'var(--wk-brand-tint)' : 'var(--card)',
-      fontFamily: 'var(--wk-font)', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+      fontFamily: 'var(--wk-font)', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
     <span style={{ fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{n}</span> {label}
   </button>
 );
@@ -68,9 +68,9 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr, au
     <section data-testid="payroll-readiness" style={{ border: '1px solid var(--wk-line2, var(--line))', borderRadius: 12, background: 'var(--card)', padding: '12px 14px', marginBottom: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <ClipboardCheck size={16} style={{ color: 'var(--wk-brand)' }} />
-        <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, color: 'var(--ink)' }}>Payroll Readiness</h3>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>Payroll Readiness</h3>
         {P && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--muted)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: 'var(--muted)' }}>
             <button type="button" className="secondary-btn" aria-label="Previous Period" disabled={loading} onClick={() => run(addDays(P.start, -14))} style={{ padding: '2px 6px' }}><ChevronLeft size={14} /></button>
             <span>{formatDate(P.start)} - {formatDate(P.end)}</span>
             <button type="button" className="secondary-btn" aria-label="Next Period" disabled={loading} onClick={() => run(addDays(P.end, 1))} style={{ padding: '2px 6px' }}><ChevronRight size={14} /></button>
@@ -94,12 +94,12 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr, au
       </div>
 
       {!data && !loading && !error && !stepLocked && (
-        <p style={{ margin: '8px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>
+        <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--muted)' }}>
           Check who is not ready for payroll before you export - approvals, signatures, missing punches, open fixes and pay rates, plus big changes and unusual weeks.
         </p>
       )}
       {loading && !data && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0 2px', fontSize: 12.5, color: 'var(--muted)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0 2px', fontSize: 13, color: 'var(--muted)' }}>
           <Spinner size="inline" /> Reading every time sheet in your scope - this can take a few seconds.
         </div>
       )}
@@ -123,18 +123,18 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr, au
           <div className="scroll-tabs" role="tablist" aria-label="Filter" style={{ display: 'flex', gap: 2, marginTop: 10, borderBottom: '1px solid var(--line)' }}>
             {FILTERS.map(([key, label]) => (
               <button key={key} type="button" role="tab" aria-selected={filter === key} onClick={() => setFilter(key)}
-                style={{ padding: '7px 12px', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 12.5,
+                style={{ padding: '7px 12px', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'var(--wk-font)', fontSize: 13,
                   fontWeight: filter === key ? 700 : 600, color: filter === key ? 'var(--wk-brand)' : 'var(--muted)', marginBottom: -1,
                   borderBottom: filter === key ? '2px solid var(--wk-brand)' : '2px solid transparent', whiteSpace: 'nowrap' }}>{label}</button>
             ))}
           </div>
           {!rows.length ? (
-            <div style={{ padding: '16px 4px 6px', fontSize: 12.5, color: 'var(--muted)' }}>
+            <div style={{ padding: '16px 4px 6px', fontSize: 13, color: 'var(--muted)' }}>
               {filter === 'all' ? `Everyone in your scope is ready for this period (${S.people} ${S.people === 1 ? 'person' : 'people'} checked).` : 'Nobody matches this filter.'}
             </div>
           ) : (
             <div role="table" aria-label="People To Check" style={{ maxHeight: 420, overflowY: 'auto' }}>
-              <div role="row" style={{ display: 'flex', gap: 12, padding: '8px 4px', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
+              <div role="row" style={{ display: 'flex', gap: 12, padding: '8px 4px', fontSize: 12, fontWeight: 700, color: 'var(--muted)', borderBottom: '1px solid var(--line)' }}>
                 <span role="columnheader" style={{ flex: '0 0 190px' }}>Name</span>
                 <span role="columnheader" style={{ flex: 1 }}>What Is Wrong</span>
                 <span role="columnheader" style={{ flex: '0 0 130px', textAlign: 'right' }}>Time Sheet</span>
@@ -144,7 +144,7 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr, au
                   style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start', padding: '9px 4px', borderBottom: '1px solid var(--line)' }}>
                   <div role="cell" style={{ flex: '0 0 190px', minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {[r.department, r.company, r.payType === 'fixed' ? 'Salaried' : ''].filter(Boolean).join(' · ')}
                     </div>
                     <div style={{ marginTop: 4 }}>
@@ -153,8 +153,8 @@ export default function PayrollReadiness({ onOpenTimecard, toastOk, toastErr, au
                   </div>
                   <ul role="cell" style={{ flex: 1, minWidth: 220, margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 3 }}>
                     {issueLines(r).map((l, i) => (
-                      <li key={i} style={{ fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.4 }}>
-                        <span style={{ fontSize: 10.5, fontWeight: 800, color: LINE_COLOR[l.kind], marginRight: 6, textTransform: 'uppercase', letterSpacing: '.03em' }}>{LINE_TAG[l.kind]}</span>
+                      <li key={i} style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, color: LINE_COLOR[l.kind], marginRight: 6, textTransform: 'uppercase', letterSpacing: '.03em' }}>{LINE_TAG[l.kind]}</span>
                         {l.text}
                       </li>
                     ))}

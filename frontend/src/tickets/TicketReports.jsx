@@ -34,7 +34,7 @@ const BREAKDOWNS = [
 const fmtPct = (p) => (p == null ? '-' : `${p}%`);
 const fmtCsat = (c) => (c == null ? '-' : `${c.toFixed(1)}/5`);
 
-const th = { padding: '8px 10px', fontSize: 11.5, fontWeight: 700, color: NX.dim, textAlign: 'left', borderBottom: `1px solid ${NX.border}`, whiteSpace: 'nowrap' };
+const th = { padding: '8px 10px', fontSize: 12, fontWeight: 700, color: NX.dim, textAlign: 'left', borderBottom: `1px solid ${NX.border}`, whiteSpace: 'nowrap' };
 const td = { padding: '8px 10px', fontSize: 13, color: NX.ink, borderBottom: `1px solid ${NX.border2}`, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
 const num = { textAlign: 'right' };
 
@@ -50,7 +50,7 @@ function ScrollTable({ minWidth = 480, children }) {
 function Tile({ label, value, hint, color }) {
   return (
     <div style={{ borderRadius: 14, border: `1px solid ${NX.border}`, background: NX.surface, padding: '14px 16px', minWidth: 0 }}>
-      <div style={{ fontSize: 22, fontWeight: 800, color: color || NX.ink, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color: color || NX.ink, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{label}</div>
       {hint && <div style={{ fontSize: 11, color: NX.faint, marginTop: 2 }}>{hint}</div>}
     </div>
@@ -80,7 +80,7 @@ function TrendChart({ trend, granularity }) {
                   <div key={s.key} style={{ width: 7, borderRadius: 3, background: s.color, height: b[s.key] ? Math.max(3, (b[s.key] / max) * H) : 0 }} />
                 ))}
               </div>
-              <span style={{ fontSize: 10, color: NX.faint, whiteSpace: 'nowrap' }}>{formatMonthDay(b.key)}</span>
+              <span style={{ fontSize: 11, color: NX.faint, whiteSpace: 'nowrap' }}>{formatMonthDay(b.key)}</span>
             </div>
           ))}
         </div>
@@ -108,7 +108,7 @@ function AgingTable({ aging }) {
           ))}
         </tbody>
       </ScrollTable>
-      <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 8 }}>
+      <div style={{ fontSize: 12, color: NX.faint, marginTop: 8 }}>
         Age counts only the time the SLA clock ran. Paused tickets ({aging.paused.waitingOnRequester} waiting on the requester, {aging.paused.pendingApproval} pending approval) are not aging.
       </div>
     </>
@@ -143,7 +143,7 @@ function AgentTable({ agents }) {
   const [sort, setSort] = useState({ key: 'open', dir: 'desc' });
   const rows = useMemo(() => sortAgents(agents, sort), [agents, sort]);
   const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'name' ? 'asc' : 'desc' }));
-  if (!agents.length) return <div style={{ fontSize: 12.5, color: NX.faint, padding: '12px 0' }}>No tickets in this range.</div>;
+  if (!agents.length) return <div style={{ fontSize: 13, color: NX.faint, padding: '12px 0' }}>No tickets in this range.</div>;
   return (
     <ScrollTable minWidth={760}>
       <thead><tr>
@@ -151,7 +151,7 @@ function AgentTable({ agents }) {
           const Icon = sort.key !== c.key ? ArrowUpDown : sort.dir === 'asc' ? ArrowUp : ArrowDown;
           return (
             <th key={c.key} style={{ ...th, ...(c.num ? num : {}) }} aria-sort={sort.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              <button type="button" onClick={() => onSort(c.key)} style={{ ...btn('ghost'), padding: 0, fontSize: 11.5, fontWeight: 700, color: sort.key === c.key ? NX.ink : NX.dim }}>
+              <button type="button" onClick={() => onSort(c.key)} style={{ ...btn('ghost'), padding: 0, fontSize: 12, fontWeight: 700, color: sort.key === c.key ? NX.ink : NX.dim }}>
                 {c.label} <Icon size={11} />
               </button>
             </th>
@@ -174,7 +174,7 @@ function AgentTable({ agents }) {
 }
 
 function BreakdownTable({ rows }) {
-  if (!rows.length) return <div style={{ fontSize: 12.5, color: NX.faint, padding: '12px 0' }}>Nothing to show.</div>;
+  if (!rows.length) return <div style={{ fontSize: 13, color: NX.faint, padding: '12px 0' }}>Nothing to show.</div>;
   const max = Math.max(1, ...rows.map((r) => r.created));
   return (
     <ScrollTable minWidth={340}>
@@ -300,7 +300,7 @@ export default function TicketReports({ listFilters = {}, filterLabels = [], com
           style={{ display: 'flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, maxWidth: '100%' }}>
           {PRESETS.map(([kk, lab]) => (
             <button key={kk} type="button" role="tab" aria-selected={preset === kk} onClick={() => setPreset(kk)} style={{
-              ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap', fontSize: 12.5,
+              ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap', fontSize: 13,
               background: preset === kk ? NX.surface : 'transparent', color: preset === kk ? NX.ink : NX.dim,
               boxShadow: preset === kk ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
             }}>{lab}</button>
@@ -333,7 +333,7 @@ export default function TicketReports({ listFilters = {}, filterLabels = [], com
         {filterLabels.length > 0 && <span style={{ color: NX.faint }}>From the list&apos;s filters</span>}
       </div>
       {meta?.weeklyEmail?.eligible && (
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: -8 }}>{weeklyHint(meta.weeklyEmail)}</div>
+        <div style={{ fontSize: 12, color: NX.faint, marginTop: -8 }}>{weeklyHint(meta.weeklyEmail)}</div>
       )}
 
       {customBad ? (
@@ -377,7 +377,7 @@ export default function TicketReports({ listFilters = {}, filterLabels = [], com
                         {data.recurring.map((g) => (
                           <div key={g.label} style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                             <span style={{ ...chip(NX.red, 'rgba(220,38,38,0.14)'), flexShrink: 0 }}>×{g.count}</span>
-                            <span style={{ fontSize: 12.5, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.label}</span>
+                            <span style={{ fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.label}</span>
                           </div>
                         ))}
                         <div style={{ fontSize: 11, color: NX.faint, marginTop: 2 }}>Repeats often signal a fix-once or replacement opportunity, not more repairs.</div>

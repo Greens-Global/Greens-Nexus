@@ -66,6 +66,10 @@ class VaultSecurityTests(unittest.TestCase):
             pass
 
     def setUp(self):
+        import vault_head
+        _req = vault_head.require
+        vault_head.require = lambda *a, **k: None   # the head code has its own suite (test_vault_head.py)
+        self.addCleanup(setattr, vault_head, "require", _req)
         self.client = TestClient(main.app)
         self._skip = auth.SKIP_AUTH
         auth.SKIP_AUTH = True
@@ -138,14 +142,18 @@ class VaultSecurityTests(unittest.TestCase):
         self.assertEqual(self._as(OWNER).patch(f"/credvault/credentials/{cid}", json={**body, "clearTotp": False, "totpSecret": "???"}).status_code, 400)
 
     # ── breach check ────────────────────────────────────────────
-    def test_breached_flag_is_set_on_save_and_fails_open(self):
+    def test_a_leaked_password_is_refused_and_the_check_fails_open(self):
+        # 11/13/2026: a password found in a breach cannot be saved at all.
         self.hibp.return_value = 12345
+        r = self._as(OWNER).post("/credvault/credentials", json={"name": "Bank Portal", "dept": "IT", "secret": "Corr3ct-Horse-Battery!"})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertEqual((r.json()["detail"]["code"], r.json()["detail"]["field"]), ("breached_password", "secret"))
+        self.hibp.return_value = None                                              # HIBP down: saved, not flagged
         cid = self._create()
-        self.assertTrue(self._row(OWNER, cid)["breached"])
-        self.hibp.return_value = None                                              # HIBP down: the flag is left alone
+        self.assertFalse(self._row(OWNER, cid)["breached"])
         body = {"name": "Bank Portal", "dept": "IT", "type": "Password", "username": "treasury", "tier": "Standard", "secret": "An0ther-Good-One!"}
-        self.assertEqual(self._as(OWNER).patch(f"/credvault/credentials/{cid}", json=body).status_code, 200)
-        self.assertTrue(self._row(OWNER, cid)["breached"])
+        self.hibp.return_value = 3
+        self.assertEqual(self._as(OWNER).patch(f"/credvault/credentials/{cid}", json=body).status_code, 400)
         self.hibp.return_value = 0
         self.assertEqual(self._as(OWNER).patch(f"/credvault/credentials/{cid}", json={**body, "secret": "Third-Clean-One!9"}).status_code, 200)
         self.assertFalse(self._row(OWNER, cid)["breached"])

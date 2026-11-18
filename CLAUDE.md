@@ -41,20 +41,16 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 
 ## File ownership
 
-| Area | Owner | Files |
-|---|---|---|
-| Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/inventory/`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `frontend/src/views/AssetModule.jsx`, `frontend/src/asset/`, `backend/routers/property_assets.py`, property models/tables |
-
-Machine-readable copy: `backend/code_owners.py` (Build Mode routes pins and
-the build-notes skill refuses commits by it) - change both together.
-
-**Do not modify the other developer's files** — ask them instead.
-**Neil has the final say** (Oct 28 2026): he is head of the company and
-Visesh's lead. A change Neil made or a decision he gave (the "(Neil, <date>)"
-notes in this file and in code comments) is never changed or undone without
-discussing it with him first - the same guardrail as another developer's
-files. Neil may green-light work on anyone's files himself.
+**Nobody owns any files** (Neil, 11/13/2026: "It doesn't matter that it is
+Visesh's module or that asset management is Neil's module. Remove those
+limitations permanently"). Every file is open to whoever is doing the work -
+Item Management, the bell, Asset Management and the rest included.
+`backend/code_owners.py` keeps its mechanism with an EMPTY `OWNERS` list, so
+Build Mode holds no pin for anyone and the build-notes skill refuses no
+commit; add an owner back only if Neil asks.
+**Neil has the final say** (Oct 28 2026): he is head of the company. A
+decision he gave (the "(Neil, <date>)" notes in this file and in code
+comments) is never changed or undone without discussing it with him first.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
 `frontend/src/api.js`, `App.jsx`/`Sidebar`): **append only, never reorder**,
 keep the diff minimal.
@@ -104,6 +100,50 @@ keep the diff minimal.
   standalone script that calls Anthropic, and never add credits, auto-reload
   or billing anywhere or suggest doing so - ask Neil. `test_ai_switch.py`
   pins it.
+- **Build Mode (Neil, 11/12/2026, `docs/Build-Mode.md` section 8).** It is
+  its OWN access: only an Access Group granting the `build-mode` module
+  opens it - no tier does by itself, Super Administrator included, and
+  never a new role. `build_mode_access_seed.apply_once` put the IT
+  development team (Visesh, Pranshu, Sagar) and Neil in the "Build Mode"
+  Access Group ONCE; change it in Settings, never in code. Send To Claude
+  Code may start a Claude Code CLOUD session for a developer
+  (`build_mode_cloud.py`, setup `docs/Build-Mode-Cloud-Setup.md`): the
+  developer saves their own scheduled task's Fire URL and token once and
+  the session runs on THEIR Claude subscription. This is not the AI switch
+  and not a way around it: no `ANTHROPIC_API_KEY`, no Nexus credits, no
+  Nexus AI feature, and the only address ever called is that developer's
+  own trigger - never add another Anthropic call beside it. The trigger
+  token is encrypted, never returned, never logged; one call per Send and
+  no retry (a second call is a second session on the same pins); a pin
+  goes to the cloud or to a terminal watcher, never both. Built the same day
+  (`docs/Build-Mode.md` 8.5 - 8.10), each Neil's call: **proof on the
+  pin** - a cloud session attaches the after picture and a clip
+  (`cli.py clip`, `record_clip.cjs`) and the author Accepts or Reopens on
+  the pin, no preview needed (`_checkable`); **Merge To Dev**
+  (`build_mode_merge.py`) - Super Administrators (tier 5) only, off until
+  `NEXUS_GITHUB_MERGE_TOKEN` is set, only a pin's own PR into `dev` with
+  every check green, pinned to the commit that was looked at, ONE GitHub
+  call never retried, the team-chat heads-up kept only when the merge went
+  through, a hold to confirm - never widen who may merge and never merge to
+  `main`; **everyone outside IT comes in through a TICKET**, never straight
+  to Claude Code: Point At It on Create a Ticket (`tickets/pointAtIt.js`,
+  the "Where:" line `build_mode_tickets.parse_where` reads back - change
+  both together) and Send To Claude Code on a ticket (grant holders; ONE
+  pin with its own COPIES of the pictures, so the pin's purge never takes
+  ticket evidence; the ticket hears only through its activity - never a
+  comment, a bell or a status change; never an Ask HR ticket); production
+  builds carry **source marks** (`VITE_NX_SRC` in `deploy-cloudflare.yml`
+  AND `archive-assets.yml` - the two must match); the **connector**
+  (`routers/build_mode_connector.py`, `docs/Build-Mode-Connector.md`)
+  reaches Build Mode pins ONLY, by Build Token, off until
+  `NEXUS_BUILD_CONNECTOR=true` - never add a tool that touches anything
+  else in Nexus. **Hosted previews** (11/13/2026, `build_preview.py`,
+  `docs/Build-Mode.md` 8.11): a pin may carry the PR's Cloudflare Pages
+  build (`*.greens-nexus-dev.pages.dev`, screen-only PRs), which always
+  reaches the DEV API (`functions/api`) and signs in through the dev site's
+  handoff - a single-use code plus a PKCE verifier, Build Mode grant
+  checked at both ends, dev API only. Never register preview addresses in
+  Entra, never point a preview at production.
 - Photo URLs from clients must pass `_validate_photo_url` (Supabase storage only).
 - **Evidence buckets are PRIVATE** (Sep 22): `checkout-photos`, `item-photos`,
   `return-photos`, `ticket-evidence`, `qa-evidence`, `task-files`,
@@ -147,6 +187,14 @@ keep the diff minimal.
   routing: the company's HR contact, administrators and Full HR inside their
   reach). A new ticket reader, count, export or code generator must know
   this - a missing opt-in silently drops the row, a blanket opt-in leaks it.
+- **Home time zone (Neil, 11/13/2026):** `/roles/me` carries `home_zone`
+  (`item_due.zone_for`: the shift preset's zone, else the company's / the
+  tenant's team zone, else California). The Dashboard clock
+  (`worldClockZones.headerClocks`) shows it, with a green house, UNDER the
+  big clock whenever the device reads differently; California, the
+  company's clock (Neil, Sep 28), still shows when it differs from both.
+  The Dashboard's header right is ONE Customize menu (Edit Layout, the
+  views, the view's own actions) - never a view picker or a "..." beside it.
 - **Approval badge counts come from one place**: `approvals_inbox.collect`,
   read by `routers/action_counts.py`. A new approval kind registers an
   `@source` in `approvals_inbox.py` - never a separate count query, or the
@@ -154,6 +202,62 @@ keep the diff minimal.
   On a phone Approvals is `approvals/ApprovalsPhone.jsx`: one card, two
   decisions, the Filter sheet; the desktop list is unchanged; no bulk
   approve on a phone (Neil, 11/02/2026).
+- **My Work is one list** (Neil, 11/13/2026, `my_work_sources.py`,
+  `GET /me/work`, `dashboard/essentials/MyWork.jsx`): everything that is the
+  caller's OWN to do - tasks, tickets, Yours To Do
+  (`approvals_inbox.yours_to_do`), the Time Sheet to submit
+  (`timesheet_due`, worded by the briefing's `_due_row`), courses assigned
+  and policies to sign - each from its module's own rule, never re-derived.
+  A new kind of personal work registers an `@source` there - never a second
+  "mine" query or another personal list. A decision on someone else's
+  request stays in Approvals; a form is not a source until a form can be
+  assigned. A source that fails is named in `errors` ("Couldn't load
+  Training") - a failed load never looks like an empty list. An approvals
+  source that can make a `scope="act"` row carries `acts=True`
+  (`test_my_work_sources.py` fails one that does not). My Day still empties
+  at midnight; last time's open picks are OFFERED once ("Add to Today" /
+  "Not Today", `POST /tasks/my-day/carry`), never moved by themselves.
+  The Dashboard's Action Required tile (`my-day`) is RETIRED (Neil,
+  11/13/2026) - never bring it back or add another "needs me" tile: the key
+  stays in `widgets.jsx` (hidden, retired) so saved boards load, and a board
+  that had it without My Work gets My Work in its place
+  (`useDashboards.swapRetired`). The Daily Briefing email and My Briefing
+  keep their Action Required section.
+- **Header search finds what you can open** (Neil, 11/13/2026,
+  `components/search/useNexusSearch.js`): besides tasks, jobs, KB and pages
+  it reads tickets (`GET /task-tickets/search?header=true`, the list's own
+  `ListScope` - an Ask HR ticket is found only by its requester or filer and
+  is never kept in Favorites or Recent), notes (`GET /notes/search`, own and
+  shared), the Documents library (`GET /documents/library?q=`, no packet
+  envelopes), people from the curated directory for everyone, and Quick
+  Actions (`quickCreate.findActions`, run by the bolt's own `pick`). Each
+  source reuses its module's access rule and fails quietly by itself; a new
+  source never widens what a person could already open.
+- **Live tickets and kept replies** (11/13/2026): a ticket change pings
+  `task_events` with `kind="ticket"` and nothing else (`ticket_events.py`,
+  SessionLocal hooks in `database.py`, after commit, in a thread, one a
+  second per worker); `TasksContext` routes the ping by `kind` - a ticket
+  ping refetches tickets, a task ping never does. The 60 s poll stays as the
+  fallback. An unsent ticket reply is a draft (`tickets/ticketDrafts.js`
+  over the task draft store: per person, words only, 7 days, cleared on
+  send) - closing the drawer keeps it.
+- **A person's time zone and working hours** (11/13/2026, `person_zone.py`):
+  `nexus_employees.time_zone` / `work_start` / `work_end`, set by the person
+  under My Profile > Date & Time (`PUT /myhr/profile`); every "what is this
+  person's zone" reader prefers the stored zone and infers as before when it
+  is blank. `components/LocalTimeHint.jsx` says "It is 9:40 PM for Priya"
+  under an assignee outside their hours - a quiet line, never a warning.
+  Dark Mode and Theme follow the account (`lib/appearancePrefs.js`, profile
+  prefs `appearance`; localStorage still paints first).
+- **The installed app** (11/13/2026): the manifest carries four shortcuts
+  (`?do=new-task` / `?do=new-ticket` run the bolt's own action after
+  sign-in - `lib/appLaunch.js`), the app icon's badge is the bell's Needs
+  Action count (`lib/appBadge.js`, no new request), and Share to Nexus (the
+  manifest's `share_target`): `public/sw.js` answers the one
+  `POST /share-target`, keeps the words and files in the `nexus-share`
+  cache and sends the app to `/?share=1`, where `ShareToNexus.jsx` starts a
+  ticket, a task or a note through the module's own form. Nothing uploads
+  until that form saves; never route a share through the outbox.
 
 - **Tiers (Neil, 11/02/2026, `docs/Roles.md`):** the role KEYS stay
   `employee | supervisor | manager | administrator | owner` (levels 1-5);
@@ -184,9 +288,33 @@ keep the diff minimal.
   small people glyph, nothing for others), fed by the `tier` field on the
   people payloads (`auth.tier_of`). `useRole()` exposes `myLevel`, `myTier`,
   `myTitle`.
+  Grant levels (Pranshu, 11/12/2026): a grant is Viewer, Editor or Full -
+  Owner is retired (a stored `:owner` reads as Full; one-time pass
+  `super_admins_seed.retire_owner_level_once`, mark
+  `roles.owner_level_retired_2026_11_12`, also drops the dead `development`
+  / `purchase` grants). Deleting a person and the Workflows organization-wide
+  controls are Super Administrator by tier, no grant. Tier checks are
+  unchanged: a Full grant never replaces a Manager or Administrator check.
+  The Level Guide (Roles & Access > Matrix, "What does this unlock?") reads
+  `lib/moduleCapabilities.js` - the ONE source of the level descriptions;
+  a PR that changes a gate changes that file too.
 
 ## Frontend conventions
 
+- **No "Claude rectangle" design - anywhere, ever (Neil, 11/17/2026: "Never
+  want to see this design").** It applies to every screen, email, PDF, mockup
+  and artifact made for Nexus, and it outranks any older rule that calls for
+  pills, chips or cards. Never: a colored bar, rail or stripe beside or on top
+  of a heading, card, row or section (a left or top border used as an
+  accent); stat tiles or KPI boxes (a grid of boxed numbers, colored top
+  edges); a bordered box or tinted panel around each section or list ("one
+  card per section"); a boxed info strip ("Today", callouts); a pill or tag
+  box around a count or a state ("Waiting 4 Days", "Due Today"); uppercase
+  eyebrows. Instead: hierarchy from type size and weight, whitespace, and
+  hairline dividers between rows; numbers as words in a sentence or one quiet
+  line ("9 need your action - 2 overdue - 3 due this week"); a state as plain
+  colored text in the row's own line ("24 days overdue" in red). Buttons stay
+  buttons. Check every mockup against this list before showing it.
 - All server calls go through `frontend/src/api.js` — add new endpoints there.
   It already retries idempotent GETs on 5xx/network with backoff and debounces
   the "reconnecting" banner; do not add a second retry layer on top.
@@ -212,6 +340,34 @@ keep the diff minimal.
   you came from (a tab, or a record's "Portfolio") - phones keep their arrow.
   `scripts/check-module-headers.mjs` (in `npm run lint`) fails a new
   `view-title-group`; record pages that name the record are on its list.
+  The module's TABS come first in the header (Neil, 11/12/2026, navigation
+  review): below 1600px the account pill is the photo alone and the search
+  starts at 200px (140px below 1181px, where the tabs sit closer) on EVERY
+  screen - by window width, never by whether the module has tabs, so the
+  search stands in the same place on every module; it still widens to 440px
+  on focus (`--hdr-search-w`). The Back line may widen the name column up
+  to 220px (Neil, 11/12/2026: short names like Team cropped it), never
+  more; a longer place ends in "...".
+- **"+ New" is the one create button (Neil, 11/13/2026: "let's stick with
+  that instead of + Create ... consistent across Nexus"):** a module's main
+  create button says "+ New" - never "+ Create", "Add <Thing>" or "New
+  <Thing>" - through `components/NewButton.jsx`: one thing to start = it
+  starts it (aria "New <Thing>"); several = its menu (icon, name, one short
+  line). Tasks, Tickets, Notes, People (Person / From Hiring...), Hiring
+  (Candidate, Opening), Asset Management, Passwords (Login / Personal Login /
+  Import From a Spreadsheet...), Training (Course),
+  the Knowledge Base (Page), Forms, Construction (Job), Investor Relations
+  (Deal, Investor), Workflows, Google Posts and Links use it. An empty state's
+  button may name the thing ("New Job"); "Add Field" / "Add Condition" rows
+  inside a form and a form's own confirm button are not create buttons and
+  keep their words. Item Management (Item / Import From a CSV...) and
+  Documents (Document / Sheet / From a Template... / Open a File...; Template
+  / From a Word File... / Add Starter Templates / Letterheads) use it too -
+  Neil, 11/13/2026: the Documents split button is retired.
+  People > New > From Hiring (`people/FromHiringSheet.jsx`) never hires
+  anyone itself: it lists the candidates at Offer and Decision and opens
+  the candidate's card in Hiring (`hr-hiring-<id>`), where Send Hiring
+  Packet and Mark Hired By Hand live.
 - **Popups are sheets from the right** (Neil, 11/01/2026): on a desktop,
   every popup that is a record, a form or a workspace is a SHEET - docked to
   the right edge, the full height, rounded only where it meets the page -
@@ -254,6 +410,14 @@ keep the diff minimal.
   `min(720px, 100vw - 40px)` - a reading width, not the 60% rule - with a
   Shrink / Expand button; short answers keep the small card
   (`support/HelpWidget.jsx`).
+- **Type (Neil, 11/12/2026, DESIGN.md "Type"):** the font is Inter, bundled
+  with the app (`src/fonts.css` - never Google Fonts or a second family), and every
+  text size is on the scale - `FS` in `lib/typeScale.js` (meta 11, label 12,
+  body 13, read 14, title 15, section 18, page 24, figure 32) or the `--fs-*`
+  tokens. `scripts/check-type.mjs` (in `npm run lint`) fails a new off-scale
+  size; old screens move over one module at a time (`SNAP`: 12.5 rounds up
+  to 13), then `--update` lowers its baseline. Off-scale on purpose (the 16px
+  phone fields that stop iOS zooming) = `type-ok: <why>` on the line.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 - **Every amount on every Accounting report drills down to its ledger lines
@@ -296,6 +460,56 @@ keep the diff minimal.
   Bold capped at 1.26, cascade 14ms a row,
   nothing loops, nothing on touch, the phone drawer untouched, the folded
   rail never peeks. The sidebar tooltip (`NavTip`) is the light flyout card.
+  It folds when you click outside it - except in the top header (a header
+  click folding it re-measured the tabs and ate the first click on More) -
+  unless the person keeps it open: the pin at the end of the open rail's top
+  row, the same setting as My Profile > Appearance > Sidebar (Neil,
+  11/12/2026: "keep auto-fold, but fix it"). Keyboard users get Skip to
+  Content (`.nx-skip-link` -> `#nx-main`) as the first Tab stop, and the
+  bell's closed panel is `inert` (`NotificationBell.jsx`). The bell's panel is 620px (Neil, 11/13/2026) and
+  shows ONE scroll bar: while it is open the page's own bar and html's
+  stable gutter are taken off and the body is padded by the same width, so
+  nothing behind it moves.
+  The phone menu (`MobileMenu.jsx`) opens on ONE row - the web's own time
+  clock (`SidebarClock`, the same component as the computer's sidebar, never
+  a phone copy or the old chip; Neil, 11/13/2026) and the close button - then
+  the modules: no N tile or wordmark, no photo, name, job title or tier mark
+  (Neil, 11/13/2026: "Not adding any value just adding bloat"; the phone
+  header already says NEXUS beside it); the header's photo is the way to the
+  profile.
+- **Quick Actions is the bolt (Neil, 11/12/2026, mock
+  https://claude.ai/artifact/KKVpfc4ZqEjyaTUF3DDoDj):** the green bolt in
+  the top header (where the "+" Create menu was, Oct 29 2026) starts things
+  from any screen, in two steps: the top row is four icons, one tap each -
+  New Task, New Ticket, New Note, New Board, in that order (Neil) - then one
+  row per group, and a group row slides to its own list (New, Request,
+  Send) with a line back. Every row STARTS something that is yours (a thing
+  you make, ask for or send) through the module's own create flow; a place
+  to go is the left menu's and search's job, and the punch stays on the
+  left menu's clock - never a row here. The list, the one visibility rule
+  and the layout are `lib/quickCreate.js` (a group of one shows as that
+  action; a group the top row already covers is left out; a person who
+  cannot use one of the four gets the next action they can); the button and
+  menu are `components/QuickCreate.jsx`. A new action = one `ACTIONS` row
+  whose `go` / `compose` / `run` opens the module's own form - never a form
+  in the header, never a third step, never a second quick menu. The Dashboard's
+  Quick Actions widget is RETIRED (Neil, 11/13/2026): `quick-actions` stays in
+  `widgets.jsx` (hidden, retired) so saved boards load - never bring it back. The bolt is
+  green, never yellow or orange (Live accent): `icons/BoltIcon.jsx`, the
+  two-block shape FITTED to the pixels of Neil's reference - corners and each
+  corner's rounding solved until the outlines overlap 97.5%: its tight waist,
+  its lean - then every corner's rounding halved (Neil, 11/13/2026), never
+  redrawn by eye; a THIN 3D OBJECT - stacked slices make solid side walls
+  joined to the face at every corner, never a flat copy behind it like a
+  shadow - with ONE solid green on the face, no gradient (Neil, 11/13/2026:
+  "remove the gradient and keep the slab styling"). It sits on the SAME
+  plain tile as the bell and Help - no edge, no shadow, no tile of its own
+  ("it feels a bit out of place compared to the other icons") - and only a
+  faint green on hover / open marks it. On a phone the menu is a
+  sheet measured from the header itself, never `position: fixed` (the
+  production CSS drops the header's unprefixed backdrop-filter, so "fixed"
+  lands below the screen in Chrome). Still off on purpose (Neil, Oct 29
+  2026): 1:1s, Ask HR, Passwords, Send for Signature, Workflows.
 - **Hold to confirm (Neil, Oct 30 2026, plan
   https://claude.ai/artifact/MU1RMFQ9nHYxSB31XjDwQ1, PRs #883-#884):** an
   action that cannot be taken back (delete forever, void, offboard, end
@@ -308,6 +522,37 @@ keep the diff minimal.
   `dialog.undo`). Keyboard holds work, and a click with no press behind it
   (assistive tech) falls back to the ordinary confirm - keep both. Never
   lengthen the holds or add a second confirm component.
+- **Passwords is a Dashboard tab and ONE list (Neil, 11/18/2026, plan
+  https://claude.ai/artifact/3vdxK7zcuFPeiKkVvKc1xu; `frontend/src/credvault/`):**
+  the module that was Credentials (Credential Vault before 10/28/2026) left
+  the left menu and is the Dashboard's last tab - Home, Approvals, Notes,
+  Links, Passwords. The stored grant, the view id and every server name stay
+  `credvault` / `vault_*`; the address reads /passwords and /credentials,
+  /credvault and every bell still land (`lib/routes.js passwordsSub`). The tab
+  shows only for administrators and holders of the grant, which is still
+  given on purpose and never part of a default bundle (Neil, Oct 14 2026).
+  The screen is a search box, one sentence and one row per login
+  (`LoginList.jsx`): search IS the filter (every word typed is looked for
+  across name, username, site, department, location, company, type, tier,
+  owner and state - never add a filter dropdown); the sentence IS the menu
+  (its phrases are the old collections; a phrase at zero is not shown); one
+  button a row (Open, or Copy with no site; User / Password / Code on hover,
+  and always on a touch screen); a state is words on the row's own line; a
+  login opens as a sheet from the right, never a side pane; Personal is a
+  folded, locked section of the same list, never a tab or a switch.
+  Activity, Trash, Export for an Audit (who can open what, health by
+  department, what rotates next - the old Overview's numbers), Select
+  Several and the sorts are under "..."; never bring back tabs, stat tiles
+  or the on-screen health table. A request for a login is decided in
+  Dashboard > Approvals - Approve asks for the vault's code there
+  (`lib/approvalActions.js` PREFLIGHT, `credvault/vaultCode.jsx`); the vault
+  has no Approvals tab. Two things follow the module to its new home and
+  must keep doing so: an outside guest has no Dashboard, so for a guest the
+  `credvault` view still renders by itself with its own Requests sheet
+  (`views/CredentialVault.jsx`, the NAV item's `dashTab`); and Build Mode
+  captures nothing on the tab (`dev_notes._blocked`, `BuildModeApp`). People
+  see "Passwords" for the place and "login" for one entry - never
+  "Credentials" or "vault" in new copy (the Personal Vault keeps its name).
 - **Full Screen (Neil, 10/31/2026):** a working surface that needs room
   (the workflow builder, Operations) takes `components/FullScreenButton.jsx`
   - `useFullScreen('<module>')` folds the left navigation away and trims the
@@ -360,6 +605,11 @@ keep the diff minimal.
   (the day docked) below - whatever the person's full-day hours. The Time
   Sheet no longer prints a "Bands:" line; the day statuses say the result.
   India contractors never use these (8 h / 4 h credits, `india_contractor_pay`).
+  The bands are an INDIA rule only (Neil, 11/18/2026: "Only applies to
+  India"): a salaried person who does not work in India
+  (`india_contractor_pay.works_in_india`) has any worked day as a full day -
+  only a past weekday with no work at all is docked, and a Sick / Vacation /
+  Personal day is paid leave, never docked (Charmi, 11/18/2026).
 
 - **Hourly company holidays are unpaid** (Neil, 11/04/2026: "Holidays are
   days off for hourly employees"): `_compute_timecard` lists a holiday the
@@ -389,9 +639,27 @@ keep the diff minimal.
   (`task_import.run_import`, `source` paste / typed, a project or none) -
   one transaction, one bell and one batched email per person, the same
   dry run first. Never add a second bulk-create path or loop POST /tasks.
+  A single line typed in Home's add row, My Day or the phone quick-add is
+  read by the Say It parser (`tasks/useTypedTask.js` over `sayTask.js`,
+  rules, no AI - 11/13/2026): the due date, priority and assignee it
+  understood show as removable chips BEFORE Enter (`TypedTaskChips.jsx`),
+  and only a chip on screen is applied - nothing is set silently. My Day
+  reads the date and priority only; the Create Task form keeps its own fields.
   Tasks Home: on a wide window the Updates card leads (left column, first
   in the DOM) and Tasks + Bookmarks stack on the right; a feed that loaded
   empty leaves Tasks on the left; phones stay Tasks, Updates, Bookmarks.
+- **New Task has ONE door (Neil, 11/15/2026, `tasks/TaskCreate.jsx`, plan
+  https://claude.ai/artifact/EzwJbKJsvrGRWwtH1Ui4Ji):** every "new task"
+  button (the module's +, My Tasks, a project, a person, a team, the bolt
+  and Share to Nexus, a form entry) renders `TaskCreate` - never
+  `CreateTaskModal` or `QuickCreateTask` directly. A computer gets the full
+  form as before; a phone gets the chip composer (`QuickCreateTask`: name,
+  note, Due / Assignee / Project / Priority chips opening phone pickers in
+  the sheet - `composerPickers.jsx`, typed words fill the same chips) and
+  then "Task Added" with Open and Add Another (keeps date, people and
+  project; never the priority). Its `defaults` must keep one identity while open (state or a
+  memo). Full Details on a phone groups the form (When, People, Where...)
+  and turns a missing field red only after Create is pressed.
 - **The Tickets desk is queues, not tiles** (Neil, 10/31/2026): the main
   page's tabs (`tickets/queues.js`, in this order: Needs Reply, Unassigned,
   Mine, Due Soon, Waiting, All Open, Done, then To Route / To Approve /
@@ -403,7 +671,13 @@ keep the diff minimal.
   Only Needs Reply, Unassigned, Mine and All Open stand as tabs (Neil,
   11/06/2026: the bar was "too cluttered"); the rest, in the order above,
   sit in ONE "Other Queues" dropdown, and Save View is in the ... menu (no
-  "+ View" tab). Create is the last control in the toolbar. The
+  "+ View" tab). Create is the last control in the toolbar.
+  The bar, calmer (Neil, 11/13/2026): Reports is the header's LAST tab (a
+  place, not a way to show the queue; a queue tab returns to List or Board,
+  whichever was on screen); the toolbar is search and Filters on the left,
+  then View (List / Board, the side pane, Group By, columns), ... (saved
+  views, Export) and Create on the right - no List / Board / Reports
+  switch. On Reports only Filters and Create stand. Phones unchanged. The
   server's `needsReply` flag on every `GET /task-tickets` row (`_needs_reply`
   in routers/tickets.py) decides Needs Reply; the client copy in queues.js
   is only a fallback for a row that arrived without the flag and must stay
@@ -457,7 +731,8 @@ keep the diff minimal.
   (`customData.nexusComment`), so it saves, syncs and exports like any
   shape. ONE tool bar, the best of both: the engine's own tool strip is
   hidden everywhere and its other tools (ellipse, diamond, line, image,
-  frame, laser pointer) are under More Tools; a computer keeps the engine's
+  laser pointer) are under More Tools (Section - the engine's frame - is on
+  the bar itself since 11/12/2026); a computer keeps the engine's
   hints and properties panel, a phone opens that panel above the dock from
   Style. Never bring back a second tool strip.
   **Running a meeting on a board** (Neil, 11/10/2026: "copy from the best of
@@ -488,6 +763,38 @@ keep the diff minimal.
   Pictures) places the KB drawings (`kb/components/drawings.jsx`) as board
   images stored like any picture (`kit-<name>`). Six more templates: Retro,
   Kickoff, SWOT, Fishbone, Site Walk, Weekly Huddle.
+  **Six lifts from Claude Whiteboards** (Neil, 11/12/2026: "Do all 1-6
+  together"; plan https://claude.ai/artifact/VSwYrjHekNh4fhf4vUWd2k). All
+  ordinary board elements and rules - no AI, no new table. SECTIONS
+  (`board/sections.js`): a section is the engine's frame and the ONE way a
+  board groups things - Section is on the main bar ("Section can join the
+  main bar"); Sort puts each group of stickies in a named section they
+  BELONG to (`frameId`; `customData.nexusSortFrame`), never under loose
+  headings, and never touches a section someone drew; a new sticky lands
+  fully inside the section under it (`placeInSection`). THINGS RIDE ALONG
+  (`board/rideAlong.js`): a comment pin belongs to the item it was put on
+  (`customData.nexusOn = { id, dx, dy }`) and moves with it, as does a
+  vote's result line; `Board.jsx`'s `commit` and its `local` change hook
+  both run `rideAlong`, so a new way of moving things gets it for free -
+  whoever moves an item moves its riders, everyone else receives both.
+  WRAP UP (`board/wrapUp.js`): the board as a Note by RULES - sections as
+  headings, stickies with their authors and votes, open comment threads as
+  Open Questions, tasks made as record links, the board embedded on top -
+  shared with the same people as the board ("can be shared with the same
+  people as the board", `wrapUpPeople`), a Record Card on the board
+  (`customData.nexusWrapUp`) opening it, and pressed again it updates that
+  Note. A vote still under way is private and never in it. ARRANGE
+  (`board/arrange.js`): Tidy Up for any selection or a whole section, Align
+  and Space Evenly - the same elements MOVED, never made again; boxes joined
+  by arrows stay with Diagram > Tidy Up. TALK TO THE BOARD: `useDictation`
+  (lib/voice.js) - each sentence a sticky, no button where the browser has
+  no dictation. Every template opens with a title and what it is for
+  (Blank and Grid stay empty); a plain process longer than
+  `graph.CHAIN_WRAP` (6) boxes wraps to the next line. A sticky's words are
+  found among DELETED elements too (`withStickyText`): the engine's repair
+  deletes an empty text, and before 11/12/2026 that lost what was typed on
+  a new sticky - the engine stand-in in the unit tests repairs nothing, so
+  check sticky changes in a real browser.
   Import (the markup bar's Import button, `board/boardImport.js`): a picture
   or every page of a PDF (`pdfPage.renderPdfPages`, 40 at most) goes in
   BEHIND the drawing and LOCKED, stacked top to bottom, and the Pen comes up;
@@ -555,7 +862,7 @@ keep the diff minimal.
   allowed sites is not a site member); a submitter never reviews their own
   entry, and nothing changes an entry's state by itself. Crews fill a form
   from Workday's Fill a Form tile, the shift card (`showOnShifts` for the
-  shift's site), the + menu and the Quick Actions dock; photos and
+  shift's site), the header's Quick Actions (Request); photos and
   signatures go to `task-files/forms/<entryKey>/`; the same `entryKey` sent
   twice is one entry. `form.submitted` / `form.reviewed` are emitted through
   `workflows.emit` at the two choke points in `routers/forms.py` with the
@@ -563,6 +870,25 @@ keep the diff minimal.
   answers. Never add a second form engine, a second entry store or an
   offline path outside the punch-queue pattern (the outbox above is that
   pattern; Fill a Form already uses it - `forms/formsOffline.js`).
+- **Kudos on Teams (Neil, 11/12/2026, `perf_kudos_teams.py`,
+  `docs/Kudos-Teams-Setup.md`):** a kudos posts as its sender to the
+  company's CHANNEL (Settings > Performance > Kudos on Teams,
+  `performance.kudos_teams_target`; the old chat id still resolves),
+  @mentioning the recipient, and keeps its message id. Reactions and
+  channel replies come back as the ONE thanks row (`perf_kudos_thanks`,
+  `via='teams'`) - never a second reaction store; a Nexus thanks claps on
+  the post as that person through the ticket Teams queue (`kudos_react` /
+  `kudos_unreact`). Graph change notifications (`/webhooks/teams/kudos`,
+  `teams_subscriptions`) and polling (`kudos_teams_loop`) call the same
+  `sync_one`. Reading needs the delegated read scopes
+  (`bff_session.GRAPH_KUDOS_*_READ_SCOPES`); without them it waits.
+  Kudos from a closed ticket (Neil, 11/12/2026: "shouldn't be too obvious
+  or people will always do it"): `tickets/TicketKudos.jsx` is ONE quiet line
+  under the satisfaction stars - only for the requester, only on a resolved
+  or closed ticket, only after a 4-5 star rating, only when another Nexus
+  person (not an outside guest) worked it, never on an Ask HR ticket
+  (`kudosOffered` is the rule). It opens the ordinary `GiveKudosModal` with
+  the assignee picked; no prompt, no bell, no second kudos path.
 - **Federal forms (Neil, 11/02/2026, `backend/federal_forms/`,
   `docs/Federal-Forms.md`):** Form W-4, Form I-9 (Section 2 by HR) and the
   Direct Deposit Authorization are filled and signed in Nexus Sign - from
@@ -611,6 +937,21 @@ keep the diff minimal.
   `/my-timecard/sign` returns 410; never add a signing path around this.
   `test_timesheet_review_matrix` drives every state x actor x action - keep it
   passing so nobody gets stuck.
+- **"Submit Your Time Sheet" reminders (Neil, 11/12/2026,
+  `timesheet_due.py`):** ONE rule for a person's own Time Sheets waiting on
+  them, read by the Daily Briefing (Action Required; "With <manager> for
+  Review" under Updates), the Weekly Digest, My Briefing, My Work and the
+  bell. Every pay type (hourly, salaried bi-weekly or monthly, contractors
+  incl. India), the person's own local date, a period with a punch in it,
+  from the period's last day until it is finalized or the next period
+  closes - only the period that just closed, never an older one (Neil,
+  11/12/2026); never the exempt or people who left. Each row
+  carries a `cta` - one solid button (Review and Submit / Fix and Submit /
+  Review and Resubmit / Sign Time Sheet) to `/timeclock/timesheet?start=
+  &type=&do=submit`, which focuses Send to Manager and never submits by
+  itself. The Time Sheet table leads Action Required. The bell fires on
+  the last day and the day after close; Submit / Approve settle it
+  (`settle_bells`). Never add a second reminder rule.
 - HR signing order (Neil, Oct 22 2026): the company NEVER signs before the
   employee - no pre-signed or countersigned document is ever sent out. An
   offer letter is signed by the candidate only (no company signer, no Signs
@@ -676,6 +1017,24 @@ keep the diff minimal.
   `locations` only when there are several. Anything that only exists
   consolidated (the dashboard tabs, the accounting app) takes
   `require_unlimited`.
+- **Investor Relations reads Intacct live** (Neil, 11/11/2026,
+  `investor_books.py`, `routers/investor_books.py`, `investor/Books.jsx`): a
+  deal IS an Intacct entity (`ir_funds.intacct_entity`, e.g. 67000 Greens
+  Austin, LLC) and an investor IS their own partner equity accounts
+  (`ir_investors.intacct_accounts`: 300xx "(E&C)", 310xx "(Contribution)",
+  320xx "(Distribution)", one family per NAME - the numbers do not line up).
+  Capital, cash, book equity and revenue are read through the accounting
+  proxy, never keyed or stored; a figure needs the IR read gate AND the
+  Accounting grant AND the entity in the caller's entity access. Import
+  makes the deal and a linked profile per member and never invents a
+  commitment amount. A member's Capital Account is their accounts' balance;
+  their MEMBERSHIP % is the operating agreement's, typed on the deal's
+  members (kept on `ir_commitments.membership_pct`, a commitment with no
+  amount made if needed) - never worked out from the capital. The investor
+  portal (`GET /portal/books`) shows an investor their OWN capital account
+  and membership, live, on the deals the portal already shows them - no
+  Accounting grant, never another member's accounts. Remove Sample Data
+  (Dashboard) deletes only what the demo seed made.
 - Personal financial statements (`routers/pfs.py`, Sep 2026) are the most
   sensitive records in Nexus: owners and the explicit `pfs` grant only
   (`bypass_level="owner"` - an administrator's role does NOT open them). Never
@@ -843,7 +1202,7 @@ keep the diff minimal.
   mirrored in `canvas/shape.js`) carries step kinds only.
 
 - **Notes (Neil, Oct 29-31 2026, `routers/notes.py`, `frontend/src/notes/`).**
-  Dashboard > Notes (the page), Quick Note (the slide-over from the + menu's
+  Dashboard > Notes (the page), Quick Note (the slide-over from Quick Actions'
   New Note, or `quickNoteKeys()` - Ctrl+Alt+N / Ctrl+Cmd+N) and the
   dashboard's Notes widget read and write the same rows (`nexus_notes`,
   `nexus_note_versions`, `nexus_note_presence` - each needs RLS on dev and prod). A
@@ -859,6 +1218,48 @@ keep the diff minimal.
   recognition (no AI, no key); a browser without it shows no microphone.
   Make a Task works on the page and in Quick Note. A new editor feature goes
   in BOTH the web toolbar and the phone bar (`NoteEditor.jsx`).
+  The page starts things from ONE "+ New" (Neil, 11/12/2026,
+  `notes/NewMenu.jsx`: Note, Board, Note From a Template..., Import a
+  File...) - never a second create button in the bar. Today's day in the
+  list carries a gentle green wash and keeps its place in the current month
+  even before anything is written in it; every other day is plain.
+
+- **Meeting Notes (Neil, 11/12/2026, `routers/meetings.py`,
+  `frontend/src/notes/meetings/`, `docs/Meeting-Notes.md`).** A Teams
+  meeting's notes are a Notes note (source kind `meeting`, one
+  `nexus_meeting_notes` row per person per occurrence, RLS on dev and prod)
+  made from the person's own calendar. Teams transcribes; Nexus LINKS, never
+  copies: the transcript is read through Graph when opened (15 minutes in
+  memory), the recording is reached through the meeting chat - never write
+  either to the database or storage. The join link and transcript are only
+  for the invite's people, whoever the note is shared with; externals and
+  Act As are refused. A line written during the meeting carries `data-at`
+  (Unix seconds, `meetings/meetingClock.js`, in every Notes schema) - keep
+  it in the sanitizer. Graph lookups reuse `routers/meeting_files.py`. A
+  summary is AI, behind the switch.
+  Phase 2: highlights (action items / decisions / questions) are RULES in
+  `meeting_highlights.py`, computed per read, never stored; Last Time reads
+  the series' previous note (`series_id`) and its open tasks through
+  record_links' task walls; the Transcript Ready bell is OPT-IN per person
+  (`meeting_notes.alerts:<email>`) and its pass (`meeting_ready_loop`) asks
+  Teams for the transcript LIST only, never the words, and bells once.
+  WHO HAS IT: the `meeting_notes.access` nexus_settings row (per database)
+  - `"everyone": true` on dev and prod since 11/12/2026 (Neil: "Open it to
+  everyone now"), after a testers-only start; `meetings.may_use` reads it,
+  never a code default. Set `"everyone": false` to go back to the listed
+  `emails` only.
+  Phase 3 (Neil, 11/12/2026): meetings outside Teams are transcribed ON THE
+  DEVICE - Whisper in a Web Worker (`notes/meetings/capture/`), the
+  browser's own speech service only as the fallback. This is NOT the
+  Anthropic key and spends nothing (Neil chose it); never move it to a
+  server or a paid API. The text lives in `nexus_meeting_transcripts` (RLS
+  on dev and prod) - words only, NEVER the audio; every session needs the
+  consent box (refused without it, who and when kept). The runtime and model
+  come only through `functions/ml/[[path]].js` (pinned versions, runtime
+  SHA-256 checked, listed files only) - never a CDN in the page, never a
+  `blob:` script (`env.useWasmCache = false`). The consent question sets
+  `backToClose={false}`: over the phone's note sheet, taking its Back entry
+  off closed the note.
 
 - **Documents (Neil, 10/31/2026, plan https://claude.ai/artifact/VZxM4iUKKnmPfxsNvxxPdJ,
   `routers/documents.py`, `components/DocumentsBrowser.jsx`,
@@ -882,9 +1283,20 @@ keep the diff minimal.
   name (and a template's category) is asked on Close in
   `docRibbon/NameOnClose.jsx`, filled in with the first line or
   "Document - MM/DD/YYYY" (`lib/untitled.js`), and a blank, unnamed draft
-  that is the caller's own (`mine` on the GET) is not kept. The rest of the
-  ways in (a sheet, a template, a file, Word, starters, Letterheads) sit under
-  the split button's arrow - one primary button per toolbar.
+  that is the caller's own (`mine` on the GET) is not kept. Every way in
+  (a document, a sheet, a template, a file, Word, starters, Letterheads) is a
+  row of the toolbar's ONE "+ New" (Neil, 11/13/2026; the split button is
+  retired).
+  **On a phone** (Neil, 11/13/2026: "absolutely sucks on mobile") the
+  builder is one header row - Close, the name and save state, Send and the
+  Document Menu (`docRibbon/PhoneBar.jsx` `PhoneMenuSheet`: the SAME
+  `docMenus` the computer's menu bar draws, never a phone copy of a command)
+  - the page, and `DocPhoneBar` on the keyboard (the Notes phone bar's look:
+  undo, bold, lists, alignment, a picture; Aa for styles, link, table, page
+  break and All Formatting). The ribbon waits until All Formatting or a
+  command that needs one of its boxes (`openOnRibbon`) opens it, then slides
+  sideways (`RibbonBar scroll`) with Done. The Files tab bar and the status
+  bar step aside while a document is open.
 
 - **Sheets and live editing (Neil, 11/05/2026, `routers/documents.py`
   "Working together", `frontend/src/sheets/`, `frontend/src/docLive/`).** A
@@ -925,6 +1337,11 @@ keep the diff minimal.
   third party, no CDN (the CSP is self only), no AI path. Each open, save, send,
   redact, protect and export writes one Audit Log row through
   `POST /pdf-tools/events` (name, page count and places only, never the file).
+  On a touch screen (Neil, 11/13/2026: "You can't drop") the start is no
+  drop box: Choose a File, then tiles for Take a Photo (the camera hands the
+  picture to `#fileInput`, so it opens as a PDF the ordinary way), Egnyte and
+  Documents (`nexus-bridge.js` mountLanding puts them in that row) - and the
+  phone drops the PDF Tools title card. The computer keeps the drop box.
   Unsaved work: `setInlineDirty` for navigate() and `usePopGuard` for Back and
   Forward, which App's popstate listener asks first (`runPopGuard`) - never a
   second popstate listener, because Chrome runs a window's listeners in the
@@ -951,6 +1368,28 @@ keep the diff minimal.
   Every Nexus write goes through `routers.tasks._create_task` / `update_task`
   as the facility project's owner - never a second write path.
 
+- **Operations > Tenants (Neil, 11/17/2026, `routers/ops_tenants.py`,
+  `ops_access.py`, `frontend/src/operations/Tenants.jsx`, plan
+  https://claude.ai/artifact/3muEVfH7rFHGcC8MNyE4TP).** Cubby stays the single
+  source of truth. Nexus keeps a READ-ONLY copy of tenant contact details,
+  gate codes, second contacts and vehicle plates in `ops_tenants` /
+  `ops_lease_extras` - written by the 15-minute sync, never editable in
+  Nexus - and opening a tenant record re-reads that tenant LIVE from Cubby
+  (the stored copy, with its time, when Cubby does not answer). The
+  `cubby_*` tables and their blobs stay stripped: never put contact details
+  there, or every Operations screen and report starts showing them. Never
+  stored: date of birth, ID numbers, card or bank numbers. Gate codes are
+  stored encrypted and shown plainly (internal only). Access is
+  `ops_access.reach`: Administrators and above see every facility and tenant
+  details; everyone else needs a rule in `ops_access_rules` (Settings >
+  Operations > Tenants And Facility Access), by role or by person, that names
+  the facilities and turns Tenant Details on - no rule, no tenant details.
+  The two tables are in `audit_capture.NOISE_TABLES` and are written with
+  plain table statements so a phone number never reaches the change log;
+  every record open writes one AuditLog row. What Nexus plans in bulk (rates,
+  rent increases) goes to Cubby as an import file; only small single actions
+  (a note, a task, a move-out notice) may go directly, each behind its own
+  switch.
 - **Knowledge Base filing and links (Neil, 11/02/2026):** a page APPLIES TO
   many departments (`kb_documents.departments`, the original comma column,
   read through `kb_core.departments_of`; default = its collection's
@@ -1084,7 +1523,7 @@ lists every one and counts the archived rows. The custom-status merge that
 used to live in the sync is `backend/task_status_dedupe.py`; the API's
 public-URL helper is `app_url.public_base`.
 
-## Asset Management module (Neil's)
+## Asset Management module
 
 `frontend/src/asset/` (the module, mounted by `views/AssetModule.jsx`) and
 `backend/routers/property_assets.py`. The data is real: 24+ properties,
@@ -1157,6 +1596,38 @@ utilities, AHJ, vendors, maintenance, permits, timeline) and an activity log.
   the verify lists: https://claude.ai/artifact/MZR3srrjuzCQQYHTMERgNU .
 - Equipment and vehicles pair with Item Management (`AddItemModal`) - do not
   build a second warranty/serial system there.
+- **The top menu (Neil, 11/17/2026 redesign):** the portfolio's header tabs
+  are Overview (the landing tab, `asset-overview`), Properties
+  (`asset-portfolio` - old links keep working), Fleet, Development,
+  Maintenance, Dates, Activity (`lib/navigation.js` `PORTFOLIO_TABS`). Fleet
+  and Development hide when empty, Maintenance until `useTabSignals` says the
+  person may see it; a plain number after Maintenance / Dates (ModuleTabs'
+  opt-in `count`), never a pill. Every tab's first row is "+ New" (Property /
+  Vehicle / Heavy Equipment / Import) and "..." (Trash, Import, Export as CSV);
+  only Properties puts its view's name on the left. An open asset's Back line
+  names where it came from (`useTrailCrumbs`), never a bare arrow; its tabs
+  are Overview, Maintenance, Records (a dropdown of the collections with rows
+  plus "Add ..." for the empty ones), Timeline (only with rows), Activity;
+  `AssetTitleBand` walks the list it was opened from ("< 7 of 23 >", J / K).
+- **Properties is a register, not a page of cards:** List by default (the
+  mode kept per person, `useTableValue('asset-portfolio', 'mode')`),
+  Gallery and Map one click. ONE query model, `lib/portfolioQuery.js`:
+  filters, FACETED counts, the smart search's phrase rules (no AI, like
+  sayTask), the suggested views and the presets other tabs open
+  (`goTab('properties', { preset })`), the view in the address
+  (`asset-portfolio~<encodeView>`; the search words are never written),
+  group sums. A parcel group is one row whose numbers SUM its parcels. "CA" and
+  "California" are one state; managers are matched case- and space-blind; My
+  Properties matches the signed-in name / email (`myNames`, the Overview's
+  rule). Saved views are per person (`useTableValue('asset-portfolio',
+  'views')`); sharing is Copy Link - never a shared-views store. Bulk Set
+  Company / Asset Manager / Stage goes through the store, one row save and one
+  Activity entry per asset (`lib/assetPatch.js` keeps the snapshot in step).
+  RETIRED: the Needs Attention band on the portfolio, its chips and the red
+  unseen-log badge, and the "Need a Company" chip (Neil approved) - replaced
+  by the needs line under the summary, bulk Set Company and the Company
+  filter's No Company. Data Gaps opens from the Missing Key Details view,
+  Flagged from "Review N flagged fields"; never bring the band back.
 - **Preventive maintenance (Neil, 11/03/2026, Construction plan phase 5).**
   Tickets ARE the work orders - no second queue. A preventive schedule is a
   `property_maintenance_services` row with `kind` calendar / floating /

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { NAV } from './Sidebar';
-import { orderNav, railSections, KICKERS } from './navOrder';
+import { orderNav, railSections, KICKERS, onRail } from './navOrder';
 
 describe('orderNav', () => {
   it('sorts the Modules group alphabetically and leaves the other groups alone', () => {
@@ -19,19 +19,24 @@ describe('orderNav', () => {
     expect(orderNav(NAV).length).toBe(NAV.length);
   });
 
-  it('reads the Work group as Tasks, Tickets, Files, Credentials, with Workflows under System (Neil, 11/10/2026)', () => {
+  it('reads the Work group as Tasks, Tickets, Files, with Workflows under System (Neil, 11/10/2026); Passwords is a Dashboard tab (11/18/2026)', () => {
     const groups = [[]];
-    for (const item of orderNav(NAV)) {
+    for (const item of orderNav(NAV).filter((i) => i.divider || onRail({ ...i, menuOnly: false }, false))) {
       if (item.divider) groups.push([]); else groups[groups.length - 1].push(item.label);
     }
-    expect(groups[1]).toEqual(['Tasks', 'Tickets', 'Files', 'Credentials']);
+    expect(groups[1]).toEqual(['Tasks', 'Tickets', 'Files']);
+    // An outside guest has no Dashboard, so the row stays on their rail; it stays in NAV for search either way.
+    const passwords = NAV.find((i) => i.view === 'credvault');
+    expect(passwords.label).toBe('Passwords');
+    expect(onRail(passwords, false)).toBe(false);
+    expect(onRail(passwords, true)).toBe(true);
     expect(groups[2]).not.toContain('Workflows');
     const shown = (labels) => labels.filter((l) => !NAV.find((i) => i.label === l)?.menuOnly);
     expect(shown(groups[groups.length - 1])).toEqual(['Help Center', 'Workflows', 'Settings']);
     // Files is the one module for Egnyte and Documents: either grant shows it.
     expect(NAV.filter((i) => i.label === 'Files').map((i) => [i.view, i.grants])).toEqual([['documents', ['documents', 'egnyte']]]);
     expect(NAV.some((i) => i.view === 'egnyte')).toBe(false);
-    expect(groups[2]).not.toContain('Credentials');
+    expect(groups[2]).not.toContain('Passwords');
   });
 });
 
@@ -48,16 +53,16 @@ describe('railSections', () => {
   };
 
   it('splits Modules into Operations, Finance and Company behind dividers', () => {
-    const rail = railSections(orderNav(NAV).filter((i) => !i.menuOnly), KICKERS);
+    const rail = railSections(orderNav(NAV).filter((i) => onRail(i, false)), KICKERS);
     const got = sections(rail);
     expect(got.map((g) => g.kicker)).toEqual(['My Desk', 'Work', 'Operations', 'Finance', 'Company', 'System']);
     const by = Object.fromEntries(got.map((g) => [g.kicker, g.labels]));
     expect(by.Operations).toEqual(['Asset Management', 'Construction', 'IT', 'Item Management', 'Operations']);
     expect(by.Finance).toEqual(['Accounting', 'Investor Relations']);
     expect(by.Company).toEqual(['Marketing', 'People']);
-    expect(by.Work).toEqual(['Tasks', 'Tickets', 'Files', 'Credentials']);
+    expect(by.Work).toEqual(['Tasks', 'Tickets', 'Files']);
     expect(by.System).toEqual(['Help Center', 'Workflows', 'Settings']);
-    expect(rail.filter((i) => !i.divider)).toHaveLength(orderNav(NAV).filter((i) => !i.menuOnly && !i.divider).length);
+    expect(rail.filter((i) => !i.divider)).toHaveLength(orderNav(NAV).filter((i) => onRail(i, false) && !i.divider).length);
   });
 
   it('names the Modules divider after the first section a person can see, and adds no empty sections', () => {

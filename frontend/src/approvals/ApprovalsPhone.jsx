@@ -31,7 +31,7 @@ import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { Modal } from '../tasks/components';
 import { MOTION, motionWait, useChangeFlash, useFlip, useReducedMotion } from '../lib/motion';
-import { runsInline } from '../lib/approvalActions';
+import { preflight, runsInline } from '../lib/approvalActions';
 import ApprovalCard from './ApprovalCard';
 import FilterSheet from './FilterSheet';
 import NoteSheet from './NoteSheet';
@@ -114,6 +114,9 @@ export default function ApprovalsPhone({
     if (Date.now() < lockUntil.current) return;
     if (action.key === 'open' || !runsInline(row, action.key)) { onAct(row, action); return; }
     if (needsNote(action)) { setAsking({ row, action }); return; }
+    // A step the decision needs first (a login request's code): asked before the card leaves.
+    const pre = preflight(row, action.key);
+    if (pre) { Promise.resolve(pre(row)).then((ok) => { if (ok) fire(row, action, '', meta); }).catch(() => {}); return; }
     fire(row, action, '', meta);
   };
   const review = (row) => setReviewing(row);
@@ -134,7 +137,8 @@ export default function ApprovalsPhone({
   const head = (
     <div className="apv-ph-head">
       <div className="apv-ph-title">
-        <h2>Approvals</h2>
+        {/* No "Approvals" heading: the tab above already says it (phone
+            review, 11/13/2026). The count stays. */}
         {/* Not while the list loads - never "0 Waiting" before it is known. */}
         {counts && !loading && <b key={bump} className={`apv-ph-pill${bump ? ' is-bump' : ''}`} aria-live="polite">{waiting} Waiting</b>}
       </div>
@@ -176,7 +180,7 @@ export default function ApprovalsPhone({
           <div className="apv-ph-empty">
             {/* The green check is earned: only "All caught up" gets it. */}
             <span className={`apv-ph-empty-ic${filtering ? ' is-filtered' : ''}`}>{filtering ? <SearchX size={32} /> : <CheckCircle2 size={34} />}</span>
-            <div className="apv-empty-t">{filtering ? 'No approvals match your filters' : 'All caught up'}</div>
+            <div className="apv-empty-t">{filtering ? 'No Approvals Match Your Filters' : 'All Caught Up'}</div>
             <div className="apv-empty-d">{filtering ? 'Clear the search or the filters to see everything waiting on you.'
               : kind !== 'all' ? `Nothing in ${labelOf(kind)} waiting on you.`
                 : canApprove ? 'Nothing waiting on you.' : 'Anything that needs your signature or acceptance will show up here.'}</div>

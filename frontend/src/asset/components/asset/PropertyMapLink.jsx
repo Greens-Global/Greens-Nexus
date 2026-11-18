@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { MapPin, ChevronDown, X } from 'lucide-react';
+import { MapPin, ChevronDown, X, Maximize2 } from 'lucide-react';
 import { Card } from '../shared/Card.jsx';
 import { snapMap } from '../../lib/format.js';
+import { pinFor } from '../../lib/geo.js';
 
 /**
  * Build a clean "Street, City, State Zip" search string from an asset's address fields.
@@ -79,6 +80,79 @@ function toEmbedUrl(url) {
 }
 
 /**
+ * Where an asset's map points (one rule for the overview's Location block and the map card):
+ * the exact pin from a pasted Google Maps link, else the server's geocoded point (`geo`,
+ * lib/geo.js pinFor), else a search of the address. `openUrl` is for a link the person
+ * clicks - never print it (Neil, 11/17/2026: no raw Google Maps URL on the page).
+ */
+export function mapTargets(asset) {
+  const searchText = [formatAddressForSearch(asset), asset.county ? withCountySuffix(asset.county) : ''].filter(Boolean).join(', ');
+  const searchQuery = encodeURIComponent(searchText || asset.name || '');
+  const customLink = (asset.mapUrl || snapMap(asset)['google maps link'] || '').trim();
+  const pin = pinFor(asset);
+  const customEmbedUrl = customLink ? toEmbedUrl(customLink) : '';
+  const embedUrl = pin ? `https://www.google.com/maps?q=${pin[0]},${pin[1]}&z=16&output=embed`
+    : customEmbedUrl || `https://www.google.com/maps?q=${searchQuery}&output=embed`;
+  const openUrl = customLink || (pin ? `https://www.google.com/maps/search/?api=1&query=${pin[0]},${pin[1]}` : `https://www.google.com/maps/search/?api=1&query=${searchQuery}`);
+  const source = customLink && (pin || customEmbedUrl) ? 'link' : pin ? 'geo' : 'address';
+  return { searchText, customLink, embedUrl, openUrl, source, hasLocation: !!(searchText || customLink || pin) };
+}
+
+/** The overview rail's map (Neil, 11/17/2026): a real map of the stored point, a line that
+ *  says where the pin comes from, and Larger Map. With no address, one plain line. */
+export function AssetLocationMap({ asset, onAddAddress }) {
+  const t = mapTargets(asset);
+  const [full, setFull] = useState(false);
+  if (!t.hasLocation) {
+    return (
+      <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+        No address is on file, so there is no map yet.{' '}
+        {onAddAddress && <button type="button" onClick={onAddAddress} style={LINK}>Add the Address</button>}
+      </p>
+    );
+  }
+  const where = t.source === 'link' ? 'Pinned from the Google Maps link on file.' : t.source === 'geo' ? 'Placed from the address.' : 'Searched from the address - the pin may be approximate.';
+  return (
+    <>
+      <div style={{ height: 160, borderRadius: 10, overflow: 'hidden', background: 'var(--bg-secondary)' }}>
+        <iframe title={`Map of ${asset.name || 'this asset'}`} src={t.embedUrl} loading="lazy" referrerPolicy="no-referrer-when-downgrade"
+          style={{ width: '100%', height: '100%', border: 0, display: 'block' }} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+        <span style={{ flex: 1, minWidth: 0 }}>{where}</span>
+        <button type="button" onClick={() => setFull(true)} style={{ ...LINK, fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Maximize2 size={12} aria-hidden="true" /> Larger Map
+        </button>
+      </div>
+      {full && <FullMap name={asset.name} embedUrl={t.embedUrl} openUrl={t.openUrl} onClose={() => setFull(false)} />}
+    </>
+  );
+}
+
+const LINK = { border: 'none', background: 'none', padding: 0, fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-green))', cursor: 'pointer' };
+
+function FullMap({ name, embedUrl, openUrl, onClose }) {
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`Map of ${name || 'this asset'}`} onClick={onClose}
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+      style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.82)', display: 'flex', flexDirection: 'column', padding: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, color: '#fff' }}>
+        <strong style={{ fontSize: 15 }}>{name || 'Map'}</strong>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
+          <a href={openUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: '#fff', fontSize: 13, textDecoration: 'underline' }}>Open in Google Maps</a>
+          <button type="button" autoFocus onClick={onClose}
+            style={{ border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}>
+            Close <X size={14} style={{ verticalAlign: '-2px' }} />
+          </button>
+        </div>
+      </div>
+      <iframe title={`Map of ${name || 'this asset'}, larger`} src={embedUrl} onClick={(e) => e.stopPropagation()}
+        style={{ flex: 1, width: '100%', border: 'none', borderRadius: 10, backgroundColor: '#fff' }} />
+    </div>
+  );
+}
+
+/**
  * Per-asset embedded map card: shows a Google Maps preview (iframe) plus "Open in Google
  * Maps" / expand-to-fullscreen actions. Prefers an exact pin from a pasted Google Maps link
  * (`p.mapUrl`, or the "Google Maps Link" snapshot field for records that predate the
@@ -124,38 +198,10 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
           borderBottom: open ? '1px solid var(--border-color)' : 'none',
         }}
       >
-        {number != null && (
-          <span
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: 6,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              color: '#fff',
-              backgroundColor: 'var(--pine)',
-            }}
-          >
-            {number}
-          </span>
-        )}
-        <strong style={{ fontSize: '0.95rem' }}>Map</strong>
+        {number != null && <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>{number}</span>}
+        <strong style={{ fontSize: 15 }}>Map</strong>
         {customLink && open && (
-          <span
-            style={{
-              fontSize: '0.7rem',
-              fontWeight: 700,
-              color: 'hsl(var(--color-green))',
-              backgroundColor: 'hsl(var(--color-green) / 0.12)',
-              padding: '2px 8px',
-              borderRadius: 999,
-            }}
-          >
-            EXACT PIN
-          </span>
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'hsl(var(--color-green))' }}>Exact pin</span>
         )}
         <ChevronDown
           size={18}
@@ -180,7 +226,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
             const value = e.target.value.trim();
             if (value !== customLink) onSave({ 'Google Maps Link': value });
           }}
-          style={{ width: '100%', fontSize: '0.76rem', padding: '5px 10px', marginBottom: 10 }}
+          style={{ width: '100%', fontSize: 12, padding: '5px 10px', marginBottom: 10 }}
         />
       )}
 
@@ -199,16 +245,16 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
               target="_blank"
               rel="noreferrer"
               className="secondary-btn"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', fontSize: '0.78rem', padding: '5px 12px' }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', fontSize: 13, padding: '5px 12px' }}
             >
               <MapPin size={14} />
               Open in Google Maps
             </a>
-            <button className="secondary-btn" onClick={() => setFullscreen(true)} style={{ fontSize: '0.78rem', padding: '5px 12px' }}>
+            <button className="secondary-btn" onClick={() => setFullscreen(true)} style={{ fontSize: 13, padding: '5px 12px' }}>
               ⤢ Expand
             </button>
             {(customLink ? !customEmbedUrl : true) && (
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                 {customLink
                   ? 'Showing the area - paste a full maps.google.com link (with the @lat,lng) to drop the pin exactly; your link still powers Open in Google Maps'
                   : 'Paste a Google Maps link above to drop the pin exactly.'}
@@ -226,7 +272,7 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
             alignItems: 'center',
             justifyContent: 'center',
             color: 'var(--text-secondary)',
-            fontSize: '0.82rem',
+            fontSize: 13,
             backgroundColor: 'var(--bg-secondary)',
           }}
         >
@@ -248,20 +294,20 @@ export function PropertyMapLink({ p: asset, n: number, onSave }) {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, color: '#fff' }}>
-            <strong style={{ fontSize: '1rem' }}>{asset.name || 'Map'}</strong>
+            <strong style={{ fontSize: 15 }}>{asset.name || 'Map'}</strong>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
               <a
                 href={openUrl}
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                style={{ color: '#fff', fontSize: '0.82rem', textDecoration: 'underline' }}
+                style={{ color: '#fff', fontSize: 13, textDecoration: 'underline' }}
               >
                 Open in Google Maps
               </a>
               <button
                 onClick={() => setFullscreen(false)}
-                style={{ border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: '0.85rem' }}
+                style={{ border: 'none', background: 'rgba(255,255,255,0.18)', color: '#fff', borderRadius: 8, padding: '6px 14px', cursor: 'pointer', fontSize: 13 }}
               >
                 Close <X size={14} style={{ verticalAlign: '-2px' }} />
               </button>

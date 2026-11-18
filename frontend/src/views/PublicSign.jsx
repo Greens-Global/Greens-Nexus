@@ -202,7 +202,7 @@ export default function PublicSign({ token }) {
           <div style={{ width: 36, height: 36, borderRadius: 10, background: '#14532d', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15 }}>G</div>
           <div>
             <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--ink, #111827)' }}>Nexus Sign</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)' }}>Secure electronic signature</div>
+            <div style={{ fontSize: 12, color: 'var(--muted, #6b7280)' }}>Secure electronic signature</div>
           </div>
         </div>
         <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 16,
@@ -214,7 +214,7 @@ export default function PublicSign({ token }) {
             signer has no other route to these - there is no Nexus shell here. */}
         <footer style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line, #e5e7eb)',
           display: 'flex', flexWrap: 'wrap', gap: '6px 16px', alignItems: 'center',
-          justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted, #9ca3af)' }}>
+          justifyContent: 'space-between', fontSize: 12, color: 'var(--muted, #9ca3af)' }}>
           <span style={{ fontWeight: 600 }}>Powered by Nexus Sign</span>
           <span style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px' }}>
             <a href="/terms" target="_blank" rel="noreferrer" style={legalLink}>Terms of Use</a>
@@ -236,7 +236,7 @@ export default function PublicSign({ token }) {
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between',
       border: '1px solid var(--line, #e5e7eb)', background: 'var(--mist, #f6f7f9)', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
       <div style={{ minWidth: 200 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted, #6b7280)', letterSpacing: '.06em', textTransform: 'uppercase' }}>Sent by</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted, #6b7280)', letterSpacing: '.06em', textTransform: 'uppercase' }}>Sent by</div>
         <div style={{ fontSize: 14, fontWeight: 700, marginTop: 3 }}>{s.name}</div>
         {(s.title || s.entity) && (
           <div style={{ fontSize: 12, color: 'var(--muted, #6b7280)' }}>
@@ -244,7 +244,7 @@ export default function PublicSign({ token }) {
           </div>
         )}
       </div>
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12.5 }}>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13 }}>
         {s.email && (
           <a href={`mailto:${s.email}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#15803d', textDecoration: 'none', fontWeight: 600 }}>
             <Mail size={13} /> {s.email}
@@ -262,8 +262,8 @@ export default function PublicSign({ token }) {
   if (error) return shell(
     <div style={{ textAlign: 'center', padding: '30px 10px' }}>
       <AlertTriangle size={34} style={{ color: 'hsl(30,80%,48%)', marginBottom: 12 }} />
-      <h2 style={{ fontSize: 17, margin: '0 0 8px' }}>Can't open this document</h2>
-      <p style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', margin: 0 }}>{error}</p>
+      <h2 style={{ fontSize: 18, margin: '0 0 8px' }}>Can't open this document</h2>
+      <p style={{ fontSize: 13, color: 'var(--muted, #6b7280)', margin: 0 }}>{error}</p>
     </div>, 620);
 
   // Completion. The three outcomes are deliberately distinct (review section
@@ -277,12 +277,12 @@ export default function PublicSign({ token }) {
           // A crisp arrival, no bounce (motion pass, 11/03/2026): --dur-md on --ease-out.
           animation: prefersReducedMotion() ? 'none' : 'nexus-sign-done 220ms cubic-bezier(.16,1,.3,1)' }} />}
       <style>{'@keyframes nexus-sign-done{from{transform:scale(.86);opacity:0}}'}</style>
-      <h2 style={{ fontSize: 19, margin: '0 0 8px', fontWeight: 800 }}>
+      <h2 style={{ fontSize: 18, margin: '0 0 8px', fontWeight: 800 }}>
         {done === 'declined' ? 'Declined'
           : done === 'signed-final' ? 'Fully Executed'
             : 'Signed'}
       </h2>
-      <p style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', margin: '0 auto', maxWidth: 440, lineHeight: 1.6 }}>
+      <p style={{ fontSize: 13, color: 'var(--muted, #6b7280)', margin: '0 auto', maxWidth: 440, lineHeight: 1.6 }}>
         {done === 'declined'
           ? 'The sender has been notified and will be in touch about signing on paper.'
           : done === 'signed-final'
@@ -296,7 +296,7 @@ export default function PublicSign({ token }) {
         </button>
       )}
       {done === 'signed' && (
-        <div style={{ marginTop: 18, display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--muted, #6b7280)' }}>
+        <div style={{ marginTop: 18, display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted, #6b7280)' }}>
           <Clock size={14} /> Waiting for the other signers
         </div>
       )}
@@ -314,12 +314,12 @@ export default function PublicSign({ token }) {
     <form onSubmit={e => { e.preventDefault(); if (codeInput.trim()) load(codeInput.trim()); }}
       style={{ textAlign: 'center', padding: '26px 10px' }}>
       <Lock size={32} style={{ color: '#14532d', marginBottom: 12 }} />
-      <h2 style={{ fontSize: 17, margin: '0 0 8px' }}>{payload.title}</h2>
-      <p style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', margin: '0 0 4px' }}>
+      <h2 style={{ fontSize: 18, margin: '0 0 8px' }}>{payload.title}</h2>
+      <p style={{ fontSize: 13, color: 'var(--muted, #6b7280)', margin: '0 0 4px' }}>
         This document is protected - enter the access code the sender shared with you.
       </p>
       {payload.wrongCode && (
-        <p style={{ fontSize: 12.5, color: 'hsl(350,65%,48%)', margin: '6px 0 0', fontWeight: 600 }}>
+        <p style={{ fontSize: 13, color: 'hsl(350,65%,48%)', margin: '6px 0 0', fontWeight: 600 }}>
           That code wasn't right - try again.
         </p>
       )}
@@ -342,7 +342,7 @@ export default function PublicSign({ token }) {
         <h1 style={{ fontSize: 18, fontWeight: 800, margin: 0, flex: 1 }}>{payload.title}</h1>
         {payload.status === 'completed' && (
           <button onClick={download} disabled={busy}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#15803d', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#15803d', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
             <Download size={13} /> Download Signed Copy
           </button>
         )}
@@ -375,7 +375,7 @@ export default function PublicSign({ token }) {
         <p style={{ textAlign: 'center', margin: '0 0 8px' }}>
           <button onClick={downloadCopy} disabled={busy}
             style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
-              color: 'var(--muted, #6b7280)', fontSize: 12.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              color: 'var(--muted, #6b7280)', fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Download size={13} /> Download a copy to read or print
           </button>
         </p>
@@ -392,7 +392,7 @@ export default function PublicSign({ token }) {
           <span style={{ flex: 1 }}>{actionError}</span>
           <button type="button" onClick={() => setActionError('')} aria-label="Dismiss"
             style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'inherit',
-              fontSize: 16, fontWeight: 700, lineHeight: 1 }}>
+              fontSize: 15, fontWeight: 700, lineHeight: 1 }}>
             &times;
           </button>
         </div>

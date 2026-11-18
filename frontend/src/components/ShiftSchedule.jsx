@@ -47,7 +47,7 @@ import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber,
 // people shown, and the Open Shifts rows carry their own hours.
 
 const RULE = { width: 1, height: 14, background: 'var(--line)', flexShrink: 0 };
-const LINK_BTN = { border: 'none', background: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700 };
+const LINK_BTN = { border: 'none', background: 'none', padding: '2px 0', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 };
 const WEEK_LIMIT_MIN = 40 * 60;   // over this in a week reads red (Neil, Sep 30)
 // The grid's short conflict lines, said in full for the list under the
 // schedule (Neil, Oct 28 2026: "made very clear in simple English").
@@ -1380,7 +1380,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
         <CalendarPlus size={17} />
       </span>
       <span style={{ minWidth: 0, flex: '1 1 260px' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700 }}>No shifts yet for {teamName} {days.length > 7 ? 'in these two weeks' : 'this week'}</div>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>No shifts yet for {teamName} {days.length > 7 ? 'in these two weeks' : 'this week'}</div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
           {managing ? "Place everyone's usual hours in one go, or bring last week forward. Both land as drafts until you share." : 'Nothing is scheduled here yet.'}
         </div>
@@ -1388,9 +1388,9 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       {managing && (
         <span style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" className="primary-btn" disabled={busy} onClick={() => fillUsual(soleSection.members.filter((m) => rowEditable(m.email)).map((m) => m.email), teamName)}
-            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><CalendarDays size={13} /> Fill Automatically</button>
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}><CalendarDays size={13} /> Fill Automatically</button>
           <button type="button" className="secondary-btn" disabled={busy} onClick={() => copyLastWeek(soleSection.isGroup ? soleSection : null)}
-            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><CopyIcon size={13} /> Copy Last Week</button>
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}><CopyIcon size={13} /> Copy Last Week</button>
         </span>
       )}
     </div>
@@ -1520,7 +1520,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
             ? <span key={i} data-labor-budget="" style={overBudget ? { color: 'hsl(var(--color-orange))', fontWeight: 600 } : undefined}>{p.text}</span>
             : <Fragment key={i}>{p.text}</Fragment>))}
         </span>
-        {phone && <span data-labor-help="" style={{ fontSize: 11.5, color: 'var(--muted)' }}>{laborHelp(!!labor?.payHidden)}</span>}
+        {phone && <span data-labor-help="" style={{ fontSize: 12, color: 'var(--muted)' }}>{laborHelp(!!labor?.payHidden)}</span>}
       </span>
     ) : null,
     adherence ? <AdherenceLine text={adherence} style={{ marginBottom: 0, minWidth: 0, whiteSpace: phone ? 'normal' : undefined }} /> : null,
@@ -1547,7 +1547,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
           exportFile: exportSchedule, print: printView, viewOptions: () => setOpen('view'), discard: discardAll, shortcuts: () => setKeysOpen(true) }} />
 
       {weatherNote.length > 0 && !weatherSetupHidden && (
-        <div role="note" aria-label="Weather setup" data-weather-setup="" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, fontSize: 12.5, flexWrap: 'wrap',
+        <div role="note" aria-label="Weather setup" data-weather-setup="" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, fontSize: 13, flexWrap: 'wrap',
           background: 'hsl(var(--color-orange) / 0.1)', color: 'var(--ink)', border: '1px solid hsl(var(--color-orange) / 0.35)' }}>
           <CloudRain size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
           <span style={{ flex: 1, minWidth: 200 }}>
@@ -1563,13 +1563,13 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       )}
 
       {(query.trim() || presetFilter || prefs.mine) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 13, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <span>Showing {[query.trim() ? `people matching "${query.trim()}"` : '', presetFilter ? presetName(presetFilter) : '', prefs.mine ? 'your shifts only' : ''].filter(Boolean).join(' · ')}</span>
           <button type="button" className="secondary-btn" onClick={() => { setQuery(''); setPresetFilter(''); setPrefs({ ...prefs, mine: false }); }} style={{ fontSize: 12 }}>Clear Filters</button>
         </div>
       )}
       {copied && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: 'var(--wk-brand-tint)', border: '1px dashed var(--wk-brand)', borderRadius: 10, fontSize: 12.5 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, padding: '8px 12px', background: 'var(--wk-brand-tint)', border: '1px dashed var(--wk-brand)', borderRadius: 10, fontSize: 13 }}>
           <span style={{ fontWeight: 700 }}>{cut ? 'Cut' : 'Copied'} {copied.shiftName || copied.label || 'shift'} ({shiftTimeText(copied)})</span>
           <span style={{ color: 'var(--muted)' }}>- select a day and press Ctrl+V{cut ? ' to move it there' : ' (Ctrl+click to pick several days), or double-click an empty day'}.</span>
           <div style={{ flex: 1 }} />
@@ -1578,14 +1578,14 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       )}
 
       {!phone && (teamPicker || teamFacts.length > 0) && (
-        <div data-team-bar="" style={{ display: 'flex', alignItems: 'center', gap: '6px 12px', marginBottom: 8, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
+        <div data-team-bar="" style={{ display: 'flex', alignItems: 'center', gap: '6px 12px', marginBottom: 8, flexWrap: 'wrap', fontSize: 13, color: 'var(--muted)' }}>
           {teamPicker}
           {teamFacts.map((f, i) => <Fragment key={i}>{(i > 0 || teamPicker) && <span aria-hidden="true" style={RULE} />}{f}</Fragment>)}
         </div>
       )}
       {data && view !== 'month' && conflictList.length > 0 && (
         <section aria-label="To review" data-conflict-list="" style={{ marginBottom: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px 14px', flexWrap: 'wrap', fontSize: 12.5, minHeight: phone ? 44 : undefined }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px 14px', flexWrap: 'wrap', fontSize: 13, minHeight: phone ? 44 : undefined }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, color: 'var(--ink)' }}>
               <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: 'hsl(var(--color-orange))' }} />
               {conflictList.length} To Review
@@ -1649,11 +1649,11 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
       </div>
       )}
       {data && (data.offSchedule || []).length > 0 && (
-        <div data-off-schedule="" style={{ marginTop: 8, fontSize: 12.5, color: 'var(--muted)' }}>
+        <div data-off-schedule="" style={{ marginTop: 8, fontSize: 13, color: 'var(--muted)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span>{data.offSchedule.length === 1 ? '1 person is' : `${data.offSchedule.length} people are`} off the schedule -</span>
             <button type="button" aria-expanded={showOff} onClick={() => setShowOff((v) => !v)}
-              style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 2 }}>
+              style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--ink)', textDecoration: 'underline', textUnderlineOffset: 2 }}>
               {showOff ? 'Hide' : 'Show'}
             </button>
           </div>
@@ -1672,14 +1672,14 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
         </div>
       )}
       {data && teamZoneLabel && (
-        <div data-zone-note="" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>
+        <div data-zone-note="" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>
       )}
       {phone && data && teamFacts.length > 0 && (
-        <div data-team-facts="" style={{ display: 'grid', gap: 6, marginTop: 12, fontSize: 12.5, color: 'var(--muted)' }}>{teamFacts.map((f, i) => <div key={i} style={{ minWidth: 0 }}>{f}</div>)}</div>
+        <div data-team-facts="" style={{ display: 'grid', gap: 6, marginTop: 12, fontSize: 13, color: 'var(--muted)' }}>{teamFacts.map((f, i) => <div key={i} style={{ minWidth: 0 }}>{f}</div>)}</div>
       )}
 
       {ghost && (
-        <div style={{ position: 'fixed', left: ghost.x + 12, top: ghost.y + 10, zIndex: 1600, pointerEvents: 'none', fontSize: 11.5, fontWeight: 800, transform: reduce ? 'none' : 'rotate(-2deg)',
+        <div style={{ position: 'fixed', left: ghost.x + 12, top: ghost.y + 10, zIndex: 1600, pointerEvents: 'none', fontSize: 12, fontWeight: 800, transform: reduce ? 'none' : 'rotate(-2deg)',
           background: 'var(--card)', border: '1px solid var(--wk-brand)', borderRadius: 6, padding: '4px 9px', boxShadow: '0 6px 18px rgba(0,0,0,0.18)' }}>
           {ghost.copy ? `Copy ${ghost.label}` : ghost.label}
         </div>
@@ -1751,7 +1751,7 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
           background: 'var(--ink)', color: 'var(--card)', borderRadius: 12, padding: '10px 10px 10px 16px', fontSize: 13, fontWeight: 600, boxShadow: '0 12px 32px rgba(15,23,42,0.28)', maxWidth: 'min(560px, 92vw)' }}>
           <span style={{ minWidth: 0 }}>{undo.msg}</span>
           <button type="button" onClick={undoNow} style={{ border: 'none', background: 'color-mix(in srgb, var(--card) 16%, transparent)', color: 'inherit', borderRadius: 8, padding: '6px 12px',
-            fontFamily: 'inherit', fontSize: 12.5, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}><Undo2 size={13} /> Undo</button>
+            fontFamily: 'inherit', fontSize: 13, fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}><Undo2 size={13} /> Undo</button>
           <button type="button" aria-label="Dismiss" onClick={() => { clearTimeout(undoTimer.current); setUndo(null); }}
             style={{ border: 'none', background: 'none', color: 'inherit', opacity: 0.7, cursor: 'pointer', display: 'inline-flex', padding: 4 }}><XIcon size={14} /></button>
         </div>
@@ -1762,8 +1762,8 @@ export default function ShiftSchedule({ toastOk, toastErr, focus = null }) {
             <DialogHead title="Keyboard Shortcuts" onClose={() => setKeysOpen(false)} />
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 14px', marginTop: 10, alignItems: 'center' }}>
               {SHORTCUTS.map(([k, what]) => [
-                <span key={`k${k}`} style={{ justifySelf: 'start', fontSize: 11.5, fontWeight: 700, padding: '2px 7px', borderRadius: 6, border: '1px solid var(--line)', background: 'var(--bg)', whiteSpace: 'nowrap' }}>{k}</span>,
-                <span key={`w${k}`} style={{ fontSize: 12.5, color: 'var(--muted)' }}>{what}</span>,
+                <span key={`k${k}`} style={{ justifySelf: 'start', fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 6, border: '1px solid var(--line)', background: 'var(--bg)', whiteSpace: 'nowrap' }}>{k}</span>,
+                <span key={`w${k}`} style={{ fontSize: 13, color: 'var(--muted)' }}>{what}</span>,
               ])}
             </div>
           </div>

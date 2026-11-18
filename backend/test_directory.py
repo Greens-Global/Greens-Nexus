@@ -42,6 +42,9 @@ CO = "co-dir-test"
 # California), so "today" here is the Pacific date, not the UTC one.
 from zoneinfo import ZoneInfo  # noqa: E402
 TODAY = datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+# What a California browser's getTimezoneOffset() says right now (PDT 420,
+# PST 480) - a fixed 420 made these tests fail every winter.
+LA_OFFSET = -int(datetime.now(ZoneInfo("America/Los_Angeles")).utcoffset().total_seconds() // 60)
 
 
 class DirectoryTests(unittest.TestCase):
@@ -83,7 +86,7 @@ class DirectoryTests(unittest.TestCase):
         db.add(models.NexusRole(email=ADMIN, role="administrator", display_name="Ada"))
         now = datetime.now(timezone.utc)
         db.add(models.TimePunch(id="p1", employee_email=STAFF, kind="in", at=(now - timedelta(hours=2)).isoformat(),
-                                local_date=TODAY, tz_offset_min=420, created_at=now.isoformat()))
+                                local_date=TODAY, tz_offset_min=LA_OFFSET, created_at=now.isoformat()))
         db.add(models.TimeOffRequest(id="t1", employee_email=LEAVE, type="sick", start_date=TODAY,
                                      end_date=(datetime.fromisoformat(TODAY) + timedelta(days=2)).date().isoformat(), status="approved",
                                      note="surgery", confidential=1, created_at=now.isoformat()))
@@ -169,7 +172,7 @@ class DirectoryTests(unittest.TestCase):
         self._get(STAFF)
         db = database.SessionLocal()
         db.add(models.TimePunch(id="p2", employee_email=STAFF, kind="out", at=datetime.now(timezone.utc).isoformat(),
-                                local_date=TODAY, tz_offset_min=420, created_at=datetime.now(timezone.utc).isoformat()))
+                                local_date=TODAY, tz_offset_min=LA_OFFSET, created_at=datetime.now(timezone.utc).isoformat()))
         db.commit()
         db.close()
         by = {p["email"]: p for p in self._get(STAFF).json()["people"]}
@@ -180,13 +183,25 @@ class DirectoryTests(unittest.TestCase):
         db = database.SessionLocal()
         yesterday = datetime.now(timezone.utc) - timedelta(days=2)
         db.add(models.TimePunch(id="p-old", employee_email=BOSS, kind="out", at=yesterday.isoformat(),
-                                local_date=yesterday.date().isoformat(), tz_offset_min=420,
+                                local_date=yesterday.date().isoformat(), tz_offset_min=LA_OFFSET,
                                 created_at=yesterday.isoformat()))
         db.commit()
         db.close()
         by = {p["email"]: p for p in self._get(STAFF).json()["people"]}
         self.assertEqual(by[BOSS]["availability"], {"state": "out", "label": "Off Shift", "detail": ""})
         self.assertIsNone(by[ADMIN]["availability"])     # never punches: nothing guessed
+
+    def test_a_punch_from_before_the_clock_change_still_names_the_zone(self):
+        # Punched in October (PDT, offset 420), read after the November
+        # switch to PST: still Los Angeles, never Phoenix (UTC-7 today).
+        from routers.directory import _tz_name
+
+        class _E:
+            state, country = "CA", "US"
+        self.assertEqual(_tz_name(_E(), 420, "2026-10-20T16:00:00+00:00"), "America/Los_Angeles")
+        self.assertEqual(_tz_name(_E(), 480, "2026-12-01T16:00:00+00:00"), "America/Los_Angeles")
+        self.assertEqual(_tz_name(_E(), 420, "2026-12-01T16:00:00+00:00"), "America/Phoenix")
+        self.assertEqual(_tz_name(_E(), 420, "not a date"), _tz_name(_E(), 420))
 
     def test_a_guest_is_refused(self):
         r = self._get(GUEST)
@@ -254,10 +269,11 @@ class DirectoryTests(unittest.TestCase):
         self.assertFalse(admin["enabled"])
         self.assertIn("Presence.Read.All", admin["reason"])
         self.assertIn("Teams-Presence-Setup", admin["reason"])
-        # Two rosters (staff: the whole org with the walls off; the Administrator:
-        # their company - 11/02/2026), one refusal each, then remembered - not
-        # retried per poll.
-        self.assertEqual(post.call_count, 2)
+        # One roster: with the walls off staff and the Administrator both read
+        # the whole organization (Administrators follow the walls switch -
+        # Pranshu, 11/11/2026), one refusal, then remembered - not retried per
+        # poll.
+        self.assertEqual(post.call_count, 1)
         self.assertEqual(again["reason"], admin["reason"])
 
     def test_presence_is_off_when_graph_is_not_configured(self):

@@ -145,7 +145,7 @@
      "type": "single",
      "q": "You need every transaction on one bank account for October. Where is that report?",
      "options": [
-      "Reports > Banking & Credit Cards",
+      "Reports > Ledger & Banking",
       "Records > General Ledger Accounts",
       "Tools > Import Hub > Bank",
       "Financing > Loans > Stress Test"
@@ -153,7 +153,7 @@
      "answer": [
       0
      ],
-     "explanation": "Bank Activity and Credit Card Activity sit under Reports > Banking & Credit Cards. Import Hub builds files for Intacct; it does not show the account's activity.",
+     "explanation": "Bank Activity and Credit Card Activity sit under Reports > Ledger & Banking. Import Hub builds files for Intacct; it does not show the account's activity.",
      "lesson": "05-the-reports-and-the-drill-down.md"
     }
    ]
@@ -829,7 +829,7 @@
      "Aged Receivables in Operations",
      "Records > Customers in Accounting",
      "The Trial Balance for the property",
-     "MRI under Audit & Insights"
+     "Monthly Recurring Income under Trackers"
     ],
     "answer": [
      0
@@ -1048,7 +1048,7 @@
      "Account Reconciliations on Close",
      "Records > Journals",
      "Report Builder, bank filter",
-     "MRE under Audit & Insights"
+     "Monthly Recurring Expenses under Trackers"
     ],
     "answer": [
      0

@@ -675,19 +675,20 @@ const iifDate = (p) => (p ? `${p.m}/${p.d}/${p.y}` : '');
  * Hours-file entries -> QuickBooks Desktop IIF time import, the same header
  * and TIMEACT columns as Nexus's /timeclock/export.iif: one row per entry,
  * the payroll item named Regular / Overtime / Double-time / Sick / Vacation
- * Pay, a row with a job billable. An entry without a date takes `fallbackDate`
- * (ISO, the period end).
+ * Pay, never billable. An entry without a date takes `fallbackDate` (ISO, the
+ * period end). No Timer header and never billable (Charmi, 11/12/2026):
+ * QuickBooks Desktop 2022+ imports with Import > IIF Files, and refuses a
+ * billable row without a service item. `company` is kept for callers.
  */
+// eslint-disable-next-line no-unused-vars
 export function buildIif(entries, { fallbackDate = '', company = 'Greens Global' } = {}) {
   const fb = parseDate(fallbackDate);
   const lines = [
-    '!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME',
-    `TIMERHDR\t8\t0\t${iifClean(company)}\tN\tY\t0`,
     '!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS',
   ];
   for (const e of entries || []) {
     const job = iifClean(e.job);
-    lines.push(`TIMEACT\t${iifDate(e.date || fb)}\t${job}\t${iifClean(e.name)}\t\t${PITEM[classifyHoursItem(e.item)]}\t${e.hours.toFixed(2)}\t\t\tY\t${job ? 1 : 0}`);
+    lines.push(`TIMEACT\t${iifDate(e.date || fb)}\t${job}\t${iifClean(e.name)}\t\t${PITEM[classifyHoursItem(e.item)]}\t${e.hours.toFixed(2)}\t\t\tY\t0`);
   }
   return `${lines.join('\r\n')}\r\n`;
 }

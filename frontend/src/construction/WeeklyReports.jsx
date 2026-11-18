@@ -88,7 +88,7 @@ function ReportPhotos({ project, report, locked, onChanged }) {
   const x = { position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, padding: '1px 6px', cursor: 'pointer' };
   return (
     <div style={{ marginTop: 6, marginBottom: 14 }} data-report-photos="">
-      <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Photos in This Report</div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Photos in This Report</div>
       {pairs.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, marginBottom: 8 }}>
           {pairs.map((pr) => (
@@ -131,7 +131,7 @@ function Section({ sectionKey, section, locked, onChange, showAiOriginal }) {
   return (
     <div style={{ marginBottom: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <strong style={{ fontSize: '0.9rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{label}</strong>
+        <strong style={{ fontSize: 15 }}>{label}</strong>
         {edited && (
           <button type="button" onClick={() => setShowAi((v) => !v)}
             title="See what the AI originally wrote"
@@ -158,7 +158,7 @@ function Section({ sectionKey, section, locked, onChange, showAiOriginal }) {
       {showAi && (
         <div style={{ marginBottom: 6, padding: '8px 10px', borderRadius: 6,
                       backgroundColor: 'var(--bg-primary)', border: '1px dashed var(--border-color)',
-                      fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                      fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
           <Sparkles size={11} style={{ verticalAlign: -1, marginRight: 4 }} />
           {section.ai_text || '(the AI wrote nothing for this section)'}
         </div>
@@ -167,9 +167,9 @@ function Section({ sectionKey, section, locked, onChange, showAiOriginal }) {
       {editable ? (
         <textarea className="form-input" rows={Math.min(10, Math.max(3, Math.ceil(text.length / 90)))}
           value={text} onChange={(e) => onChange(sectionKey, e.target.value)}
-          style={{ resize: 'vertical', fontFamily: 'inherit', fontSize: '0.85rem', lineHeight: 1.5 }} />
+          style={{ resize: 'vertical', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.5 }} />
       ) : (
-        <p style={{ fontSize: '0.85rem', lineHeight: 1.55, margin: 0, whiteSpace: 'pre-line',
+        <p style={{ fontSize: 13, lineHeight: 1.55, margin: 0, whiteSpace: 'pre-line',
                     color: text ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
           {text || '(assembled from records at render time)'}
         </p>
@@ -276,10 +276,10 @@ export default function WeeklyReports({ project, canReview }) {
     <div style={CARD}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
         <div>
-          <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>
+          <h3 style={{ fontSize: 18, marginBottom: 4 }}>
             Weekly Reports
           </h3>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: 0 }}>
             Drafted from approved daily logs. Edit, then publish.
           </p>
         </div>
@@ -287,7 +287,7 @@ export default function WeeklyReports({ project, canReview }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <label htmlFor="report-week" style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Week</label>
             <select id="report-week" className="form-input" value={week} onChange={(e) => setWeek(e.target.value)}
-              style={{ width: 'auto', padding: '6px 10px', fontSize: '0.85rem' }}>
+              style={{ width: 'auto', padding: '6px 10px', fontSize: 13 }}>
               {weeks.map((w, i) => (
                 <option key={w} value={w}>{i === 0 ? `This Week (${formatDate(w, w)})` : `Week of ${formatDate(w, w)}`}</option>
               ))}
@@ -302,24 +302,24 @@ export default function WeeklyReports({ project, canReview }) {
       {error && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', marginBottom: 16,
                       borderRadius: 8, backgroundColor: 'hsl(var(--color-red) / 0.08)',
-                      border: '1px solid hsl(var(--color-red) / 0.3)', fontSize: '0.85rem' }}>
+                      border: '1px solid hsl(var(--color-red) / 0.3)', fontSize: 13 }}>
           <AlertTriangle size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0 }} />
           <span style={{ flex: 1 }}>{error}</span>
-          <button className="secondary-btn" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={load}>Retry</button>
+          <button className="secondary-btn" style={{ padding: '4px 12px', fontSize: 13 }} onClick={load}>Retry</button>
         </div>
       )}
 
       {reports === null ? (
-        <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+        <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
           Loading reports&hellip;
         </div>
       ) : reports.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-secondary)' }}>
           <FileText size={30} style={{ opacity: 0.4, marginBottom: 12 }} />
-          <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
             No reports yet
           </div>
-          <p style={{ fontSize: '0.85rem', maxWidth: 460, margin: '0 auto' }}>
+          <p style={{ fontSize: 13, maxWidth: 460, margin: '0 auto' }}>
             A report is drafted from the daily logs a manager has approved that week. Approve some logs first, then draft it.
           </p>
         </div>
@@ -332,7 +332,7 @@ export default function WeeklyReports({ project, canReview }) {
               return (
                 <button key={r.id} type="button" onClick={() => { setOpenId(r.id); setEdits({}); }}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                           borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem',
+                           borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
                            border: `1px solid ${on ? 'var(--pine)' : 'var(--border-color)'}`,
                            backgroundColor: on ? 'var(--bg-primary)' : 'transparent',
                            fontWeight: on ? 600 : 400 }}>
@@ -347,14 +347,14 @@ export default function WeeklyReports({ project, canReview }) {
           {open && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
-                <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{open.title}</strong>
+                <strong style={{ fontSize: 15 }}>{open.title}</strong>
                 {locked && open.status === 'published' && (
                   <span title="A published report is immutable. Generate again to create a new version."
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.75rem',
                              color: 'var(--text-secondary)' }}><Lock size={11} />Locked</span>
                 )}
               </div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 18 }}>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>
                 {formatDate(open.weekStart, open.weekStart)} to {formatDate(open.weekEnd, open.weekEnd)}
                 {open.stats?.logs != null && ` · ${open.stats.logs} approved log${open.stats.logs === 1 ? '' : 's'}`}
                 {open.stats?.crewDaysPunched ? ` · ${open.stats.crewDaysPunched} crew-days from punches` : open.stats?.crewDays ? ` · ${open.stats.crewDays} crew-days` : ''}
@@ -373,7 +373,7 @@ export default function WeeklyReports({ project, canReview }) {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 20,
                             paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
-                <div style={{ flex: 1, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                <div style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)' }}>
                   {Object.keys(edits).length
                     ? `${Object.keys(edits).length} unsaved edit${Object.keys(edits).length === 1 ? '' : 's'}`
                     : open.publishedAt ? `Published by ${open.approvedByName || personName(open.approvedBy)}` : 'No unsaved changes'}

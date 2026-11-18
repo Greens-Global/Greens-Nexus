@@ -24,7 +24,7 @@ const STATUS_COLOR = {
 };
 const ROW_STATUS = { scheduled: ['Scheduled', '#64748b'], deducted: ['Repaid', '#16a34a'] };
 const PAY_METHODS = [['ach', 'ACH / Bank Transfer'], ['payroll', 'With Payroll'], ['check', 'Check'], ['other', 'Other']];
-const lbl = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '10px 0 4px' };
+const lbl = { fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '10px 0 4px' };
 const small = { fontSize: 12, padding: '5px 10px' };
 const pill = { display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' };
 const todayIso = () => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; };
@@ -91,7 +91,7 @@ function AdvanceForm({ grant, email, name, payCurrency = 'USD', maxInstallments 
           {busy ? <><Spinner size={13} /> Sending…</> : grant ? 'Grant Advance' : 'Send To HR'}
         </button>
       </>}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 4 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
         {grant ? 'Approved at once. Mark it Paid Out once it is paid - repayment starts the pay period after.'
           : `HR approves it and pays it out. It is repaid from ${name}'s pay, starting the pay period after it is paid out.`}
       </div>
@@ -105,7 +105,7 @@ function AdvanceForm({ grant, email, name, payCurrency = 'USD', maxInstallments 
           <label style={lbl} htmlFor="sa-n">Repay Over (Pay Periods)</label>
           <input id="sa-n" className="form-input" type="number" min="1" max={maxInstallments} step="1" style={{ width: '100%' }}
             value={f.installments} onChange={set('installments')} />
-          {per > 0 && n > 1 && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>About {money(per, payCurrency)} a pay period.</div>}
+          {per > 0 && n > 1 && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>About {money(per, payCurrency)} a pay period.</div>}
         </div>
       </div>
       <label style={lbl} htmlFor="sa-reason">What It Is For</label>
@@ -164,7 +164,7 @@ function ScheduleEditor({ adv, onClose, onSaved, toastOk, toastErr }) {
         <button type="button" className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
         <button type="button" className="primary-btn" onClick={save} disabled={busy || !ok}>Save Schedule</button>
       </>}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)' }}>
         {money(adv.balance, adv.currency)} is still owed. Pick the pay periods it comes out of - any day of the period works,
         and a finalized period moves to the next open one.
       </div>
@@ -232,14 +232,14 @@ function AdvanceRow({ a, mine, asker, onChanged, toastOk, toastErr }) {
         {a.paidOn && <span>Paid out {day(a.paidOn)}</span>}
         {balance && <span>Repaid {money(a.repaid, a.currency)} · Balance {money(a.balance, a.currency)}</span>}
       </div>
-      {a.reason && <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 4 }}>{a.reason}</div>}
+      {a.reason && <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 4 }}>{a.reason}</div>}
       {a.decisionNote && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>HR: {a.decisionNote}</div>}
       {a.schedule.length > 0 && (
         <div style={{ marginTop: 8, border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden' }}>
           {a.schedule.map((s, i) => {
             const [word, color] = ROW_STATUS[s.status] || [s.status, '#64748b'];
             return (
-              <div key={s.id} style={{ borderTop: i ? '1px solid var(--wk-line2)' : 'none', padding: '7px 10px', fontSize: 12.5 }}>
+              <div key={s.id} style={{ borderTop: i ? '1px solid var(--wk-line2)' : 'none', padding: '7px 10px', fontSize: 13 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <span style={{ color: 'var(--ink)', minWidth: 0, flex: 1 }}>Pay period {day(s.periodStart)} - {day(s.periodEnd)}{s.carriedFrom ? ' (carried forward)' : ''}</span>
                   {s.amount !== undefined && <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{money(s.status === 'deducted' ? s.deductedAmount : s.amount, s.currency)}</span>}
@@ -324,12 +324,12 @@ function AdvanceRow({ a, mine, asker, onChanged, toastOk, toastErr }) {
               <DateField value={pay.paidOn} onChange={(v) => setPay((p) => ({ ...p, paidOn: v || '' }))} max={todayIso()} placeholder="MM/DD/YYYY" title="Paid out on" style={{ width: '100%' }} />
             </div>
           </div>
-          <label style={{ display: 'grid', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>Method
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Method
             <select className="form-input" value={pay.method} onChange={(e) => setPay((p) => ({ ...p, method: e.target.value }))}>
               {PAY_METHODS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
             </select>
           </label>
-          <label style={{ display: 'grid', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>Reference
+          <label style={{ display: 'grid', gap: 4, fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Reference
             <input className="form-input" value={pay.ref} onChange={(e) => setPay((p) => ({ ...p, ref: e.target.value }))} placeholder="Transfer or check number" />
           </label>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

@@ -57,31 +57,87 @@ def with_signature(html: str) -> str:
     return f"{html}{SIGNATURE_HTML}"
 
 
-def send_chat_message(token: str, chat_id: str, html: str) -> None:
+def _message_body(html: str, mentions=None) -> dict:
+    body = {"body": {"contentType": "html", "content": with_signature(html)}}
+    if mentions:
+        body["mentions"] = mentions
+    return body
+
+
+def send_chat_message(token: str, chat_id: str, html: str, mentions=None) -> dict:
     """POST one message into a Teams chat as the token's user. Raises on failure
-    so the caller records the reason. Mirrors the frontend's postChatMessage."""
+    so the caller records the reason. Mirrors the frontend's postChatMessage.
+    Returns Graph's message ({id, webUrl, ...}) for a caller that keeps it;
+    `mentions` is Graph's list for the <at id="n"> tags in the html."""
     r = httpx.post(
         f"{GRAPH}/chats/{chat_id}/messages",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"body": {"contentType": "html", "content": with_signature(html)}},
+        json=_message_body(html, mentions),
         timeout=15,
     )
     if r.status_code >= 400:
         raise RuntimeError(f"Graph {r.status_code}: {r.text[:180]}")
+    return _json_or_empty(r)
 
 
-def send_channel_message(token: str, team_id: str, channel_id: str, html: str) -> None:
+def send_channel_message(token: str, team_id: str, channel_id: str, html: str, mentions=None) -> dict:
     """POST one message into a Teams channel as the token's user (a new post
     in the channel). Needs ChannelMessage.Send; the user must be a member of
-    the team - and of the channel, if it is private. Raises on failure."""
+    the team - and of the channel, if it is private. Raises on failure.
+    Returns Graph's message, as send_chat_message does."""
     r = httpx.post(
         f"{GRAPH}/teams/{team_id}/channels/{channel_id}/messages",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"body": {"contentType": "html", "content": with_signature(html)}},
+        json=_message_body(html, mentions),
         timeout=15,
     )
     if r.status_code >= 400:
         raise RuntimeError(f"Graph {r.status_code}: {r.text[:180]}")
+    return _json_or_empty(r)
+
+
+def send_channel_reply(token: str, team_id: str, channel_id: str, message_id: str, html: str) -> dict:
+    """POST a reply in a channel post's thread as the token's user
+    (ChannelMessage.Send). Raises on failure; returns Graph's reply."""
+    r = httpx.post(
+        f"{GRAPH}/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=_message_body(html),
+        timeout=15,
+    )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Graph {r.status_code}: {r.text[:180]}")
+    return _json_or_empty(r)
+
+
+def message_path(kind: str, team_id: str, conv_id: str, message_id: str) -> str:
+    """The Graph path of one message in a channel ('channel') or a chat."""
+    if kind == "channel":
+        return f"/teams/{team_id}/channels/{conv_id}/messages/{message_id}"
+    return f"/chats/{conv_id}/messages/{message_id}"
+
+
+def set_reaction(token: str, path: str, reaction: str, on: bool = True) -> None:
+    """setReaction / unsetReaction on the message at `path` (message_path) as
+    the token's user - ChatMessage.Send in a chat, ChannelMessage.Send in a
+    channel. `reaction` is a Unicode emoji or one of Teams' legacy names
+    (like, heart, laugh, surprised, sad, angry). Raises on failure."""
+    r = httpx.post(
+        f"{GRAPH}{path}/{'setReaction' if on else 'unsetReaction'}",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"reactionType": reaction},
+        timeout=15,
+    )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Graph {r.status_code}: {r.text[:180]}")
+
+
+def _json_or_empty(r) -> dict:
+    try:
+        v = r.json()
+    except (ValueError, AttributeError):   # an empty 201, or a stand-in response without a body
+        return {}
+    return v if isinstance(v, dict) else {}
 
 
 def send_chat_message_urgent(token: str, chat_id: str, html: str) -> None:
@@ -241,9 +297,13 @@ def deliver_ticket_row(db, row) -> bool:
         import feature_requests
         return feature_requests.deliver(db, row)
     if (getattr(row, "kind", "") or "") == "kudos":
-        # A kudos for the chat Settings names (perf_feedback.py).
+        # A kudos for the channel or chat Settings names (perf_feedback.py).
         import perf_feedback
         return perf_feedback.deliver_teams(db, row)
+    if (getattr(row, "kind", "") or "") in ("kudos_react", "kudos_unreact"):
+        # A Nexus thanks mirrored onto that kudos post (perf_kudos_teams.py).
+        import perf_kudos_teams
+        return perf_kudos_teams.deliver_reaction(db, row)
     if (getattr(row, "kind", "") or "") == "build_mode":
         # A Build Session card for the chat its author picked, screenshots
         # inline (build_mode_chat.py).

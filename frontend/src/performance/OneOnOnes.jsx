@@ -29,7 +29,7 @@ export function OneOnOneList({ items, onOpen, empty = 'No 1:1s yet.' }) {
             border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--ink)' }}>
           <span className="wkc-chip"><CalendarClock size={14} /></span>
           <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600 }}>With {s.withName}</span>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>With {s.withName}</span>
             <span style={{ display: 'block', ...muted, fontSize: 12, marginTop: 2 }}>
               {s.status === 'ended' ? 'Ended' : s.next ? `Next ${formatDateTime(s.next.at)}` : 'Nothing scheduled'} · {s.cadenceLabel}
             </span>
@@ -129,11 +129,11 @@ function Agenda({ meeting, series, onChange, toastErr }) {
       {!meeting.agenda.length && <div style={{ ...muted, marginBottom: 6 }}>Nothing on the agenda yet - add what you want to talk about.</div>}
       <div style={{ display: 'grid', gap: 4 }}>
         {meeting.agenda.map(a => (
-          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5 }}>
+          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
             <input type="checkbox" checked={a.done} aria-label={`Talked about: ${a.text}`}
               onChange={e => run(api.perfAgendaUpdate(a.id, { done: e.target.checked }))} />
             <span style={{ flex: 1, textDecoration: a.done ? 'line-through' : 'none', color: a.done ? 'var(--muted)' : 'var(--ink)' }}>{a.text}</span>
-            <span style={{ ...muted, fontSize: 11.5 }}>{a.byName}</span>
+            <span style={{ ...muted, fontSize: 12 }}>{a.byName}</span>
             {a.mine && meeting.status === 'scheduled' && (
               <button type="button" className="secondary-btn" aria-label={`Remove ${a.text}`} title="Remove"
                 onClick={() => run(api.perfAgendaRemove(a.id))} style={{ padding: 4 }}><Trash2 size={13} /></button>
@@ -178,7 +178,7 @@ function Actions({ meeting, series, onChange, toastErr }) {
       {!meeting.actions.length && <div style={{ ...muted, marginBottom: 6 }}>No action items.</div>}
       <div style={{ display: 'grid', gap: 4 }}>
         {meeting.actions.map(a => (
-          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, flexWrap: 'wrap' }}>
+          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, flexWrap: 'wrap' }}>
             <input type="checkbox" checked={a.done} aria-label={`Done: ${a.text}`}
               onChange={e => api.perfActionUpdate(a.id, { done: e.target.checked }).then(onChange).catch(err => toastErr?.(err?.message || 'Could not update it.'))} />
             <span style={{ flex: 1, minWidth: 140, textDecoration: a.done ? 'line-through' : 'none' }}>{a.text}</span>
@@ -197,7 +197,7 @@ function Actions({ meeting, series, onChange, toastErr }) {
             <span className="form-input" style={{ display: 'inline-flex', alignItems: 'center', width: 160 }}>
               <DateField value={due} onChange={setDue} noPast placeholder="No due date" style={{ width: '100%' }} />
             </span>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               <input type="checkbox" checked={makeTask} onChange={e => setMakeTask(e.target.checked)} /> Make It a Task
             </label>
             <button type="submit" className="secondary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
@@ -310,7 +310,7 @@ export function OneOnOneModal({ seriesId, onClose, onChanged, toastOk, toastErr 
                 <div style={LBL}>{label}</div>
                 {list.map(m => (
                   <button key={m.id} type="button" onClick={() => setPick(m.id)} aria-current={m.id === pick ? 'true' : undefined}
-                    style={{ textAlign: 'left', padding: '7px 9px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5,
+                    style={{ textAlign: 'left', padding: '7px 9px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
                       background: m.id === pick ? 'var(--wk-brand-tint)' : 'transparent', color: m.id === pick ? 'var(--wk-brand)' : 'var(--ink)', fontWeight: m.id === pick ? 700 : 500 }}>
                     {formatDateTime(m.at)}{m.status !== 'scheduled' ? ` · ${MEETING_STATUS[m.status]?.label || m.status}` : ''}
                   </button>

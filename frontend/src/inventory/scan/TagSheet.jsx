@@ -33,7 +33,7 @@ const PRINT_CSS = `
 .nx-tag-name { font-weight: 700; line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; word-break: break-word; }
 .nx-tag-serial { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nx-tag-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.nx-tag-seg button { border: none; background: var(--card); color: var(--ink); font: 600 12.5px Inter, sans-serif; padding: 7px 12px; cursor: pointer; }
+.nx-tag-seg button { border: none; background: var(--card); color: var(--ink); font: 600 13px Inter, sans-serif; padding: 7px 12px; cursor: pointer; }
 .nx-tag-seg button[aria-pressed="true"] { background: var(--nx-primary, #1f7a44); color: #fff; }
 @media print {
   @page { size: letter portrait; margin: 0; }
@@ -183,8 +183,8 @@ export default function TagSheet({ items, onClose, origin = '', loadQr, loadTags
       <style>{PRINT_CSS}</style>
       <div className="nx-tag-toolbar" ref={toolbarRef} tabIndex={-1} aria-label="Tag sheet options">
         <div style={{ minWidth: 0, marginRight: 'auto' }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Print Tags</div>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Print Tags</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>
             {tags == null ? 'Getting the tags ready...' : `${count} tag${count !== 1 ? 's' : ''} on ${pages.length} sheet${pages.length !== 1 ? 's' : ''} - print at 100% (Actual Size) with no margins.`}
           </div>
         </div>
@@ -193,7 +193,7 @@ export default function TagSheet({ items, onClose, origin = '', loadQr, loadTags
             <button key={l.key} type="button" aria-pressed={layout === l.key} title={l.hint} onClick={() => setLayout(l.key)}>{l.label}</button>
           ))}
         </div>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600 }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600 }}>
           Start At
           <select className="form-input" value={start} onChange={(e) => setStartAt(Number(e.target.value) || 1)} style={{ width: 112, height: 34, padding: '4px 28px 4px 10px', fontSize: 13 }} aria-label="Start at label">
             {Array.from({ length: n }, (_, i) => <option key={i + 1} value={i + 1}>Label {i + 1}</option>)}
@@ -215,7 +215,7 @@ export default function TagSheet({ items, onClose, origin = '', loadQr, loadTags
         {tags == null ? (
           <div style={{ maxWidth: `${PAGE.w}in`, margin: '0 auto' }}><SkeletonBlocks count={3} height={180} borderRadius={8} /></div>
         ) : count === 0 ? (
-          <div style={{ textAlign: 'center', padding: '56px 16px', color: 'var(--muted)', fontSize: 13.5 }}>{emptyText || 'None of these items can be tagged by you. Close this and pick items from your own companies.'}</div>
+          <div style={{ textAlign: 'center', padding: '56px 16px', color: 'var(--muted)', fontSize: 13 }}>{emptyText || 'None of these items can be tagged by you. Close this and pick items from your own companies.'}</div>
         ) : (
           <div className="nx-tag-pages" style={{ zoom }}>
             {pages.map((page, p) => (

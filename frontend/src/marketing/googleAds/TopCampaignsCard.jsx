@@ -10,13 +10,13 @@ export default function TopCampaignsCard({ campaigns, onToggleStatus }) {
 
   return (
     <div className="mktg-card" style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Top Campaigns</h3>
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Top Campaigns</h3>
       <div style={{ flex: 1 }}>
         <CampaignTable campaigns={top5} onToggleStatus={onToggleStatus} showStatus={false} />
       </div>
       <button
         onClick={() => setShowAll(true)}
-        style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 500, color: C.emerald600, marginTop: 12 }}
+        style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 500, color: C.emerald600, marginTop: 12 }}
         onMouseEnter={(e) => (e.currentTarget.style.color = C.emerald700)}
         onMouseLeave={(e) => (e.currentTarget.style.color = C.emerald600)}
       >

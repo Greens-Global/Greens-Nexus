@@ -511,6 +511,16 @@ def request_hours(r, hours_per_day: float, db: Session | None = None) -> float:
     return n * hours_per_day
 
 
+def _after_cut(r, cut: str) -> bool:
+    """Does a ledger row count on top of the opening import? The opening is
+    what QuickBooks had left at the END of the cutover day, so a pay period's
+    earned / used rows dated on that day are already inside it (11/18/2026:
+    Amy's 10/04 - 10/17 accrual was counted twice). Anything else dated on the
+    day itself (an HR adjustment) still counts."""
+    d = r.effective_date or ""
+    return r.kind == "opening" or d > cut or (d == cut and r.kind not in ("accrual", "used"))
+
+
 def balances(db: Session, email: str, today: date | None = None, pols: dict | None = None,
              emp=None, with_entries: bool = False, exclude_ref: str = "",
              rows: list | None = None, cut: str | None = None) -> dict:
@@ -545,8 +555,7 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
     # Vacation: carries over (unless the company's year-end says otherwise -
     # leave_year_end.py writes that as ledger rows, so it is in `rows`). Opening + everything since the cutover + the
     # anniversary grants that fell on or after the cutover.
-    vac_rows = [r for r in rows if r.bucket == "vacation"
-                and (r.kind == "opening" or (r.effective_date or "") >= cut)
+    vac_rows = [r for r in rows if r.bucket == "vacation" and _after_cut(r, cut)
                 and (r.effective_date or "") <= today.isoformat()]
     vac_total = sum(float(r.hours or 0) for r in vac_rows)
     grants = []
@@ -582,7 +591,7 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
     y0 = date(today.year, 1, 1).isoformat()
     sp = pol.get("sick") or {}
     sick_rows = [r for r in rows if r.bucket == "sick" and (r.effective_date or "")[:4] == str(today.year)
-                 and (r.kind == "opening" or (r.effective_date or "") >= cut)
+                 and _after_cut(r, cut)
                  and (r.effective_date or "") <= today.isoformat()]
     opening = [r for r in sick_rows if r.kind == "opening"]
     sick_total = sum(float(r.hours or 0) for r in sick_rows)
@@ -642,8 +651,7 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
         tid = (t.get("id") or "").strip()
         if not tid:
             continue
-        type_rows = [r for r in rows if r.bucket == tid
-                     and (r.kind == "opening" or (r.effective_date or "") >= cut)
+        type_rows = [r for r in rows if r.bucket == tid and _after_cut(r, cut)
                      and (r.effective_date or "") <= today.isoformat()]
         total = sum(float(r.hours or 0) for r in type_rows)
         type_eligible = emp is not None and not benefit_exempt(emp) and (
@@ -765,7 +773,7 @@ def period_entries(db: Session, email: str, start: str, end: str) -> list[dict]:
     email = (email or "").strip().lower()
     emp = employee(db, email)
     cut = cutover_for(db, email, emp)
-    if not cut or end < cut:
+    if not cut or end <= cut:
         return []
     pol = policy_for(db, email, emp)
     start_d = _start(emp)
@@ -778,8 +786,8 @@ def period_entries(db: Session, email: str, start: str, end: str) -> list[dict]:
     used = {}           # (bucket, year) -> [hours, last day]
     for d in card.get("days") or []:
         ds = d.get("date") or ""
-        if not ds or ds < cut or ds < start or ds > end:
-            continue
+        if not ds or ds <= cut or ds < start or ds > end:
+            continue     # the cutover day itself is inside the opening import
         leave = {"sick": (d.get("sickMin") or 0) + (d.get("personalMin") or 0),
                  "vacation": d.get("vacationMin") or 0}
         worked = (d.get("regMin") or 0) + (d.get("otMin") or 0) + (d.get("dtMin") or 0)
@@ -803,7 +811,7 @@ def period_entries(db: Session, email: str, start: str, end: str) -> list[dict]:
             ds = fd.get("date") or ""
             m = int(fd.get("leaveUsedMin") or 0)
             b = fd.get("leaveBucket") or ""
-            if not m or b not in BUCKETS or not ds or ds < cut or ds < start or ds > end:
+            if not m or b not in BUCKETS or not ds or ds <= cut or ds < start or ds > end:
                 continue
             k = (b, ds[:4])
             cur = used.get(k, [0.0, ds])

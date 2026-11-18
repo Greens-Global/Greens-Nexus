@@ -4,12 +4,18 @@ import { api } from '../../api';
 import Amount, { AmountInput } from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
-import { ExportMenu, control } from './reportControls';
+import { ColumnResizer, ExportMenu, control } from './reportControls';
+import { useColumnWidths } from './tableHooks';
+import { headStyle } from './columnStyles';
 import { downloadBlob } from './reportModel';
 import { uploadToSupabase, safeFileName } from '../../investor/lib/upload';
 import {
   DAY_COUNTS, SCHEDULE_FIELDS, addMonths, buildSchedule, expectedBalanceAt, findHeaderRow, guessColumns, normalizeLoan, round2, rowsFromMatrix, scheduleTotals,
 } from './loanMath';
+import { WarnMark } from './warnMark';
+import { DateField } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
+import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // Accounting -> Loans & Financing -> Amortization (Charmi and Neil, 10/06:
 // "Add in Amortization schedule for Commercial loans, allow us to build it or
@@ -34,12 +40,12 @@ import {
 // `month` is the YYYY-MM the ledger balance is as of (default this month).
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const warn = { fontSize: '0.78rem', color: '#92400e', background: 'rgba(217,119,6,0.08)', border: '1px solid rgba(217,119,6,0.3)', borderRadius: 8, padding: '6px 10px' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
+const warn = { fontSize: 13, color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '6px 10px' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 };
-const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' };
+const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' };
 const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (m) => `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
@@ -49,10 +55,10 @@ const FILE_TYPES = '.xlsx,.xls,.csv';
 function Chip({ tone = 'muted', children, title }) {
   const tones = {
     ok: { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' }, bad: { fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
-    wait: { fg: '#92400e', bg: 'rgba(180,83,9,0.13)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
+    wait: { fg: 'var(--warn-fg)', bg: 'var(--warn-bg)' }, brand: { fg: 'var(--wk-brand, #2b45e1)', bg: 'var(--wk-brand-tint, #e8ecfd)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
-  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
+  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
 }
 
 /** Months from the first payment to the maturity, inclusive (the term a
@@ -118,8 +124,9 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
       .catch((e) => setError(e))
       .finally(() => setBusy(''));
   };
-  const remove = () => {
-    if (!window.confirm('Remove this amortization schedule? The bank file stays in storage; the rows are removed.')) return;
+  // The house dialog, press and hold (11/11/2026 Accounting pass, picture 10).
+  const remove = async () => {
+    if (!await dialog.confirm('Remove this amortization schedule? The bank file stays in storage; the rows are removed.', { title: 'Remove Schedule', confirmText: 'Remove Schedule', doneText: 'Removed', hold: true, holdMs: HOLD_RECORD_MS })) return;
     setBusy('delete');
     api.deleteLoanSchedule(l.id).then(() => setSched(null)).catch((e) => setError(e)).finally(() => setBusy(''));
   };
@@ -139,7 +146,7 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
 
   if (sched === undefined) return <SkeletonBlocks count={3} />;
   if (error && notAvailable(error)) {
-    return <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>Amortization is not available here.</strong> The accounting service is not connected on this environment, so the loan cannot be read.</div>;
+    return <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>Amortization is not available here.</strong> The accounting service is not connected on this environment, so the loan cannot be read.</div>;
   }
 
   return (
@@ -149,13 +156,13 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
         <>
           <div style={{ ...card, padding: '8px 10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
             {sched ? (
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <Chip tone={sched.source === 'upload' ? 'brand' : 'muted'}>{sched.source === 'upload' ? 'Bank File' : 'Built in Nexus'}</Chip>
                 {rows.length} payments{rows.length ? `, ${formatDate(rows[0].date)} - ${formatDate(rows[rows.length - 1].date)}` : ''}
                 {sched.fileUrl && <a href={sched.fileUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Paperclip size={13} /> {sched.fileName || 'Bank File'}</a>}
                 {sched.at && <span style={{ color: 'var(--text-muted)' }}>· saved {formatDate(sched.at)}{sched.by ? ` by ${sched.by}` : ''}</span>}
               </span>
-            ) : <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No amortization schedule kept for this loan yet.</span>}
+            ) : <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No amortization schedule kept for this loan yet.</span>}
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {canEdit && <button type="button" className="secondary-btn" style={btn} onClick={() => setMode('build')}><Hammer size={14} /> {sched?.source === 'build' ? 'Rebuild' : 'Build Schedule'}</button>}
               {canEdit && <button type="button" className="secondary-btn" style={btn} onClick={() => setMode('upload')}><FileUp size={14} /> Upload Bank File</button>}
@@ -168,7 +175,7 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
             </div>
           </div>
           {sched && expected && (
-            <div style={{ ...card, padding: '10px 12px', display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums', alignItems: 'center' }}>
+            <div style={{ ...card, padding: '10px 12px', display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: 13, fontVariantNumeric: 'tabular-nums', alignItems: 'center' }}>
               <strong>Schedule vs Ledger - {monthLabel(asOf)}</strong>
               <span>Expected per Schedule <strong><Amount value={expected.balance} /></strong>{expected.asOf ? <span style={{ color: 'var(--text-muted)' }}> (after payment {expected.n}, {formatDate(expected.asOf)})</span> : <span style={{ color: 'var(--text-muted)' }}> (before the first payment)</span>}</span>
               <span>Ledger Balance <strong><Amount value={l.balance} /></strong></span>
@@ -186,6 +193,8 @@ export default function LoanAmortization({ loan, canEdit = false, month }) {
 }
 
 export function ScheduleTable({ rows, highlight, maxHeight = 460 }) {
+  const cw = useColumnWidths('loan-amortization', {}, { min: 50 });
+  const th = (key, label, style = null, text = label) => <th aria-label={label} style={headStyle(cw.width(key), style)}>{text}<ColumnResizer {...cw.resizer(key, label)} /></th>;
   const hasBalloon = rows.some((r) => r.balloon);
   const t = scheduleTotals(rows);
   const ref = useRef(null);
@@ -199,7 +208,7 @@ export function ScheduleTable({ rows, highlight, maxHeight = 460 }) {
       <div ref={ref} className="req-table-wrapper" style={{ overflow: 'auto', maxHeight, position: 'relative' }}>
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-card)' }}>
-            <tr><th style={{ width: 48 }}>#</th><th>Date</th><th style={num}>Payment</th><th style={num}>Interest</th><th style={num}>Principal</th>{hasBalloon && <th style={num}>Balloon</th>}<th style={num}>Balance</th></tr>
+            <tr>{th('n', 'Payment Number', { width: 48 }, '#')}{th('date', 'Date')}{th('payment', 'Payment', num)}{th('interest', 'Interest', num)}{th('principal', 'Principal', num)}{hasBalloon && th('balloon', 'Balloon', num)}{th('balance', 'Balance', num)}</tr>
           </thead>
           <tbody>
             {rows.map((r, i) => {
@@ -229,7 +238,7 @@ function Field({ id, title, children, hint }) {
     <div>
       <label style={label} htmlFor={id}>{title}</label>
       {children}
-      {hint && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 3 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{hint}</div>}
     </div>
   );
 }
@@ -243,7 +252,7 @@ function BuildForm({ loan, initial, busy, onCancel, onSave }) {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }}>
-        <strong style={{ fontSize: '0.9rem' }}>Build Schedule</strong>
+        <strong style={{ fontSize: 15 }}>Build Schedule</strong>
         <div style={grid}>
           <Field id="am-principal" title="Principal"><AmountInput id="am-principal" value={p.principal} onChange={(v) => set({ principal: v })} style={input} /></Field>
           <Field id="am-rate" title="Annual Rate %"><input id="am-rate" type="number" step="0.001" min="0" value={p.ratePct} onChange={(e) => set({ ratePct: e.target.value })} style={input} /></Field>
@@ -252,24 +261,25 @@ function BuildForm({ loan, initial, busy, onCancel, onSave }) {
           </Field>
           <Field id="am-amort" title="Amortization (Months)" hint="Longer than the term leaves a balloon"><input id="am-amort" type="number" min="1" max="1200" value={p.amortMonths} onChange={(e) => set({ amortMonths: e.target.value })} style={input} /></Field>
           <Field id="am-io" title="Interest-Only Months"><input id="am-io" type="number" min="0" max="1200" value={p.ioMonths} onChange={(e) => set({ ioMonths: e.target.value })} style={input} /></Field>
-          <Field id="am-first" title="First Payment Date"><input id="am-first" type="date" value={p.firstPaymentDate} onChange={(e) => set({ firstPaymentDate: e.target.value })} style={input} /></Field>
-          <Field id="am-start" title="Funding Date" hint="Optional - interest runs from it to the first payment"><input id="am-start" type="date" value={p.startDate} onChange={(e) => set({ startDate: e.target.value })} style={input} /></Field>
+          <Field id="am-first" title="First Payment Date"><span id="am-first" style={{ ...input, display: 'flex', alignItems: 'center' }}><DateField value={p.firstPaymentDate} onChange={(picked) => { const v = picked || ''; return set({ firstPaymentDate: v }); }} placeholder="MM/DD/YYYY" title="First Payment Date" style={{ width: '100%' }} /></span></Field>
+          <Field id="am-start" title="Funding Date" hint="Optional - interest runs from it to the first payment"><span id="am-start" style={{ ...input, display: 'flex', alignItems: 'center' }}><DateField value={p.startDate} onChange={(picked) => { const v = picked || ''; return set({ startDate: v }); }} placeholder="MM/DD/YYYY" title="Funding Date" style={{ width: '100%' }} /></span></Field>
           <Field id="am-freq" title="Payment Frequency"><select id="am-freq" value="monthly" disabled style={input}><option value="monthly">Monthly</option></select></Field>
           <Field id="am-day" title="Day Count"><select id="am-day" value={p.dayCount} onChange={(e) => set({ dayCount: e.target.value })} style={input}>{DAY_COUNTS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></Field>
         </div>
         {loan.maturity && p.firstPaymentDate && termFromMaturity(p.firstPaymentDate, loan.maturity) && Number(p.termMonths) !== termFromMaturity(p.firstPaymentDate, loan.maturity) && (
           <div style={warn}>
+            <WarnMark />
             The maturity on file ({formatDate(loan.maturity)}) is {termFromMaturity(p.firstPaymentDate, loan.maturity)} months from the first payment.{' '}
-            <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '1px 8px', marginLeft: 6 }} onClick={() => set({ termMonths: termFromMaturity(p.firstPaymentDate, loan.maturity) })}>Use It</button>
+            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '1px 8px', marginLeft: 6 }} onClick={() => set({ termMonths: termFromMaturity(p.firstPaymentDate, loan.maturity) })}>Use It</button>
           </div>
         )}
-        {!ok ? <div style={warn}>{result.errors.join(' ')}</div> : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
+        {!ok ? <div style={warn}><WarnMark />{result.errors.join(' ')}</div> : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
             {result.ioPayment > 0 && <span>Interest-Only Payment <strong><Amount value={result.ioPayment} /></strong></span>}
             <span>Monthly Payment <strong><Amount value={result.payment} /></strong></span>
             <span>Total Interest <strong><Amount value={result.totalInterest} /></strong></span>
             <span>Balloon at Maturity <strong>{result.balloon ? <Amount value={result.balloon} /> : 'None'}</strong></span>
-            {loan.monthlyPi != null && Math.abs(loan.monthlyPi - result.payment) >= 1 && <span style={{ color: '#92400e' }}>Monthly payment on file: <Amount value={loan.monthlyPi} /></span>}
+            {loan.monthlyPi != null && Math.abs(loan.monthlyPi - result.payment) >= 1 && <span style={{ color: 'var(--warn-fg)' }}><WarnMark />Monthly payment on file: <Amount value={loan.monthlyPi} /></span>}
           </div>
         )}
       </div>
@@ -353,7 +363,7 @@ function UploadForm({ loan, busy, onCancel, onSave }) {
       if (up.error) note = up.error;
       fileUrl = up.url || '';
     }
-    if (note && !window.confirm(`The bank's file could not be stored (${note}). Save the rows without it?`)) return;
+    if (note && !await dialog.confirm(`The bank's file could not be stored (${note}). Save the rows without it?`, { title: 'Save Without The File?', confirmText: 'Save Without It' })) return;
     const columnMap = Object.fromEntries(Object.entries(map).map(([k, i]) => [k, i >= 0 ? String(headers[i] ?? `Column ${i + 1}`) : '']));
     onSave({ source: 'upload', rows: parsed.rows, columnMap, fileUrl, fileName: file ? file.name : 'Pasted from Excel' });
   };
@@ -361,11 +371,11 @@ function UploadForm({ loan, busy, onCancel, onSave }) {
   return (
     <div style={{ display: 'grid', gap: 10 }} onPaste={onPaste}>
       <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }}>
-        <strong style={{ fontSize: '0.9rem' }}>Upload Bank File</strong>
+        <strong style={{ fontSize: 15 }}>Upload Bank File</strong>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <input ref={inputRef} type="file" accept={FILE_TYPES} style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) read(f); e.target.value = ''; }} />
           <button type="button" className="secondary-btn" style={btn} onClick={() => inputRef.current?.click()}><FileUp size={14} /> Choose File</button>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{file ? file.name : book ? 'Pasted cells' : 'Excel (.xlsx, .xls) or CSV - or press Ctrl+V to paste the rows copied from Excel'}</span>
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{file ? file.name : book ? 'Pasted cells' : 'Excel (.xlsx, .xls) or CSV - or press Ctrl+V to paste the rows copied from Excel'}</span>
         </div>
         {err && <div style={bad}>{err}</div>}
         {book && (
@@ -387,8 +397,8 @@ function UploadForm({ loan, busy, onCancel, onSave }) {
                 </Field>
               ))}
             </div>
-            {missing.length > 0 ? <div style={warn}>Pick the {missing.join(' and ')} column{missing.length > 1 ? 's' : ''}.</div>
-              : <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{parsed.rows.length} payments read{parsed.skipped ? `; ${parsed.skipped} rows without a date or balance left out (titles, totals)` : ''}. A missing principal is the payment less the interest.</div>}
+            {missing.length > 0 ? <div style={warn}><WarnMark />Pick the {missing.join(' and ')} column{missing.length > 1 ? 's' : ''}.</div>
+              : <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{parsed.rows.length} payments read{parsed.skipped ? `; ${parsed.skipped} rows without a date or balance left out (titles, totals)` : ''}. A missing principal is the payment less the interest.</div>}
           </>
         )}
       </div>
@@ -410,7 +420,7 @@ export function LoanAmortizationDialog({ loan, canEdit = false, month, onClose }
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Amortization Schedule</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{l.lender || 'Loan'}{l.loanNo ? ` #${l.loanNo}` : ''}{l.entityName ? ` · ${l.entityName}` : ''} · ledger balance <Amount value={l.balance} /></div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{l.lender || 'Loan'}{l.loanNo ? ` #${l.loanNo}` : ''}{l.entityName ? ` · ${l.entityName}` : ''} · ledger balance <Amount value={l.balance} /></div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>

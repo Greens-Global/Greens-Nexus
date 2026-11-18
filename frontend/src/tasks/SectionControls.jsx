@@ -17,7 +17,7 @@ async function promptNewSection(sec) {
 
 export function AddSectionButton({ sec, style }) {
   return (
-    <button type="button" onClick={() => promptNewSection(sec).catch((e) => alert(e?.message || 'Could not add the section.'))}
+    <button type="button" onClick={() => promptNewSection(sec).catch((e) => dialog.alert(e?.message || 'Could not add the section.'))}
       style={{ ...btn('ghost'), gap: 6, color: NX.dim, fontSize: 13, ...style }}>
       <Plus size={14} /> Add Section
     </button>
@@ -33,7 +33,7 @@ export function SectionMenu({ sec, group }) {
   const rename = async () => {
     setOpen(false);
     const name = await dialog.prompt('Section name', { title: 'Rename Section', confirmText: 'Rename', defaultValue: group.label, required: true });
-    if (name && name.trim() && name.trim() !== group.label) await sec.rename(group.sectionId, name).catch((e) => alert(e?.message || 'Could not rename the section.'));
+    if (name && name.trim() && name.trim() !== group.label) await sec.rename(group.sectionId, name).catch((e) => dialog.alert(e?.message || 'Could not rename the section.'));
   };
   const remove = async () => {
     setOpen(false);
@@ -42,7 +42,7 @@ export function SectionMenu({ sec, group }) {
       n ? `Delete "${group.label}"? Its ${n} task${n === 1 ? '' : 's'} move to No Section - no task is deleted.` : `Delete "${group.label}"?`,
       { title: 'Delete Section', confirmText: 'Delete Section', danger: true },
     );
-    if (ok) await sec.remove(group.sectionId).catch((e) => alert(e?.message || 'Could not delete the section.'));
+    if (ok) await sec.remove(group.sectionId).catch((e) => dialog.alert(e?.message || 'Could not delete the section.'));
   };
   const item = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 10px', border: 'none', background: 'transparent', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink, fontFamily: FONT, textAlign: 'left' };
   return (

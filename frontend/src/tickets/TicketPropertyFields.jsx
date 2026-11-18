@@ -18,7 +18,7 @@ import { formatDate } from '../lib/datetime';
 import { useRole } from '../contexts/RoleContext';
 import { COMMON_AREA, NO_UNITS, usePropertySuggestion, usePropertyUnits, openProperty } from './ticketPropertyLink';
 
-const hint = (text) => <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{text}</div>;
+const hint = (text) => <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>{text}</div>;
 /** The Unit control: a Cubby store's units (searchable, plus Common Area),
  * else free text with the property's own units offered. */
 function UnitInput({ value, onChange, units, invalid, style, listId }) {
@@ -59,7 +59,7 @@ export function TicketPropertyIntake({ value, unit, onChange, onUnitChange, fixe
       )}
       {invalidProperty && <div style={requiredHint}>Pick the property, or None / Other</div>}
       {suggestion && (
-        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6, padding: '6px 10px', borderRadius: 8, background: NX.surface2, fontSize: 12.5, color: NX.ink }}>
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6, padding: '6px 10px', borderRadius: 8, background: NX.surface2, fontSize: 13, color: NX.ink }}>
           <span>Looks like <b>{suggestion.name}</b>{suggestion.unit ? <> - Unit <b>{suggestion.unit}</b></> : null}</span>
           <span style={{ color: NX.faint }}>({suggestion.reason})</span>
           <button type="button" style={{ ...btn('outline'), padding: '3px 10px', fontSize: 12, marginLeft: 'auto' }}
@@ -120,9 +120,9 @@ export function TicketPropertyDetail({ v, canEdit = false, stage, style }) {
       ) : (
         <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>{v.propertyUnit || '-'}</div>
       )}
-      {tenant && <div style={{ fontSize: 12.5, color: NX.ink, marginTop: 6 }}><span style={{ color: NX.faint }}>Tenant:</span> {tenant}</div>}
+      {tenant && <div style={{ fontSize: 13, color: NX.ink, marginTop: 6 }}><span style={{ color: NX.faint }}>Tenant:</span> {tenant}</div>}
       <button type="button" onClick={() => openProperty(v.propertyAssetId)}
-        style={{ border: 'none', background: 'none', padding: 0, marginTop: 6, cursor: 'pointer', color: NX.blue, fontSize: 12.5, fontWeight: 600 }}>
+        style={{ border: 'none', background: 'none', padding: 0, marginTop: 6, cursor: 'pointer', color: NX.blue, fontSize: 13, fontWeight: 600 }}>
         View Property{v.propertyName ? ` - ${v.propertyName}` : ''} {'↗'}
       </button>
     </div>
@@ -180,7 +180,7 @@ export function SuggestPropertyLinks({ onClose, onLinked }) {
           return (
             <div key={item.ticket.id} style={{ border: `1px solid ${NX.border2}`, borderRadius: 10, padding: '10px 12px', marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
               <div style={{ flex: '1 1 260px', minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13.5, color: NX.ink }}>{item.ticket.codeLabel} · {item.ticket.subject}</div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: NX.ink }}>{item.ticket.codeLabel} · {item.ticket.subject}</div>
                 <div style={{ fontSize: 12, color: NX.faint }}>{[item.ticket.application, formatDate(item.ticket.createdAt)].filter(Boolean).join(' · ')}</div>
                 <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{pid === top.id ? `${top.reason}${top.unit ? ` - Unit ${top.unit}` : ''}` : ''}</div>
               </div>

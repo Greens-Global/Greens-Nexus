@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ExternalLink, Pencil } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
 import { formatDate } from '../../lib/datetime';
@@ -14,10 +14,13 @@ import { linesFile } from './linesExport';
 import { useTableSync } from './tableSync';
 import { ColumnFilterRow, useColumnFilters } from './columnFilters';
 import { cellStyle, headStyle } from './columnStyles';
-import { requestReportDrill } from './drill';
+import { requestReportDrill, requestStatement } from './drill';
+import AddMenu from './AddMenu';
 import { Chip } from './LoanSetupDialog';
 import { Dialog } from './LoanDialogs';
 import { notAvailable } from './LoansTab';
+import { DateField } from '../../tasks/components';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // Accounting -> Reporting -> Management Fees, the Asset Management Agreements
 // (Priyanka, Oct 7: "We still need to build AMA"). Oct 15 (Neil): AMA means
@@ -53,12 +56,12 @@ import { notAvailable } from './LoansTab';
 // applied (Percent / Minimum / Mixed, the months on each side in its tooltip).
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const dash = <span style={{ color: 'var(--text-muted)' }}>-</span>;
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
-const fieldError = { fontSize: '0.7rem', color: 'var(--bad-fg, #dc2626)', marginTop: 3 };
-const hint = { fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const fieldError = { fontSize: 11, color: 'var(--bad-fg, #dc2626)', marginTop: 3 };
+const hint = { fontSize: 11, color: 'var(--text-muted)', marginTop: 3 };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 };
 const full = { ...control, width: '100%' };
 
@@ -142,24 +145,12 @@ function SkeletonRows({ rows = 5, cols = 10 }) {
   ));
 }
 
-// Pencil and trash: the trash is confirmed in place, never a browser dialog.
+// Pencil, then Remove held right on the row (Hold to confirm, Neil 10/30/2026).
 function RowActions({ row, name, onEdit, onRemove }) {
-  const [asking, setAsking] = useState(false);
-  const [busy, setBusy] = useState(false);
-  if (asking) {
-    return (
-      <span role="group" aria-label={`Remove the agreement of ${name}?`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-        <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Remove?</span>
-        <button type="button" className="primary-btn" disabled={busy} onClick={() => { setBusy(true); onRemove(row).finally(() => { setBusy(false); setAsking(false); }); }}
-          style={{ fontSize: '0.72rem', height: 24, padding: '0 8px', background: 'var(--bad-fg, #dc2626)', borderColor: 'var(--bad-fg, #dc2626)' }}>{busy ? 'Removing...' : 'Remove'}</button>
-        <button type="button" className="secondary-btn" disabled={busy} onClick={() => setAsking(false)} style={{ fontSize: '0.72rem', height: 24, padding: '0 8px' }}>Keep</button>
-      </span>
-    );
-  }
   return (
-    <span style={{ display: 'inline-flex', gap: 2 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
       <button type="button" className="icon-btn" aria-label={`Edit the agreement of ${name}`} onClick={onEdit} style={{ padding: 4, color: 'var(--text-muted)' }}><Pencil size={13} /></button>
-      <button type="button" className="icon-btn" aria-label={`Remove the agreement of ${name}`} title="Remove this agreement" onClick={() => setAsking(true)} style={{ padding: 4, color: 'var(--text-muted)' }}><Trash2 size={13} /></button>
+      <HoldButton size="sm" label="Remove" doneLabel="Removed" holdMs={HOLD_RECORD_MS} ariaLabel={`Remove the agreement of ${name}`} fallbackMessage={`Remove the agreement of ${name}?`} onConfirm={() => onRemove(row)} />
     </span>
   );
 }
@@ -305,12 +296,12 @@ export function AgreementDialog({ agreement = null, entities, showHistorical = f
         </div>
         <div>
           <label style={label} htmlFor="ama-start">Start Date</label>
-          <input id="ama-start" type="date" value={d.startDate} onChange={(e) => set({ startDate: e.target.value })} style={full} />
+          <span id="ama-start" style={{ ...full, display: 'flex', alignItems: 'center' }}><DateField value={d.startDate} onChange={(picked) => { const v = picked || ''; return set({ startDate: v }); }} placeholder="MM/DD/YYYY" title="Start Date" style={{ width: '100%' }} /></span>
           {err('startDate') || <div style={hint}>Billing dates count from it.</div>}
         </div>
         <div>
           <label style={label} htmlFor="ama-end">End Date</label>
-          <input id="ama-end" type="date" value={d.endDate} onChange={(e) => set({ endDate: e.target.value })} style={full} />
+          <span id="ama-end" style={{ ...full, display: 'flex', alignItems: 'center' }}><DateField value={d.endDate} onChange={(picked) => { const v = picked || ''; return set({ endDate: v }); }} placeholder="MM/DD/YYYY" title="End Date" style={{ width: '100%' }} /></span>
           {err('endDate') || <div style={hint}>Blank = open-ended.</div>}
         </div>
         <div>
@@ -454,8 +445,7 @@ export default function ManagementFeesTab({ canEdit = false }) {
       <style>{`.acct-ama tbody > tr > td { padding-top: var(--ama-py, 5px); padding-bottom: var(--ama-py, 5px); }
 ${FILTER_CSS}`}</style>
       <div>
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>Management Fees</h3>
-        <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>
           Asset management agreements: each managed entity&apos;s gross revenue and the fee it works out to, with what was billed this year, all read from the ledger.
         </p>
       </div>
@@ -475,9 +465,12 @@ ${FILTER_CSS}`}</style>
         <BarSearch value={text} onChange={setText} label="Filter agreements" placeholder="Filter agreements" width={200} />
         <TableViewBar view={view} />
         <div className="acct-bar-end">
-          <BarSummary level={3}>
-            Agreements <strong>{rows.length}</strong> · Calculated Fee <strong><Amount value={sum('calculatedFee')} /></strong> · Billed YTD <strong><Amount value={sum('billedYtd')} /></strong>
-          </BarSummary>
+          {/* Nothing read yet: a placeholder, never zeros (11/11/2026 pass, picture 6). */}
+          {data ? (
+            <BarSummary level={3}>
+              Agreements <strong>{rows.length}</strong> · Calculated Fee <strong><Amount value={sum('calculatedFee')} /></strong> · Billed YTD <strong><Amount value={sum('billedYtd')} /></strong>
+            </BarSummary>
+          ) : loading ? <span className="nx-skel" role="status" aria-label="Loading" style={{ display: 'inline-block', width: 150, height: 12, borderRadius: 6, verticalAlign: 'middle' }} /> : null}
           <BarMore level={4}>
           <SyncButton onSync={ts.sync} busy={loading && !!data} syncedAt={ts.syncedAt} />
           </BarMore>
@@ -491,42 +484,39 @@ ${FILTER_CSS}`}</style>
           ]} />
           </BarMore>
           {canEdit && !unavailable && (
-            <button type="button" className="primary-btn" onClick={() => setDialog('add')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
-              <Plus size={14} /> Add Agreement
-            </button>
+            <AddMenu ariaLabel="Add an agreement" items={[{ key: 'agreement', label: 'Agreement', hint: 'Add an asset management agreement', onPick: () => setDialog('add') }]} />
           )}
         </div>
       </ControlBar>
 
       {sent && (
-        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: sent.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: sent.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
           <span style={{ flex: 1 }}>{sent.text}</span>
-          <button type="button" className="secondary-btn" onClick={() => setSent(null)} style={{ fontSize: '0.74rem', padding: '2px 10px' }}>Dismiss</button>
+          <button type="button" className="secondary-btn" onClick={() => setSent(null)} style={{ fontSize: 12, padding: '2px 10px' }}>Dismiss</button>
         </div>
       )}
 
       {error && (unavailable ? (
-        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+        <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)' }}>
           <strong style={{ color: 'var(--text-primary)' }}>Management Fees are not available here.</strong> The accounting service is not connected on this environment.
         </div>
       ) : (
         <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ flex: 1 }}>{error.message || 'Could not read the agreements.'}</span>
-          <button type="button" className="secondary-btn" onClick={load} style={{ fontSize: '0.76rem' }}>Try Again</button>
+          <button type="button" className="secondary-btn" onClick={load} style={{ fontSize: 12 }}>Try Again</button>
         </div>
       ))}
 
       {!error && !loading && !all.length && (
-        <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6, maxWidth: 760 }}>
+        <div style={{ ...card, padding: 18, fontSize: 14, color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
           <strong style={{ color: 'var(--text-primary)' }}>No asset management agreements yet.</strong>
-          <span>{canEdit ? 'Add one with + Add Agreement: the managed entity, the fee and how often it is billed.' : 'An editor on Accounting can add them here.'}</span>
+          <span>{canEdit ? 'Add one with + Add: the managed entity, the fee and how often it is billed.' : 'An editor on Accounting can add them here.'}</span>
         </div>
       )}
       {!error && !loading && all.length > 0 && !rows.length && !boxes.filtering && (
-        <div style={{ ...card, padding: 14, fontSize: '0.84rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ ...card, padding: 14, fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span>No agreement matches the filters.</span>
-          {view.dirty && <button type="button" className="secondary-btn" onClick={view.clear} style={{ fontSize: '0.76rem' }}>Clear</button>}
+          {view.dirty && <button type="button" className="secondary-btn" onClick={view.clear} style={{ fontSize: 12 }}>Clear</button>}
         </div>
       )}
 
@@ -545,7 +535,7 @@ ${FILTER_CSS}`}</style>
               </thead>
               <tbody>
                 {!loading && !rows.length && (
-                  <tr><td colSpan={cols || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem' }}>
+                  <tr><td colSpan={cols || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: 13 }}>
                     No agreement matches these column filters.{' '}
                     <button type="button" onClick={boxes.clear} style={{ border: 'none', background: 'none', font: 'inherit', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
                   </td></tr>
@@ -566,7 +556,11 @@ ${FILTER_CSS}`}</style>
                       fee: <td style={cellStyle(w('fee'), { whiteSpace: 'nowrap' })} title={feeText(r)}>{feeText(r)}</td>,
                       gross: <td style={cellStyle(w('gross'), num)}
                         title={failed ? r.error : r.grossError || (r.periodFrom ? `${entityText(entities, r.entityCode)} gross revenue, ${formatDate(r.periodFrom)} - ${formatDate(r.periodTo)}` : undefined)}>
-                        {r.grossRevenue == null ? dash : <Amount value={r.grossRevenue} />}
+                        {/* Gross is many revenue accounts: it opens the Income Statement for the entity and period, each line drilling to its ledger lines. */}
+                        {r.grossRevenue == null ? dash : r.periodFrom ? (
+                          <button type="button" className="acct-drill" aria-label={`Income Statement behind the gross revenue of ${name}`}
+                            onClick={() => requestStatement({ entities: [r.entityCode], from: r.periodFrom, to: r.periodTo })}><Amount value={r.grossRevenue} /></button>
+                        ) : <Amount value={r.grossRevenue} />}
                       </td>,
                       calculated: <td style={cellStyle(w('calculated'), { ...num, fontWeight: 600 })} title={calcTitle(r)}>
                         {r.calculatedFee == null ? dash : <Amount value={r.calculatedFee} />}
@@ -588,7 +582,7 @@ ${FILTER_CSS}`}</style>
                       next: <td style={cellStyle(w('next'))}>{r.nextBilling ? formatDate(r.nextBilling) : dash}</td>,
                       agreement: <td style={cellStyle(w('agreement'), { whiteSpace: 'nowrap' })}>
                         {r.agreementUrl ? (
-                          <a href={r.agreementUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--wk-brand, #2b45e1)', fontSize: '0.8rem' }}>
+                          <a href={r.agreementUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--wk-brand, #2b45e1)', fontSize: 13 }}>
                             View Agreement <ExternalLink size={12} />
                           </a>
                         ) : dash}
@@ -607,7 +601,7 @@ ${FILTER_CSS}`}</style>
                       entity: (
                         <td>
                           Total
-                          <div style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                          <div style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-muted)' }}>
                             {data?.periodFrom ? `${formatDate(data.periodFrom)} - ${formatDate(data.periodTo)}` : asOf ? `Through ${formatDate(asOf)}` : ''}
                           </div>
                         </td>

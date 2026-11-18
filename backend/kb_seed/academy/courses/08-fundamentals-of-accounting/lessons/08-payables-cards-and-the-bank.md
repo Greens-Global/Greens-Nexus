@@ -30,7 +30,7 @@ Every payable is **coded**: the account (repairs and maintenance, say) and the I
 
 ## Company Cards: Your Duties
 
-Greens uses **Ramp** cards for purchases that do not go through payables: supplies, small parts, travel, software. A card charge is the same expense it would be on an invoice; only the timing and the paperwork change. In Nexus the card lines appear under Accounting > Reports > Banking & Credit Cards > Credit Card Activity.
+Greens uses **Ramp** cards for purchases that do not go through payables: supplies, small parts, travel, software. A card charge is the same expense it would be on an invoice; only the timing and the paperwork change. In Nexus the card lines appear under Accounting > Reports > Ledger & Banking > Credit Card Activity.
 
 Whoever holds a card owes four things on every charge:
 

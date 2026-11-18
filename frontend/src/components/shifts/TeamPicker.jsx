@@ -103,14 +103,14 @@ export default function TeamPicker({ teams = [], value, onChange, all = null, no
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
               <span style={{ fontSize: 13, fontWeight: on ? 700 : 600, color: o.kind === 'archived' ? 'var(--muted)' : 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.name}</span>
             </span>
-            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {[Number.isFinite(o.people) ? people(o.people) : '', o.hint || '', o.kind === 'all' ? 'Every team, stacked' : '', ...waiting(o)].filter(Boolean).join(' · ')}
             </span>
           </span>
           {Number.isFinite(o.min) && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{fmtHrs(o.min)}</span>}
           {shortcuts && (
             <kbd aria-label={o.key ? `Shortcut ${o.key}` : undefined} style={{ width: 18, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderRadius: 5,
-              border: o.key ? '1px solid var(--line)' : 'none', background: o.key ? 'var(--bg)' : 'transparent', fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', fontFamily: 'inherit' }}>{o.key || ''}</kbd>
+              border: o.key ? '1px solid var(--line)' : 'none', background: o.key ? 'var(--bg)' : 'transparent', fontSize: 11, fontWeight: 700, color: 'var(--muted)', fontFamily: 'inherit' }}>{o.key || ''}</kbd>
           )}
           <span style={{ width: 14, display: 'inline-flex', flexShrink: 0 }}>{on && <Check size={14} color="var(--wk-brand)" />}</span>
         </div>
@@ -129,7 +129,7 @@ export default function TeamPicker({ teams = [], value, onChange, all = null, no
           boxShadow: open ? '0 0 0 3px var(--wk-brand-tint)' : '0 1px 2px rgba(15,23,42,0.04)', borderColor: open ? 'var(--wk-brand)' : 'var(--line)', flex: compact ? 1 : undefined }}>
         {lead(current, 10)}
         <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
-          <span style={{ fontSize: compact ? 13.5 : 14, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: '-0.005em' }}>{current ? current.name : 'Choose a Team'}</span>
+          <span style={{ fontSize: compact ? 13 : 14, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: '-0.005em' }}>{current ? current.name : 'Choose a Team'}</span>
           {stats && !compact && <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stats}</span>}
         </span>
         <ChevronDown size={15} style={{ flexShrink: 0, color: 'var(--muted)', marginLeft: 'auto', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
@@ -149,7 +149,7 @@ export default function TeamPicker({ teams = [], value, onChange, all = null, no
             aria-activedescendant={options[active] ? `team-opt-${active}` : undefined}
             style={{ maxHeight: 'min(420px, 60vh)', overflowY: 'auto', padding: searchable ? '0 6px 6px' : 6 }}>
             {options.map((o, i) => (o.kind === 'all' || o.kind === 'team' || o.kind === 'archived' ? row(o, i) : null))}
-            {!options.length && <div style={{ padding: '10px 12px', fontSize: 12.5, color: 'var(--muted)' }}>No teams match.</div>}
+            {!options.length && <div style={{ padding: '10px 12px', fontSize: 13, color: 'var(--muted)' }}>No teams match.</div>}
             {options.some((o) => o.kind === 'none') && (
               <div role="group" aria-label="Other views" style={{ position: 'sticky', bottom: searchable ? -6 : -6, margin: '6px -6px -6px', padding: 6, borderTop: '1px solid var(--line)', background: 'var(--card)' }}>
                 {options.map((o, i) => (o.kind === 'none' ? row(o, i) : null))}

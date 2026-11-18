@@ -21,7 +21,7 @@ Open **Help Center** from the bottom of the left menu. You do not need the Ticke
 
 A ticket is the right tool whenever something is broken, missing or needs another team.
 
-1. Open **Help Center** and click **Submit a Ticket** (or **New Ticket** in the + menu).
+1. Open **Help Center** and click **Submit a Ticket** (or **New Ticket** under the bolt in the header).
 2. Write a short, specific title: what and where, such as "Laptop will not join office Wi-Fi."
 3. Under **What Is Happening?**, say where, since when and what you already tried.
 4. Add evidence: **Attach File**, **Record Screen**, Ctrl+V to paste a screenshot, or photos from your phone's camera.
@@ -52,7 +52,7 @@ Some places and pieces of equipment carry a QR tag. Scan it with your phone's ca
 
 ## Forms
 
-Inspections, incident reports, vehicle checks and checklists are **forms**, used by the teams whose work needs them. When a form is yours to fill, open **Fill a Form** from the Workday action row, the + menu or your shift card. Click **Send**, then **Fill Another** or **Done**. Someone else reviews your entry; nobody reviews their own.
+Inspections, incident reports, vehicle checks and checklists are **forms**, used by the teams whose work needs them. When a form is yours to fill, open **Fill a Form** from the Workday action row, the bolt in the header (under **Request**) or your shift card. Click **Send**, then **Fill Another** or **Done**. Someone else reviews your entry; nobody reviews their own.
 
 > [!NOTE]
 > Photos are evidence. Take them at the time, of the actual thing, in good light, with something in the shot that shows where it is.

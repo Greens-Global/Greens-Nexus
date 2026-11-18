@@ -58,7 +58,7 @@ export function Field({ label, htmlFor, hint, wide = false, children }) {
 export function TabSaveRow({ t, note, saveDisabled = false }) {
   return (
     <SaveRow dirty={t.dirty} busy={t.busy} onSave={t.save} onDiscard={t.discard} saveDisabled={saveDisabled} note={note}>
-      {!t.dirty && <button type="button" className="secondary-btn" onClick={t.discard} disabled={t.busy} style={{ fontSize: 12.5 }}>Cancel</button>}
+      {!t.dirty && <button type="button" className="secondary-btn" onClick={t.discard} disabled={t.busy} style={{ fontSize: 13 }}>Cancel</button>}
     </SaveRow>
   );
 }
@@ -67,7 +67,7 @@ export function TabSaveRow({ t, note, saveDisabled = false }) {
 export function EditButton({ onClick, label = 'Edit' }) {
   return (
     <button type="button" className="secondary-btn" onClick={onClick}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '5px 11px' }}>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '5px 11px' }}>
       <Pencil size={13} /> {label}
     </button>
   );

@@ -77,7 +77,7 @@ export default function ProjectFollowControl({ project, compact = false }) {
               ))}
             </span>
           )}
-          <span style={{ fontSize: 12.5, color: NX.dim, fontWeight: 600 }}>{followers.length}</span>
+          <span style={{ fontSize: 13, color: NX.dim, fontWeight: 600 }}>{followers.length}</span>
         </button>
       </span>
       {open && (
@@ -107,12 +107,12 @@ export function FollowersModal({ project, me, isManager, onClose, initialError =
 
   return (
     <Modal title={`Followers of ${project.name}`} onClose={onClose}>
-      <p style={{ fontSize: 12.5, color: NX.dim, margin: '0 0 12px', lineHeight: 1.45 }}>
+      <p style={{ fontSize: 13, color: NX.dim, margin: '0 0 12px', lineHeight: 1.45 }}>
         Followers hear about new tasks, completed tasks and comments in this project, in their task email and bell.
         Nobody hears about tasks they cannot see.
       </p>
       {err && (
-        <div role="alert" style={{ background: 'rgba(220,38,38,0.1)', color: '#dc2626', fontSize: 12.5, padding: '8px 10px',
+        <div role="alert" style={{ background: 'rgba(220,38,38,0.1)', color: '#dc2626', fontSize: 13, padding: '8px 10px',
           borderRadius: 8, marginBottom: 12 }}>{err}</div>
       )}
       {manage && !project.archived && (
@@ -135,7 +135,7 @@ export function FollowersModal({ project, me, isManager, onClose, initialError =
       <div className="nx-fill nx-scroll" data-testid="followers-list"
         style={{ overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 10, minHeight: 80 }}>
         {followers.length === 0 ? (
-          <div style={{ padding: '14px 10px', fontSize: 12.5, color: NX.faint, textAlign: 'center' }}>
+          <div style={{ padding: '14px 10px', fontSize: 13, color: NX.faint, textAlign: 'center' }}>
             Nobody follows this project yet.
           </div>
         ) : followers.map((em) => (

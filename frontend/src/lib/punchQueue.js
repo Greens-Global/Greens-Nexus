@@ -194,8 +194,10 @@ async function _replayPending() {
   // clock-out whose Beginning / End-of-day message is not on record (Oct 16).
   await replayPendingBods().catch(() => {});
   // CLAIM it before sending, and write it back only if the send ends unknown.
-  // Another TAB could otherwise replay the same punch, and the self_manual
-  // backfill below has no server-side duplicate guard to catch that.
+  // Another TAB could otherwise replay the same punch. The self_manual backfill
+  // below now answers 409 for a punch already on the card at that minute
+  // (11/17/2026: one that committed while its answer was lost came back the
+  // next day as a second copy), and a 409 drops it as stale.
   clearPending();
   const ageSec = (Date.now() - Date.parse(`${p.at}Z`)) / 1000;
   try {

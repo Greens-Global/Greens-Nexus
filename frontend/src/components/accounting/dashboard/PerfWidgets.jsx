@@ -2,10 +2,11 @@ import { useMemo } from 'react';
 import { incomeStatement, incomeStatementWindow, isPl, isRevenue, plGroup, priorRange } from '../../../accounting/dashboard/model/ledger';
 import { monthLabel, monthsBetween, mShort, shiftKey } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
-import { Dot, EmptyBox, Eyebrow, Footnote, LoadingBox, Meter, mono, num, seriesColor, toneColor } from './Bits';
+import { Dot, EmptyBox, Eyebrow, Footnote, LoadingBox, Meter, RTh, SERIES_2, mono, num, seriesColor, toneColor, useDashCols } from './Bits';
 import { Bars, Donut } from './Charts';
 import { useDash } from './DashContext';
 import { usePerf, useTrend } from './hooks';
+import { DrillFigure, useLineDrill, useStatementOpen, useWindow } from './LineDrill';
 
 // Performance widgets: revenue vs expense bars, NOI by entity, budget
 // variances (month and year to date), and the income / expense breakdowns.
@@ -18,28 +19,29 @@ export function RevExpWidget() {
   if (!data.length) return <EmptyBox title="No activity in this period" />;
   return (
     <div>
-      <Bars data={data} series={[{ key: 'revenue', label: 'Revenue', color: 'var(--wk-brand, #2b45e1)' }, { key: 'expense', label: 'Expense', color: '#d97706' }]} height={170} />
-      <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: '0.7rem', color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Revenue</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#d97706" />Expense</span></div>
+      <Bars data={data} series={[{ key: 'revenue', label: 'Revenue', color: 'var(--wk-brand, #2b45e1)' }, { key: 'expense', label: 'Expense', color: SERIES_2 }]} height={170} />
+      <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Revenue</span><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color={SERIES_2} />Expense</span></div>
     </div>
   );
 }
 
 export function NoiPropWidget() {
-  const { noiRows, m, loading } = useDash();
-  if (loading) return <LoadingBox />;
+  const { noiRows, m, loading, noiLoading, noiDown } = useDash();
+  // A failed NOI read is "Could not load", never "No operating entities" (11/12/2026).
+  if (loading || noiLoading) return <LoadingBox failed={noiDown} />;
   const rows = noiRows.filter((r) => r.revenue > 0);
   if (!rows.length) return <EmptyBox title="No operating entities in this scope" body="Entities with revenue this month appear here with their NOI." />;
   const mx = Math.max(...rows.map((r) => Math.abs(r.noi)), 1);
   const total = rows.reduce((t, r) => t + r.noi, 0);
   return (
     <div>
-      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><Eyebrow>Total NOI</Eyebrow><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: toneColor(total >= 0) }}>{m(total)}</span></div>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><Eyebrow>Total NOI</Eyebrow><span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: toneColor(total >= 0) }}>{m(total)}</span></div>
       <div style={{ display: 'grid', gap: 8 }}>
         {rows.slice(0, 10).map((r) => (
-          <div key={r.code} style={{ fontSize: '0.84rem', color: r.isPartner ? 'var(--text-muted)' : 'inherit' }}>
+          <div key={r.code} style={{ fontSize: 13, color: r.isPartner ? 'var(--text-muted)' : 'inherit' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}{r.assetType ? <span style={{ marginLeft: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.assetType}</span> : null}</span>
-              <span style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8, fontVariantNumeric: 'tabular-nums' }}><span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.revenue ? pctTxt(r.noi / r.revenue, 0) : '-'} margin</span><span style={{ fontWeight: 600, color: toneColor(r.noi >= 0) }}>{m(r.noi, { compact: true })}</span></span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}{r.assetType ? <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--text-muted)' }}>{r.assetType}</span> : null}</span>
+              <span style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8, fontVariantNumeric: 'tabular-nums' }}><span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.revenue ? pctTxt(r.noi / r.revenue, 0) : '-'} margin</span><span style={{ fontWeight: 600, color: toneColor(r.noi >= 0) }}>{m(r.noi, { compact: true })}</span></span>
             </div>
             <Meter height={6} style={{ marginTop: 4 }} segments={[{ share: Math.abs(r.noi) / mx, color: r.noi >= 0 ? 'var(--wk-brand, #2b45e1)' : '#dc2626' }]} />
           </div>
@@ -53,20 +55,23 @@ export function NoiPropWidget() {
 export function VarianceWidget() {
   const { m, loading } = useDash();
   const perf = usePerf();
+  const [drill, lines] = useLineDrill();
+  const cols = useDashCols('variance');
   if (loading || !perf) return <LoadingBox />;
   const rows = perf.variances.filter((v) => v.budget).slice(0, 6);
   if (!rows.length) return <EmptyBox title="No budget for this month" body="Post a budget journal in Nexus Accounting covering this month to see variances." />;
   return (
     <div className="req-table-wrapper">
+      {lines}
       <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        <thead><tr><th>Account</th><th style={num}>Actual</th><th style={num}>Budget</th><th style={num}>Variance</th></tr></thead>
+        <thead><tr><RTh cols={cols} id="account" label="Account" /><RTh cols={cols} id="actual" label="Actual" style={num} /><RTh cols={cols} id="budget" label="Budget" style={num} /><RTh cols={cols} id="variance" label="Variance" style={num} /></tr></thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
               <td><span style={mono}>{r.gl}</span>{r.name}</td>
-              <td style={num}>{m(r.actual, { paren: true })}</td>
-              <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.budget, { paren: true })}</td>
-              <td style={{ ...num, fontWeight: 600, color: toneColor(r.good) }}>{m(r.v, { paren: true })}</td>
+              <td style={num}><DrillFigure onOpen={() => drill(r)}>{m(r.actual, { report: true })}</DrillFigure></td>
+              <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.budget, { report: true })}</td>
+              <td style={{ ...num, fontWeight: 600, color: toneColor(r.good) }}>{m(r.v, { report: true })}</td>
             </tr>
           ))}
         </tbody>
@@ -78,6 +83,7 @@ export function VarianceWidget() {
 export function YtdVarianceWidget() {
   const { m, loading } = useDash();
   const perf = usePerf();
+  const openStatement = useStatementOpen();
   if (loading || !perf) return <LoadingBox />;
   const y = perf.ytd;
   if (!y.lines.length) return <EmptyBox title="No activity this year" />;
@@ -86,12 +92,13 @@ export function YtdVarianceWidget() {
     const v = a - b;
     const good = up ? v >= 0 : v <= 0;
     return (
-      <tr key={label} style={label === 'Net income' ? { fontWeight: 700, borderTop: '2px solid var(--border-color)' } : undefined}>
+      <tr key={label} style={label === 'Net Income' ? { fontWeight: 700, borderTop: '2px solid var(--border-color)' } : undefined}>
         <td>{label}</td>
-        <td style={num}>{m(a, { paren: true })}</td>
-        <td style={{ ...num, color: 'var(--text-muted)' }}>{hasBudget ? m(b, { paren: true }) : '-'}</td>
-        <td style={{ ...num, color: hasBudget ? toneColor(good) : undefined }}>{hasBudget ? m(v, { paren: true }) : '-'}</td>
-        <td style={{ ...num, fontSize: '0.76rem', color: hasBudget ? toneColor(good) : undefined }}>{hasBudget && b ? pctTxt(v / Math.abs(b)) : '-'}</td>
+        {/* A total of many accounts opens the Income Statement for the same months; each line there opens its ledger lines (11/11/2026). */}
+        <td style={num}><DrillFigure onOpen={openStatement} title="Open the Income Statement for these months">{m(a, { report: true })}</DrillFigure></td>
+        <td style={{ ...num, color: 'var(--text-muted)' }}>{hasBudget ? m(b, { report: true }) : '-'}</td>
+        <td style={{ ...num, color: hasBudget ? toneColor(good) : undefined }}>{hasBudget ? m(v, { report: true }) : '-'}</td>
+        <td style={{ ...num, fontSize: 12, color: hasBudget ? toneColor(good) : undefined }}>{hasBudget && b ? pctTxt(v / Math.abs(b)) : '-'}</td>
       </tr>
     );
   };
@@ -100,7 +107,7 @@ export function YtdVarianceWidget() {
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <thead><tr><th /><th style={num}>Actual</th><th style={num}>Budget</th><th style={num}>Variance</th><th style={num}>%</th></tr></thead>
-          <tbody>{row('Revenue', y.revenue.a, y.revenue.b)}{row('Expenses', -y.expense.a, -y.expense.b, false)}{row('Net income', y.net.a, y.net.b)}</tbody>
+          <tbody>{row('Revenue', y.revenue.a, y.revenue.b)}{row('Expenses', -y.expense.a, -y.expense.b, false)}{row('Net Income', y.net.a, y.net.b)}</tbody>
         </table>
       </div>
       {hasBudget ? (
@@ -108,7 +115,7 @@ export function YtdVarianceWidget() {
           <Eyebrow>Largest variances</Eyebrow>
           <div style={{ marginTop: 4 }}>
             {y.largest.map((l, i) => (
-              <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.84rem', borderTop: i ? '1px solid var(--border-color)' : 'none' }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={mono}>{l.gl}</span>{l.name}</span><span style={{ flexShrink: 0, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: toneColor(l.v >= 0) }}>{m(l.v, { paren: true })}</span></div>
+              <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 13, borderTop: i ? '1px solid var(--border-color)' : 'none' }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={mono}>{l.gl}</span>{l.name}</span><span style={{ flexShrink: 0, fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: toneColor(l.v >= 0) }}>{m(l.v, { paren: true })}</span></div>
             ))}
           </div>
         </div>
@@ -145,9 +152,15 @@ function useBreakdown(kind) {
 }
 
 function Breakdown({ kind }) {
-  const { m, noiRows, periodLabel } = useDash();
+  const { m, noiRows, periodLabel, fromKey, period } = useDash();
   const d = useBreakdown(kind);
+  const [drill, lines] = useLineDrill();
+  const openStatement = useStatementOpen();
+  const win = useWindow();
+  const cols = useDashCols(`breakdown-${kind}`);
   if (!d) return <LoadingBox />;
+  // The prior figures are the run of months just before the range, as long as it.
+  const back = monthsBetween(fromKey, period).length;
   if (!d.rows.length) return <EmptyBox title={kind === 'income' ? 'No income for this scope and month.' : 'No expenses for this scope and month.'} />;
   const inc = kind === 'income';
   const chGood = d.ch == null ? true : inc ? d.ch >= 0 : d.ch <= 0;
@@ -156,7 +169,7 @@ function Breakdown({ kind }) {
   const diffCell = (cur, prev) => {
     if (!prev) return <td style={{ ...num, color: 'var(--text-muted)' }}>-</td>;
     const diff = cur - prev;
-    return <td style={{ ...num, color: toneColor(inc ? diff >= 0 : diff <= 0) }}>{`${diff >= 0 ? '+' : '-'}${m(Math.abs(diff))}`}</td>;
+    return <td style={{ ...num, color: toneColor(inc ? diff >= 0 : diff <= 0) }}>{m(diff, { report: true })}</td>;
   };
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -171,26 +184,27 @@ function Breakdown({ kind }) {
             </>
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
-              {groups.map((g) => <div key={g.g} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem' }}><span>{g.g}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}><span style={{ fontWeight: 600 }}>{m(g.v)}</span><span style={{ marginLeft: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{pctTxt(g.v / d.tot, 0)}</span></span></div>)}
+              {groups.map((g) => <div key={g.g} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span>{g.g}</span><span style={{ fontVariantNumeric: 'tabular-nums' }}><span style={{ fontWeight: 600 }}>{m(g.v)}</span><span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>{pctTxt(g.v / d.tot, 0)}</span></span></div>)}
             </div>
           )}
         </div>
       </div>
       <div className="req-table-wrapper">
+        {lines}
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th>{inc ? 'Income source' : 'Expense'}</th><th style={{ width: 110 }} /><th style={num}>{periodLabel}</th><th style={num}>% of total</th><th style={num}>{d.pk ? mShort(d.pk) : 'Prior period'}</th><th style={num}>Change</th></tr></thead>
+          <thead><tr><RTh cols={cols} id="name" label={inc ? 'Income Source' : 'Expense'} /><RTh cols={cols} id="bar" label="Share" style={{ width: 110 }}>{''}</RTh><RTh cols={cols} id="cur" label={periodLabel} style={num} /><RTh cols={cols} id="pct" label="% of Total" style={num} /><RTh cols={cols} id="prev" label={d.pk ? mShort(d.pk) : 'Prior Period'} style={num} /><RTh cols={cols} id="change" label="Change" style={num} /></tr></thead>
           <tbody>
             {d.rows.map((r, i) => (
               <tr key={r.id}>
                 <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginRight: 6 }}><Dot color={seriesColor(i)} /><span style={{ ...mono, marginRight: 0 }}>{r.gl}</span></span>{r.name}</td>
                 <td><Meter height={6} segments={[{ share: r.amt / mx, color: seriesColor(i) }]} /></td>
-                <td style={num}>{m(r.amt)}</td>
-                <td style={{ ...num, fontSize: '0.76rem', color: 'var(--text-muted)' }}>{pctTxt(r.amt / d.tot, 0)}</td>
-                <td style={{ ...num, color: 'var(--text-muted)' }}>{r.prev ? m(r.prev) : '-'}</td>
+                <td style={num}><DrillFigure onOpen={() => drill(r)}>{m(r.amt, { report: true })}</DrillFigure></td>
+                <td style={{ ...num, fontSize: 12, color: 'var(--text-muted)' }}>{pctTxt(r.amt / d.tot, 0)}</td>
+                <td style={{ ...num, color: 'var(--text-muted)' }}>{r.prev ? <DrillFigure onOpen={() => drill(r, { monthsAgo: back })}>{m(r.prev, { report: true })}</DrillFigure> : '-'}</td>
                 {diffCell(r.amt, r.prev)}
               </tr>
             ))}
-            <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border-color)' }}><td>{inc ? 'Total income' : 'Total expenses'}</td><td /><td style={num}>{m(d.tot)}</td><td /><td style={num}>{d.ptot ? m(d.ptot) : '-'}</td>{diffCell(d.tot, d.ptot)}</tr>
+            <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border-color)' }}><td>{inc ? 'Total Income' : 'Total Expenses'}</td><td /><td style={num}><DrillFigure onOpen={() => openStatement(win())} title="Open the Income Statement for these months">{m(d.tot, { report: true })}</DrillFigure></td><td /><td style={num}>{d.ptot ? <DrillFigure onOpen={() => openStatement(win(back))} title="Open the Income Statement for the prior months">{m(d.ptot, { report: true })}</DrillFigure> : '-'}</td>{diffCell(d.tot, d.ptot)}</tr>
           </tbody>
         </table>
       </div>
@@ -198,7 +212,7 @@ function Breakdown({ kind }) {
         <div>
           <Eyebrow>Income by entity</Eyebrow>
           <Meter height={10} style={{ marginTop: 6 }} segments={noiRows.filter((r) => r.revenue > 0).map((r, i) => ({ share: d.tot ? r.revenue / d.tot : 0, color: seriesColor(i), title: `${r.name}: ${m(r.revenue)}` }))} />
-          <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+          <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 11, color: 'var(--text-muted)' }}>
             {noiRows.filter((r) => r.revenue > 0).slice(0, 8).map((r, i) => <span key={r.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color={seriesColor(i)} />{r.name} <span style={{ fontVariantNumeric: 'tabular-nums' }}>{m(r.revenue, { compact: true })}</span></span>)}
           </div>
         </div>

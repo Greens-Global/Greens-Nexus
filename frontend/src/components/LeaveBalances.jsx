@@ -74,7 +74,7 @@ const KIND = { opening: 'Opening Balance', accrual: 'Earned', used: 'Used', adju
 function yearEndHint(b, bucket, policy) {
   const y = b?.yearEnd?.[bucket];
   if (!y) return bucket === 'sick' ? `Use by ${day(b?.sick?.expiresOn)} - it doesn't carry over.` : '';
-  if (y.exempt) return 'It carries over - California vacation does not expire.';
+  if (y.exempt) return 'Unused time carries over.';
   if (y.effectiveMode === 'carry_all') return 'Unused time carries over.';
   if (y.effectiveMode === 'carry_cap') return `Up to ${fmtLeave(y.capHours, policy)} carries past ${day(y.nextClosing)}; the rest expires.`;
   return `Use by ${day(y.nextClosing)} - unused time expires.`;
@@ -122,7 +122,7 @@ export function LeaveBalanceCard({ balance }) {
         <span className="wkc-chip"><CalendarClock size={14} /></span>
         <span style={HD}>My Paid Time Off</span>
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{pol?.name}</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{pol?.name}</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
         {['vacation', 'sick'].map(k => {
@@ -130,7 +130,7 @@ export function LeaveBalanceCard({ balance }) {
           return (
             <div key={k} style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '11px 13px', background: 'var(--mist)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{LABEL[k]}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: '2px 0' }}>{fmtLeave(x.available, pol)}</div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', margin: '2px 0' }}>{fmtLeave(x.available, pol)}</div>
               {/* No hint line here - the card shows the numbers only (Neil, 11/02/2026: remove the tooltips). */}
               {(x.upcoming > 0 || x.pending > 0) && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
@@ -155,7 +155,7 @@ export function LeaveBalanceCard({ balance }) {
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>
               {t.name}{!t.paid && ' (unpaid)'}
             </div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: '2px 0' }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', margin: '2px 0' }}>
               {t.method === 'tracked_only' ? 'As taken' : fmtLeave(t.available, pol)}
             </div>
             {(t.upcoming > 0 || t.pending > 0) && (
@@ -226,12 +226,16 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
   const [open, setOpen] = useState('');            // 'import' | 'policies' | ''
   const [q, setQ] = useState('');
   const [person, setPerson] = useState(null);      // expanded email
+  // As Of (Charmi, 11/17/2026): balances as they stood at the end of a day -
+  // the last pay date matches the QuickBooks pay stub while the newest
+  // finalized period is not paid yet. '' = today.
+  const [asOf, setAsOf] = useState('');
 
   const load = useCallback(() => {
     setErr('');
-    return api.leaveAdmin().then(d => { setData(d); setCut(d.cutover || ''); setCutCo(''); })
+    return api.leaveAdmin(asOf).then(d => { setData(d); setCut(d.cutover || ''); setCutCo(''); })
       .catch(e => { setErr(e?.status === 403 ? '' : (e?.message || 'Could not load leave balances.')); setData(e?.status === 403 ? false : null); });
-  }, []);
+  }, [asOf]);
   useEffect(() => { load(); }, [load]);
 
   if (data === false) return null;                 // not HR - nothing to show
@@ -241,6 +245,10 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
   const pols = data.policies || [];
   const polName = Object.fromEntries(pols.map(p => [p.id, p.name]));
 
+  // Live once ANY start date is set - the organization's or a company's own
+  // (11/18/2026: prod has only Oversite's and Aarav's, so the list, Search
+  // and As Of never showed).
+  const live = !!data.cutover || (data.companies || []).some(c => c.cutover);
   const cutRow = cutCo ? (data.companies || []).find(c => c.id === cutCo) : null;
   const savedCut = cutRow ? cutRow.cutover : (data.cutover || '');
   function pickCutCo(id) { setCutCo(id); const row = (data.companies || []).find(c => c.id === id); setCut((row ? row.cutover : data.cutover) || ''); }
@@ -277,14 +285,14 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
         <span className="wkc-chip"><CalendarClock size={14} /></span>
         <span style={HD}>Leave Balances</span>
         <span style={{ flex: 1 }} />
-        {data.canSetup && data.cutover && (
+        {data.canSetup && live && (
           <button className="secondary-btn" onClick={recalc} disabled={busy === 'recalc'} title="Rebuild earned and used hours from every finalized pay period since the start date"
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy === 'recalc' ? <Spinner size={12} /> : <RefreshCw size={12} />} Recalculate
           </button>
         )}
       </div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, maxWidth: 760 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, maxWidth: 760 }}>
         Vacation and sick time in hours. Import what each person had in QuickBooks on the start date once; after that Nexus keeps it from finalized pay periods - vacation earned per hour worked, and the sick and vacation hours paid on the time sheet.
       </div>
 
@@ -293,7 +301,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
           {(data.companies || []).length > 0 && (
             <label style={{ display: 'grid', gap: 5 }}>
               <span style={LBL}>For</span>
-              <select className="form-input" value={cutCo} onChange={e => pickCutCo(e.target.value)} style={{ fontSize: 12.5 }} aria-label="Start date for">
+              <select className="form-input" value={cutCo} onChange={e => pickCutCo(e.target.value)} style={{ fontSize: 13 }} aria-label="Start date for">
                 <option value="">Every company</option>
                 {data.companies.map(c => <option key={c.id} value={c.id}>{c.name}{c.own ? ' (its own)' : ''}</option>)}
               </select>
@@ -302,13 +310,13 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
           <div style={{ display: 'grid', gap: 5 }}>
             <span style={LBL}>Start Date</span>
             <DateField value={cut} onChange={(v) => setCut(v || '')} title="Start date"
-              style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '8px 10px', background: 'var(--card)', fontSize: 12.5 }} />
+              style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '8px 10px', background: 'var(--card)', fontSize: 13 }} />
           </div>
-          <button className="primary-btn" onClick={() => saveCutover(false)} disabled={!cut || cut === savedCut || busy === 'cut'} style={{ fontSize: 12.5 }}>
+          <button className="primary-btn" onClick={() => saveCutover(false)} disabled={!cut || cut === savedCut || busy === 'cut'} style={{ fontSize: 13 }}>
             {busy === 'cut' ? <Spinner size={12} /> : 'Save Start Date'}
           </button>
           {cutRow?.own && (
-            <button className="secondary-btn" onClick={() => saveCutover(true)} disabled={busy === 'cut'} style={{ fontSize: 12.5 }}>Use the Organization's</button>
+            <button className="secondary-btn" onClick={() => saveCutover(true)} disabled={busy === 'cut'} style={{ fontSize: 13 }}>Use the Organization's</button>
           )}
           <span style={{ fontSize: 12, color: 'var(--muted)', paddingBottom: 9 }}>
             {cutCo
@@ -317,8 +325,8 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
           </span>
         </div>
       )}
-      {!data.canSetup && !data.cutover && (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>An administrator sets the start date before balances can be loaded.</div>
+      {!data.canSetup && !live && (
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>An administrator sets the start date before balances can be loaded.</div>
       )}
 
       {data.cutover && (
@@ -330,15 +338,19 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
         <div style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>The policies themselves are under Settings &gt; Time Off &amp; Leave &gt; Leave Policies.</div>
       )}
 
-      {data.cutover && (
+      {live && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 8px' }}>
             <div style={{ position: 'relative', flex: '0 1 260px' }}>
               <Search size={13} style={{ position: 'absolute', left: 10, top: 9, color: 'var(--muted)' }} />
               <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search by name" aria-label="Search people"
-                style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 10, border: '1px solid var(--line)', fontSize: 12.5, background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit' }} />
+                style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 10, border: '1px solid var(--line)', fontSize: 13, background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit' }} />
             </div>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{people.length} people</span>
+            <span style={{ flex: 1 }} />
+            <span style={LBL}>As Of</span>
+            <DateField value={asOf} onChange={(v) => setAsOf(v || '')} title="Balances as of" placeholder="Today" />
+            {asOf && <button className="secondary-btn" onClick={() => setAsOf('')} style={{ fontSize: 12 }}>Today</button>}
           </div>
           <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
             <div style={{ ...ROW, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', background: 'var(--mist)' }}>
@@ -349,7 +361,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
               <span style={{ flex: '1 1 150px' }}>Other Leave</span>
               <span style={{ flex: '0 0 120px' }}>Sick Starts</span>
             </div>
-            {people.length === 0 && <div style={{ padding: 16, fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>No one matches.</div>}
+            {people.length === 0 && <div style={{ padding: 16, fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>No one matches.</div>}
             {people.map(p => (
               <div key={p.email} style={{ borderTop: '1px solid var(--line)' }}>
                 <div style={{ ...ROW, cursor: 'pointer' }} onClick={() => setPerson(person === p.email ? null : p.email)}>
@@ -421,7 +433,7 @@ function ImportPanel({ onDone, toastOk, toastErr, cutover }) {
   }
   return (
     <div style={{ display: 'grid', gap: 8 }}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)' }}>
         One row per person: work email, vacation, sick - what they had left in QuickBooks on {day(cutover)}. Paste it or choose a CSV file. Importing someone again replaces their opening numbers.
       </div>
       <textarea className="form-input" rows={6} value={text} onChange={e => setText(e.target.value)} aria-label="Opening balances"
@@ -437,7 +449,7 @@ function ImportPanel({ onDone, toastOk, toastErr, cutover }) {
         </select>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>{rows.length} {rows.length === 1 ? 'row' : 'rows'} read</span>
         <span style={{ flex: 1 }} />
-        <button className="primary-btn" onClick={run} disabled={!rows.length || busy} style={{ fontSize: 12.5 }}>
+        <button className="primary-btn" onClick={run} disabled={!rows.length || busy} style={{ fontSize: 13 }}>
           {busy ? <Spinner size={12} /> : 'Import'}
         </button>
       </div>
@@ -473,7 +485,7 @@ function PersonDetail({ email, onChanged, toastOk, toastErr }) {
   }
 
   if (b === null) return <div style={{ padding: 12 }}><SkeletonBlocks count={2} height={14} /></div>;
-  if (b === false) return <div style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>Could not load this person's balance.</div>;
+  if (b === false) return <div style={{ padding: 12, fontSize: 13, color: 'var(--muted)' }}>Could not load this person's balance.</div>;
   const pol = b.policy;
   const lines = [
     ...(b.sick?.grant ? [{ id: 'g-sick', bucket: 'sick', kind: 'Yearly Grant', hours: b.sick.grant.hours, date: b.sick.grant.date, note: `Policy ${pol.name}` }] : []),
@@ -559,7 +571,7 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)' }}>
         Hours throughout. Sick time is given at once after the waiting period, for the calendar year, and does not carry over. Vacation is earned per hour worked (by years of service) or added on each work anniversary, and carries over. After a change, use Recalculate.
       </div>
       {list.map((p, i) => (
@@ -619,7 +631,7 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
                     style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', width: 28, height: 28, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}><X size={14} /></button>
                 </div>
               ))}
-              <button className="secondary-btn" onClick={() => upd(i, x => { x.vacation.tiers = [...(x.vacation.tiers || []), { fromYears: 1, hoursPerYear: 40 }]; return x; })} style={{ fontSize: 11.5, justifySelf: 'start', display: 'inline-flex', gap: 5, alignItems: 'center' }}><Plus size={11} /> Add Tier</button>
+              <button className="secondary-btn" onClick={() => upd(i, x => { x.vacation.tiers = [...(x.vacation.tiers || []), { fromYears: 1, hoursPerYear: 40 }]; return x; })} style={{ fontSize: 12, justifySelf: 'start', display: 'inline-flex', gap: 5, alignItems: 'center' }}><Plus size={11} /> Add Tier</button>
             </div>
           )}
         </div>
@@ -644,18 +656,18 @@ export function LeaveSetup({ toastOk, toastErr }) {
       .catch(e => { setErr(e?.status === 403 ? '' : (e?.message || 'Could not load the leave policies.')); setData(e?.status === 403 ? false : null); });
   }, []);
   useEffect(() => { load(); }, [load]);
-  if (data === false) return <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Only HR can see the leave policies.</div>;
+  if (data === false) return <div style={{ fontSize: 13, color: 'var(--muted)' }}>Only HR can see the leave policies.</div>;
   if (err) return <div style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{err} <button className="secondary-btn" onClick={load} style={{ marginLeft: 8, fontSize: 12 }}>Retry</button></div>;
   if (data === null) return <SkeletonBlocks count={3} height={18} />;
   return (
     <div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
         {data.cutover ? `Balances count from ${day(data.cutover)}${(data.companies || []).some(c => c.own) ? ' (some companies have a date of their own)' : ''}.` : 'No start date yet - nothing shows to employees until one is set.'} The start dates and the opening balances are on People &gt; Time &gt; Time Off.
       </div>
       {/* Every company shares the policies (Neil, 11/02/2026): a Super Administrator's (canEditPolicies). */}
       {(data.canEditPolicies ?? data.canSetup)
         ? <PoliciesEditor policies={data.policies || []} builtIn={data.defaults || []} onSaved={load} toastOk={toastOk} toastErr={toastErr} />
-        : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Only a Super Administrator can change this.</div>}
+        : <div style={{ fontSize: 13, color: 'var(--muted)' }}>Only a Super Administrator can change this.</div>}
     </div>
   );
 }
@@ -664,4 +676,4 @@ const CARD = { background: 'var(--card)', border: '1px solid var(--wk-line2)', b
 const HD = { fontSize: 14, fontWeight: 700, color: 'var(--ink)' };
 const LBL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };
 const FIELD = { display: 'grid', gap: 4, minWidth: 0 };
-const ROW = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', fontSize: 12.5, flexWrap: 'wrap' };
+const ROW = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', fontSize: 13, flexWrap: 'wrap' };

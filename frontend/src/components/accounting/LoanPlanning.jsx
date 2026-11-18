@@ -4,11 +4,15 @@ import { api } from '../../api';
 import Amount, { AmountInput, Figure, formatAmount } from './Amount';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
-import { EntityPicker, ExportMenu, Pager, control } from './reportControls';
-import { usePaged } from './tableHooks';
+import { ColumnResizer, EntityPicker, ExportMenu, Pager, control } from './reportControls';
+import { useColumnWidths, usePaged } from './tableHooks';
+import { headStyle } from './columnStyles';
 import { downloadBlob } from './reportModel';
 import { FREQUENCIES, PLAN_KINDS, RATE_INDEXES, existingDebt, mortgagePlan, normalizeLoan, planImpact, planKind, scheduleTotals, t12From, yearlySchedule } from './loanMath';
 import { NOI_BASES, entityNois } from './LoanStress';
+import { DateField } from '../../tasks/components';
+import { dialog } from '../../ui/dialog';
+import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 
 // Accounting -> Loans & Financing -> Loan Planning (Charmi, item 25, Oct 15:
 // "New Loan Planning / Mortgage Calculator").
@@ -47,14 +51,19 @@ import { NOI_BASES, entityNois } from './LoanStress';
 // NOI and balances are as of) }.
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const hint = { fontSize: '0.78rem', color: 'var(--text-secondary)' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
+const hint = { fontSize: 13, color: 'var(--text-secondary)' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+// A heading the person can drag wider or narrower (kept per person, useColumnWidths).
+// aria-label keeps the heading's name its words, not the drag handle's too.
+const rth = (cw, key, label, style = null, text = label) => (
+  <th key={key} aria-label={text ? label : undefined} style={headStyle(cw.width(key), style)}>{text}<ColumnResizer {...cw.resizer(key, label)} /></th>
+);
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 };
-const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' };
+const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' };
 const input = { ...control, width: '100%' };
-const sectionTitle = { fontSize: '0.74rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' };
+const sectionTitle = { fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' };
 const pct = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? '-' : `${Number(v).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}%`);
 const x = (v) => (v == null ? '-' : `${Number(v).toFixed(2)}x`);
 const MAX_COMPARE = 3;
@@ -78,7 +87,7 @@ function Chip({ tone = 'muted', children, title }) {
     ok: { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' }, bad: { fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
-  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
+  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
 }
 const resultChip = (impact) => (impact.pass == null ? <Chip>No NOI</Chip> : impact.pass ? <Chip tone="ok">Pass</Chip> : <Chip tone="bad">Below Target</Chip>);
 
@@ -87,7 +96,7 @@ function Field({ id, title, children, note }) {
     <div>
       <label style={label} htmlFor={id}>{title}</label>
       {children}
-      {note && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 3 }}>{note}</div>}
+      {note && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{note}</div>}
     </div>
   );
 }
@@ -95,9 +104,9 @@ function Field({ id, title, children, note }) {
 function Tile({ title, children, sub }) {
   return (
     <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '8px 12px', minWidth: 0 }}>
-      <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{title}</div>
-      <div style={{ fontSize: '1.02rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{children}</div>
-      {sub && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{sub}</div>}
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>{title}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{children}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
@@ -173,6 +182,7 @@ function Schedule({ plan, name }) {
   const paged = usePaged(rows, kind === 'year' ? 0 : plan.frequency.perYear * 2, [kind, plan.rows.length, plan.payment]);
   const t = scheduleTotals(plan.rows);
   const hasBalloon = plan.balloon > 0;
+  const cw = useColumnWidths('loan-planning-schedule', {}, { min: 50 });
   const doExport = async (format) => {
     setExporting(format);
     setError('');
@@ -190,13 +200,13 @@ function Schedule({ plan, name }) {
   return (
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--border-color)' }}>
-        <strong style={{ fontSize: '0.86rem' }}>Amortization Schedule</strong>
+        <strong style={{ fontSize: 14 }}>Amortization Schedule</strong>
         <div role="group" aria-label="Schedule by" style={{ display: 'inline-flex', gap: 4 }}>
           {[['month', 'By Payment'], ['year', 'By Year']].map(([k, l]) => (
-            <button key={k} type="button" className={kind === k ? 'primary-btn' : 'secondary-btn'} aria-pressed={kind === k} onClick={() => setKind(k)} style={{ fontSize: '0.74rem', height: 26, padding: '0 10px' }}>{l}</button>
+            <button key={k} type="button" className={kind === k ? 'primary-btn' : 'secondary-btn'} aria-pressed={kind === k} onClick={() => setKind(k)} style={{ fontSize: 12, height: 26, padding: '0 10px' }}>{l}</button>
           ))}
         </div>
-        <span style={{ ...hint, fontSize: '0.74rem' }}>{plan.payments} payments{plan.maturityDate ? `, last ${formatDate(plan.maturityDate)}` : ''}</span>
+        <span style={{ ...hint, fontSize: 12 }}>{plan.payments} payments{plan.maturityDate ? `, last ${formatDate(plan.maturityDate)}` : ''}</span>
         <div style={{ marginLeft: 'auto' }}>
           <ExportMenu disabled={!plan.rows.length} items={[
             { key: 'excel', label: 'Excel', hint: 'Amounts as numbers, totals in bold', onPick: () => doExport('excel'), busy: exporting === 'excel' },
@@ -210,8 +220,8 @@ function Schedule({ plan, name }) {
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--bg-card)' }}>
             {kind === 'year'
-              ? <tr><th>Year</th><th style={num}>Payments</th><th style={num}>Payment</th><th style={num}>Interest</th><th style={num}>Principal</th>{hasBalloon && <th style={num}>Balloon</th>}<th style={num}>Year-End Balance</th></tr>
-              : <tr><th style={{ width: 48 }}>#</th><th>Date</th><th style={num}>Payment</th><th style={num}>Interest</th><th style={num}>Principal</th>{hasBalloon && <th style={num}>Balloon</th>}<th style={num}>Balance</th></tr>}
+              ? <tr>{rth(cw, 'year', 'Year')}{rth(cw, 'payments', 'Payments', num)}{rth(cw, 'payment', 'Payment', num)}{rth(cw, 'interest', 'Interest', num)}{rth(cw, 'principal', 'Principal', num)}{hasBalloon && rth(cw, 'balloon', 'Balloon', num)}{rth(cw, 'balance', 'Year-End Balance', num)}</tr>
+              : <tr>{rth(cw, 'n', 'Payment Number', { width: 48 }, '#')}{rth(cw, 'date', 'Date')}{rth(cw, 'payment', 'Payment', num)}{rth(cw, 'interest', 'Interest', num)}{rth(cw, 'principal', 'Principal', num)}{hasBalloon && rth(cw, 'balloon', 'Balloon', num)}{rth(cw, 'balance', 'Balance', num)}</tr>}
           </thead>
           <tbody>
             {paged.rows.map((r, i) => (
@@ -244,9 +254,9 @@ function DscrCheck({ code, entityName, ev, noiInfo, noiLoading, target }) {
   return (
     <div style={{ ...card, padding: '10px 12px', display: 'grid', gap: 8 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-        <strong style={{ fontSize: '0.86rem' }}>DSCR Check{entityName ? ` - ${entityName}` : ''}</strong>
+        <strong style={{ fontSize: 14 }}>DSCR Check{entityName ? ` - ${entityName}` : ''}</strong>
         {resultChip(impact)}
-        <span style={{ ...hint, fontSize: '0.74rem' }}>NOI {basis}{!noiTyped && noiInfo?.addback ? ' plus the Stress Test addback' : ''}; existing debt service is the entity&apos;s {debt.loans} open {debt.loans === 1 ? 'loan' : 'loans'} sized as on the Stress Test.</span>
+        <span style={{ ...hint, fontSize: 12 }}>NOI {basis}{!noiTyped && noiInfo?.addback ? ' plus the Stress Test addback' : ''}; existing debt service is the entity&apos;s {debt.loans} open {debt.loans === 1 ? 'loan' : 'loans'} sized as on the Stress Test.</span>
       </div>
       {impact.noi == null ? (
         <div style={hint}>{noiLoading ? 'Reading the NOI...' : 'No NOI on file for this entity - type one under NOI to check the DSCR.'}</div>
@@ -267,6 +277,7 @@ function DscrCheck({ code, entityName, ev, noiInfo, noiLoading, target }) {
 }
 
 function PlannedList({ planned, evals, entityName, selected, onToggle, onOpen, onDelete, canEdit, openId }) {
+  const cw = useColumnWidths('loan-planning-planned', {}, { min: 50 });
   if (!planned.length) {
     return <div style={{ ...card, padding: '10px 12px', ...hint }}>No planned loans yet.{canEdit ? ' Work one out in the calculator below and Save it to compare it with others.' : ' An editor on Accounting can save them here.'}</div>;
   }
@@ -276,8 +287,8 @@ function PlannedList({ planned, evals, entityName, selected, onToggle, onOpen, o
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
           <thead>
             <tr>
-              <th title={`Compare up to ${MAX_COMPARE}`}>Compare</th><th>Name</th><th>Entity</th><th>Lender</th><th style={num}>Loan Amount</th><th style={num}>Rate</th>
-              <th>Amortization / Term</th><th style={num}>Monthly Payment</th><th style={num}>Annual Debt Service</th><th style={num}>DSCR After</th><th>Result</th><th>Expected Close</th>
+              <th title={`Compare up to ${MAX_COMPARE}`}>Compare</th>{rth(cw, 'name', 'Name')}{rth(cw, 'entity', 'Entity')}{rth(cw, 'lender', 'Lender')}{rth(cw, 'amount', 'Loan Amount', num)}{rth(cw, 'rate', 'Rate', num)}
+              {rth(cw, 'term', 'Amortization / Term')}{rth(cw, 'monthly', 'Monthly Payment', num)}{rth(cw, 'annual', 'Annual Debt Service', num)}{rth(cw, 'dscr', 'DSCR After', num)}{rth(cw, 'result', 'Result')}{rth(cw, 'close', 'Expected Close')}
               {canEdit && <th style={{ width: 36 }} />}
             </tr>
           </thead>
@@ -290,11 +301,15 @@ function PlannedList({ planned, evals, entityName, selected, onToggle, onOpen, o
                   <td onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" aria-label={`Compare ${p.name}`} checked={on} disabled={!on && selected.length >= MAX_COMPARE} onChange={() => onToggle(p.id)} />
                   </td>
-                  <td><strong>{p.name}</strong>{p.params?.notes ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={p.params.notes}>{p.params.notes}</div> : null}</td>
+                  <td>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); onOpen(p); }} aria-label={`Open ${p.name}`} aria-current={openId === p.id || undefined}
+                      style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 700, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textAlign: 'left' }}>{p.name}</button>
+                    {p.params?.notes ? <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={p.params.notes}>{p.params.notes}</div> : null}
+                  </td>
                   <td>{entityName(p.entityCode)}</td>
                   <td>{p.params?.lender || '-'}</td>
                   <td style={num}><Amount value={ev.plan.amount} zero="dash" /></td>
-                  <td style={num}>{pct(ev.plan.rate)}{rateNote(p.params) && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{rateNote(p.params)}</div>}</td>
+                  <td style={num}>{pct(ev.plan.rate)}{rateNote(p.params) && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{rateNote(p.params)}</div>}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>{years(p.params?.amortYears)} / {years(p.params?.termYears || p.params?.amortYears)}</td>
                   <td style={num}>{ev.plan.errors.length ? '-' : <Amount value={ev.plan.monthlyPayment} />}</td>
                   <td style={num}>{ev.plan.errors.length ? '-' : <Amount value={ev.plan.annualDebtService} />}</td>
@@ -317,6 +332,7 @@ function PlannedList({ planned, evals, entityName, selected, onToggle, onOpen, o
 }
 
 function Compare({ items, entityName, onClear }) {
+  const cw = useColumnWidths('loan-planning-compare', {}, { min: 80 });
   const line = (title, render) => ({ title, render });
   const lines = [
     line('Entity', (p) => entityName(p.entityCode)),
@@ -358,13 +374,13 @@ function Compare({ items, entityName, onClear }) {
   return (
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--border-color)' }}>
-        <strong style={{ fontSize: '0.86rem' }}>Compare Planned Loans</strong>
-        <span style={{ ...hint, fontSize: '0.74rem' }}>The lowest payment and the highest DSCR are in bold.</span>
+        <strong style={{ fontSize: 14 }}>Compare Planned Loans</strong>
+        <span style={{ ...hint, fontSize: 12 }}>The lowest payment and the highest DSCR are in bold.</span>
         <button type="button" className="secondary-btn" onClick={onClear} style={{ ...btn, height: 26, marginLeft: 'auto' }}>Clear</button>
       </div>
       <div className="req-table-wrapper" style={{ overflow: 'auto' }}>
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th style={{ minWidth: 170 }} />{items.map(({ p }) => <th key={p.id} style={{ ...num, minWidth: 160 }}>{p.name}</th>)}</tr></thead>
+          <thead><tr>{rth(cw, 'line', 'Line', { minWidth: 170 }, '')}{items.map(({ p }) => rth(cw, `p-${p.id}`, p.name, { ...num, minWidth: cw.width(`p-${p.id}`) ? undefined : 160 }))}</tr></thead>
           <tbody>
             {lines.map((l) => (
               <tr key={l.title}>
@@ -380,6 +396,7 @@ function Compare({ items, entityName, onClear }) {
 }
 
 const fromSaved = (p) => ({ ...EMPTY_PLAN, ...(p.params || {}), kind: planKind(p.params || {}) });
+const calcSnap = (form, meta) => JSON.stringify([form, meta.name, meta.entityCode]);
 
 // A list of rows of numbers (Other's one-time extra payments and rate
 // periods): one line each, Add and Remove.
@@ -388,6 +405,11 @@ function RowsEditor({ id, title, rows = [], fields, addLabel, onChange, note }) 
   return (
     <div style={{ display: 'grid', gap: 6 }}>
       <span style={label} id={`${id}-label`}>{title}</span>
+      {rows.length > 0 && (
+        <div aria-hidden="true" style={{ display: 'flex', gap: 6, fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+          {fields.map((f) => <span key={f.key} style={{ width: f.amount ? 150 : 130 }}>{f.label}</span>)}
+        </div>
+      )}
       {rows.map((r, i) => (
         <div key={i} role="group" aria-label={`${title} ${i + 1}`} style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           {fields.map((f) => (f.amount
@@ -397,7 +419,7 @@ function RowsEditor({ id, title, rows = [], fields, addLabel, onChange, note }) 
         </div>
       ))}
       <div><button type="button" className="secondary-btn" onClick={() => onChange([...rows, {}])} style={{ ...btn, height: 28 }}>{addLabel}</button></div>
-      {note && <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{note}</div>}
+      {note && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{note}</div>}
     </div>
   );
 }
@@ -459,8 +481,25 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
   const ok = !plan.errors.length;
   const dirtyName = meta.name.trim();
 
-  const startNew = () => { setLive(null); setForm((f) => ({ ...EMPTY_PLAN, kind: f.kind, ...(SECTION_DEFAULTS[f.kind] || {}), startDate: todayIso() })); setMeta({ id: null, name: '', entityCode: picked.length === 1 ? picked[0] : '' }); setMsg(null); };
-  const open = (p) => { setLive(null); setForm(fromSaved(p)); setMeta({ id: p.id, name: p.name, entityCode: p.entityCode }); setMsg(null); };
+  // What the calculator held when it was last opened, started or saved: typed
+  // inputs since then are asked about before another loan replaces them.
+  const [clean, setClean] = useState(() => calcSnap(form, meta));
+  const calcDirty = calcSnap(form, meta) !== clean;
+  const unlessKept = (go) => {
+    if (!calcDirty) { go(); return; }
+    dialog.confirm('The calculator has changes that are not saved. Discard them?', { title: 'Unsaved Changes', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true })
+      .then((ok) => { if (ok) go(); });
+  };
+  const startNew = () => unlessKept(() => {
+    const f2 = { ...EMPTY_PLAN, kind: form.kind, ...(SECTION_DEFAULTS[form.kind] || {}), startDate: todayIso() };
+    const m2 = { id: null, name: '', entityCode: picked.length === 1 ? picked[0] : '' };
+    setLive(null); setForm(f2); setMeta(m2); setClean(calcSnap(f2, m2)); setMsg(null);
+  });
+  const open = (p) => unlessKept(() => {
+    const f2 = fromSaved(p);
+    const m2 = { id: p.id, name: p.name, entityCode: p.entityCode };
+    setLive(null); setForm(f2); setMeta(m2); setClean(calcSnap(f2, m2)); setMsg(null);
+  });
   const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((v) => v !== id) : s.length >= MAX_COMPARE ? s : [...s, id]));
   // Half-typed rows of Other's lists are not kept (the API takes numbers only).
   const filled = (v) => v !== '' && v != null && !Number.isNaN(Number(v));
@@ -481,12 +520,15 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
       const p = d?.planned;
       if (!p) return;
       setPlanned((list) => [p, ...(list || []).filter((y) => y.id !== p.id)]);
-      setMeta({ id: p.id, name: p.name, entityCode: p.entityCode });
+      const m2 = { id: p.id, name: p.name, entityCode: p.entityCode };
+      setMeta(m2);
+      setClean(calcSnap(form, m2));
       setMsg({ text: `Saved ${p.name}.` });
     }).catch((e) => setMsg({ text: e?.message || 'Could not save the planned loan.', bad: true })).finally(() => setBusy(''));
   };
-  const remove = (p) => {
-    if (!window.confirm(`Remove the planned loan "${p.name}"?`)) return;
+  // The house dialog, press and hold (11/11/2026 Accounting pass, picture 10).
+  const remove = async (p) => {
+    if (!await dialog.confirm(`Remove the planned loan "${p.name}"?`, { title: 'Remove Planned Loan', confirmText: 'Remove', doneText: 'Removed', hold: true, holdMs: HOLD_RECORD_MS })) return;
     api.deletePlannedLoan(p.id).then(() => {
       setPlanned((list) => (list || []).filter((y) => y.id !== p.id));
       setSelected((s) => s.filter((v) => v !== p.id));
@@ -505,15 +547,15 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       {msg && (
-        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: msg.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: msg.bad ? 'var(--bad-fg, #dc2626)' : 'var(--ok-fg, #15803d)' }}>
           <span style={{ flex: 1 }}>{msg.text}</span>
-          <button type="button" className="secondary-btn" onClick={() => setMsg(null)} style={{ fontSize: '0.74rem', padding: '2px 10px' }}>Dismiss</button>
+          <button type="button" className="secondary-btn" onClick={() => setMsg(null)} style={{ fontSize: 12, padding: '2px 10px' }}>Dismiss</button>
         </div>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={sectionTitle}>Planned Loans</span>
-        {planned && <span style={{ ...hint, fontSize: '0.74rem' }}>{shown.length} {shown.length === 1 ? 'loan' : 'loans'}{picked.length ? ' in the entities picked' : ''} · tick two or three to compare · click one to open it</span>}
+        {planned && <span style={{ ...hint, fontSize: 12 }}>{shown.length} {shown.length === 1 ? 'loan' : 'loans'}{picked.length ? ' in the entities picked' : ''} · tick two or three to compare · click one to open it</span>}
       </div>
       {loadError && <div style={bad}>{loadError}</div>}
       {planned === undefined ? <SkeletonBlocks count={2} /> : (
@@ -524,7 +566,7 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
       <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Calculator size={16} style={{ color: 'var(--wk-brand, #2b45e1)' }} />
-          <strong style={{ fontSize: '0.92rem' }}>{meta.id ? `Planned Loan - ${meta.name}` : 'Loan Calculator'}</strong>
+          <strong style={{ fontSize: 15 }}>{meta.id ? `Planned Loan - ${meta.name}` : 'Loan Calculator'}</strong>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" style={btn} onClick={startNew}><FilePlus size={14} /> New Calculation</button>
             {canEdit && meta.id && <button type="button" className="secondary-btn" style={btn} disabled={busy === 'save' || !ok} onClick={() => save(true)}><Copy size={14} /> Save as New</button>}
@@ -535,7 +577,7 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
         <div className="scroll-tabs" role="tablist" aria-label="Loan Calculator" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-color)' }}>
           {PLAN_KINDS.map((k) => (
             <button key={k.key} type="button" role="tab" aria-selected={form.kind === k.key} onClick={() => switchKind(k.key)}
-              style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '6px 12px', fontSize: '0.82rem', fontWeight: form.kind === k.key ? 700 : 500, whiteSpace: 'nowrap',
+              style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '6px 12px', fontSize: 13, fontWeight: form.kind === k.key ? 700 : 500, whiteSpace: 'nowrap',
                 color: form.kind === k.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', borderBottom: `2px solid ${form.kind === k.key ? 'var(--wk-brand, #2b45e1)' : 'transparent'}`, marginBottom: -1 }}>{k.label}</button>
           ))}
         </div>
@@ -591,7 +633,7 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
           <Field id="lp-freq" title="Payment Frequency">
             <select id="lp-freq" value={form.frequency} onChange={(e) => set({ frequency: e.target.value })} style={input}>{FREQUENCIES.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select>
           </Field>
-          <Field id="lp-start" title="Start Date" note="The first payment is one period later"><input id="lp-start" type="date" value={form.startDate || ''} onChange={(e) => set({ startDate: e.target.value })} style={input} /></Field>
+          <Field id="lp-start" title="Start Date" note="The first payment is one period later"><span id="lp-start" style={{ ...input, display: 'flex', alignItems: 'center' }}><DateField value={form.startDate || ''} onChange={(picked) => { const v = picked || ''; return set({ startDate: v }); }} placeholder="MM/DD/YYYY" title="Start Date" style={{ width: '100%' }} /></span></Field>
           {other && <>
             <Field id="lp-closing" title="Closing Costs"><AmountInput id="lp-closing" value={form.closingCosts} onChange={(v) => set({ closingCosts: v })} style={input} /></Field>
             <Field id="lp-points" title="Points %" note={plan.points ? `${formatAmount(plan.points)}` : null}><input id="lp-points" type="number" min="0" max="20" step="0.125" value={form.pointsPct ?? ''} onChange={(e) => set({ pointsPct: e.target.value })} style={input} /></Field>
@@ -615,7 +657,7 @@ export default function LoanPlanning({ loans = [], entities = [], picked = [], c
             <EntityPicker entities={pickerEntities} value={meta.entityCode} onChange={(code) => setMeta((m) => ({ ...m, entityCode: code || '' }))} placeholder="Pick an Entity" ariaLabel="Entity the loan is for" style={{ width: '100%' }} />
           </div>
           <Field id="lp-lender" title="Lender"><input id="lp-lender" type="text" maxLength={120} value={form.lender || ''} onChange={(e) => set({ lender: e.target.value })} style={input} /></Field>
-          <Field id="lp-close" title="Expected Close"><input id="lp-close" type="date" value={form.closeDate || ''} onChange={(e) => set({ closeDate: e.target.value })} style={input} /></Field>
+          <Field id="lp-close" title="Expected Close"><span id="lp-close" style={{ ...input, display: 'flex', alignItems: 'center' }}><DateField value={form.closeDate || ''} onChange={(picked) => { const v = picked || ''; return set({ closeDate: v }); }} placeholder="MM/DD/YYYY" title="Expected Close" style={{ width: '100%' }} /></span></Field>
           <Field id="lp-target" title="DSCR Target"><input id="lp-target" type="number" min="0.5" max="10" step="0.05" value={form.dscrTarget ?? ''} onChange={(e) => set({ dscrTarget: e.target.value })} style={input} /></Field>
           <Field id="lp-noi" title="NOI" note={ev.noiTyped ? 'Typed - clear it to use the entity\'s' : nois[meta.entityCode]?.adjusted != null ? `Entity's: ${formatAmount(nois[meta.entityCode].adjusted)}` : 'Optional - the entity\'s when blank'}>
             <AmountInput id="lp-noi" value={form.noi} onChange={(v) => set({ noi: v })} placeholder={nois[meta.entityCode]?.adjusted != null ? formatAmount(nois[meta.entityCode].adjusted) : '0.00'} style={input} />

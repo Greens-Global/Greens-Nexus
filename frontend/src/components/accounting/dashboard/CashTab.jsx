@@ -3,7 +3,7 @@ import { useIsMobile as useMedia } from '../../../lib/useIsMobile';
 import { CASH_CATS, cashPlan, SCENARIOS } from '../../../accounting/dashboard/model/cash-plan';
 import { monthLabel, monthLong, mShort } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
-import { Chip, Dot, EmptyBox, Footnote, LoadingBox, Panel, SectionTabs, Tile, num, pill, toneColor } from './Bits';
+import { Chip, Dot, EmptyBox, Footnote, LoadingBox, Panel, RTh, SectionTabs, Tile, num, pill, toneColor, useDashCols } from './Bits';
 import { AreaTrend } from './Charts';
 import { useDash } from './DashContext';
 import { Toolbar } from './Filters';
@@ -22,7 +22,7 @@ const SECTIONS = [
 ];
 
 export default function CashTab() {
-  const { m, cashSplit, scenarioId, setScenario, loading, ledger, period } = useDash();
+  const { m, cashSplit, scenarioId, setScenario, loading, cashLoading, cashDown, ledger, period } = useDash();
   const { loans } = useLoans();
   const { mv } = useHoldings();
   const { fixed, months: run } = useRunway();
@@ -50,10 +50,10 @@ export default function CashTab() {
     <div style={{ display: 'grid', gap: 14 }}>
       <Toolbar right={
         <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }} aria-label="Scenario">
-          {Object.values(SCENARIOS).map((s) => <button key={s.id} type="button" style={{ ...pill(scenarioId === s.id), padding: '4px 10px', fontSize: '0.74rem' }} onClick={() => setScenario(s.id)} title={s.note}>{s.name}</button>)}
+          {Object.values(SCENARIOS).map((s) => <button key={s.id} type="button" style={{ ...pill(scenarioId === s.id), padding: '4px 10px', fontSize: 12 }} onClick={() => setScenario(s.id)} title={s.note}>{s.name}</button>)}
         </div>
       } />
-      {loading || !plan ? <LoadingBox height={84} /> : (
+      {loading || cashLoading || !plan ? <LoadingBox height={84} failed={cashDown} /> : (
         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
           <Tile label="Cash on hand" value={m(cashSplit.onHand, { compact: true })} sub={cashSplit.ncOnly ? `non-controllable · ${cashSplit.onHandEntities.length} partner ${cashSplit.onHandEntities.length === 1 ? 'entity' : 'entities'}` : cashSplit.nc ? `+ ${m(cashSplit.nc, { compact: true })} non-controllable` : 'controllable'} />
           <Tile label="Investments" value={m(mv, { compact: true })} sub="stocks and bonds" />
@@ -65,7 +65,7 @@ export default function CashTab() {
       <SectionTabs tabs={SECTIONS} value={section} onChange={setSection} />
 
       {section === 'position' ? (
-        <Panel title="Total cash - 12 months actual, 6 months forecast" right={<Chip>{S.name}: {S.note}</Chip>}>
+        <Panel title="Total Cash - 12 Months Actual, 6 Months Forecast"right={<Chip>{S.name}: {S.note}</Chip>}>
           {loading || !plan ? <LoadingBox /> : chart.length < 2 ? <EmptyBox title="Not enough history for a forecast" /> : (
             <>
               <AreaTrend data={chart} height={230} zero={false} series={[
@@ -74,7 +74,7 @@ export default function CashTab() {
                 { key: 'actual', label: 'Actual month-end cash', color: 'var(--wk-brand, #2b45e1)' },
                 { key: 'forecast', label: `${S.name} forecast`, color: '#0998c3', dashed: true },
               ]} />
-              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 11, color: 'var(--text-muted)' }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="var(--wk-brand, #2b45e1)" />Actual month-end cash (all bank accounts in scope)</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#0998c3" />{S.name} forecast</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color="#8a9a9f" />Downside to upside range</span>
@@ -85,7 +85,7 @@ export default function CashTab() {
       ) : null}
 
       {section === 'plan' ? (
-        <Panel title="Cash plan by category" sub={`Six months actual · six months ${S.name.toLowerCase()} forecast (shaded)`} bodyStyle={{ padding: 0, overflowX: 'auto' }}>
+        <Panel title="Cash Plan by Category"sub={`Six months actual · six months ${S.name.toLowerCase()} forecast (shaded)`} bodyStyle={{ padding: 0, overflowX: 'auto' }}>
           {loading || !plan ? <LoadingBox /> : <PlanTable hist={plan.hist.slice(-6)} fc={plan.fc} />}
         </Panel>
       ) : null}
@@ -93,7 +93,7 @@ export default function CashTab() {
       {section === 'forecast' ? (
         <div style={grid}>
           <div style={half}><WidgetPanel id="cashForecast" /></div>
-          <Panel title={`Forecast accuracy - ${last ? monthLong(last.k) : ''}`} style={halfWide}>{loading || !plan || !last ? <LoadingBox /> : <Accuracy last={last} fcLast={plan.fcLast} />}</Panel>
+          <Panel title={`Forecast Accuracy - ${last ? monthLong(last.k) : ''}`} style={halfWide}>{loading || !plan || !last ? <LoadingBox /> : <Accuracy last={last} fcLast={plan.fcLast} />}</Panel>
           <div style={halfWide}><WidgetPanel id="maturity" style={{ height: '100%' }} /></div>
         </div>
       ) : null}
@@ -111,12 +111,13 @@ export default function CashTab() {
 
 function PlanTable({ hist, fc }) {
   const { m } = useDash();
+  const cw = useDashCols('cash-plan');
   const cols = [...hist, ...fc];
   if (!cols.length) return <EmptyBox title="No months to plan" style={{ margin: 16 }} />;
   const cell = (v) => (v == null ? '-' : v ? m(v, { compact: true, paren: true }) : '-');
   const total = (dir, c) => CASH_CATS.filter((x) => x.dir === dir).reduce((t, x) => t + c.v[x.id], 0);
   const net = (c) => CASH_CATS.reduce((t, x) => t + c.v[x.id], 0) + c.v.other;
-  const head = (label) => <tr style={{ background: 'var(--bg-secondary)' }}><td colSpan={cols.length + 1} style={{ fontSize: '0.66rem', fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-muted)', padding: '6px 10px' }}>{label}</td></tr>;
+  const head = (label) => <tr style={{ background: 'var(--bg-secondary)' }}><td colSpan={cols.length + 1} style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-muted)', padding: '6px 10px' }}>{label}</td></tr>;
   const row = (label, f, o = {}) => (
     <tr key={label} style={o.strong ? { fontWeight: 700, borderTop: '1px solid var(--border-color)' } : undefined}>
       <td style={{ position: 'sticky', left: 0, background: 'var(--bg-card)', color: o.muted ? 'var(--text-muted)' : undefined, paddingLeft: !o.strong && !o.muted ? 20 : undefined }}>{label}</td>
@@ -125,7 +126,8 @@ function PlanTable({ hist, fc }) {
   );
   return (
     <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>
-      <thead><tr><th style={{ position: 'sticky', left: 0, background: 'var(--bg-card)' }}>Category</th>{cols.map((c) => <th key={c.k} style={{ ...num, background: !c.actual ? 'var(--bg-secondary)' : undefined }}>{mShort(c.k)}{!c.actual ? <div style={{ fontSize: '0.6rem', fontWeight: 500, color: 'var(--text-muted)' }}>forecast</div> : null}</th>)}</tr></thead>
+      {/* position: sticky after headStyle's relative, so the first column still pins. */}
+      <thead><tr><RTh cols={cw} id="category" label="Category" style={{ position: 'sticky', left: 0, background: 'var(--bg-card)', zIndex: 1 }} />{cols.map((c) => <RTh key={c.k} cols={cw} id="month" label={mShort(c.k)} style={{ ...num, background: !c.actual ? 'var(--bg-secondary)' : undefined }}>{mShort(c.k)}{!c.actual ? <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)' }}>forecast</div> : null}</RTh>)}</tr></thead>
       <tbody>
         {row('Opening cash', (c) => c.beg, { strong: true })}
         {head('Cash in')}
@@ -145,6 +147,7 @@ function PlanTable({ hist, fc }) {
 
 function Accuracy({ last, fcLast }) {
   const { m } = useDash();
+  const cw = useDashCols('forecast-accuracy');
   const rows = CASH_CATS.map((c) => { const f = fcLast[c.id] ?? 0; const a = last.v[c.id]; return { ...c, f, a, v: a - f }; }).sort((x, y) => Math.abs(y.v) - Math.abs(x.v));
   const sumV = rows.reduce((t, r) => t + r.v, 0);
   const sumA = rows.reduce((t, r) => t + r.a, 0);
@@ -152,7 +155,7 @@ function Accuracy({ last, fcLast }) {
     <div>
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th>Category</th><th style={num}>Forecast</th><th style={num}>Actual</th><th style={num}>Variance</th></tr></thead>
+          <thead><tr><RTh cols={cw} id="category" label="Category" /><RTh cols={cw} id="forecast" label="Forecast" style={num} /><RTh cols={cw} id="actual" label="Actual" style={num} /><RTh cols={cw} id="variance" label="Variance" style={num} /></tr></thead>
           <tbody>
             {rows.map((r) => <tr key={r.id}><td>{r.label}</td><td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.f, { compact: true, paren: true })}</td><td style={num}>{m(r.a, { compact: true, paren: true })}</td><td style={{ ...num, fontWeight: 600, color: toneColor(r.v >= 0) }}>{m(r.v, { compact: true, paren: true })}</td></tr>)}
             <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border-color)' }}><td>Net</td><td style={num}>{m(rows.reduce((t, r) => t + r.f, 0), { compact: true, paren: true })}</td><td style={num}>{m(sumA, { compact: true, paren: true })}</td><td style={{ ...num, color: toneColor(sumV >= 0) }}>{m(sumV, { compact: true, paren: true })}</td></tr>

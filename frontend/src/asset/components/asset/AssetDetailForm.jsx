@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Flag, ChevronDown, ChevronUp } from 'lucide-react';
+import { Flag } from 'lucide-react';
 import AnchoredMenu from '../../../components/AnchoredMenu';
+import { DateField } from '../../../tasks/components.jsx';
 import { PT } from '../../lib/propertyFields.js';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
 import { normLabel, formatFieldValue } from '../../lib/format.js';
@@ -8,19 +9,25 @@ import { STAGE_FORM, baseStage } from '../../lib/stages.js';
 import { editGuard } from '../../lib/editGuard.js';
 import { deriveType } from '../../lib/portfolioCards.js';
 import { ContactCell } from '../shared/ContactCell.jsx';
-import { MultiDateInput } from '../shared/FieldInput.jsx';
-import { PropertyMapLink } from './PropertyMapLink.jsx';
-import { PhotoGallery } from './PhotoGallery.jsx';
-import { SiteModelSection } from './SiteModelSection.jsx';
+import { MultiDateInput, toIsoDay } from '../shared/FieldInput.jsx';
 import { companyIdOf, companyName, companyOptions } from '../../lib/companies.js';
 import { egnyteFolderOf } from '../../lib/egnyteFolder.js';
 import { EgnyteFolderInput } from './EgnyteFolderField.jsx';
 
 const FLAG_REASONS = ['Appears Incorrect', 'Needs Verification', 'Outdated', 'Missing Info', 'Other'];
 
-const labelStyle = { fontSize: '0.78rem', fontWeight: 500, color: 'var(--text-secondary)', lineHeight: 1.4 };
-const sectionCardStyle = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', scrollMarginTop: 108 };
-const inputStyle = { width: '100%', padding: '5px 9px', fontSize: '0.82rem' };
+const labelStyle = { fontSize: 12, fontWeight: 400, color: 'var(--text-secondary)', lineHeight: 1.4 };
+const inputStyle = { width: '100%', padding: '5px 9px', fontSize: 13 };
+const linkBtn = { border: 'none', background: 'none', padding: 0, fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 600, color: 'hsl(var(--color-green))', cursor: 'pointer' };
+const sectionHead = { display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 };
+const sectionTitle = { margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' };
+// Shown in the title band above the details, so read mode does not repeat them.
+const IN_TITLE_BAND = new Set(['Project Name', 'Development Stage']);
+// A long "Not filled" list names this many, then "and N more".
+const MISSING_SHOWN = 8;
+
+/** "a, b and c" */
+const listWords = (items) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 
 /**
  * The universal spec-sheet: renders AND inline-edits the full field set for any asset kind.
@@ -37,13 +44,22 @@ const inputStyle = { width: '100%', padding: '5px 9px', fontSize: '0.82rem' };
  * Editing writes back through `onSaveDetail`, keyed by field LABEL (not field key) - the parent
  * is responsible for mapping label -> the right storage location (top-level field vs. snapshot
  * value), same asymmetry as the read path above.
+ *
+ * The read look (Neil, 11/17/2026): no card per section - each section is a title, a "7 of 8
+ * filled" count, its FILLED fields as label / value pairs in two columns, then one line
+ * "Not filled: a, b. Fill In". A section with nothing filled folds into the one "Nothing
+ * Recorded Yet" row at the end. An operating property (Stabilized) reads its fields under
+ * Location, Site and Building and Ownership and Team (`displaySections` - display only; a
+ * field's storage group `g` stays the flag key). Edit mode is the full form, every field, with
+ * the On This Page rail beside it. `onFillIn(label?)` starts editing at a field (the page's
+ * own start-edit, which also scrolls there); without it Fill In starts editing here.
  */
-export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetail, onSaveContact, onOpenLead, onFlag, companies = [], canClearCompany = false, egnyteLocked = false }) {
+export function AssetDetailForm({ p: asset, highlight, onSaveDetail, onSaveContact, onOpenLead, onFlag, onFillIn, companies = [], canClearCompany = false, egnyteLocked = false }) {
   const flagMap = new Map((asset.reviewFlags || []).map((x) => [(x.g || '') + '~#~' + (x.f || ''), x.reason || '']));
   const isProperty = inferAssetKind(asset) === 'property';
   // Data Gaps chips name the completeness check, not always the row label.
   const FIELD_ALIASES = { 'insurance carrier': 'carrier', 'lot size': 'lot size (sf / acres)' };
-  const SECTION_TARGETS = { 'google maps link': 'map', photos: 'media' };
+  const SECTION_TARGETS = { photos: 'media' };
   const highlightRaw = (highlight?.field || '').toLowerCase();
   const highlightField = FIELD_ALIASES[highlightRaw] || highlightRaw;
   const highlightAt = highlight?.at || 0;
@@ -51,34 +67,31 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
   const [dirty, setDirty] = useState(false);
-  // Read mode shows only the fields that hold a value; a section's empty fields
-  // fold behind one "Show N empty fields" line (per section, this visit).
-  const [showEmpty, setShowEmpty] = useState({});
   // Empty fields a deep link scrolled to stay on screen after the 4s highlight ends.
   const [revealed, setRevealed] = useState(() => new Set());
   // The one flag menu: which row's button opened it ({ key, section, label }).
   const [flagMenu, setFlagMenu] = useState(null);
   const flagBtnRef = useRef(null);
   // The form stays mounted from one asset to the next (Open Assemblage, a Critical
-  // Items row): the per-section toggles, the revealed rows and an open flag menu
-  // belong to the asset they were opened on.
-  useEffect(() => { setShowEmpty({}); setRevealed(new Set()); setFlagMenu(null); }, [asset.id]);
+  // Items row): the revealed rows and an open flag menu belong to the asset they
+  // were opened on.
+  useEffect(() => { setRevealed(new Set()); setFlagMenu(null); }, [asset.id]);
 
-  const sections = buildSections(asset, isProperty, editing);
+  const sections = displaySections(buildSections(asset, isProperty, editing), asset, isProperty);
 
-  const nav = [...sections.map((sec, i) => ['sec' + i, sec.title]), ['map', 'Map'], ['media', 'Media']];
+  const nav = [...sections.map((sec, i) => ['sec' + i, sec.title]), ['media', 'Media']];
   const jumpTo = (key) => {
     const el = document.getElementById('gt-' + key);
     el && el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  // Scroll-spy for the "On This Page" rail: the first section (in rail order)
+  // Scroll-spy for the "On This Page" rail (edit mode): the first section (in rail order)
   // crossing the band just under the page header is the current one; between
   // two sections the last hit stays lit, and before any scroll the first is.
   const [current, setCurrent] = useState(null);
   const navKeys = nav.map(([key]) => key).join('|');
   useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') return undefined;
+    if (!editing || typeof IntersectionObserver === 'undefined') return undefined;
     const keys = navKeys.split('|').filter(Boolean);
     const hits = new Map();
     const io = new IntersectionObserver((entries) => {
@@ -88,7 +101,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
     }, { rootMargin: '-96px 0px -55% 0px', threshold: 0 });
     keys.forEach((k) => { const el = document.getElementById('gt-' + k); el && io.observe(el); });
     return () => io.disconnect();
-  }, [navKeys, asset.id]);
+  }, [navKeys, asset.id, editing]);
 
   // The fixed Save / Cancel bar is the page header's twin: the header already
   // holds Cancel / Save Changes while editing, so the bar shows only once the
@@ -104,22 +117,24 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
     return () => io.disconnect();
   }, [editing]);
 
-  // Deep-link to a specific field (a search result, a flagged-field notice, a Data Gaps
-  // chip): scroll to it, and in edit mode put the cursor in it.
+  // Deep-link to a specific field (a search result, a flagged-field notice, a Key Details
+  // gap, Fill In): scroll to it, and in edit mode put the cursor in it.
   useEffect(() => {
     if (!highlightField) return;
+    if (highlightField === 'google maps link' && !editing) { jumpTo('map'); return; }
     if (SECTION_TARGETS[highlightField]) { jumpTo(SECTION_TARGETS[highlightField]); return; }
     setRevealed((r) => (r.has(highlightField) ? r : new Set([...r, highlightField])));
     const el = document.querySelector(`[data-fl="${highlightField}"]`);
     if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    if (editing) el.querySelector('input,select,textarea')?.focus?.({ preventScroll: true });
+    el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    if (editing) el.querySelector('input,select,textarea,button')?.focus?.({ preventScroll: true });
   }, [highlightField, highlightAt, editing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startEdit = () => {
     if (editing) return;
     const d = {};
-    sections.forEach((sec) => sec.fields.forEach((f) => {
+    // The draft is built from the FULL field set (edit mode shows dev-only fields too).
+    displaySections(buildSections(asset, isProperty, true), asset, isProperty).forEach((sec) => sec.fields.forEach((f) => {
       d[f.l] = f.raw == null ? '' : String(f.raw);
       if (f.unitLabel) d[f.unitLabel] = f.unitRaw || 'Acres';
     }));
@@ -129,6 +144,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
   };
   const cancel = () => { setEditing(false); setDraft({}); setDirty(false); };
   const save = () => { onSaveDetail && onSaveDetail(draft); setEditing(false); setDraft({}); setDirty(false); };
+  const fillIn = (label) => (onFillIn ? onFillIn(label) : startEdit());
 
   // Unit Mix auto-sum: editing any of the three sub-counts recomputes "Total Storage Units".
   const UNIT_MIX_PARTS = ['Climate-Controlled Units', 'Non-Climate Units', 'Vehicle Storage Spaces'];
@@ -159,33 +175,38 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
   })() : f.t === 'egnyte' ? (
     // Connecting is one time (Neil, 11/05/2026): a connected folder is read only below an Owner.
     egnyteLocked ? (
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45, wordBreak: 'break-word' }}>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.45, wordBreak: 'break-word' }}>
         {egnyteFolderOf(asset)}
-        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Connected - only an Asset Management Owner can change it.</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Connected - only an Asset Management Owner can change it.</div>
       </div>
     ) : <EgnyteFolderInput assetId={asset.id} value={draft[f.l] ?? ''} onChange={(v) => setField(f.l, v)} />
   ) : f.unitLabel ? (
     <div style={{ display: 'flex', gap: 6 }}>
-      <input className="form-input" type="text" value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={{ ...inputStyle, flex: 1 }} />
-      <select className="form-input" value={draft[f.unitLabel] ?? 'Acres'} onChange={(e) => setField(f.unitLabel, e.target.value)} style={{ ...inputStyle, width: 84, flexShrink: 0 }}>
+      <input className="form-input" type="text" aria-label={f.l} value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+      <select className="form-input" aria-label={f.unitLabel} value={draft[f.unitLabel] ?? 'Acres'} onChange={(e) => setField(f.unitLabel, e.target.value)} style={{ ...inputStyle, width: 84, flexShrink: 0 }}>
         <option value="Acres">Acres</option>
         <option value="SF">SF</option>
       </select>
     </div>
   ) : f.t === 'stage' ? (
-    <select className="form-input" value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle}>
+    <select className="form-input" aria-label={f.l} value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle}>
       <option value="">-</option>
       {STAGE_FORM.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   ) : f.t === 'select' ? (
-    <select className="form-input" value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle}>
+    <select className="form-input" aria-label={f.l} value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle}>
       <option value="">-</option>
       {(f.options || []).map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   ) : f.t === 'dates' ? (
     <MultiDateInput value={draft[f.l] ?? ''} onChange={(v) => setField(f.l, v)} />
+  ) : f.t === 'date' && (!String(draft[f.l] ?? '').trim() || toIsoDay(draft[f.l])) ? (
+    // The Nexus date box, never a native one (it follows the computer's region).
+    <div className="form-input" role="group" aria-label={f.l} style={{ ...inputStyle, display: 'flex', alignItems: 'center' }}>
+      <DateField value={toIsoDay(draft[f.l])} onChange={(v) => setField(f.l, v || '')} title={f.l} style={{ flex: 1 }} />
+    </div>
   ) : (
-    <input className="form-input" type={f.t === 'date' ? 'date' : 'text'} value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle} />
+    <input className="form-input" type="text" aria-label={f.l} value={draft[f.l] ?? ''} onChange={(e) => setField(f.l, e.target.value)} style={inputStyle} />
   );
 
   // Register with the shared navigation-away guard whenever this form is mounted/dirty;
@@ -206,184 +227,203 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
     return () => { editGuard.dirty = false; editGuard.editing = false; editGuard.notify(); };
   }, [editing, dirty]);
 
-  return (
-    <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-      {/* Flat rail (Neil, 10/28/2026): the look is .gt-toc-item in
-          asset-styles.scoped.css - a hairline, the current section in ink. */}
-      <nav className="gt-toc" aria-label="On This Page" style={{ position: 'sticky', top: 'calc(64px + var(--nx-announce-h, 0px))', flexShrink: 0, width: 178, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ ...labelStyle, fontWeight: 600, color: 'var(--text-primary)', padding: '2px 12px 10px' }}>On This Page</div>
-        {nav.map(([key, title]) => (
-          <button
-            key={key}
-            type="button"
-            className="gt-toc-item"
-            aria-current={current === key ? 'true' : undefined}
-            onClick={() => jumpTo(key)}
-          >
-            {title}
+  // The flag: a quiet icon that shows on hover (always on a touch screen,
+  // always once flagged - asset-styles .gt-flag). A click opens the reasons; a
+  // flagged one clears on click. Company is a picker and the Egnyte Folder a
+  // pin: nothing to flag on either.
+  const flagButton = (f, sectionKey) => {
+    if (!onFlag || f.t === 'company' || f.t === 'egnyte') return <span />;
+    const isFlagged = flagMap.has(f.flagKey);
+    const menuOpen = flagMenu?.key === f.flagKey;
+    return (
+      <button
+        type="button"
+        ref={menuOpen ? flagBtnRef : undefined}
+        className={isFlagged ? 'gt-flag on' : 'gt-flag'}
+        aria-haspopup={isFlagged ? undefined : 'menu'}
+        aria-expanded={isFlagged ? undefined : menuOpen}
+        aria-label={isFlagged ? `Flagged: ${flagMap.get(f.flagKey) || 'Needs review'}. Clear the flag` : `Flag ${f.l} for review`}
+        title={isFlagged ? `Flagged (${flagMap.get(f.flagKey) || 'Needs review'}) - click to clear` : 'Flag this field for review'}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isFlagged) onFlag(asset.id, sectionKey, f.l);
+          else setFlagMenu(menuOpen ? null : { key: f.flagKey, section: sectionKey, label: f.l });
+        }}
+        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 7, border: 'none', cursor: 'pointer', justifySelf: 'end',
+          background: 'transparent', color: isFlagged ? 'hsl(var(--color-orange))' : 'var(--text-secondary)' }}
+      >
+        <Flag size={14} fill={isFlagged ? 'currentColor' : 'none'} />
+      </button>
+    );
+  };
+
+  const flagMenuNode = () => {
+    if (!onFlag) return null;
+    return (
+      <AnchoredMenu anchorRef={flagBtnRef} open={!!flagMenu} onClose={() => setFlagMenu(null)} align="end" minWidth={210}
+        style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
+        <div style={{ padding: '6px 10px 4px', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Flag for Review</div>
+        {FLAG_REASONS.map((r) => (
+          <button key={r} type="button" role="menuitem"
+            onClick={() => { const m = flagMenu; setFlagMenu(null); if (m) onFlag(asset.id, m.section, m.label, r); }}
+            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', cursor: 'pointer', borderRadius: 7, fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'inherit' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--mist)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
+            {r}
           </button>
         ))}
-      </nav>
+      </AnchoredMenu>
+    );
+  };
 
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {editing && dirty && headerOff && (
-          <div className="save-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 300, display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', boxShadow: '0 -6px 20px rgba(0,0,0,0.18)' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--text-primary)' }}>You've made changes</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Save before you leave this page</div>
-            </div>
-            <button className="secondary-btn" onClick={cancel} style={{ padding: '9px 14px', flexShrink: 0 }}>Cancel</button>
-            <button className="primary-btn" onClick={save} style={{ padding: '9px 22px', flexShrink: 0 }}>Save Changes</button>
-          </div>
-        )}
+  const prepared = sections.map((sec, si) => {
+    const all = sec.fields.map((f) => ({ ...f, value: f.t === 'company' ? companyName(companies, f.raw) : formatFieldValue(f.raw, f.t), flagKey: (f.g || sec.title || '') + '~#~' + f.l }));
+    const countable = editing ? all : all.filter((f) => !IN_TITLE_BAND.has(f.l));
+    const hasValue = (f) => String(f.value ?? '').trim() !== '' && !(f.t === 'company' && !f.raw);
+    const lc = (f) => String(f.l).toLowerCase();
+    // Read mode: the filled fields, plus any empty one that is flagged or deep-linked.
+    const shown = countable.filter((f) => hasValue(f) || (onFlag && flagMap.has(f.flagKey)) || revealed.has(lc(f)) || (highlightField && lc(f) === highlightField));
+    const missing = countable.filter((f) => !shown.includes(f));
+    return { sec, si, all, countable, shown, missing, filled: countable.filter(hasValue).length };
+  });
 
-        {asset.assembled && asset.parentId && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', borderRadius: 11, border: '1px solid hsl(var(--color-purple) / 0.35)', backgroundColor: 'hsl(var(--color-purple) / 0.07)', flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'hsl(var(--color-purple))' }}>Parcel of {asset.siteName || 'an assembled asset'}</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.45 }}>
-                Project detail (ownership, financials, zoning, team) is managed on the assemblage. This page holds only the info specific to this parcel.
+  if (editing) {
+    return (
+      <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+        {/* Flat rail (Neil, 10/28/2026): the look is .gt-toc-item in
+            asset-styles.scoped.css - a hairline, the current section in ink. */}
+        <nav className="gt-toc" aria-label="On This Page" style={{ position: 'sticky', top: 'calc(64px + var(--nx-announce-h, 0px))', flexShrink: 0, width: 178, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ ...labelStyle, fontWeight: 600, color: 'var(--text-primary)', padding: '2px 12px 10px' }}>On This Page</div>
+          {nav.map(([key, title]) => (
+            <button key={key} type="button" className="gt-toc-item" aria-current={current === key ? 'true' : undefined} onClick={() => jumpTo(key)}>
+              {title}
+            </button>
+          ))}
+        </nav>
+
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          {dirty && headerOff && (
+            <div className="save-bar" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 300, display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', boxShadow: '0 -6px 20px rgba(0,0,0,0.18)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>You&apos;ve made changes</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Save before you leave this page</div>
               </div>
+              <button className="secondary-btn" onClick={cancel} style={{ padding: '9px 14px', flexShrink: 0 }}>Cancel</button>
+              <button className="primary-btn" onClick={save} style={{ padding: '9px 22px', flexShrink: 0 }}>Save Changes</button>
             </div>
-            {onOpenLead && (
-              <button className="primary-btn" onClick={() => onOpenLead(asset.parentId)} style={{ flexShrink: 0, padding: '8px 14px', fontSize: '0.8rem' }}>
-                Open Assemblage
-              </button>
-            )}
-          </div>
-        )}
-
-        {!editing && <div style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)', margin: '4px 0 -6px' }}>Details</div>}
-        {sections.map((sec, si) => {
-          const all = sec.fields.map((f) => ({ ...f, value: f.t === 'company' ? companyName(companies, f.raw) : formatFieldValue(f.raw, f.t), flagKey: (sec.title || '') + '~#~' + f.l }));
-          const hasValue = (f) => String(f.value ?? '').trim() !== '';
-          const filled = all.filter(hasValue).length;
-          // Read mode: the filled fields, plus any empty one that is flagged or deep-linked.
-          const open = editing || !!showEmpty[sec.title];
-          // Company always shows, a dash when none is set (Needs a Company), so it is never hidden;
-          // so does the Egnyte Folder (blank = not pinned, matched by name).
-          const rows = open ? all : all.filter((f) => hasValue(f) || f.t === 'company' || f.t === 'egnyte' || (onFlag && flagMap.has(f.flagKey)) || revealed.has(String(f.l).toLowerCase()) || (highlightField && String(f.l).toLowerCase() === highlightField));
-          const hidden = all.length - rows.length;
-          return (
-          <section key={'sec' + si} id={'gt-sec' + si} style={sectionCardStyle}>
-            {/* The card's own header, flat (no tinted band) - a hairline under it. */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 18px 12px', borderBottom: '1px solid var(--border-color)' }}>
-              <strong style={{ fontSize: '0.98rem', color: 'var(--text-primary)' }}>{sec.title}</strong>
-              <span title="Fields with a value" style={{ marginLeft: 'auto', fontSize: '0.78rem', fontWeight: 600, color: filled === all.length ? 'hsl(var(--color-green))' : 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
-                {filled} of {all.length}
-              </span>
-            </div>
-            <div>
-              {rows.map((f, fi) => {
-                const label = f.l;
-                const value = f.value;
-                const isHighlighted = !editing && highlightField && String(label).toLowerCase() === highlightField;
-                const isFlagged = onFlag && flagMap.has(f.flagKey);
-                const menuOpen = flagMenu?.key === f.flagKey;
-
-                return (
-                  <div
-                    key={label}
-                    className={editing ? 'gt-frow gt-editing' : 'gt-frow'}
-                    data-fl={String(label).toLowerCase()}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'minmax(150px,34%) 1fr 44px',
-                      gap: 16,
-                      alignItems: editing ? 'center' : 'baseline',
-                      padding: '8px 18px',
-                      borderTop: fi ? '1px solid var(--border-color)' : 'none',
-                      background: isHighlighted ? 'hsla(var(--color-gold), 0.16)' : isFlagged ? 'hsla(var(--color-orange), 0.09)' : 'transparent',
-                      scrollMarginTop: 80,
-                    }}
-                  >
-                    <span style={labelStyle}>{label}</span>
-
-                    {editing ? renderEditInput(f)
-                      : f.t === 'egnyte'
-                        ? <span style={{ fontSize: '0.85rem', fontWeight: (value ?? '') === '' ? 500 : 600, color: (value ?? '') === '' ? 'var(--text-muted)' : 'var(--text-primary)', wordBreak: 'break-word' }}>
-                          {(value ?? '') === '' ? 'Not pinned - matched by name' : value}
-                        </span>
-                      : f.contact && String(value ?? '').trim()
-                        ? <ContactCell name={value} label={f.l} contacts={asset.contacts} onSave={onSaveContact} />
-                        : <span style={{ fontSize: '0.85rem', fontWeight: 600, color: (value ?? '') === '' ? 'var(--text-muted)' : 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>
-                          {(value ?? '') === '' ? '-' : f.unitLabel ? `${value} ${f.unitRaw}` : value}
-                        </span>}
-
-                    {/* The flag: a quiet icon that shows on hover (always on a touch
-                        screen, always once flagged - asset-styles .gt-flag). A click
-                        opens the reasons; a flagged one clears on click. */}
-                    {/* Company is a picker, not text, and the Egnyte Folder a pin: nothing to flag or push a fix for. */}
-                    {onFlag && f.t !== 'company' && f.t !== 'egnyte' ? (
-                      <button
-                        type="button"
-                        ref={menuOpen ? flagBtnRef : undefined}
-                        className={isFlagged ? 'gt-flag on' : 'gt-flag'}
-                        aria-haspopup={isFlagged ? undefined : 'menu'}
-                        aria-expanded={isFlagged ? undefined : menuOpen}
-                        aria-label={isFlagged ? `Flagged: ${flagMap.get(f.flagKey) || 'Needs review'}. Clear the flag` : `Flag ${label} for review`}
-                        title={isFlagged ? `Flagged (${flagMap.get(f.flagKey) || 'Needs review'}) - click to clear` : 'Flag this field for review'}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (isFlagged) onFlag(asset.id, sec.title, label);
-                          else setFlagMenu(menuOpen ? null : { key: f.flagKey, section: sec.title, label });
-                        }}
-                        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 7, border: 'none', cursor: 'pointer', justifySelf: 'end',
-                          background: isFlagged ? 'hsla(var(--color-orange), 0.14)' : 'transparent', color: isFlagged ? 'hsl(var(--color-orange))' : 'var(--text-secondary)' }}
-                      >
-                        <Flag size={14} fill={isFlagged ? 'currentColor' : 'none'} />
-                      </button>
-                    ) : <span />}
-                  </div>
-                );
-              })}
-              {!editing && (hidden > 0 || showEmpty[sec.title]) && (
-                <button
-                  type="button"
-                  onClick={() => setShowEmpty((m) => ({ ...m, [sec.title]: !m[sec.title] }))}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '9px 18px', border: 'none', borderTop: rows.length ? '1px solid var(--border-color)' : 'none', background: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', fontFamily: 'inherit', textAlign: 'left' }}
-                >
-                  {showEmpty[sec.title] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  {showEmpty[sec.title] ? 'Hide empty fields' : `Show ${hidden} empty ${hidden === 1 ? 'field' : 'fields'}`}
-                </button>
-              )}
-            </div>
-          </section>
-          );
-        })}
-
-        {onFlag && (
-          <AnchoredMenu anchorRef={flagBtnRef} open={!!flagMenu} onClose={() => setFlagMenu(null)} align="end" minWidth={210}
-            style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
-            <div style={{ padding: '6px 10px 4px', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--text-secondary)' }}>Flag for Review</div>
-            {FLAG_REASONS.map((r) => (
-              <button key={r} type="button" role="menuitem"
-                onClick={() => { const m = flagMenu; setFlagMenu(null); if (m) onFlag(asset.id, m.section, m.label, r); }}
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'none', cursor: 'pointer', borderRadius: 7, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'inherit' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--mist)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
-                {r}
-              </button>
-            ))}
-          </AnchoredMenu>
-        )}
-
-        {isProperty && (
-          <div id="gt-map" style={{ scrollMarginTop: 108 }}>
-            <PropertyMapLink p={asset} onSave={onSaveDetail} />
-          </div>
-        )}
-        {isProperty && (
-          <div id="gt-model" style={{ scrollMarginTop: 108 }}>
-            <SiteModelSection p={asset} />
-          </div>
-        )}
-        <div id="gt-media" style={{ scrollMarginTop: 108 }}>
-          <PhotoGallery p={asset} onSave={onSaveImages} />
+          )}
+          {prepared.map(({ sec, si, all }) => (
+            <section key={'sec' + si} id={'gt-sec' + si} aria-labelledby={'gt-sec' + si + '-h'} style={{ padding: si ? '22px 0' : '0 0 22px', borderTop: si ? '1px solid var(--border-color)' : 'none', scrollMarginTop: 108 }}>
+              <div style={sectionHead}><h3 id={'gt-sec' + si + '-h'} style={sectionTitle}>{sec.title}</h3></div>
+              {all.map((f, fi) => (
+                <div key={f.l} className="gt-frow gt-editing" data-fl={String(f.l).toLowerCase()}
+                  style={{ display: 'grid', gridTemplateColumns: 'minmax(150px,34%) 1fr 44px', gap: 16, alignItems: 'center', padding: '7px 0', borderTop: fi ? '1px solid var(--border-color)' : 'none', scrollMarginTop: 80 }}>
+                  <span style={{ ...labelStyle, fontSize: 13 }}>{f.l}</span>
+                  {renderEditInput(f)}
+                  {flagButton(f, f.g || sec.title)}
+                </div>
+              ))}
+            </section>
+          ))}
+          {flagMenuNode()}
         </div>
       </div>
+    );
+  }
+
+  const blank = prepared.filter((x) => x.shown.length === 0 && x.countable.length > 0);
+  const told = prepared.filter((x) => x.shown.length > 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {asset.assembled && asset.parentId && (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', padding: '0 0 18px', marginBottom: 18, borderBottom: '1px solid var(--border-color)' }}>
+          <p style={{ flex: '1 1 320px', margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            <b style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Parcel of {asset.siteName || 'an assembled asset'}.</b>{' '}
+            Ownership, financials, zoning and the team are kept on the assemblage; this page holds what is specific to this parcel.
+          </p>
+          {onOpenLead && <button type="button" className="secondary-btn" onClick={() => onOpenLead(asset.parentId)}>Open Assemblage</button>}
+        </div>
+      )}
+
+      {told.map(({ sec, si, countable, shown, missing, filled }, ti) => (
+        <section key={'sec' + si} id={'gt-sec' + si} aria-labelledby={'gt-sec' + si + '-h'}
+          style={{ padding: ti ? '22px 0' : '0 0 22px', borderTop: ti ? '1px solid var(--border-color)' : 'none', scrollMarginTop: 108 }}>
+          <div style={sectionHead}>
+            <h3 id={'gt-sec' + si + '-h'} style={sectionTitle}>{sec.title}</h3>
+            <span title="Fields with a value" style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+              {filled} of {countable.length} filled
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', columnGap: 40, rowGap: 12 }}>
+            {shown.map((f) => {
+              const isHighlighted = highlightField && String(f.l).toLowerCase() === highlightField;
+              const empty = String(f.value ?? '').trim() === '';
+              return (
+                <div key={f.l} className="gt-frow" data-fl={String(f.l).toLowerCase()}
+                  style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', columnGap: 6, alignItems: 'start', scrollMarginTop: 80, borderRadius: 6, margin: '-3px -6px', padding: '3px 6px', transition: 'background-color .3s',
+                    background: isHighlighted ? 'hsla(var(--color-gold), 0.16)' : 'transparent' }}>
+                  <span style={{ ...labelStyle, gridColumn: 1, gridRow: 1 }}>{f.l}</span>
+                  <span style={{ gridColumn: 1, gridRow: 2, minWidth: 0 }}>
+                    {f.t === 'egnyte' && !empty
+                      ? <span style={{ fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-word' }}>{f.value}</span>
+                      : f.contact && !empty
+                        ? <ContactCell name={f.value} label={f.l} contacts={asset.contacts} onSave={onSaveContact} />
+                        : empty
+                          ? <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Not filled</span>
+                          : <span style={{ fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>{f.unitLabel ? `${f.value} ${String(f.unitRaw || '').toLowerCase() === 'sf' ? 'sf' : 'acres'}` : f.value}</span>}
+                  </span>
+                  <span style={{ gridColumn: 2, gridRow: '1 / 3', alignSelf: 'center' }}>{flagButton(f, f.g || sec.title)}</span>
+                </div>
+              );
+            })}
+          </div>
+          {missing.length > 0 && (
+            <p style={{ margin: '14px 0 0', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Not filled: {missing.slice(0, MISSING_SHOWN).map((f) => (f.t === 'egnyte' ? `${f.l} (matched by name)` : f.l)).join(', ')}
+              {missing.length > MISSING_SHOWN ? ` and ${missing.length - MISSING_SHOWN} more` : ''}.{' '}
+              <button type="button" onClick={() => fillIn(missing[0].l)} style={linkBtn} aria-label={`Fill in ${sec.title}`}>Fill In</button>
+            </p>
+          )}
+        </section>
+      ))}
+
+      {blank.length > 0 && (
+        <section aria-labelledby="gt-blank-h" style={{ padding: told.length ? '22px 0' : '0 0 22px', borderTop: told.length ? '1px solid var(--border-color)' : 'none' }}>
+          <div style={sectionHead}><h3 id="gt-blank-h" style={sectionTitle}>Nothing Recorded Yet</h3></div>
+          {blank.map(({ si }) => <span key={si} id={'gt-sec' + si} style={{ scrollMarginTop: 108 }} />)}
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{listWords(blank.map(({ sec }) => sec.title))}.</p>
+          <button type="button" onClick={() => fillIn(blank[0].countable[0]?.l)} style={{ ...linkBtn, fontSize: 13, marginTop: 10 }}>Add Details</button>
+        </section>
+      )}
+      {flagMenuNode()}
     </div>
   );
+
+}
+
+// The operating property's sections (Neil, 11/17/2026): display names only - the PT groups,
+// the snapshot and every flag key are untouched. A field moves to the section a reader
+// looks for it in; the rest keep their group, in PT's order, after these three.
+const OPERATING_ORDER = ['Location', 'Site and Building', 'Ownership and Team'];
+const OPERATING_GROUP = { 'Project Details': 'Location', 'Site Data': 'Site and Building', 'Existing Improvements': 'Site and Building', 'Unit Mix': 'Site and Building', 'Project Team': 'Ownership and Team' };
+const OPERATING_FIELD = {
+  'Flood Zone': 'Location', 'Street Frontage': 'Location', Jurisdiction: 'Location', Zoning: 'Location',
+  Company: 'Ownership and Team', 'Ownership Entity': 'Ownership and Team', 'Egnyte Folder': 'Ownership and Team',
+};
+
+/** Sections as read: an operating property's fields regrouped under the three names above. */
+export function displaySections(sections, asset, isProperty) {
+  if (!isProperty || (asset.assembled && asset.parentId) || baseStage(asset.devStage) !== 'Stabilized') return sections;
+  const out = new Map(OPERATING_ORDER.map((t) => [t, { title: t, fields: [] }]));
+  sections.forEach((sec) => {
+    sec.fields.forEach((f) => {
+      const t = OPERATING_FIELD[f.l] || OPERATING_GROUP[sec.title] || sec.title;
+      if (!out.has(t)) out.set(t, { title: t, fields: [] });
+      out.get(t).fields.push(f);
+    });
+  });
+  return [...out.values()].filter((s) => s.fields.length);
 }
 
 /**
@@ -399,12 +439,12 @@ function buildSections(asset, isProperty, editing) {
   // Every asset class carries the Company field (11/03/2026) - on a vehicle or
   // a piece of equipment it leads the first section (their snapshot has no row
   // for it; App.jsx saveDetail writes it to `companyId`, never the snapshot).
-  const companyField = { l: 'Company', raw: companyIdOf(asset), t: 'company', key: 'companyId' };
+  const companyField = { l: 'Company', raw: companyIdOf(asset), t: 'company', key: 'companyId', g: 'Details' };
   if (!isProperty) {
     const groups = (asset.snapshot && asset.snapshot.length)
       ? asset.snapshot.map((g) => ({
           title: g.group,
-          fields: (g.fields || []).map((f) => ({ l: String(f.label || '').trim(), raw: f.value })),
+          fields: (g.fields || []).map((f) => ({ l: String(f.label || '').trim(), raw: f.value, g: g.group })),
         }))
       : [{ title: 'Details', fields: [] }];
     return [{ ...groups[0], fields: [companyField, ...groups[0].fields.filter((f) => f.l !== 'Company')] }, ...groups.slice(1)];
@@ -465,7 +505,7 @@ function buildSections(asset, isProperty, editing) {
     ];
     return [{
       title: 'Parcel Information',
-      fields: PARCEL_INFO_FIELDS.map((f) => ({ l: f.label, raw: resolveValue({ label: f.label, key: f.key, type: f.type }), t: f.type, key: f.key, ...withUnit(f) })),
+      fields: PARCEL_INFO_FIELDS.map((f) => ({ l: f.label, raw: resolveValue({ label: f.label, key: f.key, type: f.type }), t: f.type, key: f.key, g: 'Parcel Information', ...withUnit(f) })),
     }];
   }
 
@@ -474,7 +514,8 @@ function buildSections(asset, isProperty, editing) {
     .map((group) => ({
       title: group.group,
       fields: group.fields
-        .filter((f) => (editing || !(stabilized && f.dev) || hasValue(f)) && classAllowed(f.cls) && f.key !== 'mapUrl' && !f.hidden)
-        .map((f) => ({ l: f.label, raw: resolveValue(f), t: f.type, contact: f.contact, key: f.key, options: f.options, ...withUnit(f) })),
+        // The Google Maps Link is edited here; read mode shows the map instead (never the URL).
+        .filter((f) => (editing || !(stabilized && f.dev) || hasValue(f)) && classAllowed(f.cls) && (editing || f.key !== 'mapUrl') && !f.hidden)
+        .map((f) => ({ l: f.label, raw: resolveValue(f), t: f.type, contact: f.contact, key: f.key, options: f.options, g: group.group, ...withUnit(f) })),
     }));
 }

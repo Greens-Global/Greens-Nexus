@@ -11,14 +11,17 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { Spinner } from './AsyncState';
 import { useRole } from '../contexts/RoleContext';
+import { DateField, TimeField } from '../tasks/components';
+import { useHiringAi } from './hiring/useHiringAi';
 
 // AI-assisted interviews: Teams invite → live questionnaire → transcript
 // auto-fill → calibrated scores → role leaderboard → final-round invite.
 
-const Overlay = ({ children, onClose, wide }) => (
-  <div onClick={e => e.target === e.currentTarget && onClose()}
-    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+// A sheet from the right (style.css "Sheets": .modal-overlay > .modal-content.nx-popup),
+// the bottom sheet on a phone (11/14/2026).
+const Overlay = ({ children, onClose }) => (
+  <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 4100 }}>
+    <div className="modal-content nx-popup" role="dialog" aria-modal="true" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
       {children}
     </div>
   </div>
@@ -26,7 +29,7 @@ const Overlay = ({ children, onClose, wide }) => (
 const Head = ({ title, sub, onClose }) => (
   <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
     <div style={{ flex: 1 }}>
-      <div style={{ fontWeight: 800, fontSize: 15.5 }}>{title}</div>
+      <div style={{ fontWeight: 800, fontSize: 15 }}>{title}</div>
       {sub && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{sub}</div>}
     </div>
     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -39,7 +42,8 @@ const STATUS_CHIP = {
   completed: ['var(--mist)', 'var(--muted)'],
   scored:    ['hsla(var(--color-green),0.12)', 'hsl(var(--color-green))'],
 };
-const Chip = ({ s }) => { const [bg, fg] = STATUS_CHIP[s] || STATUS_CHIP.scheduled; return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.04em', background: bg, color: fg }}>{s}</span>; };
+const STATUS_WORD = { scheduled: 'Scheduled', live: 'In Progress', completed: 'Completed', scored: 'Scored', canceled: 'Canceled' };
+const Chip = ({ s }) => { const [bg, fg] = STATUS_CHIP[s] || STATUS_CHIP.scheduled; return <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: bg, color: fg }}>{STATUS_WORD[s] || s}</span>; };
 
 // Open a recording / transcript through its short-lived link (private bucket).
 async function openInterviewFile(iv, kind, toastErr) {
@@ -54,11 +58,11 @@ export function RecordingLine({ iv, onPull, busy, toastErr, compact }) {
   const links = (
     <>
       {iv.hasRecording && (
-        <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+        <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
           onClick={() => openInterviewFile(iv, 'recording', toastErr)}><Play size={11} /> Play Recording{fmtMb(iv.recordingSize)}</button>
       )}
       {iv.hasTranscriptFile && (
-        <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+        <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
           onClick={() => openInterviewFile(iv, 'transcript', toastErr)}><FileText size={11} /> Transcript</button>
       )}
     </>
@@ -84,7 +88,7 @@ export function RecordingLine({ iv, onPull, busy, toastErr, compact }) {
       {failed ? <AlertTriangle size={13} /> : <Clock size={13} />}
       <span style={{ flex: 1 }}>{iv.recordingNote || 'Waiting for the Teams recording'}</span>
       {onPull && (
-        <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={onPull} disabled={!!busy}>
+        <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={onPull} disabled={!!busy}>
           {busy ? <Spinner size={12} /> : 'Pull Recording'}
         </button>
       )}
@@ -103,7 +107,7 @@ export function EmployeeInterviews({ employeeId, toastErr }) {
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
         <Video size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Interviews
       </div>
-      {rows.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No interview rounds on record - they were added to People directly.</div>
+      {rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No interview rounds on record - they were added to People directly.</div>
         : rows.map(iv => (
           <div key={iv.id} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '9px 12px', marginBottom: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -115,7 +119,7 @@ export function EmployeeInterviews({ employeeId, toastErr }) {
               With {(iv.interviewerNames || iv.interviewerEmails || []).join(', ') || 'no one set'} · {iv.durationMin} minutes
               {iv.templateName ? ` · Questionnaire: ${iv.templateName}` : ''}
             </div>
-            {iv.summary && <div style={{ fontSize: 12.5, marginTop: 6 }}><strong>AI verdict:</strong> {iv.summary}</div>}
+            {iv.summary && <div style={{ fontSize: 13, marginTop: 6 }}><strong>AI verdict:</strong> {iv.summary}</div>}
             <div style={{ marginTop: 8 }}><RecordingLine iv={iv} toastErr={toastErr} compact /></div>
           </div>
         ))}
@@ -172,7 +176,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
           <div>
             <label style={lbl}>Name</label>
             <input className="form-input" style={{ width: '100%' }} value={editing.name} onChange={e => setEditing(ed => ({ ...ed, name: e.target.value }))} placeholder='e.g. "Site Manager" or "General"' />
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '12px 0 2px', fontSize: 12.5, cursor: 'pointer' }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '12px 0 2px', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={!!editing.isGeneral} onChange={e => setEditing(ed => ({ ...ed, isGeneral: e.target.checked }))} style={{ accentColor: 'var(--pine)' }} />
               General - used for any role that has no questionnaire of its own
             </label>
@@ -183,7 +187,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                   const on = (editing.roleIds || []).includes(r.id);
                   const other = (tpls || []).find(t => t.id !== editing.id && (t.roleIds || []).includes(r.id));
                   return (
-                    <label key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', fontSize: 12.5, cursor: 'pointer' }}>
+                    <label key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0', fontSize: 13, cursor: 'pointer' }}>
                       <input type="checkbox" checked={on} style={{ accentColor: 'var(--pine)' }}
                         onChange={e => setEditing(ed => ({ ...ed, roleIds: e.target.checked ? [...(ed.roleIds || []), r.id] : (ed.roleIds || []).filter(x => x !== r.id) }))} />
                       <span style={{ flex: 1 }}>{r.name}{r.companyName ? <span style={{ color: 'var(--muted)' }}> - {r.companyName}</span> : null}</span>
@@ -195,7 +199,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
             {GROUPS.map(([g, label, help]) => (
               <div key={g}>
                 <label style={lbl}>{label} - one question per line</label>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', margin: '-2px 0 6px' }}>{help}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', margin: '-2px 0 6px' }}>{help}</div>
                 <textarea className="form-input" rows={4} style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6 }}
                   value={editing.text[g] || ''} onChange={e => setEditing(ed => ({ ...ed, text: { ...ed.text, [g]: e.target.value } }))}
                   placeholder={g === 'character' ? 'Tell me about a time you disagreed with your manager.' : g === 'competence' ? 'Walk me through your last role.' : 'When can you start? What hours work for you?'} />
@@ -214,8 +218,8 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                 <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
                   <ClipboardList size={15} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{t.name}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{t.name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                       {t.questions.length} question{t.questions.length !== 1 ? 's' : ''}
                       {' · '}{t.isGeneral ? 'General' : ''}{t.isGeneral && (t.roleIds || []).length ? ' + ' : ''}
                       {(t.roleIds || []).length ? (t.roleIds || []).map(roleName).join(', ') : t.isGeneral ? '' : 'Not linked to a role yet'}
@@ -234,7 +238,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
             {locked
               ? <div style={{ marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>Only a Super Administrator can change this.</div>
               : (
-                <button className="primary-btn" style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
+                <button className="primary-btn" style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}
                   onClick={() => setEditing({ name: '', text: {}, roleIds: [], isGeneral: false })}>
                   <Plus size={14} /> New Questionnaire
                 </button>
@@ -261,6 +265,8 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
 // and the score) and Nexus finishes the merge by itself. Once scored, the
 // decision is made right here: Move To Offer, Another Round, or Reject.
 export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toastErr }) {
+  // AI scoring only while AI is switched on for the server (ai_switch).
+  const aiOn = useHiringAi();
   const [list, setList] = useState(null);
   const [sel, setSel] = useState(null);             // selected interview object
   const [busy, setBusy] = useState('');
@@ -305,7 +311,8 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
   const endInterview = run('end', async () => {
     const u = await api.ivFinish(sel.id, { answers: sel.answers });
     refreshSel(u); setTyped(false);
-    toastOk?.((u.followupNote?.startsWith('Waiting') ? 'Interview ended - Nexus pulls the Teams transcript as soon as it is published, then scores it.' : 'Interview ended - scoring now.')
+    toastOk?.((!aiOn ? (u.followupNote?.startsWith('Waiting') ? 'Interview ended - Nexus saves the Teams transcript as soon as it is published.' : 'Interview ended.')
+      : u.followupNote?.startsWith('Waiting') ? 'Interview ended - Nexus pulls the Teams transcript as soon as it is published, then scores it.' : 'Interview ended - scoring now.')
       + ' The interviewers and the department head were asked for their decision.');
   });
   const retryNow = run('retry', async () => refreshSel(await api.ivFollowupNow(sel.id)));
@@ -326,7 +333,7 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
 
         {/* Everyone's notes so far - in front of the interviewer before it starts (Neil, Oct 14). */}
         <details open={!sel || sel.status === 'scheduled'} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '8px 12px', marginBottom: 12 }}>
-          <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 800 }}>Notes So Far</summary>
+          <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 800 }}>Notes So Far</summary>
           <div style={{ marginTop: 8 }}><CandidateNotes candidateId={c.id} compact toastErr={toastErr} /></div>
         </details>
 
@@ -351,11 +358,11 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
               {sel.joinUrl && (
                 <a href={sel.joinUrl} target="_blank" rel="noreferrer" className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, textDecoration: 'none' }}>
-                  <Video size={13} /> Join Teams meeting
+                  <Video size={13} /> Join Teams Meeting
                 </a>
               )}
               <div style={{ flex: 1 }} />
-              {sel.status === 'scored' && <span style={{ fontSize: 15, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />{Math.round(sel.totalScore)}/100</span>}
+              {aiOn && sel.status === 'scored' && sel.totalScore != null && <span style={{ fontSize: 15, fontWeight: 800, color: 'hsl(var(--color-green))' }}><Trophy size={14} style={{ verticalAlign: 'middle', marginRight: 5 }} />{Math.round(sel.totalScore)}/100</span>}
             </div>
             <div style={{ marginBottom: 12 }}>
               <RecordingLine iv={sel} busy={busy === 'rec'} toastErr={toastErr}
@@ -363,7 +370,7 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
             </div>
 
             {sel.followupStatus && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 12.5,
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 13,
                 background: sel.followupStatus === 'failed' ? 'hsla(var(--color-red),0.08)' : sel.followupStatus === 'done' ? 'hsla(var(--color-green),0.08)' : 'hsla(var(--color-blue),0.08)' }}>
                 {sel.followupStatus === 'waiting' ? <Clock size={14} style={{ flexShrink: 0, marginTop: 1 }} />
                   : sel.followupStatus === 'failed' ? <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-red))' }} />
@@ -371,11 +378,12 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                 <span style={{ flex: 1 }}>
                   {sel.followupStatus !== 'waiting' ? sel.followupNote
                     : (sel.followupNote || '').startsWith('Waiting for Teams')
-                      ? `${sel.followupNote}. Nexus keeps trying for up to 2 hours and scores it as soon as it arrives - you'll get a bell.`
-                      : `${sel.followupNote || 'Working on it'} - you'll get a bell when it's scored.`}
+                      ? (aiOn ? `${sel.followupNote}. Nexus keeps trying for up to 2 hours and scores it as soon as it arrives - you'll get a bell.`
+                        : `${sel.followupNote}. Nexus keeps trying for up to 2 hours and saves it to the interview.`)
+                      : aiOn ? `${sel.followupNote || 'Working on it'} - you'll get a bell when it's scored.` : (sel.followupNote || 'Working on it')}
                 </span>
                 {['waiting', 'failed'].includes(sel.followupStatus) && (
-                  <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={retryNow} disabled={!!busy}>
+                  <button className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={retryNow} disabled={!!busy}>
                     {busy === 'retry' ? <Spinner size={12} /> : 'Retry Now'}
                   </button>
                 )}
@@ -385,7 +393,7 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
             {/* Transcript + AI actions - folded until the interview is over */}
             {(sel.status === 'completed' || sel.status === 'scored') && (
               <details style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '8px 12px', marginBottom: 12 }}>
-              <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 800 }}>Transcript And Scoring</summary>
+              <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 800 }}>{aiOn ? 'Transcript And Scoring' : 'Transcript'}</summary>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0 4px' }}>
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('pull', async () => { await api.ivPullTranscript(sel.id); refreshSel({ ...sel, hasTranscript: true }); }, 'Transcript pulled from Teams')}>
@@ -394,15 +402,17 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                 <button className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setShowPaste(p => !p)}>
                   <FileText size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />Paste Transcript
                 </button>
+                {aiOn && <>
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'hsl(var(--color-purple))' }}
                   disabled={!!busy || !(sel.hasTranscript)} title={sel.hasTranscript ? '' : 'Pull or paste a transcript first'}
                   onClick={run('fill', async () => refreshSel(await api.ivAutofill(sel.id)), 'Answers auto-filled from the transcript')}>
-                  {busy === 'fill' ? <Spinner size={13} /> : <Sparkles size={13} />} AI Auto-fill Answers
+                  {busy === 'fill' ? <Spinner size={13} /> : <Sparkles size={13} />} AI Auto-Fill Answers
                 </button>
                 <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('cal', async () => refreshSel(await api.ivCalibrate(sel.id)), 'Scored - check the leaderboard')}>
                   {busy === 'cal' ? <Spinner size={13} /> : <Trophy size={13} />} Calibrate Score
                 </button>
+                </>}
               </div>
               {showPaste && (
               <div style={{ marginBottom: 8 }}>
@@ -410,7 +420,7 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                   placeholder="Paste the Teams transcript here (Meeting → … → View transcript → copy)" onChange={e => setPaste(e.target.value)} />
                 <button className="secondary-btn" style={{ marginTop: 6, fontSize: 12 }} disabled={!paste.trim() || !!busy}
                   onClick={run('save-t', async () => { const u = await api.ivPatch(sel.id, { transcript: paste }); refreshSel({ ...u, hasTranscript: true }); setShowPaste(false); setPaste(''); }, 'Transcript saved')}>
-                  Save transcript
+                  Save Transcript
                 </button>
               </div>
               )}
@@ -428,24 +438,24 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                   {qs.map(a => (
                     <div key={a.qid} style={{ marginBottom: 8, border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px' }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                        <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{a.q}</span>
-                        {a.score !== null && a.score !== undefined && (
-                          <span style={{ fontSize: 12.5, fontWeight: 800, color: a.score >= 7 ? 'hsl(var(--color-green))' : a.score >= 4 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))', flexShrink: 0 }}>{a.score}/10</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{a.q}</span>
+                        {aiOn && a.score !== null && a.score !== undefined && (
+                          <span style={{ fontSize: 13, fontWeight: 800, color: a.score >= 7 ? 'hsl(var(--color-green))' : a.score >= 4 ? 'var(--warn-fg)' : 'hsl(var(--color-red))', flexShrink: 0 }}>{a.score}/10</span>
                         )}
                       </div>
                       <textarea className="form-input" rows={2} style={{ width: '100%', marginTop: 8, fontSize: 13, resize: 'vertical' }}
                         value={a.answer || ''} placeholder="Their answer"
                         onChange={e => setAnswer(a.qid, e.target.value)}
                         onBlur={() => { if (sel.status !== 'live') api.ivPatch(sel.id, { answers: sel.answers }).then(() => setTyped(false)).catch(() => {}); }} />
-                      {a.rationale && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}><Sparkles size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />{a.rationale}</div>}
+                      {aiOn && a.rationale && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}><Sparkles size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />{a.rationale}</div>}
                     </div>
                   ))}
                 </div>
               );
             }) : <div style={{ fontSize: 13, color: 'var(--muted)' }}>No questionnaire attached to this round.</div>}
 
-            {sel.summary && (
-              <div style={{ background: 'hsla(var(--color-green),0.06)', border: '1px solid hsla(var(--color-green),0.25)', borderRadius: 10, padding: '10px 12px', fontSize: 12.5 }}>
+            {aiOn && sel.summary && (
+              <div style={{ background: 'hsla(var(--color-green),0.06)', border: '1px solid hsla(var(--color-green),0.25)', borderRadius: 10, padding: '10px 12px', fontSize: 13 }}>
                 <strong>AI verdict:</strong> {sel.summary}
               </div>
             )}
@@ -453,12 +463,12 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
         )}
       </div>
       <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
-        {sel?.status === 'scored' && <span style={{ marginRight: 'auto', fontSize: 12.5, fontWeight: 700 }}>
+        {aiOn && sel?.status === 'scored' && sel.totalScore != null && <span style={{ marginRight: 'auto', fontSize: 13, fontWeight: 700 }}>
           <Trophy size={13} style={{ verticalAlign: 'middle', marginRight: 5, color: 'hsl(var(--color-green))' }} />Scored {Math.round(sel.totalScore)}/100</span>}
         {/* Interview over, then a decision (Neil, Oct 19): the room no longer
             offers or rejects - the candidate moves to Decision, where the
             interviewers answer Yes or No and the department head decides. */}
-        {sel?.status === 'completed' && <span style={{ marginRight: 'auto', fontSize: 12.5, color: 'var(--muted)' }}>
+        {sel?.status === 'completed' && <span style={{ marginRight: 'auto', fontSize: 13, color: 'var(--muted)' }}>
           Interview over - the interviewers answer Yes or No on their &quot;Decide on&quot; task.</span>}
         <button className="secondary-btn" onClick={guard.requestClose}>Close</button>
         {sel?.status === 'scheduled' && (
@@ -477,7 +487,7 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
         </>}
         {sel?.status === 'completed' && !sel.followupStatus && (
           <button className="primary-btn" onClick={endInterview} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'end' ? <Spinner size={14} /> : <Sparkles size={14} />} Score Interview
+            {busy === 'end' ? <Spinner size={14} /> : aiOn ? <Sparkles size={14} /> : <CheckCircle size={14} />} {aiOn ? 'Score Interview' : 'Finish Interview'}
           </button>
         )}
         {sel?.status === 'completed' && typed && (
@@ -506,8 +516,9 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
   const [tpls, setTpls] = useState([]);
   const [tid, setTid] = useState('');
   const [rows, setRows] = useState(null);
+  const aiOn = useHiringAi();
   const [inviting, setInviting] = useState(null);   // interview id with date picker open
-  const [finalAt, setFinalAt] = useState('');
+  const [finalAt, setFinalAt] = useState({ date: '', time: '' });   // a DateField and a 12-hour TimeField
   const [busy, setBusy] = useState(false);
   const [rec, setRec] = useState(null);             // AI hire recommendation
   const [recBusy, setRecBusy] = useState(false);
@@ -522,18 +533,19 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
     finally { setRecBusy(false); }
   };
 
+  const finalReady = !!(finalAt.date && finalAt.time);
   const invite = async (iv) => {
-    if (!finalAt) return;
+    if (!finalReady) return;
     setBusy(true);
     try {
-      await api.ivFinalRound(iv.id, { at: new Date(finalAt).toISOString(), duration_min: 30 });
-      toastOk?.(`Final-round invite sent to ${iv.candidateName} ✓`);
-      setInviting(null); setFinalAt('');
+      await api.ivFinalRound(iv.id, { at: new Date(`${finalAt.date}T${finalAt.time}`).toISOString(), duration_min: 30 });
+      toastOk?.(`Final Round invite sent to ${iv.candidateName}.`);
+      setInviting(null); setFinalAt({ date: '', time: '' });
     } catch (e) { toastErr?.(e?.message || 'Could not send the invite'); }
     finally { setBusy(false); }
   };
 
-  const dirty = !!finalAt;
+  const dirty = !!(finalAt.date || finalAt.time);
   const invitingRow = inviting ? (rows || []).find(r => r.id === inviting) : null;
   const guard = useUnsavedGuard(dirty, onClose, invitingRow ? () => invite(invitingRow) : undefined);
 
@@ -542,31 +554,31 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
       <Head title="Interview Leaderboard" sub="Calibrated scores per role - invite the winner to the offer discussion" onClose={guard.requestClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-          <select className="form-input" style={{ fontSize: 12.5 }} value={tid} onChange={e => setTid(e.target.value)}>
+          <select className="form-input" style={{ fontSize: 13 }} value={tid} onChange={e => setTid(e.target.value)}>
             <option value="">All Roles</option>
             {tpls.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
-          {(rows || []).length >= 2 && (
+          {aiOn && (rows || []).length >= 2 && (
             <button className="primary-btn" onClick={recommend} disabled={recBusy}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
               {recBusy ? <Spinner size={13} /> : <Sparkles size={13} />}
-              {recBusy ? 'Comparing…' : 'AI: whom should we hire?'}
+              {recBusy ? 'Comparing…' : 'AI: Whom Should We Hire?'}
             </button>
           )}
         </div>
 
         {rec && (
           <div style={{ border: '1px solid hsla(var(--color-purple),0.3)', background: 'hsla(var(--color-purple),0.05)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 4 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 4 }}>
               <Sparkles size={13} style={{ verticalAlign: 'middle', marginRight: 6, color: 'hsl(var(--color-purple))' }} />
               AI recommendation: <span style={{ color: 'hsl(var(--color-purple))' }}>{rec.pick || '-'}</span>
               {rec.runnerUp && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}> · runner-up {rec.runnerUp}</span>}
             </div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.55 }}>{rec.reasoning}</div>
+            <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.55 }}>{rec.reasoning}</div>
             {(rec.comparison || []).length > 0 && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8, marginTop: 10 }}>
                 {rec.comparison.map((c, i) => (
-                  <div key={i} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 11px', fontSize: 11.5 }}>
+                  <div key={i} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 11px', fontSize: 12 }}>
                     <div style={{ fontWeight: 800, marginBottom: 3 }}>{c.name}</div>
                     {c.strengths && <div style={{ color: 'hsl(var(--color-green))' }}>+ {c.strengths}</div>}
                     {c.concerns && <div style={{ color: 'hsl(var(--color-red))', marginTop: 2 }}>− {c.concerns}</div>}
@@ -577,7 +589,7 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
           </div>
         )}
         {rows === null ? <Spinner size="inline" />
-          : rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No calibrated interviews yet - run "Calibrate score" after each interview.</div>
+          : rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No calibrated interviews yet - run Calibrate Score after each interview.</div>
           : rows.map((iv, i) => (
             <div key={iv.id} style={{ borderBottom: '1px solid var(--line)', padding: '10px 0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -586,42 +598,45 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
                   {i + 1}
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>
                     {iv.candidateName || '-'}
                     {iv.candidateStage === 'hired' && (
-                      <span style={{ marginLeft: 7, fontSize: 10, fontWeight: 800, letterSpacing: '.04em', color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.12)', padding: '2px 8px', borderRadius: 10 }}>HIRED</span>
+                      <span style={{ marginLeft: 7, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.12)', padding: '2px 8px', borderRadius: 10 }}>Hired</span>
                     )}
                     {iv.candidateStage === 'offer' && (
-                      <span style={{ marginLeft: 7, fontSize: 10, fontWeight: 800, letterSpacing: '.04em', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 8px', borderRadius: 10 }}>OFFER</span>
+                      <span style={{ marginLeft: 7, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 8px', borderRadius: 10 }}>Offer</span>
                     )}
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{iv.templateName || 'No questionnaire'} · {iv.at ? formatDate(iv.at) : ''}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{iv.templateName || 'No questionnaire'} · {iv.at ? formatDate(iv.at) : ''}</div>
                 </div>
-                <span style={{ fontSize: 17, fontWeight: 800, color: iv.totalScore >= 70 ? 'hsl(var(--color-green))' : iv.totalScore >= 45 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))' }}>
+                <span style={{ fontSize: 18, fontWeight: 800, color: iv.totalScore >= 70 ? 'hsl(var(--color-green))' : iv.totalScore >= 45 ? 'var(--warn-fg)' : 'hsl(var(--color-red))' }}>
                   {Math.round(iv.totalScore)}
                 </span>
-                {iv.candidateStage === 'hired' ? null : inviting !== iv.id ? (
-                  <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 11px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                    onClick={() => { setInviting(iv.id); setFinalAt(''); }}>
-                    <Send size={12} /> Final round
+                {!aiOn || ['hired', 'rejected'].includes(iv.candidateStage) ? null : inviting !== iv.id ? (
+                  <button className="secondary-btn" style={{ fontSize: 12, padding: '4px 11px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    onClick={() => { setInviting(iv.id); setFinalAt({ date: '', time: '' }); }}>
+                    <Send size={12} /> Final Round
                   </button>
                 ) : (
-                  <span style={{ display: 'inline-flex', gap: 6 }}>
-                    <input type="datetime-local" className="form-input" style={{ fontSize: 11.5, padding: '4px 8px' }} value={finalAt} onChange={e => setFinalAt(e.target.value)} />
-                    <button className="primary-btn" style={{ fontSize: 11.5, padding: '4px 11px' }} disabled={!finalAt || busy} onClick={() => invite(iv)}>
+                  <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className="form-input" style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, padding: '4px 8px', minWidth: 120 }}>
+                      <DateField value={finalAt.date} onChange={x => setFinalAt(f => ({ ...f, date: x || '' }))} placeholder="MM/DD/YYYY" title="Final Round date" />
+                    </span>
+                    <TimeField value={finalAt.time} onChange={x => setFinalAt(f => ({ ...f, time: x }))} ariaLabel="Final Round time" style={{ fontSize: 12, padding: '4px 8px', width: 'auto' }} />
+                    <button className="primary-btn" style={{ fontSize: 12, padding: '4px 11px' }} disabled={!finalReady || busy} onClick={() => invite(iv)}>
                       {busy ? '…' : 'Send'}
                     </button>
                   </span>
                 )}
               </div>
-              {iv.summary && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5, marginLeft: 42 }}>{iv.summary}</div>}
+              {iv.summary && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5, marginLeft: 42 }}>{iv.summary}</div>}
             </div>
           ))}
       </div>
       {guard.confirming && (
         <UnsavedChangesPrompt
           onKeepEditing={guard.keepEditing}
-          onDiscard={() => { setInviting(null); setFinalAt(''); onClose(); }}
+          onDiscard={() => { setInviting(null); setFinalAt({ date: '', time: '' }); onClose(); }}
           onSave={invitingRow ? guard.saveAndClose : undefined}
           saving={busy}
         />

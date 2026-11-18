@@ -124,6 +124,24 @@ describe('useListKeys', () => {
     expect(result.current.focusId).toBe('a');
   });
 
+  it('stands down while a task drawer is open over the desk', () => {
+    // A linked task opened over the ticket: the drawer takes no focus, so its
+    // keys reach the page - they are the drawer's, not the list's.
+    const onMove = vi.fn();
+    const onOpen = vi.fn();
+    const { result } = renderHook(() => useListKeys({ ids: ['a', 'b'], onOpen, openId: 'a', onMove }));
+    document.body.innerHTML = '<div data-nx-task-drawer=""></div>';
+    let ev;
+    act(() => { ev = key('ArrowDown'); key('Enter'); key('Escape'); });
+    expect(onMove).not.toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(false);
+    expect(result.current.focusId).toBeNull();
+    document.body.innerHTML = '';
+    act(() => { key('ArrowDown'); });
+    expect(onMove).toHaveBeenCalledWith('b');
+  });
+
   it('swallows the arrow key so the page does not scroll', () => {
     renderHook(() => useListKeys({ ids: ['a'], onOpen: vi.fn() }));
     let ev;

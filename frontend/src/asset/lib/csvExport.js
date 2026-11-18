@@ -1,3 +1,5 @@
+// type-ok-file: the printed A4 asset report - paper has its own text sizes;
+// the type scale (lib/typeScale.js) is for screens.
 // Asset export - CSV (flat "Section / Group / Field / Value" dump of everything related to an
 // asset) and a print-ready PDF/HTML report (property-oriented one-pager: status & alerts, key
 // spec sheets, and tables for warranties/inspections/documents/AHJ/utilities/vendors).
@@ -287,9 +289,9 @@ export function exportAssetPdf(asset, store) {
   // Status chip for a table row: 'w' = warranty-style, 'i' = inspection-style, else renewal-style.
   const statusChip = (kind, days) => {
     if (days == null) return `<span class="chip mut">-</span>`;
-    if (kind === 'w') return days < 0 ? `<span class="chip mut">Expired</span>` : days <= 90 ? `<span class="chip amber">${days}d</span>` : `<span class="chip green">Active</span>`;
-    if (kind === 'i') return days < 0 ? `<span class="chip red">Overdue ${Math.abs(days)}d</span>` : days <= 30 ? `<span class="chip amber">${days}d</span>` : `<span class="chip green">Current</span>`;
-    return days < 0 ? `<span class="chip red">Lapsed</span>` : days <= 60 ? `<span class="chip amber">${days}d</span>` : `<span class="chip green">Current</span>`;
+    if (kind === 'w') return days < 0 ? `<span class="chip mut">Expired</span>` : days <= 90 ? `<span class="chip amber">Expires in ${days} days</span>` : `<span class="chip green">Active</span>`;
+    if (kind === 'i') return days < 0 ? `<span class="chip red">${Math.abs(days)} days overdue</span>` : days <= 30 ? `<span class="chip amber">Due in ${days} days</span>` : `<span class="chip green">Current</span>`;
+    return days < 0 ? `<span class="chip red">Lapsed</span>` : days <= 60 ? `<span class="chip amber">Renews in ${days} days</span>` : `<span class="chip green">Current</span>`;
   };
 
   // Renders a data table for a collection: `columns` is [key, header, format?] where format is
@@ -314,30 +316,30 @@ export function exportAssetPdf(asset, store) {
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(asset.name)} - Asset Report</title><style>
 @page{size:A4;margin:14mm 13mm 16mm}
 *{box-sizing:border-box}body{font-family:'Inter',system-ui,Arial,sans-serif;color:#0f172a;margin:0;font-size:11.5px;line-height:1.45}
-.band{background:#0f172a;color:#fff;padding:16px 18px;border-radius:10px;display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px}
-.band h1{margin:0;font-size:20px;letter-spacing:-.01em}.band .sub{color:#cbd5e1;font-size:11px;margin-top:3px}
-.band .r{text-align:right;font-size:10px;color:#cbd5e1;line-height:1.6}.band .r b{color:#fff;letter-spacing:1px}
-.metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:14px}
-.m{border:1px solid #e5e7eb;border-radius:8px;padding:9px 11px}.mv{font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:15px}.ml{font-size:8.5px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;margin-top:2px}
-.alerts{margin-bottom:16px}.alert{padding:7px 11px;border-radius:7px;font-size:11px;font-weight:600;margin-bottom:5px;border-left:3px solid}
-.alert.red{background:#fef2f2;color:#b91c1c;border-color:#dc2626}.alert.amber{background:#fffbeb;color:#b45309;border-color:#d97706}.alert.green{background:#f0fdf4;color:#15803d;border-color:#16a34a}
-h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#0f172a;margin:18px 0 8px}
-.card{border:1px solid #e5e7eb;border-radius:9px;padding:13px 15px;margin-bottom:11px;break-inside:avoid}
-.card-h{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid #eef2f7}
-.num{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:5px;background:#0f172a;color:#fff;font-size:10px;font-family:ui-monospace,Menlo,monospace}
+.band{padding:0 0 12px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:12px}
+.band h1{margin:0;font-size:20px;letter-spacing:-.01em}.band .sub{color:#64748b;font-size:11px;margin-top:3px}
+.band .r{text-align:right;font-size:10px;color:#64748b;line-height:1.6}.band .r b{color:#0f172a}
+.metrics{display:flex;flex-wrap:wrap;gap:4px 18px;margin-bottom:12px}
+.m{display:flex;align-items:baseline;gap:5px}.mv{font-weight:600;font-size:12px}.ml{font-size:10px;color:#64748b}
+.alerts{margin-bottom:14px}.alert{padding:3px 0;font-size:11px;font-weight:600}
+.alert.red{color:#b91c1c}.alert.amber{color:#b45309}.alert.green{color:#15803d}
+h2{font-size:13px;font-weight:600;color:#0f172a;margin:18px 0 8px}
+.card{border-top:1px solid #e5e7eb;padding:11px 0 6px;margin-bottom:6px;break-inside:avoid}
+.card-h{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;margin-bottom:8px}
+.num{color:#64748b;font-size:10px;font-weight:600}
 table{width:100%;border-collapse:collapse}
 table.kv{display:grid;grid-template-columns:1fr 1fr;gap:0 22px}table.kv tbody{display:contents}table.kv tr{display:grid;grid-template-columns:46% 54%;padding:3px 0;border-bottom:1px solid #f4f6f9}
-.kv .k{color:#64748b;font-size:9px;text-transform:uppercase;letter-spacing:.03em;align-self:center}.kv .v{font-weight:600;font-family:ui-monospace,Menlo,monospace;font-size:10.5px}.kv .v.txt{font-family:inherit;font-weight:500}
-table.data{border:1px solid #e5e7eb;border-radius:8px;font-size:10px;margin-top:4px;overflow:hidden}
-table.data th{background:#f8fafc;text-transform:uppercase;font-size:8.5px;letter-spacing:.03em;color:#64748b;text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb}
+.kv .k{color:#64748b;font-size:9.5px;align-self:center}.kv .v{font-weight:600;font-family:ui-monospace,Menlo,monospace;font-size:10.5px}.kv .v.txt{font-family:inherit;font-weight:500}
+table.data{font-size:10px;margin-top:4px}
+table.data th{font-weight:500;font-size:9.5px;color:#64748b;text-align:left;padding:6px 8px;border-bottom:1px solid #e5e7eb}
 table.data td{padding:6px 8px;border-bottom:1px solid #f4f6f9;vertical-align:top}table.data td.mono{font-family:ui-monospace,Menlo,monospace}
-.chip{display:inline-block;font-size:8.5px;font-weight:700;padding:2px 7px;border-radius:999px}
-.chip.green{background:#dcfce7;color:#15803d}.chip.amber{background:#fef3c7;color:#b45309}.chip.red{background:#fee2e2;color:#b91c1c}.chip.mut{background:#f1f5f9;color:#64748b}
+.chip{font-size:10px;font-weight:600}
+.chip.green{color:#15803d}.chip.amber{color:#b45309}.chip.red{color:#b91c1c}.chip.mut{color:#64748b;font-weight:400}
 .foot{margin-top:18px;padding-top:9px;border-top:1px solid #e5e7eb;font-size:9px;color:#94a3b8;display:flex;justify-content:space-between}
 section{break-inside:avoid}
 </style></head><body>
 <div class="band"><div><h1>${escHtml(asset.name)}</h1><div class="sub">${escHtml(formatAddress(asset))}${asset.county ? ` · ${escHtml(formatCounty(asset.county))}` : ''} · APN ${escHtml(asset.apn || '-')}</div></div>
-<div class="r"><b>GREENS</b><br>Asset Report<br>${escHtml(formatDateLong(new Date()))}<br>by ${escHtml(currentUser())}</div></div>
+<div class="r"><b>Greens</b><br>Asset Report<br>${escHtml(formatDateLong(new Date()))}<br>by ${escHtml(currentUser())}</div></div>
 
 <div class="metrics">
 ${metricTile(formatNumber(asset.nrsf), 'NRSF')}${metricTile(toNumber(asset.unitsTotal) ? formatNumber(asset.unitsTotal) : '-', 'Units')}${metricTile(acresOf(asset.acreage, asset.acreageUnit) ? acresOf(asset.acreage, asset.acreageUnit).toFixed(2) + ' ac' : '-', 'Acreage')}${metricTile(escOrDash(asset.yearBuilt), 'Year built')}${metricTile(groupMembers.length > 1 ? groupMembers.length : '-', 'Linked')}${metricTile(statusClass, 'Status')}

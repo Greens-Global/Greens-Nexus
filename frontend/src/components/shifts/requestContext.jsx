@@ -41,7 +41,7 @@ export function RequestContext({ ctx, nameOf }) {
   if (!ctx) return null;
   const { mine, usual, team, on, off, more, noMine } = ctx;
   const line = (label, body) => (
-    <div style={{ display: 'flex', gap: 8, fontSize: 12.5, lineHeight: 1.45 }}>
+    <div style={{ display: 'flex', gap: 8, fontSize: 13, lineHeight: 1.45 }}>
       <span style={{ color: 'var(--muted)', minWidth: 96, flexShrink: 0 }}>{label}</span><span style={{ color: 'var(--ink)', minWidth: 0 }}>{body}</span>
     </div>
   );

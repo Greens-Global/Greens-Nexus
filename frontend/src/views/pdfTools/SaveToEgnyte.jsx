@@ -10,7 +10,7 @@ import { normPath } from '../../egnyte/lib';
 import { freeFileName, isPdfName, pdfFileName } from '../../lib/pdfToolsHandoff';
 import { browseProblem, saveProblem } from './words';
 
-const RULE = (color) => ({ borderLeft: `3px solid ${color}`, padding: '6px 0 6px 10px', fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink)' });
+const RULE = (color) => ({ borderLeft: `3px solid ${color}`, padding: '6px 0 6px 10px', fontSize: 13, lineHeight: 1.5, color: 'var(--ink)' });
 const AMBER = 'hsl(30,80%,48%)';
 const RED = 'hsl(var(--color-red))';
 

@@ -12,7 +12,7 @@ vi.mock('../../../api', () => ({
   },
 }));
 const dash = { view: 'mine', setView: vi.fn(), act: vi.fn(async () => ({})), loading: false };
-vi.mock('./DashContext', () => ({ useDash: () => dash }));
+vi.mock('./DashContext', () => ({ useBooksDown: () => false, useDash: () => dash }));
 vi.mock('./Filters', () => ({ Toolbar: ({ right }) => <div data-testid="toolbar">{right}</div> }));
 // Stable objects: the tab keys effects on them, like the real (cached) hooks.
 const VIEWS = { views: [{ id: 'mine', name: 'Mine', role: 'Custom', widgets: [] }], isLoading: false };
@@ -20,6 +20,7 @@ const NONE = [];
 vi.mock('./hooks', () => ({
   useViews: () => VIEWS,
   useAttention: () => NONE,
+  useEmptyWidgets: () => ({}),
 }));
 vi.mock('./registry', () => ({
   SIZE_LABEL: {}, SIZES: ['md'], WIDGET_CATS: [], WIDGET_LIST: [], WIDGETS: {},

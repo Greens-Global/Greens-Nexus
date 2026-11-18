@@ -45,7 +45,7 @@ export default function IndiaContractorPolicySettings({ toastOk, toastErr, compa
 
   if (err) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'hsl(var(--color-red))', padding: '12px 18px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'hsl(var(--color-red))', padding: '12px 18px' }}>
         <span style={{ flex: 1 }}>{err}</span>
         <button className="secondary-btn" onClick={load}>Retry</button>
       </div>

@@ -79,6 +79,19 @@ describe('PackagesTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Package' }));
     await waitFor(() => expect(api.createAccountingPackage).toHaveBeenCalledWith({ name: 'Quarterly Lender Package', description: '', shared: false, items: [{ reportId: 'r2', title: '' }] }));
   });
+
+  // 11/11/2026 phone pass: at 390px the list and the form sat side by side
+  // and the form was cut off - both grids stack under 641px.
+  it('stacks the list and the form on a phone', async () => {
+    const { container } = render(<PackagesTab />);
+    await screen.findByLabelText('Package Name');
+    expect(container.querySelector('.acct-packages')).toBeTruthy();
+    expect(screen.getByLabelText('Package Name').closest('.acct-packages-form')).toBeTruthy();
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const css = fs.readFileSync(path.resolve(__dirname, '../../style.css'), 'utf8');
+    expect(css).toMatch(/@media \(max-width: 640px\) \{ \.acct-packages, \.acct-packages-form \{ grid-template-columns: 1fr !important; \} \}/);
+  });
 });
 
 describe('the package PDF', () => {
@@ -144,9 +157,9 @@ describe('AccessTab', () => {
     await waitFor(() => expect(api.setAccountingAccess).toHaveBeenCalled());
     expect(api.setAccountingAccess.mock.calls[0][1]).not.toContain('90000');
     expect(api.setAccountingAccess.mock.calls[0][1].length).toBeGreaterThan(0);
-    // The Last Opened column: a time for whoever has been in, "Not yet" for the rest.
+    // The Last Opened column: a time for whoever has been in, "Not Yet" for the rest.
     expect(within(screen.getByText('Urmi Gor').closest('tr')).getByText(/09\/29\/2026/)).toBeTruthy();
-    expect(within(row).getByText('Not yet')).toBeTruthy();
+    expect(within(row).getByText('Not Yet')).toBeTruthy();
   });
 
   it('lifts a limit', async () => {

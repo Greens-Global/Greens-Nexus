@@ -47,8 +47,9 @@ describe('The desk bar', () => {
     expect(tabs[0].textContent).toContain('Needs Reply');
     expect(tabs[1].textContent).toContain('Unassigned');
     expect(tabs[1].querySelector('.hdr-tab-badge--alarm')).toBeTruthy();
-    expect(tabs[tabs.length - 1].textContent).toContain('Other Queues');   // the rest, in one dropdown (11/06/2026)
-    expect(screen.getByRole('button', { name: /Create/ })).toBeTruthy();
+    expect(tabs[tabs.length - 2].textContent).toContain('Other Queues');   // the rest, in one dropdown (11/06/2026)
+    expect(tabs[tabs.length - 1].textContent).toContain('Reports');        // a place, so a tab, last (11/13/2026)
+    expect(screen.getByRole('button', { name: 'New Ticket' })).toBeTruthy();
   });
 });
 
@@ -85,6 +86,6 @@ describe('Create a Ticket recording bar', () => {
     expect(screen.getByRole('button', { name: /Attach File/ })).toBeTruthy();
     expect(screen.getByText(/press Ctrl\+V to paste a screenshot/)).toBeTruthy();
     expect(screen.queryByText('Show Us the Problem')).toBeNull();
-    expect(rec.style.fontSize).toBe('12.5px');
+    expect(rec.style.fontSize).toBe('13px');   // the type scale's body size (12.5 rounds up - Neil, 11/12/2026)
   });
 });

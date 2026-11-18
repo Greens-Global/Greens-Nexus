@@ -101,6 +101,8 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
     return saving.current;
   }, [live, toastErr, load]);
   useEffect(() => { flushRef.current = flush; }, [flush]);
+  const liveSaveRef = useRef(live.save);
+  useEffect(() => { liveSaveRef.current = live.save; }, [live.save]);
   useEffect(() => { live.setFlush(flush); }, [live, flush]);
   const onChange = useCallback(() => {
     pending.current = true;
@@ -109,8 +111,28 @@ export default function SheetWorkspace({ docId, onClose, toastOk, toastErr, empl
   }, [flush]);
   useEffect(() => {
     const warn = (e) => { if (pending.current) { e.preventDefault(); e.returnValue = ''; } };
+    // The tab hidden or the page going away: save now rather than in a moment.
+    // An ordinary request - the save is too large for a keepalive one (64 KB).
+    const onHide = () => { if (document.visibilityState === 'hidden' && pending.current) flushRef.current?.(); };
+    const onPageHide = () => { if (pending.current) flushRef.current?.(); };
     window.addEventListener('beforeunload', warn);
-    return () => { window.removeEventListener('beforeunload', warn); clearTimeout(timer.current); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('beforeunload', warn);
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onPageHide);
+      clearTimeout(timer.current);
+      // Leaving within SAVE_MS of the last change another way than Back
+      // (another Files tab, a sidebar module, a bell row) used to drop the
+      // pending save with its timer. The save the timer would have fired
+      // goes out instead - the session's document outlives this page - and
+      // no state is set here. (Back has already saved: nothing pending.)
+      if (pending.current) {
+        pending.current = false;
+        try { liveSaveRef.current(snapshotOf)?.catch(() => {}); } catch { /* leaving must never fail on a save */ }
+      }
+    };
   }, []);
   // The live state broke the grid: drop it on the server (editors) so every
   // session rebuilds from the saved content, then reopen.

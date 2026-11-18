@@ -43,21 +43,21 @@ export default function FolderPickModal({ startPath = '', title = 'Pick a Folder
     >
       <div className="nx-popup" style={{ ...CARD, width: showTree ? 'max(60vw, min(1180px, 100%))' : undefined, maxHeight: showTree ? '90vh' : undefined, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <div style={{ ...HEADING, fontSize: 14.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ ...HEADING, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
             <FolderSearch size={16} /> {title}
           </div>
           <button type="button" className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <X size={13} /> Close
           </button>
         </div>
-        <div style={{ ...BODY, fontSize: 12.5 }}>{hint}</div>
+        <div style={{ ...BODY, fontSize: 13 }}>{hint}</div>
         <form onSubmit={jump} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <input
             className="form-input"
             value={pasted}
             onChange={e => setPasted(e.target.value)}
             placeholder="Paste a folder path (/Shared/…) or an Egnyte link"
-            style={{ flex: '1 1 320px', minWidth: 0, fontFamily: 'ui-monospace, monospace', fontSize: 12.5 }}
+            style={{ flex: '1 1 320px', minWidth: 0, fontFamily: 'ui-monospace, monospace', fontSize: 13 }}
           />
           <button type="submit" className="secondary-btn" disabled={!pathFromPaste(pasted)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <ArrowRight size={13} /> Go To Folder

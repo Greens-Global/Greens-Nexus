@@ -30,7 +30,7 @@ export default function HelpSignals() {
     <section style={card} aria-label="Help Signals">
       <h3 style={h}>Help Signals</h3>
       <div style={{ ...meta, marginBottom: 10 }}>What people could not find in the Help Center. Last 90 days of votes, 30 days of searches.</div>
-      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--ink)', marginBottom: 10 }}>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13, color: 'var(--ink)', marginBottom: 10 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsUp size={13} /> {votes.yes} Helpful</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ThumbsDown size={13} /> {votes.no} Not Helpful</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Ticket size={13} /> {ticketed} Searched, Then Filed a Ticket</span>
@@ -38,7 +38,7 @@ export default function HelpSignals() {
 
       {notHelpful.length > 0 && (
         <>
-          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '6px 0' }}>Not Helpful</div>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '6px 0' }}>Not Helpful</div>
           {notHelpful.map((a) => (
             <div key={`${a.kind}:${a.id}`} style={{ padding: '8px 0', borderTop: '1px solid var(--line)' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -51,7 +51,7 @@ export default function HelpSignals() {
                 <span style={{ ...meta, marginLeft: 'auto', whiteSpace: 'nowrap' }}>{a.no} No · {a.yes} Yes</span>
               </div>
               {a.notes.map((n) => (
-                <div key={n.at + n.note} style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>"{n.note}" <span style={meta}>{formatDate(n.at)}</span></div>
+                <div key={n.at + n.note} style={{ fontSize: 13, color: 'var(--ink)', marginTop: 3 }}>"{n.note}" <span style={meta}>{formatDate(n.at)}</span></div>
               ))}
             </div>
           ))}
@@ -60,7 +60,7 @@ export default function HelpSignals() {
 
       {misses.length > 0 && (
         <>
-          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 6px' }}>Searches With No Answer</div>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 6px' }}>Searches With No Answer</div>
           {misses.map((m) => (
             <div key={`${m.source}:${m.query}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: '1px solid var(--line)' }}>
               <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />

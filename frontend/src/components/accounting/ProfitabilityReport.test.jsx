@@ -49,8 +49,20 @@ describe('ProfitabilityReport', () => {
     const panel = screen.getByRole('region', { name: 'Accounts Behind the Figure' });
     expect(within(panel).getByText('Repairs')).toBeTruthy();
     expect(within(panel).getByText('(300.00)')).toBeTruthy();
+    // The account number opens the same side panel as its amount, never a jump to Reports.
     fireEvent.click(within(panel).getByRole('button', { name: '40100' }));
-    expect(requestReportDrill).toHaveBeenCalledWith({ account: '40100', accountName: 'Rental Income', from: '2026-01-01', to: '2026-12-31', entity: '15000', book: 'accrual' });
+    expect(await screen.findByRole('dialog', { name: '40100 Rental Income, Sunset Plaza' })).toBeTruthy();
+    expect(requestReportDrill).not.toHaveBeenCalled();
+  });
+
+  it('the Total row opens into the accounts of every entity on the sheet', async () => {
+    render(<ProfitabilityReport />);
+    fireEvent.click(await screen.findByRole('button', { name: 'NOI for Total' }));
+    const panel = screen.getByRole('region', { name: 'Accounts Behind the Figure' });
+    expect(within(panel).getByText('Repairs')).toBeTruthy();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Lines behind 40100 Rental Income' }));
+    await screen.findByRole('dialog', { name: '40100 Rental Income, All Entities' });
+    expect(api.searchAccountingLedger).toHaveBeenCalledWith({ account: '40100', locations: '15000', from: '2026-01-01', to: '2026-12-31', book: 'accrual', offset: 0, limit: 500 });
   });
 
   // Call of 10/27 with Charmi, item 17: an account amount opens its lines on the right; the columns resize.

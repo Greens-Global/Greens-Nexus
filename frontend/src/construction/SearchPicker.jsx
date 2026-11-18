@@ -53,7 +53,7 @@ export default function SearchPicker({
           width: '100%', padding: '8px 12px', borderRadius: 8,
           border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)',
           color: chosen ? 'var(--text-primary)' : 'var(--text-secondary)',
-          fontSize: '0.9rem', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+          fontSize: 15, cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
         }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {chosen?.label || placeholder}
@@ -73,7 +73,7 @@ export default function SearchPicker({
               ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: '9px 12px 9px 30px', border: 'none',
-                fontSize: '0.85rem', fontFamily: 'inherit',
+                fontSize: 13, fontFamily: 'inherit',
                 backgroundColor: 'transparent', color: 'var(--text-primary)',
               }} />
           </div>
@@ -95,7 +95,7 @@ export default function SearchPicker({
               </button>
             ))}
             {shown.length === 0 && (
-              <div style={{ padding: '10px 12px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              <div style={{ padding: '10px 12px', fontSize: 13, color: 'var(--text-secondary)' }}>
                 {needle ? `No matches for "${q.trim()}".` : emptyText}
               </div>
             )}

@@ -616,6 +616,8 @@ export const api = {
   addToMyDay: (day, taskId, pick = true) => req("/tasks/my-day/add", { method: "POST", body: JSON.stringify({ day, task_id: taskId, pick }) }),
   removeFromMyDay: (day, taskId) => req("/tasks/my-day/remove", { method: "POST", body: JSON.stringify({ day, task_id: taskId }) }),
   reorderMyDay: (day, taskIds) => req("/tasks/my-day/order", { method: "PUT", body: JSON.stringify({ day, task_ids: taskIds }) }),
+  // Left From Last Time (11/13/2026): answer the offer - bring last time's open picks to today, or not.
+  carryMyDay: (day, accept) => req("/tasks/my-day/carry", { method: "POST", body: JSON.stringify({ day, accept: !!accept }) }),
   // Keep Private (Oct 23 2026): a subtask private only because of its main
   // task stays private when that task is shared again. Answers the task.
   keepTaskPrivate: (id) => req(`/tasks/${id}/keep-private`, { method: "POST" }),
@@ -881,7 +883,7 @@ export const api = {
   // Paid leave balances (Oct 19 2026, routers/leave_balances.py).
   leaveMyBalance:      ()           => req('/leave-balances/me'),
   leavePersonBalance:  (email)      => req(`/leave-balances/person/${encodeURIComponent(email)}`),
-  leaveAdmin:          ()           => req('/leave-balances/admin'),
+  leaveAdmin:          (asOf = '')  => req(`/leave-balances/admin${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ''}`),
   // `company` (Oct 23): that company's own start date; `reset` drops it so it follows the organization's.
   leaveSetCutover:     (date, company = '', reset = false) => req('/leave-balances/cutover', { method: 'PUT', body: JSON.stringify({ date, company, reset }) }),
   leaveSavePolicies:   (policies)   => req('/leave-balances/policies', { method: 'PUT', body: JSON.stringify({ policies }) }),
@@ -1191,7 +1193,10 @@ export const api = {
   // (optional): "accrual" (default) or "cash" (Neil, Sep 25).
   getAccountingPnl: (from, to, location, dims, book) =>
     req(`/accounting/reports/pnl?from=${from}&to=${to}${location ? `&location=${encodeURIComponent(location)}` : ""}${dimsQuery(dims)}${book === "cash" ? "&book=cash" : ""}`),
-  getAccountingLocations: () => req("/accounting/reports/locations"),
+  // Shared lists (11/11/2026, speed pass): a dozen Accounting screens ask for
+  // the same entities, journals and books - one read serves them for a few
+  // minutes. Any save, Sync (fresh reads), sign-out or Act As change drops it.
+  getAccountingLocations: () => cachedGet("/accounting/reports/locations", 120_000),
   // Values one dimension can be filtered by (vendor, customer, employee, project, item, department).
   getAccountingDimensionValues: (kind) => req(`/accounting/reports/dimensions?kind=${encodeURIComponent(kind)}`),
   getAccountingBalanceSheet: (asof, location, dims, book) =>
@@ -1219,7 +1224,9 @@ export const api = {
   // way in there (no passwords). Open the returned url immediately.
   launchAccounting: (next) => req(`/accounting/launch${next ? `?next=${encodeURIComponent(next)}` : ""}`, { method: "POST" }),
   // Whether my accounting access is limited to certain entities, and which.
-  getMyAccountingAccess: () => req("/accounting/access/me"),
+  // Only decides which tabs show; the server checks entity access on every read.
+  // A minute, so a limit someone just set reaches the tabs quickly.
+  getMyAccountingAccess: () => cachedGet("/accounting/access/me", 60_000),
   // The accounting team and each person's entity limit (Full level on Accounting).
   getAccountingAccess: () => req("/accounting/access"),
   // Entity access as Intacct has it: a preview beside what Nexus has, then apply for the people ticked.
@@ -1237,7 +1244,7 @@ export const api = {
   // Send the statement on (Charmi, 09/29): by email from my own mailbox, or shared with a teammate.
   emailAccountingReport: (fields) => { const fd = new FormData(); Object.entries(fields).forEach(([k, v]) => fd.append(k, v)); return req("/accounting/reports/email", { method: "POST", body: fd }); },
   shareAccountingReport: (body) => req("/accounting/reports/share", { method: "POST", body: JSON.stringify(body) }),
-  getAccountingSavedReports: () => req("/accounting/saved-reports"),
+  getAccountingSavedReports: () => cachedGet("/accounting/saved-reports", 60_000),
   saveAccountingReport: (body) => req("/accounting/saved-reports", { method: "POST", body: JSON.stringify(body) }),
   updateAccountingSavedReport: (id, body) =>
     req(`/accounting/saved-reports/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
@@ -1884,6 +1891,11 @@ export const api = {
   cvRevokeGrant:    (grantId)    => req(`/credvault/grants/${grantId}`, { method: 'DELETE' }),
   cvOtpStatus:      ()           => req('/credvault/otp/status'),
   cvPersonalUpdate: (id, body)   => req(`/credvault/personal/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  // The department head's code for a change (11/13/2026, vault_head.py) and the import template.
+  cvHeadCodeRequest: (body)      => req('/credvault/head-code/request', { method: 'POST', body: JSON.stringify(body) }),
+  cvHeadCodeVerify:  (body)      => req('/credvault/head-code/verify', { method: 'POST', body: JSON.stringify(body) }),
+  cvImportTemplate:  ()          => reqBlob('/credvault/import-template'),
+  cvEndExternal:     (id)        => req(`/credvault/external-shares/${id}/end`, { method: 'POST' }),
 
   // ── Documents (DMS) - Phase 1: folders + drafts/library, next to E-Sign ──
   getDocFolders:      ()             => req('/documents/folders'),
@@ -2054,6 +2066,18 @@ export const api = {
   revokeIrPortalAccess: (investorId, fundId) => req(`/investor-relations/portal-access/${investorId}/${fundId}`, { method: "DELETE" }),
   getIrPortalMyDeals:   ()       => req("/investor-relations/portal/my-deals"),
   getIrPortalDeal:      (fundId) => req(`/investor-relations/portal/deals/${fundId}`),
+  // Live from Intacct (Neil, 11/11/2026): deal = entity, investor = partner equity accounts.
+  getIrBookEntities:    ()       => req("/investor-relations/books/entities"),
+  getIrBookPartners:    ()       => req("/investor-relations/books/partners"),
+  linkIrFundBooks:      (fundId, entity) => req(`/investor-relations/funds/${fundId}/books`, { method: "PUT", body: JSON.stringify({ entity }) }),
+  linkIrInvestorBooks:  (investorId, accounts) => req(`/investor-relations/investors/${investorId}/books`, { method: "PUT", body: JSON.stringify({ accounts }) }),
+  getIrFundBooks:       (fundId) => req(`/investor-relations/funds/${fundId}/books`),
+  setIrMembership:      (fundId, investorId, pct) => req(`/investor-relations/funds/${fundId}/members/${investorId}/membership`, { method: "PUT", body: JSON.stringify({ pct }) }),
+  getIrPortalBooks:     ()       => req("/investor-relations/portal/books"),
+  removeIrSampleData:   ()       => req("/investor-relations/sample-data/remove", { method: "POST" }),
+  getIrFundsBooks:      ()       => req("/investor-relations/funds-books"),
+  getIrInvestorBooks:   (investorId) => req(`/investor-relations/investors/${investorId}/books`),
+  importIrFromBooks:    (entity) => req("/investor-relations/books/import", { method: "POST", body: JSON.stringify({ entity }) }),
 
   // ── Construction module ────────────────────────────────────────────────────
   // Media bytes are NOT in this list on purpose: the browser uploads straight to
@@ -2180,7 +2204,7 @@ export const api = {
   timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
   // quickbooksCompanyName (Oct 19): the IIF header's company; undefined leaves it, '' clears it.
   // quickbooksCreateTime (Charmi, 11/03/2026): the TIMERHDR's COMPANYCREATETIME, same semantics.
-  timeExportCodesSet:  (company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob }) }),
+  timeExportCodesSet:  (company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob, quickbooksTimerHeader) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName, quickbooksCreateTime, quickbooksBlankJob, quickbooksTimerHeader }) }),
   // Shift differentials + call-back pay (Oct 17): one company's rule, off by default.
   timePremiumsGet:     (company) => req(`/timeclock/payroll/premiums?company=${encodeURIComponent(company || '')}`),
   timePremiumsSet:     (company, cfg) => req('/timeclock/payroll/premiums', { method: 'PUT', body: JSON.stringify({ ...cfg, company }) }),
@@ -2193,7 +2217,7 @@ export const api = {
   //    for the Journals filter ({available, journals}; available false = the
   //    accounting app has no list yet), and the Flux Analysis explanation
   //    notes kept per entity set, account and period ──
-  getAccountingJournals:   ()               => req('/accounting/journals'),
+  getAccountingJournals:   ()               => cachedGet('/accounting/journals', 300_000),
   // Oct 23 (CR-12): Records > General Ledger Accounts - the chart ({source, accounts}).
   getAccountingAccounts:   ()               => req('/accounting/accounts'),
   // Oct 23 (CR-10): Audit & Insights > Manual Journal Entries - who keyed each entry, read from Intacct.
@@ -2467,7 +2491,7 @@ export const api = {
   //    any params - a user-defined book (fmv, kje ...) travels as `book`.
   //    kind: pnl | balance-sheet | trial-balance | buckets. Array params go
   //    as comma-separated codes; empty ones are left out. ──
-  getAccountingBooks: () => req('/accounting/books'),
+  getAccountingBooks: () => cachedGet('/accounting/books', 300_000),
   // The Intacct budget by account and month for a period ({available, budget_id,
   // budgets, rows: [{account_no, title, section, month, amount}]}), for Actual vs
   // Budget on the Income Statement (item 43).
@@ -3090,9 +3114,21 @@ export const api = {
   // or reopened (a note is required to reopen) against its local preview.
   devNotesRelease: (id) => req(`/dev-notes/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ release: true }) }),
   devNotesPreviewVerdict: (id, { accepted, comment = "" } = {}) => req(`/dev-notes/${encodeURIComponent(id)}/preview-verdict`, { method: "POST", body: JSON.stringify({ accepted: !!accepted, comment }) }),
+  // Merge To Dev (11/12/2026): a Super Administrator merges the pin's pull request; the look reads only.
+  // A ticket becomes one pin in the caller's Build Session (11/12/2026).
+  devNotesFromTicket: (ticketId) => req(`/dev-notes/from-ticket/${encodeURIComponent(ticketId)}`, { method: "POST" }),
+  devNotesMergeLook: (id) => req(`/dev-notes/${encodeURIComponent(id)}/merge`),
+  devNotesMerge: (id, headSha) => req(`/dev-notes/${encodeURIComponent(id)}/merge`, { method: "POST", body: JSON.stringify({ headSha }) }),
   // { owner: {name, email} | null, held } for a source stamp - the composer
   // asks before saving whether the pin would be held for that owner.
   devNotesOwnerOf: (path) => req(`/dev-notes/owner-of?${new URLSearchParams({ path: path || "" }).toString()}`),
+  // Claude Code in the cloud (Neil, 11/12/2026): the developer's own scheduled
+  // task trigger, saved once - Send To Claude Code then starts a cloud session.
+  // The server never sends the trigger token back.
+  devNotesCloud: () => req("/dev-notes/cloud"),
+  devNotesCloudSave: (fireUrl, token) => req("/dev-notes/cloud", { method: "PUT", body: JSON.stringify({ fireUrl, token }) }),
+  devNotesCloudClear: () => req("/dev-notes/cloud", { method: "DELETE" }),
+  devNotesCloudStart: (noteIds = []) => req("/dev-notes/cloud/start", { method: "POST", body: JSON.stringify({ noteIds }) }),
   // ── More Details: custom fields on employee records (Oct 27 2026) ──
   // Definitions (Settings > People & Access); one person's values in People
   // ({ fields, values, canEdit } - HR Only ones only for HR); My HR's own.
@@ -3490,6 +3526,23 @@ export const submitPublicIntake = (token, values) => _publicIntake(token, {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values }),
 });
 
+// A login shared OUTSIDE Nexus (/vault-share/{token}, 11/13/2026): no login -
+// the emailed link plus a one-time code (routers/vault_share.py).
+async function _vaultShare(token, path = '', body) {
+  const res = await fetch(`${BASE}/vault-share/${encodeURIComponent(token)}${path}`, body === undefined ? undefined : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === 'string' && detail ? detail : res.status === 429 ? 'Too many tries - wait a minute and try again.' : `Could not load this page (${res.status})`);
+  }
+  return res.json();
+}
+export const fetchVaultShare = (token) => _vaultShare(token);
+export const sendVaultShareCode = (token, channel) => _vaultShare(token, '/code', { channel });
+export const verifyVaultShare = (token, challengeId, code) => _vaultShare(token, '/verify', { challengeId, code });
+
 // Public unit finder (/map/{propertyId}) - a customer looking for their unit
 // has no Nexus login, so this is a plain fetch of the customer-safe model.
 export async function fetchPublicSiteModel(id) {
@@ -3811,3 +3864,85 @@ api.getTaskProjectBaselines = (projectId) => req(`/task-projects/${encodeURIComp
 api.takeTaskProjectBaseline = (projectId, name = '') => req(`/task-projects/${encodeURIComponent(projectId)}/baselines`, { method: 'POST', body: JSON.stringify({ name }) });
 api.getTaskProjectBaselineDiff = (projectId, baselineId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}/diff`);
 api.deleteTaskProjectBaseline = (projectId, baselineId) => req(`/task-projects/${encodeURIComponent(projectId)}/baselines/${encodeURIComponent(baselineId)}`, { method: 'DELETE' });
+// Meeting Notes (Neil, 11/12/2026; routers/meetings.py): the caller's Teams
+// meetings between two times (their own calendar), their note for one (made
+// once), the meeting behind a note, and its transcript read from Teams each
+// time - Nexus keeps no copy of a transcript or a recording.
+// Testers first (11/12/2026): whether Meetings shows for this person.
+api.meetingsAccess = () => req('/meetings/access');
+api.meetingsDay = (start, end) => req(`/meetings/day?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+api.meetingNoteOpen = (eventId, day) => req('/meetings/notes', { method: 'POST', body: JSON.stringify({ eventId, day }) });
+api.meetingOfNote = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}`);
+api.meetingTranscript = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/transcript`);
+// Phase 2 (11/12/2026): the person's own opt-in to the Transcript Ready bell.
+api.meetingAlerts = (on) => req('/meetings/alerts', { method: 'PUT', body: JSON.stringify({ on: !!on }) });
+// Phase 3 (11/12/2026): meetings outside Teams. A note for a meeting not on
+// the calendar, and the transcript recorded on the device - words only,
+// every session started with the consent confirmed.
+api.meetingAdhoc = (title, day) => req('/meetings/adhoc', { method: 'POST', body: JSON.stringify({ title, day }) });
+api.meetingRecorded = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded`);
+api.meetingRecordedStart = (noteId, session) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded/sessions`, { method: 'POST', body: JSON.stringify(session) });
+api.meetingRecordedSegments = (noteId, sessionId, segments) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded/segments`, { method: 'POST', body: JSON.stringify({ sessionId, segments }) });
+api.meetingRecordedEnd = (noteId, sessionId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded/sessions/${encodeURIComponent(sessionId)}/end`, { method: 'POST' });
+api.meetingRecordedSpeakers = (noteId, speakers) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded/speakers`, { method: 'PUT', body: JSON.stringify({ speakers }) });
+api.meetingRecordedDelete = (noteId) => req(`/meetings/notes/${encodeURIComponent(noteId)}/recorded`, { method: 'DELETE' });
+// The header search (11/13/2026, components/search/useNexusSearch.js): each
+// source asks its own module, which answers with its own list's access rule
+// and a few rows - tickets (the list's scope, the caller's own Ask HR
+// included, `view` = where each opens), notes and boards (own and shared),
+// and the Documents library narrowed by title.
+api.searchTicketsEverywhere = (q, limit = 6) => req(`/task-tickets/search?header=true&q=${encodeURIComponent(q)}&limit=${limit}`);
+api.searchNotes = (q, limit = 6) => req(`/notes/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+api.searchDocumentLibrary = (q, limit = 6) => req(`/documents/library?q=${encodeURIComponent(q)}&limit=${limit}`);
+// Exits (Neil, 11/14/2026): the Offboard sheet's context (direct reports,
+// approver settings, a scheduled exit), Change Last Day (never re-sends the
+// package), Send Separation Package after they left, and on the exit:
+// Retry Egnyte, Reopen, the shared mailbox handover, Received / Lost for an
+// item still out with them (Return Pending - also from Item Management).
+api.offboardContext = (eid) => req(`/hr/employees/${encodeURIComponent(eid)}/offboard/context`);
+api.changeLastDay = (eid, lastDay) => req(`/hr/employees/${encodeURIComponent(eid)}/offboard/last-day`, { method: 'POST', body: JSON.stringify({ last_day: lastDay }) });
+api.previewSeparationPackage = (eid, data) => req(`/hr/employees/${encodeURIComponent(eid)}/separation-package/preview`, { method: 'POST', body: JSON.stringify(data) });
+api.sendSeparationPackage = (eid, data) => req(`/hr/employees/${encodeURIComponent(eid)}/separation-package`, { method: 'POST', body: JSON.stringify(data) });
+api.retryExitEgnyte = (eid) => req(`/exit-statements/${encodeURIComponent(eid)}/egnyte`, { method: 'POST' });
+api.reopenExitStatement = (eid, note = '') => req(`/exit-statements/${encodeURIComponent(eid)}/reopen`, { method: 'POST', body: JSON.stringify({ note }) });
+api.exitMailboxHandover = (eid, done = true) => req(`/exit-statements/${encodeURIComponent(eid)}/mailbox-handover`, { method: 'POST', body: JSON.stringify({ done }) });
+api.exitItemOutcome = (eid, kind, rowId, outcome, body = {}) => req(`/exit-statements/${encodeURIComponent(eid)}/items/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
+api.settleReturnPending = (kind, rowId, outcome, body = {}) => req(`/items/return-pending/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
+// Operations > Tenants (Neil, 11/17/2026): Nexus keeps a READ-ONLY copy of
+// tenant contact details - Cubby stays the source of truth, nothing here
+// edits a tenant. Who sees tenant details, and in which facilities, is the
+// access rules (Settings > Operations > Tenants And Facility Access).
+// `opsTenantRecord` is the tenant sheet's read (it re-reads the tenant live
+// from Cubby); `opsTenant(facilityId, customerId)` above stays the Reports
+// drill-down's.
+api.opsAccessMe = () => req('/facility-ops/access/me');
+api.opsAccess = () => req('/facility-ops/access');
+api.saveOpsAccess = (body) => req('/facility-ops/access', { method: 'PUT', body: JSON.stringify(body) });
+api.deleteOpsAccess = (id) => req(`/facility-ops/access/${encodeURIComponent(id)}`, { method: 'DELETE' });
+api.opsTenants = ({ q = '', facility = '', facilities = '', status = 'current', limit = 50, offset = 0 } = {}) =>
+  req(`/facility-ops/tenants?${new URLSearchParams({ q, facility, facilities, status, limit: String(limit), offset: String(offset) })}`);
+api.opsTenantRecord = (customerId) => req(`/facility-ops/tenants/${encodeURIComponent(customerId)}`, { timeoutMs: 20_000 });
+// Asset Management > Maintenance (Neil, 11/17/2026; routers/maintenance.py):
+// tickets per property - open, all, the newest, preventive schedules and
+// overdue - walled like /maintenance/rollup (403 for anyone it is not for).
+api.getMaintenancePortfolio = () => req('/maintenance/portfolio');
+
+// Accounting > Entities (Neil, 11/17/2026, routers/accounting_entities.py):
+// each entity's legal record, its structure (owners, what it owns, who
+// manages it) and its live figures; a deal's Legal line and the investor
+// profile that IS one of our entities, for Investor Relations.
+const entityPath = (code) => `/accounting/entities/${encodeURIComponent(code)}`;
+api.getLegalEntities = () => req('/accounting/entities');
+api.getLegalEntityStructure = () => req('/accounting/entities/structure');
+api.getLegalEntityFigures = (codes) => req(`/accounting/entities/figures?codes=${encodeURIComponent(codes.join(','))}`, { timeoutMs: 120_000 });
+api.getLegalEntity = (code) => req(entityPath(code));
+api.saveLegalEntity = (code, body) => req(entityPath(code), { method: 'PUT', body: JSON.stringify(body) });
+api.revealLegalEntityEin = (code) => req(`${entityPath(code)}/ein`, { method: 'POST' });
+api.getLegalEntityBooks = (code) => req(`${entityPath(code)}/books`, { timeoutMs: 90_000 });
+api.getLegalEntityAgreements = (code) => req(`${entityPath(code)}/agreements`);
+api.getLegalEntitySuggestions = (code) => req(`${entityPath(code)}/suggestions`);
+api.addLegalEntityOwner = (code, body) => req(`${entityPath(code)}/owners`, { method: 'POST', body: JSON.stringify(body) });
+api.updateLegalEntityOwner = (code, ownerId, body) => req(`${entityPath(code)}/owners/${encodeURIComponent(ownerId)}`, { method: 'PUT', body: JSON.stringify(body) });
+api.endLegalEntityOwner = (code, ownerId, until = '') => req(`${entityPath(code)}/owners/${encodeURIComponent(ownerId)}/end`, { method: 'POST', body: JSON.stringify({ until }) });
+api.getIrFundLegal = (fundId) => req(`/investor-relations/funds/${encodeURIComponent(fundId)}/legal`);
+api.linkIrInvestorEntity = (investorId, code) => req(`/investor-relations/investors/${encodeURIComponent(investorId)}/entity`, { method: 'PUT', body: JSON.stringify({ code }) });

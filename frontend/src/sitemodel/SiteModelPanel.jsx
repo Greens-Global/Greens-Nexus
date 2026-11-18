@@ -114,7 +114,7 @@ const FILL_CSS = `
 .sm-search{position:relative;margin:0}
 .sm-search-box{display:flex;align-items:center;gap:8px;height:38px;padding:0 6px 0 11px;background:rgba(255,255,255,.97);color:#5f6358;border:1px solid rgba(20,40,30,.1);border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.12);cursor:text;box-sizing:border-box}
 .sm-search-box:focus-within{border-color:#2a78d6}
-.sm-search-box input{flex:1;min-width:0;border:0;background:transparent;color:#1d1f1a;font:400 13.5px 'Inter',system-ui,sans-serif;padding:0}
+.sm-search-box input{flex:1;min-width:0;border:0;background:transparent;color:#1d1f1a;font:400 13px 'Inter',system-ui,sans-serif;padding:0}
 .sm-search-box input::placeholder{color:#7a7f75}
 .sm-search-x{display:inline-grid;place-items:center;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:#5f6358;cursor:pointer;padding:0}
 .sm-search-x:hover{background:#eef0ec}
@@ -124,13 +124,13 @@ const FILL_CSS = `
 .sm-sr-row{display:flex;align-items:center;gap:10px;padding:7px 12px;cursor:pointer}
 .sm-sr-row[data-active="true"]{background:#eef3fb}
 .sm-sr-row[data-off="true"]{cursor:default}
-.sm-sr-unit{font:600 12.5px ui-monospace,Menlo,monospace;min-width:48px}
+.sm-sr-unit{font:600 13px ui-monospace,Menlo,monospace;min-width:48px}
 .sm-sr-main{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sm-sr-muted{color:#6b7068}
 .sm-sr-word{font-size:12px;color:#5f6358;white-space:nowrap}
 .sm-sr-link{font-size:12px;color:#1f6f4a;white-space:nowrap;display:inline-flex;align-items:center;gap:3px}
-.sm-sr-msg{margin:4px 8px;padding:7px 9px;border-radius:7px;background:#fff6e5;color:#7a4a00;font-size:12.5px}
-.sm-sr-note{margin:0;padding:8px 12px;font-size:12.5px;color:#6b7068}
+.sm-sr-msg{margin:4px 8px;padding:7px 9px;border-radius:7px;background:#fff6e5;color:#7a4a00;font-size:13px}
+.sm-sr-note{margin:0;padding:8px 12px;font-size:13px;color:#6b7068}
 @container smstage (max-width:680px){
   .sm-ov-tl{width:calc(100% - 20px)}
   .sm-ov-tr{top:56px;left:10px;right:10px}
@@ -426,7 +426,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             <span className="sm-hint-mouse">Drag to move · Scroll to zoom · Right-drag to turn</span><span className="sm-hint-touch">Drag to move · Pinch to zoom · Twist to turn</span>
           </div>}
           <style>{`.sm-hint-touch{display:none} @media (pointer: coarse){ .sm-hint-touch{display:inline} .sm-hint-mouse{display:none} }`}</style>
-          <div style={{ position: 'absolute', right: 10, top: fill ? undefined : 10, bottom: fill ? 52 : undefined, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{credit} · 1 unit = 1 m</div>
+          <div style={{ position: 'absolute', right: 10, top: fill ? undefined : 10, bottom: fill ? 52 : undefined, fontSize: 11, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{credit} · 1 unit = 1 m</div>
           {fill && <>
             <div className="sm-ov-tl">
               <SiteMapSearch units={model.units || []} placeName={placeName} statusWord={owner ? (x) => STATUS_WORD[statusFn(x)] : null}
@@ -481,7 +481,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
               </span>
             </div>
             {owner && statusFn(u) === 'bad' ? (
-              <div role="note" className="sm-attn-banner" style={{ margin: '8px 0 4px', padding: '7px 10px', borderRadius: 8, background: '#fdecea', border: '1px solid #f6c9c4', color: '#7a271a', fontSize: 12.5, lineHeight: 1.4 }}>
+              <div role="note" className="sm-attn-banner" style={{ margin: '8px 0 4px', padding: '7px 10px', borderRadius: 8, background: '#fdecea', border: '1px solid #f6c9c4', color: '#7a271a', fontSize: 13, lineHeight: 1.4 }}>
                 <b style={{ color: '#b42318' }}>Needs Attention</b> · {attnText(u)}
               </div>
             ) : null}
@@ -491,7 +491,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
                 <span style={{ color: '#b42318' }}>!</span> {x.n} {x.f < u.f ? 'below' : 'above'} on Level {x.f} needs attention: {reasonGroup(x.why, x.note)}
               </button>
             )) : null}
-            {owner ? <div className="sm-unit-line" style={{ fontSize: 12.5, color: 'var(--text-muted, #5f6358)', margin: '2px 0 0', lineHeight: 1.45 }}>{unitLine(u)}</div> : null}
+            {owner ? <div className="sm-unit-line" style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)', margin: '2px 0 0', lineHeight: 1.45 }}>{unitLine(u)}</div> : null}
             {owner && renderUnitExtra ? (u.gone ? <div style={{ fontSize: 12, color: '#c43d2f', marginTop: 4 }}>No longer in Cubby's inventory</div> : null) : (
             <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', fontSize: 13, margin: '8px 0 0' }}>
               {!owner && <>

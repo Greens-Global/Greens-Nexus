@@ -64,6 +64,48 @@ describe('marketing Modal', () => {
     expect(panelOf(0).hasAttribute('inert')).toBe(false);
   });
 
+  // It was z 50 inside the Marketing page, under the app header (z 110) and
+  // the left menu: the title row and the X were covered (11/17/2026).
+  it('is portaled to <body> on the shared Modal\'s layer, keeping the Marketing styles', () => {
+    const { container } = render(<div id="page"><Modal title="Add Lead" onClose={() => {}}><p>body</p></Modal></div>);
+    const overlay = overlays()[0];
+    expect(container.contains(overlay)).toBe(false);
+    expect(document.body.contains(overlay)).toBe(true);
+    expect(overlay.style.zIndex).toBe('4000');
+    expect(overlay.parentElement.className).toBe('mktg-root');
+    expect(overlay.parentElement.parentElement).toBe(document.body);
+  });
+
+  it('a press that began inside the sheet and ended on the scrim does not close it', () => {
+    const onClose = vi.fn();
+    render(<Modal title="Add Lead" onClose={onClose}><input aria-label="Name" defaultValue="Sam Lee" /></Modal>);
+    const overlay = overlays()[0];
+    fireEvent.mouseDown(overlay.querySelector('input'));
+    fireEvent.click(overlay);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.mouseDown(overlay);
+    fireEvent.click(overlay);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('"Save your changes?" takes focus, keeps Tab, and Escape is Keep Editing', () => {
+    const onClose = vi.fn();
+    render(<Modal title="Add Lead" onClose={onClose} isDirty onSave={() => {}}><input aria-label="Name" /></Modal>);
+    const field = document.querySelector('input');
+    field.focus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    const buttons = () => [...document.querySelectorAll('[data-nx-esc-layer] button')];
+    expect(buttons().map((b) => b.textContent)).toEqual(['Keep Editing', 'Discard', 'Save Changes']);
+    expect(document.activeElement).toBe(buttons()[0]);
+    buttons()[2].focus();
+    fireEvent.keyDown(buttons()[2], { key: 'Tab' });
+    expect(document.activeElement).toBe(buttons()[0]);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(buttons()).toHaveLength(0);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(field);
+  });
+
   it('a sheet waits its 220ms slide-out before onClose', () => {
     vi.useFakeTimers();
     setMotionEnabled(true);

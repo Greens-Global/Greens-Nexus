@@ -27,7 +27,7 @@ import { rowColorAttrs, boldTitleStyle, srOnly, useToday } from './rowColorState
 import { RowColorSwitch as Switch } from './RowColors';
 
 const label = { display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 6 };
-const hint = { fontSize: 12.5, color: NX.dim, lineHeight: 1.5 };
+const hint = { fontSize: 13, color: NX.dim, lineHeight: 1.5 };
 const iconBtn = { ...btn('ghost'), padding: 5, color: NX.dim };
 // Touch screens: every control a finger has to hit is at least 40px square.
 const touchBtn = { ...iconBtn, minWidth: 40, minHeight: 40, justifyContent: 'center', padding: 0 };
@@ -268,13 +268,13 @@ function RuleForm({ draft, setDraft, ctx, choices, countTasks, scopeNoun, touch,
         </div>
         {draft.conditions.length < MAX_CONDITIONS ? (
           <button type="button" onClick={() => setDraft((d) => ({ ...d, conditions: [...d.conditions, blankCondition()] }))}
-            style={{ ...btn('ghost'), marginTop: 8, padding: '6px 8px', fontSize: 12.5, color: NX.blue }}>
+            style={{ ...btn('ghost'), marginTop: 8, padding: '6px 8px', fontSize: 13, color: NX.blue }}>
             <Plus size={14} /> Add Condition
           </button>
         ) : <div style={{ ...hint, marginTop: 8 }}>A rule can have up to {MAX_CONDITIONS} conditions.</div>}
       </div>
       <div className="nx-fill" style={{ gap: 8 }}>
-        <div aria-live="polite" style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+        <div aria-live="polite" style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>
           {counts ? countText(own ?? 0, first, scopeNoun) : 'Finish the conditions to see what this colors.'}
         </div>
         <div style={{ ...label, marginBottom: 0 }}>Preview</div>
@@ -415,7 +415,7 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
 
   const footer = editing ? (
     <>
-      {problem && <span style={{ marginRight: 'auto', fontSize: 12.5, color: NX.dim }}>{problem}</span>}
+      {problem && <span style={{ marginRight: 'auto', fontSize: 13, color: NX.dim }}>{problem}</span>}
       <button type="button" style={btn('outline')} onClick={() => setEditing(null)}>Cancel</button>
       <button type="button" style={{ ...btn('primary'), opacity: problem || busy ? 0.55 : 1 }} disabled={!!problem || busy} onClick={saveDraft}>
         {busy ? 'Saving…' : 'Save Rule'}
@@ -429,10 +429,10 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
     <Modal title={title} onClose={onClose} footer={footer} isDirty={dirty}
       onSave={async () => { if (await saveDraft()) onClose(); }}>
       <div aria-live="polite" role="status" style={srOnly}>{announce}</div>
-      {error && <div role="alert" className="nx-cr-error" style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, fontWeight: 600 }}>{error}</div>}
+      {error && <div role="alert" className="nx-cr-error" style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}>{error}</div>}
       {editing ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1, minHeight: 0 }}>
-          <button type="button" onClick={() => setEditing(null)} style={{ ...btn('ghost'), alignSelf: 'flex-start', padding: '4px 6px', fontSize: 12.5 }}>
+          <button type="button" onClick={() => setEditing(null)} style={{ ...btn('ghost'), alignSelf: 'flex-start', padding: '4px 6px', fontSize: 13 }}>
             <ArrowLeft size={14} /> All Rules
           </button>
           <RuleForm draft={draft} setDraft={setDraft} ctx={ctx} choices={choices} countTasks={countTasks} scopeNoun={scopeNoun}
@@ -479,11 +479,11 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
                       <span className="nx-rc-swatch" style={{ '--rc': colorHex(r.color), opacity: off ? 0.4 : 1 }} aria-hidden="true" />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 13.5, fontWeight: r.bold ? 700 : 600, color: off ? NX.faint : NX.ink, overflowWrap: 'anywhere' }}>{r.name}</span>
+                          <span style={{ fontSize: 13, fontWeight: r.bold ? 700 : 600, color: off ? NX.faint : NX.ink, overflowWrap: 'anywhere' }}>{r.name}</span>
                           {probs.length > 0 && <StatusLabel size="sm" label="Needs Attention" color={NX.amber} title={probs.map((p) => p.text).join(' ')} />}
                           {off && <StatusLabel size="sm" label="Off" color="#64748b" />}
                         </div>
-                        <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 2 }}>{describeRule(r, ctx)}</div>
+                        <div style={{ fontSize: 13, color: NX.dim, marginTop: 2 }}>{describeRule(r, ctx)}</div>
                         {!probs.length && own != null && (
                           <div data-testid="rule-count" style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{countText(own, first)}</div>
                         )}
@@ -530,7 +530,7 @@ export default function ColorRulesEditor({ title = 'Row Colors', rules, onSave, 
                       <div style={{ fontSize: 12, color: NX.dim }}>{describeRule(s, ctx)}</div>
                     </div>
                     <button type="button" disabled={busy} onClick={() => commit([...list, { ...s, id: newRuleId() }])}
-                      aria-label={`Add ${s.name}`} style={{ ...btn('ghost'), padding: '4px 10px', fontSize: 12.5, color: NX.blue, ...(touch ? { minHeight: 40 } : null) }}>
+                      aria-label={`Add ${s.name}`} style={{ ...btn('ghost'), padding: '4px 10px', fontSize: 13, color: NX.blue, ...(touch ? { minHeight: 40 } : null) }}>
                       <Plus size={13} /> Add
                     </button>
                   </div>

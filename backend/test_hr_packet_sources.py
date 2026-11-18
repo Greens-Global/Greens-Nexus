@@ -54,7 +54,9 @@ class SourceTests(ReviewCase):
         hire = next(s for s in self.client.get("/hr/packets").json()["settings"] if s["id"] == "s-hire")
         self.assertEqual([f["key"] for f in hire["templateForm"]], ["pan_number", "bank_name"])
         self.assertTrue(hire["templateForm"][0]["sensitive"])
-        self.assertEqual([q["token"] for q in hire["hrQuestions"]], ["probation_period"])
+        # A HIRING packet never asks HR at the offer (Pranshu, 11/03/2026): the
+        # template's HR Answers variable is typed by the new hire while signing.
+        self.assertEqual(hire["hrQuestions"], [])
         checks = {c["key"]: c for c in hire["readiness"]}
         self.assertTrue(checks["variables"]["ok"], checks["variables"])
 
@@ -115,7 +117,7 @@ class SourceTests(ReviewCase):
         self.assertTrue(by["pan_number"]["sensitive"])                                 # Private kept
         self.assertEqual((by["nationality"]["documents"], by["nationality"]["packetOnly"]), ([], True))
         self.assertEqual(by["bank_name"]["documents"], ["NDA"])
-        self.assertEqual([(q["token"], q["documents"]) for q in out["hrAtOffer"]], [("probation_period", ["NDA"])])
+        self.assertEqual(out["hrAtOffer"], [])                     # hiring packet: nothing at the offer
         # With no extra fields it is exactly the form the saved packet's link shows.
         bare = self.client.post("/hr/packets/intake-preview", json={"doc_template_ids": ["t-offer", "t-nda"]}).json()
         self.assertEqual([f["key"] for f in bare["form"]], ["pan_number", "bank_name"])

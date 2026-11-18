@@ -7,7 +7,8 @@
 // shows on a view its owner can save; on a shared view (someone else's
 // published layout) it stays on the tile, read-only, as before.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StickyNote, ArrowRight, CornerDownLeft, Pin, PenTool } from 'lucide-react';
+import { StickyNote, ArrowRight, CornerDownLeft, Pin } from 'lucide-react';
+import BoardIcon from '../components/icons/BoardIcon';
 import { api } from '../api';
 import { DashCard } from '../dashboard/widgets.jsx';
 import { WidgetSkeleton } from '../dashboard/listParts.jsx';
@@ -75,7 +76,7 @@ export default function NotesWidget({ config, saveConfig, canSaveConfig, phone }
     <DashCard title="Notes" sub={notice || undefined}
       action={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
         <button type="button" className="nt-tag" onClick={newBoard} title="A whiteboard to draw, plan and mark things up" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
-          <PenTool size={12} aria-hidden="true" /> New Board
+          <BoardIcon size={12} aria-hidden="true" /> New Board
         </button>
         <button type="button" className="nt-tag" onClick={() => openNotes('')} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--wk-green)', fontWeight: 600 }}>
           Open Notes <ArrowRight size={12} aria-hidden="true" />
@@ -85,11 +86,11 @@ export default function NotesWidget({ config, saveConfig, canSaveConfig, phone }
         <form className="nt-w-capture" onSubmit={capture}>
           <StickyNote size={15} aria-hidden="true" style={{ color: 'var(--wk-orange)', flexShrink: 0 }} />
           <input value={line} onChange={(e) => setLine(e.target.value)} disabled={busy} aria-label="Add to today's scratchpad"
-            placeholder="Jot something down - [ ] makes a to-do" style={{ fontSize: phone ? 16 : 13.5 }} maxLength={2000} />
+            placeholder="Jot something down - [ ] makes a to-do" style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ phone ? 16 : 13 }} maxLength={2000} />
           {line.trim() && <button type="submit" className="nt-icon-btn" aria-label="Add" title="Add (Enter)"><CornerDownLeft size={14} /></button>}
         </form>
         {legacy && !canSaveConfig && (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{legacy}</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{legacy}</div>
         )}
         <div className="nt-w-list">
           {error && <div className="nt-empty" style={{ padding: 10 }}>{error} <button type="button" className="nt-tag" onClick={load}>Retry</button></div>}

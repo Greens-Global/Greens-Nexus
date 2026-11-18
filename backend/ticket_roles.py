@@ -8,7 +8,7 @@ company that hands those grants out deliberately; not a rule a new customer
 should inherit.
 
 This module puts named roles on top of the EXISTING module-grant levels
-(auth.MODULE_LEVELS - viewer/editor/full/owner on an Access Group). Nothing
+(auth.MODULE_LEVELS - viewer/editor/full on an Access Group). Nothing
 new is stored per person; a person's role is read from the grants they
 already have.
 

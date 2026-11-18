@@ -61,7 +61,7 @@ export function TicketPropertyRulesPanel({ toastOk, toastErr }) {
   const note = !can('administrator');
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      <p style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
         A ticket in a service area or help topic picked below must name its property before it can be submitted. Suggest Property Links proposes one for older tickets, and a person approves each.
       </p>
       <div>
@@ -77,7 +77,7 @@ export function TicketPropertyRulesPanel({ toastOk, toastErr }) {
       <div>
         <label style={LBL} htmlFor="ticket-property-topics">Help Topics That Need a Property</label>
         <input id="ticket-property-topics" className="form-input" value={topics} disabled={readOnly || busy} onChange={(e) => setTopics(e.target.value)}
-          placeholder="e.g. Gate Access, Unit Repair - comma-separated, matched by name" style={{ width: '100%', fontSize: 12.5 }} />
+          placeholder="e.g. Gate Access, Unit Repair - comma-separated, matched by name" style={{ width: '100%', fontSize: 13 }} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <button type="button" className="primary-btn" onClick={save} disabled={readOnly || busy || !dirty} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -112,7 +112,7 @@ export function UnitRulesPanel() {
 export function AppRatingsPanel() {
   return (
     <div>
-      <p style={{ margin: '0 0 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+      <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
         One rating for all of Nexus. Anything not rated yet counts as neutral.
       </p>
       <RatingsList seed={[]} />

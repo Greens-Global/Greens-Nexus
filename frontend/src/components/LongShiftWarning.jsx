@@ -14,14 +14,14 @@ export default function LongShiftWarning({ issue, manager = false, onFix, onUseS
   return (
     <div role="alert" data-testid="long-shift-warning"
       style={{ marginTop: compact ? 6 : 12, padding: compact ? '8px 10px' : '10px 12px', borderRadius: 10, background: 'rgba(180,83,9,0.09)',
-        border: '1px solid rgba(180,83,9,0.3)', color: '#92400e', fontSize: compact ? 11.5 : 12.5, lineHeight: 1.5,
+        border: '1px solid rgba(180,83,9,0.3)', color: '#92400e', fontSize: compact ? 12 : 13, lineHeight: 1.5,
         maxWidth: compact ? 340 : undefined, whiteSpace: 'normal', textAlign: 'left' }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
         <AlertTriangle size={compact ? 13 : 15} style={{ flexShrink: 0, marginTop: 2 }} />
         <span style={{ fontWeight: 600 }}>{issue.message}</span>
       </div>
       {!manager && (
-        <div style={{ marginTop: 4, marginLeft: compact ? 21 : 23, fontSize: compact ? 11 : 11.5 }}>
+        <div style={{ marginTop: 4, marginLeft: compact ? 21 : 23, fontSize: compact ? 11 : 12 }}>
           If the times are right, keep them and say why in the reason - your approver sees it.
         </div>
       )}

@@ -53,3 +53,52 @@ describe('Escape with stacked modals', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+// A text selection dragged from inside the sheet and let go on the scrim: the
+// browser sends that click to the scrim (the common ancestor), and the sheet
+// closed. Only a press that STARTED on the scrim closes it (11/17/2026).
+describe('a click on the scrim', () => {
+  const scrim = () => document.querySelector('.nx-tasks-portal.nx-overlay');
+
+  it('does not close when the press began inside the sheet', () => {
+    const onClose = vi.fn();
+    render(<Modal title="New Lead" onClose={onClose}><input aria-label="Name" defaultValue="Sam Lee" /></Modal>);
+    fireEvent.mouseDown(screen.getByLabelText('Name'));
+    fireEvent.mouseUp(scrim());
+    fireEvent.click(scrim());
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes when the press began on the scrim', () => {
+    const onClose = vi.fn();
+    render(<Modal title="New Lead" onClose={onClose}><input aria-label="Name" /></Modal>);
+    fireEvent.mouseDown(scrim());
+    fireEvent.click(scrim());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+// "Save your changes?" sat outside the panel's Tab trap and never took focus,
+// so a keyboard could not reach it, and Escape only asked again (11/17/2026).
+describe('the Save your changes? card', () => {
+  it('takes focus, keeps Tab, and Escape is Keep Editing', async () => {
+    const onClose = vi.fn();
+    render(<Modal title="Edit Lead" onClose={onClose} isDirty onSave={() => {}}><input aria-label="Name" /></Modal>);
+    const field = screen.getByLabelText('Name');
+    field.focus();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    const keep = await screen.findByRole('button', { name: 'Keep Editing' });
+    expect(document.activeElement).toBe(keep);
+    const save = screen.getByRole('button', { name: 'Save Changes' });
+    save.focus();
+    fireEvent.keyDown(save, { key: 'Tab' });
+    expect(document.activeElement).toBe(keep);
+    fireEvent.keyDown(keep, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(save);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByText('Save your changes?')).toBeNull());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(field);
+  });
+});
+

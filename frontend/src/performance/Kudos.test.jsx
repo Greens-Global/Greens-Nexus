@@ -58,6 +58,30 @@ describe('Kudos thanks row', () => {
     expect(await screen.findByRole('button', { name: 'Add Your Thanks' })).toBeTruthy();
   });
 
+  it('shows thanks that came from Teams with their emoji, the outside count and Open in Teams (11/12/2026)', async () => {
+    const fromTeams = { ...K, teams: { url: 'https://teams.example/m1', others: 2, type: 'channel' },
+      thanks: [{ email: 'marco@x.com', name: 'Marco Diaz', note: 'Well deserved', via: 'teams', reaction: '\u2764\ufe0f' },
+        { email: 'ana@x.com', name: 'Ana Ruiz', note: '', via: '', reaction: '\u{1F44F}' }] };
+    m.perfKudos.mockResolvedValue({ items: [fromTeams], receivedLast90: 0 });
+    render(<KudosCard ctx={CTX} />);
+    const row = await screen.findByRole('button', { name: /Marco and Ana added their thanks/ });
+    expect(row.textContent).toContain('\u2764\ufe0f \u{1F44F}');
+    expect(screen.getByText('2 people on Teams reacted')).toBeTruthy();
+    const link = screen.getByRole('link', { name: 'Open in Teams' });
+    expect(link.getAttribute('href')).toBe('https://teams.example/m1');
+    expect(link.getAttribute('target')).toBe('_blank');
+    fireEvent.click(row);
+    expect(screen.getByText(/on Teams$/)).toBeTruthy();
+  });
+
+  it('a kudos never posted to Teams shows no Teams line', async () => {
+    m.perfKudos.mockResolvedValue({ items: [{ ...K, teams: null }], receivedLast90: 0 });
+    render(<KudosCard ctx={CTX} />);
+    expect(await screen.findByText('Saved the Friday close')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Open in Teams' })).toBeNull();
+    expect(screen.queryByText(/on Teams reacted/)).toBeNull();
+  });
+
   it('the sender gets no Add Your Thanks', async () => {
     m.perfKudos.mockResolvedValue({ items: [{ ...K, thanks: [], thanksCount: 0, can: { hide: true, thank: false } }], receivedLast90: 0 });
     render(<KudosCard ctx={{ email: 'pat@x.com' }} />);
@@ -85,7 +109,7 @@ describe('Kudos thanks row', () => {
 
 describe('Give Kudos form', () => {
   it("offers the recipient's company values and the Teams switch once a recipient is picked, and sends both", async () => {
-    m.perfKudosOptions.mockResolvedValue({ values: ['Ownership', 'Safety First'], teamsChat: true });
+    m.perfKudosOptions.mockResolvedValue({ values: ['Ownership', 'Safety First'], teamsChat: true, teamsPlace: 'Greens > Shout-Outs' });
     m.perfKudosGive.mockResolvedValue({ ...K, toName: 'Sam Lee' });
     const given = vi.fn();
     render(<GiveKudosModal me={ME} to="sam@x.com" onGiven={given} />);
@@ -93,6 +117,7 @@ describe('Give Kudos form', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Safety First' }));
     expect(screen.getByRole('button', { name: 'Safety First' }).getAttribute('aria-pressed')).toBe('true');
     const sw = screen.getByRole('switch', { name: 'Also post to Teams' });
+    expect(screen.getByText(/Greens > Shout-Outs/)).toBeTruthy();   // where it will go
     expect(sw.checked).toBe(true);
     fireEvent.click(sw);
     fireEvent.change(screen.getByPlaceholderText(/Stayed late/), { target: { value: 'Caught the leak before the weekend' } });

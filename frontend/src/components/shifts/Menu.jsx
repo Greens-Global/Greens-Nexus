@@ -9,8 +9,8 @@ import { ChevronDown } from 'lucide-react';
 export const POP = { position: 'absolute', zIndex: 1300, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
   boxShadow: '0 12px 32px rgba(0,0,0,0.16)', fontFamily: 'Inter,sans-serif', padding: '4px 0' };
 export const ITEM = { display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 12px', border: 'none', background: 'none',
-  cursor: 'pointer', fontSize: 12.5, fontFamily: 'inherit', color: 'var(--ink)', textAlign: 'left', whiteSpace: 'nowrap' };
-export const HEAD = { fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', padding: '8px 12px 4px' };
+  cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', color: 'var(--ink)', textAlign: 'left', whiteSpace: 'nowrap' };
+export const HEAD = { fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', padding: '8px 12px 4px' };
 
 export function useDismiss(open, onClose) {
   const ref = useRef(null);
@@ -54,7 +54,7 @@ export function MenuButton({ label, Icon, items, className = 'secondary-btn', al
   return (
     <span ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
       <button ref={btnRef} type="button" className={primary ? 'primary-btn' : className} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={ariaLabel} disabled={disabled}
-        style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, ...style }}>
+        style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, ...style }}>
         {Icon && <Icon size={14} />}{label}{badge}{children}{label && <ChevronDown size={13} />}
       </button>
       {open && pos && createPortal(

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Reporting -> Management Fees (Oct 7, renamed from AMA Oct 15): the agreements render (a render
 // smoke test - a crash here would blank the screen), the fee text, a failed
@@ -23,6 +23,9 @@ const summary = {
   ],
 };
 
+// DateField as a plain box (the house date picker, 11/11/2026 picture 11), so a test can type a date.
+vi.mock('../../tasks/components', async (importOriginal) => ({ ...(await importOriginal()),
+  DateField: ({ value, onChange, title }) => <input aria-label={title} data-datefield="1" value={value || ''} onChange={(e) => onChange(e.target.value)} /> }));
 vi.mock('../../api', () => ({
   api: {
     getAmaSummary: vi.fn(async () => summary),
@@ -57,7 +60,8 @@ beforeAll(async () => { await import('./tableView/panels'); }, 30000);
 describe('ManagementFeesTab', () => {
   it('renders the agreements with fees, figures and the next billing date', async () => {
     render(<ManagementFeesTab canEdit />);
-    expect(screen.getByText('Management Fees')).toBeTruthy();
+    // No heading of its own (as AMA, picture 1): the Accounting page line names the page.
+    expect(screen.queryByRole('heading', { name: 'Management Fees' })).toBeNull();
     const name = await screen.findByText('15000 Greens Escondido, LLC.');
     const tr = name.closest('tr');
     expect(within(tr).getByText('90000 Greens Asset Management')).toBeTruthy();
@@ -134,7 +138,7 @@ describe('ManagementFeesTab', () => {
   it('validates inline and saves a new agreement', async () => {
     render(<ManagementFeesTab canEdit />);
     await screen.findByText('15000 Greens Escondido, LLC.');
-    fireEvent.click(screen.getByRole('button', { name: /Add Agreement/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     const dialog = await screen.findByRole('dialog', { name: 'Add Agreement' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Add Agreement' }));
     expect(within(dialog).getByText('Pick the managed entity.')).toBeTruthy();
@@ -152,13 +156,17 @@ describe('ManagementFeesTab', () => {
     })));
   });
 
-  it('removes an agreement only after Remove is confirmed in place', async () => {
+  it('removes an agreement only after a press and hold on its row', async () => {
     render(<ManagementFeesTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Remove the agreement of 15000 Greens Escondido, LLC.' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Keep' }));
+    const hold = await screen.findByRole('button', { name: 'Remove the agreement of 15000 Greens Escondido, LLC., press and hold' });
+    fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(hold, { button: 0, pointerId: 1 });
     expect(api.deleteAmaAgreement).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Remove the agreement of 15000 Greens Escondido, LLC.' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(1200); });
+    } finally { vi.useRealTimers(); }
     await waitFor(() => expect(api.deleteAmaAgreement).toHaveBeenCalledWith('A1'));
   });
 
@@ -166,7 +174,7 @@ describe('ManagementFeesTab', () => {
     api.getAmaSummary.mockImplementation(async () => ({ year: 2026, asOf: '2026-10-07', rows: [] }));
     render(<ManagementFeesTab />);
     expect(await screen.findByText('No asset management agreements yet.')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Add Agreement/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
   });
 
   it('shows a plain error with Try Again', async () => {
@@ -219,7 +227,7 @@ describe('ManagementFeesTab', () => {
   it('saves a Percent or Flat agreement with the threshold and a searched fee GL account', async () => {
     render(<ManagementFeesTab canEdit />);
     await screen.findByText('15000 Greens Escondido, LLC.');
-    fireEvent.click(screen.getByRole('button', { name: /Add Agreement/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     const dialog = await screen.findByRole('dialog', { name: 'Add Agreement' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Managed Entity' }));
     fireEvent.click(await screen.findByText(/Greens Escondido, LLC\./, { selector: '[role="option"] *, [role="option"]' }));
@@ -257,7 +265,7 @@ describe('ManagementFeesTab', () => {
   it('starts a new agreement on Greater Of with 3% and $3,000 a month, and saves it', async () => {
     render(<ManagementFeesTab canEdit />);
     await screen.findByText('15000 Greens Escondido, LLC.');
-    fireEvent.click(screen.getByRole('button', { name: /Add Agreement/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     const dialog = await screen.findByRole('dialog', { name: 'Add Agreement' });
     expect(within(dialog).getByLabelText('Fee Basis').value).toBe('greater_of');
     expect(within(dialog).getByLabelText('Fee Rate %').value).toBe('3');
@@ -306,7 +314,7 @@ describe('ManagementFeesTab, Sync and the scroll box', () => {
     expect(screen.getByTestId('mgmt-fees-box').querySelector('table').classList.contains('acct-sticky-head')).toBe(true);   // headings pinned (round 3)
     fireEvent.click(screen.getByRole('button', { name: 'Filter agreements' }));   // item 02: an icon until used
     fireEvent.change(screen.getByRole('textbox', { name: 'Filter agreements' }), { target: { value: 'Escondido' } });
-    fireEvent.click(screen.getByRole('button', { name: /Add Agreement/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await screen.findByRole('dialog', { name: 'Add Agreement' });
     let release;
     api.getAmaSummary.mockImplementationOnce(() => new Promise((r) => { release = () => r({ ...summary, rows: [row({ billedYtd: 2000 })] }); }));

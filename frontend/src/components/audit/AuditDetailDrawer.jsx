@@ -16,7 +16,7 @@ import { PersonAvatar, ModuleBadge, ActAsBadge, ActionIcon, ChangesTable, AMBER,
 import { exactDateTime, relativeTime } from './auditModel';
 
 const label = { fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '.02em' };
-const sectionTitle = { fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', margin: '22px 0 8px' };
+const sectionTitle = { fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '22px 0 8px' };
 
 function Fact({ name, children, mono }) {
   if (children === undefined || children === null || children === '') return null;
@@ -62,10 +62,10 @@ function RelatedList({ related, onOpen, nameOf }) {
       <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
         {related.map((r, i) => (
           <button key={r.id} type="button" onClick={() => onOpen(r)}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', borderTop: i ? '1px solid var(--line)' : 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, color: 'var(--ink)' }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '9px 12px', border: 'none', borderTop: i ? '1px solid var(--line)' : 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink)' }}>
             <ActionIcon action={r.action} />
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
-            <span style={{ color: 'var(--muted)', fontSize: 11.5, flexShrink: 0 }}>{nameOf(r.actor?.email, r.actor?.name)}</span>
+            <span style={{ color: 'var(--muted)', fontSize: 12, flexShrink: 0 }}>{nameOf(r.actor?.email, r.actor?.name)}</span>
           </button>
         ))}
       </div>
@@ -100,7 +100,7 @@ function EventBody({ ev, detail, loading, error, nameOf, onOpenTarget, onOpenRel
       </div>
 
       {full.undone && (
-        <div style={{ marginTop: 12, fontSize: 12.5, color: 'var(--muted)' }}>This change was undone later.</div>
+        <div style={{ marginTop: 12, fontSize: 13, color: 'var(--muted)' }}>This change was undone later.</div>
       )}
 
       {error ? (
@@ -130,7 +130,7 @@ function EventBody({ ev, detail, loading, error, nameOf, onOpenTarget, onOpenRel
             </>
           )}
           {!full.legacy && !full.changes?.length && (
-            <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 18 }}>No field changes were recorded for this event.</p>
+            <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 18 }}>No field changes were recorded for this event.</p>
           )}
           <RelatedList related={full.related} onOpen={onOpenRelated} nameOf={nameOf} />
         </>
@@ -161,7 +161,7 @@ function HistoryBody({ target, nameOf, onOpenEvent }) {
         return (
           <li key={ev.id} style={{ display: 'grid', gridTemplateColumns: '24px 1fr', gap: 12, paddingBottom: 18 }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <span style={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--card)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>{i + 1}</span>
+              <span style={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid var(--line)', background: 'var(--card)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{i + 1}</span>
               {i < state.events.length - 1 && <span style={{ flex: 1, width: 1, background: 'var(--line)', marginTop: 4 }} />}
             </div>
             <div style={{ minWidth: 0 }}>

@@ -133,17 +133,17 @@ function ConnectStrip({ oauth, onChanged }) {
             {photo ? (
               <img src={photo} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
             ) : (
-              <span style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--wk-brand)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, fontWeight: 700 }}>
+              <span style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--wk-brand)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>
                 {initialsOf(meName || oauth.egnyteUsername)}
               </span>
             )}
             <span style={{ position: 'absolute', right: -1, bottom: -1, width: 10, height: 10, borderRadius: '50%', background: 'var(--wk-green)', border: '2px solid var(--wk-card)' }} />
           </span>
           <span style={{ flex: 1, minWidth: 160 }}>
-            <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: 'var(--wk-ink)', lineHeight: 1.3 }}>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)', lineHeight: 1.3 }}>
               {meName || oauth.egnyteUsername || 'Your Egnyte account'}
             </span>
-            <span style={{ ...BODY, display: 'block', fontSize: 11.5, lineHeight: 1.4 }}>
+            <span style={{ ...BODY, display: 'block', fontSize: 12, lineHeight: 1.4 }}>
               Connected to Egnyte - you see exactly what your permissions allow.
             </span>
           </span>
@@ -155,8 +155,8 @@ function ConnectStrip({ oauth, onChanged }) {
         <div style={{ ...CARD, padding: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <Link2 size={17} style={{ color: 'var(--wk-dim)', flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ ...HEADING, fontSize: 13.5 }}>Connect Your Egnyte Account</div>
-            <div style={{ ...BODY, fontSize: 12.5 }}>
+            <div style={{ ...HEADING, fontSize: 13 }}>Connect Your Egnyte Account</div>
+            <div style={{ ...BODY, fontSize: 13 }}>
               {oauth.mustConnect
                 ? 'Connect to browse files - you will see exactly the folders your Egnyte account has access to.'
                 : 'You are browsing with the shared company access. Connect to browse as yourself, with your own Egnyte permissions.'}

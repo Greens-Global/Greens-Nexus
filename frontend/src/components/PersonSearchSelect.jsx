@@ -44,7 +44,7 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
   const close = () => { setOpen(false); setQ(''); setHi(0); };
   const pick = (p) => { noteRecentPerson(p.email); onPick(p.email); close(); inputRef.current?.blur(); };
   const optionStyle = (on) => ({ display: 'flex', alignItems: 'baseline', gap: 8, width: '100%', textAlign: 'left', padding: '7px 12px', border: 'none',
-    background: on ? 'var(--mist)' : 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)' });
+    background: on ? 'var(--mist)' : 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'Inter,sans-serif', color: 'var(--ink)' });
   let idx = -1;
   return (
     <div ref={boxRef} style={{ position: 'relative' }}>
@@ -66,12 +66,12 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
       <AnchoredMenu anchorRef={boxRef} open={open} onClose={close} role="listbox"
         style={{ width: boxWidth, maxHeight: 320, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: '4px 0' }}>
         {flat.length === 0 ? (
-          <div style={{ padding: '9px 12px', fontSize: 12.5, color: 'var(--muted)' }}>
+          <div style={{ padding: '9px 12px', fontSize: 13, color: 'var(--muted)' }}>
             {query ? `No one matches "${q.trim()}".` : 'No one left to add.'}
           </div>
         ) : shown.map(g => (
           <div key={g.label}>
-            <div style={{ padding: '8px 12px 3px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>{g.label}</div>
+            <div style={{ padding: '8px 12px 3px', fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>{g.label}</div>
             {g.people.map(p => {
               idx += 1;
               const i = idx;
@@ -81,7 +81,7 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
                   <Face p={p} photos={photos} />
                   <span style={{ fontWeight: 600 }}>{p.name || p.email}</span>
                   {/* Their job title next to the name (Neil, Oct 19), then the email. */}
-                  <span style={{ color: 'var(--muted)', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[p.title, p.email].filter(Boolean).join(' · ')}</span>
+                  <span style={{ color: 'var(--muted)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[p.title, p.email].filter(Boolean).join(' · ')}</span>
                 </button>
               );
             })}

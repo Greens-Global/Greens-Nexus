@@ -67,7 +67,13 @@ DEFAULTS = {"checkinEveryDays": 14, "oneOnOneReminder": True,
             "kudosValues": [],
             # The Teams chat a company's kudos are posted to ('' = none); a Super
             # Administrator's to write (routers/performance.save_settings).
-            "kudosTeamsChatId": ""}
+            # Kept for the companies that set it before kudosTeams below.
+            "kudosTeamsChatId": "",
+            # Kudos on Teams (Neil, 11/12/2026: "Channel per company"): the
+            # channel - or a group chat - a company's kudos are posted to,
+            # {type, id, name, teamId, teamName}; {} = none. Read through
+            # kudos_teams_target, never directly.
+            "kudosTeams": {}}
 KUDOS_VALUES_MAX = 20
 CHECKIN_DAYS_MAX = 90
 
@@ -272,7 +278,43 @@ def clean_settings(cfg: dict) -> dict:
             seen.append(v)
     out["kudosValues"] = seen[:KUDOS_VALUES_MAX]
     out["kudosTeamsChatId"] = str(cfg.get("kudosTeamsChatId") or "").strip()[:200]
+    out["kudosTeams"] = clean_teams_target(cfg.get("kudosTeams"))
     return out
+
+
+def clean_teams_target(v) -> dict:
+    """{type, id, name, teamId, teamName} (TeamsTargetPicker's value), or {}
+    when it names nothing - a channel needs its team."""
+    if not isinstance(v, dict):
+        return {}
+    kind = "channel" if v.get("type") == "channel" else "chat"
+    out = {"type": kind, "id": str(v.get("id") or "").strip()[:200], "name": str(v.get("name") or "").strip()[:120],
+           "teamId": str(v.get("teamId") or "").strip()[:200] if kind == "channel" else "",
+           "teamName": str(v.get("teamName") or "").strip()[:120] if kind == "channel" else ""}
+    if not out["id"] or (kind == "channel" and not out["teamId"]):
+        return {}
+    return out
+
+
+def kudos_teams_target(db: Session, company_id: str = "") -> dict:
+    """Where a company's kudos post, layer by layer: the company's own
+    setting, else the organization's; at each layer a channel or chat picked
+    in the picker (kudosTeams) wins, else the chat id typed before it
+    (kudosTeamsChatId). {} = the company posts nowhere."""
+    layers = [company_id, ""] if company_id else [""]
+    for cid in layers:
+        own = scoped_settings.saved(db, SETTINGS_KEY, cid, DEFAULTS)
+        t = clean_teams_target(own.get("kudosTeams"))
+        if t:
+            return t
+        chat = str(own.get("kudosTeamsChatId") or "").strip()[:200]
+        if chat:
+            return {"type": "chat", "id": chat, "name": "", "teamId": "", "teamName": ""}
+        if "kudosTeams" in own or "kudosTeamsChatId" in own:
+            # This layer says "nowhere" (a company keeps only what differs from
+            # the organization, so a stored blank there is a choice).
+            return {}
+    return {}
 
 
 def settings_for_company(db: Session, company_id: str = "") -> dict:

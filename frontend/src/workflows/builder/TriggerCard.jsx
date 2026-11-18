@@ -70,7 +70,7 @@ export function EventPicker({ value, onChange, catalog, isNew }) {
                         cursor: 'pointer', fontSize: 13, color: 'var(--nx-ink)', textAlign: 'left', fontFamily: 'inherit',
                       }}>
                         <span>{e.label}</span>
-                        {isNew?.(e.key) && <span style={{ ...chip, fontSize: 10.5, padding: '1px 6px', color: 'var(--nx-primary)', borderColor: 'var(--nx-primary)' }}>New</span>}
+                        {isNew?.(e.key) && <span style={{ ...chip, fontSize: 11, padding: '1px 6px', color: 'var(--nx-primary)', borderColor: 'var(--nx-primary)' }}>New</span>}
                       </button>
                     ))}
                   </div>

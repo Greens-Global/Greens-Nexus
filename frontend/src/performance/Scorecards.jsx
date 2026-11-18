@@ -45,7 +45,7 @@ function RowEditor({ label, items, lib, kpis, manualMax, canEdit, busy, onChange
                 <span style={{ minWidth: 0 }}>
                   <span style={{ fontWeight: 600, fontSize: 13 }}>{k.name}</span>
                   <span className={`perf-sc-src ${k.source}`}>{k.source === 'manual' ? 'Manual' : 'Nexus'}</span>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{k.direction === 'low' ? 'Lower is better' : 'Higher is better'}{k.unit ? ` · ${UNIT_LABEL[k.unit] || k.unit}` : ''}{k.description ? ` · ${k.description}` : ''}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{k.direction === 'low' ? 'Lower is better' : 'Higher is better'}{k.unit ? ` · ${UNIT_LABEL[k.unit] || k.unit}` : ''}{k.description ? ` · ${k.description}` : ''}</div>
                 </span>
                 <input className="form-input perf-sc-num" type="number" min={0} max={100} step={1} value={r.weight} disabled={!canEdit || busy} aria-label={`${k.name} weight${label ? ` (${label})` : ''}`} onChange={(e) => setRow(i, { weight: e.target.value === '' ? '' : Math.max(0, Math.min(100, Math.round(Number(e.target.value)))) })} />
                 <input className="form-input perf-sc-num" type="number" step="any" value={r.target} disabled={!canEdit || busy} aria-label={`${k.name} target`} onChange={(e) => setRow(i, { target: e.target.value })} />
@@ -55,7 +55,7 @@ function RowEditor({ label, items, lib, kpis, manualMax, canEdit, busy, onChange
               </div>
             );
           })}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
             <span className={`perf-sc-total${total === 100 ? ' is-ok' : ''}`}>Weights: {total}%</span>
             {manual > 0 && <span style={{ color: manual > manualMax ? 'var(--bad-fg)' : 'var(--muted)' }}>Manual: {manual}% (max {manualMax}%)</span>}
             {problems.map((p) => <span key={p} style={{ color: 'var(--bad-fg)', fontWeight: 600 }}>{p}</span>)}
@@ -84,7 +84,7 @@ function CopyFrom({ role, roles, shared, company, disabled, onRows }) {
   ];
   if (!sources.length) return null;
   return (
-    <select className="form-input" style={{ fontSize: 12.5, maxWidth: 240 }} value="" disabled={disabled} aria-label={`Copy a scorecard into ${role?.name || 'this set'}`}
+    <select className="form-input" style={{ fontSize: 13, maxWidth: 240 }} value="" disabled={disabled} aria-label={`Copy a scorecard into ${role?.name || 'this set'}`}
       onChange={async (e) => { const id = e.target.value; if (!id) return; try { const r = await api.perfScorecardCopySource(company, id); onRows(strip(r.items), r.copiedFrom); } catch { /* the toast is the panel's */ } }}>
       <option value="">Copy From…</option>
       {sources.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
@@ -109,12 +109,12 @@ function RoleCard({ role, roles, shared, lib, kpis, manualMax, nextMonth, compan
       <div className="nx-set-pad" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} data-scorecard={role.name} data-role={role.id}>
         <span style={{ width: 30, height: 30, borderRadius: 9, display: 'inline-grid', placeItems: 'center', background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)' }}><Target size={15} /></span>
         <div style={{ flex: 1, minWidth: 180 }}>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>{role.name}<span style={{ marginLeft: 8, fontSize: 11.5, color: 'var(--muted)', fontWeight: 500 }}>{[role.department, `${role.members} ${role.members === 1 ? 'person' : 'people'}`, role.companyId ? '' : 'every company'].filter(Boolean).join(' · ')}</span></div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{role.name}<span style={{ marginLeft: 8, fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>{[role.department, `${role.members} ${role.members === 1 ? 'person' : 'people'}`, role.companyId ? '' : 'every company'].filter(Boolean).join(' · ')}</span></div>
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>{status}</div>
         </div>
         {canEdit && <CopyFrom role={role} roles={roles} shared={shared} company={company} disabled={busy} onRows={(rows, from) => patch({ items: rows, copiedFrom: from })} />}
         {canEdit && !items.length && (
-          <button type="button" className="secondary-btn" style={{ fontSize: 12.5, display: 'inline-flex', gap: 6, alignItems: 'center' }} onClick={() => patch({ items: strip(role.suggestion), copiedFrom: '' })}>
+          <button type="button" className="secondary-btn" style={{ fontSize: 13, display: 'inline-flex', gap: 6, alignItems: 'center' }} onClick={() => patch({ items: strip(role.suggestion), copiedFrom: '' })}>
             <Wand2 size={13} /> Start From a Suggestion
           </button>
         )}
@@ -143,7 +143,7 @@ function SharedCard({ set, lib, kpis, manualMax, canEdit, busy, onSave, onDelete
       <div className="nx-set-pad" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} data-shared={set.id || 'new'}>
         <span style={{ width: 30, height: 30, borderRadius: 9, display: 'inline-grid', placeItems: 'center', background: 'var(--bg-secondary)', color: 'var(--muted)' }}><Layers size={15} /></span>
         <input className="form-input" style={{ flex: 1, minWidth: 200, fontWeight: 600 }} placeholder="Name, e.g. Office Staff" value={draft?.name || ''} disabled={!canEdit || busy} onChange={(e) => patch({ name: e.target.value })} aria-label="Shared set name" />
-        {!set.companyId && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>every company</span>}
+        {!set.companyId && <span style={{ fontSize: 12, color: 'var(--muted)' }}>every company</span>}
         {canEdit && set.id && <button type="button" className="secondary-btn" style={{ padding: '4px 8px' }} aria-label={`Delete shared set ${set.name}`} disabled={busy} onClick={() => onDelete(set)}><Trash2 size={13} /></button>}
       </div>
       <RowEditor label={draft?.name || 'the shared set'} items={items} lib={lib} kpis={kpis} manualMax={manualMax} canEdit={canEdit} busy={busy} onChange={(rows) => patch({ items: rows })} />
@@ -158,7 +158,7 @@ function ManualKpiBox({ company, canEdit, onAdded, toastErr }) {
   const [f, setF] = useState({ name: '', description: '', unit: 'rating', direction: 'high' });
   const [busy, setBusy] = useState(false);
   if (!canEdit) return null;
-  if (!open) return <button type="button" className="secondary-btn" style={{ fontSize: 12.5, display: 'inline-flex', gap: 6, alignItems: 'center' }} onClick={() => setOpen(true)}><Plus size={13} /> Add a Manual KPI</button>;
+  if (!open) return <button type="button" className="secondary-btn" style={{ fontSize: 13, display: 'inline-flex', gap: 6, alignItems: 'center' }} onClick={() => setOpen(true)}><Plus size={13} /> Add a Manual KPI</button>;
   async function add() {
     if (!f.name.trim()) return;
     setBusy(true);
@@ -218,27 +218,27 @@ export function ScorecardSettings({ company = '', toastOk, toastErr }) {
     try { await api.perfScorecardRetire(set.id); toastOk?.('Shared set deleted.'); load(); } catch (e) { toastErr?.(e?.message || 'Could not delete.'); } finally { setBusy(false); }
   }
 
-  if (!company) return <p className="nx-set-pad" style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)' }}>Pick a company to set its role scorecards.</p>;
+  if (!company) return <p className="nx-set-pad" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>Pick a company to set its role scorecards.</p>;
   if (err) return <ErrorBanner message={err} onRetry={load} />;
   if (!data) return <div style={{ padding: 24, textAlign: 'center' }}><Spinner size="section" /></div>;
   const common = { lib, kpis: data.kpis, manualMax: data.manualMax, canEdit: data.canEdit, busy };
   return (
     <div style={{ display: 'grid', gap: 12 }} data-scorecards="">
-      <p className="nx-set-pad" style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      <p className="nx-set-pad" style={{ margin: 0, fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
         <Sparkles size={14} style={{ flexShrink: 0, marginTop: 2 }} />
         <span>Each role picks the KPIs it is scored on and how much each counts. Nexus KPIs are measured from what Nexus already records; manual ones are rated by the manager with a reason and may carry at most {data.manualMax}% of the weight. Copy From fills a role from another role or a shared set. Rules change only from the first of a month, so a score is always explained by the rules that applied.</span>
       </p>
-      {data.roles.length === 0 && <p className="nx-set-pad" style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)' }}>No job roles yet - add them under People &gt; Roles.</p>}
+      {data.roles.length === 0 && <p className="nx-set-pad" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>No job roles yet - add them under People &gt; Roles.</p>}
       {data.roles.map((r) => <RoleCard key={r.id} role={r} roles={data.roles} shared={data.shared} nextMonth={data.nextMonth} company={company} onSave={saveRole} {...common} />)}
 
       <div className="nx-set-pad" style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }} data-shared-sets="">
-        <span style={{ fontWeight: 700, fontSize: 13.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Copy size={14} /> Shared Sets</span>
+        <span style={{ fontWeight: 700, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Copy size={14} /> Shared Sets</span>
         <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1 }}>Named starting points a role copies. Editing one changes no role.</span>
-        {data.canEdit && !newShared && <button type="button" className="secondary-btn" style={{ fontSize: 12.5, display: 'inline-flex', gap: 6, alignItems: 'center' }} onClick={() => setNewShared(true)}><Plus size={13} /> New Shared Set</button>}
+        {data.canEdit && !newShared && <button type="button" className="secondary-btn" style={{ fontSize: 13, display: 'inline-flex', gap: 6, alignItems: 'center' }} onClick={() => setNewShared(true)}><Plus size={13} /> New Shared Set</button>}
       </div>
       {newShared && <SharedCard set={{ id: '', name: '', items: [], companyId: company }} onSave={saveShared} onDelete={() => setNewShared(false)} {...common} />}
       {data.shared.map((s) => <SharedCard key={s.id} set={s} onSave={saveShared} onDelete={deleteShared} {...common} canEdit={data.canEdit && (!!s.companyId || data.canEditEveryCompany)} />)}
-      {data.shared.length === 0 && !newShared && <p className="nx-set-pad" style={{ margin: 0, fontSize: 12.5, color: 'var(--muted)' }}>No shared sets yet.</p>}
+      {data.shared.length === 0 && !newShared && <p className="nx-set-pad" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>No shared sets yet.</p>}
 
       <ManualKpiBox company={company} canEdit={data.canEdit} onAdded={() => { toastOk?.('KPI added to the library.'); load(); }} toastErr={toastErr} />
     </div>

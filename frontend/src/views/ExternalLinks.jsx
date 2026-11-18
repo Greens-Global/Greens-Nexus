@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { PersonalLockGate } from '../credvault/vaultShared';
 import { LinkIcon } from '../components/LinkIcon.jsx';
@@ -35,6 +36,8 @@ import {
   MoreHorizontal, Copy, ArrowUp, ArrowDown, Send,
 } from 'lucide-react';
 import { ModuleActions } from '../components/ModuleTabs';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../ui/HoldButton';
 
 // Mirrors the old start.greensglobal.com department dropdown (Neil, Aug 12) -
 // "Development" deliberately excluded per that ask. Admin-managed now (Aug
@@ -571,8 +574,8 @@ export default function ExternalLinks() {
     try { await fn(...a); if (okMsg) setBanner({ kind: 'ok', text: okMsg }); }
     catch (e) { setBanner({ kind: 'err', text: e?.message || 'Something went wrong.' }); throw e; }
   };
-  const confirmDiscard = () => !dirty || window.confirm('You have unsaved changes to your layout - discard them?');
-  const guardedSwitch = (id) => { if (confirmDiscard()) switchView(id); };
+  const confirmDiscard = async () => !dirty || dialog.confirm('You have unsaved changes to your layout - discard them?', { title: 'Unsaved Changes', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true });
+  const guardedSwitch = async (id) => { if (await confirmDiscard()) switchView(id); };
   const isOwnView = !!activeView;
   const saveViewLayout = wrap(async () => {
     if (isOwnView) { await saveView(); return; }
@@ -593,8 +596,8 @@ export default function ExternalLinks() {
     title: 'Create a new view', label: 'Starts from the default layout - customize it after', initial: '', cta: 'Create view',
     onSubmit: wrap(name => createNewView(name), 'View created - customize away'),
   });
-  const guardedNew = () => { if (confirmDiscard()) createNew(); };
-  const guardedDone = () => { if (confirmDiscard()) { setEditing(false); reloadViews(); } };
+  const guardedNew = async () => { if (await confirmDiscard()) createNew(); };
+  const guardedDone = async () => { if (await confirmDiscard()) { setEditing(false); reloadViews(); } };
   // Customize mode is unmistakable (Neil, Sep 22): the page fades around
   // the tiles (body.links-editing, see style.css), a bar at the bottom
   // holds Save / Done, and Escape leaves - unless a drag, a folder, or a
@@ -606,7 +609,7 @@ export default function ExternalLinks() {
   useEffect(() => {
     if (!editing) return;
     const onKey = (e) => {
-      if (e.key !== 'Escape') return;
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
       if (nameModal || document.body.classList.contains('links-dragging')) return;
       if (document.querySelector('.modal-overlay, [role="dialog"]')) return;
       guardedDone();
@@ -615,10 +618,10 @@ export default function ExternalLinks() {
     return () => document.removeEventListener('keydown', onKey);
   });
   const makeDefault = wrap(async () => { setViewMenu(false); if (activeId) await setDefaultView(activeId); }, 'Set as your default');
-  const deleteCurrentView = () => {
+  const deleteCurrentView = async () => {
     setViewMenu(false);
     if (!activeId) return;
-    if (window.confirm(`Delete "${activeView?.name}"?`)) removeView(activeId).catch(e => setBanner({ kind: 'err', text: e?.message }));
+    if (await dialog.confirm(`Delete "${activeView?.name}"?`, { title: 'Delete View', confirmText: 'Delete', danger: true })) removeView(activeId).catch(e => setBanner({ kind: 'err', text: e?.message }));
   };
 
   const openLink = (link) => {
@@ -750,16 +753,18 @@ export default function ExternalLinks() {
     }
   };
 
-  const remove = async (link) => {
-    if (!window.confirm(`Remove "${link.name}" from Links? This cannot be undone.`)) return;
-    try {
-      await api.deleteExternalLink(link.id);
-      setLinks(prev => (prev || []).filter(l => l.id !== link.id));
-      setBanner({ kind: 'ok', text: `"${link.name}" removed.` });
-    } catch (e) {
-      setBanner({ kind: 'err', text: e?.message || 'Could not remove this link.' });
-    }
-  };
+  const remove = (link) => dialog.confirm(`Remove "${link.name}" from Links? This cannot be undone.`, {
+    title: 'Remove Link?', hold: true, holdMs: HOLD_RECORD_MS, confirmText: 'Remove', doneText: 'Removed',
+    onConfirm: async () => {
+      try {
+        await api.deleteExternalLink(link.id);
+        setLinks(prev => (prev || []).filter(l => l.id !== link.id));
+        setBanner({ kind: 'ok', text: `"${link.name}" removed.` });
+      } catch (e) {
+        throw new Error(e?.message || 'Could not remove this link.', { cause: e });
+      }
+    },
+  });
 
   // Bulk category/department reassignment (Manage > All Links, Aug 14) -
   // no dedicated bulk endpoint; loops the existing single-link PATCH since
@@ -790,15 +795,18 @@ export default function ExternalLinks() {
   // cancelled confirm instead of clearing it as if something happened.
   const bulkDeleteLinks = async (ids) => {
     if (!ids.length) return false;
-    if (!window.confirm(`Remove ${ids.length} link${ids.length === 1 ? '' : 's'} from Links? This cannot be undone.`)) return false;
-    const results = await Promise.allSettled(ids.map(id => api.deleteExternalLink(id)));
-    const removed = new Set();
-    let failed = 0;
-    results.forEach((r, i) => { if (r.status === 'fulfilled') removed.add(ids[i]); else failed++; });
-    setLinks(prev => (prev || []).filter(l => !removed.has(l.id)));
-    if (failed) setBanner({ kind: 'err', text: `Removed ${removed.size} link${removed.size === 1 ? '' : 's'}, ${failed} failed.` });
-    else setBanner({ kind: 'ok', text: `Removed ${removed.size} link${removed.size === 1 ? '' : 's'}.` });
-    return true;
+    return dialog.confirm(`Remove ${ids.length} link${ids.length === 1 ? '' : 's'} from Links? This cannot be undone.`, {
+      title: `Remove ${ids.length} Link${ids.length === 1 ? '' : 's'}?`, hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Remove', doneText: 'Removed',
+      onConfirm: async () => {
+        const results = await Promise.allSettled(ids.map(id => api.deleteExternalLink(id)));
+        const removed = new Set();
+        let failed = 0;
+        results.forEach((r, i) => { if (r.status === 'fulfilled') removed.add(ids[i]); else failed++; });
+        setLinks(prev => (prev || []).filter(l => !removed.has(l.id)));
+        if (failed) setBanner({ kind: 'err', text: `Removed ${removed.size} link${removed.size === 1 ? '' : 's'}, ${failed} failed.` });
+        else setBanner({ kind: 'ok', text: `Removed ${removed.size} link${removed.size === 1 ? '' : 's'}.` });
+      },
+    });
   };
 
   const bumpPersonalClick = (link) => {
@@ -895,7 +903,7 @@ export default function ExternalLinks() {
   };
 
   const removePersonal = async (link) => {
-    if (!window.confirm(`Remove "${link.name}" from your Personal Links?`)) return;
+    if (!(await dialog.confirm(`Remove "${link.name}" from your Personal Links?`, { title: 'Remove Personal Link', confirmText: 'Remove', danger: true }))) return;
     try {
       await api.deletePersonalLink(link.id);
       setPersonalLinks(prev => (prev || []).filter(l => l.id !== link.id));
@@ -943,7 +951,7 @@ export default function ExternalLinks() {
               <select value={activeId || ''}
                 onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
                 className="form-select" title="Switch layout view"
-                style={{ fontSize: 12.5, fontWeight: 600, width: 150, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', border: 'none', borderRadius: 0, background: 'var(--card)' }}>
+                style={{ fontSize: 13, fontWeight: 600, width: 150, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', border: 'none', borderRadius: 0, background: 'var(--card)' }}>
                 <option value="">Home</option>
                 {views.length > 0 && (
                   <optgroup label="My views">
@@ -960,8 +968,8 @@ export default function ExternalLinks() {
             <AnchoredMenu anchorRef={viewGroupRef} open={viewMenu} onClose={() => setViewMenu(false)} align="end" minWidth={210}
               style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6 }}>
               <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 210, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeView?.name || 'Home'}</div>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{activeView ? (activeView.isDefault ? 'Your default view' : 'Personal view') : 'Built-in layout'}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', maxWidth: 210, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{activeView?.name || 'Home'}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{activeView ? (activeView.isDefault ? 'Your default view' : 'Personal view') : 'Built-in layout'}</div>
               </div>
               {isOwnView && <ViewMenuItem icon={Pencil} label="Rename view" onClick={() => { setViewMenu(false); renameCurrentView(); }} />}
               {isOwnView && !activeView.isDefault && <ViewMenuItem icon={Star} label="Set as my default" onClick={makeDefault} />}
@@ -1312,8 +1320,8 @@ function LinksListRow({ icon, name, sub, onOpen, isFolder }) {
       onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
       onMouseLeave={e => e.currentTarget.style.background = 'none'}>
       {icon}
-      <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-      {sub && <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{sub}</span>}
+      <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+      {sub && <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{sub}</span>}
       {isFolder && <FolderOpen size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
     </button>
   );
@@ -1667,7 +1675,7 @@ function FolderModal({
     setTimeout(onClose, 200);
   };
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !drag.active && !renaming) requestClose(); };
+    const onKey = (e) => { if (e.key === 'Escape' && !e.defaultPrevented && !drag.active && !renaming) requestClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   });
@@ -1714,7 +1722,7 @@ function FolderModal({
           <button className="close-btn" onClick={requestClose}><X size={16} /></button>
         </div>
         {draggingHere && (
-          <p style={{ margin: '10px 24px 0', fontSize: 11.5, color: 'var(--wk-brand)', fontWeight: 600, textAlign: 'center' }}>
+          <p style={{ margin: '10px 24px 0', fontSize: 12, color: 'var(--wk-brand)', fontWeight: 600, textAlign: 'center' }}>
             Drag past the edge to move it back to the main screen
           </p>
         )}
@@ -2039,8 +2047,8 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
       editable={true} jiggle={editable && view !== 'list'}
       onClose={closeFolder}
       onRename={(name) => renameFolder(openFolder.id, name, folderCommit)}
-      onDeleteFolder={() => {
-        if (!window.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`)) return;
+      onDeleteFolder={async () => {
+        if (!(await dialog.confirm(`Delete "${openFolder.name}"? Apps inside will move back to the main view.`, { title: 'Delete Folder', confirmText: 'Delete', danger: true }))) return;
         deleteFolder(openFolder.id, folderCommit);
         closeFolder();
       }}
@@ -2155,7 +2163,7 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
 function ViewMenuItem({ icon: Icon, label, onClick, danger }) {
   return (
     <button onClick={onClick}
-      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 13, textAlign: 'left', fontFamily: 'var(--wk-font)', color: danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
       <Icon size={14} /> {label}
     </button>
@@ -2273,11 +2281,11 @@ function CheckboxMultiSelect({ options, selected, onChange, placeholder, allowCu
         ))}
         {allowCustom && (
           <div style={{ display: 'flex', gap: 6, padding: '6px 8px 2px', borderTop: allOptions.length > 0 ? '1px solid var(--line)' : 'none', marginTop: allOptions.length > 0 ? 4 : 0 }}>
-            <input className="form-input" style={{ padding: '5px 8px', fontSize: 12.5 }} value={customValue}
+            <input className="form-input" style={{ padding: '5px 8px', fontSize: 13 }} value={customValue}
               onChange={e => setCustomValue(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
               placeholder={customPlaceholder || 'Add new...'} />
-            <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 12.5 }} onClick={addCustom}>Add</button>
+            <button type="button" className="secondary-btn" style={{ padding: '5px 10px', fontSize: 13 }} onClick={addCustom}>Add</button>
           </div>
         )}
       </AnchoredMenu>
@@ -2344,7 +2352,7 @@ function LinkModal({ modal, setModal, save, saving, departments, categories, com
             <label>URL</label>
             <input className="form-input" value={form.url} onChange={e => setForm({ url: e.target.value })} onBlur={fetchPreview} placeholder="https://..." />
             {duplicate && (
-              <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '5px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+              <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', margin: '5px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
                 <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
                 Already added as "{duplicate.name}"{duplicate.departments?.length ? ` (${duplicate.departments.join(', ')})` : ''} - pick a different link, or edit that one instead.
               </p>
@@ -2490,7 +2498,7 @@ function ManageModal({
     try { await onRefreshDescription(link); } finally { setRefreshingId(null); }
   };
   const doRefreshAll = async () => {
-    if (!window.confirm('Re-fetch and shorten the description for every Company Link? This overwrites current descriptions.')) return;
+    if (!(await dialog.confirm('Re-fetch and shorten the description for every Company Link? This overwrites current descriptions.', { title: 'Refresh All Descriptions', confirmText: 'Refresh All' }))) return;
     setRefreshingAll(true);
     try { await onRefreshAllDescriptions(); } finally { setRefreshingAll(false); }
   };
@@ -2569,7 +2577,7 @@ function ManageModal({
           <ManageTab active={tab === 'all'} onClick={() => setTab('all')}>All Links</ManageTab>
           <ManageTab active={tab === 'attention'} onClick={() => setTab('attention')}>
             Needs Attention{(attention.length + emptyDepartments.length) > 0 && (
-              <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, background: 'hsla(var(--color-orange),0.18)', color: 'hsl(var(--color-orange))', padding: '1px 6px', borderRadius: 10 }}>
+              <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, background: 'hsla(var(--color-orange),0.18)', color: 'hsl(var(--color-orange))', padding: '1px 6px', borderRadius: 10 }}>
                 {attention.length + emptyDepartments.length}
               </span>
             )}
@@ -2589,8 +2597,11 @@ function ManageModal({
             <button className="secondary-btn" onClick={() => setByOpened(v => !v)} aria-pressed={byOpened} title="Sort each category by how often its links are opened">
               <ArrowDown size={14} /> {byOpened ? 'Sorted By Opened' : 'Sort By Opened'}
             </button>
-            <button className="secondary-btn" onClick={() => setShowImport(true)}><Upload size={14} /> Import</button>
-            <button className="primary-btn" onClick={onAdd}><Plus size={15} /> Add Link</button>
+            {/* "+ New", the one create button across Nexus (Neil, 11/13/2026): Import rides its menu. */}
+            <NewButton items={[
+              { key: 'link', label: 'Link', hint: 'One app or site', Icon: Plus },
+              { key: 'import', label: 'Import...', hint: 'Many at once from a file', Icon: Upload },
+            ]} onPick={(k) => (k === 'link' ? onAdd() : setShowImport(true))} />
           </div>
         )}
 
@@ -2600,7 +2611,7 @@ function ManageModal({
 
         {tab === 'all' && selectedIds.size > 0 && (
           <div style={{ margin: '12px 24px 0', padding: '10px 12px', borderRadius: 10, background: 'var(--wk-brand-tint)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)' }}>{selectedIds.size} selected</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--wk-brand)' }}>{selectedIds.size} selected</span>
             <div style={{ width: 180 }}>
               <CheckboxMultiSelect
                 options={categoryNames} selected={bulkCategories} onChange={setBulkCategories}
@@ -2639,11 +2650,11 @@ function ManageModal({
             ) : (
               <>
                 {!canReorder && (
-                  <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 10 }}>Clear the search to drag-reorder within a category.</p>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Clear the search to drag-reorder within a category.</p>
                 )}
                 {grouped.map(([cat, items]) => (
                   <div key={cat} style={{ marginBottom: 18 }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 700, color: colorFor(cat).fg, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: colorFor(cat).fg, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
                       {cat}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -2669,10 +2680,10 @@ function ManageModal({
                             <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={14} radius={7} fg={fg} bg={bg} gradient={false} />
                             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flexShrink: 0 }}>{l.name}</span>
                             {l.is_pinned && <Star size={11} style={{ color: 'hsl(var(--color-gold))', flexShrink: 0 }} fill="hsl(var(--color-gold))" />}
-                            <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {(l.departments && l.departments.length) ? l.departments.join(', ') : 'All departments'}{(l.companies && l.companies.length) ? ` · ${l.companies.map(companyName).join(', ')}` : ''}
                             </span>
-                            <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }} title={l.last_opened_at ? `Last opened ${formatDate(l.last_opened_at)}` : 'Never opened'}>{openedText(l)}</span>
+                            <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }} title={l.last_opened_at ? `Last opened ${formatDate(l.last_opened_at)}` : 'Never opened'}>{openedText(l)}</span>
                             {staleLink(l) && <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>Not opened in 90 days</span>}
                             {l.unreachable_since && <span style={{ fontSize: 11, color: 'hsl(var(--color-red))', flexShrink: 0 }}>Not reachable since {formatDate(l.unreachable_since)}</span>}
                             {onCheck && (
@@ -2697,7 +2708,7 @@ function ManageModal({
             <div>
               {emptyDepartments.length > 0 && (
                 <div style={{ marginBottom: 20, padding: 12, borderRadius: 10, background: 'hsla(var(--color-orange),0.08)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: 'hsl(var(--color-orange))', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'hsl(var(--color-orange))', marginBottom: 8 }}>
                     <FolderOpen size={14} /> Departments with no links yet
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -2722,7 +2733,7 @@ function ManageModal({
                         <LinkIcon url={l.url} iconKey={l.icon} size={26} iconSize={14} radius={7} fg={fg} bg={bg} gradient={false} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{l.name}</div>
-                          <div style={{ fontSize: 11.5, color: 'hsl(var(--color-orange))' }}>{reason}</div>
+                          <div style={{ fontSize: 12, color: 'hsl(var(--color-orange))' }}>{reason}</div>
                         </div>
                         <button className="secondary-btn" onClick={() => onEdit(l)} style={{ flexShrink: 0 }}><Pencil size={12} /> Fix</button>
                       </div>
@@ -2756,7 +2767,7 @@ function staleLink(l) {
 function RequestedList({ requests, onAdd, onDecline, style }) {
   return (
     <div style={{ ...style, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--mist)' }}>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>Requested ({requests.length})</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>Requested ({requests.length})</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {requests.map(r => {
           let host = r.url;
@@ -2765,7 +2776,7 @@ function RequestedList({ requests, onAdd, onDecline, style }) {
             <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 180 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{r.name} <span style={{ fontWeight: 400, color: 'var(--muted)' }}>· {host}</span></div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                   {r.requested_by} · {formatDate(r.created_at)}{r.note ? ` · ${r.note}` : ''}
                 </div>
               </div>
@@ -2813,7 +2824,7 @@ function LinkRequestModal({ onClose, onSent }) {
         <label>Why (optional)</label>
         <textarea className="form-input" rows={3} value={form.note} onChange={set('note')} placeholder="Who needs it and what for" />
       </div>
-      {error && <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', margin: 0 }}>{error}</p>}
+      {error && <p style={{ fontSize: 13, color: 'hsl(var(--color-red))', margin: 0 }}>{error}</p>}
     </Modal>
   );
 }
@@ -2873,13 +2884,13 @@ function ImportBookmarksModal({ existing, onClose, onImported }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <input ref={fileRef} type="file" accept=".html,.htm" style={{ display: 'none' }} onChange={e => readFile(e.target.files?.[0])} />
           <button type="button" className="secondary-btn" onClick={() => fileRef.current?.click()}><Upload size={14} /> Choose File</button>
-          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{fileName || 'No file chosen'}</span>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{fileName || 'No file chosen'}</span>
         </div>
       )}
       {rows && rows.length === 0 && <p style={{ fontSize: 13 }}>No new web links in that file.</p>}
       {rows && rows.length > 0 && !progress && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, fontSize: 12.5, color: 'var(--muted)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, fontSize: 13, color: 'var(--muted)' }}>
             <span>{picked.size} of {rows.length} selected</span>
             <button type="button" className="secondary-btn" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => setPicked(new Set(rows.map((_, i) => i)))}>Select All</button>
             <button type="button" className="secondary-btn" style={{ padding: '3px 8px', fontSize: 12 }} onClick={() => setPicked(new Set())}>Clear</button>
@@ -2890,7 +2901,7 @@ function ImportBookmarksModal({ existing, onClose, onImported }) {
                 <input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} />
                 <LinkIcon url={r.url} size={24} iconSize={12} radius={6} fg="var(--muted)" bg="var(--mist)" gradient={false} />
                 <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
-                {r.folder && <span style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{r.folder}</span>}
+                {r.folder && <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{r.folder}</span>}
               </label>
             ))}
           </div>
@@ -2908,7 +2919,7 @@ function ImportBookmarksModal({ existing, onClose, onImported }) {
 function ManageTab({ active, onClick, children }) {
   return (
     <button onClick={onClick} style={{
-      border: 'none', background: 'none', cursor: 'pointer', padding: '6px 12px', fontSize: 12.5, fontWeight: 700,
+      border: 'none', background: 'none', cursor: 'pointer', padding: '6px 12px', fontSize: 13, fontWeight: 700,
       color: active ? 'var(--wk-brand)' : 'var(--muted)', borderBottom: active ? '2px solid var(--wk-brand)' : '2px solid transparent',
       display: 'flex', alignItems: 'center',
     }}>
@@ -3006,7 +3017,7 @@ function ManageMobileSheet({ m }) {
           <ManageTab active={tab === 'all'} onClick={() => setTab('all')}>All Links</ManageTab>
           <ManageTab active={tab === 'attention'} onClick={() => setTab('attention')}>
             Needs Attention{attentionCount > 0 && (
-              <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, background: 'hsla(var(--color-orange),0.18)', color: 'hsl(var(--color-orange))', padding: '1px 6px', borderRadius: 10 }}>
+              <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, background: 'hsla(var(--color-orange),0.18)', color: 'hsl(var(--color-orange))', padding: '1px 6px', borderRadius: 10 }}>
                 {attentionCount}
               </span>
             )}
@@ -3079,11 +3090,11 @@ function ManageMobileSheet({ m }) {
             </div>
           ) : tab === 'all' ? (
             rows.length === 0 ? (
-              <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: '30px 0' }}>No links match "{q}".</p>
+              <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '30px 0' }}>No links match "{q}".</p>
             ) : (
               <>
                 {!canReorder && (
-                  <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>Clear the search to move links up or down within a category.</p>
+                  <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>Clear the search to move links up or down within a category.</p>
                 )}
                 {grouped.map(([cat, items]) => (
                   <div key={cat} className="links-manage-group">
@@ -3134,7 +3145,7 @@ function ManageMobileSheet({ m }) {
                 </div>
               )}
               {attention.length === 0 ? (
-                <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13.5, padding: '20px 0' }}>No placeholder or duplicate links - nicely done.</p>
+                <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>No placeholder or duplicate links - nicely done.</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {attention.map(({ link: l, reason }) => {
@@ -3227,7 +3238,7 @@ function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete, touch 
     finally { setBusyId(null); }
   };
   const remove = async (item) => {
-    if (!window.confirm(`Remove "${item.name}" from the ${label.toLowerCase()} list? Links already using it keep it - this only takes it out of the picker.`)) return;
+    if (!(await dialog.confirm(`Remove "${item.name}" from the ${label.toLowerCase()} list? Links already using it keep it - this only takes it out of the picker.`, { title: 'Remove From List', confirmText: 'Remove', danger: true }))) return;
     setBusyId(item.id); setError('');
     try { await onDelete(item.id); }
     catch (e) { setError(e?.message || 'Could not remove.'); }
@@ -3243,10 +3254,10 @@ function TaxonomyManager({ kind, label, items, onAdd, onRename, onDelete, touch 
           placeholder={`Add a ${kind}...`} maxLength={80} />
         <button className="secondary-btn" onClick={submitAdd} disabled={!newName.trim() || adding} aria-label={`Add ${kind}`} style={touch ? { minWidth: 44, justifyContent: 'center' } : undefined}><Plus size={touch ? 16 : 13} /></button>
       </div>
-      {error && <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '0 0 8px' }}>{error}</p>}
+      {error && <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', margin: '0 0 8px' }}>{error}</p>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {items.length === 0 ? (
-          <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nothing added yet.</p>
+          <p style={{ fontSize: 13, color: 'var(--muted)' }}>Nothing added yet.</p>
         ) : items.map(item => (
           <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 8, border: '1px solid var(--line)' }}>
             {editingId === item.id ? (
@@ -3413,7 +3424,7 @@ function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
         <div style={{ padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {!result ? (
             <>
-              <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+              <p style={{ fontSize: 13, color: 'var(--muted)' }}>
                 Export the Excel template for a Department 1-3 / Category 1-3 dropdown per row (each cell is a
                 single-select picker sourced from your live taxonomy - fill more than one of the 3 columns to give
                 a link several). Or paste/upload a plain CSV with just <code>name, url, company, description, pinned</code> and
@@ -3426,7 +3437,7 @@ function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
                 <button className="secondary-btn" onClick={downloadImportTemplate}><Download size={14} /> Export Excel Template</button>
                 <button className="secondary-btn" onClick={() => fileRef.current?.click()}><Upload size={14} /> Upload Excel or CSV</button>
                 <input ref={fileRef} type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style={{ display: 'none' }} onChange={handleFile} />
-                {rows.length > 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{validCount} of {rows.length} row{rows.length === 1 ? '' : 's'} look valid</span>}
+                {rows.length > 0 && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{validCount} of {rows.length} row{rows.length === 1 ? '' : 's'} look valid</span>}
               </div>
               <textarea
                 className="form-input" rows={7} value={text} onChange={e => setText(e.target.value)}
@@ -3439,7 +3450,7 @@ function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
                     <thead>
                       <tr>
                         {['Name', 'URL', 'Department', 'Category', 'Company', 'Description'].map(h => (
-                          <th key={h} style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--line)', color: 'var(--muted)', fontWeight: 700, fontSize: 10, textTransform: 'uppercase' }}>{h}</th>
+                          <th key={h} style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--line)', color: 'var(--muted)', fontWeight: 700, fontSize: 11, textTransform: 'uppercase' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -3474,12 +3485,12 @@ function ImportModal({ onClose, onImported, departmentNames, categoryNames }) {
             </>
           ) : (
             <div>
-              <p style={{ fontSize: 13.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-green))' }}>
                 {result.createdCount} link{result.createdCount === 1 ? '' : 's'} imported.
               </p>
               {result.errors.length > 0 && (
                 <div style={{ marginTop: 10 }}>
-                  <p style={{ fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-red))' }}>{result.errors.length} row(s) skipped:</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-red))' }}>{result.errors.length} row(s) skipped:</p>
                   <ul style={{ fontSize: 12, color: 'var(--muted)', paddingLeft: 18 }}>
                     {result.errors.map((e, i) => <li key={i}>Row {e.row} ({e.name}): {e.reason}</li>)}
                   </ul>

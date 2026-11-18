@@ -17,7 +17,7 @@ export default function DetailsFormFields({ form, values, onChange, inputStyle, 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${gridMin}px, 1fr))`, gap: '0 14px' }}>
       {(form || []).map((f, i) => f.type === 'heading' ? (
-        <div key={`h-${i}`} style={{ gridColumn: '1 / -1', fontSize: 13.5, fontWeight: 800, marginTop: 16, ...headingStyle }}>{f.label}</div>
+        <div key={`h-${i}`} style={{ gridColumn: '1 / -1', fontSize: 13, fontWeight: 800, marginTop: 16, ...headingStyle }}>{f.label}</div>
       ) : (
         <div key={f.key} style={f.type === 'longtext' ? { gridColumn: '1 / -1' } : undefined}>
           <label style={labelStyle} htmlFor={`${idPrefix}-${f.key}`}>{f.label}{f.required ? ' *' : ''}</label>
@@ -33,7 +33,7 @@ export default function DetailsFormFields({ form, values, onChange, inputStyle, 
                 inputMode={f.type === 'number' ? 'decimal' : undefined} />
             )}
           {(f.last4 || f.help) && (
-            <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)', marginTop: 4, ...hintStyle }}>
+            <div style={{ fontSize: 12, color: 'var(--muted, #6b7280)', marginTop: 4, ...hintStyle }}>
               {f.help}{f.help && f.last4 ? ' ' : ''}{f.last4 ? 'Only the last 4 characters are kept.' : ''}
             </div>
           )}

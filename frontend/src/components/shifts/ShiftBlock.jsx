@@ -121,11 +121,11 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
         {typeName && <span data-type-name="" style={{ marginLeft: 'auto', fontSize: '0.82em', fontWeight: 600, color, flexShrink: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{typeName}</span>}
       </div>
       {parts.length > 0 && (
-        <div data-shift-words="" style={{ ...LINE, fontSize: compact ? 10 : 10.5, lineHeight: 1.35, marginTop: 1 }}>
+        <div data-shift-words="" style={{ ...LINE, fontSize: compact ? 11 : 11, lineHeight: 1.35, marginTop: 1 }}>
           {parts.map((p, i) => <span key={i}>{i > 0 && sep}{p}</span>)}
         </div>
       )}
-      {s.jobsiteName && !compact && <div data-jobsite="" style={{ ...LINE, fontSize: 10, color: 'var(--muted)', lineHeight: 1.35, display: 'flex', alignItems: 'center', gap: 3 }}><MapPin size={9} style={{ flexShrink: 0 }} /><span style={LINE}>{s.jobsiteName}</span></div>}
+      {s.jobsiteName && !compact && <div data-jobsite="" style={{ ...LINE, fontSize: 11, color: 'var(--muted)', lineHeight: 1.35, display: 'flex', alignItems: 'center', gap: 3 }}><MapPin size={9} style={{ flexShrink: 0 }} /><span style={LINE}>{s.jobsiteName}</span></div>}
       {sheet && act && <ActualSheet at={sheet} shift={s} actual={act} text={actText} onClose={() => setSheet(null)} />}
       {children}
     </div>
@@ -152,11 +152,11 @@ export function ActualSheet({ at, shift: s, actual: a, text, onClose }) {
       style={{ position: 'fixed', left, top, width: w, zIndex: 1500, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: '10px 12px', fontFamily: 'inherit', textAlign: 'left', cursor: 'default', whiteSpace: 'normal' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
         <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: actualColor(a.status, s.color || DEFAULT_SHIFT_COLOR), flexShrink: 0 }} />
-        <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink)' }}>{actualWord(a.status)}</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)' }}>{actualWord(a.status)}</span>
         <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 'auto' }}>{shiftTimeText(s)}</span>
       </div>
       {lines.map((ln, i) => <div key={i} style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.4 }}>{ln}</div>)}
-      <button type="button" onClick={onClose} style={{ marginTop: 8, fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit' }}>Close</button>
+      <button type="button" onClick={onClose} style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: 'var(--wk-brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit' }}>Close</button>
     </div>
   );
 }
@@ -197,7 +197,7 @@ export function HolidayBlock({ holiday: h, compact = false, style }) {
   return (
     <div title={`${h?.type === 'half_day' ? 'Half-day holiday' : 'Holiday'} · ${name}`}
       style={{ border: '1px solid hsla(var(--color-blue),0.5)', borderRadius: 6, padding: compact ? '2px 4px' : '3px 7px', marginBottom: 3, minWidth: 0,
-        color: 'hsl(var(--color-blue))', fontSize: compact ? 10 : 11, fontWeight: 700, lineHeight: 1.3, ...LINE, ...style }}>
+        color: 'hsl(var(--color-blue))', fontSize: compact ? 11 : 11, fontWeight: 700, lineHeight: 1.3, ...LINE, ...style }}>
       {compact ? 'Hol' : name}
     </div>
   );

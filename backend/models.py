@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Index
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, Index, text
 from database import Base
 
 
@@ -642,6 +642,11 @@ class ItemCheckout(Base):
     # own zone, Neil 11/02/2026). '' = an older request that asked for a number
     # of days. item_due.due_date reads it - see the rule there.
     requested_due_date       = Column(String, default="")
+    # Return Pending (Neil, 11/14/2026): the holder was offboarded while the
+    # item was still out with them. The checkout stays out (the item is not
+    # lendable to anyone else) until Received or Lost is pressed on the exit
+    # or on the item (routers/items.settle_return_pending). ISO UTC; '' = no.
+    holder_left_at           = Column(String, default="")
 
 
 class ItemCartEntry(Base):
@@ -667,7 +672,7 @@ class ItemAssignment(Base):
     assigned_by         = Column(String, default="")
     assigned_by_email   = Column(String, default="")
     status              = Column(String, default="pending_acceptance")
-    return_reason       = Column(String, default="")   # '' | normal | dead | lost | reassign
+    return_reason       = Column(String, default="")   # '' | normal | dead | lost | reassign | offboarded (Return Pending)
     accept_photo_url    = Column(String, default="")
     accept_photo_name   = Column(String, default="")
     accept_note         = Column(String, default="")
@@ -703,7 +708,7 @@ class NexusGroup(Base):
     id              = Column(String, primary_key=True)
     name            = Column(String, nullable=False)
     department      = Column(String, default="")
-    allowed_modules = Column(String, default="")   # comma-separated "moduleId:level" pairs, e.g. "it:viewer,inventory:full" - level ∈ viewer/editor/full/owner (see auth.MODULE_LEVELS)
+    allowed_modules = Column(String, default="")   # comma-separated "moduleId:level" pairs, e.g. "it:viewer,inventory:full" - level ∈ viewer/editor/full (see auth.MODULE_LEVELS; a legacy "owner" reads as full)
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     # Roles & Access redesign (Jul 2026): a "Job Role" is an Access Group flagged
@@ -1037,6 +1042,13 @@ class NexusEmployee(Base):
     # appears in scheduling (planner, fills, Late, no-shows, scorecard, trading);
     # team memberships are kept. NULL / 1 = on, the default for everyone.
     on_schedule              = Column(Integer, default=1)
+    # The person's own clock and working hours (11/13/2026), set by them under
+    # My Profile > Date & Time. time_zone is an IANA name; '' = not set, the
+    # Contact Directory keeps inferring it (routers/directory._tz_name).
+    # work_start / work_end are "HH:MM" in that zone; '' = not set.
+    time_zone                = Column(String, default="")
+    work_start               = Column(String, default="")
+    work_end                 = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):
@@ -4416,6 +4428,7 @@ class VaultCredential(Base):
     prev_rotated_at    = Column(String, default="")
     totp_enc           = Column(String, default="")           # authenticator key, Fernet (vault_totp.py, Oct 29 2026)
     company_id         = Column(String, default="")           # home company (HrEntity id, Oct 29 2026) - grouping and the Overview filter; the wall follows the owner
+    site_id            = Column(String, default="")           # the work site (HrWorkSite id) a site-specific login belongs to, "" = none (11/13/2026)
 
 
 class VaultPersonalCredential(Base):
@@ -4583,6 +4596,9 @@ class ActAsSession(Base):
 
 class IrFund(Base):
     __tablename__ = "ir_funds"
+    # One Intacct entity is one deal (unlinked deals carry '').
+    __table_args__ = (Index("ux_ir_funds_intacct_entity", "intacct_entity", unique=True,
+                            sqlite_where=text("intacct_entity <> ''"), postgresql_where=text("intacct_entity <> ''")),)
     id                    = Column(String, primary_key=True)
     name                  = Column(String, nullable=False)
     entity_name           = Column(String, default="")   # the single-purpose LLC's legal name
@@ -4594,6 +4610,10 @@ class IrFund(Base):
     # string, not a FK: the two modules stay independent, and a stale/deleted
     # property id just makes the link disappear rather than erroring anything.
     property_asset_id     = Column(String, default="")
+    # The Intacct entity (location code) this deal IS - e.g. 67000 Greens
+    # Austin, LLC. Its live figures and members' capital are read from that
+    # entity's books (investor_books.py, Neil 11/11/2026). '' = not linked.
+    intacct_entity        = Column(String, default="")
     status                = Column(String, default="raising")  # raising|active|exited
     target_raise          = Column(Float, default=0)
     minimum_investment    = Column(Float, default=0)
@@ -4626,10 +4646,18 @@ class IrInvestor(Base):
     tax_id_on_file             = Column(Boolean, default=False)
     relationship_owner_email   = Column(String, default="")
     notes                      = Column(String, default="")
+    # The investor's own partner equity accounts in Intacct, comma-separated
+    # (300xx E&C, 310xx Contribution, 320xx Distribution - investor_books.py,
+    # Neil 11/11/2026). '' = not linked.
+    intacct_accounts           = Column(String, default="")
     status                     = Column(String, default="active")      # active|inactive|prospect
     created_by                 = Column(String, default="")
     created_at                 = Column(String, default="")
     updated_at                 = Column(String, default="")
+    # When this investor is one of our own entities (Greens Global Inv 1,
+    # LLC investing in a deal), its Intacct entity code - the step that lets
+    # Accounting > Entities draw ownership through it (Neil, 11/17/2026).
+    legal_entity_code          = Column(String, default="")
 
 
 class IrCommitment(Base):
@@ -4639,6 +4667,8 @@ class IrCommitment(Base):
     investor_id        = Column(String, nullable=False, index=True)
     commitment_amount  = Column(Float, default=0)
     units              = Column(Float, default=0)
+    # The member's percentage in the operating agreement (0-100); None = not set.
+    membership_pct     = Column(Float, nullable=True)
     subscription_date  = Column(String, default="")
     status             = Column(String, default="pending")   # pending|active|closed|withdrawn
     signed_doc_url     = Column(String, default="")
@@ -8682,6 +8712,11 @@ class DevNote(Base):
     # Token's watcher sees and claims only the pins its owner sent ('' on rows
     # sent before this = the author). ALTER lines in both migration lists.
     dispatched_by      = Column(String, default="")
+    claude_session_url = Column(String, default="")              # the Claude Code cloud session working it (11/12/2026)
+    # The ticket this pin was made from (Send To Claude Code on a ticket,
+    # 11/12/2026, build_mode_tickets.py); '' for a pin made on the page.
+    ticket_id          = Column(String, default="", index=True)
+    ticket_code        = Column(String, default="")
 
 
 class DevNoteSession(Base):
@@ -8699,6 +8734,7 @@ class DevNoteSession(Base):
     pr_url        = Column(String, default="")
     pr_number     = Column(Integer, default=0)
     note_count    = Column(Integer, default=0)
+    claude_session_url = Column(String, default="")   # the latest Claude Code cloud session for it (11/12/2026)
 
 
 class DevNoteToken(Base):
@@ -9732,6 +9768,14 @@ class PerfKudos(Base):
     # the recipient first saw it (the moment card shows an unseen one once).
     value       = Column(String, default="")
     seen_at     = Column(String, default="")
+    # Kudos on Teams (Neil, 11/12/2026, perf_kudos_teams.py): where the post
+    # went ({type, teamId, convId, url, poster, others, ignore}), its message
+    # id (what a Graph change notification names) and when it is next read
+    # back - reactions and replies there come home as thanks.
+    teams_post        = Column(JSON, default=dict)
+    teams_message_id  = Column(String, default="", index=True)
+    teams_sync_due_at = Column(String, default="", index=True)
+    teams_synced_at   = Column(String, default="")
 
 
 class PerfKudosThanks(Base):
@@ -9745,6 +9789,12 @@ class PerfKudosThanks(Base):
     from_email  = Column(String, nullable=False, index=True)
     note        = Column(String, default="")                            # <= 200 chars
     created_at  = Column(String, default="")
+    # Kudos on Teams (Neil, 11/12/2026): 'teams' when it came from a reaction
+    # or reply there ('' = Nexus); the reaction it is mirrored by, either way
+    # ('' = none yet); the thread reply that carries its note.
+    via            = Column(String, default="")
+    teams_reaction = Column(String, default="")
+    teams_reply_id = Column(String, default="")
 
 
 class PerfPlan(Base):
@@ -10304,3 +10354,277 @@ class TaskProjectBaseline(Base):
     taken_at   = Column(String, default="")
     taken_by   = Column(String, default="")
     snapshot   = Column(JSON, default=list)   # [{id, title, start, due, assignee}]
+
+
+# ── Kudos on Teams (Neil, 11/12/2026, perf_kudos_teams.py) ──────────────────
+# Two plumbing tables for reading Teams back. New tables - explicit RLS lines
+# in main.py's Postgres list, on top of the _enable_rls_everywhere sweep.
+
+class TeamsUserMap(Base):
+    """A Microsoft Entra user id and the work email it belongs to, looked up
+    once through Graph and kept: a Teams reaction names its person only by
+    that id, and a mention needs it the other way round."""
+    __tablename__ = "teams_user_map"
+    aad_id       = Column(String, primary_key=True)
+    email        = Column(String, default="", index=True)
+    display_name = Column(String, default="")
+    updated_at   = Column(String, default="")
+
+
+class TeamsSubscription(Base):
+    """One live Graph change-notification subscription on a Teams channel's
+    (or chat's) messages, made with a member's delegated token and renewed
+    before it lapses. Only the SHA-256 of its clientState is kept."""
+    __tablename__ = "teams_subscriptions"
+    id                = Column(String, primary_key=True)                # Graph's subscription id
+    purpose           = Column(String, default="kudos", index=True)
+    target_key        = Column(String, default="", index=True)          # channel:<team>:<channel> | chat:<chat>
+    resource          = Column(String, default="")
+    owner_email       = Column(String, default="")                      # whose token made it (renews it)
+    client_state_hash = Column(String, default="")
+    expires_at        = Column(String, default="")
+    created_at        = Column(String, default="")
+    updated_at        = Column(String, default="")
+
+
+# ── Meeting Notes (Neil, 11/12/2026, routers/meetings.py) ───────────────────
+class NexusMeetingNote(Base):
+    """Which Notes note is a person's notes for which Teams meeting. LINKS
+    only (Neil, 11/12/2026): the transcript and the recording stay in Teams
+    and are read through Graph each time; nothing of them is kept here. One
+    row per person per meeting occurrence (iCalUId is the same on every
+    invitee's calendar and differs per occurrence of a series). The invite's
+    organizer and attendees are copied at creation - they are who may read
+    the transcript through the note. New table - explicit RLS line in
+    main.py's Postgres list, on top of the _enable_rls_everywhere sweep."""
+    __tablename__ = "nexus_meeting_notes"
+    __table_args__ = (UniqueConstraint("owner_email", "ical_uid", name="ux_nexus_meeting_notes_owner_uid"),)
+    id          = Column(String, primary_key=True)          # mtg_ + hex
+    note_id     = Column(String, default="", index=True)
+    owner_email = Column(String, nullable=False, index=True)
+    ical_uid    = Column(String, nullable=False, index=True)
+    event_id    = Column(String, default="")                # the owner's own calendar event
+    join_url    = Column(Text, default="")
+    organizer   = Column(String, default="")
+    subject     = Column(String, default="")
+    start_at    = Column(String, default="")                # ISO UTC
+    end_at      = Column(String, default="")
+    attendees   = Column(Text, default="[]")                # JSON [{email, name}]
+    created_at  = Column(String, default="")
+    # Phase 2 (Neil, 11/12/2026): the series it belongs to (Graph's
+    # seriesMasterId, '' = a one-off) and the ready bell's marks - when Teams
+    # was found to have a transcript, and when the pass last asked.
+    series_id           = Column(String, default="", index=True)
+    transcript_ready_at = Column(String, default="")
+    ready_checked_at    = Column(String, default="")
+    # Phase 3 (Neil, 11/12/2026): teams | other (on the calendar, not Teams) |
+    # adhoc (not on the calendar), and another service's link (Zoom, Meet).
+    kind                = Column(String, default="teams")
+    online_url          = Column(Text, default="")
+
+
+# ── Meeting Notes Phase 3 (Neil, 11/12/2026, routers/meetings.py) ──────────
+class NexusMeetingTranscript(Base):
+    """The words of a meeting transcribed ON THE DEVICE (Whisper in the
+    browser, or the browser's own speech service) - for meetings outside
+    Teams. Neil, 11/12/2026: "Text lives in Nexus" - the text only, never the
+    audio, which never leaves the person's device. One row per meeting note;
+    the note's readers read it, its owner and Can Edit add to it, its owner
+    deletes it. `sessions` keeps each recording with who confirmed that
+    everyone agreed to be transcribed and when. New table - explicit RLS line
+    in main.py's Postgres list, on top of the _enable_rls_everywhere sweep."""
+    __tablename__ = "nexus_meeting_transcripts"
+    id          = Column(String, primary_key=True)          # mtr_ + hex
+    note_id     = Column(String, nullable=False, unique=True, index=True)
+    owner_email = Column(String, default="")
+    segments    = Column(Text, default="[]")                # JSON [{id, at, end, speaker, text, session}]
+    sessions    = Column(Text, default="[]")                # JSON [{id, by, startedAt, consentAt, endedAt, engine, source}]
+    speakers    = Column(Text, default="{}")                # JSON {label: name}
+    rev         = Column(Integer, default=1)
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class VaultExternalShare(Base):
+    """A company login shared with someone OUTSIDE Nexus (Pranshu, 11/13/2026,
+    vault_external.py): they get an email link to a page with no Nexus login,
+    and see the username, link and password only after a one-time code sent to
+    that email (or by SMS to `phone`), until `expires_at` (7 days at most) or
+    until the owner ends it. Only a SHA-256 of the link's token is stored.
+    When it ends, the owner, backup owner and department head are told to
+    change the password (change_alerted_at, claimed once). RLS on dev and prod."""
+    __tablename__ = "vault_external_shares"
+    id                = Column(String, primary_key=True)
+    cred_id           = Column(String, index=True, default="")
+    email             = Column(String, default="")
+    phone             = Column(String, default="")
+    token_hash        = Column(String, index=True, default="")
+    shared_by         = Column(String, default="")
+    created_at        = Column(String, default="")
+    expires_at        = Column(String, index=True, default="")
+    first_opened_at   = Column(String, default="")
+    last_viewed_at    = Column(String, default="")
+    views             = Column(Integer, default=0)
+    ended_at          = Column(String, default="")
+    ended_by          = Column(String, default="")
+    change_alerted_at = Column(String, default="")
+
+
+# ── Operations > Tenants (Neil, 11/17/2026, routers/ops_tenants.py) ──────────
+# New tables - create_all builds them; RLS by main._enable_rls_everywhere at
+# startup (run get_advisors after the release). The cubby_* tables above stay
+# exactly as they are (still stripped), so no existing Operations screen or
+# report starts showing contact details by accident.
+
+class OpsTenant(Base):
+    """A READ-ONLY copy of one Cubby customer's contact details at one
+    facility (Neil, 11/17/2026). Cubby stays the single source of truth: a
+    row is never edited in Nexus, cubby_sync.py replaces a facility's rows
+    every 15 minutes, and opening a tenant record re-reads that tenant live
+    from Cubby. Never stored: date of birth, ID type / number, card or bank
+    numbers. `gate_code` is encrypted (secret_box); `gate_code_hash` is a
+    keyed hash, there only so a search can match a code exactly. Read through
+    ops_access.reach - nobody below Administrator sees a row until an
+    ops_access_rules row says so."""
+    __tablename__ = "ops_tenants"
+    id                = Column(String, primary_key=True)          # "<facility_id>:<customer_id>"
+    facility_id       = Column(String, index=True, nullable=False)
+    customer_id       = Column(String, index=True, default="")
+    name              = Column(String, default="")
+    first_name        = Column(String, default="")
+    last_name         = Column(String, default="")
+    company_name      = Column(String, default="")
+    email             = Column(String, default="", index=True)    # lowercased
+    phone             = Column(String, default="")
+    phone_digits      = Column(String, default="", index=True)    # digits only, for search
+    address           = Column(String, default="")
+    address2          = Column(String, default="")
+    city              = Column(String, default="")
+    state             = Column(String, default="")
+    zip               = Column(String, default="")
+    country           = Column(String, default="")
+    military          = Column(Boolean, default=False)
+    comm_prefs        = Column(JSON, default=None)                # Cubby's communicationPreferences as given
+    gate_code         = Column(String, default="")                # encrypted with secret_box; '' = none
+    gate_code_hash    = Column(String, default="", index=True)    # keyed hash of the code, for an exact-match search
+    gate_code_enabled = Column(Boolean, default=False)
+    current           = Column(Boolean, default=False, index=True)   # has a lease here that has not ended
+    unit_names        = Column(String, default="")                # "A1, B2" - the units of their active leases here
+    search_text       = Column(String, default="")                # lowercased: name, company, email, unit names, vehicle plates
+    cubby_updated_at  = Column(String, default="")                # Cubby's updatedAt
+    synced_at         = Column(String, default="")                # UTC iso of the sync or live re-read that wrote this
+
+
+class OpsLeaseExtra(Base):
+    """What the stripped cubby_rentals blob drops from a lease (Neil,
+    11/17/2026): the alternate contacts and the stored vehicle. Read-only
+    like OpsTenant and under the same access rule; replaced per facility by
+    every sync. Only leases that carry one of the two have a row."""
+    __tablename__ = "ops_lease_extras"
+    id            = Column(String, primary_key=True)              # "<facility_id>:<lease_id>"
+    facility_id   = Column(String, index=True, nullable=False)
+    lease_id      = Column(String, default="")
+    customer_id   = Column(String, index=True, default="")
+    unit_id       = Column(String, default="")
+    alt_contacts  = Column(JSON, default=list)                    # [{name, phone, email}]
+    vehicle_type  = Column(String, default="")
+    vehicle_plate = Column(String, default="", index=True)        # uppercased
+    vehicle_state = Column(String, default="")
+    synced_at     = Column(String, default="")
+
+
+class OpsAccessRule(Base):
+    """Who sees which facilities and whether they see tenant details (Neil,
+    11/17/2026: access is by role - an Access Group / job role - and by
+    person). One row per subject. `facility_ids` [] = every facility. A
+    person's reach is the union of their own rule and the rules of every
+    group they belong to (ops_access.reach); with no rule at all nobody below
+    Administrator sees tenant details. Changed under Operations by an
+    Administrator or an Operations grant at Full; every change is an AuditLog
+    row."""
+    __tablename__ = "ops_access_rules"
+    id             = Column(String, primary_key=True)             # uuid
+    subject_type   = Column(String, nullable=False)               # person | group
+    subject_id     = Column(String, nullable=False, index=True)   # work email, lowercased | NexusGroup.id
+    facility_ids   = Column(JSON, default=list)                   # Cubby facility ids; [] = every facility
+    tenant_details = Column(Boolean, default=False)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
+    __table_args__ = (UniqueConstraint("subject_type", "subject_id", name="ux_ops_access_rules_subject"),)
+
+class LegalEntity(Base):
+    """One legal entity's own record in Accounting > Entities (Neil, 11/17/2026).
+
+    Keyed by the Intacct entity (location) code - the key Investor Relations,
+    Loans, Management Fees, Leasing and Construction already share. Holds only
+    what the books do not: the legal facts (type, tax classification, state
+    and date formed, status, EIN, registered agent, managers, signers), the
+    properties it owns, the person accountable for it (`steward_email`) and
+    its Egnyte folder. The books name, parent and every figure are read live
+    from the accounting app, never copied. When `company_id` points at a
+    Nexus company (Settings > Companies), that company's legal name, EIN,
+    address and signatory are THE values and these columns stay blank, so a
+    legal fact is never kept twice. The EIN is encrypted (`ein_enc`, the
+    secret_box `enc:` value); only its last four are kept readable. New
+    table - create_all builds it; RLS on dev and prod (main.py line too)."""
+    __tablename__ = "legal_entities"
+    code             = Column(String, primary_key=True)    # Intacct entity code, e.g. 67000
+    kind             = Column(String, default="")          # '' = by the code (a "-1" code is a location) | entity | location
+    company_id       = Column(String, default="")          # hr_entities.id when it is also a Nexus company
+    legal_name       = Column(String, default="")
+    dba              = Column(String, default="")
+    entity_type      = Column(String, default="")          # legal_entities.ENTITY_TYPES
+    tax_class        = Column(String, default="")          # legal_entities.TAX_CLASSES ('' = from the type)
+    formed_state     = Column(String, default="")          # two-letter state (or a country code)
+    formed_on        = Column(String, default="")          # YYYY-MM-DD
+    status           = Column(String, default="active")    # active | inactive | dissolved | sold
+    ended_on         = Column(String, default="")          # YYYY-MM-DD, when dissolved or sold
+    ein_enc          = Column(String, default="")          # encrypted EIN, never returned whole
+    ein_last4        = Column(String, default="")
+    fiscal_year_end  = Column(String, default="")          # MM-DD ('' = 12-31)
+    address          = Column(String, default="")          # principal address
+    registered_agent = Column(String, default="")
+    agent_renews_on  = Column(String, default="")          # YYYY-MM-DD
+    foreign_states   = Column(JSON, default=list)          # [{state, registeredOn}]
+    management       = Column(String, default="")          # member | manager | board | trustee
+    manager_code     = Column(String, default="")          # the managing entity's code, when it is one of ours
+    manager_name     = Column(String, default="")          # else who manages it (a person, an outside firm)
+    signers          = Column(JSON, default=list)          # [{name, title, email}]
+    steward_email    = Column(String, default="")          # the Nexus person accountable for it
+    property_ids     = Column(JSON, default=list)          # Asset Management properties it owns
+    egnyte_folder    = Column(String, default="")          # /Shared/#Entities/<name>
+    notes            = Column(Text, default="")
+    rev              = Column(Integer, default=1)
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class LegalEntityOwner(Base):
+    """One owner of an entity that is NOT an Investor Relations deal (Neil,
+    11/17/2026 - a deal's members stay on its commitments in Investor
+    Relations, so every entity's ownership has exactly one home; the routes
+    refuse a row for a deal's entity). The owner is one of our entities
+    (`owner_code`), an Investor Relations profile (`investor_id`) or a person
+    or outside party by name. An owner who leaves is ENDED (`until`), never
+    overwritten or deleted, so the history of who owned it stays. New table -
+    create_all builds it; RLS on dev and prod (main.py line too)."""
+    __tablename__ = "legal_entity_owners"
+    id          = Column(String, primary_key=True)
+    entity_code = Column(String, nullable=False, index=True)   # the entity owned
+    owner_kind  = Column(String, default="person")             # entity | investor | person
+    owner_code  = Column(String, default="", index=True)       # when owner_kind = entity
+    investor_id = Column(String, default="")                   # when owner_kind = investor
+    owner_name  = Column(String, default="")                   # when owner_kind = person (or a note of the name)
+    pct         = Column(Float, nullable=True)                 # 0-100; None = not known
+    owner_class = Column(String, default="")                   # e.g. Class A, Managing Member
+    since       = Column(String, default="")                   # YYYY-MM-DD
+    until       = Column(String, default="")                   # YYYY-MM-DD; '' = current
+    notes       = Column(String, default="")
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_by  = Column(String, default="")
+    updated_at  = Column(String, default="")

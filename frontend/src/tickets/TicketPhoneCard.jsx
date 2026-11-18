@@ -72,7 +72,7 @@ function PickSheet({ title, options, value, onPick, onClose }) {
             onClick={() => { onClose(); if (o.id !== value) onPick(o.id); }}>
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{o.render || o.label}</span>
-              {o.desc && <span style={{ display: 'block', fontSize: 12.5, color: NX.faint, marginTop: 2, lineHeight: 1.35 }}>{o.desc}</span>}
+              {o.desc && <span style={{ display: 'block', fontSize: 13, color: NX.faint, marginTop: 2, lineHeight: 1.35 }}>{o.desc}</span>}
             </span>
             {o.id === value && <Check size={17} style={{ color: NX.blue, flexShrink: 0 }} />}
           </button>
@@ -109,7 +109,7 @@ function SlaSheet({ t, onClose }) {
         <div style={line}>
           <span style={{ color: NX.dim }}>Next Clock</span>
           <span style={{ textAlign: 'right', color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 600 }}>
-            {clock.label}<span style={{ display: 'block', fontSize: 12.5, fontWeight: 400, color: NX.faint }}>{clock.title}</span>
+            {clock.label}<span style={{ display: 'block', fontSize: 13, fontWeight: 400, color: NX.faint }}>{clock.title}</span>
           </span>
         </div>
       )}
@@ -135,7 +135,7 @@ function PersonRow({ role, email, name, placeholder, onPick, actions, extra }) {
   const body = (
     <>
       {email ? <Avatar email={email} name={name} size={26} card={false} /> : <UnassignedAvatar size={26} />}
-      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14.5, color: email ? NX.ink : NX.faint, fontWeight: email ? 600 : 500 }}>
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 15, color: email ? NX.ink : NX.faint, fontWeight: email ? 600 : 500 }}>
         {email ? name : placeholder}
       </span>
       {onPick && <ChevronDown size={15} aria-hidden="true" style={{ color: NX.faint, flexShrink: 0 }} />}
@@ -143,7 +143,7 @@ function PersonRow({ role, email, name, placeholder, onPick, actions, extra }) {
   );
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 48 }}>
-      <span style={{ width: 74, flexShrink: 0, fontSize: 12.5, color: NX.dim }}>{role}</span>
+      <span style={{ width: 74, flexShrink: 0, fontSize: 13, color: NX.dim }}>{role}</span>
       {onPick ? (
         <button type="button" onClick={onPick} aria-label={email ? `${role}: ${name} - change` : `${role}: ${placeholder} - choose`}
           style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, padding: '0 6px', margin: '0 -6px',
@@ -175,7 +175,7 @@ function PhoneComposer({ ticket, reply, onReplyChange, onSend, sending, canInter
   const insertSaved = (html) => onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? html : `${r.body || ''}${html}` }));
   const canSend = !empty && !sending && !voiceRec;
   const pill = (on, isInt) => ({
-    ...btn('ghost'), padding: '0 10px', height: 30, fontSize: 12.5, borderRadius: 999, gap: 5,
+    ...btn('ghost'), padding: '0 10px', height: 30, fontSize: 13, borderRadius: 999, gap: 5,
     background: on ? (isInt ? 'rgba(245,158,11,0.16)' : 'rgba(37,99,235,0.12)') : 'transparent',
     color: on ? (isInt ? NX.amber : NX.blue) : NX.dim, fontWeight: on ? 700 : 600,
   });
@@ -194,7 +194,7 @@ function PhoneComposer({ ticket, reply, onReplyChange, onSend, sending, canInter
             </button>
           ))}
           {savedReplies && (
-            <button type="button" onClick={() => setPickingReply(true)} style={{ ...btn('ghost'), marginLeft: 'auto', padding: '0 8px', height: 30, fontSize: 12.5, gap: 5 }}>
+            <button type="button" onClick={() => setPickingReply(true)} style={{ ...btn('ghost'), marginLeft: 'auto', padding: '0 8px', height: 30, fontSize: 13, gap: 5 }}>
               <MessageSquareText size={13} /> Saved Replies
             </button>
           )}
@@ -203,14 +203,14 @@ function PhoneComposer({ ticket, reply, onReplyChange, onSend, sending, canInter
       {tray && (
         <div data-testid="ticket-phone-tray" style={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', padding: '2px 0' }}>
           <button type="button" onClick={() => photoRef.current?.click()} disabled={attaching}
-            style={{ ...btn('ghost'), fontSize: 12.5, fontWeight: 600, color: NX.ink, padding: '5px 8px', gap: 6 }}>
+            style={{ ...btn('ghost'), fontSize: 13, fontWeight: 600, color: NX.ink, padding: '5px 8px', gap: 6 }}>
             <Camera size={14} /> Take Photo
           </button>
           <input ref={photoRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
             onChange={(e) => { const fs = [...(e.target.files || [])]; e.target.value = ''; fs.forEach(attach); }} />
           <RecordUploadButtons quiet disabled={attaching} showRecord={!NO_RECORDING_TYPES.includes(ticket.type)}
             onFile={attach} onRecordingChange={returnToTicketAfterRecording(ticket.id)} onVoiceRecordingChange={onVoiceRecordingChange} />
-          <span style={{ flexBasis: '100%', fontSize: 11.5, color: NX.faint, padding: '0 8px' }}>
+          <span style={{ flexBasis: '100%', fontSize: 12, color: NX.faint, padding: '0 8px' }}>
             {attaching ? 'Adding it to Attachments…' : 'Saved to Attachments and linked in your reply - or press Ctrl+V to paste a screenshot into the reply.'}
           </span>
         </div>
@@ -393,7 +393,7 @@ export default function TicketPhoneCard(p) {
   const header = (titleId, requestClose) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '4px 4px 4px 16px', minHeight: 52, borderBottom: `1px solid ${NX.border2}`, flexShrink: 0 }}>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 8, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-        <span id={titleId} style={{ fontSize: 15.5, fontWeight: 700, color: NX.ink }}>{ticketNo(t.code) || 'Ticket'}</span>
+        <span id={titleId} style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{ticketNo(t.code) || 'Ticket'}</span>
         {hasNav && navPosition && navPosition.total > 1 && (
           <span data-testid="ticket-phone-position" style={{ fontSize: 13, color: NX.faint, fontVariantNumeric: 'tabular-nums' }}>
             {navPosition.index} of {navPosition.total}
@@ -430,7 +430,7 @@ export default function TicketPhoneCard(p) {
       {!(onConversation && composing) && (
         <div data-testid="ticket-phone-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {closedNow && !canReopen && (
-            <span style={{ flex: 1, fontSize: 12.5, color: NX.faint, lineHeight: 1.35 }}>Closed - if the problem is back, submit a new ticket.</span>
+            <span style={{ flex: 1, fontSize: 13, color: NX.faint, lineHeight: 1.35 }}>Closed - if the problem is back, submit a new ticket.</span>
           )}
           {hasMore && (
             <button type="button" onClick={() => setPicker('more')} aria-haspopup="dialog" className="nx-press"
@@ -440,7 +440,7 @@ export default function TicketPhoneCard(p) {
           )}
           <button type="button" onClick={primary.run} disabled={saving || (voiceRec && (primaryKey === 'save' || primaryKey === 'send'))}
             data-primary={primaryKey} title={primary.title} className="nx-press"
-            style={{ ...btn('primary'), height: 44, borderRadius: 12, fontSize: 14.5, justifyContent: 'center', gap: 7,
+            style={{ ...btn('primary'), height: 44, borderRadius: 12, fontSize: 15, justifyContent: 'center', gap: 7,
               flex: closedNow && !canReopen ? '0 0 auto' : 1, opacity: saving ? 0.6 : 1 }}>
             {primary.icon && <primary.icon size={17} />}
             {saving && (primaryKey === 'save' || primaryKey === 'send') ? 'Saving…' : primary.label}
@@ -483,13 +483,13 @@ export default function TicketPhoneCard(p) {
               <PriorityChip priority={v.priority} />
             </MetaChip>
             <MetaChip testId="chip-type" label={`Type: ${TICKET_TYPE_META[v.type]?.label || v.type} - change`} onTap={typeEditable ? () => setPicker('type') : null}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 600, color: NX.dim }}>
                 <TicketTypeIcon type={v.type || 'request'} size={13} />{TICKET_TYPE_META[v.type]?.label || v.type || 'Request'}
               </span>
             </MetaChip>
             {clock.kind !== 'none' && (
               <MetaChip testId="chip-sla" label={`SLA: ${clock.label} - details`} onTap={() => setPicker('sla')}>
-                <span title={clock.title} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12.5, fontWeight: overdue ? 700 : 600,
+                <span title={clock.title} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 13, fontWeight: overdue ? 700 : 600,
                   color: overdue ? NX.red : clockM ? clockM.color : NX.dim }}>
                   <Clock size={12} />{clock.label}
                 </span>
@@ -497,21 +497,21 @@ export default function TicketPhoneCard(p) {
             )}
             <ApprovalChip ticket={t} />
             {t.resolvedAt && (
-              <span style={{ fontSize: 12.5, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 4, minHeight: 36 }}>
+              <span style={{ fontSize: 13, color: NX.dim, display: 'inline-flex', alignItems: 'center', gap: 4, minHeight: 36 }}>
                 <CheckCircle2 size={13} style={{ color: NX.green }} /> Resolved {fmtDate(t.resolvedAt)}{t.resolution ? ` · ${resolutionLabel(t.resolution)}` : ''}
               </span>
             )}
           </div>
 
           {confidential && (
-            <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: NX.ink, background: 'rgba(124,58,237,0.08)',
+            <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, background: 'rgba(124,58,237,0.08)',
               border: '1px solid rgba(124,58,237,0.28)', borderRadius: 8, padding: '7px 11px', marginTop: 6 }}>
               <Lock size={14} style={{ color: NX.purple, flexShrink: 0 }} />
               <span><b>Confidential HR Request.</b> Only the person who asked, the people on it and HR can see it.</span>
             </div>
           )}
           {t.resolutionNote && closedNow && (
-            <div style={{ fontSize: 13.5, color: NX.ink, background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.30)', borderRadius: 10, padding: '8px 11px', marginTop: 6, whiteSpace: 'pre-wrap' }}>
+            <div style={{ fontSize: 13, color: NX.ink, background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.30)', borderRadius: 10, padding: '8px 11px', marginTop: 6, whiteSpace: 'pre-wrap' }}>
               <b>Resolution:</b> {t.resolutionNote}
             </div>
           )}
@@ -544,7 +544,7 @@ export default function TicketPhoneCard(p) {
                   boxShadow: tab === k ? '0 1px 2px rgba(0,0,0,0.10)' : 'none' }}>
                 {lab}
                 {k === 'conversation' && newReplies > 0 && (
-                  <span aria-label={`${newReplies} new`} style={{ minWidth: 17, height: 17, padding: '0 5px', borderRadius: 9, background: NX.blue, color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'inline-grid', placeItems: 'center' }}>{newReplies}</span>
+                  <span aria-label={`${newReplies} new`} style={{ minWidth: 17, height: 17, padding: '0 5px', borderRadius: 9, background: NX.blue, color: '#fff', fontSize: 11, fontWeight: 700, display: 'inline-grid', placeItems: 'center' }}>{newReplies}</span>
                 )}
               </button>
             ))}
@@ -587,7 +587,7 @@ export default function TicketPhoneCard(p) {
                 <r.icon size={18} style={{ color: NX.dim, flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
                   {r.label}
-                  {r.hint && <span style={{ display: 'block', fontSize: 12.5, fontWeight: 400, color: NX.faint, marginTop: 1 }}>{r.hint}</span>}
+                  {r.hint && <span style={{ display: 'block', fontSize: 13, fontWeight: 400, color: NX.faint, marginTop: 1 }}>{r.hint}</span>}
                 </span>
               </button>
             ))}

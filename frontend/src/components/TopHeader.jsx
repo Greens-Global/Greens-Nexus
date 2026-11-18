@@ -5,7 +5,7 @@ import HelpMenu from "../support/HelpMenu";
 import QuickNoteButton from "../notes/QuickNoteButton";
 import { useHeaderTabs, ModuleBar } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
-import QuickCreate from "./QuickCreate";   // the "+" Create menu (Oct 29 2026)
+import QuickCreate from "./QuickCreate";   // the Quick Actions bolt (11/12/2026; the "+" Create menu before it)
 import { readStopEmail, setPendingEmailStop } from "../lib/emailStop";
 
 // ?emailSettings=1 - the "Email Settings" link in task emails; it opens
@@ -54,6 +54,7 @@ import { useBuildModeMenu, BuildModeChip } from '../devnotes/BuildModeChip';   /
 import { ToolsSection, ActAsFinder } from './ToolsMenu';   // profile menu Tools (Oct 25 2026)
 import { useActionCounts } from '../lib/useActionCounts';
 import { clearOfflineReadCache } from '../lib/offline/read';
+import { useAccountAppearance } from '../lib/appearancePrefs';
 
 
 export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, pageNameRef, prevView }) {
@@ -167,6 +168,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     else delete document.documentElement.dataset.wktheme;
     localStorage.setItem('wk-theme', wkTheme);
   }, [wkTheme]);
+  // Dark Mode and the Theme follow the account (11/13/2026, lib/appearancePrefs.js):
+  // this device's copy paints first, the account's choice settles it once loaded.
+  useAccountAppearance({ theme, onThemeToggle, wkTheme, setWkTheme });
 
   // Page zoom and fullscreen controls were REMOVED from the header (Visesh,
   // Jul 30). The zoom applied a CSS `zoom` to <html>, and its default was 110%
@@ -378,10 +382,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
       <div className="header-right">
         {searchBar}
-        {/* Create (Neil, Oct 29 2026): the "+" beside the search bar starts a
-            task, a ticket, a request... from any screen - components/QuickCreate.jsx. */}
+        {/* Quick Actions (Neil, 11/12/2026): the green bolt beside the search bar
+            starts a task, a ticket, a note, a request... from any screen, in one
+            tap or two - components/QuickCreate.jsx. */}
         <QuickCreate />
-        <QuickNoteButton />{/* Quick Note: today's scratchpad, opened by the + menu's New Note or Ctrl+Alt+N - no button of its own (notes/, Oct 30 2026) */}
+        <QuickNoteButton />{/* Quick Note: today's scratchpad, opened by Quick Actions' New Note or Ctrl+Alt+N - no button of its own (notes/, Oct 30 2026) */}
         {buildMode.enabled && buildMode.on && <BuildModeChip onClick={buildMode.toggle} />}
         <NotificationBell onNavigate={onNavigate} />
         {/* "?" Help menu: search the guide, help with this page, then Contact
@@ -425,14 +430,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
                     : initials}
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {name}<TierMark tier={myTier} />
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
                     {email}
                   </div>
                   {subtitle && (
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
                       {subtitle}
                     </div>
                   )}
@@ -486,14 +491,14 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         position: 'sticky', top: 56, zIndex: 105, display: 'flex', alignItems: 'center',
         justifyContent: 'center', gap: 10, padding: '7px 16px',
         background: 'linear-gradient(var(--wk-live-tint), var(--wk-live-tint)) var(--wk-card)', borderBottom: '1px solid var(--wk-live-line)',
-        fontFamily: 'Inter, sans-serif', fontSize: 12.5, color: 'var(--ink)', flexWrap: 'wrap', textAlign: 'center',
+        fontFamily: 'Inter, sans-serif', fontSize: 13, color: 'var(--ink)', flexWrap: 'wrap', textAlign: 'center',
       }}>
         <UserCog size={13} style={{ color: 'var(--wk-live)', flexShrink: 0 }} />
         <span>You're acting as <strong>{actingAs.targetName}</strong> ({actingAs.targetEmail}) - actions you take are attributed to them.</span>
         <button onClick={handleExitActAs} disabled={actAsStopping}
           style={{
             background: 'var(--wk-live-ink)', color: 'var(--wk-live-on)', border: 'none', borderRadius: 6,
-            padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: actAsStopping ? 'default' : 'pointer',
+            padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: actAsStopping ? 'default' : 'pointer',
             fontFamily: 'inherit', flexShrink: 0,
           }}>
           {actAsStopping ? 'Exiting…' : 'Exit Act As'}

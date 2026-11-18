@@ -7,12 +7,14 @@ import { ViewLoading } from '../components/AsyncState';
 import ModuleTabs from '../components/ModuleTabs';
 import { useRole } from '../contexts/RoleContext';
 import { useActionCounts, tabCount } from '../lib/useActionCounts';
+import { askToLeave, hasUnsavedWork } from '../lib/dialogGuard';
+import { PASSWORDS_TAB, vaultSubOf } from '../lib/routes';
 
 // External Links is a large, fully self-contained view (its own header,
 // filters, Manage modal, etc.) - lazy so its chunk only loads when that tab
 // is actually opened, same as every other top-level view used to load.
 const ExternalLinks = lazy(() => import('./ExternalLinks'));
-// Tab order (Neil, Oct 30 2026): Dashboard, Approvals, Notes, Links.
+// Tab order (Neil, Oct 30 2026): Dashboard, Approvals, Notes, Links - then Passwords (11/18/2026).
 // Notes (Neil, Oct 29 2026) - the scratchpad page. Its sub is
 // `notes`, or `notes:<id>` for one open note (a share bell, a copied link).
 const NotesPage = lazy(() => import('../notes/NotesPage'));
@@ -22,6 +24,15 @@ const NotesPage = lazy(() => import('../notes/NotesPage'));
 // and for anyone with something waiting - an employee with a document to
 // sign still finds it; one with nothing to do is not shown an empty tab.
 const ApprovalsCenter = lazy(() => import('../approvals/ApprovalsCenter'));
+// Passwords (Neil, 11/18/2026) - the module that was Credentials in the left
+// menu, as the last tab: one list of everything the person can sign in to
+// (credvault/CredentialVaultApp.jsx). Its sub is `passwords`, or
+// `passwords:<vault sub>` for a deep link (lib/routes.js). The tab shows only
+// for the people the old menu row showed for - administrators and holders of
+// the Credentials grant (it is given on purpose, never part of a default
+// bundle; Neil, Oct 14 2026) - and the vault's API checks the same grant on
+// every call. Lazy, so nobody else downloads it.
+const Passwords = lazy(() => import('../credvault/CredentialVaultApp'));
 
 // The dashboard IS the customizable widget grid now. The old "Portfolio at a
 // glance" overview (Occupancy trend, Facilities, Tasks overview) ran on sample
@@ -44,16 +55,20 @@ const ApprovalsCenter = lazy(() => import('../approvals/ApprovalsCenter'));
 export default function Dashboard({ activeSub, onSubChange }) {
   const { accounts } = useMsal();
   const { activeOverdueAlerts, dismissOverdueAlert } = useNotifications();
-  const { can, hrScope } = useRole();
+  const { can, hrScope, myGrantedModules } = useRole();
   const counts = useActionCounts();
   const fullName = accounts[0]?.name ?? 'there';
   const approvalsWaiting = tabCount(counts, 'dashboard', 'approvals');
   const approvalsSub = String(activeSub || '');
   const showApprovals = approvalsSub === 'approvals' || approvalsSub.startsWith('approvals:') || approvalsWaiting > 0 || can?.('manager') || !!hrScope;
 
+  const showPasswords = !!can?.('administrator') || !!myGrantedModules?.has?.('credvault');
+  const vaultSub = showPasswords ? vaultSubOf(activeSub) : null;
+
   const tab = activeSub === 'links' ? 'links'
     : (approvalsSub === 'approvals' || approvalsSub.startsWith('approvals:')) ? 'approvals'
-      : (activeSub === 'notes' || String(activeSub || '').startsWith('notes:')) ? 'notes' : 'dashboard';
+      : (activeSub === 'notes' || String(activeSub || '').startsWith('notes:')) ? 'notes'
+        : vaultSub !== null ? PASSWORDS_TAB : 'dashboard';
 
   // Overdue alerts relevant to this user
   const myOverdueAlerts = activeOverdueAlerts.filter(a =>
@@ -66,6 +81,7 @@ export default function Dashboard({ activeSub, onSubChange }) {
     ...(showApprovals ? [{ key: 'approvals', label: 'Approvals', badge: approvalsWaiting }] : []),
     { key: 'notes', label: 'Notes' },
     { key: 'links', label: 'Links' },
+    ...(showPasswords ? [{ key: PASSWORDS_TAB, label: 'Passwords' }] : []),
   ];
 
   return (
@@ -76,7 +92,14 @@ export default function Dashboard({ activeSub, onSubChange }) {
         // 'dashboard' clears activeSub (not a literal 'dashboard' string) so
         // the address bar returns to the clean "/" home path instead of
         // picking up a redundant "/dashboard/dashboard".
-        onChange={key => onSubChange?.(key === 'dashboard' ? null : key)}
+        // The tab strip changes the sub directly, not through App's
+        // navigate(), so unsaved work (Edit Layout's changes -
+        // lib/dialogGuard.js) is asked about here.
+        onChange={key => {
+          const go = () => onSubChange?.(key === 'dashboard' ? null : key);
+          if (key !== tab && hasUnsavedWork()) askToLeave().then(ok => { if (ok) go(); });
+          else go();
+        }}
       />
 
       {/* ── Persistent overdue alerts (personal tab only) ── */}
@@ -107,6 +130,10 @@ export default function Dashboard({ activeSub, onSubChange }) {
         <Suspense fallback={<ViewLoading minHeight="40vh" />}>
           <ApprovalsCenter activeSub={approvalsSub.startsWith('approvals:') ? approvalsSub.slice('approvals:'.length) : ''}
             onSubChange={(s) => onSubChange?.(s ? `approvals:${s}` : 'approvals')} />
+        </Suspense>
+      ) : tab === PASSWORDS_TAB ? (
+        <Suspense fallback={<ViewLoading minHeight="40vh" />}>
+          <Passwords activeSub={vaultSub} />
         </Suspense>
       ) : tab === 'notes' ? (
         <Suspense fallback={<ViewLoading minHeight="40vh" />}>

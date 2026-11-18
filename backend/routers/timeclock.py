@@ -92,8 +92,30 @@ require_team_write = require_level_or_module(3, "hr", "editor")
 # NOTE: unlike require_team_read, a plain manager/supervisor role does NOT open the
 # screen - only an explicit grant does (or admin) - matching its grant-driven
 # sidebar/route visibility.
-require_tracking      = require_module_grant("employee-tracking", "viewer")
-require_tracking_full = require_module_grant("employee-tracking", "full")
+_tracking_viewer_grant = require_module_grant("employee-tracking", "viewer")
+_tracking_full_grant   = require_module_grant("employee-tracking", "full")
+
+
+def _tracking_reach(user: dict, db: Session) -> dict:
+    """The grant's REACH on the monitoring routes only (11/12/2026), the
+    Workforce Scorecard's rule: Viewer = direct reports (what every manager
+    has), Editor = the whole reporting line, Full = the company (inside the
+    walls). Read by _visible_emails like `_deleg` and `_sched_extra`; never
+    set on a time sheet, payroll or approval route."""
+    rank = _module_level(user["email"], "employee-tracking", db)
+    if rank >= _MODULE_LEVEL_RANK["full"]:
+        user["_tracking_reach"] = "company"
+    elif rank >= _MODULE_LEVEL_RANK["editor"]:
+        user["_tracking_reach"] = "line"
+    return user
+
+
+def require_tracking(user: dict = Depends(_tracking_viewer_grant), db: Session = Depends(get_db)) -> dict:
+    return _tracking_reach(user, db)
+
+
+def require_tracking_full(user: dict = Depends(_tracking_full_grant), db: Session = Depends(get_db)) -> dict:
+    return _tracking_reach(user, db)
 # Monitoring data is Workforce Analytics' alone (Neil, 10/29/2026: "only
 # those who should have access to it" - it moved into Team, which everyone
 # has). Coverage, top apps, app ratings, alerts, saved views, the location
@@ -370,7 +392,8 @@ def _visible_emails(db: Session, user: dict):
             return set(extra) | {(user.get("email") or "").lower()}
         base = _visible_emails(db, {k: v for k, v in user.items() if k != "_sched_extra"})
         return None if base is None else base | set(extra)
-    if user.get("level", 0) >= 4:
+    reach = user.get("_tracking_reach")   # Workforce Analytics Editor / Full (_tracking_reach)
+    if user.get("level", 0) >= 4 or reach == "company":
         # An Administrator sees their companies' people (plus their own
         # directs); only an unrestricted caller - a Super Administrator -
         # sees everyone (walled only once the walls are on - Pranshu, 11/11/2026).
@@ -389,6 +412,9 @@ def _visible_emails(db: Session, user: dict):
     import backup_manager
     directs = backup_manager.managed_directly(db, user["email"])
     directs.add(user["email"])
+    if reach == "line":
+        from auth import team_emails
+        directs |= team_emails(db, user["email"])
     # A company's HR contact is the lead approver for its people who have NO
     # manager on file (Neil, Oct 16: HR and the Global Admins decide then,
     # never "any manager") - their requests already reach the HR contact.
@@ -1597,6 +1623,15 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
     if not (body.note or "").strip():
         raise HTTPException(400, "Add a short note explaining the missed punch.")
     email = user["email"]
+    # The punch may have landed after all (11/17/2026, Valinda): her 11/05
+    # clock-out committed on the web but the answer never reached the phone,
+    # so the queue kept it and replayed it the next afternoon - a clock-out
+    # was allowed again by then - and the time sheet showed it twice. The same
+    # punch at the same minute is already on the card: 409, which the queue
+    # reads as "it landed" and drops (lib/punchQueue.js).
+    from types import SimpleNamespace
+    if _same_live_punch(db, SimpleNamespace(employee_email=email, punch_kind=body.kind, at=body.at)) is not None:
+        raise HTTPException(409, "That punch is already on your time sheet.")
     local_date = _local_date(body.at, body.tz_offset_min or 0)
     _guard_not_finalized(db, email, local_date)
     _guard_review(db, email, local_date, email)
@@ -1962,17 +1997,38 @@ def _inverted_days(punches: list, days: set) -> set:
     """Days (local_date) in `days` holding a clock-out that comes BEFORE a
     clock-in of the same day with nothing open ahead of it - the out-before-in
     a typo or a wrong edit makes. A lone clock-out with no clock-in that day is
-    a missing punch, not an inversion, so it is not counted here."""
+    a missing punch, not an inversion, so it is not counted here.
+
+    Neither is a lone clock-out whose next clock-in already has a clock-out
+    of its own that day (11/17/2026, Valinda): she forgot to clock out on
+    11/04 and pressed Clock Out at 8:42 AM on 11/05, a moment before that
+    morning's clock-in. Adding the real 11/04 clock-out left that press
+    standing alone, and it read as an out-before-in on 11/05 - every add on
+    11/04 was refused while the time sheet showed it as Missing. The time
+    sheet already lists such a press as a clock-out with no clock-in."""
     out, open_in = set(), False
     ordered = sorted(punches, key=lambda p: p.at or "")
-    for i, p in enumerate(ordered):
+    shift = [q for q in ordered if q.kind in ("in", "out")]
+    pos = {id(q): k for k, q in enumerate(shift)}
+
+    def needs_it(p) -> bool:
+        """The same-day clock-in after `p` is left with no clock-out of its
+        own - the case where `p` really was meant to close it."""
+        k = pos[id(p)]
+        nxt = next((j for j in range(k + 1, len(shift))
+                    if shift[j].kind == "in" and shift[j].local_date == p.local_date), None)
+        if nxt is None:
+            return False
+        after = shift[nxt + 1] if nxt + 1 < len(shift) else None
+        return not (after is not None and after.kind == "out" and after.local_date == p.local_date)
+
+    for p in ordered:
         if p.kind == "in":
             open_in = True
         elif p.kind == "out":
             if open_in:
                 open_in = False
-            elif p.local_date in days and any(
-                    q.kind == "in" and q.local_date == p.local_date for q in ordered[i + 1:]):
+            elif p.local_date in days and needs_it(p):
                 out.add(p.local_date)
     return out
 
@@ -3185,16 +3241,28 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
     # No number passed: the export's company's saved one (Payroll Export
     # Codes), so Charmi sets it once instead of typing it per download.
     created = created or payroll_codes.qb_create_time(db, co_ids) or "0"
-    lines = [
-        "!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME",
-        f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t{created}",
-        "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS",
-    ]
+    # QuickBooks Desktop 2022 and later have no Timer Activities import, only
+    # File > Utilities > Import > IIF Files, which reads plain !TIMEACT rows
+    # (Charmi, 11/12/2026, Accountant Desktop Plus 2024). The TIMERHDR lines
+    # are only for a company that turned on the old Timer header (2021 and
+    # earlier); a file spanning companies keeps them only if every one did.
+    timer_on = payroll_codes.timer_header_reader(db)
+    lines = []
+    if co_ids and all(timer_on(c) for c in co_ids):
+        lines += ["!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME",
+                  f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t{created}"]
+    lines.append("!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS")
     book = payroll_codes.codebook(db)
     no_job = payroll_codes.blank_job_reader(db)
+    # EMP is the QuickBooks name: the person's name with their Employee Code in
+    # brackets, no space - "Pat Smith(E-0005)" (Charmi, 11/13/2026, every
+    # company file). A name QuickBooks does not have makes a NEW employee on
+    # import. No code in Nexus = the name alone.
+    emp_codes = {(e or "").lower(): (c or "").strip() for e, c in db.query(
+        NexusEmployee.work_email, NexusEmployee.employee_code).all() if e}
     for r in rows:
         card = _compute_timecard(db, r["email"], start, end)
-        name = _clean(r["name"])
+        name = _iif_emp(_clean(r["name"]), _clean(emp_codes.get((r["email"] or "").lower(), "")))
         # Leave Customer:Job Blank (Charmi, 11/06/2026): the company's QuickBooks
         # file has no customers for the work sites - JOB blank, not billable.
         blank_job = no_job(co_of.get((r["email"] or "").lower(), ""))
@@ -3210,7 +3278,11 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
             # across jobs without splitting the OT/DT computation.
             day_sites = {_seg_site(s)[1] for s in d.get("segments", []) if _seg_site(s)[0]}
             job = _clean(next(iter(day_sites))) if len(day_sites) == 1 and not blank_job else ""
-            billing = "1" if job else "0"
+            # Never billable (Charmi, 11/12/2026): QuickBooks refuses a billable
+            # row without a service item ("Billable activities must have a
+            # customer:job and service item" [3180]) and the file carries none.
+            # The work site stays in JOB for job costing.
+            billing = "0"
             for mins_key, pay_class in _IIF_PAY_CLASSES:
                 mins = d.get(mins_key, 0)
                 if mins <= 0:
@@ -3218,13 +3290,28 @@ def export_iif(start: str = "", end: str = "", company: str = "", email: str = "
                 pitem = _clean(codes[pay_class])
                 # Holiday pay is a paid day off, not time at a job: no JOB, not billable.
                 job_c, bill_c = ("", "0") if pay_class == "holiday" else (job, billing)
-                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job_c}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{bill_c}")
+                # Hours:minutes, never decimals (Charmi, 11/12/2026): QuickBooks
+                # adds the rows up and multiplies by the rate, so a decimal row
+                # (7:10 -> 7.17) left the check a few cents off Nexus; 7:10 is
+                # exact, the same as typing the hours into the paycheck.
+                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job_c}\t{name}\t\t{pitem}\t{_iif_hm(mins)}\t\t\tY\t{bill_c}")
     body = "\r\n".join(lines) + "\r\n"
     # Time not yet finalized is a preview - named so nobody imports it by mistake.
     who = f"-{re.sub(r'[^A-Za-z0-9._-]', '', email_q.split('@')[0])}" if email_q else ""
     fname = f"timeclock-{start or 'all'}-to-{end or 'now'}{who}{'' if finalized_only else '-DRAFT'}.iif"
     return PlainTextResponse(body, media_type="application/octet-stream",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+def _iif_emp(name: str, code: str) -> str:
+    """The IIF EMP: "Pat Smith(E-0005)", or the name alone with no code."""
+    return f"{name}({code})" if code else name
+
+
+def _iif_hm(mins) -> str:
+    """The IIF DURATION as hours:minutes (8:00, 7:10, 0:29)."""
+    m = int(round(float(mins or 0)))
+    return f"{m // 60}:{m % 60:02d}"
 
 
 @router.get("/export-hours")
@@ -4363,6 +4450,16 @@ def _cannot_apply_msg(db: Session, reqs: list, problems: set, punches_after: lis
         us_day = datetime.strptime(day, "%Y-%m-%d").strftime("%m/%d/%Y")
     except ValueError:
         us_day = d
+    # A lone clock-out asked for on a day with nothing else on it (11/17/2026,
+    # Valinda: "Add clock-out at 5:00 PM" with "Use vacation day please" on a
+    # day off) is not a punch to fix - say what to do instead.
+    if (len(reqs) == 1 and r.punch_kind == "out" and prob == "out_without_in" and day == r.local_date
+            and not any(p.local_date == day and p.id != r.id for p in punches_after)):
+        why = (r.reason or "").strip()
+        return (f"{who} asked for a clock-out at {t} on {us_day}, but nothing else is on that day, so a "
+                f"clock-out alone can't go in." + (f' {who}\'s note: "{why[:120]}".' if why else "")
+                + f" If {who} was off that day, Reject this and use Add on {us_day} to put in the time off "
+                  f"(Vacation, Sick or Personal); if {who} worked, Reject it and add the shift with both times.")
     return (f"{who}'s {what} on {d} can't be added as it stands: the time sheet for {us_day} would then have "
             f"{_PROBLEM_WORDS.get(prob, 'a punch out of order')}. With it, that day reads: "
             f"{_punch_list_text(punches_after, day)}. Ask {who} for the missing time, or open the time sheet "
@@ -6743,7 +6840,17 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shif
     s.days = body.days[:40]
     s.grace_min = max(0, int(body.grace_min or 0))
     s.color = (body.color or "#2563eb")[:9]
+    old_tz = (s.timezone or "").strip() or _team_tz(db)
     s.timezone = _valid_tz(body.timezone)
+    if s.timezone != old_tz:
+        # Placements are stamped with the type's zone when made; one still on the
+        # old zone follows the fix (11/12/2026: an India shift placed while the type
+        # said Pacific showed 8 AM - 4 PM). From yesterday on - past days keep theirs.
+        since = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+        (db.query(ScheduledShift)
+         .filter(ScheduledShift.shift_id == s.id, ScheduledShift.timezone == old_tz,
+                 ScheduledShift.work_date >= since)
+         .update({ScheduledShift.timezone: s.timezone}, synchronize_session=False))
     s.break_min = _clamp_break(body.break_min)   # new placements only; placed shifts keep theirs
     if body.group_ids is not None:
         s.group_ids = _clean_shift_groups(db, body.group_ids)
@@ -10266,7 +10373,9 @@ def _attendance_bands(full_hours: float) -> tuple:
     rule of full-day hours minus an hour / 4 h; the Time Sheet no longer
     prints the bands). Only guarded by a shorter full day, so the half band
     never sits above the full one. India contractors never read this: their
-    8 h / 4 h credits are india_contractor_pay's."""
+    8 h / 4 h credits are india_contractor_pay's. Only people who work in
+    India get these bands (Neil, 11/18/2026) - _fixed_card sets them to one
+    minute for everyone else."""
     full_min = min(SALARIED_FULL_MIN, max(0, int(round(float(full_hours or 8) * 60))))
     return full_min, min(SALARIED_HALF_MIN, full_min)
 
@@ -10348,6 +10457,13 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         return _salary_on(ds) * 12 / working_days if working_days else 0.0
     daily = _daily_on(m_end)
     FULL_MIN, HALF_MIN = _attendance_bands(full_hours)
+    # The 4 h / 2.5 h day bands are an India rule only (Neil, 11/18/2026:
+    # "Only applies to India"; Charmi: a US salaried person is paid the same
+    # for 2 hours or 12). Anywhere else any time worked makes it a full day -
+    # nothing is docked for a short day.
+    in_india = india_contractor_pay.works_in_india(db, em, rate_row=rr)
+    if not in_india:
+        FULL_MIN = HALF_MIN = 1
     today = _employee_today(db, em)   # employee-LOCAL date, not UTC (boundary correctness)
 
     worked_by_day = {d["date"]: d.get("workedMin", 0) for d in card.get("days", [])}
@@ -10449,7 +10565,12 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         elif leave_cls and not is_weekend:
             status = leave_cls              # leave: the day is deducted unless they also worked it (Oct 12)
             leave_days[leave_cls] += 1
-            if work_min >= FULL_MIN:
+            if not in_india:
+                # Outside India a Sick / Vacation / Personal day is PAID leave
+                # (Charmi, 11/18/2026: Valinda's Vacation day docked $236) -
+                # it comes out of the leave balance, never off the salary.
+                deduct = 0.0
+            elif work_min >= FULL_MIN:
                 deduct = 0.0
             elif work_min >= HALF_MIN:
                 deduct = daily_d / 2.0; missed_half += 1; _missed(leave_cls, half=True)
@@ -10888,7 +11009,10 @@ def _export_codes_out(db: Session, company: str) -> dict:
             # the IIF then carries 0 and QuickBooks may refuse the import.
             "quickbooksCreateTime": payroll_codes.qb_create_time_override(db, company),
             # Leave Customer:Job Blank in the IIF (Charmi, 11/06/2026).
-            "quickbooksBlankJob": payroll_codes.blank_job(db, company)}
+            "quickbooksBlankJob": payroll_codes.blank_job(db, company),
+            # Keep the old TIMERHDR lines - QuickBooks 2021 and earlier only
+            # (Charmi, 11/12/2026: 2022+ imports through Import > IIF Files).
+            "quickbooksTimerHeader": payroll_codes.timer_header(db, company)}
 
 
 @router.get("/payroll/export-codes")
@@ -10906,6 +11030,8 @@ class ExportCodesIn(BaseModel):
     quickbooksCreateTime: Optional[str] = None
     # None = leave the Customer:Job switch alone (Charmi, 11/06/2026).
     quickbooksBlankJob: Optional[bool] = None
+    # None = leave the old Timer header switch alone (Charmi, 11/12/2026).
+    quickbooksTimerHeader: Optional[bool] = None
 
 
 @router.put("/payroll/export-codes")
@@ -10924,6 +11050,8 @@ def set_export_codes(body: ExportCodesIn, user: dict = Depends(require_administr
         payroll_codes.save_qb_company_name(db, company, body.quickbooksCompanyName, user["email"])
     if body.quickbooksBlankJob is not None:
         payroll_codes.save_blank_job(db, company, bool(body.quickbooksBlankJob), user["email"])
+    if body.quickbooksTimerHeader is not None:
+        payroll_codes.save_timer_header(db, company, bool(body.quickbooksTimerHeader), user["email"])
     return _export_codes_out(db, company)
 
 
@@ -11432,6 +11560,18 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # Auto-lunch: deduct a lunch from a long segment that recorded no break, before
     # any totals/overtime are computed (so the deduction flows through to pay).
     al = _autolunch_cfg(db, _co)
+    # SwipeClock's payroll record is the hours worked as paid (Charmi,
+    # 11/12/2026): a segment loaded from it never gets an auto-lunch - its
+    # lunch is already the gap between its pairs (Ashley 09/14: 8:25-2:30,
+    # 3:25-5:40 lost 30 min). Batches whose reason starts "SwipeClock".
+    _rec_batches = {p.batch_id for p in punches if p.batch_id
+                    and (getattr(p, "entry_source", "") or "") == _RECORD_SOURCE}
+    _sw_batches = {b for (b,) in db.query(TimeEntryBatch.id).filter(
+        TimeEntryBatch.id.in_(_rec_batches), TimeEntryBatch.reason.like("SwipeClock%")).all()} if _rec_batches else set()
+
+    def _from_swipeclock(s):
+        p = _punch_by_id.get(s.get("inId"))
+        return bool(p and p.batch_id in _sw_batches)
     total_deducted = 0
     for segs in segs_by_day.values():
         for s in segs:
@@ -11440,6 +11580,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             # A leave block (sick / vacation) is entered as a whole - no lunch
             # was taken out of it, so nothing to deduct.
             if al["enabled"] and al["deductMin"] and s.get("out") and not s["payClass"] and \
+               not _from_swipeclock(s) and \
                s["workedMin"] >= al["afterMin"] and int(s.get("_break", 0)) == 0:
                 ded = min(al["deductMin"], s["workedMin"])
                 s["workedMin"] -= ded

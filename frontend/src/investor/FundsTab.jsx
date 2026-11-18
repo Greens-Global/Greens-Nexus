@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Briefcase, ExternalLink, Info, Plus, X } from 'lucide-react';
+import { Briefcase, Download, ExternalLink, Info, X } from 'lucide-react';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import { useNameResolver } from '../lib/useNameResolver';
 import { usePeopleDirectory } from '../lib/queries';
 import { formatCurrency, formatMultiple, formatPercent, numOrNull } from './lib/format';
 import { EmptyState, ErrorState, FG, LoadingState, Modal, PeopleSelect, StatusText, ThinBar, useIrLoad } from './lib/ui';
 import { Spinner } from '../components/AsyncState';
 import HoldButton from '../ui/HoldButton';
+import { DealBooks, ImportFromBooks } from './Books';
+import { DealLegal } from './EntityLegal';
 
 const BLANK = {
   name: '', entityName: '', strategy: '', propertyName: '', status: 'raising',
@@ -113,7 +116,7 @@ function DealPortalAccess({ fundId }) {
       {note && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, border: '1px solid hsla(var(--color-blue), 0.4)', borderRadius: 10, padding: '9px 12px', marginBottom: 10 }}>
           <Info size={14} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 2 }} />
-          <span style={{ fontSize: 12.5, color: 'var(--ink)', flex: 1, lineHeight: 1.5 }}>{note}</span>
+          <span style={{ fontSize: 13, color: 'var(--ink)', flex: 1, lineHeight: 1.5 }}>{note}</span>
           <button type="button" onClick={() => setNote('')} title="Dismiss"
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, display: 'inline-flex', flexShrink: 0 }}>
             <X size={14} />
@@ -121,7 +124,7 @@ function DealPortalAccess({ fundId }) {
         </div>
       )}
       {loading ? <LoadingState label="Loading investors…" /> : error ? <ErrorState message={error} onRetry={reload} /> : rows.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>
           No investors have a commitment in this deal yet - add commitments first, then grant portal access here.
         </div>
       ) : (
@@ -130,7 +133,7 @@ function DealPortalAccess({ fundId }) {
             <div key={r.investorId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < rows.length - 1 ? '1px solid var(--line)' : 'none' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || 'Unnamed Investor'}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {formatCurrency(r.amount)} committed{r.email ? ` · ${r.email}` : ''}
                 </div>
               </div>
@@ -144,7 +147,7 @@ function DealPortalAccess({ fundId }) {
           ))}
         </div>
       )}
-      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 12.5, marginTop: 8 }}>{err}</div>}
+      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginTop: 8 }}>{err}</div>}
     </div>
   );
 }
@@ -152,6 +155,11 @@ function DealPortalAccess({ fundId }) {
 export default function FundsTab() {
   const nameOf = useNameResolver();
   const { data: funds, loading, error, reload } = useIrLoad(() => api.getIrFunds(), []);
+  // Live partner capital per linked deal, from Intacct. Anyone without
+  // Accounting access gets {allowed: false} and the cards show no live line.
+  const { data: live, reload: reloadLive } = useIrLoad(() => api.getIrFundsBooks().catch(() => null), []);
+  const [importing, setImporting] = useState(false);
+  const refresh = () => Promise.all([reload(), reloadLive()]);
   const { data: people = [] } = usePeopleDirectory();
 
   // Optional Deal ↔ Property link (read-only reference into Asset Management,
@@ -224,8 +232,8 @@ export default function FundsTab() {
 
   const stat = (label, value) => (
     <div key={label}>
-      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
-      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
     </div>
   );
 
@@ -233,13 +241,18 @@ export default function FundsTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Deals</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Every deal - raise progress, terms, and lifecycle status</p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Deals</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Every deal - raise progress, terms, and lifecycle status</p>
         </div>
-        <button className="primary-btn" onClick={openAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} /> Add Deal
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="secondary-btn" onClick={() => setImporting(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Download size={14} /> Import From Intacct
+          </button>
+          {/* "+ New", the one create button across Nexus (Neil, 11/13/2026). */}
+          <NewButton items={[{ key: 'deal', label: 'Deal' }]} onPick={openAdd} />
+        </div>
       </div>
+      {importing && <ImportFromBooks onClose={() => setImporting(false)} onDone={refresh} />}
 
       {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={reload} /> : (funds || []).length === 0 ? (
         <EmptyState icon={Briefcase} title="No Deals Yet" sub="Add your first deal to start tracking commitments, capital calls, and distributions." />
@@ -260,7 +273,7 @@ export default function FundsTab() {
               </div>
 
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--muted)', marginBottom: 5, fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--muted)', marginBottom: 5, fontVariantNumeric: 'tabular-nums' }}>
                   <span>Committed <strong style={{ color: 'var(--ink)' }}>{formatCurrency(f.totalCommitted)}</strong></span>
                   <span>Target {formatCurrency(f.targetRaise)}</span>
                 </div>
@@ -273,6 +286,7 @@ export default function FundsTab() {
                 {stat('Pref Return', formatPercent(f.preferredReturnPct))}
                 {stat('Called', formatCurrency(f.totalCalled))}
                 {stat('Distributed', formatCurrency(f.totalDistributed))}
+                {live?.deals?.[f.id] && !live.deals[f.id].error && stat('Partner Capital (Intacct)', formatCurrency(live.deals[f.id].partnerCapital))}
               </div>
 
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12, color: 'var(--muted)' }}>
@@ -376,7 +390,7 @@ export default function FundsTab() {
                       ))}
                     </select>
                   ) : (
-                    <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Linked to a property in Asset Management.</div>
+                    <div style={{ fontSize: 13, color: 'var(--muted)' }}>Linked to a property in Asset Management.</div>
                   )}
                   {modal.form.propertyAssetId && (
                     <button type="button" onClick={goToAssetMgmt}
@@ -394,8 +408,10 @@ export default function FundsTab() {
                 <textarea className="form-input" value={modal.form.thesis} placeholder="Why this deal - market, business plan, exit…"
                   onChange={e => setF({ thesis: e.target.value })} style={{ minHeight: 64, resize: 'vertical' }} />
               </FG>
+              {modal.id && <DealLegal fundId={modal.id} />}
+              {modal.id && <DealBooks fundId={modal.id} onChanged={refresh} />}
               {modal.id && <DealPortalAccess fundId={modal.id} />}
-              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
+              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{formErr}</div>}
             </div>
             <div className="modal-footer">
               {modal.id && (

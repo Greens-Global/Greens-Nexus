@@ -63,12 +63,14 @@ describe('useRailMotion', () => {
   it('follows the company default until the person chooses, then their choice', async () => {
     const { getByTestId } = render(<Probe />);
     await waitFor(() => expect(getByTestId('p').dataset.eff).toBe('subtle'));
-    expect(document.documentElement.dataset.railMotion).toBe('subtle');
+    // <html> is written in an effect after the render that shows the value,
+    // so wait for it too (a busy CI runner can read it in between).
+    await waitFor(() => expect(document.documentElement.dataset.railMotion).toBe('subtle'));
     expect(getByTestId('p').dataset.personal).toBe('default');
     act(() => { getByTestId('p').click(); });
     await waitFor(() => expect(getByTestId('p').dataset.eff).toBe('bold'));
     expect(mockApi.saveTaskTablePrefs).toHaveBeenCalledWith('nav', { motion: 'bold' });
-    expect(document.documentElement.style.getPropertyValue('--rail-lift')).toBe(String(LIFT.bold));
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--rail-lift')).toBe(String(LIFT.bold)));
   });
 
   it('a Settings save reaches an open sidebar through the nexus:rail-motion event', async () => {
@@ -86,7 +88,7 @@ describe('useRailMotion', () => {
     REDUCED = true;
     act(() => { mqListeners.forEach((fn) => fn()); });
     await waitFor(() => expect(getByTestId('p').dataset.eff).toBe('off'));
-    expect(document.documentElement.dataset.railMotion).toBe('off');
+    await waitFor(() => expect(document.documentElement.dataset.railMotion).toBe('off'));
   });
 
   it('the company value is mirrored to localStorage and seeds the first render (no flash of Lively)', async () => {

@@ -51,11 +51,37 @@ describe('Calendar agenda', () => {
     expect(box.style.height).toBe('100%');
   });
 
-  it('stacks the agenda under a full-width month grid on a phone', async () => {
+  // 11/17/2026 (Neil: "should work like iPhone outlook calendar widget"):
+  // a phone shows today's date and what is still ahead, not the month grid.
+  it('on a phone is the Outlook-style glance: the date, what is ahead, no month grid', async () => {
     render(<CalendarPanel phone />);
-    const list = await screen.findByLabelText('My Agenda');
-    expect(list.parentElement.parentElement.style.flexDirection).toBe('column');
+    expect(await screen.findByLabelText('Calendar')).toBeTruthy();
+    expect(screen.queryByLabelText('My Agenda')).toBeNull();
+    expect(screen.queryByLabelText('Month')).toBeNull();
+    expect(screen.getByRole('button', { name: /open the day in Outlook/ })).toBeTruthy();
+  });
+
+  // 11/17/2026: a failed read used to fall through to "Nothing scheduled.".
+  it('says the calendar did not load, and Try Again reads it again', async () => {
+    apiMock.dashAgenda.mockReset().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ available: true, events });
+    render(<CalendarPanel />);
+    expect((await screen.findByRole('alert')).textContent).toContain("Couldn't load your calendar.");
+    expect(screen.queryByText('Nothing scheduled.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
     expect(await screen.findByText('Meeting 1')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  // 11/17/2026 phone pass: with no calendar (not a Microsoft 365 account) the
+  // month pickers and day steppers moved nothing - the card is its line.
+  it('shows only the reason when there is no calendar - no pickers, no steppers', async () => {
+    apiMock.dashAgenda.mockReset().mockResolvedValue({ available: false });
+    render(<CalendarPanel phone />);
+    expect(await screen.findByText(/isn't connected/)).toBeTruthy();
+    expect(screen.queryByLabelText('Month')).toBeNull();
+    expect(screen.queryByLabelText('Year')).toBeNull();
+    expect(screen.queryByLabelText('Next Day')).toBeNull();
+    expect(screen.queryByText('Today')).toBeNull();
   });
 
   it('sizes the tile to its content (fit), and the old My Agenda alias the same way and bounds', () => {

@@ -32,12 +32,12 @@ export default function FinishWork({ row, onClose, onDone }) {
         <button type="button" className="primary-btn" onClick={submit} disabled={!ready || busy}>{busy ? 'Saving...' : 'Mark Done'}</button>
       </>}>
       <div onPaste={photos.onPaste} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ fontSize: 14.5, fontWeight: 600 }}>{row.subject}</div>
+        <div style={{ fontSize: 15, fontWeight: 600 }}>{row.subject}</div>
         {steps.length > 0 && (
           <fieldset style={{ border: 'none', padding: 0, margin: 0 }}>
             <legend style={{ ...field, marginBottom: 6 }}>Checklist</legend>
             {steps.map((s, i) => (
-              <label key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 40, fontSize: 14.5, cursor: 'pointer' }}>
+              <label key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 40, fontSize: 15, cursor: 'pointer' }}>
                 <input type="checkbox" checked={!!s.done} style={{ width: 20, height: 20 }}
                   onChange={(e) => setSteps((all) => all.map((x, j) => (j === i ? { ...x, done: e.target.checked } : x)))} />
                 <span style={{ color: s.done ? 'var(--muted)' : 'var(--ink)', textDecoration: s.done ? 'line-through' : 'none' }}>{s.label}</span>
@@ -55,7 +55,7 @@ export default function FinishWork({ row, onClose, onDone }) {
         <div style={field}>
           <span>Photo of the Finished Work</span>
           <PhotoPicker state={photos} required={needsPhoto} />
-          {needsPhoto && !photos.photos.length && <span style={{ fontSize: 12.5, fontWeight: 400, color: 'var(--muted)' }}>A preventive ticket needs one photo before it can be marked done.</span>}
+          {needsPhoto && !photos.photos.length && <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--muted)' }}>A preventive ticket needs one photo before it can be marked done.</span>}
         </div>
         {err && <div role="alert" style={{ color: OVERDUE_COLOR, fontSize: 13 }}>{err}</div>}
       </div>

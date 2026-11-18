@@ -13,7 +13,7 @@ import {
   checkFormula, formatFormulaValue, normalizeFormat, fieldKey, formulaContext, previewRows, formulaNameProblem, formulaFieldRefs, isBuiltinField,
 } from './formula';
 
-const label = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+const label = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const CELL_MAX = 200;   // characters a formula cell shows
 
 /** One formula cell: the computed value, or a muted "#Error" whose tooltip
@@ -118,9 +118,9 @@ export function FormulaEditor({ formula, onFormula, format, onFormat, fieldNames
             {matches.map((n, i) => (
               <button key={n} type="button" role="option" aria-selected={i === hi}
                 onMouseDown={(e) => { e.preventDefault(); pick(n); }}
-                style={{ display: 'flex', width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, color: NX.ink, background: i === hi ? NX.hover : 'transparent' }}>
+                style={{ display: 'flex', width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, padding: '6px 8px', cursor: 'pointer', fontFamily: FONT, fontSize: 13, color: NX.ink, background: i === hi ? NX.hover : 'transparent' }}>
                 {`{${n}}`}
-                {BUILTIN_FIELDS.some((b) => b.name === n) && <span style={{ marginLeft: 'auto', color: NX.faint, fontSize: 11.5 }}>Built-in</span>}
+                {BUILTIN_FIELDS.some((b) => b.name === n) && <span style={{ marginLeft: 'auto', color: NX.faint, fontSize: 12 }}>Built-in</span>}
               </button>
             ))}
           </div>
@@ -161,11 +161,11 @@ export function FormulaEditor({ formula, onFormula, format, onFormat, fieldNames
         <div>
           <div style={label}>Preview</div>
           {preview.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: NX.faint }}>No tasks to preview yet.</div>
+            <div style={{ fontSize: 13, color: NX.faint }}>No tasks to preview yet.</div>
           ) : (
             <div style={{ border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
               {preview.map((p, i) => (
-                <div key={p.id} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '7px 12px', fontSize: 12.5, borderTop: i ? `1px solid ${NX.border2}` : 'none' }}>
+                <div key={p.id} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '7px 12px', fontSize: 13, borderTop: i ? `1px solid ${NX.border2}` : 'none' }}>
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: NX.dim }}>{p.title}</span>
                   {p.result.error
                     ? <span title={p.result.error} style={{ color: NX.faint, fontStyle: 'italic' }}>#Error - {p.result.error}</span>
@@ -177,7 +177,7 @@ export function FormulaEditor({ formula, onFormula, format, onFormat, fieldNames
         </div>
       )}
 
-      <details className="nx-fill" style={{ fontSize: 12.5, color: NX.dim }}>
+      <details className="nx-fill" style={{ fontSize: 13, color: NX.dim }}>
         <summary style={{ cursor: 'pointer', fontWeight: 600, color: NX.dim }}>Syntax Help</summary>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, max-content) 1fr', gap: '4px 14px', marginTop: 8 }}>
           {[...FORMULA_OPERATORS, ...FORMULA_FUNCTIONS].map((h) => (
@@ -270,7 +270,7 @@ export function FormulaFieldModal({ field = null, store, lockedProjectId = '', p
         </div>
         <FormulaEditor formula={formula} onFormula={setFormula} format={format} onFormat={setFormat}
           fieldNames={suggest} formulaFields={ctx.formulaFields} selfName={name.trim()} preview={preview} readOnly={readOnly} />
-        {saveError && <div role="alert" style={{ fontSize: 12.5, color: NX.red }}>{saveError}</div>}
+        {saveError && <div role="alert" style={{ fontSize: 13, color: NX.red }}>{saveError}</div>}
       </div>
     </Modal>
   );

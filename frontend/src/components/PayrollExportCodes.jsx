@@ -100,6 +100,19 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
 
   // Leave Customer:Job Blank saves on click (the Settings switch rule); the
   // saved names travel with it unchanged.
+  // Old Timer Header (Charmi, 11/12/2026): QuickBooks 2022 and later import
+  // through Import > IIF Files with no TIMERHDR; on brings it back. Saves on click.
+  const setTimerHeader = async (on) => {
+    setBusy('timer');
+    try {
+      const next = await api.timeExportCodesSet(company, saved?.codes || {}, undefined, undefined, undefined, on);
+      setData(next);
+      toastOk?.(on ? 'The QuickBooks file will carry the old Timer header.' : 'The QuickBooks file is ready for Import > IIF Files.');
+    } catch (e) {
+      toastErr?.(e?.message || 'Could not save the switch.');
+    } finally { setBusy(''); }
+  };
+
   const setBlankJob = async (on) => {
     setBusy('job');
     try {
@@ -167,14 +180,14 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
           Leave a box blank to use the default shown in it. The names must match the payroll items in QuickBooks.
         </span>
         {!scoped && companies && companies.length > 0 && (
-          <select className="form-input" aria-label="Company" value={company} onChange={(e) => pickCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
+          <select className="form-input" aria-label="Company" value={company} onChange={(e) => pickCompany(e.target.value)} style={{ fontSize: 13, width: 'auto', maxWidth: 260 }}>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
           </select>
         )}
         {busy && <Spinner size={14} />}
       </div>
       {err ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'hsl(var(--color-red))', paddingTop: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'hsl(var(--color-red))', paddingTop: 10 }}>
           <span style={{ flex: 1 }}>{err}</span>
           <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={load}>Retry</button>
         </div>
@@ -189,7 +202,7 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
                 ? (qbFile.payrollItems.length
                   ? `Read ${qbFile.payrollItems.length} payroll items from QuickBooks${qbFile.guessed ? ` and matched ${qbFile.guessed}` : ''}. Check each box, then Save.`
                   : 'The file had no payroll items, only the company details. Type the names as QuickBooks shows them under Lists > Payroll Item List.')
-                : 'In QuickBooks Desktop: File > Utilities > Export > Timer Lists, then read that file here. Nexus fills in the payroll item names, the company name and the create time from it.'}
+                : 'If your QuickBooks has File > Utilities > Export > Timer Lists (2021 and earlier), read that file here and Nexus fills in the names. Otherwise type the payroll item names as QuickBooks shows them under Lists > Payroll Item List.'}
             </span>
             <input ref={fileRef} type="file" accept=".iif,.txt" hidden aria-label="QuickBooks Timer Lists file"
               onChange={(e) => { readTimerLists(e.target.files?.[0]); e.target.value = ''; }} />
@@ -209,7 +222,7 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
                 <input className="form-input" type="text" maxLength={data.maxLength || 31} placeholder={c.default}
                   aria-label={`${PAY_CLASS_LABELS[c.key] || c.key} code`} list={qbFile?.payrollItems?.length ? 'qb-payroll-items' : undefined}
                   value={form.codes[c.key] || ''} onChange={(e) => patch({ codes: { ...form.codes, [c.key]: e.target.value } })}
-                  style={{ fontSize: 12.5 }} />
+                  style={{ fontSize: 13 }} />
                 {missing(c.key, c.default) && (
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>Not in this QuickBooks file - needed only if this pay is used</span>
                 )}
@@ -220,8 +233,8 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
             <span>QuickBooks Company Name</span>
             <input className="form-input" type="text" maxLength={data.quickbooksCompanyMaxLength || 100}
               placeholder={data.quickbooksCompanyDefault || ''} aria-label="QuickBooks Company Name"
-              value={form.qb} onChange={(e) => patch({ qb: e.target.value })} style={{ fontSize: 12.5 }} />
-            <span style={{ fontSize: 11.5 }}>The company name in the QuickBooks IIF header. It must match the QuickBooks company file; leave it blank to use the company's name.</span>
+              value={form.qb} onChange={(e) => patch({ qb: e.target.value })} style={{ fontSize: 13 }} />
+            <span style={{ fontSize: 12 }}>The company name in the QuickBooks IIF header. It must match the QuickBooks company file; leave it blank to use the company's name.</span>
           </label>
           {/* COMPANYCREATETIME (Charmi, 11/03/2026): without it the IIF carries 0
               and QuickBooks' Timer Activities import can refuse every row. */}
@@ -229,14 +242,16 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
             <span>QuickBooks Company Create Time</span>
             <input className="form-input" type="text" inputMode="numeric" maxLength={12}
               placeholder="e.g. 1361233702" aria-label="QuickBooks Company Create Time"
-              value={form.qbCreate} onChange={(e) => patch({ qbCreate: e.target.value.replace(/[^0-9]/g, '') })} style={{ fontSize: 12.5 }} />
-            <span style={{ fontSize: 11.5 }}>
-              QuickBooks checks each time file against this number; without it the import can fail every row.
-              In QuickBooks Desktop: File &gt; Utilities &gt; Export &gt; Timer Lists, open that file in Notepad and copy the
-              number at the end of its TIMERHDR line. The file is then imported with File &gt; Utilities &gt; Import &gt; Timer Activities.
+              value={form.qbCreate} onChange={(e) => patch({ qbCreate: e.target.value.replace(/[^0-9]/g, '') })} style={{ fontSize: 13 }} />
+            <span style={{ fontSize: 12 }}>
+              Only with Old Timer Header on (QuickBooks 2021 and earlier): File &gt; Utilities &gt; Export &gt; Timer Lists,
+              open that file in Notepad and copy the number at the end of its TIMERHDR line.
             </span>
           </label>
           <div style={{ marginTop: 12 }}>
+            <SwitchRow id="qb-timer-header" title="Old Timer Header (QuickBooks 2021 and Earlier)"
+              desc="Off: the file is imported with File > Utilities > Import > IIF Files (QuickBooks 2022 and later). Turn on only for an older QuickBooks that imports time with Timer Activities."
+              checked={!!data.quickbooksTimerHeader} disabled={!!busy} onChange={setTimerHeader} />
             <SwitchRow id="qb-blank-job" title="Leave Customer:Job Blank"
               desc="Turn on when the QuickBooks file has no customers for the work sites. Each row then carries only the employee, date, hours and payroll item, not billable."
               checked={!!data.quickbooksBlankJob} disabled={!!busy} onChange={setBlankJob} />

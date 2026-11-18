@@ -116,6 +116,41 @@ export function sortRows(rows, key, dir) {
 /** Where Documents opens: what is waiting on you, otherwise everything. */
 export const startView = (rows) => (rows.some((r) => r.myTurn) ? 'needs' : 'all');
 
+// ── The library's shape (Pranshu, 11/13/2026, canvas
+// https://claude.ai/artifact/TapZUK47Diz1k3jgFh5TNW): 12 rows a page, rows
+// grouped by when they changed, each with a kind line under its name.
+export const PAGE_SIZE = 12;
+
+/** "This Week" / "Earlier This Month" / "Older", by the row's updatedAt. */
+export function groupLabel(row, now = new Date()) {
+  const t = Date.parse(row.updatedAt || '');
+  if (!Number.isFinite(t)) return 'Older';
+  const d = new Date(t);
+  const dayMs = 86400000;
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (t >= startOfToday - 6 * dayMs) return 'This Week';
+  if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) return 'Earlier This Month';
+  return 'Older';
+}
+
+/** The second line under a name: kind, folder, how many sign. */
+export function rowSubline(row, folders = []) {
+  const kind = row.kind === 'hr' ? 'Packet' : row.kind === 'form_entry' ? 'Form Entry' : row.docKind === 'sheet' ? 'Sheet' : 'Document';
+  const folder = folders.find((f) => f.id === row.folderId)?.name || (row.kind === 'hr' ? 'HR' : '');
+  const signers = row.signers > 1 ? `${row.signers} signers` : '';
+  return [kind, folder, signers].filter(Boolean).join(' · ');
+}
+
+/** One page of rows; `page` is 1-based and clamped. */
+export function pageOf(rows, page, size = PAGE_SIZE) {
+  const pages = Math.max(1, Math.ceil(rows.length / size));
+  const p = Math.min(Math.max(1, page), pages);
+  return { rows: rows.slice((p - 1) * size, p * size), page: p, pages, from: rows.length ? (p - 1) * size + 1 : 0, to: Math.min(rows.length, p * size) };
+}
+
+/** Initials for an avatar: "Sophia Martinez" -> "SM". */
+export const initials = (name) => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+
 // ── Templates (Neil, 10/31/2026: Active and Published are one step) ──────────
 
 export const TEMPLATE_STATES = {
@@ -128,3 +163,13 @@ export const TEMPLATE_STATES = {
 export const templateStatus = (t) => TEMPLATE_STATES[t.state] || TEMPLATE_STATES[t.status] || TEMPLATE_STATES.draft;
 /** Anything published makes documents, in its published wording. */
 export const templateUsable = (t) => t.state === 'published' || t.state === 'changes';
+
+/** The Templates board's cards: one per category that has a template, in the categories' order. */
+export function templateCards(templates, categories) {
+  return categories
+    .map(([key, label]) => {
+      const rows = (templates || []).filter((t) => t.category === key).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      return { key, label, rows, pending: rows.filter((t) => t.state !== 'published').length };
+    })
+    .filter((c) => c.rows.length > 0);
+}

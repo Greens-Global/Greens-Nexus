@@ -211,18 +211,23 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/hr/intake/public/",
                           "/timeclock/ical/",   # the calendar subscribe feed: a signed link, no login (Shifts Phase 3a)
                           "/credvault/personal/lock/",   # the Personal Vault password: guessed online (Oct 29 2026)
+                          "/credvault/head-code/",   # a department head code: guessed online (11/13/2026)
+                          "/vault-share/",   # a login shared outside Nexus: a link + code, no login (11/13/2026)
                           "/task-changelog-feed/",   # What's New RSS: a signed link, no login (Oct 16 2026)
                           "/unit-map/",   # customer unit map: a signed link, no login (Oct 20 2026)
                           "/documents/word-file/",   # Open in Word: a signed 15-minute link, no login (11/05/2026)
                           "/dev-notes/tokens",   # Build Mode: mints Build Tokens (credential-minting, Oct 24 2026)
+                          "/dev-notes/cloud",   # Build Mode: takes a Claude Code trigger token (11/12/2026)
                           "/careers/apply/",   # public job application: personal data + a resume, no login (Oct 27 2026)
-                          "/construction-outside/")   # Construction outside links: one RFI or one sub's punch list, no login (11/11/2026)
+                          "/construction-outside/",   # Construction outside links: one RFI or one sub's punch list, no login (11/11/2026)
+                          "/auth/preview-")   # Build Mode hosted previews: the sign-in handoff and its claim (11/13/2026)
     # Routes whose path IS the credential: the trip log names the prefix,
     # never the token (the security log is durable).
     TOKEN_PATH_PREFIXES = ("/timeclock/ical/", "/task-changelog-feed/", "/unit-map/", "/documents/word-file/",
                            "/construction-outside/")
     SHARED_SOURCE_PER_MIN = int(os.getenv("NEXUS_RL_SHARED", "120"))
-    SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github")
+    SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github",
+                              "/webhooks/teams/")   # Graph change notifications (kudos on Teams, 11/12/2026)
     EXEMPT_PREFIXES = ("/health", "/version")
     # Public uploads refused by Content-Length before the body is read: the
     # careers resume is capped at 10 MB, the multipart form around it is small.

@@ -38,7 +38,7 @@ vi.mock('../views/InventoryManagement', () => ({
   ),
 }));
 
-import PurchaseRequests, { PurchaseRequestTile } from './PurchaseRequests';
+import PurchaseRequests, { PurchaseRequestTile, PurchaseRequestsPanel } from './PurchaseRequests';
 
 const req = (over) => ({
   id: 'REQ-1', employeeName: 'Erin Test', employeeEmail: 'erin@greensglobal.com', employeeDept: 'IT',
@@ -172,5 +172,24 @@ describe('Workday Overview Purchase Request tile', () => {
     ctx.requisitions = [req({ employeeEmail: 'dean@greensglobal.com', employeeName: 'Dean' })];
     render(<PurchaseRequestTile onOpen={onOpen} />);
     expect(screen.getByText('1 to approve')).toBeTruthy();
+  });
+});
+
+// 11/17/2026: the page's message is drawn under the panel's overlay, so a
+// failed Reject looked like nothing happened.
+describe('Workday Purchase Requests panel', () => {
+  it('says what a failed action did inside the panel, and tells the page too', async () => {
+    role.manager = true;
+    ctx.requisitions = [req({ employeeName: 'Dean', employeeEmail: 'dean@greensglobal.com' })];
+    ctx.rejectRequisition = vi.fn(async () => { throw new Error('This request was already decided.'); });
+    const toast = vi.fn();
+    render(<PurchaseRequestsPanel onClose={() => {}} toast={toast} />);
+    const panel = screen.getByRole('dialog', { name: 'Purchase Requests' });
+    expect(within(panel).queryByRole('alert')).toBeNull();
+    fireEvent.click(within(panel).getByRole('button', { name: /^Reject$/ }));
+    fireEvent.change(within(panel).getByPlaceholderText('Reason for rejection…'), { target: { value: 'Not needed' } });
+    fireEvent.click(within(panel).getByRole('button', { name: /Confirm Reject/ }));
+    await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe('This request was already decided.'));
+    expect(toast).toHaveBeenCalledWith('This request was already decided.', 'error');
   });
 });

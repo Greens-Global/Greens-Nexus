@@ -1,34 +1,52 @@
 import { useMemo } from 'react';
-import { AlertTriangle, ListChecks, History, ArrowRight, Pencil } from 'lucide-react';
+import { Check, ArrowRight } from 'lucide-react';
 import { collectCriticalDates, CRITICAL_ITEM_TAB } from '../../lib/criticalItems.js';
-import { assetCompleteness, assetSignals } from '../../lib/assetMetrics.js';
+import { assetSignals, snapMap } from '../../lib/assetMetrics.js';
+import { inferAssetKind } from '../../lib/vehicleFields.js';
 import { formatDate } from '../../lib/format.js';
-import { formatDateTime } from '../../../lib/datetime';
-import { StatusLabel } from '../../../components/StatusLabel.jsx';
 
-// The first screen of an asset (Neil, Oct 21 2026): what needs attention, what
-// data is missing, what changed last - the three cards ARE the asset's health.
-// The spec sheet sits under them as Details. Nothing here is a second
-// calculation: Needs Attention is the Critical Items engine scoped to this
-// asset plus the health signals that warn; Data Gaps is the same completeness
-// Manage used; Recent Activity is the log.
+// Needs Attention, the first thing on an asset's Overview (Neil, Oct 21 2026;
+// look 11/17/2026). Sentences on hairline rows, the state as colored words.
+// When nothing is due it says WHY it is quiet - "No insurance or property tax
+// dates are on file, so none can come due." - so a quiet page is never read as
+// a clean one. Nothing here is a second calculation: the rows are the Critical
+// Items engine scoped to this asset, plus the health signals that warn.
 
-const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', padding: '14px 16px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 };
-const head = { display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)' };
-const rowBtn = { display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '7px 8px', border: 'none', borderRadius: 8, background: 'none', cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text-primary)', fontSize: '0.84rem' };
-const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)', padding: '4px 8px' };
-
-const toneOf = (days) => (days < 0 ? 'hsl(var(--color-red))' : days <= 30 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-gold))');
-const dueText = (days) => (days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? 'Due Today' : `Due in ${days}d`);
 // A Critical Items category -> the health signal (assetSignals) about the same subject.
 const SIGNAL_OF_CATEGORY = { Service: 'Service', Insurance: 'Insurance', Registration: 'Registration', Inspection: 'Inspections' };
-const hover = (on) => (e) => { e.currentTarget.style.background = on ? 'var(--bg-secondary)' : 'none'; };
+const TAB_WORD = { property: 'Details', vservice: 'Service', warranties: 'Warranties', inspections: 'Inspections', vendors: 'Vendors', ahj: 'AHJ', maintenance: 'Maintenance' };
+const days = (n) => `${n} ${n === 1 ? 'day' : 'days'}`;
+const whenText = (d) => (d < 0 ? `${days(Math.abs(d))} overdue` : d === 0 ? 'Due today' : `In ${days(d)}`);
+const whenTone = (d) => (d < 0 ? 'hsl(var(--color-red))' : d <= 30 ? 'hsl(var(--color-orange))' : 'var(--text-secondary)');
+// A date a hundred years out (or back) is a typing slip, never a due date.
+const sane = (x) => Math.abs(x.days) < 36500;
+
+const link = { border: 'none', background: 'none', padding: 0, fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-green))', cursor: 'pointer' };
+
+/** Why nothing is due: which date kinds are missing (they could never come due), else the
+ *  next date on file beyond the 90-day window. `{ text, field }` - field is the one to fill. */
+function quietReason(asset, later) {
+  const snap = snapMap(asset);
+  const vehicle = inferAssetKind(asset) !== 'property';
+  const ins = String(asset.insExpiration || snap['policy expiration'] || '').trim();
+  const second = vehicle ? String(snap['registration expiration'] || '').trim() : String(asset.taxDue || snap['due dates'] || '').trim();
+  const secondWord = vehicle ? 'registration' : 'property tax';
+  const missing = [!ins && 'insurance', !second && secondWord].filter(Boolean);
+  if (missing.length === 2) return { text: `No insurance or ${secondWord} dates are on file, so none can come due.`, field: 'Policy Expiration', action: 'Add Dates' };
+  if (missing.length === 1) {
+    const field = missing[0] === 'insurance' ? 'Policy Expiration' : vehicle ? 'Registration Expiration' : 'Due Dates';
+    return { text: `No ${missing[0]} date is on file, so it cannot come due.`, field, action: 'Add the Date' };
+  }
+  if (later) return { text: `The next date on file is ${later.label.toLowerCase()} on ${formatDate(later.date)}.` };
+  return null;
+}
 
 /**
- * props: asset, store, onTab(viewKey), onEdit(fieldLabel?), onGoTo(logEntry)
+ * props: asset, store, onTab(viewKey), onEdit(fieldLabel?)
  */
-export function AssetOverview({ asset, store, onTab, onEdit, onGoTo }) {
-  const due = useMemo(() => collectCriticalDates(store).filter((x) => x.id === asset.id && x.days <= 90).sort((a, b) => a.days - b.days), [store, asset.id]);
+export function NeedsAttention({ asset, store, onTab, onEdit }) {
+  const all = useMemo(() => collectCriticalDates(store).filter((x) => x.id === asset.id && sane(x)).sort((a, b) => a.days - b.days), [store, asset.id]);
+  const due = useMemo(() => all.filter((x) => x.days <= 90), [all]);
   // Counted per subject: a health warning whose subject already has a critical-date row above
   // (Service, Insurance, Registration, Inspections) is that same item - shown and counted once.
   // A Service warning about MILES is its own item (the critical row is the date).
@@ -36,84 +54,58 @@ export function AssetOverview({ asset, store, onTab, onEdit, onGoTo }) {
     const covered = new Set(due.map((x) => SIGNAL_OF_CATEGORY[x.cat]).filter(Boolean));
     return assetSignals(asset, store).filter((s) => (s.t === 'warn' || s.t === 'bad') && !(covered.has(s.l) && s.by !== 'miles'));
   }, [asset, store, due]);
-  const gaps = useMemo(() => assetCompleteness(asset), [asset]);
-  const recent = useMemo(() => (store.logs || []).filter((l) => l.propertyId === asset.id).slice(0, 5), [store.logs, asset.id]);
-  const attention = due.length + warnings.length;
+  const count = due.length + warnings.length;
+  const reason = count ? null : quietReason(asset, all.find((x) => x.days > 90));
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 16 }}>
-      <section style={card} aria-label="Needs attention">
-        <div style={head}><AlertTriangle size={16} style={{ color: attention ? 'hsl(var(--color-orange))' : 'var(--text-secondary)' }} /> Needs Attention
-          {attention > 0 && <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-orange))' }}>{attention}</span>}
-        </div>
-        {attention === 0 ? (
-          <div style={quiet}>Nothing due in the next 90 days.</div>
-        ) : (
-          <div>
-            {due.slice(0, 6).map((x, i) => (
-              <button key={i} type="button" style={rowBtn} onMouseEnter={hover(true)} onMouseLeave={hover(false)} onClick={() => onTab?.(CRITICAL_ITEM_TAB[x.cat] || 'property')}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: toneOf(x.days), flexShrink: 0 }} />
-                <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.label}{x.detail ? ` - ${x.detail}` : ''}</span>
-                <span style={{ fontSize: '0.76rem', fontWeight: 600, color: toneOf(x.days), whiteSpace: 'nowrap' }}>{dueText(x.days)} · {formatDate(x.date)}</span>
-              </button>
-            ))}
-            {warnings.map((w) => (
-              <div key={w.l} style={{ ...rowBtn, cursor: 'default' }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: w.t === 'bad' ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))', flexShrink: 0 }} />
-                <span style={{ flex: 1 }}>{w.l}: {w.v}</span>
+    <section aria-label="Needs Attention" style={{ paddingBottom: 22 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Needs Attention</h3>
+        {count > 0 && <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-secondary)' }}>{count} {count === 1 ? 'item' : 'items'}</span>}
+      </div>
+      {count === 0 ? (
+        <>
+          <p style={{ display: 'flex', alignItems: 'center', gap: 10, margin: 0, fontSize: 13, color: 'var(--text-primary)' }}>
+            <Check size={16} aria-hidden="true" style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} /> Nothing due in the next 90 days.
+          </p>
+          {reason && (
+            <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              {reason.text}{' '}
+              {reason.field && onEdit && <button type="button" onClick={() => onEdit(reason.field)} style={link}>{reason.action}</button>}
+            </p>
+          )}
+        </>
+      ) : (
+        <div>
+          {due.slice(0, 8).map((x, i) => {
+            const tab = CRITICAL_ITEM_TAB[x.cat] || 'property';
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 16, padding: '9px 0', borderTop: i ? '1px solid var(--border-color)' : 'none', fontSize: 13 }}>
+                <span style={{ flex: 1, minWidth: 0, color: 'var(--text-primary)' }}>{x.label}{x.detail ? ` - ${x.detail}` : ''}<span style={{ color: 'var(--text-secondary)' }}>, {formatDate(x.date)}</span></span>
+                <span style={{ fontWeight: 600, color: whenTone(x.days), whiteSpace: 'nowrap' }}>{whenText(x.days)}</span>
+                {onTab && (
+                  <button type="button" onClick={() => onTab(tab)} aria-label={`Open ${TAB_WORD[tab] || 'it'} for ${x.label}`}
+                    style={{ ...link, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                    {TAB_WORD[tab] || 'Open'} <ArrowRight size={13} aria-hidden="true" />
+                  </button>
+                )}
               </div>
-            ))}
-            {due.length > 6 && <div style={quiet}>and {due.length - 6} more</div>}
-          </div>
-        )}
-      </section>
-
-      <section style={card} aria-label="Data gaps">
-        <div style={head}><ListChecks size={16} style={{ color: gaps.pct === 100 ? 'hsl(var(--color-green))' : 'var(--text-secondary)' }} /> Data Gaps
-          <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700, color: gaps.pct === 100 ? 'hsl(var(--color-green))' : 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>{gaps.pct}% complete</span>
+            );
+          })}
+          {warnings.map((w, i) => (
+            <div key={w.l} style={{ display: 'flex', alignItems: 'baseline', gap: 16, padding: '9px 0', borderTop: due.length || i ? '1px solid var(--border-color)' : 'none', fontSize: 13 }}>
+              <span style={{ flex: 1, minWidth: 0, color: 'var(--text-primary)' }}>{w.l}: {w.v}</span>
+              <span style={{ fontWeight: 600, color: w.t === 'bad' ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))', whiteSpace: 'nowrap' }}>{w.t === 'bad' ? 'Needs action' : 'Coming up'}</span>
+            </div>
+          ))}
+          {due.length > 8 && <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>and {due.length - 8} more</p>}
         </div>
-        <div style={{ height: 6, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden' }} role="progressbar" aria-valuenow={gaps.pct} aria-valuemin={0} aria-valuemax={100} aria-label="Fields filled in">
-          <div style={{ width: `${gaps.pct}%`, height: '100%', background: gaps.pct === 100 ? 'hsl(var(--color-green))' : 'hsl(var(--color-blue))' }} />
-        </div>
-        {gaps.missing.length === 0 ? (
-          <div style={quiet}>Every key field has a value.</div>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {gaps.missing.slice(0, 12).map((field) => (
-              <button key={field} type="button" onClick={() => onEdit?.(field)} title={`Fill in ${field}`}
-                style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)', borderRadius: 999, padding: '3px 10px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', fontFamily: 'inherit' }}>
-                {field}
-              </button>
-            ))}
-            {gaps.missing.length > 12 && <span style={{ ...quiet, padding: '3px 4px' }}>and {gaps.missing.length - 12} more</span>}
-          </div>
-        )}
-        {gaps.missing.length > 0 && (
-          <button type="button" className="secondary-btn" onClick={() => onEdit?.()} style={{ alignSelf: 'flex-start' }}><Pencil size={13} /> Fill In the Gaps</button>
-        )}
-      </section>
-
-      <section style={card} aria-label="Recent activity">
-        <div style={head}><History size={16} style={{ color: 'var(--text-secondary)' }} /> Recent Activity</div>
-        {recent.length === 0 ? (
-          <div style={quiet}>No changes recorded yet.</div>
-        ) : (
-          <div>
-            {recent.map((l) => (
-              <button key={l.id} type="button" style={rowBtn} onMouseEnter={hover(true)} onMouseLeave={hover(false)} onClick={() => onGoTo?.(l)} title="Go to this change">
-                <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    <StatusLabel label={l.action === 'added' ? 'Added' : l.action === 'removed' ? 'Removed' : 'Edited'} color={l.action === 'removed' ? 'hsl(var(--color-red))' : l.action === 'added' ? 'hsl(var(--color-green))' : 'hsl(var(--color-blue))'} size="sm" />
-                    {' '}{l.item || l.section}
-                  </span>
-                  <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{l.user ? `${l.user} · ` : ''}{formatDateTime(l.ts)}</span>
-                </span>
-                <ArrowRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
+      )}
+    </section>
   );
+}
+
+/** The pre-11/17/2026 name the module shell mounted; the Overview is AssetOverviewPage now. */
+export function AssetOverview({ asset, store, onTab, onEdit }) {
+  return <NeedsAttention asset={asset} store={store} onTab={onTab} onEdit={onEdit} />;
 }

@@ -10,9 +10,9 @@
 // Writes go through the property ticket endpoints (backend property_tickets.py);
 // nothing here writes the Asset Management workspace.
 import { Suspense, lazy, useState } from 'react';
-import { ChevronDown, CornerDownRight, Plus, QrCode } from 'lucide-react';
-import { StatusLabel } from '../../../components/StatusLabel.jsx';
+import { ChevronDown, CornerDownRight, Plus, QrCode, CalendarClock, Inbox } from 'lucide-react';
 import { api } from '../../../api.js';
+import { DateField } from '../../../tasks/components.jsx';
 import { formatDate } from '../../../lib/datetime.js';
 import { filesFromPaste } from '../../../tasks/lib';
 import { uploadTicketEvidence } from '../../../tickets/evidenceUpload';
@@ -43,7 +43,7 @@ const localYmd = (iso) => {
 const repeatsLabel = (unit, every) => (!unit ? 'One Time'
   : `Every ${Number(every) > 1 ? `${every} ` : ''}${({ week: 'Week', month: 'Month', year: 'Year' })[unit]}${Number(every) > 1 ? 's' : ''}`);
 
-const readOnlyBox = { fontSize: '0.85rem', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'not-allowed', display: 'flex', alignItems: 'center' };
+const readOnlyBox = { fontSize: 13, backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'not-allowed', display: 'flex', alignItems: 'center' };
 
 const Field = ({ label, req, full, children }) => (
   <div className={full ? 'form-group form-group-full' : 'form-group'}>
@@ -57,7 +57,7 @@ function Dropdown({ value, onChange, children, style, ...rest }) {
   return (
     <div style={{ position: 'relative', ...style }}>
       <select className="form-input" value={value} onChange={onChange} {...rest}
-        style={{ fontSize: '0.85rem', width: '100%', appearance: 'none', WebkitAppearance: 'none', paddingRight: 30, cursor: 'pointer' }}>
+        style={{ fontSize: 13, width: '100%', appearance: 'none', WebkitAppearance: 'none', paddingRight: 30, cursor: 'pointer' }}>
         {children}
       </select>
       <ChevronDown size={15} aria-hidden="true"
@@ -72,17 +72,18 @@ function ScheduleFields({ value, onChange, optional = true }) {
   const unitLabel = UNITS.find(([v]) => v === value.unit)?.[1] || '';
   return (<>
     <Field label="Next Service Due" req={!optional}>
-      <input type="date" className="form-input" min={todayYmd()} value={value.nextDue || ''}
-        onChange={(e) => set('nextDue', e.target.value)} style={{ fontSize: '0.85rem' }} />
+      <div className="form-input" role="group" aria-label="Next Service Due" style={{ display: 'flex', alignItems: 'center', fontSize: 13 }}>
+        <DateField value={value.nextDue || ''} min={todayYmd()} noPast onChange={(v) => set('nextDue', v || '')} title="Next Service Due" style={{ flex: 1 }} />
+      </div>
     </Field>
     <Field label="Repeats">
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         {value.unit && (<>
-          <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Every</span>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Every</span>
           {/* A string while typing, so it can be cleared and retyped; checked on save. */}
           <input type="text" inputMode="numeric" className="form-input" value={value.every ?? ''} aria-label="Repeat every"
             onChange={(e) => set('every', e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
-            style={{ fontSize: '0.85rem', width: 60, textAlign: 'center' }} />
+            style={{ fontSize: 13, width: 60, textAlign: 'center' }} />
         </>)}
         <Dropdown value={value.unit || ''} onChange={(e) => set('unit', e.target.value)} style={{ flex: 1 }} aria-label="Repeats">
           {UNITS.map(([v, l]) => <option key={v} value={v}>{v ? (value.unit ? l : `Every ${l.replace(/s$/, '')}`) : l}</option>)}
@@ -90,12 +91,12 @@ function ScheduleFields({ value, onChange, optional = true }) {
       </div>
     </Field>
     {value.unit && !value.nextDue && (
-      <div className="form-group form-group-full" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: -6 }}>
+      <div className="form-group form-group-full" style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: -6 }}>
         Pick the Next Service Due - it repeats every {value.every || 'N'} {unitLabel.toLowerCase()} from that date.
       </div>
     )}
     {value.nextDue && (
-      <div className="form-group form-group-full" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: -6 }}>
+      <div className="form-group form-group-full" style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: -6 }}>
         You are reminded 15 days before. If no ticket is opened by {formatDate(value.nextDue)}, one opens
         automatically with these details{value.unit ? `, and the next one is scheduled ${repeatsLabel(value.unit, value.every || 1).toLowerCase()} after that` : ''}.
       </div>
@@ -147,7 +148,7 @@ export function AddToMaintenanceModal({ propertyId, t, onClose, onSaved }) {
       <button className="secondary-btn" onClick={onClose}>Cancel</button>
       <button className="primary-btn" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Add to Maintenance Record'}</button>
     </>}>
-      <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
         <b style={{ color: 'var(--text-primary)' }}>{t.subject}</b>
         {t.assigneeName ? ` · worked by ${t.assigneeName}` : ''}{t.resolvedAt ? ` · resolved ${formatDate(t.resolvedAt)}` : ''}.
         Adding it closes the ticket.
@@ -160,21 +161,21 @@ export function AddToMaintenanceModal({ propertyId, t, onClose, onSaved }) {
           <div className="form-input" style={readOnlyBox} title="From the ticket's category">{t.system || 'General Repair'}</div>
         </Field>
         <Field label="Work Performed" full>
-          <textarea className="form-input" rows={2} value={v.description} onChange={set('description')} maxLength={2000} style={{ fontSize: '0.85rem' }} />
+          <textarea className="form-input" rows={2} value={v.description} onChange={set('description')} maxLength={2000} style={{ fontSize: 13 }} />
         </Field>
         <Field label="Contractor / Vendor">
-          <input className="form-input" value={v.vendor} onChange={set('vendor')} maxLength={200} style={{ fontSize: '0.85rem' }} />
+          <input className="form-input" value={v.vendor} onChange={set('vendor')} maxLength={200} style={{ fontSize: 13 }} />
         </Field>
         <Field label="Cost">
           <div style={{ display: 'flex', gap: 6 }}>
             <Dropdown value={v.currency} onChange={set('currency')} style={{ flex: '0 0 104px' }} aria-label="Currency" title="Currency">
               {currencyOptions().map((c) => <option key={c.code} value={c.code} title={c.label}>{c.code}</option>)}
             </Dropdown>
-            <input className="form-input" inputMode="decimal" placeholder="0.00" value={v.cost} onChange={set('cost')} style={{ fontSize: '0.85rem', flex: 1 }} aria-label="Cost" />
+            <input className="form-input" inputMode="decimal" placeholder="0.00" value={v.cost} onChange={set('cost')} style={{ fontSize: 13, flex: 1 }} aria-label="Cost" />
           </div>
         </Field>
         {isChild ? (
-          <div className="form-group form-group-full" style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <div className="form-group form-group-full" style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
             Opened by a recurring service - its next date is set on the original ticket ({t.parentCodeLabel || 'Recurring Services'}).
           </div>
         ) : (
@@ -187,46 +188,53 @@ export function AddToMaintenanceModal({ propertyId, t, onClose, onSaved }) {
               <input type="file" style={{ display: 'none' }} onChange={(e) => { attach(e.target.files?.[0]); e.target.value = ''; }} />
             </label>
             {doc ? (
-              <span style={{ fontSize: '0.8rem', color: doc.status === 'failed' ? 'hsl(var(--color-red))' : 'var(--text-secondary)' }}>
+              <span style={{ fontSize: 13, color: doc.status === 'failed' ? 'hsl(var(--color-red))' : 'var(--text-secondary)' }}>
                 {doc.name}{doc.status === 'uploading' ? ' - uploading…' : doc.status === 'failed' ? ' - did not upload' : ''}
                 <button type="button" onClick={() => setDoc(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-secondary)', marginLeft: 6 }}>Remove</button>
               </span>
-            ) : <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>}
+            ) : <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>}
           </div>
         </Field>
         <Field label="Notes" full>
-          <textarea className="form-input" rows={2} value={v.notes} onChange={set('notes')} maxLength={2000} style={{ fontSize: '0.85rem' }} />
+          <textarea className="form-input" rows={2} value={v.notes} onChange={set('notes')} maxLength={2000} style={{ fontSize: 13 }} />
         </Field>
       </div>
-      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: '0.8rem', marginTop: 8 }}>{err}</div>}
+      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginTop: 8 }}>{err}</div>}
     </Modal>
   );
 }
 
 export function NeedsActionPanel({ data, onOpen, onAdd }) {
   const rows = data?.needsAction || [];
-  if (!rows.length) return <EmptyState>Nothing waiting. Resolved tickets at this property land here to be added to the maintenance record.</EmptyState>;
-  return rows.map((t) => {
+  if (!rows.length) return <EmptyState icon={Inbox} title="Nothing waiting">Resolved tickets at this property land here to be added to the maintenance record.</EmptyState>;
+  return (
+    <div>
+      <p style={{ margin: '0 0 4px', fontSize: 13, color: 'var(--text-primary)' }}>
+        <span style={{ color: 'hsl(var(--color-red))', fontWeight: 600 }}>{rows.length} resolved {rows.length === 1 ? 'ticket waits' : 'tickets wait'}</span> to be added to the maintenance record.
+      </p>
+      {rows.map((t) => {
     const [sLabel, sTone] = TICKET_STATUS[t.status] || [t.status, 'mut'];
     return (
-      <div key={t.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '12px 14px', marginBottom: 8, border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-card)' }}>
+      <div key={t.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
         <button type="button" onClick={() => onOpen(t)} style={{ flex: '1 1 260px', textAlign: 'left', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{t.codeLabel}</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 8, fontSize: 13 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{t.codeLabel}</span>
             <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t.subject}</span>
             <StatusBadge tone={sTone}>{sLabel}</StatusBadge>
             {t.parentTicketId && <StatusBadge tone="blue">Recurring Service</StatusBadge>}
           </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
             {[t.category, t.onParcel ? `Parcel: ${t.propertyName}` : '', t.resolvedAt ? `Resolved ${formatDate(t.resolvedAt)}` : '',
               t.vendor, t.cost ? money(t.cost) : ''].filter(Boolean).join(' · ')}
           </div>
-          {t.resolutionNote && <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 4 }}>{t.resolutionNote}</div>}
+          {t.resolutionNote && <div style={{ fontSize: 13, color: 'var(--text-primary)', marginTop: 4 }}>{t.resolutionNote}</div>}
         </button>
         {data?.canManage && <button className="primary-btn" onClick={() => onAdd(t)}>Add to Maintenance Record</button>}
       </div>
     );
-  });
+      })}
+    </div>
+  );
 }
 
 function EditScheduleModal({ propertyId, svc, onClose, onSaved }) {
@@ -251,7 +259,7 @@ function EditScheduleModal({ propertyId, svc, onClose, onSaved }) {
       <button className="primary-btn" onClick={save} disabled={busy || !value.nextDue}>{busy ? 'Saving…' : 'Save Schedule'}</button>
     </>}>
       <div className="form-grid"><ScheduleFields value={value} onChange={setValue} optional={false} /></div>
-      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: '0.8rem', marginTop: 8 }}>{err}</div>}
+      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginTop: 8 }}>{err}</div>}
     </Modal>
   );
 }
@@ -266,9 +274,16 @@ function scheduleLine(s) {
   return bits.filter(Boolean).join(' · ');
 }
 
-export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) {
+// `startNew` (a changing number): the Maintenance empty state's Set Up Preventive
+// Maintenance opens a new schedule here.
+export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged, startNew = 0 }) {
   const [editing, setEditing] = useState(null);
   const [scheduling, setScheduling] = useState(null);   // {} = a new preventive schedule, else the one being edited
+  const [startSeen, setStartSeen] = useState(0);
+  if (startNew && startNew !== startSeen) {
+    setStartSeen(startNew);
+    if (data?.canManage) setScheduling({});
+  }
   const [tagging, setTagging] = useState(false);
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
@@ -277,9 +292,9 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
   const pm = data?.preventive || { open: 0, overdue: 0 };
   const header = data?.canManage || pm.open ? (
     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginRight: 'auto', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-        {pm.open ? <span>{pm.open} preventive ticket{pm.open === 1 ? '' : 's'} open</span> : <span>Preventive tickets are filed by the schedules below.</span>}
-        {pm.overdue > 0 && <StatusLabel label={`${pm.overdue} Overdue`} color="#dc2626" size="sm" />}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginRight: 'auto', fontSize: 13, color: 'var(--text-secondary)' }}>
+        {pm.open ? <span style={{ color: 'var(--text-primary)' }}>{pm.open} preventive ticket{pm.open === 1 ? '' : 's'} open</span> : <span>Preventive tickets are filed by the schedules below.</span>}
+        {pm.overdue > 0 && <span style={{ color: 'hsl(var(--color-red))', fontWeight: 600 }}><span aria-hidden="true" style={{ color: 'var(--text-muted)', fontWeight: 400, marginRight: 8 }}>·</span>{pm.overdue} overdue</span>}
       </div>
       {data?.canManage && (<>
         <button type="button" className="secondary-btn" onClick={() => setTagging(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><QrCode size={14} /> Print Tags</button>
@@ -305,7 +320,9 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
   if (!services.length) {
     return (<>
       {header}
-      <EmptyState>No preventive schedules yet. Add one with New Schedule - every month on the 1st, a set time after each completion, or by a vehicle's or equipment's meter. A resolved ticket added to the maintenance record can also set its Next Service Due.</EmptyState>
+      <EmptyState icon={CalendarClock} title="No preventive schedules yet">
+        Every month on the 1st, a set time after each completion, or by a vehicle's or equipment's meter - each schedule files its own ticket when the work comes due. A resolved ticket added to the maintenance record can also set its Next Service Due.
+      </EmptyState>
       {sheets}
     </>);
   }
@@ -314,23 +331,23 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
     try { await fn(); onChanged(); } catch (e) { setErr(e.message || 'That did not work.'); }
     setBusy('');
   };
-  const th = { textAlign: 'left', padding: '6px 10px', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.03em' };
-  const td = { padding: '8px 10px', fontSize: '0.82rem', color: 'var(--text-primary)', borderTop: '1px solid var(--border-color)' };
+  const th = { textAlign: 'left', padding: '6px 10px', fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' };
+  const td = { padding: '8px 10px', fontSize: 13, color: 'var(--text-primary)', borderTop: '1px solid var(--border-color)' };
   return (<>
     {header}
-    {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: '0.8rem', marginBottom: 8 }}>{err}</div>}
+    {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 8 }}>{err}</div>}
     {services.map((s) => (
-      <div key={s.id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-card)', marginBottom: 12, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '12px 14px' }}>
+      <section key={s.id} aria-label={s.subject} style={{ borderTop: '1px solid var(--border-color)', padding: '16px 0 8px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, paddingBottom: 8 }}>
           <div style={{ flex: '1 1 260px' }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{s.subject}</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 10, fontSize: 13 }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{s.subject}</span>
               <StatusBadge tone={s.active ? 'green' : 'mut'}>{s.active ? (s.kind ? s.scheduleLabel : s.recurrenceLabel) : 'Stopped'}</StatusBadge>
-              {s.openCount > 0 && <StatusLabel label={`${s.openCount} Open`} color="#64748b" size="sm" />}
-              {s.overdueCount > 0 && <StatusLabel label={`${s.overdueCount} Overdue`} color="#dc2626" size="sm" />}
-              {s.attentionLabel && <StatusLabel label={s.attentionLabel} color="#b45309" size="sm" />}
+              {s.openCount > 0 && <span style={{ color: 'var(--text-secondary)' }}>{s.openCount} open</span>}
+              {s.overdueCount > 0 && <span style={{ color: 'hsl(var(--color-red))', fontWeight: 600 }}>{s.overdueCount} overdue</span>}
+              {s.attentionLabel && <span style={{ color: 'hsl(var(--color-orange))', fontWeight: 600 }}>{s.attentionLabel}</span>}
             </div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
               {s.kind ? scheduleLine(s) : <>{s.system} · from {s.parentCodeLabel}{s.active ? ` · Next service ${formatDate(s.nextDue)}` : ''}</>}
               {' · '}Total {formatTotals(s.totals) || '$0.00'}
             </div>
@@ -371,7 +388,7 @@ export function RecurringServicesPanel({ propertyId, data, onOpen, onChanged }) 
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
     ))}
     {editing && <EditScheduleModal propertyId={propertyId} svc={editing} onClose={() => setEditing(null)}
       onSaved={() => { setEditing(null); onChanged(); }} />}

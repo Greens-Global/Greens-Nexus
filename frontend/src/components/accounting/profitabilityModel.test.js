@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { breakdown, canDrill, figureText, orderedRows, pctText, PROFIT_COLUMNS, profitTable } from './profitabilityModel';
+import { breakdown, canDrill, figureText, orderedRows, pctText, PROFIT_COLUMNS, profitTable, totalRow } from './profitabilityModel';
 
 // Profitability (Oct 15): the cells, the accounts behind a figure, and the
 // export table (live totals, except when sub-entity rows would be counted twice).
@@ -58,5 +58,22 @@ describe('profitabilityModel', () => {
     expect(t.rows).toHaveLength(3);
     expect(t.rows[2][0]).toBe('Total');
     expect(t.rows[1][0]).toBe('    Retail (15000-1)');
+  });
+});
+
+describe('totalRow', () => {
+  it('merges the accounts of the root rows by account and keeps the sheet totals', () => {
+    const rows = [
+      { code: 'A', parent: null, current: { noi: 10, accounts: { revenue: [{ account: '40100', title: 'Rent', amount: 100.1 }], opex: [{ account: '60100', title: 'Repairs', amount: 40 }] } } },
+      { code: 'A1', parent: 'A', current: { noi: 5, accounts: { revenue: [{ account: '40100', title: 'Rent', amount: 50 }] } } },
+      { code: 'B', parent: null, current: { noi: 20, accounts: { revenue: [{ account: '40100', title: 'Rent', amount: 0.2 }] } } },
+    ];
+    const t = totalRow(rows, { current: { noi: 30 } }, 'current', 'All Entities');
+    expect(t.entities).toEqual(['A', 'B']);
+    expect(t.current.noi).toBe(30);
+    expect(t.current.accounts.revenue).toEqual([{ account: '40100', title: 'Rent', amount: 100.3 }]);
+    expect(breakdown(t, PROFIT_COLUMNS.find((c) => c.key === 'noi')).map((l) => l.signed)).toEqual([100.3, -40]);
+    // No accounts for the period (the prior year today): nothing to open.
+    expect(totalRow(rows, { prior: { noi: 1 } }, 'prior').current.accounts).toBeUndefined();
   });
 });

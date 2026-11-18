@@ -41,7 +41,7 @@ function Answer({ token, onDone }) {
   return (
     <form onSubmit={send} onPaste={(e) => { const f = pastedFiles(e); if (f.length) { e.preventDefault(); add(f); } }}
       style={{ ...card, display: 'flex', flexDirection: 'column', gap: 10 }} aria-label="Your Answer">
-      <h2 style={{ fontSize: 16, margin: 0 }}>Your Answer</h2>
+      <h2 style={{ fontSize: 15, margin: 0 }}>Your Answer</h2>
       <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} aria-label="Answer"
         placeholder="Write the answer here." style={{ width: '100%', fontFamily: FONT, fontSize: 15, padding: 10, borderRadius: 8, border: '1px solid var(--border-color, #d9d6cc)', boxSizing: 'border-box' }} />
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -132,7 +132,7 @@ export default function PublicOutside({ token }) {
     <div style={{ minHeight: '100dvh', background: 'var(--bg-secondary, #f3f1ec)', color: 'var(--text-primary, #1d1f1a)', fontFamily: FONT, padding: '0 16px calc(28px + env(safe-area-inset-bottom, 0px))' }}>
       <main style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
         <header style={{ padding: '18px 0 4px' }}>
-          <h1 style={{ fontSize: 20, margin: 0 }}>{job}</h1>
+          <h1 style={{ fontSize: 18, margin: 0 }}>{job}</h1>
           {data?.job?.address && <div style={{ fontSize: 13, ...muted }}>{data.job.address}</div>}
           {data?.for && <div style={{ fontSize: 13, ...muted, marginTop: 2 }}>For {data.for}</div>}
         </header>
@@ -141,7 +141,7 @@ export default function PublicOutside({ token }) {
           : data.kind === 'rfi' ? (
             <>
               <section style={{ ...card, display: 'flex', flexDirection: 'column', gap: 8 }} aria-label="The RFI">
-                <h2 style={{ fontSize: 17, margin: 0 }}>{[rfi.number, rfi.subject].filter(Boolean).join(' - ') || 'Request for Information'}</h2>
+                <h2 style={{ fontSize: 18, margin: 0 }}>{[rfi.number, rfi.subject].filter(Boolean).join(' - ') || 'Request for Information'}</h2>
                 {rfi.dueOn && <div style={{ fontSize: 13, ...muted }}>Answer needed by {formatDate(rfi.dueOn, rfi.dueOn)}</div>}
                 <p style={{ fontSize: 15, margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{rfi.question || 'No question text - see the files.'}</p>
                 {rfi.files?.length > 0 && (
@@ -155,7 +155,7 @@ export default function PublicOutside({ token }) {
                 <Answer token={token} onDone={() => { setThanks('Thank you - your answer was sent.'); load(); }} />
               ) : (
                 <section style={{ ...card }} aria-label="The Answer">
-                  <h2 style={{ fontSize: 16, margin: '0 0 6px' }}>Answered{rfi.answeredOn ? ` ${formatDate(rfi.answeredOn, rfi.answeredOn)}` : ''}</h2>
+                  <h2 style={{ fontSize: 15, margin: '0 0 6px' }}>Answered{rfi.answeredOn ? ` ${formatDate(rfi.answeredOn, rfi.answeredOn)}` : ''}</h2>
                   <p style={{ fontSize: 15, margin: 0, whiteSpace: 'pre-wrap' }}>{rfi.answer}</p>
                 </section>
               )}
@@ -163,7 +163,7 @@ export default function PublicOutside({ token }) {
           ) : (
             <>
               <section style={{ ...card }} aria-label="Your Punch List">
-                <h2 style={{ fontSize: 17, margin: '0 0 4px' }}>{data.sub?.name ? `${data.sub.name} - Punch List` : 'Your Punch List'}</h2>
+                <h2 style={{ fontSize: 18, margin: '0 0 4px' }}>{data.sub?.name ? `${data.sub.name} - Punch List` : 'Your Punch List'}</h2>
                 <div style={{ fontSize: 14, ...muted }}>
                   {data.items.length === 0 ? 'Nothing on your list right now.' : open ? `${open} item${open === 1 ? '' : 's'} to finish. Mark each one Done with a photo of the finished work.` : 'Everything on your list is done. Thank you.'}
                 </div>

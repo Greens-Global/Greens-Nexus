@@ -111,7 +111,8 @@ describe('Workday Overview with the Time Clock', () => {
     // Its own line under the week summary, never inside it (the entry point does not wait on the shifts fetch).
     const line = await waitFor(() => { const el = document.querySelector('[data-trail]'); expect(el).toBeTruthy(); return el; });
     expect(line.textContent).toContain('Time off this year:');
-    expect(screen.getByRole('status', { name: 'Week summary' }).textContent).not.toContain('Time off this year');
+    // The summary waits on the shifts fetch, the line does not - find it, never assume it is there yet.
+    expect((await screen.findByRole('status', { name: 'Week summary' })).textContent).not.toContain('Time off this year');
     // The figure is the button's accessible name (the explanation is its title).
     fireEvent.click(await within(line).findByRole('button', { name: '0d' }));
     expect(await screen.findByRole('button', { name: 'Reason: Personal' })).toBeTruthy();

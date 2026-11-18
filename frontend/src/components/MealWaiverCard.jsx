@@ -52,7 +52,7 @@ export default function MealWaiverCard({ email }) {
       <div style={{ flex: 1, minWidth: 220, display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <StatusLabel size="sm" label={label} color={color} />
-          {when && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{when}</span>}
+          {when && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{when}</span>}
           {w.canManage && (w.status === 'none' || w.status === 'revoked') && (
             <button type="button" className="secondary-btn" disabled={busy} onClick={send} style={{ fontSize: 12 }}>Send Waiver to Sign</button>
           )}

@@ -191,7 +191,9 @@ describe('registry, KPI catalog and quick actions', () => {
       expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: null })).toBe(false);   // not known yet = tracked
     }
     // Everything else is for everyone, exempt or not.
-    for (const k of ['my-requests', 'due-back', 'coming-up', 'my-day', 'notes']) expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: true })).toBe(false);
+    for (const k of ['my-requests', 'due-back', 'coming-up', 'my-work', 'notes']) expect(widgetHidden(WIDGETS[k], { timeTrackingExempt: true })).toBe(false);
+    // Action Required is retired (11/13/2026): hidden for everyone, exempt or not.
+    for (const exempt of [true, false, null]) expect(widgetHidden(WIDGETS['my-day'], { timeTrackingExempt: exempt })).toBe(true);
     // The simple tile is a small card, not a column.
     expect(WIDGETS['my-time'].size).toEqual({ w: 3, h: 3 });
   });

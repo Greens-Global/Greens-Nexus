@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 import models
 import perf_feedback as pf
+import perf_kudos_teams as pkt
 import perf_plans as pp
 import performance as perf
 from auth import get_current_user
@@ -121,9 +122,7 @@ def give_kudos(body: KudosIn, user: dict = Depends(get_current_user), db: Sessio
     k = pf.give_kudos(db, user, body.to, body.message, body.value or "")
     row = pf.queue_teams_post(db, k) if body.post_teams else None
     db.commit()
-    if row is not None and background_tasks is not None:
-        from routers.tickets import _deliver_teams_dm
-        background_tasks.add_task(_deliver_teams_dm, row.id)
+    _send_now(background_tasks, row)
     return pf.kudos_out(db, user, k)
 
 
@@ -149,21 +148,34 @@ def kudos_options(to: str = "", user: dict = Depends(get_current_user), db: Sess
     return pf.options(db, user, to)
 
 
+def _send_now(background_tasks, row) -> None:
+    """One delivery attempt right after the response; the sweep owns the rest."""
+    if row is not None and background_tasks is not None:
+        from routers.tickets import _deliver_teams_dm
+        background_tasks.add_task(_deliver_teams_dm, row.id)
+
+
 @router.post("/kudos/{kid}/thanks", status_code=201)
-def thank_kudos(kid: str, body: ThanksIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def thank_kudos(kid: str, body: ThanksIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+                background_tasks: BackgroundTasks = None):
     _me(user)
     k = _locked(db, models.PerfKudos, kid)
-    pf.add_thanks(db, user, k, body.note or "")
+    t = pf.add_thanks(db, user, k, body.note or "")
+    row = pkt.mirror_thanks(db, k, t)   # the clap on the Teams post, as them (11/12/2026)
     db.commit()
+    _send_now(background_tasks, row)
     return pf.kudos_out(db, user, k)
 
 
 @router.delete("/kudos/{kid}/thanks")
-def unthank_kudos(kid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def unthank_kudos(kid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db),
+                  background_tasks: BackgroundTasks = None):
     _me(user)
     k = _locked(db, models.PerfKudos, kid)
-    pf.remove_thanks(db, user, k)
+    taken = pf.remove_thanks(db, user, k)
+    row = pkt.mirror_take_back(db, k, taken)
     db.commit()
+    _send_now(background_tasks, row)
     return pf.kudos_out(db, user, k)
 
 

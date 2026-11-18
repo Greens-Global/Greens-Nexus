@@ -44,7 +44,7 @@ const spacingOnly = (a, b) =>
 function StatusChip({ status }) {
   const c = CHIP[status] || CHIP.skip;
   return (
-    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, background: c.bg, color: c.fg, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, background: c.bg, color: c.fg, whiteSpace: 'nowrap' }}>
       {c.label}
     </span>
   );
@@ -396,7 +396,7 @@ export default function FilingTab({ toastOk, toastErr }) {
       {/* Header row */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
             <FolderInput size={18} /> Filing & Sorting
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, maxWidth: 640 }}>
@@ -423,7 +423,7 @@ export default function FilingTab({ toastOk, toastErr }) {
       </div>
 
       {!status.configured && (
-        <div style={{ padding: 16, borderRadius: 12, background: 'hsla(45, 93%, 47%, 0.1)', fontSize: 13.5 }}>
+        <div style={{ padding: 16, borderRadius: 12, background: 'hsla(45, 93%, 47%, 0.1)', fontSize: 13 }}>
           Egnyte is not connected yet, so there is nothing to scan. Once the Egnyte module is set up this screen works by itself.
         </div>
       )}
@@ -431,12 +431,12 @@ export default function FilingTab({ toastOk, toastErr }) {
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
       {status.configured && (
         <div style={{ flex: '0 0 300px', minWidth: 260, maxWidth: 360, border: '1px solid var(--border-color)', borderRadius: 12, padding: '10px 8px', maxHeight: '72vh', overflowY: 'auto' }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, padding: '2px 6px 6px' }}>Scan These Folders</div>
+          <div style={{ fontSize: 13, fontWeight: 700, padding: '2px 6px 6px' }}>Scan These Folders</div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '0 6px 8px', cursor: 'pointer' }}>
             <input type="checkbox" checked={includeSub} onChange={e => setIncludeSub(e.target.checked)} />
             Include Subfolders
           </label>
-          <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', padding: '0 6px 8px' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '0 6px 8px' }}>
             Tick folders (or click one) and press Scan Now. Nothing ticked scans the #Unsorted staging folders.
             {pickedFolders.size > 0 && (
               <button className="btn-sm" onClick={() => setPickedFolders(new Set())} style={{ marginLeft: 6, fontSize: 11 }}>
@@ -496,7 +496,7 @@ export default function FilingTab({ toastOk, toastErr }) {
               .map(([label, n, color, hint, go]) => (
               <button key={label} type="button" onClick={go} title={hint}
                 style={{ flex: '0 0 auto', minWidth: 130, padding: '10px 16px', border: '1px solid var(--border-color)', borderRadius: 12, background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-                <div style={{ fontSize: 22, fontWeight: 700, color: color || 'inherit' }}>{n}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: color || 'inherit' }}>{n}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{label}</div>
               </button>
             ))}
@@ -504,8 +504,8 @@ export default function FilingTab({ toastOk, toastErr }) {
 
           {/* Filing Queue works the moves; Proposed Names shows what every file should be called */}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className={view === 'queue' ? 'secondary-btn' : 'btn-sm'} onClick={() => setView('queue')} style={{ fontSize: 12.5, padding: '4px 12px' }}>Filing Queue</button>
-            <button className={view === 'names' ? 'secondary-btn' : 'btn-sm'} onClick={() => setView('names')} style={{ fontSize: 12.5, padding: '4px 12px' }}>
+            <button className={view === 'queue' ? 'secondary-btn' : 'btn-sm'} onClick={() => setView('queue')} style={{ fontSize: 13, padding: '4px 12px' }}>Filing Queue</button>
+            <button className={view === 'names' ? 'secondary-btn' : 'btn-sm'} onClick={() => setView('names')} style={{ fontSize: 13, padding: '4px 12px' }}>
               Proposed Names{scan.totals?.unlabeled ? ` (${scan.totals.unlabeled})` : ''}
             </button>
           </div>
@@ -518,7 +518,7 @@ export default function FilingTab({ toastOk, toastErr }) {
             {FILTERS.map(f => (
               <button key={f.key} onClick={() => { setFilter(f.key); setShown(ROW_PAGE); }}
                 className={filter === f.key ? 'secondary-btn' : 'btn-sm'}
-                style={{ fontSize: 12.5, padding: '4px 12px' }}>
+                style={{ fontSize: 13, padding: '4px 12px' }}>
                 {f.label}{f.key !== 'all' ? ` (${scan.counts[f.key] || 0})` : ` (${scan.proposals.length})`}
               </button>
             ))}
@@ -530,7 +530,7 @@ export default function FilingTab({ toastOk, toastErr }) {
             )}
             <input value={query} onChange={e => { setQuery(e.target.value); setShown(ROW_PAGE); }}
               placeholder="Find a file or folder" aria-label="Find a file or folder in the results"
-              style={{ fontSize: 12.5, padding: '5px 10px', border: '1px solid var(--border-color)', borderRadius: 8, minWidth: 200 }} />
+              style={{ fontSize: 13, padding: '5px 10px', border: '1px solid var(--border-color)', borderRadius: 8, minWidth: 200 }} />
             <div style={{ flex: 1 }} />
             {!scanning && (
               <button className="btn-sm" onClick={exportCsv} title="Download this scan as a spreadsheet">
@@ -538,7 +538,7 @@ export default function FilingTab({ toastOk, toastErr }) {
               </button>
             )}
             {applyProgress && (
-              <span role="status" style={{ fontSize: 12.5, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+              <span role="status" style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                 Working: {applyProgress.done} of {applyProgress.total} done
               </span>
             )}
@@ -559,23 +559,23 @@ export default function FilingTab({ toastOk, toastErr }) {
           </div>
 
           {scan.failedRoots?.length > 0 && !scanning && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5, padding: '8px 12px', borderRadius: 10, background: 'hsla(45, 93%, 47%, 0.12)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13, padding: '8px 12px', borderRadius: 10, background: 'hsla(45, 93%, 47%, 0.12)' }}>
               <span>
                 {scan.failedRoots.length} folder{scan.failedRoots.length === 1 ? '' : 's'} could not be read just now - Egnyte was busy. The files above are complete for every other folder.
               </span>
-              <button className="secondary-btn" style={{ fontSize: 12.5 }}
+              <button className="secondary-btn" style={{ fontSize: 13 }}
                 onClick={() => runScan({ roots: scan.failedRoots, merge: true })}>
                 Try Those Again
               </button>
             </div>
           )}
           {scan.missingRoots?.length > 0 && (
-            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
               Not scanned (no access or missing): {scan.missingRoots.join(', ')}
             </div>
           )}
           {scan.truncated && !scanning && (
-            <div style={{ fontSize: 12.5, color: 'hsl(35, 90%, 34%)' }}>
+            <div style={{ fontSize: 13, color: 'hsl(35, 90%, 34%)' }}>
               The scan stopped before reaching every folder (stopped by hand, or past {WALK_FOLDER_CAP.toLocaleString('en-US')} folders / {WALK_FILE_CAP.toLocaleString('en-US')} files). Tick a smaller folder to see the rest.
             </div>
           )}
@@ -627,7 +627,7 @@ export default function FilingTab({ toastOk, toastErr }) {
                         ) : (
                           <div style={{ fontWeight: 600, wordBreak: 'break-word' }}>{p.currentName}</div>
                         )}
-                        <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
                           {p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/'))}
                         </div>
                       </td>
@@ -636,18 +636,18 @@ export default function FilingTab({ toastOk, toastErr }) {
                         {p.destFolder ? (
                           <>
                             <div style={{ wordBreak: 'break-word' }}>{p.newName}</div>
-                            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{p.destFolder}</div>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{p.destFolder}</div>
                           </>
                         ) : (p.newName || p.canonicalName) ? (
                           <>
                             <div style={{ wordBreak: 'break-word' }}>Suggested: {p.newName || p.canonicalName}</div>
-                            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                               {spacingOnly(p.currentName, p.newName || p.canonicalName)
                                 ? 'differs only in spacing - Fix Name puts it right'
                                 : 'no folder yet - use File It'}
                             </div>
                             {p.learnedDest && !r?.ok && (
-                              <div style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', wordBreak: 'break-all' }}>
+                              <div style={{ fontSize: 12, color: 'hsl(var(--color-green))', wordBreak: 'break-all' }}>
                                 Learned: usually filed to {p.learnedDest} ({p.learnedCount}x)
                               </div>
                             )}
@@ -689,9 +689,9 @@ export default function FilingTab({ toastOk, toastErr }) {
             </table>
           </div>
           {rows.length > shown && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--text-secondary)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-secondary)' }}>
               Showing {shown.toLocaleString('en-US')} of {rows.length.toLocaleString('en-US')}
-              <button className="secondary-btn" onClick={() => setShown(s => s + ROW_PAGE)} style={{ fontSize: 12.5 }}>
+              <button className="secondary-btn" onClick={() => setShown(s => s + ROW_PAGE)} style={{ fontSize: 13 }}>
                 Show {Math.min(ROW_PAGE, rows.length - shown)} More
               </button>
             </div>
@@ -703,10 +703,10 @@ export default function FilingTab({ toastOk, toastErr }) {
       {/* Recent filings */}
       {activity?.length > 0 && (
         <div>
-          <div style={{ fontSize: 13.5, fontWeight: 700, margin: '8px 0' }}>Recent Filings</div>
+          <div style={{ fontSize: 13, fontWeight: 700, margin: '8px 0' }}>Recent Filings</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {activity.slice(0, 10).map((a, i) => (
-              <div key={i} style={{ fontSize: 12.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+              <div key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
                 {formatDateTime(a.at)} - {a.by} filed {a.to}
               </div>
             ))}
@@ -793,7 +793,7 @@ function NamesTable({ proposals, results = {}, onFixName, onOpen }) {
                       }}
                       style={{ wordBreak: 'break-word', color: 'inherit' }}>{p.currentName}</a>
                   ) : <div style={{ wordBreak: 'break-word' }}>{p.currentName}</div>}
-                  <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
                     {p.sourcePath.slice(0, p.sourcePath.lastIndexOf('/'))}
                   </div>
                 </td>
@@ -802,7 +802,7 @@ function NamesTable({ proposals, results = {}, onFixName, onOpen }) {
                     ? <span style={{ color: 'var(--text-secondary)' }}>Already right</span>
                     : (shouldBe || <span style={{ color: 'var(--text-secondary)' }}>No date in the name - a person names it</span>)}
                   {!p.labeled && spacingOnly(p.currentName, shouldBe) && (
-                    <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>differs only in spacing</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>differs only in spacing</div>
                   )}
                 </td>
                 <td style={{ padding: '8px 10px' }}>
@@ -824,9 +824,9 @@ function NamesTable({ proposals, results = {}, onFixName, onOpen }) {
       </table>
     </div>
     {sorted.length > shown && (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'var(--text-secondary)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text-secondary)' }}>
         Showing {shown.toLocaleString('en-US')} of {sorted.length.toLocaleString('en-US')}
-        <button className="secondary-btn" onClick={() => setShown(s => s + PAGE)} style={{ fontSize: 12.5 }}>
+        <button className="secondary-btn" onClick={() => setShown(s => s + PAGE)} style={{ fontSize: 13 }}>
           Show {Math.min(PAGE, sorted.length - shown)} More
         </button>
       </div>
@@ -866,7 +866,7 @@ function FileItSheet({ proposal, onClose, onFiled, toastOk, toastErr }) {
   return (
     <Modal title="File This Document" onClose={onClose} width="max(60vw, 640px)">
       <div className="nx-fill" style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
-        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>
           {proposal.sourcePath}
           {proposal.previewUrl && (
             <a href={proposal.previewUrl} target="_blank" rel="noreferrer" style={{ marginLeft: 8, whiteSpace: 'nowrap' }}>
@@ -874,12 +874,12 @@ function FileItSheet({ proposal, onClose, onFiled, toastOk, toastErr }) {
             </a>
           )}
         </div>
-        <label style={{ fontSize: 12.5, fontWeight: 600 }}>
+        <label style={{ fontSize: 13, fontWeight: 600 }}>
           New Name
           <input value={name} onChange={e => setName(e.target.value)}
             style={{ display: 'block', width: '100%', marginTop: 4, fontSize: 13, padding: '8px 10px', border: '1px solid var(--border-color)', borderRadius: 8, boxSizing: 'border-box' }} />
         </label>
-        <div style={{ fontSize: 12.5, fontWeight: 600 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>
           Files To
           {dest
             ? <span style={{ fontWeight: 500, color: 'var(--text-secondary)', wordBreak: 'break-all' }}> - {dest}</span>
@@ -915,7 +915,7 @@ function RulesSheet({ status, onClose, onSaved, toastOk, toastErr }) {
   return (
     <Modal title="Filing Rules" onClose={onClose} width="max(60vw, 560px)">
       <div className="nx-fill" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 18, paddingRight: 4 }}>
-        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
           A class auto-files only after you have checked its destination against the real Egnyte tree and switched it on here. Until then its files appear as Needs Review with the proposed destination shown, so you can verify before trusting it.
         </div>
 
@@ -925,7 +925,7 @@ function RulesSheet({ status, onClose, onSaved, toastOk, toastErr }) {
             Scanned when nothing is ticked in the tree - the staging folders new files land in.
           </div>
           {status.scanRoots.map((root) => (
-            <div key={root} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-color)', fontSize: 12.5 }}>
+            <div key={root} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border-color)', fontSize: 13 }}>
               <span style={{ flex: 1, wordBreak: 'break-all' }}>{root}</span>
               <button className="btn-sm" title="Stop scanning this folder"
                 onClick={() => save({ scanRoots: status.scanRoots.filter(r => r !== root) }, 'Folder removed')}>
@@ -935,7 +935,7 @@ function RulesSheet({ status, onClose, onSaved, toastOk, toastErr }) {
           ))}
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <input value={newRoot} onChange={e => setNewRoot(e.target.value)} placeholder="/Shared/#Entities/Some Entity/#Unsorted"
-              style={{ flex: 1, fontSize: 12.5, padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 8 }} />
+              style={{ flex: 1, fontSize: 13, padding: '6px 10px', border: '1px solid var(--border-color)', borderRadius: 8 }} />
             <button className="secondary-btn" disabled={!newRoot.trim()}
               onClick={() => { save({ scanRoots: [...status.scanRoots, newRoot.trim()] }, 'Folder added'); setNewRoot(''); }}>
               Add
@@ -949,13 +949,13 @@ function RulesSheet({ status, onClose, onSaved, toastOk, toastErr }) {
             <div key={t.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{t.label}</div>
-                {t.dest && <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{t.dest}</div>}
+                {t.dest && <div style={{ fontSize: 12, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{t.dest}</div>}
                 {(t.reviewReason || t.note) && (
-                  <div style={{ fontSize: 11.5, color: 'hsl(35, 90%, 34%)', marginTop: 2 }}>{t.reviewReason || t.note}</div>
+                  <div style={{ fontSize: 12, color: 'hsl(35, 90%, 34%)', marginTop: 2 }}>{t.reviewReason || t.note}</div>
                 )}
               </div>
               {t.reviewAlways ? (
-                <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', whiteSpace: 'nowrap', paddingTop: 2 }}>Human Only</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', paddingTop: 2 }}>Human Only</span>
               ) : (
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, whiteSpace: 'nowrap', cursor: 'pointer' }}>
                   <input type="checkbox" checked={t.confirmed}

@@ -39,8 +39,8 @@ export function AuditHistoryModal({ item, onClose, onOpenItem }) {
       <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column' }}>
         <div style={{ padding:'18px 22px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexShrink:0 }}>
           <div style={{ minWidth:0 }}>
-            <h3 style={{ margin:0, fontSize:16, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name || 'Item History'}</h3>
-            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>Full activity timeline - newest at the bottom</p>
+            <h3 style={{ margin:0, fontSize:15, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name || 'Item History'}</h3>
+            <p style={{ margin:'3px 0 0', fontSize:13, color:'var(--muted)' }}>Full activity timeline - newest at the bottom</p>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4, flexShrink:0 }}><X size={18} /></button>
         </div>
@@ -58,7 +58,7 @@ export function AuditHistoryModal({ item, onClose, onOpenItem }) {
                     </div>
                     <div style={{ paddingBottom:18, flex:1, minWidth:0 }}>
                       <div style={{ fontWeight:700, fontSize:13 }}>{m.verb}</div>
-                      <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>by {nameOf(r.user_email, r.user_name)} · {fmtAuditStamp(r.timestamp)}</div>
+                      <div style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>by {nameOf(r.user_email, r.user_name)} · {fmtAuditStamp(r.timestamp)}</div>
                       {changes ? (
                         changes.length ? (
                           <div style={{ marginTop:6, display:'flex', flexDirection:'column', gap:3 }}>
@@ -69,9 +69,9 @@ export function AuditHistoryModal({ item, onClose, onOpenItem }) {
                                 <span style={{ color: baseline ? 'var(--ink)' : 'hsl(var(--color-green))', fontWeight:600 }}>{auditVal(c.field, c.to, baseline ? 'baseline' : 'to')}</span>
                               </div>
                             ))}
-                            {baseline ? <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>earliest recorded state - changes are tracked from here</div>
-                              : isAdd ? <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>values set when the item was added</div>
-                              : <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>only the fields that changed are shown</div>}
+                            {baseline ? <div style={{ fontSize:11, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>earliest recorded state - changes are tracked from here</div>
+                              : isAdd ? <div style={{ fontSize:11, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>values set when the item was added</div>
+                              : <div style={{ fontSize:11, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>only the fields that changed are shown</div>}
                           </div>
                         ) : <div style={{ fontSize:12, color:'var(--muted)', marginTop:5 }}>No field values changed.</div>
                       ) : (() => {

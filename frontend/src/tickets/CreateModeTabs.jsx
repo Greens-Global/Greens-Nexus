@@ -16,7 +16,7 @@ export default function CreateModeTabs({ active, onChange }) {
         return (
           <button key={key} type="button" role="tab" aria-selected={on} onClick={() => { if (!on) onChange(key); }}
             style={{
-              border: 'none', cursor: on ? 'default' : 'pointer', fontFamily: FONT, fontSize: 13.5, fontWeight: 700,
+              border: 'none', cursor: on ? 'default' : 'pointer', fontFamily: FONT, fontSize: 13, fontWeight: 700,
               padding: '6px 12px', borderRadius: 7, whiteSpace: 'nowrap',
               background: on ? NX.surface : 'transparent', color: on ? NX.ink : NX.dim,
               boxShadow: on ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',

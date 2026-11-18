@@ -47,12 +47,12 @@ export default function KpiCards({ current, previous, previousRange, onSelectMet
                   {isUp ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
                   {deltaText}
                 </span>
-                <span style={{ fontSize: 10, color: C.gray400, whiteSpace: 'nowrap' }}>{prevLabel}</span>
+                <span style={{ fontSize: 11, color: C.gray400, whiteSpace: 'nowrap' }}>{prevLabel}</span>
               </div>
             </div>
             <div style={{ fontSize: 12, color: C.gray500, marginBottom: 4, lineHeight: 1.25 }}>{c.label}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.format(current[c.key])}</span>
+              <span style={{ fontSize: 18, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.format(current[c.key])}</span>
               {c.key === 'reviewRating' && <StarRating value={current[c.key]} size={11} />}
             </div>
           </button>

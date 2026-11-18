@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Comment threads (Oct 2026): grouping, reactions, the reply composer, and
 // the assigned / resolved states.
@@ -84,6 +84,42 @@ describe('CommentThread', () => {
     expect(screen.getByText('Which pump?')).toBeInTheDocument();
     fireEvent.click(screen.getByLabelText('Reopen'));
     expect(base.onResolve).toHaveBeenCalledWith(done, false);
+  });
+});
+
+// A reply or an edit that fails (11/17/2026): the box stays open with the
+// words in it and says so - it used to clear the draft and close.
+describe('CommentThread when a reply or an edit fails', () => {
+  const root = { id: 'rf', authorId: me, body: '<p>Which pump?</p>', createdAt: '2026-10-01T10:00:00Z', reactions: {} };
+  const base = { nameOf, myEmail: me, attachments: new Map(), onPin: vi.fn(), onDelete: vi.fn(), onReact: vi.fn(), onResolve: vi.fn(), onAssign: vi.fn() };
+
+  it('keeps a reply that did not post in the box, with the reason', async () => {
+    const onReply = vi.fn(() => Promise.reject(new Error("Can't reach Nexus right now.")));
+    render(<CommentThread taskId="t-fail-reply" thread={{ root, replies: [] }} {...base} onEdit={vi.fn()} onReply={onReply} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Reply$/ }));
+    fireEvent.change(screen.getByLabelText('rich'), { target: { value: '<p>East pump</p>' } });
+    fireEvent.click(screen.getAllByRole('button', { name: /^Reply$/ }).pop());
+    expect(await screen.findByRole('alert')).toHaveTextContent("Your reply did not post. Can't reach Nexus right now.");
+    expect(screen.getByTestId('reply-composer')).toBeInTheDocument();
+    expect(screen.getByLabelText('rich').value).toBe('<p>East pump</p>');
+    // The button is back, so it can be sent again.
+    expect(screen.getAllByRole('button', { name: /^Reply$/ }).pop()).not.toBeDisabled();
+  });
+
+  it('keeps an edit that was not saved open, and closes it once it saves', async () => {
+    const onEdit = vi.fn()
+      .mockImplementationOnce(() => Promise.reject(new Error('You can only edit your own comments.')))
+      .mockImplementationOnce(() => Promise.resolve());
+    render(<CommentThread taskId="t-fail-edit" thread={{ root, replies: [] }} {...base} onEdit={onEdit} />);
+    fireEvent.click(screen.getByLabelText('Edit'));
+    fireEvent.change(screen.getByLabelText('rich'), { target: { value: '<p>The east pump</p>' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your edit was not saved. You can only edit your own comments.');
+    expect(screen.getByLabelText('rich').value).toBe('<p>The east pump</p>');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.queryByLabelText('rich')).toBeNull());
+    expect(onEdit).toHaveBeenLastCalledWith(root, '<p>The east pump</p>');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
 

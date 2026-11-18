@@ -66,7 +66,9 @@ class _Base(unittest.TestCase):
             for em, (co, role) in PEOPLE.items():
                 db.add(models.NexusEmployee(id=f"e-{em}", first_name=em.split(".")[1].split("@")[0].title(),
                                             last_name="Esc", work_email=em, status="active", deleted_at="",
-                                            company=co, identity_type="guest" if em == GUEST else "internal"))
+                                            company=co, identity_type="guest" if em == GUEST else "internal",
+                                            # A manager acts only within their reporting line (11/12/2026).
+                                            manager_email=AMGR if em == AEMP else ""))
                 db.add(models.NexusRole(email=em, role=role))
             db.add(models.NexusGroup(id=PLAIN, name="Shared Group", allowed_modules="tasks:viewer", company_id=""))
             db.add(models.NexusGroup(id=GRP_A, name="Alpha Group", allowed_modules="tasks:viewer", company_id=COA))
@@ -261,8 +263,13 @@ class GroupTests(_Base):
         self.assertEqual(r.status_code, 403, r.text)
         r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "pfs", "level": "viewer"}]})
         self.assertEqual(r.status_code, 403, r.text)
+        # Owner grant level retired (11/12/2026): deleting a person is Super by TIER, no grant
+        # opens it, so hr is an Administrator's to give; a legacy owner is stored as full.
+        self.assertNotIn("hr", auth.OWNER_ONLY_GRANTS)
+        self.assertNotIn("workflows", auth.OWNER_ONLY_GRANTS)
         r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "hr", "level": "owner"}]})
-        self.assertEqual(r.status_code, 403, "hr:owner deletes people - Super only")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["allowed_modules"], [{"id": "hr", "level": "full"}])
         r = self.client.put(f"/groups/{GRP_A}", json={"allowed_modules": [{"id": "hr", "level": "full"}]})
         self.assertEqual(r.status_code, 200, r.text)
         # A Super Administrator gives company A's group PFS; the Administrator

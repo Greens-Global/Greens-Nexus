@@ -38,10 +38,10 @@ function Editor({ draft, setDraft, canShare, topics, companies, onCancel, onSave
   const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 4, display: 'block' };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <button type="button" onClick={onCancel} style={{ ...btn('ghost'), alignSelf: 'flex-start', padding: '4px 8px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+      <button type="button" onClick={onCancel} style={{ ...btn('ghost'), alignSelf: 'flex-start', padding: '4px 8px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
         <ArrowLeft size={13} /> All Saved Replies
       </button>
-      <div style={{ fontSize: 13.5, fontWeight: 700 }}>{draft.id ? 'Edit Saved Reply' : 'New Saved Reply'}</div>
+      <div style={{ fontSize: 13, fontWeight: 700 }}>{draft.id ? 'Edit Saved Reply' : 'New Saved Reply'}</div>
       <div>
         <label style={label} htmlFor="sr-title">Title</label>
         <input id="sr-title" autoFocus value={draft.title} maxLength={120} onChange={(e) => setDraft({ ...draft, title: e.target.value })}
@@ -68,7 +68,7 @@ function Editor({ draft, setDraft, canShare, topics, companies, onCancel, onSave
                 <button key={lab} type="button" role="radio" aria-checked={on} disabled={off}
                   title={off ? 'Only a ticket supervisor can share a reply with the desk' : undefined}
                   onClick={() => setDraft({ ...draft, shared: val })}
-                  style={{ ...btn(on ? 'primary' : 'outline'), padding: '6px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: off ? 0.5 : 1 }}>
+                  style={{ ...btn(on ? 'primary' : 'outline'), padding: '6px 12px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: off ? 0.5 : 1 }}>
                   <Icon size={13} /> {lab}
                 </button>
               );
@@ -96,7 +96,7 @@ function Editor({ draft, setDraft, canShare, topics, companies, onCancel, onSave
         <RichDescription value={draft.body} onChange={(b) => setDraft({ ...draft, body: b })} minHeight={140}
           mentionPeople={people} placeholder="Hi {requester_first_name}, …" />
       </div>
-      <div style={{ fontSize: 11.5, color: NX.faint, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 12, color: NX.faint, lineHeight: 1.6 }}>
         Placeholders are filled in when the reply is inserted:{' '}
         {PLACEHOLDERS.map((p, i) => (
           <span key={p.key}><code style={{ fontSize: 11 }}>{`{${p.key}}`}</code> ({p.label.toLowerCase()}){i < PLACEHOLDERS.length - 1 ? ', ' : '.'}</span>
@@ -115,7 +115,7 @@ function Editor({ draft, setDraft, canShare, topics, companies, onCancel, onSave
           <Save size={14} /> {saving ? 'Saving…' : 'Save Reply'}
         </button>
         <button type="button" onClick={onCancel} disabled={saving} style={btn('ghost')}>Cancel</button>
-        {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
+        {err && <span style={{ fontSize: 13, color: NX.red, fontWeight: 600 }}>{err}</span>}
       </div>
     </div>
   );
@@ -188,7 +188,7 @@ export default function TicketSavedRepliesSettings({ onChanged }) {
     <div data-testid="saved-replies-settings" style={{ fontFamily: FONT, color: NX.ink, maxWidth: 820 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
         <MessageSquareText size={15} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>Saved Replies</div>
+        <div style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>Saved Replies</div>
         <button type="button" onClick={() => setDraft({ ...BLANK })} style={{ ...btn('primary'), display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Plus size={14} /> New Saved Reply
         </button>
@@ -198,23 +198,23 @@ export default function TicketSavedRepliesSettings({ onChanged }) {
         for that ticket and dropped into your reply to edit, never sent on its own.
         {access.canManageDesk ? '' : ' Shared replies are managed by ticket supervisors.'}
       </div>
-      {loadErr && <div style={{ fontSize: 12.5, color: NX.red, marginBottom: 10 }}>{loadErr}</div>}
+      {loadErr && <div style={{ fontSize: 13, color: NX.red, marginBottom: 10 }}>{loadErr}</div>}
       {groups.map((g) => (
         <div key={g.key} style={{ ...card, padding: 14, marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
             <g.Icon size={13} style={{ color: NX.dim }} />
-            <div style={{ fontSize: 12.5, fontWeight: 700 }}>{g.title}</div>
-            <span style={{ fontSize: 11.5, color: NX.faint }}>{g.rows.length}</span>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{g.title}</div>
+            <span style={{ fontSize: 12, color: NX.faint }}>{g.rows.length}</span>
           </div>
           {g.rows.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: NX.faint }}>
+            <div style={{ fontSize: 13, color: NX.faint }}>
               {g.key === 'shared' ? 'No shared replies yet.' : 'No personal replies yet.'}
             </div>
           ) : g.rows.map((r) => (
             <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: `1px solid ${NX.border2}` }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
-                <div style={{ fontSize: 11.5, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {r.helpTopic ? `${r.helpTopic} · ` : ''}Used {r.useCount || 0} time{(r.useCount || 0) === 1 ? '' : 's'} · {replyText(r.body)}
                 </div>
               </div>

@@ -9,7 +9,7 @@ const dash = {
   period: '2026-09', fromKey: '2026-09', book: 'accrual', scope: 'ALL', reconAccounts: [{ gl_code: '11800', kind: 'bank' }],
   m: (v) => `$${Number(v).toFixed(2)}`, ix: { byCode: new Map([['12000', { name: 'Greens Global, Inc.' }]]) }, act: vi.fn(), invalidate: vi.fn(),
 };
-vi.mock('./DashContext', () => ({ useDash: () => dash }));
+vi.mock('./DashContext', () => ({ useBooksDown: () => false, useDash: () => dash }));
 const RECON = {
   rows: [
     { key: 'gl:1@12000', type: 'Bank', name: 'Operating Checking', ref: 'Greens Global', entityCode: '12000', gl: '1010', thru: null, book: 1200, stmt: 1200, diff: 0, status: 'Behind', source: null, mark: null, nc: false },

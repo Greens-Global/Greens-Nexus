@@ -5,6 +5,8 @@ import { renderNotifBody, destinationFor } from './NotificationBell';
 import { useMsal }          from '@azure/msal-react';
 import { useRole }          from '../contexts/RoleContext';
 import { openNotificationTarget } from '../lib/openTarget';
+import { useIsMobile } from '../lib/useIsMobile';
+import SwipeAway from './SwipeAway';
 
 // Icon + colour per type - must match the sentiment of the event: negative
 // events (rejections, overdue, returns) previously fell through to the green
@@ -41,6 +43,9 @@ export default function NotificationToasts({ onNavigate }) {
   const { notifications, openApproval } = useNotifications();
   const { accounts }      = useMsal();
   const { can }           = useRole();
+  // A touch screen swipes a toast away (phone pass, 11/15/2026).
+  const coarse  = useIsMobile('(pointer: coarse)');
+  const isPhone = useIsMobile();
   const myName  = accounts[0]?.name     ?? '';
   const myEmail = (accounts[0]?.username ?? '').toLowerCase();
 
@@ -144,11 +149,14 @@ export default function NotificationToasts({ onNavigate }) {
   if (popups.length === 0) return null;
 
   return (
-    <div style={{ position: 'fixed', top: 70, right: 16, zIndex: 500, display: 'flex', flexDirection: 'column', gap: 10, width: 320, maxWidth: 'calc(100vw - 32px)' }}>
+    // On a phone (style.css .nx-toasts) the stack spans the screen under the
+    // header instead of a 320px card hanging off the right edge.
+    <div className="nx-toasts" style={{ position: 'fixed', top: 70, right: 16, zIndex: 500, display: 'flex', flexDirection: 'column', gap: 10, width: 320, maxWidth: 'calc(100vw - 32px)' }}>
       {popups.map(n => {
         const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
         return (
-          <div key={n._popupId}
+          <SwipeAway key={n._popupId} enabled={coarse || isPhone} onAway={() => close(n.id)}>
+          <div
             onClick={() => handleClick(n)}
             style={{
               display: 'flex', gap: 10, alignItems: 'flex-start',
@@ -160,15 +168,16 @@ export default function NotificationToasts({ onNavigate }) {
               <meta.icon size={16} color={`hsl(${meta.color})`} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--ink)' }}>{n.title}</div>
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
+              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>{n.title}</div>
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
             </div>
-            <button onClick={e => { e.stopPropagation(); close(n.id); }}
+            <button onClick={e => { e.stopPropagation(); close(n.id); }} className="nx-toast-x"
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, borderRadius: 4, flexShrink: 0 }}
               aria-label="Dismiss">
               <X size={13} />
             </button>
           </div>
+          </SwipeAway>
         );
       })}
     </div>

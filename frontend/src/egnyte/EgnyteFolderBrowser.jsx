@@ -601,11 +601,11 @@ export default function EgnyteFolderBrowser({
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '2px 14px 11px', minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0, flex: '1 1 0' }}>
-            <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--wk-ink)', letterSpacing: '-.01em', maxWidth: 320, ...ELLIPSIS }}>
+            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--wk-ink)', letterSpacing: '-.01em', maxWidth: 320, ...ELLIPSIS }}>
               {path ? crumbs[crumbs.length - 1]?.name : rootLabel}
             </span>
             {!loading && !error && !results && (
-              <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', background: 'var(--wk-hover)', borderRadius: 10, padding: '2px 9px', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--wk-dim)', background: 'var(--wk-hover)', borderRadius: 10, padding: '2px 9px', whiteSpace: 'nowrap' }}>
                 {(data?.folders?.length || 0) + (data?.files?.length || 0)}{data?.hasMore ? '+' : ''} items
               </span>
             )}
@@ -653,7 +653,7 @@ export default function EgnyteFolderBrowser({
 
         {/* Folder description - same field Egnyte shows under the folder name. */}
         {!results && !loading && data?.description && (
-          <div style={{ padding: '0 14px 11px', fontSize: 12.5, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: 760, wordBreak: 'break-word' }}>
+          <div style={{ padding: '0 14px 11px', fontSize: 13, color: 'var(--wk-dim)', lineHeight: 1.5, maxWidth: 760, wordBreak: 'break-word' }}>
             {data.description}
           </div>
         )}
@@ -725,7 +725,7 @@ export default function EgnyteFolderBrowser({
               <MoreVertical size={15} />
             </button>
             {selected.size > 0 && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: 'var(--wk-ink)' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', fontSize: 13, fontWeight: 600, color: 'var(--wk-ink)' }}>
                 {selected.size} selected
                 <button type="button" onClick={() => setSelected(new Set())} title="Clear selection" aria-label="Clear selection"
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-dim)', padding: 4, display: 'inline-flex', borderRadius: 5 }}>
@@ -758,7 +758,7 @@ export default function EgnyteFolderBrowser({
       {rowError && <Notice tone="error" onDismiss={() => setRowError('')}>{rowError}</Notice>}
 
       {bulkBusy && (
-        <div style={{ ...CARD, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 9, fontSize: 12.5, color: 'var(--wk-dim)' }}>
+        <div style={{ ...CARD, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, color: 'var(--wk-dim)' }}>
           <Spinner size={14} /> {bulkBusy}
         </div>
       )}
@@ -790,11 +790,11 @@ export default function EgnyteFolderBrowser({
                   title={!isShortcut(r.name) ? `View ${r.name}` : `Download ${r.name}`}
                   style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: '6px 8px', fontFamily: 'inherit', color: 'var(--wk-ink)' }}
                 >
-                  <span style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                     {downloading === r.path && <Spinner size={13} />}
                     <span style={ELLIPSIS}>{r.name}</span>
                   </span>
-                  <span style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)', ...ELLIPSIS }}>{r.path}</span>
+                  <span style={{ ...BODY, fontSize: 12, color: 'var(--wk-faint)', ...ELLIPSIS }}>{r.path}</span>
                   {r.snippet && (
                     <span style={{ ...BODY, fontSize: 12, color: 'var(--wk-dim)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       {r.snippet}
@@ -841,7 +841,7 @@ export default function EgnyteFolderBrowser({
         )}
       </div>
 
-      <div style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)' }}>
+      <div style={{ ...BODY, fontSize: 12, color: 'var(--wk-faint)' }}>
         Files stay in Egnyte. Nexus reads and writes them in place, so there is never a second copy to keep in sync.
       </div>
     </div>

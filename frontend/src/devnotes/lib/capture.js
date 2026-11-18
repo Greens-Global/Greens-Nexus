@@ -203,19 +203,36 @@ export function recordFor(el) {
 
 // Where the JSX that rendered this element lives. Dev builds stamp every host
 // element with data-nx-src="src/file.jsx:line:col" (scripts/nxsrc-plugin.mjs
-// through vite.config.js); production builds carry none, so this is null there.
+// through vite.config.js); a build without the marks has none, so this is null there.
 // The stamp is "<fileId>:<line>:<col>" on a built app (the file table is
 // /nx-src-files.json, loaded once when the mode turns on) or a full
 // "path:line:col" (tests, a bare Babel run).
 let SOURCE_FILES = null;
-export async function preloadSourceFiles() {
-  if (SOURCE_FILES) return SOURCE_FILES;
-  try {
-    const r = await fetch('/nx-src-files.json', { cache: 'no-store' });
-    const list = r.ok ? await r.json() : [];
-    SOURCE_FILES = Array.isArray(list) ? list : [];
-  } catch { SOURCE_FILES = []; }
-  return SOURCE_FILES;
+let sourceLoad = null;
+// A load that failed (offline, a deploy window) is not kept as "no table":
+// the next call asks again. One failed fetch used to leave every pin of that
+// page load saying "file #12" - no owner, no Where line (11/12/2026).
+export function preloadSourceFiles() {
+  if (SOURCE_FILES) return Promise.resolve(SOURCE_FILES);
+  if (!sourceLoad) {
+    sourceLoad = (async () => {
+      try {
+        const r = await fetch('/nx-src-files.json', { cache: 'no-store' });
+        const list = r.ok ? await r.json() : null;
+        if (Array.isArray(list) && list.length) SOURCE_FILES = list;
+      } catch { /* asked again on the next call */ }
+      sourceLoad = null;
+      return SOURCE_FILES || [];
+    })();
+  }
+  return sourceLoad;
+}
+// A stamp read before the table arrived says "file #12"; once the table is
+// in, this gives it its path. Anything else comes back as it was.
+export function resolveSource(source) {
+  const m = /^file #(\d+)$/.exec(source?.file || '');
+  const file = m ? SOURCE_FILES?.[Number(m[1])] : '';
+  return file ? { ...source, file } : source;
 }
 export function sourceOf(el) {
   const host = el?.closest?.('[data-nx-src]');

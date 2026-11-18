@@ -89,6 +89,43 @@ describe('the task drawer rows', () => {
 // A multi-select field is one dropdown, not every option laid out as a chip
 // (Neil, Oct 15 2026: the Trade list filled the task card). Closed, only the
 // chosen options show in the trigger; open, the rest are a checkbox menu.
+// Leaving a text or number box with nothing changed saves nothing
+// (11/17/2026): the blur used to save the task and tell its people.
+describe('a text or number field left unchanged', () => {
+  const task = { id: 't', projectId: 'p-permits', customFieldValues: { 'f-pts': 3, 'f-x': 'B-204' } };
+  const boxes = () => {
+    const patch = vi.fn();
+    render(<TaskCustomFieldRows task={task} customFields={fields} projectName={(id) => names[id] || ''} patch={patch} />);
+    return { patch, number: screen.getByDisplayValue('3'), text: screen.getByDisplayValue('B-204') };
+  };
+
+  it('a click into and out of the box saves nothing', () => {
+    const { patch, number, text } = boxes();
+    fireEvent.focus(number); fireEvent.blur(number);
+    fireEvent.focus(text); fireEvent.blur(text);
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('the same number typed again saves nothing; a new value saves once', () => {
+    const { patch, number, text } = boxes();
+    fireEvent.change(number, { target: { value: '3' } });
+    fireEvent.blur(number);
+    expect(patch).not.toHaveBeenCalled();
+    fireEvent.change(text, { target: { value: 'B-205' } });
+    fireEvent.blur(text);
+    expect(patch).toHaveBeenCalledTimes(1);
+    expect(patch).toHaveBeenCalledWith({ customFieldValues: { 'f-pts': 3, 'f-x': 'B-205' } });
+  });
+
+  it('an empty box left empty saves nothing', () => {
+    const patch = vi.fn();
+    render(<TaskCustomFieldRows task={{ id: 't2', projectId: '', customFieldValues: {} }} customFields={fields} projectName={() => ''} patch={patch} />);
+    const empty = screen.getByRole('spinbutton');
+    fireEvent.focus(empty); fireEvent.blur(empty);
+    expect(patch).not.toHaveBeenCalled();
+  });
+});
+
 describe('a multi-select field', () => {
   const trade = {
     id: 'f-trade', name: 'Trade', type: 'multiselect', appliesTo: ['task'], projectIds: [],

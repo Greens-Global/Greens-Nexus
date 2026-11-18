@@ -24,7 +24,8 @@ afterEach(() => { cleanup(); window.history.replaceState(null, '', '/'); });
 
 describe('my Time Sheet opened from the briefing', () => {
   it('opens the linked period and drops the link from the address', async () => {
-    window.history.replaceState(null, '', '/timeclock/timesheet?start=2026-10-04&type=hourly');
+    // Review and Submit adds do=submit (11/12/2026) - dropped with the rest.
+    window.history.replaceState(null, '', '/timeclock/timesheet?start=2026-10-04&type=hourly&do=submit');
     const PayrollTimecard = (await import('./PayrollTimecard')).default;
     render(<QueryClientProvider client={new QueryClient()}>
       <PayrollTimecard selfMode toastOk={() => {}} toastErr={() => {}} />

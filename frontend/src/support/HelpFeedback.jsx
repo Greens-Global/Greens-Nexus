@@ -15,7 +15,7 @@ const btn = (on) => ({
   display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 999,
   border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--line)'}`,
   background: on ? 'rgba(43,69,225,0.08)' : 'var(--card)', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--ink)',
-  fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+  fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
 });
 
 /**
@@ -64,15 +64,15 @@ export default function HelpFeedback({ kind = 'guide', targetId = '', title = ''
       {asking && (
         <form style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
           onSubmit={(e) => { e.preventDefault(); send(false, note.trim()); setAsking(false); }}>
-          <label style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+          <label style={{ fontSize: 13, color: 'var(--muted)' }}>
             What was missing? (optional)
             <textarea value={note} onChange={(e) => setNote(e.target.value.slice(0, 1000))} rows={2}
               style={{ display: 'block', width: '100%', marginTop: 4, boxSizing: 'border-box', borderRadius: 8, border: '1px solid var(--line)',
                 background: 'var(--card)', color: 'var(--ink)', padding: '7px 9px', fontFamily: 'inherit', fontSize: 13, resize: 'vertical' }} />
           </label>
           <div style={{ display: 'flex', gap: 6 }}>
-            <button type="submit" className="primary-btn" style={{ padding: '5px 12px', fontSize: 12.5 }}>Send</button>
-            <button type="button" className="secondary-btn" style={{ padding: '5px 12px', fontSize: 12.5 }} onClick={() => setAsking(false)}>Skip</button>
+            <button type="submit" className="primary-btn" style={{ padding: '5px 12px', fontSize: 13 }}>Send</button>
+            <button type="button" className="secondary-btn" style={{ padding: '5px 12px', fontSize: 13 }} onClick={() => setAsking(false)}>Skip</button>
           </div>
         </form>
       )}

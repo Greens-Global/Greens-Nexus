@@ -299,6 +299,23 @@ class JourneyTests(OfferCase):
         self.assertIn("/intake/", r.json()["intakeUrl"])
         self.assertNotIn("packet_not_started", [f["code"] for f in self._ev(offer["id"]).flags])
 
+    def test_an_email_fixed_at_offer_moves_the_offer_letter_out_for_signature(self):
+        """The email stays editable through Offer (11/14/2026): the letter
+        already out follows the corrected address, the old link dead."""
+        eid = self._offer().json()["id"]
+        r = self._verify(eid, self._review(eid))
+        self.assertEqual(r.status_code, 200, r.text)
+        req = self._ev(eid).sign_request_id
+        old_token = self._party(req, CAND).token
+        r = self.client.patch("/hr/candidates/cand-1", json={"email": "Fixed.Address@Gmail.com"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["email"], "fixed.address@gmail.com")
+        self.db.expire_all()
+        self.assertEqual(self._ev(eid).subject_email, "fixed.address@gmail.com")
+        party = self._party(req, "fixed.address@gmail.com")
+        self.assertIsNotNone(party)
+        self.assertNotEqual(party.token, old_token)
+
     def test_one_open_offer_and_no_reject_under_it(self):
         eid = self._offer().json()["id"]
         self.assertEqual(self._offer().status_code, 409)

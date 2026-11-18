@@ -201,7 +201,7 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
 
   // Standard segmented-control option (white active pill on a gray track) -
   // matches every other mode switch in the module.
-  const seg = (active) => ({ borderRadius: 7, padding: '5px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? NX.border : 'transparent'}`, background: active ? NX.surface : 'transparent', color: active ? NX.ink : NX.dim, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' });
+  const seg = (active) => ({ borderRadius: 7, padding: '5px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? NX.border : 'transparent'}`, background: active ? NX.surface : 'transparent', color: active ? NX.ink : NX.dim, boxShadow: active ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' });
 
   const calendar = (
     <div style={{ margin: withPane ? 0 : 16, flex: 1, minWidth: 0, borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, fontFamily: FONT }}>
@@ -221,7 +221,7 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
             <button ref={showRef} onClick={() => setShowOpen((o) => !o)} style={{ ...btn('outline'), fontSize: 12 }}><Sliders size={13} />Show</button>
             <AnchoredMenu anchorRef={showRef} open={showOpen} onClose={() => setShowOpen(false)} align="end" role="dialog"
               style={{ width: 216, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: '6px 0' }}>
-              <div style={{ padding: '4px 12px 6px', fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Show on calendar</div>
+              <div style={{ padding: '4px 12px 6px', fontSize: 13, fontWeight: 600, color: NX.dim }}>Show on calendar</div>
               {Object.keys(KIND_META).map((k) => {
                 const { label, color, Icon } = KIND_META[k]; const on = show[k];
                 return (
@@ -251,7 +251,7 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
       </div>
       {/* Weekday header - tinted band, sentence case (kit calendar grammar) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', borderBottom: `1px solid ${NX.border}`, background: NX.surface2 }}>
-        {WEEKDAYS.map((d) => <div key={d} style={{ padding: '9px 10px', fontSize: 12.5, fontWeight: 600, color: NX.dim }}>{d}</div>)}
+        {WEEKDAYS.map((d) => <div key={d} style={{ padding: '9px 10px', fontSize: 13, fontWeight: 600, color: NX.dim }}>{d}</div>)}
       </div>
       {/* Day grid - minmax(0,1fr): a long title is cut off inside its day
           rather than widening that column (the Unscheduled pane leaves the
@@ -298,7 +298,7 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
                     <PartyPopper size={9} style={{ flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.label}</span>
                   </span>
                 ))}
-                {events.length > cap && <span style={{ padding: '0 4px', fontSize: 10, color: NX.faint }}>+{events.length - cap} more</span>}
+                {events.length > cap && <span style={{ padding: '0 4px', fontSize: 11, color: NX.faint }}>+{events.length - cap} more</span>}
               </div>
             </div>
           );
@@ -315,7 +315,7 @@ export function CalendarView({ tasks, onOpen, onCreate, store = null, lockedProj
                 twin of dropping the chip on the Unscheduled pane. */}
             <DateField value={taskMap[moveFor].dueOn || ''} title="Move To Date"
               onChange={(v) => { const id = moveFor; setMoveAt(null); moveTask(id, v || ''); }}
-              style={{ ...inputStyle, padding: '6px 9px', fontSize: 12.5 }} />
+              style={{ ...inputStyle, padding: '6px 9px', fontSize: 13 }} />
           </div>
         )}
       </AnchoredMenu>
@@ -388,7 +388,7 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
       <span style={{ width: 42, height: 42, borderRadius: 13, background: `${color}1a`, color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon size={19} /></span>
       <span style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <span style={{ fontSize: 13, fontWeight: 500, color: NX.dim }}>{label}</span>
-        <span style={{ fontSize: 26, fontWeight: 700, lineHeight: 1, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
+        <span style={{ fontSize: 24, fontWeight: 700, lineHeight: 1, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
       </span>
     </button>
   );
@@ -412,9 +412,9 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
 
       <Card title="Time tracking - estimate vs actual">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Estimated</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{formatHoursWords(totalEst, { compact: true })}</div></div>
-          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Actual</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{formatHoursWords(totalAct, { compact: true })}</div></div>
-          <div><div style={{ fontSize: 12.5, color: NX.dim }}>Variance</div><div style={{ fontSize: 28, fontWeight: 700, color: variance > 0 ? NX.red : NX.green, fontVariantNumeric: 'tabular-nums' }}>{formatHoursWords(variance, { sign: true, compact: true })}</div></div>
+          <div><div style={{ fontSize: 13, color: NX.dim }}>Estimated</div><div style={{ fontSize: 32, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{formatHoursWords(totalEst, { compact: true })}</div></div>
+          <div><div style={{ fontSize: 13, color: NX.dim }}>Actual</div><div style={{ fontSize: 32, fontWeight: 700, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{formatHoursWords(totalAct, { compact: true })}</div></div>
+          <div><div style={{ fontSize: 13, color: NX.dim }}>Variance</div><div style={{ fontSize: 32, fontWeight: 700, color: variance > 0 ? NX.red : NX.green, fontVariantNumeric: 'tabular-nums' }}>{formatHoursWords(variance, { sign: true, compact: true })}</div></div>
         </div>
       </Card>
 

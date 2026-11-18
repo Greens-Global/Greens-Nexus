@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
+import { dialog } from '../ui/dialog';
 
 // Subtasks in the task drawer (Sagar, Oct 13 2026): a subtask says whose it is
 // under its title, and closing, deleting or completing one goes back to the
@@ -30,6 +31,8 @@ function makeStore() {
 }
 
 const { default: TaskDetailDrawer, CommitNumberInput } = await import('./TaskDetailDrawer');
+const { __resetBackToClose } = await import('../lib/useBackToClose');
+const { useEscapeLayer } = await import('./components');
 
 beforeEach(() => {
   state = makeStore();
@@ -67,13 +70,16 @@ describe('a subtask in the task drawer', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('deleting a subtask lands on the main task, not a closed drawer', () => {
+  it('deleting a subtask lands on the main task, not a closed drawer', async () => {
     const onClose = vi.fn();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // The question is the Nexus dialog now, not the browser's confirm box.
+    const ask = vi.spyOn(dialog, 'confirm').mockResolvedValue(true);
     render(<TaskDetailDrawer taskId="s" onClose={onClose} />);
     fireEvent.click(screen.getByTitle('More Actions'));
     fireEvent.click(screen.getByText('Delete Subtask'));
-    expect(state.deleteTask).toHaveBeenCalledWith('s');
+    await waitFor(() => expect(state.deleteTask).toHaveBeenCalledWith('s'));
+    expect(ask).toHaveBeenCalledWith('Delete subtask "' + sub.title + '"?', expect.objectContaining({ danger: true }));
+    ask.mockRestore();
     expect(onClose).not.toHaveBeenCalled();
     expect(title()).toBe(parent.title);
   });
@@ -538,5 +544,222 @@ describe('Duplicate on a task with no subtasks', () => {
     expect(within(dialog).getByLabelText(/Subtasks/).disabled).toBe(true);
     expect(within(dialog).getByLabelText(/Recurrence/).disabled).toBe(true);
     expect(within(dialog).getByText(/this task does not repeat/)).toBeTruthy();
+  });
+});
+
+
+// Escape leaves the drawer (11/17/2026), the layer on top first; a task that
+// is not there says so; Add Subtask adds once and keeps a refused row.
+describe('Escape in the task drawer', () => {
+  const esc = (target = document.body) => fireEvent.keyDown(target, { key: 'Escape' });
+
+  it('closes a task', () => {
+    const onClose = vi.fn();
+    render(<TaskDetailDrawer taskId="p" onClose={onClose} />);
+    esc();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('on a subtask opened from its main task goes back to the main task', () => {
+    const onClose = vi.fn();
+    render(<TaskDetailDrawer taskId="p" onClose={onClose} />);
+    fireEvent.click(screen.getAllByText(sub.title)[0]);
+    esc();
+    expect(title()).toBe(parent.title);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes an open menu first, then the task', () => {
+    const onClose = vi.fn();
+    render(<TaskDetailDrawer taskId="p" onClose={onClose} />);
+    fireEvent.click(screen.getByTitle('More Actions'));
+    expect(screen.getByText('Duplicate Task')).toBeTruthy();
+    esc();
+    expect(screen.queryByText('Duplicate Task')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    esc();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes an open date calendar first, then the task', () => {
+    const onClose = vi.fn();
+    render(<TaskDetailDrawer taskId="p" onClose={onClose} />);
+    fireEvent.click(screen.getAllByTitle('Set date')[0]);
+    expect(document.querySelector('[data-nx-calendar]')).toBeTruthy();
+    esc();
+    expect(document.querySelector('[data-nx-calendar]')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    esc();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('a dialog opened from the task takes Escape, the task stays', () => {
+    const onClose = vi.fn();
+    render(<TaskDetailDrawer taskId="p" onClose={onClose} />);
+    fireEvent.click(screen.getByTitle('More Actions'));
+    fireEvent.click(screen.getByText('Duplicate Task'));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    esc();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(title()).toBe(parent.title);
+  });
+
+  it('is the drawer\'s alone when it is open over another layer (the ticket desk\'s side pane)', () => {
+    // The desk's pane closes on Escape too: one Escape used to close both.
+    const under = vi.fn();
+    const onClose = vi.fn();
+    function Under() { useEscapeLayer(under); return null; }
+    render(<><Under /><TaskDetailDrawer taskId="p" onClose={onClose} /></>);
+    esc();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(under).not.toHaveBeenCalled();
+  });
+
+  it('typed in a box outside the drawer is not the drawer\'s', () => {
+    const onClose = vi.fn();
+    render(<TaskDetailDrawer taskId="p" onClose={onClose} />);
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    esc(outside);
+    outside.remove();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('with words unsent asks first, as Close does', async () => {
+    const onClose = vi.fn();
+    render(<TaskDetailDrawer taskId="p" onClose={onClose} />);
+    fireEvent.change(screen.getByPlaceholderText('Add subtask'), { target: { value: 'Half typed' } });
+    esc();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText('Unsaved Subtask')).toBeTruthy();
+    // Escape on the question is Keep Editing.
+    esc();
+    expect(screen.queryByText('Unsaved Subtask')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByPlaceholderText('Add subtask'), { target: { value: '' } });
+  });
+});
+
+describe('a task that is not there', () => {
+  it('says so, with a way out, once the server has been asked', async () => {
+    const onClose = vi.fn();
+    state.refetchTasks = vi.fn(() => Promise.resolve());
+    render(<TaskDetailDrawer taskId="gone" onClose={onClose} />);
+    // Asked before it says anything: the opening screen, not a dead click.
+    expect(screen.getByText('Opening task…')).toBeTruthy();
+    expect(await screen.findByTestId('task-not-found')).toBeTruthy();
+    expect(state.refetchTasks).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert').textContent).toContain('not in your list any more');
+    fireEvent.click(within(screen.getByTestId('task-not-found')).getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens when the server knew it after all (made a moment ago)', async () => {
+    const fresh = { ...parent, id: 'new', title: 'Made a moment ago', subtaskIds: [] };
+    let rerender;
+    state.refetchTasks = vi.fn(async () => {
+      state = { ...state, tasks: [...state.tasks, fresh], taskById: { ...state.taskById, new: fresh } };
+    });
+    ({ rerender } = render(<TaskDetailDrawer taskId="new" onClose={() => {}} />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    rerender(<TaskDetailDrawer taskId="new" onClose={() => {}} />);
+    expect(screen.queryByTestId('task-not-found')).toBeNull();
+    expect(screen.getAllByRole('textbox').some((el) => el.value === 'Made a moment ago')).toBe(true);
+  });
+
+  it('keeps saying it is opening while the tasks are still arriving', async () => {
+    state = { ...state, loading: true };
+    render(<TaskDetailDrawer taskId="gone" onClose={() => {}} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText('Opening task…')).toBeTruthy();
+    expect(screen.queryByTestId('task-not-found')).toBeNull();
+  });
+
+  it('Escape closes the message', async () => {
+    const onClose = vi.fn();
+    render(<TaskDetailDrawer taskId="gone" onClose={onClose} />);
+    await screen.findByTestId('task-not-found');
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Add Subtask', () => {
+  const box = () => screen.getByPlaceholderText('Add subtask');
+  const addRow = () => screen.getByTestId('subtask-add');
+
+  it('adds once: Enter twice, or Enter then Add, while the first is on its way', async () => {
+    let finish;
+    state.createTask = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    fireEvent.change(box(), { target: { value: 'Order the parts' } });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    fireEvent.click(within(addRow()).getByRole('button', { name: /Add/ }));
+    expect(state.createTask).toHaveBeenCalledTimes(1);
+    expect(within(addRow()).getByRole('button', { name: 'Adding…' })).toBeDisabled();
+    await act(async () => { finish({}); });
+    expect(box().value).toBe('');
+    expect(within(addRow()).getByRole('button', { name: 'Add' })).not.toBeDisabled();
+  });
+
+  it('keeps the row when the subtask was not added, and says so', async () => {
+    state.createTask = vi.fn(() => Promise.reject(new Error("Can't reach Nexus right now.")));
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    fireEvent.change(box(), { target: { value: 'Order the parts' } });
+    await act(async () => { fireEvent.keyDown(box(), { key: 'Enter' }); });
+    expect(box().value).toBe('Order the parts');
+    expect(screen.getByRole('alert').textContent).toBe("The subtask was not added. Can't reach Nexus right now.");
+    expect(window.alert).not.toHaveBeenCalled();
+    // And it can be sent again.
+    state.createTask.mockImplementation(() => Promise.resolve({}));
+    await act(async () => { fireEvent.keyDown(box(), { key: 'Enter' }); });
+    expect(state.createTask).toHaveBeenCalledTimes(2);
+    expect(box().value).toBe('');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+// The phone's Back button closes the task, not the screen (11/17/2026).
+describe('Back on a phone with a task open', () => {
+  // jsdom runs back() / go() asynchronously.
+  const settle = () => act(() => new Promise((r) => setTimeout(r, 30)));
+  let appPop;
+  beforeEach(async () => {
+    await settle();
+    __resetBackToClose();
+    globalThis.matchMedia = (q) => ({
+      matches: q.includes('max-width: 640px'), media: q, onchange: null,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
+    });
+    window.history.replaceState({ depth: 1, fromLabel: 'Home' }, '', '/tasks/mine');
+    // Stand-in for App.jsx's listener: it must not hear a Back that only closed the task.
+    appPop = vi.fn();
+    window.addEventListener('popstate', appPop);
+    return () => window.removeEventListener('popstate', appPop);
+  });
+
+  it('closes the task and stays on the list', async () => {
+    const onClose = vi.fn();
+    render(<TaskDetailDrawer taskId="p" onClose={onClose} />);
+    expect(window.history.state.nxSheet).toBeTruthy();
+    await act(async () => { window.history.back(); });
+    await settle();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe('/tasks/mine');
+    expect(appPop).not.toHaveBeenCalled();
+  });
+
+  it('on a subtask opened from its main task goes back to the main task', async () => {
+    const onClose = vi.fn();
+    render(<TaskDetailDrawer taskId="p" onClose={onClose} />);
+    fireEvent.click(screen.getAllByText(sub.title)[0]);
+    expect(title()).toBe(sub.title);
+    await act(async () => { window.history.back(); });
+    await settle();
+    expect(title()).toBe(parent.title);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(appPop).not.toHaveBeenCalled();
   });
 });

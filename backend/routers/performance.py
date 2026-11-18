@@ -1031,6 +1031,7 @@ class SettingsIn(BaseModel):
 def _settings_payload(db: Session, user: dict, company: str) -> dict:
     reach = perf.hr_reach(db, user)
     cfg = perf.settings_for_company(db, company)
+    cfg["kudosTeams"] = perf.kudos_teams_target(db, company)   # the effective place, the old chat id included
     return {"settings": cfg, "company": company, "override": scoped_settings.has_override(db, perf.SETTINGS_KEY, company),
             "canEdit": reach is None or (bool(company) and reach is not False and company in reach),
             "canEditDefault": reach is None, "companies": perf.companies_out(db, reach) if reach is not False else []}
@@ -1057,8 +1058,12 @@ def save_settings(body: SettingsIn, user: dict = Depends(get_current_user), db: 
     if reach is False or (not cid and reach is not None) or (cid and not perf.hr_for(db, user, cid)):
         raise HTTPException(403, "Only HR for every company can change the default." if not cid
                             else "Only HR for this company can change its settings.")
-    if "kudosTeamsChatId" in (body.settings or {}) and not auth.is_global_admin(user, db):
-        raise HTTPException(403, "Only a Super Administrator sets the kudos Teams chat.")
+    if ("kudosTeamsChatId" in (body.settings or {}) or "kudosTeams" in (body.settings or {})) \
+            and not auth.is_global_admin(user, db):
+        raise HTTPException(403, "Only a Super Administrator sets where kudos post in Teams.")
+    if "kudosTeams" in (body.settings or {}):
+        # The picker replaces the chat id typed before it, at this layer.
+        body.settings = {**body.settings, "kudosTeamsChatId": ""}
     if body.reset and cid:
         scoped_settings.reset(db, perf.SETTINGS_KEY, cid)
     else:

@@ -96,7 +96,10 @@ describe('the dashboard header chip', () => {
     // A button hides its children from a screen reader: the name carries the track.
     expect(chip.getAttribute('aria-label')).toBe("Clocked In · 3:44 - 4h 16m left in today's shift");
     expect(screen.getByRole('button', { name: "Clocked In · 3:44 - 4h 16m left in today's shift" })).toBe(chip);
-    expect(chip.textContent).toBe('Clocked In · 3:44');
+    // "Clocked In" on a computer, "Working" on a phone (style.css picks one).
+    expect(chip.querySelector('.dk-session-word').textContent).toBe('Clocked In');
+    expect(chip.querySelector('.dk-session-short').textContent).toBe('Working');
+    expect(chip.textContent).toBe('Clocked InWorking · 3:44');
   });
 
   it('done: green; no shift: no track and the plain title', () => {
@@ -108,6 +111,7 @@ describe('the dashboard header chip', () => {
     const chip = screen.getByRole('button');
     expect(chip.querySelector('.nx-track')).toBeNull();
     expect(chip.getAttribute('title')).toBe('Open Time Clock');
-    expect(chip.hasAttribute('aria-label')).toBe(false);   // its own words name it, as before
+    // Named in full: a phone shows the shorter "Working · 7:30" (11/14/2026).
+    expect(chip.getAttribute('aria-label')).toMatch(/^Clocked In · /);
   });
 });

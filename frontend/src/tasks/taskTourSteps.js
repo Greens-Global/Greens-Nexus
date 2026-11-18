@@ -26,10 +26,15 @@
 export function buildTaskTourSteps({ go, canManage, isMobile }) {
   const steps = [
     {
-      target: 'task-tabs',
+      // A phone has no tab strip here - the tabs are the bar at the bottom -
+      // so the card stands in the middle instead of pointing at an empty box
+      // (phone review, 11/13/2026).
+      target: isMobile ? null : 'task-tabs',
       before: () => go('home'),
       title: 'Five tabs, and that is the whole module',
-      body: 'Your work is in Tasks. Work is grouped into Projects, projects into Portfolios, and people into Teams. Home is a dashboard you arrange yourself.',
+      body: isMobile
+        ? 'The five tabs are in the bar at the bottom. Your work is in Tasks. Work is grouped into Projects, projects into Portfolios, and people into Teams. Home is a dashboard you arrange yourself.'
+        : 'Your work is in Tasks. Work is grouped into Projects, projects into Portfolios, and people into Teams. Home is a dashboard you arrange yourself.',
     },
     {
       target: 'task-screen-home',

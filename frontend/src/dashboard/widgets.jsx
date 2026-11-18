@@ -19,12 +19,11 @@ import { setPendingOpen } from '../lib/pendingOpen';
 import { LinkIcon } from '../components/LinkIcon.jsx';
 import { useNotifications } from '../contexts/NotificationContext.jsx';
 import { useRole } from '../contexts/RoleContext';
-import Refresher from '../kb/training/Refresher';   // Refresher (Neil, 11/07/2026): spaced repetition from the courses you passed
 import { readIds, pushRecentId } from '../links/shortcutStorage';
 import { looksLikeUrl } from '../links/personalLinkModal.jsx';
 import { ModalLoading, CountSkeleton } from '../components/AsyncState';
 import { useBellLists } from '../lib/notificationCounts';
-import { MoreRow, WidgetSkeleton } from './listParts.jsx';
+import { MoreRow, WidgetSkeleton, WidgetError } from './listParts.jsx';
 import { colorForLinkCategory, PERSONAL_TILE_COLOR, useFavoriteLinks, openFavorite, FavoriteTileGrid } from './favoriteLinks.jsx';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
@@ -36,6 +35,9 @@ const lazyPanel = (name) => lazy(() => import('./panels.jsx').then(m => ({ defau
 const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
 // Weather (Sep 29) loads with the first Weather tile, not with every dashboard.
 const WeatherWidget = lazy(() => import('./weatherWidget.jsx'));
+// Refresher (Neil, 11/07/2026): three questions a day from the courses this
+// person passed - lazy, so kb.css (its styles) loads only with the tile.
+const RefresherWidget = lazy(() => import('./refresherWidget.jsx'));
 // The one-tap Punch tile (Oct 11) brings the whole punch stack (gates, the
 // durable queue, geolocation, agent pairing) - loaded only when a board has one.
 const PunchTile = lazy(() => import('./essentials/PunchTile.jsx'));
@@ -62,7 +64,6 @@ const PendingPurchasesWidget = lazyTeam('PendingPurchasesWidget');
 
 // Essentials (Oct 7) - one file per tile so each is its own chunk and loads
 // only when that tile is on the board.
-const MyDayWidget         = lazy(() => import('./essentials/MyDay.jsx'));
 const MyWorkWidget        = lazy(() => import('./essentials/MyWork.jsx'));
 const MyTimeWidget        = lazy(() => import('./essentials/MyTime.jsx'));
 const AnnouncementsWidget = lazy(() => import('./essentials/Announcements.jsx'));
@@ -149,7 +150,9 @@ export function DashCard({ title, sub, action, children, onClick, style }) {
 // Stat tile - the DeskHome dk-stat anatomy (tinted icon chip top-left, hover
 // arrow top-right, big tabular numeral) so Home and the custom grid read as
 // ONE design world. The old corner watercolor blob is gone on purpose.
-function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onClick, tip, noted }) {
+// `failed`: the count did not load - a hyphen and "Couldn't load", never a
+// 0 or a placeholder that stays forever; `onRetry` reads the counts again.
+function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onClick, tip, noted, failed, onRetry }) {
   const go = onClick || (() => nav && navigate(nav.view, nav.sub));
   const clickable = !!(onClick || nav);
   const I = Icon || BarChart3;
@@ -157,15 +160,20 @@ function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onCli
     // dk-stat--tile: the grid's fixed-height cell (style.css) - the label
     // keeps to one line and the hint drops out when the tile is too short
     // for it, instead of the chip and hint spilling past the card's edges.
-    <div className={`dk-stat dk-stat--tile${hero ? ' dk-stat--hero' : ''}${noted ? ' dk-stat--noted' : ''}`} onClick={clickable ? go : undefined} role={clickable ? 'button' : undefined} title={tip || (hint ? `${label} - ${hint}` : label)}
+    <div className={`dk-stat dk-stat--tile${hero ? ' dk-stat--hero' : ''}${noted || failed ? ' dk-stat--noted' : ''}`} onClick={clickable ? go : undefined} role={clickable ? 'button' : undefined} title={tip || (hint ? `${label} - ${hint}` : label)}
       style={{ height: '100%', boxSizing: 'border-box', cursor: clickable ? 'pointer' : 'default', justifyContent: 'center' }}>
       <span className="dk-stat-top">
         <span className={`dk-chip dk-chip--${color}`}><I /></span>
         {clickable && <ArrowUpRight size={15} className="dk-stat-arrow" />}
       </span>
-      <span className="dk-stat-num">{value ?? <CountSkeleton />}</span>
+      <span className="dk-stat-num">{failed ? '-' : (value ?? <CountSkeleton />)}</span>
       <span className="dk-stat-label">{label}</span>
-      {hint && <span className="dk-stat-sub">{hintShort
+      {failed ? (
+        <span className="dk-stat-sub" role="alert" style={hero ? undefined : { color: 'hsl(var(--color-red))' }}>
+          Couldn't load.{onRetry && <> <button type="button" className="link-btn" style={{ marginTop: 0, padding: 0, fontSize: 12, color: 'inherit', textDecoration: 'underline' }}
+            onClick={(e) => { e.stopPropagation(); onRetry(); }}>Try Again</button></>}
+        </span>
+      ) : hint && <span className="dk-stat-sub">{hintShort
         ? <><span className="dk-sub-long">{hint}</span><span className="dk-sub-short">{hintShort}</span></>
         : hint}</span>}
     </div>
@@ -198,7 +206,12 @@ function useKpiValue(metric, kpis) {
   return kpis ? (kpis[metric] ?? 0) : null;
 }
 
-function KpiWidget({ config, kpis }) {
+// Did this metric's read fail? `err` is useDashboards' kpisError ({ kpis,
+// signatures }). The bell's count is never the server's, so it cannot.
+const kpiFailed = (metric, err) => !!err && (metric === 'signatures_needed' ? !!err.signatures
+  : metric !== 'unread_notifications' && !!err.kpis);
+
+function KpiWidget({ config, kpis, kpisError, reloadKpis }) {
   const { openPanel } = useNotifications();
   const metric = config?.metric;
   const value = useKpiValue(metric, kpis);
@@ -208,23 +221,25 @@ function KpiWidget({ config, kpis }) {
   const foot = FOOTNOTES[metric];
   const note = foot ? foot.note(kpis) : null;
   return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={note || meta.hint} hintShort={note ? foot.note(kpis, true) : undefined} hero={!!config?.hero} onClick={onClick}
-    tip={foot ? `${meta.label} - ${foot.rule}${note ? `. ${note}` : ''}` : undefined} noted={!!note} />;
+    tip={foot ? `${meta.label} - ${foot.rule}${note ? `. ${note}` : ''}` : undefined} noted={!!note}
+    failed={kpiFailed(metric, kpisError)} onRetry={reloadKpis} />;
 }
 
-function TeamStatWidget({ config, kpis }) {
+function TeamStatWidget({ config, kpis, kpisError, reloadKpis }) {
   const { openPanel } = useNotifications();
   const meta = KPI_CATALOG[config?.metric] || { label: config?.metric, color: 'green', Icon: Users };
   const onClick = config?.metric === 'unread_notifications' ? openPanel : undefined;
   const value = useKpiValue(config?.metric, kpis);
-  return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} onClick={onClick} />;
+  return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} onClick={onClick}
+    failed={kpiFailed(config?.metric, kpisError)} onRetry={reloadKpis} />;
 }
 
-function KpiBarWidget({ config, kpis }) {
+function KpiBarWidget({ config, kpis, kpisError, reloadKpis }) {
   const { openPanel } = useNotifications();
   const metrics = config?.metrics?.length ? config.metrics
     : ['open_tasks', 'pending_requisitions', 'my_checkouts', 'warranties_expiring'];
   const { unread } = useBellLists();
-  const rows = metrics.map(m => ({ m, v: m === 'unread_notifications' ? unread : (kpis ? (kpis[m] ?? 0) : null), meta: KPI_CATALOG[m] || { label: m, color: 'blue' } }));
+  const rows = metrics.map(m => ({ m, failed: kpiFailed(m, kpisError), v: m === 'unread_notifications' ? unread : (kpis ? (kpis[m] ?? 0) : null), meta: KPI_CATALOG[m] || { label: m, color: 'blue' } }));
   const max = Math.max(1, ...rows.map(r => r.v || 0));
   const clickFor = (r) => r.m === 'unread_notifications' ? openPanel : (r.meta.nav && (() => navigate(r.meta.nav.view, r.meta.nav.sub)));
   return (
@@ -238,9 +253,9 @@ function KpiBarWidget({ config, kpis }) {
           const onClick = clickFor(r);
           return (
           <div key={r.m} onClick={onClick || undefined} style={{ cursor: onClick ? 'pointer' : 'default' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12.5, marginBottom: 3 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, marginBottom: 3 }}>
               <span style={{ color: 'var(--muted)', fontWeight: 600, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.meta.label}>{r.meta.label}</span>
-              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.v ?? <CountSkeleton />}</strong>
+              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.failed ? '-' : (r.v ?? <CountSkeleton />)}</strong>
             </div>
             <div style={{ height: 7, background: 'var(--mist)', borderRadius: 99, overflow: 'hidden' }}>
               <div style={{ width: `${((r.v || 0) / max) * 100}%`, height: '100%', background: C(r.meta.color), borderRadius: 99 }} />
@@ -248,13 +263,16 @@ function KpiBarWidget({ config, kpis }) {
           </div>
           );
         })}
+        {rows.some(r => r.failed) && <WidgetError message="Couldn't load these counts." onRetry={reloadKpis} />}
       </div>
     </DashCard>
   );
 }
 
-function ShortcutWidget({ config }) {
-  const t = config || SHORTCUT_TARGETS[0];
+function ShortcutWidget({ config, size }) {
+  // A tile with no target picked yet (an empty config) opens the first one
+  // rather than drawing a bare chip with no name.
+  const t = config?.view ? config : SHORTCUT_TARGETS[0];
   // Saved configs carry only { view, sub, label } - the icon and color come
   // from the catalog entry they point at; an unknown target keeps the old look.
   const known = targetFor(t);
@@ -264,6 +282,17 @@ function ShortcutWidget({ config }) {
     // sc-tile (style.css): a short cell drops the "Open" line and shrinks the
     // chip, and the name keeps to two lines, so a long target ("Item
     // Management · Browse Catalog") never spills out of a half-width tile.
+    // One row tall (a lone tile on a phone): the chip, the name and an arrow
+    // on one line.
+    (size?.h ?? 2) <= 1 ? (
+      <div className="dash-card sc-tile sc-tile--row" role="link" tabIndex={0} onClick={() => navigate(t.view, t.sub)} title={labelFor(t)}
+        onKeyDown={(e) => { if (e.key === 'Enter') navigate(t.view, t.sub); }}
+        style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer', overflow: 'hidden' }}>
+        <span className={`dk-chip dk-chip--${color}`}><Icon size={17} /></span>
+        <div className="sc-tile-name" style={{ flex: 1, minWidth: 0, WebkitLineClamp: 1 }}>{labelFor(t)}</div>
+        <ArrowRight size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} aria-hidden="true" />
+      </div>
+    ) : (
     <div className="dash-card sc-tile" onClick={() => navigate(t.view, t.sub)} title={labelFor(t)}
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', cursor: 'pointer', overflow: 'hidden' }}>
       <span className={`dk-chip dk-chip--${color} sc-tile-chip`}>
@@ -272,13 +301,14 @@ function ShortcutWidget({ config }) {
       <div className="sc-tile-name">{labelFor(t)}</div>
       <div className="sc-tile-open">Open <ArrowRight size={12} /></div>
     </div>
+    )
   );
 }
 
 function LinkRow({ t, onClick }) {
   return (
     <button onClick={onClick} className="dash-link-row"
-      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 8px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontSize: 13.5, color: 'var(--ink)', fontFamily: 'var(--wk-font)', width: '100%' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 8px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--wk-font)', width: '100%' }}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
       onMouseLeave={e => e.currentTarget.style.background = 'none'}>
       <ArrowRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} /> {labelFor(t)}
@@ -386,6 +416,7 @@ const LINKS_FOLDER_PREVIEW_COUNT = 3;
 function LinksFolderWidget({ config }) {
   const [state, setState] = useState({ loading: true, folder: null, links: [] });
   const [showAll, setShowAll] = useState(false);
+  const [tries, setTries] = useState(0);   // Try Again after a failed load
   useEffect(() => {
     let alive = true;
     if (!config?.folderId) { setState({ loading: false, folder: null, links: [] }); return undefined; }
@@ -403,9 +434,10 @@ function LinksFolderWidget({ config }) {
         .map(i => byId.get(i.item_id))
         .filter(Boolean);
       setState({ loading: false, folder, links });
-    }).catch(() => { if (alive) setState({ loading: false, folder: null, links: [] }); });
+      // A failed load is said: it used to read "This folder no longer exists".
+    }).catch(() => { if (alive) setState({ loading: false, folder: null, links: [], error: true }); });
     return () => { alive = false; };
-  }, [config?.folderId, config?.itemType]);
+  }, [config?.folderId, config?.itemType, tries]);
 
   const open = (link) => {
     window.open(link.url, '_blank', 'noopener,noreferrer');
@@ -415,7 +447,7 @@ function LinksFolderWidget({ config }) {
   if (!config?.folderId) {
     return (
       <DashCard title="Links Folder">
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: 'var(--dash-empty-pad, 24px 8px)', textAlign: 'center', lineHeight: 1.5 }}>
           No folder picked yet - Customize, then use the gear on this tile to choose one.
         </div>
       </DashCard>
@@ -428,12 +460,14 @@ function LinksFolderWidget({ config }) {
       action={<FolderOpen size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
         <WidgetSkeleton />
+      ) : state.error ? (
+        <WidgetError message="Couldn't load this folder." onRetry={() => { setState(s => ({ ...s, loading: true })); setTries(n => n + 1); }} />
       ) : !state.folder ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: 'var(--dash-empty-pad, 24px 8px)', textAlign: 'center', lineHeight: 1.5 }}>
           This folder no longer exists - edit this tile to pick a different one.
         </div>
       ) : state.links.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>This folder is empty.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: 'var(--dash-empty-pad, 24px 4px)', textAlign: 'center' }}>This folder is empty.</div>
       ) : (
         // Grid (not the shared .app-grid flex-wrap) so a handful of tiles
         // stretch to fill the card's full width instead of hugging the left
@@ -472,7 +506,7 @@ function LinksFolderWidget({ config }) {
 // Both reuse the Links Folder tile and its "All" popup above, so a link looks
 // the same whether it's opened from the Links tab or from the dashboard.
 
-const noteStyle = { fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
+const noteStyle = { fontSize: 13, color: 'var(--muted)', padding: 'var(--dash-empty-pad, 24px 8px)', textAlign: 'center', lineHeight: 1.5 };
 const tileGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(76px, 1fr))', gap: '14px 10px' };
 
 // Open a link in a new tab and record the click the same way the Links tab
@@ -588,13 +622,15 @@ function PersonalLinksWidget() {
   const [showAll, setShowAll] = useState(false);
   const [composer, setComposer] = useState(null); // { initialUrl }
   const [note, setNote] = useState('');
+  const [tries, setTries] = useState(0);   // Try Again after a failed load
   useEffect(() => {
     let alive = true;
     api.getPersonalLinks()
       .then(p => { if (alive) setState({ loading: false, links: sortPersonalLinks(p || []) }); })
-      .catch(() => { if (alive) setState({ loading: false, links: [] }); });
+      // A failed load is said: it used to read as no links at all.
+      .catch(() => { if (alive) setState({ loading: false, links: [], error: true }); });
     return () => { alive = false; };
-  }, []);
+  }, [tries]);
   const closeComposer = (res) => {
     setComposer(null);
     if (res?.created) setState(s => ({ ...s, links: sortPersonalLinks([...s.links, res.created]) }));
@@ -619,6 +655,8 @@ function PersonalLinksWidget() {
         action={<Lock size={15} style={{ color: 'var(--muted)' }} />}>
         {state.loading ? (
           <WidgetSkeleton />
+        ) : state.error ? (
+          <WidgetError message="Couldn't load your links." onRetry={() => { setState(s => ({ ...s, loading: true })); setTries(n => n + 1); }} />
         ) : (
           <>
             <LinkTileGrid links={state.links} colorFor={() => PERSONAL_TILE_COLOR} onOpen={open}
@@ -670,7 +708,7 @@ export const QUICK_ACTIONS = [
   { key: 'checkout-item', label: 'Check Out an Item', view: 'inventory', sub: 'borrow',    color: 'orange', Icon: HandCoins },
   { key: 'my-shifts',     label: 'My Shifts',         view: 'myhr', sub: 'shifts',            color: 'green',  Icon: CalendarDays },
   { key: 'briefing',      label: 'My Briefing',       view: 'briefing',                       color: 'brand',  Icon: Sun },
-  { key: 'credvault',     label: 'Credentials',       view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
+  { key: 'credvault',     label: 'Passwords',         view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
   // Fill a Form (Forms & Checklists, Neil 11/02/2026): Workday's form picker -
   // the same place the + menu's Fill a Form goes (lib/quickCreate.js).
   { key: 'fill-form',     label: 'Fill a Form',       view: 'timeclock', sub: 'form:pick',     color: 'blue',   Icon: ClipboardList },
@@ -984,7 +1022,7 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
         </span>
       ) : <Bell size={15} style={{ color: 'var(--muted)' }} />}>
       {list.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>You're all caught up.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: 'var(--dash-empty-pad, 24px 4px)', textAlign: 'center' }}>You're all caught up.</div>
       ) : (
         <div>
           {list.map((n, i) => {
@@ -998,7 +1036,8 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
                   background: n.read ? 'transparent' : C('blue') }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="task-title" style={{ fontWeight: n.read ? 500 : 600, color: n.read ? 'var(--muted)' : 'var(--ink)' }}>{n.title || 'Notification'}</div>
-                  {n.body && <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
+                  {/* Bell bodies carry **bold** markers; this one-line preview is plain text. */}
+                  {n.body && <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{String(n.body).replace(/\*\*/g, '')}</div>}
                 </div>
                 {dismiss && (
                   <button onClick={(e) => { e.stopPropagation(); dismiss(n.id); }} title="Clear" aria-label="Clear Notification"
@@ -1038,10 +1077,10 @@ function ClockWidget() {
     // two columns a 30px "12:45 PM" was wider than the card.
     <div className="dash-card clock-tile" onClick={() => navigate('timeclock')}
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3, cursor: 'pointer', overflow: 'hidden' }}>
-      <div className="clock-tile-line" style={{ fontSize: 13.5, color: 'var(--wk-dim)', fontWeight: 600 }}>{greet}</div>
+      <div className="clock-tile-line" style={{ fontSize: 13, color: 'var(--wk-dim)', fontWeight: 600 }}>{greet}</div>
       <div className="clock-tile-time">{formatTime(now)}</div>
-      <div className="clock-tile-line" style={{ fontSize: 12.5, color: 'var(--wk-faint)' }}>{formatDayLong(now)}</div>
-      <div className="clock-tile-line clock-tile-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontSize: 12.5, fontWeight: 600, marginTop: 9 }}>
+      <div className="clock-tile-line" style={{ fontSize: 13, color: 'var(--wk-faint)' }}>{formatDayLong(now)}</div>
+      <div className="clock-tile-line clock-tile-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontSize: 13, fontWeight: 600, marginTop: 9 }}>
         <Clock size={13} /> Open Time Clock <ArrowRight size={12} />
       </div>
     </div>
@@ -1062,12 +1101,17 @@ function ClockWidget() {
 // `fit` (11/05/2026): a list tile sized to its content outside Customize - it
 // caps its own rows and links to its module for the rest, never an inner
 // scrollbar (DashboardGrid's fitTops). Stat, action and tool tiles stay boxes.
+// `phoneFit` (11/17/2026, the phone stack only - the desktop board is
+// untouched): 'shrink' - a list or panel that scrolls inside its box is as
+// tall as what it shows, up to its board height, so a short list or an empty
+// state is not a tall blank card on a phone; 'content' - the Weather tile,
+// which lays itself out by its board size there and is as tall as that.
 const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
-// Three refresher questions a day from the courses this person passed; the
-// card itself renders nothing when nothing is due (compact says so instead).
-function RefresherWidget() {
-  return <div className="kb" style={{ padding: 2 }}><Refresher compact /></div>;
-}
+// A compact tile with no partner to pair with on a phone is one row - the
+// icon, the words and the number on one line - not a full-width box that is
+// mostly empty (11/17/2026: the iOS / Android widget lesson - every pixel of
+// a phone screen has a job). The hero tile stays the hero.
+const loneRow = (config, ctx) => (ctx?.lone && !config?.hero ? 1 : undefined);
 
 function KudosWidget() {
   const { myEmail } = useRole();
@@ -1075,7 +1119,7 @@ function KudosWidget() {
 }
 
 export const WIDGETS = {
-  kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi', compact: true },
+  kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi', compact: true, phoneRowsWhen: loneRow },
   // At a Glance, retired (Neil, Oct 13 2026: "nobody cares that there's 1,925
   // open tasks across the whole company"). Gone from every board and the
   // gallery via widgetHidden; kept here so saved layouts that carry it load
@@ -1091,19 +1135,25 @@ export const WIDGETS = {
   // Action Tile (Oct 11): one action per tile, app-icon face, down to one
   // row tall (a pill) - the smallest tile on the board. `compact`: on a
   // phone two of these sit side by side instead of each taking a full row.
-  action:        { title: 'Action Tile',     cat: 'Actions',   icon: Zap,          size: { w: 2, h: 2 }, limits: { minW: 2, minH: 1, maxW: 4, maxH: 2 }, render: ActionTile, configurable: 'action', compact: true,
+  action:        { title: 'Action Tile',     cat: 'Actions',   icon: Zap,          size: { w: 2, h: 2 }, limits: { minW: 2, minH: 1, maxW: 4, maxH: 2 }, render: ActionTile, configurable: 'action', compact: true, phoneRowsWhen: loneRow,
                    timeTrackedWhen: (config) => (config?.action || DEFAULT_ACTION) === 'punch' },
-  shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut', compact: true },
+  shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut', compact: true, phoneRowsWhen: loneRow },
   links:         { title: 'Quick Links',     cat: 'Links',     icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget, fit: true },
   'links-folder': { title: 'Links Folder',   cat: 'Links',     icon: FolderOpen,   size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder', fit: true },
-  favorites:     { title: 'Favorites',       cat: 'Links',     icon: Bookmark,     size: { w: 4, h: 5 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: FavoritesWidget },
+  favorites:     { title: 'Favorites',       cat: 'Links',     icon: Bookmark,     size: { w: 4, h: 5 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: FavoritesWidget, phoneFit: 'shrink' },
   'personal-links': { title: 'My Personal Links', cat: 'Links', icon: Link2,       size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: PersonalLinksWidget, fit: true },
   // Quick Actions (styles Oct 13): the size, the resize bounds and the phone
   // height all follow the style in the tile's config - a bare icon dock is
   // one row on a phone, the list keeps what it had.
+  // RETIRED (Neil, 11/13/2026: "Remove the quick actions widget from
+  // dashboard"): the header's bolt starts things from every screen. The key
+  // stays so a saved board still loads; the tile is hidden from every board
+  // and the gallery (widgetHidden), never deleted from a saved layout, and no
+  // tile stands in for it. Never bring it back - a new way to start something
+  // is a row in lib/quickCreate.js.
   'quick-actions': { title: 'Quick Actions', cat: 'Actions',   icon: ListTodo,         size: QUICK_SIZE.icons, limits: QUICK_LIMITS.list, render: QuickActionsWidget, configurable: 'quick-actions',
                      sizeWhen: (config) => QUICK_SIZE[quickStyleOf(config)], limitsWhen: (config) => QUICK_LIMITS[quickStyleOf(config)],
-                     phoneRowsWhen: (config) => (quickStyleOf(config) === 'icons' ? 1 : undefined) },
+                     phoneRowsWhen: (config) => (quickStyleOf(config) === 'icons' ? 1 : undefined), hidden: true, retired: true },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget, fit: true },
   // 'agenda' is the pre-merge widget type (My Agenda, list-only) - kept as a
   // hidden alias so dashboards that already have one keep working, but it now
@@ -1114,29 +1164,29 @@ export const WIDGETS = {
   // Same bounds as Calendar (Oct 14): at three columns the merged panel's
   // month grid left the agenda a sliver.
   agenda:        { title: 'My Agenda',       cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel, hidden: true, fit: true },
-  weather:       { title: 'Weather',         cat: 'Live',      icon: CloudSun,     size: { w: 4, h: 6 }, limits: { minW: 2, minH: 2, maxW: 8, maxH: 7 }, render: WeatherWidget, configurable: 'weather' },
+  weather:       { title: 'Weather',         cat: 'Live',      icon: CloudSun,     size: { w: 4, h: 6 }, limits: { minW: 2, minH: 2, maxW: 8, maxH: 7 }, render: WeatherWidget, configurable: 'weather', phoneFit: 'content' },
   // `fit` (11/05/2026): as tall as the month grid and the day's agenda, on
   // the board and in the phone stack (where the agenda runs under the grid).
   calendar:      { title: 'Calendar',        cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel, fit: true },
-  clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
-  notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },
-  'team-attendance': { title: 'Team Clocked-In', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor', compact: true },
-  'team-approvals':  { title: 'Team Approvals',  cat: 'Team',  icon: ClipboardCheck, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'pending_requisitions' }} />, minRole: 'manager', compact: true },
-  'time-off':        { title: 'Time Off to Review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager', compact: true },
+  clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget, phoneRowsWhen: () => 2 },
+  notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget, phoneFit: 'shrink' },
+  'team-attendance': { title: 'Team Clocked-In', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor', compact: true, phoneRowsWhen: loneRow },
+  'team-approvals':  { title: 'Team Approvals',  cat: 'Team',  icon: ClipboardCheck, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'pending_requisitions' }} />, minRole: 'manager', compact: true, phoneRowsWhen: loneRow },
+  'time-off':        { title: 'Time Off to Review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager', compact: true, phoneRowsWhen: loneRow },
 
   // ── Panels ported from the old Overview / Team Analytics screens ──
-  approvals:       { title: 'Pending Approvals',  cat: 'Team',      icon: ClipboardList, size: { w: 8, h: 5 }, limits: { minW: 6, minH: 4, maxW: 12, maxH: 8 }, render: ApprovalsPanel,    minRole: 'manager' },
-  'who-has-what':  { title: 'Who Has What',       cat: 'Team',      icon: HandCoins,     size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: WhoHasWhatPanel,   minRole: 'supervisor' },
+  approvals:       { title: 'Pending Approvals',  cat: 'Team',      icon: ClipboardList, size: { w: 8, h: 5 }, limits: { minW: 6, minH: 4, maxW: 12, maxH: 8 }, render: ApprovalsPanel,    minRole: 'manager', phoneFit: 'shrink' },
+  'who-has-what':  { title: 'Who Has What',       cat: 'Team',      icon: HandCoins,     size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: WhoHasWhatPanel,   minRole: 'supervisor', phoneFit: 'shrink' },
   // Phone: the whole Time Admin lives in this tile, so it gets a real
   // screen's height in the stack instead of its board rows (Oct 14).
-  'team-time':     { title: 'Team Time',          cat: 'Team',      icon: Timer,         size: { w: 12, h: 6 }, limits: { minW: 8, minH: 5, maxW: 12, maxH: 8 }, render: TeamTimePanel,     minRole: 'manager', phoneRowsWhen: () => 10 },
+  'team-time':     { title: 'Team Time',          cat: 'Team',      icon: Timer,         size: { w: 12, h: 6 }, limits: { minW: 8, minH: 5, maxW: 12, maxH: 8 }, render: TeamTimePanel,     minRole: 'manager', phoneRowsWhen: () => 10, phoneFit: 'shrink' },
   // Phase 3 (Sep 25). Tickets is a supervisor module; the time-off list,
   // punch exceptions and purchases are manager-level on the server.
   // My Open Tickets (Neil, Oct 26 2026): the ticket desk's twin of the My
   // Open Tasks tile - a KPI tile with its metric fixed, for whoever can open
   // Tickets (administrators, or the tickets grant - the module is
   // grant-driven). The KPI Stat tile can pick the same metric.
-  'my-tickets':        { title: 'My Open Tickets',   cat: 'Team', icon: TicketIcon,   size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <KpiWidget {...p} config={{ ...(p.config || {}), metric: 'my_open_tickets' }} />, module: 'tickets', moduleLabel: 'Tickets', compact: true },
+  'my-tickets':        { title: 'My Open Tickets',   cat: 'Team', icon: TicketIcon,   size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <KpiWidget {...p} config={{ ...(p.config || {}), metric: 'my_open_tickets' }} />, module: 'tickets', moduleLabel: 'Tickets', compact: true, phoneRowsWhen: loneRow },
   'ticket-queue':      { title: 'My Ticket Queue',   cat: 'Team', icon: TicketIcon,   size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TicketQueueWidget,      minRole: 'supervisor', fit: true },
   'time-exceptions':   { title: 'Time Exceptions',   cat: 'Team', icon: Timer,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: TimeExceptionsWidget,   minRole: 'manager', fit: true },
   'out-today':         { title: 'Out Today',         cat: 'Team', icon: UserMinus,    size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: OutTodayWidget,         minRole: 'manager', fit: true },
@@ -1148,15 +1198,20 @@ export const WIDGETS = {
   // Project-Wise Tasks, Team Calendar) were removed the same day; a saved
   // layout that still carries one of those keys renders CustomDashboard's
   // "Unknown widget" card, never a crash.
-  // Shown as "Action Required" since Oct 23 2026 (Neil): Tasks has its own
-  // My Day list now. The key stays 'my-day' - saved boards point at it.
-  'my-day':        { title: 'Action Required', aka: ['My Day'], cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyDayWidget, fit: true },
+  // Action Required (the old My Day tile), retired (Neil, 11/13/2026): My
+  // Work is the one list of what is mine, and a decision on someone else's
+  // request is in Dashboard > Approvals. Gone from every board and the
+  // gallery via widgetHidden; the key stays so saved layouts that carry it
+  // load cleanly, and a board that had it without My Work gets My Work in
+  // its place on load (useDashboards.swapRetired). Never drawn - `render`
+  // is My Work's only so the entry has one.
+  'my-day':        { title: 'Action Required', aka: ['My Day'], cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget, fit: true, hidden: true, retired: true },
   'my-work':       { title: 'My Work',       cat: 'Workday', icon: Briefcase,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget, fit: true },
   // My Time (Oct 8, Neil): the simple punch tile - status, Punch In / Out /
   // Start Break / End Break, today's hours; the card opens Workday for the
   // rest. `timeTracked`: only for people who are time-tracked - a salaried
   // (exempt) person never sees it placed or offered (see widgetHidden).
-  'my-time':       { title: 'My Time',       cat: 'Workday', icon: Hourglass,  size: { w: 3, h: 3 }, limits: { minW: 3, minH: 3, maxW: 4, maxH: 4 },  render: MyTimeWidget, timeTracked: true },
+  'my-time':       { title: 'My Time',       cat: 'Workday', icon: Hourglass,  size: { w: 3, h: 3 }, limits: { minW: 3, minH: 3, maxW: 4, maxH: 4 },  render: MyTimeWidget, timeTracked: true, phoneFit: 'shrink' },
   refresher:       { title: 'Refresher',     cat: 'Workday', icon: GraduationCap, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 6 }, render: RefresherWidget, fit: true },
   kudos:           { title: 'Kudos',         cat: 'Workday', icon: Award,      size: { w: 4, h: 5 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 }, render: KudosWidget, fit: true },
   announcements:   { title: 'Announcements', cat: 'Live',    icon: Megaphone,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 8 },  render: AnnouncementsWidget, fit: true },
@@ -1164,7 +1219,7 @@ export const WIDGETS = {
   // Oct 1: a module-gated tile - `module` names the Access Group grant that
   // opens it (administrators bypass, same rule as the Accounting screen and
   // the backend's require_module_grant). No minRole: a Viewer-level grant is enough.
-  'find-transaction': { title: 'Find a Transaction', cat: 'Accounting', icon: Search, size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: FindTransactionWidget, module: 'accounting', moduleLabel: 'Accounting' },
+  'find-transaction': { title: 'Find a Transaction', cat: 'Accounting', icon: Search, size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: FindTransactionWidget, module: 'accounting', moduleLabel: 'Accounting', phoneFit: 'shrink' },
 };
 
 // May this person see (render, or pick from the gallery) a widget? Role level

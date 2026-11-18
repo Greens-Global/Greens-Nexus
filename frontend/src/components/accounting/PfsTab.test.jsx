@@ -142,10 +142,12 @@ vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'me@gr
 vi.mock('./reportModel', async (importOriginal) => ({ ...(await importOriginal()), downloadBlob: vi.fn() }));
 
 import PfsTab from './PfsTab';
+import { PfsLockNow } from './PfsLock';
 import { api, withFreshReads } from '../../api';
 import { buildPfsPdf } from './pfsPdf';
 import { buildPfsWorkbook, pfsSheets } from './pfsXlsx';
 import { downloadBlob } from './reportModel';
+import { dialog } from '../../ui/dialog';
 
 beforeEach(() => { vi.clearAllMocks(); try { localStorage.clear(); } catch { /* none */ } });
 
@@ -316,7 +318,7 @@ describe('PfsTab', () => {
     await loaded();
     tab('Assets');
     const chase = screen.getByText('Chase Checking - 6532').closest('tr');
-    fireEvent.click(within(chase).getByRole('button', { name: 'Not found - Set It' }));
+    fireEvent.click(within(chase).getByRole('button', { name: 'Not Found - Set It' }));
     const dialog = screen.getByRole('dialog', { name: 'Change Chase Checking - 6532' });
     const inst = within(dialog).getByLabelText('Institution');
     expect(document.activeElement).toBe(inst);
@@ -564,14 +566,16 @@ describe('PfsTab', () => {
     expect(screen.queryByRole('region', { name: 'Share differs from Affiliated Entities' })).toBeNull();
   });
 
-  it('opens Add From the Ledger nearly full screen, with Maximize and a Select All box', async () => {
+  it('opens Add From the Ledger as a wide sheet, with Maximize and a Select All box', async () => {
     render(<PfsTab canEdit />);
     await loaded();
     tab('Assets');
     fireEvent.click(screen.getByRole('button', { name: 'Add From the Ledger' }));
     const dialog = screen.getByRole('dialog', { name: 'Add from the ledger' });
-    expect(dialog.style.width).toBe('min(1400px, 96vw)');
-    expect(dialog.style.height).toBe('92vh');
+    // A sheet from the right like every popup (nx-popup: full height), wide for the table.
+    expect(dialog.className).toContain('nx-popup');
+    expect(dialog.style.width).toBe('max(60vw, min(1400px, 96vw))');
+    expect(dialog.style.height).toBe('');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Fill the screen' }));
     expect(dialog.style.width).toBe('100vw');
     expect(localStorage.getItem('nexus:pfs-ledger-add-full')).toBe('1');
@@ -820,9 +824,54 @@ describe('PfsTab', () => {
     expect(screen.queryByRole('button', { name: /Move Operating Account/ })).toBeNull();
     expect(screen.getByText('Operating Account').closest('tr').getAttribute('draggable')).toBeNull();
     // Where no bank was found a viewer reads "Not found" - nothing to click.
-    expect(within(screen.getByText('Chase Checking - 6532').closest('tr')).getByText('Not found')).toBeTruthy();
+    expect(within(screen.getByText('Chase Checking - 6532').closest('tr')).getByText('Not Found')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Export/ })).toBeTruthy();   // a viewer still produces the statement
     expect(api.getPfsShareMismatches).not.toHaveBeenCalled();
+  });
+
+  // UX pass 11/12/2026: Borrower edits lived only while the tab was shown.
+  it('asks before a section change drops unsaved Borrower edits', async () => {
+    const ask = vi.spyOn(dialog, 'confirm').mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    try {
+      render(<PfsTab canEdit />);
+      await loaded();
+      tab('Borrower(s)');
+      fireEvent.change(screen.getAllByLabelText('Phone')[0], { target: { value: '(916) 555-0100' } });
+      tab('History and Profile');
+      await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
+      expect(screen.getAllByLabelText('Phone')[0].value).toBe('(916) 555-0100');   // Keep Editing: still there
+      tab('History and Profile');
+      await waitFor(() => expect(screen.queryAllByLabelText('Phone')).toHaveLength(0));
+      expect(ask).toHaveBeenCalledTimes(2);
+    } finally { ask.mockRestore(); }
+  });
+
+  it('warns before the lock closes the file over unsaved edits, with a way to save', async () => {
+    const until = new Date(Date.now() + 4 * 60_000).toISOString();
+    api.getPfsAccessStatus = vi.fn(async () => ({ lockEnabled: true, unlocked: { [profile.id]: until } }));
+    try {
+      render(<PfsTab canEdit />);
+      await loaded();
+      tab('Borrower(s)');
+      expect(screen.queryByText(/Your session locks in/)).toBeNull();
+      fireEvent.change(screen.getAllByLabelText('Phone')[0], { target: { value: '(916) 555-0100' } });
+      expect(await screen.findByText('Your session locks in 4 minutes - save your changes.')).toBeTruthy();
+      fireEvent.click(within(screen.getByText(/Your session locks in/).parentElement).getByRole('button', { name: 'Save Changes' }));
+      await waitFor(() => expect(api.updatePfsProfile).toHaveBeenCalled());
+    } finally { delete api.getPfsAccessStatus; }
+  });
+
+  it('Lock Now marks the file locked only when the server locked it', async () => {
+    const onLocked = vi.fn();
+    api.lockPfsFile = vi.fn().mockRejectedValueOnce(new Error('The server is busy.')).mockResolvedValueOnce({});
+    try {
+      render(<PfsLockNow fileId="p1" until="" onLocked={onLocked} />);
+      fireEvent.click(screen.getByRole('button', { name: /Lock Now/ }));
+      expect(await screen.findByText('The server is busy.')).toBeTruthy();
+      expect(onLocked).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: /Lock Now/ }));
+      await waitFor(() => expect(onLocked).toHaveBeenCalledWith('p1'));
+    } finally { delete api.lockPfsFile; }
   });
 });
 

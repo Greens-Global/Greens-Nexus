@@ -24,7 +24,7 @@ export function TicketStatus({ status }) {
 export function DueLabel({ row }) {
   if (!row.pmDueOn) return null;
   if (row.overdue) return <StatusLabel label={`Overdue · ${formatDate(row.pmDueOn)}`} color={OVERDUE_COLOR} size="sm" />;
-  return <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Due {formatDate(row.pmDueOn)}</span>;
+  return <span style={{ fontSize: 13, color: 'var(--muted)' }}>Due {formatDate(row.pmDueOn)}</span>;
 }
 
 export function TicketLine({ row, children, onOpen }) {
@@ -34,7 +34,7 @@ export function TicketLine({ row, children, onOpen }) {
         <button type="button" onClick={onOpen} disabled={!onOpen}
           style={{ all: 'unset', cursor: onOpen ? 'pointer' : 'default', display: 'block', maxWidth: '100%' }}>
           <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginRight: 6 }}>{row.codeLabel}</span>
-          <span style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)' }}>{row.subject}</span>
+          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>{row.subject}</span>
         </button>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 5 }}>
           <TicketStatus status={row.status} />
@@ -42,7 +42,7 @@ export function TicketLine({ row, children, onOpen }) {
           <PriorityMark priority={row.priority} size={13} />
           <DueLabel row={row} />
           {(row.equipmentName || row.propertyName) && (
-            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{[row.propertyName, row.equipmentName, row.unit].filter(Boolean).join(' · ')}</span>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{[row.propertyName, row.equipmentName, row.unit].filter(Boolean).join(' · ')}</span>
           )}
         </div>
       </div>
@@ -74,7 +74,7 @@ export function PhotoPicker({ state, label = 'Add a Photo', required = false }) 
           onChange={(e) => { state.add(e.target.files); e.target.value = ''; }} />
       </div>
       {!isMobile && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Or press Ctrl+V to paste a photo.</div>}
-      {state.error && <div role="alert" style={{ fontSize: 12.5, color: OVERDUE_COLOR, marginTop: 6 }}>{state.error}</div>}
+      {state.error && <div role="alert" style={{ fontSize: 13, color: OVERDUE_COLOR, marginTop: 6 }}>{state.error}</div>}
     </div>
   );
 }
@@ -96,8 +96,8 @@ export function DictateButton({ value, onChange }) {
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 36 }}>
         {d.listening ? <MicOff size={14} /> : <Mic size={14} />} {d.listening ? 'Stop' : 'Dictate'}
       </button>
-      {d.interim && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{d.interim}</span>}
-      {d.error && <span role="alert" style={{ fontSize: 12.5, color: OVERDUE_COLOR }}>{d.error}</span>}
+      {d.interim && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{d.interim}</span>}
+      {d.error && <span role="alert" style={{ fontSize: 13, color: OVERDUE_COLOR }}>{d.error}</span>}
     </span>
   );
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
 // The Documents library (Neil, 10/31/2026): views, one row per document, one
@@ -12,6 +12,7 @@ const createDocFolder = vi.fn();
 const updateDocument = vi.fn();
 const createDocument = vi.fn();
 const getFormEntries = vi.fn();
+const downloadSign = vi.fn();
 vi.mock('../api', () => ({
   api: {
     getFormEntries: (...a) => getFormEntries(...a),
@@ -21,6 +22,7 @@ vi.mock('../api', () => ({
     createDocFolder: (...a) => createDocFolder(...a),
     updateDocument: (...a) => updateDocument(...a),
     createDocument: (...a) => createDocument(...a),
+    downloadSign: (...a) => downloadSign(...a),
     getDocTemplates: () => Promise.resolve([{ id: 't1', name: 'Offer Letter', state: 'published' }]),
     getDocTemplate: () => Promise.resolve({ id: 't1', fieldDefs: [], releasedFieldDefs: [] }),
     getDocumentVersions: () => Promise.resolve([]),
@@ -261,10 +263,12 @@ describe('New Document', () => {
 
   // New Document (Neil, 11/10/2026): a blank draft opens at once - no name,
   // no popup; the editor asks for a name on Close (lib/untitled.js).
+  // "+ New" (Neil, 11/13/2026): Document is the menu's first row.
   it('New Document opens a blank, unnamed draft straight away, and so does the + menu', async () => {
     createDocument.mockResolvedValue({ id: 'new-1', title: 'Untitled Document', status: 'draft' });
     const { unmount } = render(<DocumentsBrowser employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: /^New Document$/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Document/ }));
     await waitFor(() => expect(createDocument).toHaveBeenCalledWith({ title: 'Untitled Document' }));
     expect(await screen.findByText('document builder')).toBeTruthy();
     expect(screen.queryByLabelText('Name')).toBeNull();
@@ -274,10 +278,50 @@ describe('New Document', () => {
     await waitFor(() => expect(createDocument).toHaveBeenCalledWith({ title: 'Untitled Document' }));
   });
 
+  // Quick Actions > New > Sheet (Neil, 11/14/2026): the same blank sheet as + New > Sheet.
+  it('makes a blank sheet when Quick Actions asks for one', async () => {
+    createDocument.mockResolvedValue({ id: 'sheet-1', title: 'Untitled Sheet', status: 'draft', kind: 'sheet' });
+    render(<DocumentsBrowser openSheetSignal={1} employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
+    await waitFor(() => expect(createDocument).toHaveBeenCalledWith(expect.objectContaining({ kind: 'sheet' })));
+  });
+
+  // 11/17/2026: the signal is a counter the Files view keeps for as long as
+  // it lives, and the library is unmounted on another tab. Coming back with
+  // the same counter used to make another "Untitled Document" (or sheet)
+  // every time. A signal is acted on once; the caller keeps what was taken.
+  // The Files view's own rule (views/Documents.jsx takeBrowseSignal).
+  const taker = (taken = { create: 0, sheet: 0 }) => (kind, signal) => {
+    if (!signal || taken[kind] === signal) return false;
+    taken[kind] = signal;
+    return true;
+  };
+
+  it('a signal already acted on makes nothing when the library mounts again', async () => {
+    render(<DocumentsBrowser openCreateSignal={1} openSheetSignal={1} takeSignal={taker({ create: 1, sheet: 1 })}
+      employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
+    await screen.findByRole('button', { name: 'New' });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(createDocument).not.toHaveBeenCalled();
+  });
+
+  it('leaving the tab and coming back makes nothing; a second New Document still does', async () => {
+    createDocument.mockResolvedValue({ id: 'new-1', title: 'Untitled Document', status: 'draft' });
+    const taken = taker();
+    const first = render(<DocumentsBrowser openCreateSignal={1} takeSignal={taken} employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
+    await waitFor(() => expect(createDocument).toHaveBeenCalledTimes(1));
+    first.unmount();                                     // another Files tab
+    const back = render(<DocumentsBrowser openCreateSignal={1} takeSignal={taken} employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
+    await screen.findByRole('button', { name: 'New' });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(createDocument).toHaveBeenCalledTimes(1);     // no second "Untitled Document"
+    back.rerender(<DocumentsBrowser openCreateSignal={2} takeSignal={taken} employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
+    await waitFor(() => expect(createDocument).toHaveBeenCalledTimes(2));
+  });
+
   it('the popup (From a Template) does not need a name either', async () => {
     createDocument.mockResolvedValue({ id: 'new-2', title: 'Untitled Document', status: 'draft' });
     render(<DocumentsBrowser employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'More ways to start a document' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: /From a Template/ }));
     expect(await screen.findByText('Untitled Document')).toBeTruthy();
     const create = await screen.findByRole('button', { name: 'Create Draft' });
@@ -288,7 +332,7 @@ describe('New Document', () => {
 
   it('picking a template and a person names the document and tells it who it is for', async () => {
     render(<DocumentsBrowser employees={EMPLOYEES} entities={ENTITIES} toastOk={() => {}} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'More ways to start a document' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: /From a Template/ }));
     const person = await screen.findByLabelText('Who this document is for');
     const option = await screen.findByRole('option', { name: 'Offer Letter' });
@@ -305,15 +349,91 @@ describe('New Document', () => {
 });
 
 describe('The toolbar', () => {
-  it('keeps one New Document button; Blank Sheet and Open a File are under its arrow', async () => {
+  it('keeps ONE + New; Document, Sheet, From a Template and Open a File are its menu', async () => {
     render(<DocumentsBrowser toastOk={() => {}} />);
-    await screen.findByRole('button', { name: 'More ways to start a document' });
+    await screen.findByRole('button', { name: 'New' });
     expect(screen.queryByRole('button', { name: /^New Sheet/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Import$/ })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'More ways to start a document' }));
-    for (const n of ['Blank Document', 'Blank Sheet', 'From a Template...', 'Open a File...']) {
+    expect(screen.queryByRole('button', { name: 'More ways to start a document' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'New' }));
+    for (const n of [/^Document/, /^Sheet/, /^From a Template\.\.\./, /^Open a File\.\.\./]) {
       expect(await screen.findByRole('menuitem', { name: n })).toBeTruthy();
     }
+  });
+});
+
+// 11/17/2026: the tab was opened AFTER the request, outside the tap, so
+// Safari and the iPhone blocked it without a word ("Preparing..." then nothing).
+describe('Open Signed Copy', () => {
+  const sealed = doc({ id: 'd8', title: 'Sealed Lease', signRequestId: 'r8', signStatus: 'completed', canManageEnvelope: true, signers: 1, signed: 1 });
+  const openPanel = async () => {
+    getDocumentLibrary.mockResolvedValue([sealed]);
+    render(<DocumentsBrowser toastErr={() => {}} />);
+    fireEvent.click(await screen.findByText('Sealed Lease'));
+    return screen.findByRole('complementary', { name: 'Sealed Lease' });
+  };
+  const realOpen = window.open;
+  afterEach(() => { window.open = realOpen; });
+
+  it('opens the tab in the tap itself and points it at the copy when the link lands', async () => {
+    const tab = { closed: false, opener: {}, close: vi.fn(), location: { replace: vi.fn() } };
+    window.open = vi.fn(() => tab);
+    let land;
+    downloadSign.mockReset().mockImplementation(() => new Promise((res) => { land = res; }));
+    const panel = await openPanel();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Open Signed Copy' }));
+    expect(window.open).toHaveBeenCalledTimes(1);            // before the request answered
+    expect(tab.location.replace).not.toHaveBeenCalled();
+    land({ url: 'https://storage.example.com/sealed.pdf' });
+    await waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith('https://storage.example.com/sealed.pdf'));
+    expect(tab.opener).toBeNull();
+  });
+
+  it('closes the tab again when the link could not be made', async () => {
+    const tab = { closed: false, opener: {}, close: vi.fn(), location: { replace: vi.fn() } };
+    window.open = vi.fn(() => tab);
+    downloadSign.mockReset().mockRejectedValue(new Error('The sealed copy is not ready'));
+    const panel = await openPanel();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Open Signed Copy' }));
+    await waitFor(() => expect(tab.close).toHaveBeenCalledTimes(1));
+    expect(tab.location.replace).not.toHaveBeenCalled();
+  });
+
+  it('a browser that blocked the tab gets the link in the panel, never nothing', async () => {
+    window.open = vi.fn(() => null);
+    downloadSign.mockReset().mockResolvedValue({ url: 'https://storage.example.com/sealed.pdf' });
+    const panel = await openPanel();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Open Signed Copy' }));
+    const link = await within(panel).findByRole('link', { name: 'Open Signed Copy' });
+    expect(link.getAttribute('href')).toBe('https://storage.example.com/sealed.pdf');
+    expect(within(panel).getByRole('status').textContent).toContain('Your browser blocked the new tab.');
+  });
+});
+
+describe('Arrow keys', () => {
+  // The list is grouped by when a row changed ("This Week", "Older"...): the
+  // group headings are rows of the table too, and stepping onto one used to
+  // close the side panel and stop the keys at the group's edge.
+  it('step over the group headings and keep the side panel open', async () => {
+    const now = new Date().toISOString();
+    getDocumentLibrary.mockResolvedValue([
+      doc({ id: 'n1', title: 'Fresh One', updatedAt: now }),
+      doc({ id: 'o1', title: 'Old One', updatedAt: '2025-01-05T10:00:00Z' }),
+    ]);
+    render(<DocumentsBrowser />);
+    const fresh = (await screen.findByText('Fresh One')).closest('tr');
+    const old = screen.getByText('Old One').closest('tr');
+    expect(old.previousElementSibling.className).toContain('nx-dl-group');   // a heading sits between them
+    fireEvent.click(fresh);
+    expect(await screen.findByRole('complementary', { name: 'Fresh One' })).toBeTruthy();
+    fireEvent.keyDown(fresh, { key: 'ArrowDown' });
+    expect(await screen.findByRole('complementary', { name: 'Old One' })).toBeTruthy();
+    expect(document.activeElement).toBe(old);
+    fireEvent.keyDown(old, { key: 'ArrowUp' });
+    expect(await screen.findByRole('complementary', { name: 'Fresh One' })).toBeTruthy();
+    // Past the first row there is only the heading: the row and the panel stay.
+    fireEvent.keyDown(fresh, { key: 'ArrowUp' });
+    expect(screen.getByRole('complementary', { name: 'Fresh One' })).toBeTruthy();
   });
 });
 
@@ -329,5 +449,17 @@ describe('Empty and failing', () => {
     getDocumentLibrary.mockRejectedValue(new Error('The server said no'));
     render(<DocumentsBrowser />);
     await waitFor(() => expect(document.body.textContent).toContain('The server said no'));
+  });
+});
+
+describe('Opened from the header search (11/13/2026)', () => {
+  it('a library already on screen opens the named row beside the list, an archived one too', async () => {
+    render(<DocumentsBrowser />);
+    await screen.findByText('Lease');                       // loaded, on Needs Me
+    expect(screen.queryByRole('complementary')).toBeNull();
+    fireEvent(window, new CustomEvent('nexus:open-document', { detail: { id: 'd1' } }));
+    expect(await screen.findByRole('complementary', { name: 'Vendor Agreement' })).toBeTruthy();
+    fireEvent(window, new CustomEvent('nexus:open-document', { detail: { id: 'd4' } }));
+    expect(await screen.findByRole('complementary', { name: 'Old Note' })).toBeTruthy();
   });
 });

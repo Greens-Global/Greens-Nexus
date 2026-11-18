@@ -11,11 +11,11 @@ export default function LeadSourceCard({ rows }) {
 
   return (
     <div style={{ ...card, padding: 16, height: '100%' }}>
-      <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Lead Source Performance</h3>
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Lead Source Performance</h3>
       <ResponsiveContainer width="100%" height={230}>
         <BarChart data={data} layout="vertical" margin={{ top: 4, right: 60, left: 8, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#eef0f3" />
-          <XAxis type="number" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+          <XAxis type="number" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
           <YAxis
             type="category"
             dataKey="source"

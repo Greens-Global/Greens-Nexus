@@ -12,13 +12,15 @@ Open **Reports**. Each group opens to the side:
 
 | Group | What is in it |
 |---|---|
-| **Report Center** | Every report in one list, Report Builder, Packages |
-| **Financial** | Balance Sheet, Trial Balance, the Income Statement views, General Ledger, Spend by Vendor, Statement of Cash Flows, Cash Position |
-| **Banking & Credit Cards** | Credit Card Activity, Bank Activity |
-| **Budget** | Budget, Budget vs. Actual YTD and MTD |
-| **Payroll & People** | Compensation, Payroll Summary |
-| **Audit & Insights** | Flux Analysis, MRE, MRI, AMA, Manual Journal Entries, Profitability |
+| **All Reports, Report Builder, Packages** | At the top: every report in one list, your own reports, report packages |
+| **Financial Statements** | Balance Sheet, Trial Balance, the Income Statement views, Statement of Cash Flows, Cash Position |
+| **Ledger & Banking** | General Ledger, Spend by Vendor, Bank Activity, Credit Card Activity, Manual Journal Entries |
+| **Budget vs. Actual** | Year to Date, Month to Date |
+| **Review** | Flux Analysis, Profitability |
+| **Payroll** | Compensation, Payroll Summary |
 | **Tax** | Schedule C (Draft) |
+
+The working tools sit in their own **Trackers** menu: Monthly Recurring Income, Monthly Recurring Expenses, Management Fees, Ask My Accountant and Budgets.
 
 The **Income Statement** opens as T12 (the last 12 full months), YTD vs. Prior Year, This Month vs. Last Month, or by Customer, Job or Department. Above every statement sits the same row: the period, the entities, Columns, the Book and Filters.
 
@@ -67,7 +69,7 @@ Set a statement the way you want it and click **Memorize**. A memorized view wit
 
 ## Report Builder
 
-**Report Center > Report Builder** makes a report of your own: pick GL accounts, entities, Filters, the period, Columns and the Book, add named **Row Groups** (several accounts under one total), and **Run**. **Compare** adds vs Prior Period or vs Prior Year with Variance $ and Variance %. **Save** keeps a draft; **Publish** finishes it, but only you see it until **Share With Everyone**. A report always reads over the reader's own entities.
+**Reports > Report Builder** makes a report of your own: pick GL accounts, entities, Filters, the period, Columns and the Book, add named **Row Groups** (several accounts under one total), and **Run**. **Compare** adds vs Prior Period or vs Prior Year with Variance $ and Variance %. **Save** keeps a draft; **Publish** finishes it, but only you see it until **Share With Everyone**. A report always reads over the reader's own entities.
 
 ## Packages
 
@@ -85,6 +87,6 @@ Back to $21,120. You click it: two lines, a $640 gate service and an $11,900 roo
 
 ## Key Points
 
-- Reports groups: Report Center, Financial, Banking & Credit Cards, Budget, Payroll & People, Audit & Insights.
+- Reports: All Reports, Report Builder and Packages at the top, then Financial Statements, Ledger & Banking, Budget vs. Actual, Review, Payroll and Tax. The working tools are under Trackers.
 - A posted figure opens its General Ledger lines; a line opens its entry; Open Full widens it; the question mark asks.
 - Memorize keeps a view; Report Builder builds one; Packages build a lender's PDF.

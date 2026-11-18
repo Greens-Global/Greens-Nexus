@@ -5,8 +5,8 @@ import { useState } from 'react';
 // Oct 15 (Charmi + Neil): Profitability for everyone with Accounting (a
 // limited person too - it is per entity), and Employee Compensation only at
 // the Full level and never for a person limited to certain entities.
-// Oct 22: they sit under Reports > Audit & Insights and Reports > Payroll &
-// People, and Employee Compensation is now just "Compensation".
+// They sit under Reports > Review and Reports > Payroll (names of 11/11/2026),
+// and Employee Compensation is just "Compensation" (Oct 22).
 
 const role = vi.hoisted(() => ({ full: true, limited: false }));
 vi.mock('../api', () => ({
@@ -46,11 +46,11 @@ describe('Reports > Profitability and Compensation', () => {
   it('opens both from the Reports menu at the Full level', async () => {
     render(<Harness start="overview" />);
     fireEvent.click(await screen.findByRole('button', { name: /^Reports/ }));
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Review' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Profitability' }));
     expect(await screen.findByTestId('tab-profitability')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Payroll & People' }));
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Payroll' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Compensation' }));
     expect(await screen.findByTestId('tab-compensation')).toBeTruthy();
   });
@@ -60,9 +60,9 @@ describe('Reports > Profitability and Compensation', () => {
     render(<Harness start="compensation" />);
     await waitFor(() => expect(screen.getByTestId('sub').textContent).not.toBe('compensation'));
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
-    // Compensation was the only Payroll & People item, so the group is gone.
-    expect(screen.queryByRole('menuitem', { name: 'Payroll & People' })).toBeNull();
-    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Audit & Insights' }));
+    // Below Full nothing in Payroll is open, so the group is gone.
+    expect(screen.queryByRole('menuitem', { name: 'Payroll' })).toBeNull();
+    fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Review' }));
     expect(screen.getByRole('menuitem', { name: 'Profitability' })).toBeTruthy();
     expect(screen.queryByRole('menuitem', { name: 'Compensation' })).toBeNull();
     expect(screen.queryByTestId('tab-compensation')).toBeNull();
@@ -73,7 +73,7 @@ describe('Reports > Profitability and Compensation', () => {
     render(<Harness start="profitability" />);
     expect(await screen.findByTestId('tab-profitability')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
-    expect(screen.queryByRole('menuitem', { name: 'Payroll & People' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Payroll' })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: 'Compensation' })).toBeNull();
   });
 });

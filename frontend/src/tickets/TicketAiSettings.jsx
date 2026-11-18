@@ -43,7 +43,7 @@ export default function TicketAiSettings() {
       <div style={{ ...card, padding: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <Sparkles size={16} style={{ color: NX.purple }} />
-          <div style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>AI Features</div>
+          <div style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>AI Features</div>
           <button type="button" role="switch" aria-checked={!!cfg.enabled} aria-label="AI Features" onClick={flip} disabled={saving}
             style={{
               position: 'relative', width: 34, height: 20, borderRadius: 999, border: 'none', cursor: saving ? 'default' : 'pointer',
@@ -53,7 +53,7 @@ export default function TicketAiSettings() {
           </button>
           <SavedCheck show={saved} />
         </div>
-        <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.6, marginTop: 10 }}>
+        <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.6, marginTop: 10 }}>
           When this is on, desk agents get an AI Summary on each ticket (the issue, what has been tried, where it
           stands and the next step), and people raising a ticket see up to three suggested help topics they can
           click. Suggestions are only ever picked from your configured help topics, and nothing is chosen for anyone.
@@ -64,7 +64,7 @@ export default function TicketAiSettings() {
             No AI key is set on the server, so AI Summaries are hidden and help topic suggestions use keyword matching only.
           </div>
         )}
-        {err && <div role="alert" style={{ fontSize: 12.5, color: NX.red, fontWeight: 600, marginTop: 10 }}>{err}</div>}
+        {err && <div role="alert" style={{ fontSize: 13, color: NX.red, fontWeight: 600, marginTop: 10 }}>{err}</div>}
       </div>
     </div>
   );

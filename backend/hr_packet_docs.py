@@ -2439,9 +2439,11 @@ def readiness(db: Session, setting: HrPacketSetting) -> list:
     ids += [t for t in all_block_ids(setting) if t not in ids]
     snaps, snap_problems = load_snaps(db, ids)
     out = []
-    # 1. The documents: there, active, published.
+    # 1. The documents: there, active, published. An active template never
+    #    published is released as it stands on first use (published_snapshot),
+    #    so only one that is not active gets the fix - never a fix on a pass.
     unpublished = next((t for t in (db.query(DocTemplate).filter(DocTemplate.id == i).first() for i in ids)
-                        if t is not None and (t.status != "active" or not t.published_version)), None)
+                        if t is not None and t.status != "active"), None)
     out.append(_check("documents", bool(ids) and not snap_problems,
                       "Documents Published",
                       (snap_problems[0] if snap_problems else "Add at least one document from Documents > Templates.")

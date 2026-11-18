@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import HoldButton, { HOLD_MAJOR_MS, HOLD_RECORD_MS } from './HoldButton';
@@ -67,6 +68,23 @@ describe('HoldButton', () => {
   });
 });
 
+// React StrictMode (the dev server) runs mount -> cleanup -> mount. The
+// button's "still mounted" ref was only ever cleared, so after the re-run it
+// read false and a hold stayed on "working" forever.
+describe('HoldButton under StrictMode', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('still finishes a hold', async () => {
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
+    render(<StrictMode><HoldButton label="Delete Forever" doneLabel="Deleted" onConfirm={onConfirm} /></StrictMode>);
+    press(btn());
+    await act(async () => { vi.advanceTimersByTime(HOLD_RECORD_MS); });
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(btn().hasAttribute('data-done')).toBe(true);
+  });
+});
+
 describe('HoldButton without a press (assistive tech)', () => {
   it('asks with the ordinary dialog instead', async () => {
     const onConfirm = vi.fn().mockResolvedValue(undefined);
@@ -95,6 +113,46 @@ describe('dialog.confirm({ hold: true })', () => {
     expect(work).toHaveBeenCalledTimes(1);
     await act(async () => { vi.advanceTimersByTime(1000); });
     expect(await result).toBe(true);
+  });
+
+  // Cancel, Escape and the scrim used to resolve the dialog false while the
+  // action was in flight (or showing its check) - and the server still did it.
+  it('cannot be cancelled while the action is working or finishing', async () => {
+    render(<DialogHost />);
+    let finish;
+    const work = vi.fn(() => new Promise((r) => { finish = r; }));
+    let result; let out = 'pending';
+    await act(async () => { result = dialog.confirm('148 tasks go with it.', { hold: true, confirmText: 'Delete Project', doneText: 'Deleted', onConfirm: work }); });
+    result.then((v) => { out = v; });
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel.disabled).toBe(false);
+    press(btn());
+    await act(async () => { vi.advanceTimersByTime(HOLD_MAJOR_MS); });
+    expect(work).toHaveBeenCalledTimes(1);
+    expect(cancel.disabled).toBe(true);
+    await act(async () => { fireEvent.keyDown(document.body, { key: 'Escape' }); });
+    await act(async () => { fireEvent.mouseDown(screen.getByRole('dialog').parentElement); });
+    expect(out).toBe('pending');
+    // Done: the check shows for a beat, still not cancellable, then it closes.
+    await act(async () => { finish(); });
+    expect(cancel.disabled).toBe(true);
+    await act(async () => { fireEvent.keyDown(document.body, { key: 'Escape' }); });
+    expect(out).toBe('pending');
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(await result).toBe(true);
+  });
+
+  it('Cancel comes back when the action is refused', async () => {
+    render(<DialogHost />);
+    const work = vi.fn().mockRejectedValue(new Error('Only an owner can delete this project.'));
+    let result;
+    await act(async () => { result = dialog.confirm('148 tasks go with it.', { hold: true, confirmText: 'Delete Project', onConfirm: work }); });
+    press(btn());
+    await act(async () => { vi.advanceTimersByTime(HOLD_MAJOR_MS); });
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel.disabled).toBe(false);
+    await act(async () => { fireEvent.click(cancel); });
+    expect(await result).toBe(false);
   });
 
   it('shows an Undo toast when the action hands one back', async () => {

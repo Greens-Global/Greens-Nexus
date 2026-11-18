@@ -12,7 +12,7 @@ import unittest
 
 import database
 import models
-from test_hr_packet_review import CO, PLAIN, ReviewCase, _doc, _p, _sig
+from test_hr_packet_review import CO, HR, PLAIN, ReviewCase, _doc, _p, _sig
 
 
 def _ready(client, sid="s-hire"):
@@ -49,7 +49,15 @@ class ReadyTests(ReviewCase):
         self.assertFalse(c["ok"])
         self.assertIn("Nobody holds HR Contact", c["detail"])
         self.assertEqual(c["fix"], {"kind": "entityField", "field": "hr_contact_email", "entityId": CO, "role": "hr"})
-        # setting it (as the Companies screen does) clears it
+        # setting it (as the Companies screen does) clears it. Only an
+        # Administrator or a Full People grant sets the HR Contact (People
+        # review, 11/11/2026), so the caller holds Full People here.
+        self._edit(lambda db: (db.add(models.NexusGroup(id="g-full", name="People Full", allowed_modules="hr:full")),
+                               db.add(models.NexusGroupMember(group_id="g-full", email=HR))))
+        import auth
+        import cache
+        cache.module_grants.invalidate()
+        auth._role_cache.clear()
         r = self.client.patch(f"/hr/entities/{CO}", json={"hr_contact_email": "charmi.hr@greensglobal.com"})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(_ready(self.client)["role:hr"]["ok"])
@@ -85,7 +93,10 @@ class ReadyTests(ReviewCase):
 
     def test_an_unpublished_template_points_at_itself(self):
         def unpublish(db):
-            db.query(models.DocTemplate).filter_by(id="t-nda").update({"published_version": 0})
+            # A draft: an ACTIVE template never published is released as it
+            # stands on first use (Neil, 10/31/2026 - published_snapshot), so
+            # it is ready; only a draft (or archived) one stops the packet.
+            db.query(models.DocTemplate).filter_by(id="t-nda").update({"published_version": 0, "status": "draft"})
         self._edit(unpublish)
         c = _ready(self.client)["documents"]
         self.assertFalse(c["ok"])

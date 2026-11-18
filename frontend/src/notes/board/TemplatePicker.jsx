@@ -7,7 +7,8 @@
 // Your Templates (Neil, 11/06/2026): the person's own boards marked Use as
 // Template (view=templates) sit above; picking one copies its drawing.
 import { useEffect, useState } from 'react';
-import { LayoutTemplate, Grid3x3, Columns3, CalendarRange, Home, PenTool, RotateCcw, Flag, LayoutGrid, GitBranch, MapPin, Users } from 'lucide-react';
+import { LayoutTemplate, Grid3x3, Columns3, CalendarRange, Home, RotateCcw, Flag, LayoutGrid, GitBranch, MapPin, Users } from 'lucide-react';
+import BoardIcon from '../../components/icons/BoardIcon';
 import { Modal } from '../../tasks/components';
 import { api } from '../../api';
 import { TEMPLATES } from './templates';
@@ -33,7 +34,7 @@ export default function TemplatePicker({ onPick, onPickBoard, onClose, busy = fa
         <div className="nt-tpl-grid" role="group" aria-label="Your Templates" style={{ marginBottom: 16 }}>
           {mine.map((n) => (
             <button key={n.id} type="button" className="nt-tpl" disabled={busy} onClick={() => onPickBoard(n)} aria-label={`${n.title || 'Untitled Board'} - your template`}>
-              {n.thumbUrl ? <img className="nt-tpl-thumb" src={n.thumbUrl} alt="" loading="lazy" /> : <PenTool size={22} aria-hidden="true" />}
+              {n.thumbUrl ? <img className="nt-tpl-thumb" src={n.thumbUrl} alt="" loading="lazy" /> : <BoardIcon size={22} aria-hidden="true" />}
               <span className="nt-tpl-label">{n.title || 'Untitled Board'}</span>
             </button>
           ))}

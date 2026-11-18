@@ -43,8 +43,8 @@ const money = (v) => {
   return `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 const days = (n) => (n ? `${n > 0 ? '+' : ''}${n} day${Math.abs(n) === 1 ? '' : 's'}` : 'No schedule change');
-const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)' };
-const small = { padding: '6px 12px', fontSize: '0.8rem', minHeight: 36 };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)' };
+const small = { padding: '6px 12px', fontSize: 13, minHeight: 36 };
 
 function COSheet({ project, data, from, co, onClose, onSaved }) {
   const signed = (data.fieldTickets || []).filter((t) => t.status === 'signed');
@@ -80,7 +80,7 @@ function COSheet({ project, data, from, co, onClose, onSaved }) {
           <h3 style={{ margin: 0 }}>{co ? `Change Order ${co.number}` : 'New Change Order'}</h3>
           <button className="secondary-btn" onClick={onClose} aria-label="Close" style={{ padding: 8 }}><X size={16} /></button>
         </div>
-        {error && <div role="alert" style={{ fontSize: '0.84rem', color: 'hsl(var(--color-red))' }}>{error}</div>}
+        {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</div>}
         <div className="nx-scroll nx-fill" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
           {!co && (
             <label className="form-label">From a Field Ticket
@@ -131,7 +131,7 @@ function COCard({ co, data, me, onChanged, onEdit, canPrice }) {
   return (
     <div data-change-order={co.id} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <b style={{ fontSize: '0.92rem' }}>{co.number} {co.title}</b>
+        <b style={{ fontSize: 15 }}>{co.number} {co.title}</b>
         <StatusLabel size="sm" label={st.label} color={st.color} />
         <span style={{ flex: 1 }} />
         <b style={{ fontVariantNumeric: 'tabular-nums' }}>{money(co.amount)}</b>
@@ -145,7 +145,7 @@ function COCard({ co, data, me, onChanged, onEdit, canPrice }) {
           {co.finishBefore && co.finishAfter !== co.finishBefore ? `, target finish ${formatDate(co.finishBefore, '')} to ${formatDate(co.finishAfter, '')}` : ''}</div>
       )}
       {co.declineReason && ['declined', 'draft'].includes(co.status) && <div style={quiet}>{co.status === 'draft' ? 'Sent back' : 'Declined'}: {co.declineReason}</div>}
-      {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</div>}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {canPrice && co.status === 'draft' && <button className="secondary-btn" style={small} onClick={() => onEdit(co)}>Edit</button>}
         {canPrice && co.status === 'draft' && (
@@ -192,7 +192,7 @@ export default function ChangesTab({ project }) {
         <section style={{ ...CARD, marginBottom: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }} aria-label="Contract">
           {[['Contract Value', money(data.contractValue)], ['Approved Changes', money(t.signed)], ['Pending Changes', money(t.pending)],
             ['Forecast', money((data.contractValue || 0) + (t.pending || 0))]].map(([k, v]) => (
-            <div key={k}><div style={quiet}>{k}</div><div style={{ fontWeight: 700, fontSize: '1.05rem', fontVariantNumeric: 'tabular-nums' }}>{v}</div></div>
+            <div key={k}><div style={quiet}>{k}</div><div style={{ fontWeight: 700, fontSize: 18, fontVariantNumeric: 'tabular-nums' }}>{v}</div></div>
           ))}
           {data.targetFinishOn && <div><div style={quiet}>Target Finish</div><div style={{ fontWeight: 700 }}>{formatDate(data.targetFinishOn, '')}</div></div>}
         </section>
@@ -200,7 +200,7 @@ export default function ChangesTab({ project }) {
 
       <section style={{ ...CARD, marginBottom: 14 }} aria-label="Field Tickets">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-          <h3 style={{ fontSize: '1.05rem', margin: 0 }}>Field Tickets</h3>
+          <h3 style={{ fontSize: 18, margin: 0 }}>Field Tickets</h3>
           <span style={{ flex: 1 }} />
           {data.canWrite && <button className="primary-btn" onClick={() => setTicketOpen(true)}><Plus size={14} />New Field Ticket</button>}
         </div>
@@ -212,7 +212,7 @@ export default function ChangesTab({ project }) {
               return (
                 <div key={tk.id} data-field-ticket={tk.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: 8 }}>
                   <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{tk.number} · {formatDate(tk.workDate, tk.workDate)}</div>
+                    <div style={{ fontWeight: 600, fontSize: 15 }}>{tk.number} · {formatDate(tk.workDate, tk.workDate)}</div>
                     <div style={{ ...quiet, overflowWrap: 'anywhere' }}>{tk.description}</div>
                     <div style={quiet}>{[tk.laborHours ? `${formatHoursWords(tk.laborHours, { compact: true })} labor` : '', tk.materials.length ? `${tk.materials.length} material${tk.materials.length === 1 ? '' : 's'}` : '',
                       tk.photoUrls.length ? `${tk.photoUrls.length} photo${tk.photoUrls.length === 1 ? '' : 's'}` : '', tk.signedName ? `Signed by ${tk.signedName}` : ''].filter(Boolean).join(' · ')}</div>
@@ -232,7 +232,7 @@ export default function ChangesTab({ project }) {
       {data.canPrice && (
         <section style={CARD} aria-label="Change Orders">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <h3 style={{ fontSize: '1.05rem', margin: 0 }}>Change Orders</h3>
+            <h3 style={{ fontSize: 18, margin: 0 }}>Change Orders</h3>
             <span style={{ flex: 1 }} />
             <button className="secondary-btn" onClick={() => setCoOpen({})}><Plus size={14} />New Change Order</button>
           </div>

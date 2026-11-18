@@ -42,10 +42,10 @@ function VitalCard({ vital }) {
         >
           <Icon size={14} />
         </div>
-        <span style={{ padding: '2px 8px', borderRadius: 9999, fontSize: 10.5, fontWeight: 500, ...RATING_COLOR[vital.rating] }}>{vital.rating}</span>
+        <span style={{ padding: '2px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 500, ...RATING_COLOR[vital.rating] }}>{vital.rating}</span>
       </div>
       <div style={{ fontSize: 12, color: C.gray500, marginBottom: 4, lineHeight: 1.25 }}>{vital.label}</div>
-      <div style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, ...truncate }}>
+      <div style={{ fontSize: 18, fontWeight: 600, color: C.gray900, lineHeight: 1.25, ...truncate }}>
         {vital.value}
         {vital.unit}
       </div>
@@ -85,7 +85,7 @@ export default function WebsitePerformanceStatCards({ vitals, totalOrganicSessio
           <Activity size={14} />
         </div>
         <div style={{ fontSize: 12, color: C.gray500, marginBottom: 4, lineHeight: 1.25 }}>Organic Sessions (YTD)</div>
-        <div style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, marginBottom: 4, ...truncate }}>{totalOrganicSessions.toLocaleString()}</div>
+        <div style={{ fontSize: 18, fontWeight: 600, color: C.gray900, lineHeight: 1.25, marginBottom: 4, ...truncate }}>{totalOrganicSessions.toLocaleString()}</div>
         <div style={{ fontSize: 11, color: C.gray400, ...truncate }}>Jan – Jun 2025</div>
       </div>
     </div>

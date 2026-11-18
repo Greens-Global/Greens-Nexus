@@ -86,7 +86,7 @@ export function ProbationBadge({ p, size = 'sm' }) {
 function Popup({ title, sub, onClose, children, footer }) {
   return (
     <Modal title={title} onClose={onClose} zIndex={4100} footer={footer}>
-      {sub && <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 4 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>{sub}</div>}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', fontFamily: 'Inter,sans-serif' }}>{children}</div>
     </Modal>
   );
@@ -168,12 +168,12 @@ export function ProbationDecisionModal({ employee: e, data, mode = 'decide', onC
       ) : (
         <>
           {pending && (
-            <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', fontSize: 12.5, lineHeight: 1.5 }}>
+            <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', fontSize: 13, lineHeight: 1.5 }}>
               {who(pending.by, pending.byName, true)} recommends <b>{pending.label}</b>{pending.newEndDate ? ` to ${usDay(pending.newEndDate)}` : ''} ({usDay(pending.at)}). Adjust it below if needed, then approve or decline.
             </div>
           )}
           {!hr && (
-            <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+            <div style={{ marginTop: 10, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
               Your choice goes to HR as a recommendation - HR approves it, and only then does anything change or a letter go out.
             </div>
           )}
@@ -186,7 +186,7 @@ export function ProbationDecisionModal({ employee: e, data, mode = 'decide', onC
                     cursor: pending ? 'default' : 'pointer', opacity: pending && !on ? 0.45 : 1,
                     border: `1.5px solid ${on ? color : 'var(--line)'}`, background: on ? `${color}12` : 'var(--card)' }}>
                   <Icon size={18} style={{ color, flexShrink: 0, marginTop: 1 }} />
-                  <span><span style={{ display: 'block', fontWeight: 700, fontSize: 13.5 }}>{title}</span>
+                  <span><span style={{ display: 'block', fontWeight: 700, fontSize: 13 }}>{title}</span>
                     <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{sub}</span></span>
                 </button>
               );
@@ -208,7 +208,7 @@ export function ProbationDecisionModal({ employee: e, data, mode = 'decide', onC
             </div>
           )}
           {decision === 'end' && hr && (
-            <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+            <div style={{ marginTop: 10, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
               Nothing is offboarded yet: the Offboard screen opens next with Termination and this reason filled in.
             </div>
           )}
@@ -269,7 +269,7 @@ function ManageModal({ employee: e, data, mode, onClose, onDone, toastErr }) {
         <div style={{ maxWidth: 260 }}>
           <label style={lbl}>Counts From *</label>
           <DateField value={from} onChange={v => setFrom(v || '')} placeholder="MM/DD/YYYY" title="Counts from" style={{ width: '100%' }} />
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>For example, the day they moved into the new role.</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>For example, the day they moved into the new role.</div>
         </div>
       )}
       {mode !== 'remove' && data.status !== 'extended' && (
@@ -289,11 +289,11 @@ function ManageModal({ employee: e, data, mode, onClose, onDone, toastErr }) {
         <div style={{ maxWidth: 260 }}>
           <label style={lbl}>End Date</label>
           <DateField value={end} onChange={v => setEnd(v || '')} placeholder="MM/DD/YYYY" title="End date" style={{ width: '100%' }} />
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>A date typed here stays put if their start date changes.</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>A date typed here stays put if their start date changes.</div>
         </div>
       )}
       {mode === 'remove' && (
-        <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+        <div style={{ marginTop: 10, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
           They come off probation now: no reminder, no decision and no letter{data.pending ? ', and the waiting recommendation is closed' : ''}.
           Nothing starts it again by itself - HR can start a new probation later. The history stays.
         </div>
@@ -308,7 +308,7 @@ function ManageModal({ employee: e, data, mode, onClose, onDone, toastErr }) {
 }
 
 const Row = ({ k, children }) => (
-  <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 13.5 }}>
+  <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
     <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 110, flexShrink: 0 }}>{k}</span>
     <span style={{ flex: 1, minWidth: 0 }}>{children}</span>
   </div>
@@ -359,7 +359,7 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
   // The server says when a letter can go (again) - a passed record has none until HR sends it.
   const canResend = !!data.canSendLetter;
   const history = all ? data.history : (data.history || []).slice(0, 4);
-  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '5px 12px' };
+  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '5px 12px' };
   const d = data.decision || {};
   // Start A New Probation: a small link once a probation is closed or past (a new role, say).
   const startNew = data.canManage && data.applies && st && !open && (
@@ -401,12 +401,12 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
       </div>
 
       {!st ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
           {data.awaitingStart ? 'Starts by itself once their start date is added.'
             : e.startDate ? 'Not tracked. HR can start it from their start date.' : 'Not tracked. Add their start date - probation counts from it.'}
         </div>
       ) : st === 'past' ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
           <div>Past Probation since {usDay(data.pastSince)}. They were here past the probation window before it was tracked, so there is nothing to decide.</div>
           {startNew}
         </div>
@@ -415,7 +415,7 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
           <Row k="Started">{usDay(data.startDate)}</Row>
           <Row k={open ? 'Ends' : st === 'removed' ? 'Was Due' : 'Ended'}>
             {usDay(data.endDate)}
-            {open && data.daysLeft !== null && <span style={{ color: data.daysLeft < 0 ? 'hsl(var(--color-red))' : data.ending ? 'hsl(var(--color-orange))' : 'var(--muted)', marginLeft: 8, fontSize: 12.5 }}>({daysText(data.daysLeft)})</span>}
+            {open && data.daysLeft !== null && <span style={{ color: data.daysLeft < 0 ? 'hsl(var(--color-red))' : data.ending ? 'hsl(var(--color-orange))' : 'var(--muted)', marginLeft: 8, fontSize: 13 }}>({daysText(data.daysLeft)})</span>}
           </Row>
           {st !== 'extended' && <Row k="Length">{data.months} months{data.monthsOverride != null ? ' (set for them)' : ' (company length)'}{data.endManual ? ' - end date set by hand' : ''}</Row>}
           {data.decision && !open && (
@@ -451,7 +451,7 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
       )}
 
       {data.pending && (
-        <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', fontSize: 12.5, lineHeight: 1.5, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', fontSize: 13, lineHeight: 1.5, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ flex: 1, minWidth: 200 }}>
             {who(data.pending.by, data.pending.byName, true)} recommends <b>{data.pending.label}</b>{data.pending.newEndDate ? ` to ${usDay(data.pending.newEndDate)}` : ''}
             {data.pending.reason ? `: ${data.pending.reason}` : ''}. {data.canFinalize ? '' : 'Waiting for HR.'}
@@ -461,7 +461,7 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
       )}
 
       {st === 'ended' && data.canManage && data.employeeActive && (
-        <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5 }}>
+        <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
           <span style={{ flex: 1, minWidth: 200, color: 'var(--muted)' }}>Probation ended without confirmation. The offboarding is not scheduled yet.</span>
           <button className="secondary-btn" style={{ ...btn, color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red),0.35)' }}
             onClick={() => onOffboard?.({ exit_type: 'termination', reason: data.decision?.reason || '' })}>
@@ -476,7 +476,7 @@ export function ProbationCard({ employee: e, focus = false, onOffboard, onChange
             <History size={11} /> History
           </div>
           {history.map((h, i) => (
-            <div key={`${h.at}-${i}`} style={{ fontSize: 12.5, padding: '4px 0', display: 'flex', gap: 8 }}>
+            <div key={`${h.at}-${i}`} style={{ fontSize: 13, padding: '4px 0', display: 'flex', gap: 8 }}>
               <span style={{ color: 'var(--muted)', width: 82, flexShrink: 0 }}>{usDay(h.at)}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
                 {h.byName ? who(h.by, h.byName, true) : <b>Nexus</b>} {(ACTIONS[h.action] || h.action).toLowerCase()}

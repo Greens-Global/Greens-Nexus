@@ -51,10 +51,10 @@ const tabWait = <SkeletonBlocks count={3} height={120} borderRadius={12} />;
 const go = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }));
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
-const head = { display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)' };
-const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 };
+const head = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 };
 const linkBtn = {
-  background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.8rem',
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
   fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', display: 'inline-flex', alignItems: 'center', gap: 4,
 };
 
@@ -67,7 +67,7 @@ function Card({ icon: Icon, title, count, children, testId }) {
       <div style={head}>
         <Icon size={16} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
         <span>{title}</span>
-        {count != null && <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{count}</span>}
+        {count != null && <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>{count}</span>}
       </div>
       {children}
     </section>
@@ -78,10 +78,10 @@ function Line({ left, right, onClick }) {
   const body = (
     <>
       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{left}</span>
-      {right != null && <span style={{ flexShrink: 0, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{right}</span>}
+      {right != null && <span style={{ flexShrink: 0, color: 'var(--text-secondary)', fontSize: 13 }}>{right}</span>}
     </>
   );
-  const style = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, fontSize: '0.85rem', padding: '4px 0', color: 'var(--text-primary)' };
+  const style = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, fontSize: 13, padding: '4px 0', color: 'var(--text-primary)' };
   return onClick
     ? <button type="button" onClick={onClick} style={{ ...style, width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>{body}</button>
     : <div style={style}>{body}</div>;
@@ -229,7 +229,7 @@ function Overview({ project, onTab, money }) {
           )}
           <Card icon={Users} title="Team" testId="team">
             {team.map(([label, list]) => (
-              <div key={label} style={{ fontSize: '0.84rem' }}>
+              <div key={label} style={{ fontSize: 13 }}>
                 <span style={{ fontWeight: 600, color: 'var(--text-secondary)', marginRight: 6 }}>{label}</span>
                 {(list || []).length ? list.map((e) => personName(e, names)).join(', ')
                   : <span style={{ color: 'var(--text-secondary)' }}>{label === 'Managers' ? "None named - the company's managers review" : 'None yet'}</span>}
@@ -301,7 +301,7 @@ export default function JobPage({ project, tab = 'overview', onTab, onBack, onCh
               onClick={() => onTab(t.key)}
               style={{
                 background: 'none', border: 'none', borderBottom: `2.5px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'transparent'}`,
-                padding: '10px 12px', fontFamily: 'inherit', fontSize: '0.88rem', fontWeight: 600, whiteSpace: 'nowrap',
+                padding: '10px 12px', fontFamily: 'inherit', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap',
                 color: on ? 'var(--text-primary)' : 'var(--text-secondary)', cursor: 'pointer', marginBottom: -1,
               }}>
               {t.label}

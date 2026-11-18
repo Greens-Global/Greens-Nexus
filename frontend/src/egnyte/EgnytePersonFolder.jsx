@@ -67,7 +67,7 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
   if (state.error) {
     return (
       <div style={{ ...CARD, padding: 14 }}>
-        <div style={{ ...BODY, fontSize: 12.5 }}>{state.error}</div>
+        <div style={{ ...BODY, fontSize: 13 }}>{state.error}</div>
       </div>
     );
   }
@@ -84,10 +84,10 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
   if (state.missing) {
     return (
       <div style={{ ...CARD, padding: 16, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
-        <div style={{ ...HEADING, fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ ...HEADING, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
           <FolderX size={16} /> No Egnyte Folder Yet
         </div>
-        <div style={{ ...BODY, fontSize: 12.5 }}>
+        <div style={{ ...BODY, fontSize: 13 }}>
           {personName || email} has no documents folder in Egnyte yet. Create one in the standard
           location, or choose a folder that already exists.
         </div>
@@ -99,7 +99,7 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
             <FolderSearch size={13} /> Choose Existing Folder
           </button>
         </div>
-        <div style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)' }}>
+        <div style={{ ...BODY, fontSize: 12, color: 'var(--wk-faint)' }}>
           Create Folder makes the person folder plus "Contractor Documents" and "Confidential" inside it.
         </div>
         {error && <Notice tone="error" onDismiss={() => setError('')}>{error}</Notice>}
@@ -113,7 +113,7 @@ export default function EgnytePersonFolder({ email, personName = '' }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ ...BODY, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           <HardDrive size={13} style={{ flexShrink: 0 }} />
-          <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{state.folder}</span>
+          <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{state.folder}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <button type="button" className="secondary-btn" disabled={busy} onClick={() => setPicking(true)} title="Point this person at a different Egnyte folder" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

@@ -18,6 +18,9 @@ import { linesFile } from './linesExport';
 import SidePanel, { PanelSection } from './SidePanel';
 import Amount from './Amount';
 import { AvatarName } from '../../tasks/components';
+import { StatusLabel } from '../StatusLabel';
+import { WarnMark } from './warnMark';
+import { pill } from './dashboard/Bits';
 
 // A vendor's papers (Construction Round Two item 7, 11/05/2026): the same form
 // the job's Subs tab draws, on the vendor's own record - one row per VENDORID.
@@ -98,11 +101,11 @@ const PANEL_TABS = [{ key: 'details', label: 'Details' }, { key: 'lines', label:
 const VENDOR_TABS = [...PANEL_TABS, { key: 'compliance', label: 'Compliance' }];
 const DEFAULT_PAGE_SIZE = 100;
 const STATUS = {
-  pending: { label: 'Pending Approval', fg: '#92400e', bg: 'rgba(180,83,9,0.13)' },
-  approved: { label: 'Approved - Awaiting Intacct', fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' },
-  in_intacct: { label: 'In Intacct', fg: 'var(--text-secondary)', bg: 'rgba(100,116,139,0.12)' },
-  intacct_changed: { label: 'Changed In Intacct', fg: '#92400e', bg: 'rgba(180,83,9,0.13)' },
-  declined: { label: 'Declined', fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
+  pending: { label: 'Pending Approval', color: 'var(--info-fg)' },      // waiting, not live: never orange
+  approved: { label: 'Approved - Awaiting Intacct', color: '#16a34a' },
+  in_intacct: { label: 'In Intacct', color: '#64748b' },
+  intacct_changed: { label: 'Changed In Intacct', color: 'var(--warn-fg)', warn: true },
+  declined: { label: 'Declined', color: '#dc2626' },
 };
 /** What a request found in Intacct when it closed (item 15), one line per field Intacct changed since. */
 const seenNote = (r) => Object.entries(r.intacctCheck || {}).filter(([, v]) => v?.state === 'changed')
@@ -111,10 +114,11 @@ const seenNote = (r) => Object.entries(r.intacctCheck || {}).filter(([, v]) => v
 const changedInIntacctText =(changed = {}) => Object.entries(changed)
   .map(([f, v]) => `${FIELD_LABEL[f] || f} - Intacct has ${v.intacct || 'blank'} (Nexus approved ${v.approved || 'blank'}${v.approvedAt ? ` on ${formatDate(v.approvedAt)}` : ''})`).join('; ');
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const th = { textAlign: 'left', padding: '6px 8px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)' };
-const td = { padding: '5px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
-const chip = (s) => ({ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: '0.7rem', fontWeight: 700, color: s.fg, background: s.bg, whiteSpace: 'nowrap' });
+const th = { textAlign: 'left', padding: '6px 8px', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)' };
+const td = { padding: '5px 8px', borderBottom: '1px solid var(--border-color)', fontSize: 13, verticalAlign: 'top' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+// The house status label (11/11/2026 Accounting pass, picture 12).
+const Chip = ({ s, label, title, style }) => <StatusLabel size="sm" color={s.color} label={s.warn ? <><WarnMark size={11} />{label ?? s.label}</> : (label ?? s.label)} title={title} style={style} />;
 /** Inactive in Intacct ("inactive", "Inactive - do not use"). */
 export const isInactive = (r) => /^\s*inactive/i.test(String(r?.status || ''));
 const getField = (rec, f) => (f.startsWith('address.') ? rec.address?.[f.slice(8)] || '' : rec[f] || '');
@@ -197,6 +201,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
   const [asOf, setAsOf] = useState('');              // when the accounting app's copy last caught up with Intacct
   const [recState, setRecState] = useState({ loading: false, error: '', notReady: false });
   const [requests, setRequests] = useState(null);
+  const [reqError, setReqError] = useState('');
   const [reqStatus, setReqStatus] = useState('pending');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
@@ -249,7 +254,8 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
     });
   }, []);
   const loadRequests = useCallback((status, k) => (
-    api.getAccountingPartnerChanges(status, k).then((d) => { setRequests(d?.changes || []); if (d?.intacctAsOf) setAsOf(d.intacctAsOf); }).catch(() => setRequests([]))
+    api.getAccountingPartnerChanges(status, k).then((d) => { setReqError(''); setRequests(d?.changes || []); if (d?.intacctAsOf) setAsOf(d.intacctAsOf); })
+      .catch((e) => { setRequests([]); setReqError(e?.message || 'Could not load the requests.'); })
   ), []);
   useEffect(() => { loadRecords(kind, ''); }, [kind, loadRecords]);
   useEffect(() => { loadRequests(reqStatus, kind); }, [reqStatus, kind, loadRequests]);
@@ -270,7 +276,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
   // Item 15: Sync reads the accounting app's copy; say how fresh that copy is.
   const asOfLine = asOf && source !== 'ledger' ? (
     <span data-testid="intacct-as-of" title="Vendor and customer details come from the accounting app's copy of Intacct, refreshed every 30 minutes. Sync reads that copy again."
-      style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Intacct data as of {formatDateTime(asOf)}</span>
+      style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Intacct data as of {formatDateTime(asOf)}</span>
   ) : null;
   // Item 01: the standard view over the list the search and Customize leave.
   const fromLedger = source === 'ledger';
@@ -368,7 +374,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
         <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
           {KINDS.map((k) => (
             <button key={k.key} type="button" onClick={() => { setKind(k.key); setOpened(null); }} aria-pressed={kind === k.key}
-              style={{ ...control, cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: kind === k.key ? 700 : 500, border: `1px solid ${kind === k.key ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: kind === k.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', background: kind === k.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' }}>
+              style={pill(kind === k.key)}>
               {k.label}
             </button>
           ))}
@@ -376,7 +382,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
         <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
           {SECTIONS.map((s) => (
             <button key={s.key} type="button" onClick={() => setSection(s.key)} aria-pressed={section === s.key}
-              style={{ ...control, cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: section === s.key ? 700 : 500, border: `1px solid ${section === s.key ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, color: section === s.key ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', background: section === s.key ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' }}>
+              style={pill(section === s.key)}>
               {s.label}{s.key === 'requests' && reqStatus === 'pending' && requests?.length ? ` (${requests.length})` : ''}
             </button>
           ))}
@@ -427,14 +433,14 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
               {asOfLine}
               <BarMore level={4}>{syncButton}</BarMore>
               <button type="button" className="secondary-btn" disabled={busy === 'export'} onClick={exportApproved} aria-label="Export Approved CSV"
-                title={kind === 'vendor' ? "Intacct's vendor import file: one row per vendor with its approved changes. Import it in Intacct under Accounts Payable > Vendors > Import; each change shows In Intacct after the next sync." : 'The approved changes, one row per field'} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> <span className="acct-bar-label">Export Approved CSV</span></button>
+                title={kind === 'vendor' ? "Intacct's vendor import file: one row per vendor with its approved changes. Import it in Intacct under Accounts Payable > Vendors > Import; each change shows In Intacct after the next sync." : 'The approved changes, one row per field'} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> <span className="acct-bar-label">Export Approved CSV</span></button>
             </div>
           </>
         )}
       </ControlBar>
 
       {notice && (
-        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>
           <span style={{ flex: 1 }}>{notice}</span>
           <button type="button" onClick={() => setNotice('')} aria-label="Dismiss" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}><X size={14} /></button>
         </div>
@@ -442,25 +448,25 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
 
       {section === 'records' && (recState.notReady ? (
         <div style={{ ...card, padding: 24, textAlign: 'center' }}>
-          <h3 style={{ margin: '0 0 6px', fontSize: '1rem' }}>Vendors & Customers</h3>
-          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.86rem' }}>Not available yet - the accounting app needs its update. Once it serves the vendor and customer master, the records list here and edits go to a manager for approval.</p>
+          <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>Vendors & Customers</h3>
+          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14 }}>Not available yet - the accounting app needs its update. Once it serves the vendor and customer master, the records list here and edits go to a manager for approval.</p>
         </div>
       ) : (
         <AsyncSection loading={records === null} error={!!recState.error} errorMessage={recState.error} onRetry={() => loadRecords(kind, q.trim())} skeleton={<SkeletonBlocks count={2} />}>
           {fromLedger && (
-            <p role="note" style={{ margin: '0 0 8px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <p role="note" style={{ margin: '0 0 8px', fontSize: 13, color: 'var(--text-secondary)' }}>
               The {kindLabel} numbers and names on the ledger. Contact details and edits open once the accounting app serves the full Intacct record.
             </p>
           )}
           {hiddenInactive > 0 && (
-            <p style={{ margin: '0 0 8px', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+            <p style={{ margin: '0 0 8px', fontSize: 12, color: 'var(--text-muted)' }}>
               {hiddenInactive.toLocaleString('en-US')} inactive {hiddenInactive === 1 ? kindLabel : `${kindLabel}s`} hidden - Customize &gt; Show Inactive lists them.
             </p>
           )}
           <div style={card}>
             <div ref={boxRef} className="acct-partners-box" data-testid="partners-box">
               {!listed.length && !filters.filtering ? (
-                <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>
+                <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center' }}>
                   {shown.length ? `No ${kindLabel}s pass the filters. Clear a filter to see more.` : `No ${hiddenInactive && !q ? `active ${kindLabel}s` : `${kindLabel}s`}${q ? ' match' : ' came back from the ledger'}.`}
                 </p>
               ) : (
@@ -489,7 +495,7 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
                             open: (
                               <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
                                 <button type="button" className="secondary-btn" onClick={(e) => { e.stopPropagation(); openLines(r); }} aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`}
-                                  style={{ fontSize: '0.72rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}><List size={12} /> View Lines</button>
+                                  style={{ fontSize: 12, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}><List size={12} /> View Lines</button>
                               </td>
                             ),
                           } : {
@@ -497,9 +503,9 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
                             name: (
                               <td style={cell('name')}>
                                 <strong>{r.displayName || r.name}</strong>
-                                {r.awaitingIntacct && <span style={{ ...chip(STATUS.approved), marginLeft: 6 }} title={`Approved changes not yet keyed into Intacct: ${Object.keys(r.intacctValues || {}).map((f) => FIELD_LABEL[f] || f).join(', ')}`}>Awaiting Intacct</span>}
-                                {r.pendingChange && <span style={{ ...chip(STATUS.pending), marginLeft: 6 }}>Pending Approval</span>}
-                                {Object.keys(r.intacctChanged || {}).length > 0 && <span style={{ ...chip(STATUS.intacct_changed), marginLeft: 6 }} title={`Changed in Intacct after the approval: ${changedInIntacctText(r.intacctChanged)}`}>Changed In Intacct</span>}
+                                {r.awaitingIntacct && <Chip s={STATUS.approved} label="Awaiting Intacct" style={{ marginLeft: 6 }} title={`Approved changes not yet keyed into Intacct: ${Object.keys(r.intacctValues || {}).map((f) => FIELD_LABEL[f] || f).join(', ')}`} />}
+                                {r.pendingChange && <Chip s={STATUS.pending} style={{ marginLeft: 6 }} />}
+                                {Object.keys(r.intacctChanged || {}).length > 0 && <Chip s={STATUS.intacct_changed} style={{ marginLeft: 6 }} title={`Changed in Intacct after the approval: ${changedInIntacctText(r.intacctChanged)}`} />}
                               </td>
                             ),
                             email: <td style={cell('email')}>{r.email}</td>,
@@ -531,10 +537,10 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
       ))}
 
       {section === 'requests' && (
-        <AsyncSection loading={requests === null} skeleton={<SkeletonBlocks count={2} />}>
+        <AsyncSection loading={requests === null} error={!!reqError} errorMessage={reqError} onRetry={() => loadRequests(reqStatus, kind)} skeleton={<SkeletonBlocks count={2} />}>
           <div className="acct-partners-box" style={card}>
             {!requests?.length ? (
-              <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>No {reqStatus ? STATUS[reqStatus]?.label.toLowerCase() : ''} requests for {kindLabel}s.</p>
+              <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center' }}>No {reqStatus ? STATUS[reqStatus]?.label.toLowerCase() : ''} requests for {kindLabel}s.</p>
             ) : (
               <table className="acct-sticky-head" style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%' }}>
                 <thead>
@@ -545,22 +551,22 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
                   {!reqFilters.rows.length && <ColumnFiltersEmpty colSpan={reqHeads.length} onClear={reqFilters.clear} style={{ ...td, padding: 14, color: 'var(--text-secondary)' }} />}
                   {reqFilters.rows.map((r) => (
                     <tr key={r.id} className={canApprove && r.status === 'pending' ? 'nx-needs-you--row' : undefined}>
-                      <td style={td}><strong>{r.partnerName || r.partnerId}</strong><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{r.partnerId}</div></td>
+                      <td style={td}><strong>{r.partnerName || r.partnerId}</strong><div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{r.partnerId}</div></td>
                       <td style={td}>
                         {Object.entries(r.changes || {}).map(([f, v]) => (
                           <div key={f}><span style={{ color: 'var(--text-secondary)' }}>{FIELD_LABEL[f] || f}:</span> <s style={{ color: 'var(--text-muted)' }}>{v.from || '(blank)'}</s> {'->'} <strong>{v.to || '(blank)'}</strong></div>
                         ))}
                       </td>
-                      <td style={td}><AvatarName email={r.requestedBy} name={r.requestedByName} size={20} /><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDateTime(r.requestedAt)}</div></td>
-                      <td style={td}><span style={chip(STATUS[r.status] || STATUS.pending)}>{STATUS[r.status]?.label || r.status}</span>{r.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}><AvatarName email={r.decidedBy} name={r.decidedByName} size={16} /> · {formatDateTime(r.decidedAt)}</div>}
-                        {r.intacctSeenAt && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Seen in Intacct {formatDateTime(r.intacctSeenAt)}</div>}</td>
-                      <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 260 }}>{[r.note, ...seenNote(r)].filter(Boolean).join('\n')}</td>
+                      <td style={td}><AvatarName email={r.requestedBy} name={r.requestedByName} size={20} /><div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{formatDateTime(r.requestedAt)}</div></td>
+                      <td style={td}><Chip s={STATUS[r.status] || STATUS.pending} label={STATUS[r.status]?.label || r.status} />{r.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><AvatarName email={r.decidedBy} name={r.decidedByName} size={16} /> · {formatDateTime(r.decidedAt)}</div>}
+                        {r.intacctSeenAt && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Seen in Intacct {formatDateTime(r.intacctSeenAt)}</div>}</td>
+                      <td style={{ ...td, whiteSpace: 'pre-wrap' }}>{[r.note, ...seenNote(r)].filter(Boolean).join('\n')}</td>
                       {canApprove && (
                         <td style={{ ...td, whiteSpace: 'nowrap', textAlign: 'right' }}>
                           {r.status === 'pending' && (
                             <>
-                              <button type="button" className="primary-btn" disabled={busy === r.id} onClick={() => decide(r, 'approve')} style={{ fontSize: '0.74rem', display: 'inline-flex', alignItems: 'center', gap: 4, marginRight: 6 }}><Check size={12} /> Approve</button>
-                              <button type="button" className="secondary-btn" disabled={busy === r.id} onClick={() => decide(r, 'decline')} style={{ fontSize: '0.74rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} /> Decline</button>
+                              <button type="button" className="primary-btn" disabled={busy === r.id} onClick={() => decide(r, 'approve')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, marginRight: 6 }}><Check size={12} /> Approve</button>
+                              <button type="button" className="secondary-btn" disabled={busy === r.id} onClick={() => decide(r, 'decline')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}><X size={12} /> Decline</button>
                             </>
                           )}
                         </td>
@@ -584,12 +590,12 @@ export default function PartnersTab({ canApprove = false, initialKind = 'vendor'
 }
 
 // ── One record, on the right (Charmi, 10/16; Accounting call 10/23) ─────────
-const factLabel = { color: 'var(--text-muted)', fontSize: '0.74rem' };
+const factLabel = { color: 'var(--text-muted)', fontSize: 12 };
 const addressText = (a = {}) => [a.line1, a.line2, [a.city, a.state].filter(Boolean).join(', '), a.zip, a.country].filter(Boolean).join(' · ');
 const Facts = ({ items }) => (
   <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px 16px' }}>
     {items.map(([k, v]) => (
-      <div key={k}><dt style={factLabel}>{k}</dt><dd style={{ margin: 0, fontSize: '0.84rem', overflowWrap: 'anywhere' }}>{v || <span style={{ color: 'var(--text-muted)' }}>-</span>}</dd></div>
+      <div key={k}><dt style={factLabel}>{k}</dt><dd style={{ margin: 0, fontSize: 13, overflowWrap: 'anywhere' }}>{v || <span style={{ color: 'var(--text-muted)' }}>-</span>}</dd></div>
     ))}
   </dl>
 );
@@ -650,10 +656,10 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
   const readOnlyFacts = [['Entity', rec.entity], ['Updated In Intacct', rec.updatedAt ? formatDate(rec.updatedAt) : ''], ['Ledger Lines', Number.isFinite(rec.lines) ? rec.lines.toLocaleString('en-US') : a ? a.total.toLocaleString('en-US') : '']];
   const badges = (
     <>
-      {rec.status && <span style={chip(isInactive(rec) ? STATUS.declined : { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' })}>{isInactive(rec) ? 'Inactive' : rec.status[0].toUpperCase() + rec.status.slice(1)}</span>}
-      {rec.awaitingIntacct && <span style={chip(STATUS.approved)}>Awaiting Intacct</span>}
-      {rec.pendingChange && <span style={chip(STATUS.pending)}>Pending Approval</span>}
-      {Object.keys(rec.intacctChanged || {}).length > 0 && <span style={chip(STATUS.intacct_changed)}>Changed In Intacct</span>}
+      {rec.status && <Chip s={{ color: isInactive(rec) ? '#dc2626' : '#16a34a' }} label={isInactive(rec) ? 'Inactive' : rec.status[0].toUpperCase() + rec.status.slice(1)} />}
+      {rec.awaitingIntacct && <Chip s={STATUS.approved} label="Awaiting Intacct" />}
+      {rec.pendingChange && <Chip s={STATUS.pending} />}
+      {Object.keys(rec.intacctChanged || {}).length > 0 && <Chip s={STATUS.intacct_changed} />}
     </>
   );
   return (
@@ -662,10 +668,10 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
       tabs={kind === 'vendor' ? VENDOR_TABS : PANEL_TABS} tab={tab} onTab={onTab} onClose={tryClose}
       footer={(
         <div className="modal-footer" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="secondary-btn" onClick={onLines} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><List size={13} /> View All Ledger Lines</button>
+          <button type="button" className="secondary-btn" onClick={onLines} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><List size={13} /> View All Ledger Lines</button>
           <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
             {!canChange && d && (
-              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                 {rec.pendingChange ? 'A change is already waiting for approval.' : fromLedger || !canEdit ? 'Edits open once the full Intacct record is served.' : ''}
               </span>
             )}
@@ -674,7 +680,7 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
           </span>
         </div>
       )}>
-      {state.error && <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{state.error}</div>}
+      {state.error && <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>{state.error}</div>}
 
       {tab === 'details' && (
         <>
@@ -699,26 +705,27 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
             </PanelSection>
           ))}
           {rec.awaitingIntacct && (
-            <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
               Approved changes not yet keyed into Intacct: {Object.entries(rec.intacctValues || {}).map(([f, v]) => `${FIELD_LABEL[f] || f} (Intacct has ${v || 'blank'})`).join(', ')}.
             </p>
           )}
           {Object.keys(rec.intacctChanged || {}).length > 0 && (
-            <p role="note" style={{ margin: 0, fontSize: '0.76rem', color: '#92400e' }}>
+            <p role="note" style={{ margin: 0, fontSize: 12, color: 'var(--warn-fg)' }}>
+              <WarnMark />
               Changed in Intacct after the approval, so Intacct&apos;s value is shown: {changedInIntacctText(rec.intacctChanged)}.
             </p>
           )}
-          {fromLedger && <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--text-muted)' }}>Contact details show once the accounting app serves the full Intacct record.</p>}
+          {fromLedger && <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>Contact details show once the accounting app serves the full Intacct record.</p>}
         </>
       )}
 
       {tab === 'lines' && (
         <PanelSection title="Ledger Activity" caption="The latest lines on the ledger; View All Ledger Lines opens every one.">
           {!d && !state.error ? <SkeletonBlocks count={2} /> : d?.activityError ? (
-            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>The ledger could not be read: {d.activityError}</p>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>The ledger could not be read: {d.activityError}</p>
           ) : a && (
             <>
-              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: '0.82rem', marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, marginBottom: 8 }}>
                 <span><span style={factLabel}>Lines </span><strong>{a.total.toLocaleString('en-US')}</strong></span>
                 <span><span style={factLabel}>Debits </span><strong><Amount value={a.debit} /></strong></span>
                 <span><span style={factLabel}>Credits </span><strong><Amount value={a.credit} /></strong></span>
@@ -735,16 +742,16 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
                           <td style={{ ...td, whiteSpace: 'nowrap' }}>{l.entryNo}</td>
                           <td style={{ ...td, whiteSpace: 'nowrap' }}>{l.entity}</td>
                           <td style={td}>{l.account} {l.accountName}</td>
-                          <td style={{ ...td, maxWidth: 280 }}>{l.memo}</td>
+                          <td style={td}>{l.memo}</td>
                           <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}><Amount value={l.debit} zero="blank" /></td>
                           <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}><Amount value={l.credit} zero="blank" /></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {a.total > a.lines.length && <p style={{ margin: '6px 0 0', fontSize: '0.74rem', color: 'var(--text-muted)' }}>The latest {a.lines.length} of {a.total.toLocaleString('en-US')} lines - View All Ledger Lines opens every one in Reports.</p>}
+                  {a.total > a.lines.length && <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>The latest {a.lines.length} of {a.total.toLocaleString('en-US')} lines - View All Ledger Lines opens every one in Reports.</p>}
                 </div>
-              ) : <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No lines on the ledger you can read.</p>}
+              ) : <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>No lines on the ledger you can read.</p>}
             </>
           )}
         </PanelSection>
@@ -759,7 +766,7 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
       {tab === 'history' && (
         <PanelSection title="Change History" caption="Every change requested in Nexus, and what was decided.">
           {!d && !state.error ? <SkeletonBlocks count={1} /> : !d?.history?.length ? (
-            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>No change has been requested for this {noun.toLowerCase()} in Nexus.</p>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-secondary)' }}>No change has been requested for this {noun.toLowerCase()} in Nexus.</p>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table className="acct-partners">
@@ -767,15 +774,15 @@ export function PartnerPanel({ kind, row, tab, onTab, canEdit, onDirty, onClose,
                 <tbody>
                   {d.history.map((h) => (
                     <tr key={h.id}>
-                      <td style={td}><AvatarName email={h.requestedBy} name={h.requestedByName} size={20} /><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{formatDateTime(h.requestedAt)}</div></td>
+                      <td style={td}><AvatarName email={h.requestedBy} name={h.requestedByName} size={20} /><div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{formatDateTime(h.requestedAt)}</div></td>
                       <td style={td}>
                         {Object.entries(h.changes || {}).map(([f, v]) => (
                           <div key={f}><span style={{ color: 'var(--text-secondary)' }}>{FIELD_LABEL[f] || f}:</span> <s style={{ color: 'var(--text-muted)' }}>{v.from || '(blank)'}</s> {'->'} <strong>{v.to || '(blank)'}</strong></div>
                         ))}
                       </td>
-                      <td style={td}><span style={chip(STATUS[h.status] || STATUS.pending)}>{STATUS[h.status]?.label || h.status}</span>{h.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}><AvatarName email={h.decidedBy} name={h.decidedByName} size={16} /> · {formatDateTime(h.decidedAt)}</div>}
-                        {h.intacctSeenAt && <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>Seen in Intacct {formatDateTime(h.intacctSeenAt)}</div>}</td>
-                      <td style={{ ...td, whiteSpace: 'pre-wrap', maxWidth: 240 }}>{[h.note, ...seenNote(h)].filter(Boolean).join('\n')}</td>
+                      <td style={td}><Chip s={STATUS[h.status] || STATUS.pending} label={STATUS[h.status]?.label || h.status} />{h.decidedByName && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}><AvatarName email={h.decidedBy} name={h.decidedByName} size={16} /> · {formatDateTime(h.decidedAt)}</div>}
+                        {h.intacctSeenAt && <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Seen in Intacct {formatDateTime(h.intacctSeenAt)}</div>}</td>
+                      <td style={{ ...td, whiteSpace: 'pre-wrap' }}>{[h.note, ...seenNote(h)].filter(Boolean).join('\n')}</td>
                     </tr>
                   ))}
                 </tbody>
