@@ -1222,13 +1222,13 @@ async def egnyte_suggest(vendor: str, entity: str = "", user: dict = Depends(_ed
                     raise
         own = ""
         if entity:
-            listing = soft(svc.list_folder, ENTITIES_ROOT, token=tok, timeout=eg._BROWSE_TIMEOUT) or {}
+            listing = soft(svc.list_folder, ENTITIES_ROOT, token=tok) or {}   # the ordinary list timeout: these looks only add, never wait 50 s
             best = max(((folder_score(entity, f.get("name") or ""), f.get("path") or "") for f in listing.get("folders") or []), default=(0, ""))
             if best[0] >= 0.5 and best[1]:
                 own = best[1].rstrip("/")
                 for term in search_terms(name):
                     probe = f"{own}/Financials/Vendors/{term}"
-                    hit = soft(svc.list_folder, probe, token=tok, count=1, timeout=eg._BROWSE_TIMEOUT)
+                    hit = soft(svc.list_folder, probe, token=tok, count=1)
                     if hit is not None:
                         real = (hit.get("path") or probe).rstrip("/")   # Egnyte's own spelling
                         found.append({"name": real.rsplit("/", 1)[-1], "path": real})

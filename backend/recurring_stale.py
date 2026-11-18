@@ -224,7 +224,7 @@ async def _mri_results(today: date, months: int) -> list[dict]:
     back_all = sorted({m for _l, win in cands for m in lookback(today, win)})
     receipts: dict = {}
     for year in sorted({int(m[:4]) for m in back_all}):
-        receipts.update(await leasing._receipts(_SCOPE, [l for l, _w in cands], year, every=rows))
+        receipts.update(await leasing._receipts(_SCOPE, [l for l, _w in cands], year, every=rows, untagged=False))
     out = []
     for l, win in cands:
         back = lookback(today, win)

@@ -110,10 +110,25 @@ class UntaggedRent(unittest.TestCase):
     def test_rent_with_no_customer_reaches_the_only_lease(self):
         l = self.unit1()
         extra = {("69002-1", "", f"2026-{m:02d}"): {"41101": 4200.0} for m in (9, 10)}
+        extra[("69002-1", "*payers")] = {"C00730"}
         r = roll(l, {4: 3200, 5: 6500, 6: 4200, 7: 4200, 8: 4200}, extra)
         self.assertEqual(r["months"][8]["status"], "paid")
         self.assertEqual(r["months"][8]["untagged"], 4200.0)
         self.assertEqual(r["months"][9]["status"], "paid")
+
+    def test_another_customer_on_the_account_means_no_untagged_rent(self):
+        # Audit guard (11/19/2026): a customer with no lease at the entity was
+        # tagged on the same income account - the remainder may be theirs.
+        l = self.unit1()
+        extra = {("69002-1", "", "2026-09"): {"41101": 4200.0}, ("69002-1", "*payers"): {"C00730", "C09999"}}
+        r = roll(l, {8: 4200}, extra)
+        self.assertNotIn("untagged", r["months"][8])
+        self.assertEqual(r["months"][8]["received"], 0)
+
+    def test_unknown_payers_means_no_untagged_rent(self):
+        l = self.unit1()
+        r = roll(l, {8: 4200}, {("69002-1", "", "2026-09"): {"41101": 4200.0}})
+        self.assertNotIn("untagged", r["months"][8])
 
     def test_customer_tagged_part_is_not_counted_twice(self):
         l = self.unit1()

@@ -5749,6 +5749,9 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 .egx-picker .egx-tree-pane,
 .egx-picker .egx-list-pane { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .egx-picker > .egx-wrap > .egx-list-pane { flex: 1 1 auto; }
+/* Audit 11/19: the folder header (breadcrumb, search, Use This Folder) stays
+   pinned at the top of its pane while a long file list scrolls under it. */
+.egx-picker .egx-list-pane > :first-child { position: sticky; top: 0; z-index: 2; }
 
 /* Tree rows */
 .egx-tree-row { display: flex; align-items: center; border-radius: 6px; min-width: 0; }
