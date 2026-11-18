@@ -1047,7 +1047,9 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
     const name = (l.vendorName || l.vendorId || '').trim();
     if (!name) return;
     setFinding({ busy: true });
-    api.suggestMreEgnyteFolder(name)
+    // The line's entity (11/18): its own Vendors folder is looked in first.
+    const entityName = entities.find((e) => e.code === l.entityCode)?.name || l.entityName || '';
+    api.suggestMreEgnyteFolder(name, entityName.replace(/^\([A-Z]\)\s*/, ''))
       .then((d) => setFinding({ suggestions: d?.suggestions || [], root: d?.root || '' }))
       .catch((e) => setFinding({ error: e?.message || 'Could not search Egnyte.' }));
   };

@@ -112,9 +112,26 @@ describe('LeasingTab', () => {
     await waitFor(() => expect(api.setLeasingMonth).toHaveBeenCalledWith('L1', '2026-04', { adjustment: 250, note: 'Plumbing repair' }));
   });
 
+  it('edits from the pencil, like MRE, and shows the documents folder icon (11/18, Urmi)', async () => {
+    api.getLeasingRentRollFor.mockResolvedValueOnce({ ...roll, rows: [{ ...roll.rows[0], lease: lease({ egnyteFolder: '/Shared/Leases/910', egnyteUrl: 'https://egnyte.example/910' }) }, roll.rows[1]] });
+    render(<LeasingTab canEdit />);
+    const folder = await screen.findByRole('link', { name: 'Documents of 910 SECR - Ste 100, San Clemente in Egnyte' });
+    expect(folder.getAttribute('href')).toBe('https://egnyte.example/910');
+    expect(screen.queryByRole('link', { name: /Documents of 47385/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: '910 SECR - Ste 100, San Clemente' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
+    expect(screen.getByRole('dialog', { name: 'Change lease' })).toBeTruthy();
+  });
+
+  it('shows no pencil to someone who cannot edit', async () => {
+    render(<LeasingTab />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    expect(screen.queryByRole('button', { name: /^Edit 910 SECR/ })).toBeNull();
+  });
+
   it('adds a rent change to a lease', async () => {
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     fireEvent.click(within(dialog).getByRole('button', { name: /Add Rent Change/ }));
     fireEvent.change(within(dialog).getByLabelText('Rent 2 starts'), { target: { value: '2027-01-01' } });
@@ -487,7 +504,7 @@ describe('LeasingTab - one list of every income source (10/07)', () => {
 
   it('asks before a changed lease is closed', async () => {
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     fireEvent.change(within(dialog).getByLabelText('Region'), { target: { value: 'San Diego' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
@@ -610,7 +627,7 @@ describe('LeasingTab shared controls', () => {
   it('the entity on a lease is the module picker, found by its number', async () => {
     api.getAccountingLocations.mockResolvedValue({ entities: [{ code: '15000', name: 'Greens Escondido' }, { code: '12000', name: 'Greens Global, Inc.' }, { code: '13000', name: '(H) Old Holdings' }] });
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     const pick = await within(dialog).findByRole('button', { name: 'Entity the Income Posts To' });
     await waitFor(() => expect(pick.textContent).toContain('Greens Escondido (15000)'));
@@ -664,7 +681,7 @@ describe('LeasingTab shared controls', () => {
 
   it('Lease Term is a dropdown: Annual, Month to Month, Custom - in that order', async () => {
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     const select = within(dialog).getByLabelText('Lease Term');
     expect(select.tagName).toBe('SELECT');
@@ -676,7 +693,7 @@ describe('LeasingTab shared controls', () => {
 
   it('Custom asks for the months and saves them as a whole number', async () => {
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     fireEvent.change(within(dialog).getByLabelText('Lease Term'), { target: { value: 'custom' } });
     const months = within(dialog).getByLabelText('Lease Term in Months');
@@ -695,7 +712,7 @@ describe('LeasingTab shared controls', () => {
 
   it('Month to Month saves no months', async () => {
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     fireEvent.change(within(dialog).getByLabelText('Lease Term'), { target: { value: 'month_to_month' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
@@ -736,7 +753,7 @@ describe('LeasingTab shared controls', () => {
 
   it('the rent changes are a table with Effective Date, Rent, CAM, Other and Note over the inputs', async () => {
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     const table = within(dialog).getByRole('table', { name: 'Rent Changes' });
     const heads = within(table).getAllByRole('columnheader').map((h) => h.textContent);
@@ -767,7 +784,7 @@ describe('LeasingTab shared controls', () => {
   it('picking the tenant fills only the empty contact fields from Intacct, and says so', async () => {
     withContacts();
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     fireEvent.change(within(dialog).getByLabelText('Tenant Name'), { target: { value: 'azadeh' } });
     fireEvent.click(await within(dialog).findByRole('option', { name: /Dr. Azadeh Sham/ }));
@@ -791,7 +808,7 @@ describe('LeasingTab shared controls', () => {
   it('picking another customer replaces only what the last pick filled', async () => {
     withContacts();
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const dialog = screen.getByRole('dialog', { name: 'Change lease' });
     fireEvent.change(within(dialog).getByLabelText('Email'), { target: { value: '' } });
     fireEvent.change(within(dialog).getByLabelText('Tenant Name'), { target: { value: 'azadeh' } });
@@ -813,7 +830,7 @@ describe('LeasingTab shared controls', () => {
 describe('LeasingTab - side panel (10/23)', () => {
   it('opens the lease on the right in three titled groups, with Open Full and a close', async () => {
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const panel = screen.getByRole('dialog', { name: 'Change lease' });
     expect(panel.getAttribute('aria-modal')).toBe('false');
     expect(panel.className).toContain('acct-side-panel');
@@ -825,7 +842,7 @@ describe('LeasingTab - side panel (10/23)', () => {
     for (const f of ['Type', 'Property or Space', 'Region', 'Status', 'Lease Term', 'Frequency', 'Security Deposit', 'Late Fee', 'Rent Due on Day', 'Rental Income Accounts']) expect(within(leaseInfo).getByLabelText(f)).toBeTruthy();
     expect(within(within(panel).getByRole('region', { name: 'Comments' })).getByLabelText('Notes')).toBeTruthy();
     // The list is still on screen behind it.
-    expect(screen.getByRole('button', { name: '47385 RCR, Temecula' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Edit 47385 RCR, Temecula' })).toBeTruthy();
     // Open Full widens it; Side Panel brings it back.
     fireEvent.click(within(panel).getByRole('button', { name: /Open Full/ }));
     expect(panel.className).toContain('is-full');
@@ -837,14 +854,14 @@ describe('LeasingTab - side panel (10/23)', () => {
 
   it('Open Full is for that one open: the next lease opens in the side panel again', async () => {
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     let panel = screen.getByRole('dialog', { name: 'Change lease' });
     fireEvent.click(within(panel).getByRole('button', { name: /Open Full/ }));
     expect(panel.className).toContain('is-full');
     fireEvent.click(within(panel).getByRole('button', { name: 'Close' }));
     // Not kept with the person's preferences.
     expect(JSON.parse(localStorage.getItem('nexus-accounting-prefs') || '{}').sidePanelFull).toBeUndefined();
-    fireEvent.click(screen.getByRole('button', { name: '47385 RCR, Temecula' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit 47385 RCR, Temecula' }));
     panel = screen.getByRole('dialog', { name: 'Change lease' });
     expect(panel.className).not.toContain('is-full');
     expect(within(panel).getByRole('button', { name: /Open Full/ }).getAttribute('aria-pressed')).toBe('false');
@@ -852,7 +869,7 @@ describe('LeasingTab - side panel (10/23)', () => {
 
   it('saves from the pinned Save as before', async () => {
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     const panel = screen.getByRole('dialog', { name: 'Change lease' });
     fireEvent.change(within(panel).getByLabelText('Notes'), { target: { value: 'Pays by check' } });
     fireEvent.click(within(panel).getByRole('button', { name: 'Save' }));
@@ -865,19 +882,19 @@ describe('LeasingTab - side panel (10/23)', () => {
   it('clicking another lease swaps the panel; unsaved edits are asked about first', async () => {
     const ask = vi.spyOn(appDialog, 'confirm').mockResolvedValue(false);
     render(<LeasingTab canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     // Unchanged: straight to the next lease.
-    fireEvent.click(screen.getByRole('button', { name: '47385 RCR, Temecula' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit 47385 RCR, Temecula' }));
     await waitFor(() => expect(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Property or Space').value).toBe('47385 RCR, Temecula'));
     expect(ask).not.toHaveBeenCalled();
     // Changed: asked, and Keep Editing keeps it.
     fireEvent.change(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Region'), { target: { value: 'San Diego' } });
-    fireEvent.click(screen.getByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     await waitFor(() => expect(ask).toHaveBeenCalledTimes(1));
     expect(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Region').value).toBe('San Diego');
     // Discard: the other lease opens.
     ask.mockResolvedValueOnce(true);
-    fireEvent.click(screen.getByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit 910 SECR - Ste 100, San Clemente' }));
     await waitFor(() => expect(within(screen.getByRole('dialog', { name: 'Change lease' })).getByLabelText('Property or Space').value).toBe('910 SECR - Ste 100, San Clemente'));
     ask.mockRestore();
   });

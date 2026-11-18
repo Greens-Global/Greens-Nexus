@@ -131,6 +131,11 @@ export default function EgnyteFolderBrowser({
   // The folder the pane is showing RIGHT NOW - background revalidations check
   // it before applying, so a slow refresh can't repaint a folder already left.
   const pathRef = useRef(normPath(initialPath));
+  // In the picker the two panes scroll on their own (11/18, Urmi: picking a
+  // folder left Use This Folder scrolled out of sight) - a new folder opens
+  // with its header, and Use This Folder, at the top of its pane.
+  const listRef = useRef(null);
+  useEffect(() => { if (listRef.current) listRef.current.scrollTop = 0; }, [path]);
 
   const load = useCallback((target, { force = false, silent = false } = {}) => {
     const next = normPath(target);
@@ -563,7 +568,7 @@ export default function EgnyteFolderBrowser({
   };
 
   const listingPane = (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+    <div ref={listRef} className="egx-list-pane" style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
 
       {/* ── Header: breadcrumb trail on top, then folder title · search · actions ── */}
       <div style={{ ...CARD, minWidth: 0 }}>
