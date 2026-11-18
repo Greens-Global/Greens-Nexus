@@ -216,10 +216,53 @@ def in_force(line: dict, year: int, month: int) -> bool:
     return not (line.get("status") == "ended" and not end)
 
 
+def clean_changes(raw) -> list[dict]:
+    """A line's amount changes as kept: each {"from": "YYYY-MM-DD", "amount":
+    float} or {"from": ..., "tenantPays": True}, oldest first, one per date
+    (the last one typed for a date wins), at most 60."""
+    by_day: dict[str, dict] = {}
+    for c in raw if isinstance(raw, list) else []:
+        if not isinstance(c, dict) or not _ISO.match(str(c.get("from") or "")):
+            continue
+        day = str(c["from"])[:10]
+        if c.get("tenantPays"):
+            by_day[day] = {"from": day, "tenantPays": True}
+            continue
+        try:
+            amount = float(c.get("amount"))
+        except (TypeError, ValueError):
+            continue
+        if amount < 0 or amount != amount:
+            continue
+        by_day[day] = {"from": day, "amount": _r2(amount)}
+    return [by_day[d] for d in sorted(by_day)][:60]
+
+
+def amount_in(line: dict, year: int, month: int) -> tuple[float, bool]:
+    """What the line expects in a month, and whether the tenant pays it then
+    (Charmi, 11/18/2026). THE one place a month's amount is worked out: the
+    line's Expected Amount until its first change, then the latest change
+    dated in or before the month (a change applies to its whole month)."""
+    amount, tenant = _r2(line.get("expectedAmount") or 0), False
+    key = f"{year}-{month:02d}"
+    for c in line.get("amountChanges") or []:
+        if (c.get("from") or "")[:7] <= key:
+            if c.get("tenantPays"):
+                tenant = True
+            else:
+                amount, tenant = _r2(c.get("amount") or 0), False
+    return amount, tenant
+
+
+def tenant_pays(line: dict, year: int, month: int) -> bool:
+    return amount_in(line, year, month)[1]
+
+
 def due_in_month(line: dict, year: int, month: int) -> bool:
     """Whether the line falls due in this calendar month: inside its start /
-    end, and on its frequency counted from the start month."""
-    if not in_force(line, year, month):
+    end, on its frequency counted from the start month, and not a month the
+    tenant pays it (11/18/2026)."""
+    if not in_force(line, year, month) or tenant_pays(line, year, month):
         return False
     start = line.get("startDate") or ""
     step = step_months(line)
@@ -256,15 +299,15 @@ def period_cells(line: dict, paid: list[float], year: int, this_month: str) -> l
     A period whose due month is outside the line's start / end expects
     nothing, as before."""
     step = step_months(line)
-    amount = _r2(line["expectedAmount"])
     variance = line.get("variancePct") or 0
     out: list[dict] = []
     for first in range(1, 13, step):
         block = list(range(first, min(first + step, 13)))
         span = {"from": f"{year}-{block[0]:02d}", "to": f"{year}-{block[-1]:02d}"}
-        live = [m for m in block if in_force(line, year, m)]
+        live = [m for m in block if in_force(line, year, m) and not tenant_pays(line, year, m)]
         anchor = next((m for m in live if due_in_month(line, year, m)), None)
         hits = [m for m in live if paid[m - 1] > _POSTED] if anchor else []
+        amount = amount_in(line, year, hits[0] if hits else (anchor or first))[0]
         got = _r2(sum(paid[m - 1] for m in live))
         ended = bool(live) and f"{year}-{live[-1]:02d}" < this_month
         if hits:
@@ -326,11 +369,13 @@ def grid(lines: list[dict], payments: dict, year: int, today: date, unread: Opti
                     extra["period"] = plan[m - 1]["period"]
             else:
                 due = due_in_month(line, year, m)
-                expected = _r2(line["expectedAmount"]) if due else 0.0
+                expected = amount_in(line, year, m)[0] if due else 0.0
                 if pair in unread:
                     status = "upcoming" if key > this_month else ("unknown" if due else "none")
                 else:
                     status = month_status(due, expected, paid, key, this_month, line.get("variancePct") or 0)
+            if in_force(line, year, m) and tenant_pays(line, year, m):
+                extra["tenantPays"] = True      # 11/18/2026: kept on the sheet, never expected, never Missed
             cells.append({"month": key, "due": due, "expected": expected, "paid": paid, "status": status, **extra})
             paid_year = _r2(paid_year + paid)
             totals[m - 1]["expected"] = _r2(totals[m - 1]["expected"] + expected)
@@ -363,6 +408,7 @@ def _line_out(r: models.RecurringExpense) -> dict:
         "status": r.status or "active", "notes": r.notes or "", "source": r.source or "manual",
         "updatedBy": r.updated_by or "", "updatedAt": r.updated_at or "",
         "egnyteFolder": getattr(r, "egnyte_folder", "") or "", "egnyteUrl": _egnyte_url(getattr(r, "egnyte_folder", "") or ""),
+        "amountChanges": clean_changes(getattr(r, "amount_changes", None)),
         "possiblyEnded": ({"since": r.stale_since, "lastPaid": r.stale_last_paid or "", "taskId": r.stale_task_id or ""}
                           if getattr(r, "stale_since", "") else None),
     }
@@ -393,6 +439,8 @@ class LineBody(BaseModel):
     contactInfo: Optional[str] = ""
     # Oct 22 (Neil): the vendor's Egnyte folder. None (an older screen) keeps what is saved.
     egnyteFolder: Optional[str] = None
+    # 11/18/2026 (Charmi): amount changes and Paid by Tenant months. None (an older screen) keeps what is saved.
+    amountChanges: Optional[list[dict[str, Any]]] = None
 
 
 def _clean(body: LineBody) -> dict:
@@ -431,6 +479,7 @@ def _clean(body: LineBody) -> dict:
         "account_number": (body.accountNumber or "").strip()[:100], "account_details": (body.accountDetails or "").strip()[:1000],
         "contact_info": (body.contactInfo or "").strip()[:1000],
         **({} if body.egnyteFolder is None else {"egnyte_folder": _folder(body.egnyteFolder)}),
+        **({} if body.amountChanges is None else {"amount_changes": clean_changes(body.amountChanges)}),
     }
 
 

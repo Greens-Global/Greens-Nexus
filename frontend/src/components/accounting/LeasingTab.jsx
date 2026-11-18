@@ -234,7 +234,9 @@ const monthNotesText = (row) => (row.months || []).filter((c) => c.note).map((c)
 export function coverText(c) {
   const parts = [];
   if (c?.covered) parts.push(`${money(c.covered)} covered by the ${(c.coveredBy || []).map(monthName).join(', ')} payment${(c.coveredBy || []).length === 1 ? '' : 's'}${c.prepaid ? ' (prepaid)' : ''}`);
+  if (c?.covered && ['short', 'unpaid', 'late'].includes(c.status)) parts.push(`${money(Math.max(0, (c.balance || 0) - c.covered))} still open`);
   if (c?.applied) parts.push(`${money(c.applied)} of this payment applied to ${(c.appliedTo || []).map(monthName).join(', ')} - the oldest open month first`);
+  if (c?.untagged) parts.push(`${money(c.untagged)} was posted at this entity in Intacct with no customer on it`);
   return parts.join('. ');
 }
 const rowKey = (r) => (r.kind === 'account' ? r.key : r.lease.id);
@@ -278,9 +280,12 @@ const notesText = (r) => [r.lease.teamNote?.text || '', monthNotesText(r)].filte
 /** The rate in force this month (the Amount column). */
 const rateNow = (l, thisMonth) => [...(l.rates || [])].reverse().find((x) => x.startDate <= `${thisMonth}-31`) || (l.rates || [])[0];
 /** What a month's cell shows: received, or what is expected when not yet paid; null for a dash. */
-const monthShown = (c) => {
+export const monthShown = (c) => {
   if (!c || !c.inForce || blankMonth(c)) return null;
-  if (c.status === 'covered') return c.received + (c.covered || 0);
+  // 11/18/2026 (Charmi): a month part-settled by another month's payment
+  // shows what it has (received plus covered) in its Short color, not a bare
+  // 0 - the 0 read as if the overpayment had been ignored.
+  if (c.status === 'covered' || (c.covered && ['short', 'unpaid', 'late'].includes(c.status))) return c.received + (c.covered || 0);
   if (c.status === 'upcoming' || c.status === 'due' || c.status === 'unknown') return c.expected;
   return c.received;
 };
@@ -1015,7 +1020,7 @@ function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, 
                     <button type="button" onClick={() => onCell(r, c)} aria-label={`${l.propertyName}, ${monthName(c.month)}: ${off ? 'Not Due This Month' : dash ? 'Not in Force' : st.label}, received ${money(c.received)} of ${money(c.expected)}${credit ? `. ${credit}` : ''}`}
                       title={`${off ? 'Not due this month' : dash ? 'Not in force' : st.label} - received ${money(c.received)} of ${money(c.expected)}${credit ? ` - ${credit}` : ''}${c.note ? ` - ${c.note}` : ''}`}
                       style={{ width: '100%', border: 'none', borderRadius: 6, cursor: 'pointer', font: 'inherit', fontVariantNumeric: 'tabular-nums', padding: '3px 6px', textAlign: 'right', background: dash ? 'transparent' : st.bg, color: dash ? 'var(--text-muted)' : st.fg, fontWeight: ['short', 'unpaid', 'late'].includes(c.status) ? 700 : 400, fontStyle: c.status === 'covered' ? 'italic' : undefined }}>
-                      {dash ? '-' : c.status === 'covered' ? whole(c.received + (c.covered || 0)) : c.status === 'upcoming' || c.status === 'due' || c.status === 'unknown' ? whole(c.expected) : whole(c.received)}{c.note ? '*' : ''}
+                      {dash ? '-' : whole(monthShown(c))}{c.note ? '*' : ''}
                       {/* 10/29 (Neil: the bare "c" was "not intuitive"): a small
                           return arrow - the money came back from another month's
                           payment - with its own words on hover. */}

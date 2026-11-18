@@ -178,6 +178,8 @@ def mre_candidates(lines: list[dict], today: date, months: int) -> list[tuple[di
     for l in lines:
         if l["status"] != "active" or (l["endDate"] and l["endDate"] < today.isoformat()) or not l["vendorId"]:
             continue
+        if accounting_mre.tenant_pays(l, today.year, today.month):
+            continue        # 11/18/2026: the tenant pays it now - nothing posting is expected, never Possibly Ended
         win = mre_window(today, months, accounting_mre.step_months(l))
         if in_force_since(l["startDate"], win):
             out.append((l, win))

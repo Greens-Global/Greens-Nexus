@@ -694,6 +694,50 @@ def period_open(lease: dict, year: int, month: int, received: list[float], in_fo
     return all(received[m - 1] <= _PAID_WITHIN for m in block)
 
 
+def untagged_rent(lease: dict, receipts: dict, key: str, customers: set) -> dict:
+    """11/18/2026 (Charmi: 29277 VCR Unit 1 read 0 in September and October
+    - "There is data in Intacct for the highlighted months"). Intacct had
+    the 4,200 rent on 41101 at the lease's entity (69002-1) both months, but
+    entered WITHOUT a customer, so the read by (entity, customer) found
+    nothing. What the entity took on the lease's income accounts beyond what
+    every lease customer there was tagged with is the untagged rent; the
+    caller gives it to a lease only in a month it is the one lease in force
+    at that entity and its own customer shows nothing. {gl: amount}."""
+    ec = lease.get("entityCode", "")
+    whole = receipts.get((ec, "", key)) or {}
+    out = {}
+    for code in lease["incomeAccounts"]:
+        tagged = sum((receipts.get((ec, c, key)) or {}).get(code, 0) for c in customers if c)
+        rest = _r2(whole.get(code, 0) - tagged)
+        if rest > _PAID_WITHIN:
+            out[code] = rest
+    return out
+
+
+def move_to_payment(lease: dict, bases: list, received: list[float], due: list[bool]) -> None:
+    """11/18/2026 (Charmi: the American Cell Tower lease is annual and always
+    paid in June, yet the year showed a 28,464 February - its lease started
+    02/02/2009, so the due month was counted from February - "I checked
+    Intacct and there is no February payment"). For a quarterly /
+    semi-annual / annual source, a period that was paid in another month
+    expects its amount in the month it WAS paid: that month carries the
+    expected amount and reads Paid, the counted due month becomes a month it
+    does not fall due (a dash). A period with nothing paid keeps its counted
+    due month. Changes `bases` and `due` in place; sums are unchanged."""
+    if (lease.get("frequency") or "monthly") not in PERIODIC:
+        return
+    step = lease_step(lease)
+    for first in range(1, 13, step):
+        block = [m for m in range(first, min(first + step, 13)) if bases[m - 1] is not None]
+        anchor = next((m for m in block if due[m - 1] and (bases[m - 1] or 0) > _PAID_WITHIN), None)
+        hits = [m for m in block if received[m - 1] > _PAID_WITHIN]
+        if anchor is None or not hits or anchor in hits:
+            continue
+        to = hits[0]
+        bases[to - 1], bases[anchor - 1] = bases[anchor - 1], 0.0
+        due[to - 1], due[anchor - 1] = True, False
+
+
 def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today: date) -> dict:
     """The year, lease by lease and month by month. `receipts` is
     {(customer_id, 'YYYY-MM'): {gl_code: credit - debit}} for a tenant read
@@ -701,21 +745,40 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
     entity (see _receipts); `months` is {'<lease_id>:<YYYY-MM>': {adjustment, note}}."""
     rows = []
     totals = [{"month": f"{year}-{m:02d}", "expected": 0.0, "received": 0.0} for m in range(1, 13)]
+    bases_of = {id(lease): [expected_for_month(lease, year, m) for m in range(1, 13)] for lease in leases}
+    live_at: dict = {}
+    customers_at: dict = {}
+    for lease in leases:
+        ec = lease.get("entityCode", "")
+        if not ec:
+            continue
+        customers_at.setdefault(ec, set()).add(lease["customerId"])
+        for m, b in enumerate(bases_of[id(lease)], start=1):
+            if b is not None:
+                live_at[(ec, m)] = live_at.get((ec, m), 0) + 1
     for lease in leases:
         cells, to_date, outside = [], 0.0, []
         cid = lease["customerId"]
         ec = lease.get("entityCode", "")
-        bases = [expected_for_month(lease, year, m) for m in range(1, 13)]
-        accounts_by = []
+        bases = bases_of[id(lease)]
+        accounts_by, untagged_by = [], []
         for m in range(1, 13):
             key = f"{year}-{m:02d}"
             # A lease with an entity reads ITS location only, never the customer's
             # consolidated total - that key is there whenever the same customer
             # also has a lease with no entity (item 24 retest, 10/23).
             posted = (receipts.get((ec, cid, key), {}) if ec else receipts.get((cid, key), {})) if cid else {}
-            accounts_by.append({code: _r2(v) for code, v in posted.items() if code in lease["incomeAccounts"]})
+            mine = {code: _r2(v) for code, v in posted.items() if code in lease["incomeAccounts"]}
+            untagged = untagged_rent(lease, receipts, key, customers_at.get(ec, set())) \
+                if ec and live_at.get((ec, m)) == 1 and bases[m - 1] is not None and abs(sum(mine.values())) <= _PAID_WITHIN else {}
+            for code, v in untagged.items():
+                mine[code] = _r2(mine.get(code, 0) + v)
+            accounts_by.append(mine)
+            untagged_by.append(_r2(sum(untagged.values())))
         received_by = [_r2(sum(a.values())) for a in accounts_by]
         in_force_by = [b is not None for b in bases]
+        due_by = [due_this_month(lease, year, m) for m in range(1, 13)]
+        move_to_payment(lease, bases, received_by, due_by)
         for m in range(1, 13):
             key = f"{year}-{m:02d}"
             extra = months.get(f"{lease['id']}:{key}") or {"adjustment": 0, "note": ""}
@@ -748,7 +811,9 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
             cell = {"month": key, "inForce": True, "expected": expected, "received": received, "byAccount": by_account, "balance": balance, "status": status,
                     "adjustment": extra["adjustment"], "note": extra["note"],
                     "lateFee": _r2(lease["lateFee"]) if status in ("late", "short", "unpaid") and lease["lateFee"] else 0}
-            if lease_step(lease) > 1 and not due_this_month(lease, year, m):
+            if untagged_by[m - 1]:
+                cell["untagged"] = untagged_by[m - 1]   # 11/18/2026: posted at the entity with no customer on it
+            if lease_step(lease) > 1 and not due_by[m - 1]:
                 cell["offCycle"] = True       # Oct 22: in force, but not a month it falls due
             cells.append(cell)
         apply_credits(cells)
@@ -787,9 +852,12 @@ async def _receipts(scope: dict, leases: list[dict], year: int, every: Optional[
         location, _ = await accounting._limit(scope, code, None)    # 403 for an entity outside the caller's reach
         async with gate:
             return await accounting._acct_get("/api/internal/reports/buckets", {
-                "from": f"{year}-01-01", "to": f"{year}-12-31", "by": "month", "location": location, "customer": cust})
+                "from": f"{year}-01-01", "to": f"{year}-12-31", "by": "month", "location": location, "customer": cust or None})
 
     pairs = list(dict.fromkeys((l["entityCode"], l["customerId"]) for l in leases if l["customerId"] and l["entityCode"]))
+    # 11/18/2026: and each entity once with no customer - its whole take, so
+    # rent entered without a customer still reaches the lease (untagged_rent).
+    pairs += list(dict.fromkeys((l["entityCode"], "") for l in leases if l["entityCode"]))
     for (code, cust), data in zip(pairs, await asyncio.gather(*[entity_read(code, cust) for code, cust in pairs])):
         for r in data.get("rows") or []:
             if not r.get("bucket") or r.get("account_no") is None:
