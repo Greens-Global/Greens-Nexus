@@ -50,7 +50,7 @@ function PropertyTable({ rows, searchable, onSelectProperty }) {
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid ' + C.gray100, color: C.gray400, fontSize: 10.5, textTransform: 'uppercase' }}>
+            <tr style={{ borderBottom: '1px solid ' + C.gray100, color: C.gray400, fontSize: 11, textTransform: 'uppercase' }}>
               {columns.map((col, ci) => {
                 const active = sortKey === col.key
                 return (
@@ -129,13 +129,13 @@ export default function TopPropertiesCard({ rows, allRows, onSelectProperty }) {
 
   return (
     <div style={{ ...card, padding: 16, height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Top Performing Properties</h3>
+      <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Top Performing Properties</h3>
       <div style={{ flex: 1 }}>
         <PropertyTable rows={rows} onSelectProperty={onSelectProperty} />
       </div>
       <button
         onClick={() => setShowAll(true)}
-        style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 500, color: C.emerald600, background: 'transparent', border: 'none', cursor: 'pointer', marginTop: 12 }}
+        style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 500, color: C.emerald600, background: 'transparent', border: 'none', cursor: 'pointer', marginTop: 12 }}
         onMouseEnter={(e) => (e.currentTarget.style.color = C.emerald700)}
         onMouseLeave={(e) => (e.currentTarget.style.color = C.emerald600)}
       >

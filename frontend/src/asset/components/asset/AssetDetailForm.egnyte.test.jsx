@@ -30,7 +30,9 @@ describe('AssetDetailForm - Egnyte Folder', () => {
     expect(rowOf('Egnyte Folder').textContent).toContain(PIN);
     unmount();
     render(<AssetDetailForm p={PROPERTY} />);
-    expect(rowOf('Egnyte Folder').textContent).toContain('Not pinned - matched by name');
+    // Not pinned: no row, named in the section's Not filled line as matched by name.
+    expect(rowOf('Egnyte Folder')).toBeNull();
+    expect(document.body.textContent).toContain('Egnyte Folder (matched by name)');
   });
 
   it('lists the candidates Find Folder returns and saves the one picked', async () => {

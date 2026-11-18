@@ -1,5 +1,5 @@
-"""Who owns which files - the machine-readable copy of the File Ownership table
-in CLAUDE.md (change both together).
+"""Who owns which files - nobody, since 11/13/2026 (see OWNERS below and
+"File ownership" in CLAUDE.md).
 
 Build Mode (routers/dev_notes.py) holds a pin whose source file is in another
 developer's area for that developer instead of sending it to Claude Code, and
@@ -12,20 +12,13 @@ path (importlib) on a machine that may not have the backend's packages.
 A path ending in "/" means the whole folder. Paths are repo-relative.
 """
 
-OWNERS = [
-    {"name": "Visesh", "email": "visesh.lodha@greensglobal.com", "paths": [
-        "frontend/src/views/InventoryManagement.jsx",
-        "frontend/src/inventory/",        # the Items module split out of InventoryManagement.jsx
-        "frontend/src/components/Assignments.jsx",
-        "frontend/src/components/NotificationBell.jsx",
-        "frontend/src/components/NotificationToasts.jsx",
-        "backend/routers/items.py"]},
-    {"name": "Neil", "email": "neil@greensglobal.com", "paths": [
-        "frontend/src/views/PropertyAsset.jsx",
-        "frontend/src/views/AssetModule.jsx",
-        "frontend/src/asset/",            # a trailing slash = the whole folder
-        "backend/routers/property_assets.py"]},
-]
+# Nobody owns any files (Neil, 11/13/2026: "It doesn't matter that it is
+# Visesh's module or that asset management is Neil's module. Remove those
+# limitations permanently"). With no owners Build Mode holds no pin for
+# anyone and the build-notes skill refuses no commit. The mechanism below
+# stays: an entry here is {"name", "email", "paths": [...]}, a path ending in
+# "/" meaning the whole folder - add one only if Neil asks for it again.
+OWNERS = []
 
 def normalize(path) -> str:
     """A repo-relative path with forward slashes. Build Mode source stamps are

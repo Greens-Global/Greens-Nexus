@@ -36,7 +36,7 @@ const AUTO = { first_name: 'given-name', last_name: 'family-name', phone: 'tel',
 const ink = 'var(--ink, #111827)';
 const muted = 'var(--muted, #6b7280)';
 const lbl = { fontSize: 12, fontWeight: 700, color: muted, display: 'block', margin: '12px 0 5px' };
-const input = { width: '100%', boxSizing: 'border-box', border: '1px solid var(--line, #d1d5db)', borderRadius: 10, padding: '11px 12px', fontSize: 16, fontFamily: 'Inter,sans-serif', background: 'var(--card, #fff)', color: ink };
+const input = { width: '100%', boxSizing: 'border-box', border: '1px solid var(--line, #d1d5db)', borderRadius: 10, padding: '11px 12px', fontSize: /* type-ok: iOS zooms a field under 16px */ 16, fontFamily: 'Inter,sans-serif', background: 'var(--card, #fff)', color: ink };
 const head = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 800, color: ink, margin: '22px 0 2px', paddingTop: 14, borderTop: '1px solid var(--line, #e5e7eb)' };
 
 export default function PublicIntake({ token, preview }) {
@@ -94,7 +94,7 @@ export default function PublicIntake({ token, preview }) {
           </div>
           <div>
             <div style={{ fontWeight: 800, fontSize: 15, color: ink }}>{page?.company || 'Nexus'}</div>
-            <div style={{ fontSize: 11.5, color: muted }}>Human Resources</div>
+            <div style={{ fontSize: 12, color: muted }}>Human Resources</div>
           </div>
         </div>
         <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 16, padding: '22px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
@@ -154,7 +154,7 @@ export default function PublicIntake({ token, preview }) {
 
   return shell(
     <form onSubmit={submit} inert={!!preview}>
-      <div style={{ fontSize: 20, fontWeight: 800, color: ink }}>{page.afterOffer ? 'Your Onboarding Details' : 'Complete Your Details'}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, color: ink }}>{page.afterOffer ? 'Your Onboarding Details' : 'Complete Your Details'}</div>
       <div style={{ fontSize: 14, color: muted, marginTop: 6, lineHeight: 1.6 }}>
         {page.afterOffer
           ? <>Welcome aboard{page.role ? <> as <b>{page.role}</b></> : null}! Answer once - every onboarding document fills itself in from what you enter here. You sign them next, in a separate email.</>
@@ -176,7 +176,7 @@ export default function PublicIntake({ token, preview }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '0 14px' }}>
             {list.map(field)}
             {title === 'Your Address' && keys.has('permanent_address') && (
-              <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: ink, marginTop: 10, cursor: 'pointer' }}>
+              <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: ink, marginTop: 10, cursor: 'pointer' }}>
                 <input type="checkbox" checked={sameAddress} onChange={e => setSameAddress(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#15803d' }} />
                 My permanent address is the same
               </label>
@@ -188,7 +188,7 @@ export default function PublicIntake({ token, preview }) {
       {docForm.length > 0 && (
         <div>
           <div style={head}><FileText size={16} style={{ color: '#15803d' }} /> For Your Documents</div>
-          <div style={{ fontSize: 12.5, color: muted, marginTop: 2 }}>
+          <div style={{ fontSize: 13, color: muted, marginTop: 2 }}>
             Your documents need these too.{docForm.some(f => f.sensitive) && <> <Lock size={11} style={{ verticalAlign: 'middle' }} /> Private answers are seen only by the payroll team.</>}
           </div>
           <DetailsFormFields form={docForm} values={v.answers} idPrefix="a"
@@ -204,7 +204,7 @@ export default function PublicIntake({ token, preview }) {
         </div>
       )}
       <button type="submit" disabled={busy}
-        style={{ marginTop: 22, width: '100%', border: 'none', borderRadius: 12, padding: '13px 16px', background: '#14532d', color: '#fff', fontSize: 15.5, fontWeight: 700, cursor: busy ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'Inter,sans-serif', opacity: busy ? 0.7 : 1 }}>
+        style={{ marginTop: 22, width: '100%', border: 'none', borderRadius: 12, padding: '13px 16px', background: '#14532d', color: '#fff', fontSize: 15, fontWeight: 700, cursor: busy ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: 'Inter,sans-serif', opacity: busy ? 0.7 : 1 }}>
         {busy ? <Spinner size={16} /> : page.afterOffer ? <ArrowRight size={16} /> : <Send size={16} />} {preview ? 'Preview Only - Nothing Is Sent' : page.afterOffer ? 'Submit And Continue' : 'Send To HR'}
       </button>
       <div style={{ fontSize: 12, color: muted, textAlign: 'center', marginTop: 12, lineHeight: 1.5 }}>

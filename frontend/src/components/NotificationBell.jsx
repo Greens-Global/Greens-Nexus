@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles, ArrowRight, Flag, Award, PenLine, Users, BookOpen, Unlock, Camera } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
@@ -11,6 +12,9 @@ import { Spinner } from './AsyncState';
 import { openNotificationTarget } from '../lib/openTarget';
 import { RaiseNotice } from './PriorityBar';
 import { bellLists } from '../lib/notificationCounts';
+import { useIsMobile } from '../lib/useIsMobile';
+import { useBackToClose } from '../lib/useBackToClose';
+import SwipeAway from './SwipeAway';
 
 // The Items handover sheet (photo, then the handover) - lazy, so the bell
 // never pulls the Items module into the first paint (Items redesign, Neil
@@ -180,13 +184,18 @@ export default function NotificationBell({ onNavigate }) {
   const { approveRequest, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
-  const { can, myGrantedModules } = useRole();
+  const { can, myGrantedModules, myEmail: roleEmail, actingAs } = useRole();
   const myName  = accounts[0]?.name     ?? '';
   const myEmail = (accounts[0]?.username ?? '').toLowerCase();
+  // Whose bell this is. Under Act As the server sends the acted-as person's
+  // rows, so the lists key on that person (RoleContext myEmail / actingAs) -
+  // on the real account they filtered every addressed row out.
+  const bellEmail = (roleEmail || myEmail).toLowerCase();
+  const bellName  = actingAs ? (actingAs.targetName || '') : myName;
   // Closed (Neil, 10/01): clearing keeps the row for 30 days under Closed,
   // so an accidental clear can be undone. The lists below see only the open ones.
   const notifications = (allNotifications || []).filter(n => !n.closed);
-  const closedRows = (allNotifications || []).filter(n => n.closed && (!n.recipient || n.recipient === myEmail || n.recipient === myName));
+  const closedRows = (allNotifications || []).filter(n => n.closed && (!n.recipient || n.recipient === bellEmail || n.recipient === bellName));
 
   const [open,           setOpen]           = useState(false);
   const [showClosed,     setShowClosed]     = useState(false);
@@ -208,6 +217,14 @@ export default function NotificationBell({ onNavigate }) {
   const dismissTimers = useRef({});
   const resolveTimers = useRef({});
 
+  // Phone pass (11/15/2026): on a touch screen the panel is the whole screen,
+  // so the phone's Back closes it (it used to leave the page underneath), and
+  // a row swipes sideways to clear. A mouse-driven computer is unchanged.
+  const isPhone = useIsMobile();
+  const coarse = useIsMobile('(pointer: coarse)');
+  const touchUi = isPhone || coarse;
+  useBackToClose(open && touchUi, () => setOpen(false));
+
   // Slide-over drawer (matches Access Manager / My Requests): close on ESC,
   // lock page scroll while open - backdrop click closes it too.
   useEffect(() => {
@@ -217,9 +234,28 @@ export default function NotificationBell({ onNavigate }) {
     return () => document.removeEventListener('keydown', handler);
   }, [open]);
 
+  // One scroll bar while the panel is open (Neil, 11/13/2026: "weird ...
+  // two scroll bars and not just one"). On a computer the whole page is what
+  // scrolls, and html keeps a stable scrollbar gutter, so the panel's own bar
+  // stood beside the page's. Open: the page's bar and gutter go, the body is
+  // padded by the same width so nothing behind the scrim moves, and the panel
+  // reaches the right edge. Closed: all of it is put back.
   useEffect(() => {
-    document.body.style.overflow = open ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
+    if (!open) return undefined;
+    const html = document.documentElement;
+    const body = document.body;
+    const bar = Math.max(0, window.innerWidth - html.clientWidth);
+    const prev = { hOverflow: html.style.overflow, gutter: html.style.scrollbarGutter, bOverflow: body.style.overflow, pad: body.style.paddingRight };
+    html.style.overflow = 'hidden';
+    html.style.scrollbarGutter = 'auto';
+    body.style.overflow = 'hidden';
+    if (bar) body.style.paddingRight = `${bar}px`;
+    return () => {
+      html.style.overflow = prev.hOverflow;
+      html.style.scrollbarGutter = prev.gutter;
+      body.style.overflow = prev.bOverflow;
+      body.style.paddingRight = prev.pad;
+    };
   }, [open]);
 
   // Who an approval can be handed off to - needed here too since approving an
@@ -248,7 +284,7 @@ export default function NotificationBell({ onNavigate }) {
     // is [] and every pending notification would be wrongly cleared for good.
     if (invRequestsLoading || !invRequests.length) return;
     notifications.forEach(n => {
-      if (n.type !== 'checkout_pending' || (n.recipient && n.recipient !== myEmail) || n.actioned) return;
+      if (n.type !== 'checkout_pending' || (n.recipient && n.recipient !== bellEmail) || n.actioned) return;
       const refId = n.refId ?? '';
       if (!refId) return;
       // Grace period: a fresh notification can arrive (realtime) before the
@@ -574,7 +610,7 @@ export default function NotificationBell({ onNavigate }) {
 
   // Needs Action (managers+) and Updates, and the unread count: ONE rule
   // shared with the dashboard's card and tile (lib/notificationCounts.js).
-  const { actionable, updates, unread: myUnread } = bellLists(allNotifications, { isManager: can('manager'), myEmail, myName });
+  const { actionable, updates, unread: myUnread } = bellLists(allNotifications, { isManager: can('manager'), myEmail: bellEmail, myName: bellName });
 
   // A toast click set this to a notification id - open the panel on that card
   // with the full set of choices (Review / Approve All / Reject All) visible.
@@ -612,16 +648,27 @@ export default function NotificationBell({ onNavigate }) {
           transition: 'background var(--transition-fast)',
         }}
         aria-label="Notifications"
+        aria-haspopup="dialog"
+        aria-expanded={open}
       >
         <Bell style={{ width: 16, height: 16 }} />
         {myUnread > 0 && (
-          <span style={{
-            position: 'absolute', top: 4, right: 4,
-            minWidth: 14, height: 14, padding: myUnread > 9 ? '0 3px' : 0, boxSizing: 'border-box',
+          // Room for the number (Neil, 11/13/2026: "the numbers are getting
+          // cropped"): the pill was 14px tall for 11px bold digits, so they
+          // ran into its edges. It is 18px now with 5px either side, grows
+          // with the number ("99+" included), keeps the digits one width
+          // and is ringed in the card color so it reads apart from the bell.
+          // It sits on the tile's top right corner, a little past it, so a
+          // longer number grows over the corner rather than over the bell.
+          <span className="nx-bell-count" style={{
+            position: 'absolute', top: -3, right: -5,
+            minWidth: 18, height: 18, padding: '0 5px', boxSizing: 'border-box',
             background: 'hsl(var(--color-red))', color: '#fff',
-            borderRadius: 999, fontSize: 9, fontWeight: 700,
+            borderRadius: 999, fontSize: 11, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            lineHeight: 1, fontFamily: 'Inter, sans-serif',
+            lineHeight: '18px', fontFamily: 'Inter, sans-serif', whiteSpace: 'nowrap',
+            fontVariantNumeric: 'tabular-nums', boxShadow: '0 0 0 2px var(--card)',
+            pointerEvents: 'none',
           }}>
             {/* The real number up to 99, so it matches the dashboard's count. */}
             {myUnread > 99 ? '99+' : myUnread}
@@ -629,69 +676,88 @@ export default function NotificationBell({ onNavigate }) {
         )}
       </button>
 
+      {/* The backdrop and the panel live on <body> (11/17/2026): inside the
+          header they were placed against the header, not the screen - its
+          -webkit-backdrop-filter makes it the frame for anything fixed inside
+          it in Safari, so on a phone the panel's top (title, close) sat above
+          the screen and the page showed under its foot. */}
+      {createPortal(<>
       {/* Backdrop */}
       <div onClick={() => setOpen(false)} style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
-        zIndex: 1200, opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none',
+        zIndex: isPhone ? 2700 : 1200, opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none',
         transition: 'opacity 0.25s ease',
       }} />
 
-      {/* Drawer - mirrors My Requests / Access Manager so the panel slides in from the side */}
-      <div className="notif-drawer" style={{
-        position: 'fixed', top: 0, right: 0, height: '100vh',
-        width: 'min(560px, 94vw)',
+      {/* Drawer - mirrors My Requests / Access Manager so the panel slides in from the side.
+          Closed, it is out of reach (Neil, 11/12/2026, navigation review): inert
+          takes it out of the Tab order, so focus can no longer land on its
+          off-screen buttons and scroll the whole shell sideways to show them.
+          It is a dialog only while open: the closed panel stays in the page, and
+          as a standing role="dialog" it made every "is a popup open?" check
+          (the header's Ctrl+F, C then T, Approvals' keys, Escape in Purchase
+          Requests, Links and Accounting Reports) answer yes on every screen. */}
+      {/* nx-sheet: the panel shapes itself for phones - without it style.css's
+          "dialogs become bottom sheets" rule (role="dialog" + position: fixed)
+          turned its header and its list into two sheets, each with a grab bar
+          and a 92vh cap (phone pass, 11/15/2026). Height is in style.css
+          (.notif-drawer, dvh) so the end of the list clears Safari's bar. */}
+      <div className="notif-drawer nx-sheet" role={open ? 'dialog' : undefined} aria-label="Notifications Panel" data-nx-noguard="" inert={!open} style={{
+        position: 'fixed', top: 0, right: 0,
+        // A little wider (Neil, 11/13/2026): 620px, from 560.
+        width: 'min(620px, 94vw)',
         background: 'var(--card)',
         boxShadow: open ? '-12px 0 48px rgba(0,0,0,0.22)' : 'none',
-        zIndex: 1201,
+        // A phone: the whole screen, so the top layer - over Tasks' floating
+        // List / + bar (2500), which painted on the open panel and took taps
+        // (the phone menu's layer, style.css .mobile-menu; popups stay above).
+        zIndex: isPhone ? 2701 : 1201,
         display: 'flex', flexDirection: 'column',
         transform: open ? 'translateX(0)' : 'translateX(100%)',
         transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
       }}>
-        {/* Header */}
-        {/* flexWrap + flex:1 on the title block: on narrow drawers the action
-            buttons drop to their own line instead of overlapping the title */}
-        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', padding: '18px 16px 16px 22px', borderBottom: '1px solid var(--line)', gap: 14, flexShrink: 0 }}>
-          <div style={{ minWidth: 0, flex: '1 1 120px' }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)' }}>Notifications</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>
+        {/* Header. A computer: the title and count on the left, the actions
+            on the right. A phone (style.css .nx-ntf-hdr): the title with the
+            notice and close icons on one row, the count and Mark All Read /
+            Clear All under it - side by side when they fit. */}
+        <div className="nx-ntf-hdr">
+          <div className="nx-ntf-hdr-title">Notifications</div>
+          <div className="nx-ntf-hdr-meta">
+            <div className="nx-ntf-hdr-sub">
               {isEmpty ? 'All caught up' : `${actionable.length ? `${actionable.length} need${actionable.length === 1 ? 's' : ''} action · ` : ''}${updates.length} update${updates.length !== 1 ? 's' : ''}`}
             </div>
+            {(myUnread > 0 || updates.length > 0) && (
+              <div className="nx-ntf-hdr-text">
+                {myUnread > 0 && (
+                  <button onClick={markAllRead} className="nx-ntf-hdr-btn is-brand">
+                    Mark All Read
+                  </button>
+                )}
+                {updates.length > 0 && (
+                  <button onClick={() => { markAllRead(); updates.forEach(n => dismiss(n.id)); }}
+                    title="Moves these to Closed, where they stay for 30 days"
+                    className="nx-ntf-hdr-btn">
+                    Clear All
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-            {myUnread > 0 && (
-              <button onClick={markAllRead}
-                style={{ fontSize: 12.5, color: 'var(--wk-brand)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600, whiteSpace: 'nowrap' }}
-                onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
-                onMouseLeave={e => e.currentTarget.style.background='none'}>
-                Mark All Read
-              </button>
-            )}
-            {updates.length > 0 && (
-              <button onClick={() => { markAllRead(); updates.forEach(n => dismiss(n.id)); }}
-                title="Moves these to Closed, where they stay for 30 days"
-                style={{ fontSize: 12.5, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
-                onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
-                onMouseLeave={e => e.currentTarget.style.background='none'}>
-                Clear All
-              </button>
-            )}
+          <div className="nx-ntf-hdr-icons">
             {can('manager') && (
               <button onClick={() => setRaising(true)} aria-label="Raise a priority notice" title="Raise a priority notice for someone - a yellow bar on their screen until they click it off"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 8, borderRadius: 8, display: 'flex', flexShrink: 0 }}
-                onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
-                onMouseLeave={e => e.currentTarget.style.background='none'}>
+                className="nx-ntf-hdr-icon">
                 <Megaphone size={18} />
               </button>
             )}
-            <button onClick={() => setOpen(false)} aria-label="Close" title="Close"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 8, borderRadius: 8, display: 'flex', flexShrink: 0 }}>
+            <button onClick={() => setOpen(false)} aria-label="Close" title="Close" className="nx-ntf-hdr-icon">
               <X size={20} />
             </button>
           </div>
         </div>
 
         {/* Body */}
-        <div style={{ overflowY: 'auto', flex: 1 }}>
+        <div className="nx-ntf-list" style={{ overflowY: 'auto', flex: 1, minHeight: 0, overscrollBehavior: 'contain' }}>
           {isEmpty && (
             <div style={{ padding: '64px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 14 }}>
               <Bell size={36} style={{ opacity: 0.22, marginBottom: 14, display: 'block', margin: '0 auto 14px' }} />
@@ -731,11 +797,12 @@ export default function NotificationBell({ onNavigate }) {
                             ? <CheckCircle size={19} color={`hsl(${resolvedColor})`} />
                             : <XCircle size={19} color={`hsl(${resolvedColor})`} />}
                         </div>
-                        <span style={{ fontSize: 14.5, fontWeight: 700, color: `hsl(${resolvedColor})`, animation: 'fadeInUp 0.22s cubic-bezier(.16,1,.3,1) both' }}>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: `hsl(${resolvedColor})`, animation: 'fadeInUp 0.22s cubic-bezier(.16,1,.3,1) both' }}>
                           {resolution.kind === 'approved' ? 'Approved - clearing…' : 'Rejected - clearing…'}
                         </span>
                       </div>
                     ) : (
+                    <>
                     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                       <meta.icon size={16} color={`hsl(${meta.color})`} className="nx-ntf-icon" aria-hidden="true" />
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -751,21 +818,26 @@ export default function NotificationBell({ onNavigate }) {
                           </div>
                         )}
                         <p className="nx-ntf-body" style={{ marginBottom: 12 }}>{renderNotifBody(n.body)}</p>
-
+                      </div>
+                    </div>
+                    {/* The decision row sits under the text on a computer and
+                        takes the card's full width on a phone (style.css
+                        .nx-ntf-ctl), so the three buttons share one row. */}
+                    <div className="nx-ntf-ctl">
                         {!isRejecting && !isApproving ? (
-                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <div className="nx-ntf-ctl-row">
                             {/* Neil: Review = yellow/caution with a ? icon so people
                                 know it opens the full list to decide item-by-item */}
                             <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: n.type === 'req_pending' ? { view: 'myhr', sub: 'purchase' } : { view: 'inventory', sub: 'checkouts' } })); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid hsla(var(--color-orange),0.4)', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              className="nx-ntf-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 9, border: '1px solid hsla(var(--color-orange),0.4)', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <HelpCircle size={15} /> Review
                             </button>
                             <button onClick={e => { e.stopPropagation(); handleAction(n, 'approve'); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              className="nx-ntf-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <Check size={15} /> {n.type === 'extension_pending' ? 'Approve' : 'Approve All'}
                             </button>
                             <button onClick={e => { e.stopPropagation(); setRejectingId(n.id); setRejectReason(''); setApprovingId(null); clearActionError(n.id); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              className="nx-ntf-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <X size={15} /> {n.type === 'extension_pending' ? 'Reject' : 'Reject All'}
                             </button>
                           </div>
@@ -779,14 +851,14 @@ export default function NotificationBell({ onNavigate }) {
                                     : `Who should hand this over to ${n.requestedBy}?`}
                                 </p>
                                 {actionError[n.id] && (
-                                  <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
+                                  <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
                                     <AlertCircle size={14} style={{ flexShrink: 0 }} /> {actionError[n.id]}
                                   </p>
                                 )}
                                 <select
                                   autoFocus
                                   className="form-input"
-                                  style={{ width: '100%', fontSize: 13.5, marginBottom: 8, padding: '9px 12px' }}
+                                  style={{ width: '100%', fontSize: 13, marginBottom: 8, padding: '9px 12px' }}
                                   value={pickedAllocator}
                                   onChange={e => setPickedAllocator(e.target.value)}>
                                   <option value="">Select a person…</option>
@@ -795,12 +867,12 @@ export default function NotificationBell({ onNavigate }) {
                                   ))}
                                 </select>
                                 <div style={{ display: 'flex', gap: 8 }}>
-                                  <button onClick={() => submitApprove(n)} disabled={!pickedAllocator || approvingBusy}
-                                    style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: pickedAllocator && !approvingBusy ? 1 : 0.4 }}>
+                                  <button onClick={() => submitApprove(n)} disabled={!pickedAllocator || approvingBusy} className="nx-ntf-tap"
+                                    style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: pickedAllocator && !approvingBusy ? 1 : 0.4 }}>
                                     {approvingBusy ? <><Spinner size={14} /> Approving…</> : 'Confirm Approval'}
                                   </button>
-                                  <button onClick={() => { setApprovingId(null); setPickedAllocator(''); }} disabled={approvingBusy}
-                                    style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13.5, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                                  <button onClick={() => { setApprovingId(null); setPickedAllocator(''); }} disabled={approvingBusy} className="nx-ntf-tap"
+                                    style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                                     Cancel
                                   </button>
                                 </div>
@@ -810,33 +882,33 @@ export default function NotificationBell({ onNavigate }) {
                         ) : (
                           <div onClick={e => e.stopPropagation()}>
                             {actionError[n.id] && (
-                              <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
+                              <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
                                 <AlertCircle size={14} style={{ flexShrink: 0 }} /> {actionError[n.id]}
                               </p>
                             )}
                             <input
                               autoFocus
                               className="form-input"
-                              style={{ width: '100%', fontSize: 13.5, marginBottom: 8, padding: '9px 12px' }}
+                              style={{ width: '100%', fontSize: 13, marginBottom: 8, padding: '9px 12px' }}
                               placeholder="Reason for rejection…"
                               value={rejectReason}
                               onChange={e => setRejectReason(e.target.value)}
                               onKeyDown={e => { if (e.key === 'Enter') submitReject(n); if (e.key === 'Escape') { setRejectingId(null); setRejectReason(''); } }}
                             />
                             <div style={{ display: 'flex', gap: 8 }}>
-                              <button onClick={() => submitReject(n)} disabled={!rejectReason.trim()}
-                                style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-red))', color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: rejectReason.trim() ? 1 : 0.4 }}>
+                              <button onClick={() => submitReject(n)} disabled={!rejectReason.trim()} className="nx-ntf-tap"
+                                style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-red))', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: rejectReason.trim() ? 1 : 0.4 }}>
                                 Confirm Reject
                               </button>
-                              <button onClick={() => { setRejectingId(null); setRejectReason(''); }}
-                                style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13.5, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              <button onClick={() => { setRejectingId(null); setRejectReason(''); }} className="nx-ntf-tap"
+                                style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                                 Cancel
                               </button>
                             </div>
                           </div>
                         )}
-                      </div>
                     </div>
+                    </>
                     )}
                   </div>
                   </div>
@@ -868,7 +940,8 @@ export default function NotificationBell({ onNavigate }) {
                   const kinds = [isAlert && ['Alert', 'hsl(var(--color-orange))'],
                     n.priority === 1 && ['Needs Action', 'hsl(var(--color-gold))']].filter(Boolean);
                   return (
-                    <div key={key} className={`nx-ntf-row ${n.read ? 'is-read' : 'is-unread'}`} onClick={() => handleUpdateClick(n)}>
+                    <SwipeAway key={key} enabled={touchUi} label="Clear" onAway={() => dismiss(n.id)}
+                      className={`nx-ntf-row ${n.read ? 'is-read' : 'is-unread'}`} onClick={() => handleUpdateClick(n)}>
                       <Icon size={16} color={`hsl(${isAlert ? 'var(--color-orange)' : meta.color})`} className="nx-ntf-icon" aria-hidden="true" />
                       <div style={{ minWidth: 0 }}>
                         {kinds.length > 0 && (
@@ -941,7 +1014,7 @@ export default function NotificationBell({ onNavigate }) {
                       <button className="nx-ntf-x" onClick={e => { e.stopPropagation(); dismiss(n.id); }} aria-label="Close" title="Close (kept under Closed for 30 days)">
                         <X size={15} />
                       </button>
-                    </div>
+                    </SwipeAway>
                   );
                 })}
               </section>
@@ -958,23 +1031,23 @@ export default function NotificationBell({ onNavigate }) {
                 style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
                 {showClosed ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 Closed <span className="nx-ntf-sec-n">{closedRows.length}</span>
-                <span style={{ marginLeft: 'auto', fontWeight: 500, letterSpacing: 0, textTransform: 'none', fontSize: 11.5 }}>Kept 30 days</span>
+                <span style={{ marginLeft: 'auto', fontWeight: 500, letterSpacing: 0, textTransform: 'none', fontSize: 12 }}>Kept 30 days</span>
               </button>
               {showClosed && closedRows.slice(0, 300).map(n => {
                 const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
                 const Icon = n.priority === 1 ? AlertTriangle : meta.icon;
                 return (
-                  <div key={n.id} style={{ padding: '11px 16px 11px 22px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 12, alignItems: 'flex-start', opacity: 0.75 }}>
+                  <div key={n.id} className="nx-ntf-closed" style={{ borderBottom: '1px solid var(--line)', display: 'flex', gap: 12, alignItems: 'flex-start', opacity: 0.75 }}>
                     <Icon size={15} color={`hsl(${n.priority === 1 ? 'var(--color-gold)' : meta.color})`} className="nx-ntf-icon" aria-hidden="true" />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</span>
+                        <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</span>
                         <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(n.timestamp)}</span>
                       </div>
-                      {n.body && <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{renderNotifBody(n.body)}</p>}
+                      {n.body && <p style={{ fontSize: 13, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{renderNotifBody(n.body)}</p>}
                     </div>
-                    <button onClick={() => restore(n.id)} title="Put it back in the list"
-                      style={{ background: 'none', border: '1px solid var(--line)', cursor: 'pointer', color: 'var(--wk-brand)', padding: '5px 10px', borderRadius: 8, flexShrink: 0, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
+                    <button onClick={() => restore(n.id)} title="Put it back in the list" className="nx-ntf-tap"
+                      style={{ background: 'none', border: '1px solid var(--line)', cursor: 'pointer', color: 'var(--wk-brand)', padding: '5px 10px', borderRadius: 8, flexShrink: 0, fontSize: 13, fontWeight: 600, fontFamily: 'Inter, sans-serif' }}>
                       Restore
                     </button>
                   </div>
@@ -984,6 +1057,7 @@ export default function NotificationBell({ onNavigate }) {
           )}
         </div>
       </div>
+      </>, document.body)}
       {raising && <RaiseNotice onClose={() => setRaising(false)} myEmail={myEmail} />}
       {handOverFor && (
         <Suspense fallback={null}>

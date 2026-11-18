@@ -180,14 +180,14 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
           Leave a box blank to use the default shown in it. The names must match the payroll items in QuickBooks.
         </span>
         {!scoped && companies && companies.length > 0 && (
-          <select className="form-input" aria-label="Company" value={company} onChange={(e) => pickCompany(e.target.value)} style={{ fontSize: 12.5, width: 'auto', maxWidth: 260 }}>
+          <select className="form-input" aria-label="Company" value={company} onChange={(e) => pickCompany(e.target.value)} style={{ fontSize: 13, width: 'auto', maxWidth: 260 }}>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
           </select>
         )}
         {busy && <Spinner size={14} />}
       </div>
       {err ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'hsl(var(--color-red))', paddingTop: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'hsl(var(--color-red))', paddingTop: 10 }}>
           <span style={{ flex: 1 }}>{err}</span>
           <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={load}>Retry</button>
         </div>
@@ -222,7 +222,7 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
                 <input className="form-input" type="text" maxLength={data.maxLength || 31} placeholder={c.default}
                   aria-label={`${PAY_CLASS_LABELS[c.key] || c.key} code`} list={qbFile?.payrollItems?.length ? 'qb-payroll-items' : undefined}
                   value={form.codes[c.key] || ''} onChange={(e) => patch({ codes: { ...form.codes, [c.key]: e.target.value } })}
-                  style={{ fontSize: 12.5 }} />
+                  style={{ fontSize: 13 }} />
                 {missing(c.key, c.default) && (
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>Not in this QuickBooks file - needed only if this pay is used</span>
                 )}
@@ -233,8 +233,8 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
             <span>QuickBooks Company Name</span>
             <input className="form-input" type="text" maxLength={data.quickbooksCompanyMaxLength || 100}
               placeholder={data.quickbooksCompanyDefault || ''} aria-label="QuickBooks Company Name"
-              value={form.qb} onChange={(e) => patch({ qb: e.target.value })} style={{ fontSize: 12.5 }} />
-            <span style={{ fontSize: 11.5 }}>The company name in the QuickBooks IIF header. It must match the QuickBooks company file; leave it blank to use the company's name.</span>
+              value={form.qb} onChange={(e) => patch({ qb: e.target.value })} style={{ fontSize: 13 }} />
+            <span style={{ fontSize: 12 }}>The company name in the QuickBooks IIF header. It must match the QuickBooks company file; leave it blank to use the company's name.</span>
           </label>
           {/* COMPANYCREATETIME (Charmi, 11/03/2026): without it the IIF carries 0
               and QuickBooks' Timer Activities import can refuse every row. */}
@@ -242,8 +242,8 @@ export default function PayrollExportCodes({ toastOk, toastErr, company: scoped 
             <span>QuickBooks Company Create Time</span>
             <input className="form-input" type="text" inputMode="numeric" maxLength={12}
               placeholder="e.g. 1361233702" aria-label="QuickBooks Company Create Time"
-              value={form.qbCreate} onChange={(e) => patch({ qbCreate: e.target.value.replace(/[^0-9]/g, '') })} style={{ fontSize: 12.5 }} />
-            <span style={{ fontSize: 11.5 }}>
+              value={form.qbCreate} onChange={(e) => patch({ qbCreate: e.target.value.replace(/[^0-9]/g, '') })} style={{ fontSize: 13 }} />
+            <span style={{ fontSize: 12 }}>
               Only with Old Timer Header on (QuickBooks 2021 and earlier): File &gt; Utilities &gt; Export &gt; Timer Lists,
               open that file in Notepad and copy the number at the end of its TIMERHDR line.
             </span>

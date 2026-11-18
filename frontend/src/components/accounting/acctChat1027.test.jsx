@@ -137,6 +137,8 @@ describe('MRE screen', () => {
     render(<MreTab canEdit canDelete />);
     await screen.findAllByText('AT&T');
     const btn = screen.getByRole('button', { name: /^Completeness: 2 gaps/ });
+    // Words, in the warning tone - a bare red number read like an HTTP error.
+    expect(within(btn).getByTestId('completeness-count').textContent).toBe('2 Gaps');
     fireEvent.click(btn);
     const panel = await screen.findByRole('dialog', { name: 'Completeness' });
     expect(within(panel).getByText(/2 gaps on 2 lines/)).toBeTruthy();

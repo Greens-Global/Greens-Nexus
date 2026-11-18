@@ -112,7 +112,7 @@ export default function EgnyteUpload({ folder, canWrite, onUploaded, compact = f
           onChange={e => { send(e.target.files); e.target.value = ''; }}
         />
         {uploading ? <Spinner size={14} /> : <Upload size={14} style={{ color: dragging ? 'var(--wk-brand)' : 'var(--wk-dim)', flexShrink: 0 }} />}
-        <span style={{ ...BODY, fontSize: 12.5, minWidth: 0, color: dragging ? 'var(--wk-brand)' : 'var(--wk-dim)' }}>
+        <span style={{ ...BODY, fontSize: 13, minWidth: 0, color: dragging ? 'var(--wk-brand)' : 'var(--wk-dim)' }}>
           {uploading
             ? <strong style={{ color: 'var(--wk-ink)', fontWeight: 600 }}>Uploading {busy.done + 1} of {busy.total}…</strong>
             : <><strong style={{ color: 'var(--wk-ink)', fontWeight: 600 }}>Upload to this folder</strong> - drop files, click to choose, or press Ctrl+V to paste.</>}

@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, FolderUp, Loader2, Mail, Maximize2, Minimize2, Pencil, RotateCcw, Search, Share2, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react';
+import { Check, FolderUp, Info, Loader2, Mail, Maximize2, Minimize2, Pencil, RotateCcw, Search, Share2, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
@@ -24,7 +24,7 @@ import {
 import { useTableSync } from './tableSync';
 import {
   EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
-  reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
+  reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, STATEMENT_KEYS, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
   viewConfig, periodOf, ACTIVITY_REPORTS, activityConfig, isActivity, needsEntityList, countDims,
 } from './reportModel';
 
@@ -269,6 +269,14 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   useEffect(() => {
     const take = (d) => {
       if (!d) return;
+      // 11/11/2026: a dashboard total opens the statement on its window (drill.js requestStatement).
+      if (d.statement) {
+        const s = d.statement;
+        setDrill(null);
+        patch({ entities: s.entities || [], preset: 'custom', from: s.from, to: s.to, ...(s.book ? { book: s.book } : {}) });
+        toTop();
+        return;
+      }
       // Oct 7: a drill may carry a party ({ kind, code, name }) and report
       // filters (`dims`: vendor, customer, departments, journals ...) - they
       // follow into the lines like the report's own. A drill with none of
@@ -456,9 +464,8 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     try {
       const file = await linesFile(await linesExport.build(), format);
       downloadBlob(file.name, file);
-    } catch (e) {
-      setError(e?.message || 'Could not export the lines.');
     } finally {
+      // A failure goes up to the Export menu, which says why (the report's error box is hidden while lines show).
       setLinesBusy('');
     }
   };
@@ -639,7 +646,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     if (r.kind !== 'section' && r.kind !== 'group' && r.section && collapsed.has(r.section)) return false;
     return true;
   }), [sortedRows, collapsed, filterOn]);
-  const paged = useMemo(() => reportPages(openRows, custom.pageSize), [openRows, custom.pageSize]);
+  // The financial statements are never split over pages - a Balance Sheet reads top to bottom; ledger-line reports keep paging.
+  const unpaged = STATEMENT_KEYS.has(config.report);
+  const paged = useMemo(() => reportPages(openRows, unpaged ? 0 : custom.pageSize), [openRows, custom.pageSize, unpaged]);
   const pageKey = `${key}|${custom.pageSize}|${JSON.stringify(colFilters)}|${config.report}|${sort.key}${sort.dir}`;
   const [pageState, setPageState] = useState({ page: 1, key: pageKey });
   let page = pageState.page;
@@ -686,7 +695,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
         {isPhone && (
           <button type="button" className="secondary-btn" onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} aria-controls="acct-report-controls"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', padding: '4px 10px', fontWeight: folded(chips) ? 600 : 400 }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '4px 10px', fontWeight: folded(chips) ? 600 : 400 }}>
             {moreOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Filters{folded(chips) ? ` (${folded(chips)})` : ''}
           </button>
         )}
@@ -702,7 +711,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             picked (10/27 call, item 09). */}
         <BarMore level={2} active={(showColumns && cols !== openCols ? 1 : 0) + (canPickBook(config) && config.book !== 'accrual' ? 1 : 0)}>
         {showColumns && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
             <span className="acct-bar-label-2">Columns</span>
             <select value={cols} onChange={(e) => { setCollapsed(new Set()); patch({ cols: e.target.value }); }} aria-label="Columns" title={modes.find((m) => m.key === cols)?.label}
               style={{ ...select(cols !== openCols), ...fitSelect(modes.find((m) => m.key === cols)?.label, { base: widest(columnModes(config.report).map((m) => m.label)) }) }}>
@@ -712,7 +721,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         )}
 
         {canPickBook(config) && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-secondary)' }}>
             <span className="acct-more-only">Book</span>
             <select value={config.book} onChange={(e) => patch({ book: e.target.value })} aria-label="Book" style={{ ...select(config.book !== 'accrual'), ...fitSelect(books.find((b) => b.key === config.book)?.label, { base: widest(books.map((b) => b.label)) }) }}>
               {books.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
@@ -760,7 +769,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             ))}
           </select>
           {/* Flux amount filter (Charmi, 10/15): what to compare, an operator and a value. */}
-          <span className="acct-flux-amount" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+          <span className="acct-flux-amount" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: 'var(--text-secondary)' }}>
             <select value={config.fluxFilter.target} onChange={(e) => patch({ fluxFilter: { ...config.fluxFilter, target: e.target.value } })} aria-label="Amount to Filter" title="Which figure the amount filter compares"
               style={{ ...select(fluxAmountOn(config.fluxFilter)), maxWidth: 190 }}>
               {FLUX_AMOUNT_TARGETS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
@@ -796,11 +805,11 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           <BarMore level={1}>
           <SavedReportsMenu reports={saved} loading={savedState.loading} error={savedState.error} activeId={activeSaved?.id}
             onOpen={openSaved} onDelete={deleteSaved} onShare={shareSaved} onManage={() => setManaging(true)} nameOf={nameOf} />
-          <MemorizeButton onSave={memorize} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${periodOf(config) === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
+          <MemorizeButton onSave={memorize} mine={saved.filter((r) => r.mine)} suggestion={activeSaved?.mine ? activeSaved.name : `${def.label} - ${entityLabel} - ${periodOf(config) === 'asof' ? 'As of Date' : presetLabel(config.preset)}`} />
           <CustomizeButton density={density} onDensity={(d) => setPrefs({ density: d })} showZero={config.showZero} onShowZero={(v) => patch({ showZero: v })}
             showHistorical={!!prefs.showHistoricalEntities} onShowHistorical={(v) => setPrefs({ showHistoricalEntities: v })}
             showHistoricalAccounts={!!prefs.showHistoricalAccounts} onShowHistoricalAccounts={(v) => setPrefs({ showHistoricalAccounts: v })}
-            pageSize={custom.pageSize} onPageSize={custom.onPageSize}
+            {...(unpaged ? {} : { pageSize: custom.pageSize, onPageSize: custom.onPageSize })}
             {...(shown?.activeKnown ? { showInactiveAccounts: custom.showInactiveAccounts, onShowInactiveAccounts: custom.onShowInactiveAccounts } : {})}
             flux={config.report === 'flux' ? { fluxPct: config.fluxPct, fluxAmount: config.fluxAmount } : null} onFlux={(p) => patch(p)} />
           </BarMore>
@@ -831,29 +840,29 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
       </ControlBar>
 
       {changed && !searching && (
-        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderColor: 'var(--wk-brand, #2b45e1)', fontSize: '0.82rem' }}>
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderColor: 'var(--wk-brand, #2b45e1)', fontSize: 13 }}>
           <span style={{ flex: '1 1 260px' }}>
             <strong>{opened.name}</strong> has changed. Do you want to save your changes?
           </span>
           {saveAs === null ? (
             <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-              {opened.mine && <button type="button" className="primary-btn" onClick={keepChanges} disabled={savingChange} style={{ fontSize: '0.76rem', padding: '4px 12px' }}>{savingChange ? 'Saving...' : 'Save Changes'}</button>}
-              <button type="button" className="secondary-btn" onClick={() => setSaveAs(`${opened.name} (copy)`)} style={{ fontSize: '0.76rem', padding: '4px 12px' }}>Save as New</button>
-              <button type="button" className="secondary-btn" onClick={() => { setConfig(opened.config); setCollapsed(new Set()); }} style={{ fontSize: '0.76rem', padding: '4px 12px' }}>Discard</button>
+              {opened.mine && <button type="button" className="primary-btn" onClick={keepChanges} disabled={savingChange} style={{ fontSize: 12, padding: '4px 12px' }}>{savingChange ? 'Saving...' : 'Save Changes'}</button>}
+              <button type="button" className="secondary-btn" onClick={() => setSaveAs(`${opened.name} (copy)`)} style={{ fontSize: 12, padding: '4px 12px' }}>Save as New</button>
+              <button type="button" className="secondary-btn" onClick={() => { setConfig(opened.config); setCollapsed(new Set()); }} style={{ fontSize: 12, padding: '4px 12px' }}>Discard</button>
               <button type="button" onClick={() => setOpened(null)} aria-label="Keep working without saving" title="Keep working without saving" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 4 }}><X size={14} /></button>
             </span>
           ) : (
             <form onSubmit={saveAsNew} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <input type="text" value={saveAs} onChange={(e) => setSaveAs(e.target.value)} aria-label="Name for the new report" autoFocus maxLength={120} style={{ ...control, width: 280 }} />
-              <button type="submit" className="primary-btn" disabled={!saveAs.trim() || savingChange} style={{ fontSize: '0.76rem', padding: '4px 12px' }}>Save</button>
-              <button type="button" className="secondary-btn" onClick={() => setSaveAs(null)} style={{ fontSize: '0.76rem', padding: '4px 12px' }}>Cancel</button>
+              <button type="submit" className="primary-btn" disabled={!saveAs.trim() || savingChange} style={{ fontSize: 12, padding: '4px 12px' }}>Save</button>
+              <button type="button" className="secondary-btn" onClick={() => setSaveAs(null)} style={{ fontSize: 12, padding: '4px 12px' }}>Cancel</button>
             </form>
           )}
         </div>
       )}
 
       {sent && (
-        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>
+        <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>
           <span style={{ flex: 1 }}>{sent.text}{sent.url && <> <a href={sent.url} target="_blank" rel="noreferrer">Open the File</a></>}</span>
           <button type="button" onClick={() => setSent(null)} aria-label="Dismiss" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}><X size={14} /></button>
         </div>
@@ -886,11 +895,11 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           initialEntry={initialEntry} onEntryClosed={() => setInitialEntry(null)} />
       )}
 
-      {!searching && error && <div role="alert" style={{ ...card, padding: 14, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: '0.88rem' }}>{plainError(error)}</div>}
+      {!searching && error && <div role="alert" style={{ ...card, padding: 14, borderColor: 'var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', fontSize: 14 }}>{plainError(error)}</div>}
       {/* The General Ledger reads the lines account by account - the skeleton stays for the whole run (item 31). */}
       {!searching && loading && (!shown || glBusy) && (
         <div role="status" aria-label="Loading the report" style={{ ...card, padding: 12, display: 'grid', gap: 8 }}>
-          {glBusy && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Loader2 size={14} className="spin" /> Reading the ledger lines...</span>}
+          {glBusy && <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Loader2 size={14} className="spin" /> Reading the ledger lines...</span>}
           <SkeletonBlocks count={4} />
         </div>
       )}
@@ -899,8 +908,8 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         <div style={{ ...card, padding: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
-              <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{reportTitle(config)}</h3>
-              <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+              <h3 style={{ fontSize: 15, margin: 0 }}>{reportTitle(config)}</h3>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                 {[shown.org, shown.activity ? `${shown.activity.account} ${shown.activity.title}`.trim() : '', entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : ''].filter(Boolean).join(' · ')}
                 {loading ? ' · updating' : ''}
               </span>
@@ -926,15 +935,15 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
               ))}
               {chips.length > 1 && (
                 <button type="button" onClick={() => patch({ entities: [], dims: { ...EMPTY_DIMS }, accounts: [], fluxStatus: 'all', fluxFilter: { ...config.fluxFilter, a: '', b: '' } })}
-                  style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.74rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
-                  Clear all filters
+                  style={{ border: 'none', background: 'none', font: 'inherit', fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                  Clear All Filters
                 </button>
               )}
             </div>
           )}
 
           {shown.summary.length > 0 && (
-            <div aria-label="Summary" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', margin: '0 2px 8px', fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
+            <div aria-label="Summary" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 22px', margin: '0 2px 8px', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
               {shown.summary.map((f) => (
                 <span key={f.label} style={{ color: 'var(--text-secondary)' }}>
                   {f.label} <strong style={{ color: f.tone === 'good' ? 'var(--ok-fg, #15803d)' : f.tone === 'bad' ? 'var(--bad-fg, #dc2626)' : 'var(--text-primary)' }}>{f.amount != null ? <Amount value={f.amount} /> : <Figure text={f.value} />}</strong>
@@ -943,6 +952,12 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             </div>
           )}
 
+          {/* Notes about what is NOT on screen (a General Ledger over 25 accounts shows balances only) sit above the table, not under the pager. */}
+          {(shown.notes || []).length > 0 && (
+            <div role="note" style={{ display: 'grid', gap: 4, margin: '0 2px 8px', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--warn-bg, #fefce8)', fontSize: 12, color: 'var(--text-primary)' }}>
+              {shown.notes.map((n) => <div key={n} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}><Info size={13} style={{ flexShrink: 0, marginTop: 1, color: 'var(--warn-fg, #a16207)' }} aria-hidden="true" />{n}</div>)}
+            </div>
+          )}
           <div className={`acct-report-wrap${full ? '' : ' acct-scroll-box'}`} data-testid="report-box" style={{ opacity: loading ? 0.6 : 1, ...(full ? { maxHeight: 'calc(100vh - 190px)' } : {}) }} onCopy={copyRaw}>
             {/* Oct 23 (Viral, item 10): the whole heading block - names and filter
                 boxes - pins to the top of the box (acct-sticky-head, style.css). */}
@@ -1016,13 +1031,12 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           <Pager {...pager} />
           {entry && <EntryDetail key={entry.id} entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} panel />}
           {filterOn && (
-            <div role="status" style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div role="status" style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <span>Filtered to {matchedCount.toLocaleString('en-US')} {matchedCount === 1 ? 'row' : 'rows'}. Section and grand totals are for the whole report.</span>
-              <button type="button" onClick={() => setColFilters({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear column filters</button>
+              <button type="button" onClick={() => setColFilters({})} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Clear Column Filters</button>
             </div>
           )}
-          {(shown.notes || []).map((n) => <div key={n} style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{n}</div>)}
-          <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
             Generated {formatDate(shown.generatedAt)} from the Nexus Accounting ledger. Click any underlined amount for the lines behind it{shown.glLabel ? ', an entry number for the whole entry' : ''}; click a section to fold it; drag the edge of a column heading to change its width (double-click fits it).
           </div>
         </div>
@@ -1218,7 +1232,7 @@ function NoteCell({ row, value, note, maxWidth }) {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); note.onSave(row.code, note.edit.text); }
           }}
           onBlur={() => { if (cancelled.current) { cancelled.current = false; return; } note.onSave(row.code, note.edit.text); }}
-          style={{ ...control, width: '100%', height: 'auto', padding: 6, lineHeight: 1.4, resize: 'vertical', fontSize: '0.78rem' }} />
+          style={{ ...control, width: '100%', height: 'auto', padding: 6, lineHeight: 1.4, resize: 'vertical', fontSize: 13 }} />
       </td>
     );
   }
@@ -1228,9 +1242,9 @@ function NoteCell({ row, value, note, maxWidth }) {
       <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         {removing ? (
           <>
-            <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Remove this explanation?</span>
-            <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '1px 8px', color: 'var(--bad-fg, #dc2626)' }} onClick={() => note.onSave(row.code, '')}>Remove</button>
-            <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '1px 8px' }} onClick={note.onKeep}>Keep</button>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Remove this explanation?</span>
+            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '1px 8px', color: 'var(--bad-fg, #dc2626)' }} onClick={() => note.onSave(row.code, '')}>Remove</button>
+            <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '1px 8px' }} onClick={note.onKeep}>Keep</button>
           </>
         ) : (
           <>
@@ -1240,7 +1254,7 @@ function NoteCell({ row, value, note, maxWidth }) {
           </>
         )}
       </span>
-      {err && <span role="alert" style={{ display: 'block', fontSize: '0.72rem', color: 'var(--bad-fg, #dc2626)', whiteSpace: 'normal' }}>{err}</span>}
+      {err && <span role="alert" style={{ display: 'block', fontSize: 12, color: 'var(--bad-fg, #dc2626)', whiteSpace: 'normal' }}>{err}</span>}
     </td>
   );
 }

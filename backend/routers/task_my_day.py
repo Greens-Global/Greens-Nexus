@@ -5,6 +5,15 @@ tasks assigned to the person that are due that day, plus anything they add.
 It empties at midnight in THEIR local time: the picks do not carry over, and
 the tasks themselves are never changed by any of this. Nobody else sees it.
 
+Left From Last Time (Neil, 11/13/2026): the reset stays - nothing moves to a
+new day by itself - but the picks the person made on the last day they
+planned that are STILL OPEN are offered once ("3 still open from 11/12/2026 -
+Add to Today / Not Today"). They ride in the document as
+    "prev": {"day": "YYYY-MM-DD", "added": [task id, ...]}
+from the first write of a new day until the person answers (POST /carry),
+and are dropped unanswered after CARRY_DAYS. A due-yesterday task they never
+picked is not part of it: it is already under Suggestions > Overdue.
+
 Storage: one JSON document on the person's own task_table_prefs row
 (models.TaskTablePref.my_day), never a table of its own -
     {"day": "YYYY-MM-DD", "added": [task id, ...], "dismissed": [task id, ...],
@@ -58,6 +67,8 @@ router = APIRouter(prefix="/tasks/my-day", tags=["Tasks"],
 MAX_ADDED = 200        # a day's picks - far above any real day
 MAX_DISMISSED = 400
 MAX_ORDER = 600        # ids a reorder may name (picks + due-today tasks)
+CARRY_DAYS = 14        # how long last time's open picks stay on offer
+CARRY_CAP = 50         # rows the offer lists
 SUGGEST_CAP = 10       # per suggestion group
 RECENT_DAYS = 7        # "Recently Assigned"
 GROUPS = ("overdue", "dueTomorrow", "inProgress", "recentlyAssigned")
@@ -90,14 +101,37 @@ def _ids(raw, cap: int) -> list[str]:
     return out[:cap]
 
 
+def _prev(raw: dict, day: str) -> dict | None:
+    """Last time's picks, still on offer for `day`: the document itself while
+    it is an earlier day's, else the `prev` it kept when today began. None
+    when there is none, it has no picks, or it is older than CARRY_DAYS."""
+    stored = str(raw.get("day") or "")
+    if stored and _DAY.match(stored) and stored < day:
+        cand = {"day": stored, "added": _ids(raw.get("added"), MAX_ADDED)}
+    elif stored == day and isinstance(raw.get("prev"), dict):
+        cand = {"day": str(raw["prev"].get("day") or ""), "added": _ids(raw["prev"].get("added"), MAX_ADDED)}
+    else:
+        return None
+    if not cand["added"] or not _DAY.match(cand["day"]) or cand["day"] >= day:
+        return None
+    try:
+        if (date.fromisoformat(day) - date.fromisoformat(cand["day"])).days > CARRY_DAYS:
+            return None
+    except ValueError:
+        return None
+    return cand
+
+
 def _state(row, day: str) -> dict:
-    """Today's list from the row. Another day's document is an empty list."""
+    """Today's list from the row. Another day's document is an empty list -
+    its picks are only kept aside as `prev` (see _prev)."""
     raw = row.my_day if row is not None and isinstance(row.my_day, dict) else {}
+    prev = _prev(raw, day)
     if raw.get("day") != day:
-        return {"day": day, "added": [], "dismissed": [], "order": []}
+        return {"day": day, "added": [], "dismissed": [], "order": [], "prev": prev}
     return {"day": day, "added": _ids(raw.get("added"), MAX_ADDED),
             "dismissed": _ids(raw.get("dismissed"), MAX_DISMISSED),
-            "order": _ids(raw.get("order"), MAX_ORDER)}
+            "order": _ids(raw.get("order"), MAX_ORDER), "prev": prev}
 
 
 def _row(db: Session, email: str, lock: bool = False):
@@ -131,9 +165,12 @@ def _locked_row(db: Session, email: str):
 def _save(db: Session, row, state: dict) -> None:
     # Callers build their answer BEFORE this: the commit expires every row the
     # session holds, and reading them afterwards would reload them one by one.
-    row.my_day = {"day": state["day"], "added": state["added"][:MAX_ADDED],
-                  "dismissed": state["dismissed"][-MAX_DISMISSED:],
-                  "order": state["order"][:MAX_ORDER]}   # reassigned, never mutated
+    doc = {"day": state["day"], "added": state["added"][:MAX_ADDED],
+           "dismissed": state["dismissed"][-MAX_DISMISSED:],
+           "order": state["order"][:MAX_ORDER]}
+    if state.get("prev"):   # last time's picks, until the person answers the offer
+        doc["prev"] = {"day": state["prev"]["day"], "added": state["prev"]["added"][:MAX_ADDED]}
+    row.my_day = doc   # reassigned, never mutated
     row.updated_at = now_iso()
     db.commit()
 
@@ -228,6 +265,27 @@ def _list_ids(state: dict, g: dict) -> list[str]:
     return first + [i for i in base if i not in first_set]
 
 
+def _want(state: dict) -> list:
+    """The ids _gather must read: today's picks and last time's."""
+    return state["added"] + ((state.get("prev") or {}).get("added") or [])
+
+
+def _carry_ids(state: dict, g: dict, in_list: set) -> list[str]:
+    """Last time's picks that are still open, still visible to the caller and
+    not on today's list already (nor taken off it today)."""
+    prev = state.get("prev")
+    if not prev:
+        return []
+    dismissed = set(state["dismissed"])
+    out = []
+    for i in prev["added"]:
+        t = g["by_id"].get(i)
+        if t is None or i not in g["seen"] or t.completed or i in in_list or i in dismissed:
+            continue
+        out.append(i)
+    return out
+
+
 def _payload(db: Session, me: str, state: dict, g: dict) -> dict:
     """Today's list and the suggestions, from what _gather read."""
     from routers.tasks import task_to_dict   # the list views' own shape
@@ -270,7 +328,17 @@ def _payload(db: Session, me: str, state: dict, g: dict) -> dict:
         "dismissedIds": sorted(state["dismissed"]),
         "orderIds": [i for i in state["order"] if i in in_list],
         "suggestions": suggestions,
+        # Last time's open picks, offered once (None = nothing to offer).
+        "carryOver": _carry_payload(state, g, in_list, task_to_dict),
     }
+
+
+def _carry_payload(state: dict, g: dict, in_list: set, to_dict) -> dict | None:
+    ids = _carry_ids(state, g, in_list)
+    if not ids:
+        return None
+    return {"day": state["prev"]["day"], "count": len(ids),
+            "tasks": [to_dict(g["by_id"][i]) for i in ids[:CARRY_CAP]]}
 
 
 def _is_occurrence(t) -> bool:
@@ -339,7 +407,7 @@ def get_my_day(day: str = Query(...), user: dict = Depends(get_current_user), db
     me = user["email"].lower()
     state = _state(_row(db, me), day)
     sight = _Sight(db, user)
-    return _payload(db, me, state, _gather(db, sight, me, day, state["added"]))
+    return _payload(db, me, state, _gather(db, sight, me, day, _want(state)))
 
 
 @router.post("/add")
@@ -365,7 +433,7 @@ def add_to_my_day(body: MyDayTask, user: dict = Depends(get_current_user), db: S
                  "order": [tid] + [i for i in state["order"] if i != tid]}
     else:
         state = {**state, "dismissed": dismissed}
-    out = _payload(db, me, state, _gather(db, sight, me, day, state["added"]))
+    out = _payload(db, me, state, _gather(db, sight, me, day, _want(state)))
     _save(db, row, state)
     return out
 
@@ -384,7 +452,7 @@ def remove_from_my_day(body: MyDayTask, user: dict = Depends(get_current_user), 
     state = {**state, "added": [i for i in state["added"] if i != tid],
              "dismissed": [i for i in state["dismissed"] if i != tid] + [tid],
              "order": [i for i in state["order"] if i != tid]}
-    out = _payload(db, me, state, _gather(db, _Sight(db, user), me, day, state["added"]))
+    out = _payload(db, me, state, _gather(db, _Sight(db, user), me, day, _want(state)))
     _save(db, row, state)
     return out
 
@@ -402,11 +470,40 @@ def reorder_my_day(body: MyDayOrder, user: dict = Depends(get_current_user), db:
     sight = _Sight(db, user)
     row = _locked_row(db, me)
     state = _today_state_for_write(row, day)
-    g = _gather(db, sight, me, day, state["added"])
+    g = _gather(db, sight, me, day, _want(state))
     on_list = set(_list_ids(state, g))
     named = [i for i in _ids(body.task_ids, MAX_ORDER) if i in on_list]
     named_set = set(named)
     state = {**state, "order": named + [i for i in state["order"] if i not in named_set]}
+    out = _payload(db, me, state, g)
+    _save(db, row, state)
+    return out
+
+
+class MyDayCarry(BaseModel):
+    day: str
+    accept: bool = True
+
+
+@router.post("/carry")
+def carry_my_day(body: MyDayCarry, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Answer the Left From Last Time offer. `accept`: the picks still open
+    go on today's list, under what is already there; either way the offer is
+    over - it is asked once. Nothing ever moves to a new day by itself."""
+    day = _check_day(body.day)
+    me = user["email"].lower()
+    sight = _Sight(db, user)
+    row = _locked_row(db, me)
+    state = _today_state_for_write(row, day)
+    g = _gather(db, sight, me, day, _want(state))
+    if body.accept:
+        bring = _carry_ids(state, g, set(_list_ids(state, g)))
+        have = set(state["added"])
+        added = state["added"] + [i for i in bring if i not in have]
+        if len(added) > MAX_ADDED:
+            raise HTTPException(400, f"My Day holds up to {MAX_ADDED} tasks")
+        state = {**state, "added": added}
+    state = {**state, "prev": None}
     out = _payload(db, me, state, g)
     _save(db, row, state)
     return out

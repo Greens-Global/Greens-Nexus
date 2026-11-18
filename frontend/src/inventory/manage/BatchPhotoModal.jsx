@@ -193,8 +193,8 @@ export function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, o
             <BatchTabs tab="photos" onTab={onSwitchTab} />
             <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
           </div>
-          <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Photos · {items.length} {usingSelection ? 'selected' : 'shown'} item{items.length !== 1 ? 's' : ''}</h3>
-          <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} have a photo · click a photo box and press <strong>Ctrl/Cmd+V</strong> to paste an image</p>
+          <h3 style={{ margin:0, fontSize:15, fontWeight:700 }}>Photos · {items.length} {usingSelection ? 'selected' : 'shown'} item{items.length !== 1 ? 's' : ''}</h3>
+          <p style={{ margin:'3px 0 0', fontSize:13, color:'var(--muted)' }}>{withPhotos} / {items.length} have a photo · click a photo box and press <strong>Ctrl/Cmd+V</strong> to paste an image</p>
         </div>
         {/* Controls: a single master image - pasted as a link OR uploaded -
             applied to every shown item. Apply sits on the right; Upload to all
@@ -204,18 +204,18 @@ export function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, o
           <input value={masterUrl} onChange={e => setMasterUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !applyingMaster && !uploadingMaster && applyMasterUrl()}
             placeholder="Master image link, or paste an image to apply to all"
-            className="form-input" style={{ flex:1, minWidth:200, fontSize:12.5, padding:'7px 10px', height:34 }} />
+            className="form-input" style={{ flex:1, minWidth:200, fontSize:13, padding:'7px 10px', height:34 }} />
           <input type="file" accept="image/*" style={{ display:'none' }} ref={masterFileRef}
             onChange={e => { const f = e.target.files?.[0]; if (f) applyMasterFile(f); e.target.value = ''; }} />
           <button onClick={() => masterFileRef.current?.click()} disabled={applyingMaster || uploadingMaster}
             title="Upload one image and apply it to every item shown above"
-            style={{ height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'none', color:'var(--muted)', border:'1px solid var(--line)', borderRadius:8, cursor:(applyingMaster||uploadingMaster)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(applyingMaster||uploadingMaster)?0.5:1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
+            style={{ height:34, padding:'0 14px', fontSize:13, fontWeight:700, background:'none', color:'var(--muted)', border:'1px solid var(--line)', borderRadius:8, cursor:(applyingMaster||uploadingMaster)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(applyingMaster||uploadingMaster)?0.5:1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
             {uploadingMaster ? <Spinner size={13} /> : <UploadCloud size={13} />}
             Upload to all
           </button>
           <button onClick={applyMasterUrl} disabled={!masterUrl.trim() || applyingMaster || uploadingMaster}
             title="Set this one image link on every item shown above"
-            style={{ height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'var(--pine)', color:'#fff', border:'none', borderRadius:8, cursor:(!masterUrl.trim()||applyingMaster||uploadingMaster)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(!masterUrl.trim()||applyingMaster||uploadingMaster)?0.5:1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
+            style={{ height:34, padding:'0 14px', fontSize:13, fontWeight:700, background:'var(--pine)', color:'#fff', border:'none', borderRadius:8, cursor:(!masterUrl.trim()||applyingMaster||uploadingMaster)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(!masterUrl.trim()||applyingMaster||uploadingMaster)?0.5:1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
             {applyingMaster ? <Spinner size={13} /> : <Link2 size={13} />}
             Apply to {items.length}
           </button>
@@ -245,7 +245,7 @@ export function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, o
                     ? <img src={currentUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                     : <tm.Icon size={20} color={tm.color} />}
                   {pasteFocusId === item.id && !isUploading && (
-                    <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'hsla(var(--color-green),0.15)', fontSize:8.5, fontWeight:800, color:'var(--pine)', letterSpacing:'.02em' }}>⌘/Ctrl V</span>
+                    <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'hsla(var(--color-green),0.15)', fontSize:11, fontWeight:800, color:'var(--pine)', letterSpacing:'.02em' }}>⌘/Ctrl V</span>
                   )}
                 </div>
                 {/* Name + location */}

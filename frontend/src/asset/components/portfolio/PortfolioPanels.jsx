@@ -3,29 +3,29 @@ import { ArrowRight, Trash2, RotateCcw, Search, X, Check } from 'lucide-react';
 import { assetCompleteness, assetTypeOf, assetRegionOf, categoryOf, cityRegion, searchHaystack, ASSET_CATEGORIES } from '../../lib/assetMetrics.js';
 import { baseStage } from '../../lib/stages.js';
 import HoldButton, { HOLD_MAJOR_MS } from '../../../ui/HoldButton';
+import ProgressTrack from '../../../ui/ProgressTrack';
 
 // The panels that used to be the Manage page (Neil, Oct 21 2026: Manage is
-// not a destination). Data Gaps and Flagged open from chips on the Needs
-// Attention band; Activity Log and Trash from the portfolio's more menu. Each
-// renders inline under the band, on the portfolio, and closes with its X.
+// not a destination). Data Gaps opens from the Missing Key Details view; Trash
+// from the "..." menu of every portfolio tab (Neil, 11/17/2026 - the Needs
+// Attention band and its chips are retired). Each opens in place, under the
+// page's first row, and closes with its X. No box around it: a hairline above
+// and below, rows divided by hairlines.
 
-const CARD = { border: '1px solid var(--border-color)', borderRadius: 14, background: 'var(--bg-card)', padding: '16px 18px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' };
+const CARD = { borderTop: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', padding: '16px 0', marginBottom: 20 };
 
 export function PanelHead({ title, subtitle, onClose, children }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <h3 style={{ fontSize: 15, margin: 0 }}>{title}</h3>
+        <h3 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>{title}</h3>
         {subtitle && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>{subtitle}</div>}
       </div>
       {children}
-      <button type="button" className="secondary-btn" onClick={onClose} aria-label={`Close ${title}`} style={{ padding: 7 }}><X size={15} /></button>
+      <button type="button" className="pt-icon-btn" onClick={onClose} aria-label={`Close ${title}`}><X size={16} /></button>
     </div>
   );
 }
-
-/** Completeness % -> tone (green / gold / orange), the same buckets the bars use. */
-const tone = (pct) => (pct >= 100 ? 'green' : pct >= 60 ? 'gold' : 'orange');
 
 /**
  * Data Gaps: every live asset, least complete first, with its missing fields as
@@ -66,11 +66,11 @@ export function DataGapsPanel({ assets, onOpen, onDelete, serverOk, onClose }) {
             {options.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         ))}
-        {filtered && <button type="button" onClick={clear} className="secondary-btn" style={{ fontSize: 13, padding: '7px 12px' }}>Clear Filters <X size={13} /></button>}
+        {filtered && <button type="button" onClick={clear} className="pt-link">Clear Filters</button>}
       </div>
       {deleteTarget && (
-        <div style={{ marginBottom: 12, padding: '13px 14px', borderRadius: 11, border: '1px solid hsla(var(--color-red), 0.4)', backgroundColor: 'hsla(var(--color-red), 0.07)' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Move "{deleteTarget.name}" to Trash?</div>
+        <div role="alertdialog" aria-label={`Move ${deleteTarget.name} to Trash?`} style={{ marginBottom: 12, padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Move "{deleteTarget.name}" to Trash?</div>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 11 }}>
             It can be restored from Trash{assets.some((x) => x.parentId === deleteTarget.id) ? '; its linked parcels become standalone.' : '.'}
           </div>
@@ -85,7 +85,7 @@ export function DataGapsPanel({ assets, onOpen, onDelete, serverOk, onClose }) {
           {q ? 'No assets match your search.' : serverOk === false ? "Couldn't reach the server to load assets - retrying automatically." : 'No assets yet - use Add Asset to register the first one.'}
         </div>
       ) : (
-        <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+        <div>
           {rows.map(({ p, c }) => (
             <div key={p.id} className="asset-linkrow" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2fr) 130px minmax(0,3fr) auto', gap: 14, alignItems: 'center', padding: '11px 13px', borderBottom: '1px solid var(--border-color)' }}>
               <div style={{ minWidth: 0 }}>
@@ -93,26 +93,19 @@ export function DataGapsPanel({ assets, onOpen, onDelete, serverOk, onClose }) {
                   style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', minWidth: 0 }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                     <strong style={{ fontSize: 13, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</strong>
-                    {p.parentId && <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))' }}>Linked</span>}
+                    {p.parentId && <span style={{ flexShrink: 0, fontSize: 12, color: 'var(--text-secondary)' }}>Linked parcel</span>}
                   </span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>{cityRegion(p) || '-'}{p.devStage ? ' · ' + p.devStage : ''}</span>
                 </button>
               </div>
-              <div>
-                <div style={{ height: 7, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden' }} role="progressbar" aria-valuenow={c.pct} aria-valuemin={0} aria-valuemax={100} aria-label={`${p.name} ${c.pct}% complete`}>
-                  <div style={{ width: c.pct + '%', height: '100%', background: `hsl(var(--color-${tone(c.pct)}))` }} />
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{c.pct}% complete</div>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                {c.missing.length ? c.missing.map((field) => (
-                  <span key={field} style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', border: '1px solid var(--border-color)', padding: '2px 8px', borderRadius: 999 }}>{field}</span>
-                )) : (
+              <ProgressTrack value={c.pct / 100} state={c.pct >= 100 ? 'done' : 'idle'} size="sm" label={`${p.name} key details`} note={<b>{c.pct}% filled</b>} />
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                {c.missing.length ? <>Missing {c.missing.join(', ')}.</> : (
                   <span style={{ fontSize: 12, color: 'hsl(var(--color-green))', fontWeight: 600 }}><Check size={13} style={{ verticalAlign: '-2px' }} /> All key fields present</span>
                 )}
               </div>
               <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => onOpen(p.id)} className="secondary-btn" style={{ flexShrink: 0, padding: '6px 11px', fontSize: 12 }}>Open <ArrowRight size={13} /></button>
+                <button type="button" onClick={() => onOpen(p.id)} className="secondary-btn" style={{ flexShrink: 0, padding: '6px 11px', fontSize: 12 }}>Fill In <ArrowRight size={13} /></button>
                 <button type="button" onClick={() => setDeleteTarget(p)} title={'Move ' + p.name + ' to Trash'} aria-label={'Move ' + p.name + ' to Trash'}
                   style={{ flexShrink: 0, width: 32, height: 32, borderRadius: 8, border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                   onMouseEnter={(e) => { e.currentTarget.style.color = 'hsl(var(--color-red))'; e.currentTarget.style.background = 'hsla(var(--color-red), 0.1)'; }}
@@ -139,8 +132,8 @@ export function TrashPanel({ deleted, onRecover, onPurge, onClose, recordsOf }) 
     <div style={CARD}>
       <PanelHead title="Trash" subtitle="Restore a deleted asset, or remove it permanently." onClose={onClose} />
       {purgeTarget && (
-        <div style={{ marginBottom: 12, padding: '13px 14px', borderRadius: 11, border: '1px solid hsla(var(--color-red), 0.4)', backgroundColor: 'hsla(var(--color-red), 0.07)' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Permanently delete "{purgeTarget.name}"?</div>
+        <div role="alertdialog" aria-label={`Permanently delete ${purgeTarget.name}?`} style={{ marginBottom: 12, padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>Permanently delete "{purgeTarget.name}"?</div>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 11 }}>
             This <strong>cannot be undone</strong> - the asset and {!records ? 'its records' : `its ${records} record${records === 1 ? '' : 's'} (warranties, inspections, documents, maintenance and the rest)`} are removed for good. Uploaded photos and files stay in storage for the record, and the Activity Log keeps its history.
           </div>
@@ -153,9 +146,9 @@ export function TrashPanel({ deleted, onRecover, onPurge, onClose, recordsOf }) 
         </div>
       )}
       {deleted.length === 0 ? (
-        <div style={{ padding: 14, fontSize: 13, color: 'var(--text-secondary)', border: '1px dashed var(--border-color)', borderRadius: 10 }}>Nothing in the Trash. Anything you delete appears here and can be restored.</div>
+        <div style={{ padding: '8px 0', fontSize: 13, color: 'var(--text-secondary)' }}>Nothing in the Trash. Anything you delete appears here and can be restored.</div>
       ) : (
-        <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+        <div>
           {deleted.map((x) => (
             <div key={x.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--border-color)' }}>
               <div style={{ minWidth: 0, flex: 1 }}>

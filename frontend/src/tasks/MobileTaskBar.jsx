@@ -22,21 +22,32 @@ import { isBypassing, confirmDiscard } from '../lib/dialogGuard';
 
 // Bottom-anchored sheet (the top-anchored Modal in components.jsx doesn't fit here).
 // `onBack` (optional) renders a back arrow - used for the Asana-style filter drill-in.
-export function BottomSheet({ title, onClose, onBack, children }) {
+// `footer` (11/15/2026, the phone New Task composer): a row pinned under the
+// scrolling body - it stays put while the body scrolls, right above the
+// keyboard. `dirty`: something typed would be lost, so a tap on the backdrop,
+// the X or Escape asks first (the Back button already did).
+// `layered`: something of the sheet's own is open over it (the composer's Add
+// menu) - Escape and Back belong to that, so the sheet stands down.
+export function BottomSheet({ title, onClose, onBack, children, footer = null, dirty = false, bodyStyle = null, layered = null }) {
   const vv = useVisualViewport();
   const isMobile = useIsMobile();
   const overlayRef = useRef(null);
   const panelRef = useRef(null);
   const titleId = useId();
+  const requestClose = () => {
+    if (dirty && !isBypassing()) { confirmDiscard().then((ok) => { if (ok) onClose(); }); return; }
+    onClose();
+  };
   // Escape belongs to the topmost layer (components.useEscapeLayer): with a
   // Modal open over the sheet (Add Several over the quick-add), one Escape
   // closes the modal only - the sheet and what was typed in it stay.
-  useEscapeLayer(() => (onBack || onClose)());
+  useEscapeLayer(() => { if (layered) { layered(); return; } if (onBack) onBack(); else requestClose(); });
   useDialogFocus(panelRef);
   // The phone's Back button does what Escape does: steps out of a drill-in
   // level when there is one, otherwise closes the sheet - asking first if
   // something typed in it would be lost (lib/dialogGuard.js marks that).
   useBackToClose(isMobile, () => {
+    if (layered) { layered(); return; }
     if (onBack) { onBack(); return; }
     if (overlayRef.current?.hasAttribute('data-nx-dirty') && !isBypassing()) {
       confirmDiscard().then((ok) => { if (ok) onClose(); });
@@ -51,7 +62,7 @@ export function BottomSheet({ title, onClose, onBack, children }) {
   // the top on close).
   useScrollLock(isMobile);
   return createPortal(
-    <div ref={overlayRef} className="nx-tasks-portal" onClick={onClose} style={{
+    <div ref={overlayRef} className="nx-tasks-portal" onClick={requestClose} data-nx-dirty={dirty ? '1' : undefined} style={{
       position: 'fixed', left: 0, right: 0,
       ...(vv ? { top: vv.top, height: vv.height } : { top: 0, bottom: 0 }),
       background: 'rgba(17,24,39,0.45)', zIndex: 4000,
@@ -75,15 +86,20 @@ export function BottomSheet({ title, onClose, onBack, children }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '13px 18px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
           {onBack && <button onClick={onBack} style={{ ...btn('ghost'), padding: 6, marginLeft: -6 }} aria-label="Back"><ChevronLeft size={18} /></button>}
           <div id={titleId} style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{title}</div>
-          <button onClick={onClose} style={{ ...btn('ghost'), padding: 6, marginLeft: 'auto' }} aria-label="Close"><X size={18} /></button>
+          <button onClick={requestClose} style={{ ...btn('ghost'), padding: 6, marginLeft: 'auto' }} aria-label="Close"><X size={18} /></button>
         </div>
         {/* minHeight 0 is what lets this scroll: a flex child defaults to
             min-height auto, so without it the body grew past maxHeight and
             its lower fields were simply cut off. */}
         <div style={{
-          padding: '16px 16px calc(16px + env(safe-area-inset-bottom))', overflowY: 'auto', minHeight: 0, flex: '1 1 auto',
-          overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch',
+          padding: footer ? '16px' : '16px 16px calc(16px + env(safe-area-inset-bottom))', overflowY: 'auto', minHeight: 0, flex: '1 1 auto',
+          overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', ...bodyStyle,
         }}>{children}</div>
+        {footer && (
+          <div style={{ flexShrink: 0, borderTop: `1px solid ${NX.border}`, padding: '8px 12px calc(8px + env(safe-area-inset-bottom))', background: NX.surface }}>
+            {footer}
+          </div>
+        )}
       </div>
     </div>,
     document.body,

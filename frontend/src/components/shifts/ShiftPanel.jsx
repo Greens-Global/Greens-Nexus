@@ -17,8 +17,8 @@ import { SHIFT_COLORS, DEFAULT_SHIFT_COLOR, alpha, durMin, sameTime, fmtHrs, min
 const SAME_TIME_MSG = "Start and end can't be the same time.";
 const LBL = { fontSize: 11, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 };
 const INPUT = { width: '100%', fontSize: 13 };
-const LINK_BTN = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5, padding: 0, fontFamily: 'inherit' };
-const CHECK = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, cursor: 'pointer' };
+const LINK_BTN = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5, padding: 0, fontFamily: 'inherit' };
+const CHECK = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' };
 
 export default function ShiftPanel({ cell, initialMode = 'shift', presets = [], quickPicks = [], groups = [], people = [], nameOf, teamZone = '', busy = false,
   canTimeOff = true, jobsites = [], onSave, onAssign, onDelete, onDiscard, onCopy, onToOpen, onSaveTimeOff, onClose }) {
@@ -40,14 +40,14 @@ export default function ShiftPanel({ cell, initialMode = 'shift', presets = [], 
           <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{heading}</span>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
         </div>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
           {formatWeekday(cell.date)}, {formatDate(cell.date)}{cell.email ? ` · ${who}` : ''}
         </div>
         {cell.email && canTimeOff && !ex && (
           <div role="tablist" aria-label="What to add" style={{ display: 'inline-flex', marginTop: 10, border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden' }}>
             {[['shift', 'Shift'], ['timeoff', 'Time Off']].map(([k, label]) => (
               <button key={k} type="button" role="tab" aria-selected={mode === k} onClick={() => setMode(k)}
-                style={{ border: 'none', padding: '5px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                style={{ border: 'none', padding: '5px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
                   background: mode === k ? 'var(--wk-brand-tint)' : 'transparent', color: mode === k ? 'var(--wk-brand)' : 'var(--muted)' }}>{label}</button>
             ))}
           </div>
@@ -91,7 +91,7 @@ function ColorPick({ value, presetColor, onChange }) {
       <div style={LBL}>Color</div>
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="button" onClick={() => onChange('')} aria-pressed={!value}
-          style={{ fontSize: 11.5, fontWeight: 700, padding: '3px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+          style={{ fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
             border: !value ? '2px solid var(--ink)' : '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <span style={{ width: 10, height: 10, borderRadius: 3, background: presetColor || DEFAULT_SHIFT_COLOR }} /> Shift Type
         </button>
@@ -141,12 +141,12 @@ function JobsitePick({ value, onChange, sites, onAdded }) {
         </select>
       </label>
       {!adding && picked && !picked.located && (
-        <div data-jobsite-hint="" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
+        <div data-jobsite-hint="" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
           {picked.name} has no address on file yet, so this shift uses the team site's weather. Add the address on the project in Construction.
         </div>
       )}
       {!adding && picked && picked.located && picked.where && (
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {picked.where}</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}><MapPin size={11} /> {picked.where}</div>
       )}
       {adding && (
         <div role="group" aria-label="New Jobsite" style={{ marginTop: 8, padding: 10, border: '1px solid var(--line)', borderRadius: 10, display: 'grid', gap: 8 }}>
@@ -155,7 +155,7 @@ function JobsitePick({ value, onChange, sites, onAdded }) {
             onResolved={({ point: pt }) => { setPoint(pt); if (pt.address) setAddress(pt.address); if (!name.trim() && pt.placeName) setName(pt.placeName); setErr(''); }} />
           <input className="form-input" aria-label="Jobsite address" placeholder="Filled in from the Google Maps link, or type it" maxLength={300} value={address} onChange={(e) => setAddress(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} style={INPUT} />
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>It becomes a Construction project, and its Google Maps point gives the shift its own weather.</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>It becomes a Construction project, and its Google Maps point gives the shift its own weather.</div>
           {err && <div role="alert" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>{err}</div>}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button type="button" className="secondary-btn" onClick={() => { setAdding(false); setErr(''); }} disabled={saving} style={{ fontSize: 12 }}>Cancel</button>
@@ -247,7 +247,7 @@ function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people,
   return (
     <>
       <div onKeyDown={onKey} style={{ flex: 1, overflowY: 'auto', padding: '14px 18px', display: 'grid', gap: 14, alignContent: 'start' }}>
-        {noPresets && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shift types yet. Add them under Settings &gt; Shifts &amp; Scheduling, or set the times here.</div>}
+        {noPresets && <div style={{ fontSize: 13, color: 'var(--muted)' }}>No shift types yet. Add them under Settings &gt; Shifts &amp; Scheduling, or set the times here.</div>}
         {(!noPresets || quickPicks.length > 0) && <TypeChips presets={presets} value={shiftId} onPick={pickType} quickPicks={quickPicks} pickedQuick={pickedQuick} onQuick={pickQuick} />}
         <div style={{ display: 'flex', gap: 10 }}>
           <label style={{ flex: 1 }}><div style={LBL}>Start</div><input type="time" className="form-input" aria-label="Start" value={effStart} onChange={(e) => setStart(e.target.value)} style={INPUT} /></label>
@@ -290,11 +290,11 @@ function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people,
                 <div role="group" aria-label={`Activity ${i + 1} pay`} style={{ display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 7, overflow: 'hidden' }}>
                   {[[true, 'Paid'], [false, 'Unpaid']].map(([v, text]) => (
                     <button key={text} type="button" aria-pressed={a.paid === v} onClick={() => setAct(i, { paid: v })}
-                      style={{ border: 'none', padding: '3px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                      style={{ border: 'none', padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
                         background: a.paid === v ? 'var(--wk-brand-tint)' : 'transparent', color: a.paid === v ? 'var(--wk-brand)' : 'var(--muted)' }}>{text}</button>
                   ))}
                 </div>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1 }}>{a.start && a.end ? minutesText(durMin(a.start, a.end)) : ''}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1 }}>{a.start && a.end ? minutesText(durMin(a.start, a.end)) : ''}</span>
                 <button type="button" onClick={() => setActs((xs) => xs.filter((_, j) => j !== i))} aria-label={`Remove activity ${i + 1}`}
                   style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}><X size={14} /></button>
               </div>
@@ -493,11 +493,11 @@ function TimeOffForm({ email, name, date, busy, onSave, onClose }) {
           <input type="checkbox" checked={f.confidential} onChange={(e) => set('confidential', e.target.checked)} style={{ marginTop: 2 }} />
           <span>
             <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Lock size={12} /> Keep this confidential</span>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Only they and their approver see the type and reason. Everyone else sees plain time off.</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Only they and their approver see the type and reason. Everyone else sees plain time off.</div>
           </span>
         </label>
         <label style={CHECK}><input type="checkbox" checked={f.approve} onChange={(e) => set('approve', e.target.checked)} /> Approve it now</label>
-        {problem && <div style={{ fontSize: 11.5, color: 'hsl(var(--color-red))' }}>{problem}</div>}
+        {problem && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>{problem}</div>}
       </div>
       <div style={{ padding: '10px 18px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>

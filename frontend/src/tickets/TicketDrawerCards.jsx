@@ -22,7 +22,7 @@ function TicketTasks({ taskIds, tasks, tasksLoading = false, onOpen, onSpawn, on
   const options = tasks.filter((x) => !taskIds.includes(x.id));
   return (
     <div>
-      {linked.length === 0 && readOnly && <span style={{ fontSize: 12.5, color: NX.faint }}>No linked tasks</span>}
+      {linked.length === 0 && readOnly && <span style={{ fontSize: 13, color: NX.faint }}>No linked tasks</span>}
       {linked.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {linked.map((task) => (
@@ -74,7 +74,7 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
 
   return (
     <div>
-      {links.length === 0 && readOnly && <span style={{ fontSize: 12.5, color: NX.faint }}>No linked tickets</span>}
+      {links.length === 0 && readOnly && <span style={{ fontSize: 13, color: NX.faint }}>No linked tickets</span>}
       {links.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {links.map((l) => {
@@ -128,8 +128,8 @@ function SatisfactionCard({ ticket, nameOf }) {
         {[1, 2, 3, 4, 5].map((n) => (
           <Star key={n} size={18} aria-hidden style={{ color: rating >= n ? NX.amber : NX.border, fill: rating >= n ? NX.amber : 'none' }} />
         ))}
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: tone, marginLeft: 8 }}>{CSAT_LABELS[rating] || `${rating}/5`}</span>
-        <span style={{ fontSize: 12.5, color: NX.dim, marginLeft: 6 }}>{rating}/5 · rated by {who}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: tone, marginLeft: 8 }}>{CSAT_LABELS[rating] || `${rating}/5`}</span>
+        <span style={{ fontSize: 13, color: NX.dim, marginLeft: 6 }}>{rating}/5 · rated by {who}</span>
       </div>
       {ticket.csatComment && (
         <p style={{ margin: '8px 0 0', fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap' }}>“{ticket.csatComment}”</p>
@@ -151,13 +151,13 @@ function CsatWidget({ ticket, canRate, onRate, onComment }) {
           <Star key={n} size={22} onClick={() => canRate && onRate(n)} onMouseEnter={() => canRate && setHover(n)} onMouseLeave={() => setHover(0)}
             style={{ cursor: canRate ? 'pointer' : 'default', color: (hover || rating) >= n ? NX.amber : NX.border, fill: (hover || rating) >= n ? NX.amber : 'none' }} />
         ))}
-        {rating > 0 && <span style={{ fontSize: 12.5, color: NX.dim, marginLeft: 6 }}>{rating}/5</span>}
+        {rating > 0 && <span style={{ fontSize: 13, color: NX.dim, marginLeft: 6 }}>{rating}/5</span>}
       </div>
       {canRate ? (
         <input value={comment} onChange={(e) => setComment(e.target.value)} onBlur={() => { if (comment !== (ticket.csatComment || '')) onComment(comment); }}
           placeholder="Optional feedback…" style={{ ...inputStyle, marginTop: 8 }} />
       ) : ticket.csatComment ? (
-        <p style={{ margin: '6px 0 0', fontSize: 12.5, color: NX.dim, fontStyle: 'italic' }}>“{ticket.csatComment}”</p>
+        <p style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim, fontStyle: 'italic' }}>“{ticket.csatComment}”</p>
       ) : null}
     </div>
   );

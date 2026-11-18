@@ -47,7 +47,7 @@ function LineRow({ row, onClick }) {
       onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.title}</span>
-        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {row.meta}{row.party ? ` · ${row.party}` : ''}
         </span>
       </span>
@@ -102,7 +102,7 @@ export function FindTransactionWidget({ phone = false }) {
           ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-brand, #2b45e1)' }} />
           : <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />}
         <input className="form-input" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Find a transaction"
-          placeholder="Vendor, invoice #, amount, memo..." style={{ paddingLeft: 32, width: '100%', ...(phone ? { fontSize: 16, minHeight: 40 } : null) }} />
+          placeholder="Vendor, invoice #, amount, memo..." style={{ paddingLeft: 32, width: '100%', ...(phone ? { fontSize: /* type-ok: iOS zooms a field under 16px */ 16, minHeight: 40 } : null) }} />
       </form>
 
       {!ready && <div style={noteStyle}>Type at least two characters. Enter opens the ledger with your search.</div>}

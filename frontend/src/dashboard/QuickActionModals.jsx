@@ -11,8 +11,8 @@ import { X, Send } from 'lucide-react';
 import { api } from '../api';
 import { sendMail, createEvent } from '../m365';
 import { TasksProvider } from '../tasks/TasksContext';
-import CreateTaskModal from '../tasks/CreateTaskModal';
-import { PersonSelect } from '../tasks/components';
+import TaskCreate from '../tasks/TaskCreate';
+import { PersonSelect, Modal } from '../tasks/components';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 // "Add Personal Link" is the Links tab's own form (src/links/), not a copy.
@@ -84,7 +84,7 @@ function PeoplePicker({ value, onChange, people, label, placeholder }) {
       <Label>{label}</Label>
       <PersonSelect addButton value={null} people={remaining} placeholder={placeholder} ariaLabel={label}
         onChange={(email) => { if (email) onChange([...value, email]); }}
-        style={{ borderRadius: '8px 0 0 8px', padding: '9px 13px', fontSize: 13.5, fontWeight: 400 }} />
+        style={{ borderRadius: '8px 0 0 8px', padding: '9px 13px', fontSize: 13, fontWeight: 400 }} />
       {value.length > 0 && (
         <div style={{ marginTop: 8 }}>
           {value.map((email) => {
@@ -128,13 +128,13 @@ function useSubmit(run, onClose) {
 
 const SubmitBtn = ({ busy, disabled, onClick, children }) => (
   <button onClick={onClick} disabled={busy || disabled}
-    style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'var(--ink)', color: 'var(--paper)', fontSize: 13.5, fontWeight: 600, cursor: busy || disabled ? 'not-allowed' : 'pointer', opacity: busy || disabled ? 0.5 : 1, fontFamily: 'Inter,sans-serif' }}>
+    style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'var(--ink)', color: 'var(--paper)', fontSize: 13, fontWeight: 600, cursor: busy || disabled ? 'not-allowed' : 'pointer', opacity: busy || disabled ? 0.5 : 1, fontFamily: 'Inter,sans-serif' }}>
     {children}
   </button>
 );
 
 const ErrorLine = ({ error }) => error
-  ? <span style={{ flex: 1, fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{error}</span>
+  ? <span style={{ flex: 1, fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</span>
   : <span style={{ flex: 1 }} />;
 
 // ── New Email ────────────────────────────────────────────────────────────────
@@ -251,10 +251,14 @@ function EventModal({ onClose }) {
 // The Tasks module's own modal, with the provider it expects. The provider
 // fetches the workspace on mount; the form's title/assignee/due fields are
 // usable immediately and the project list fills in when the load lands.
-function TaskModal({ onClose }) {
+// `seed` (Share to Nexus, lib/shareTarget.js): the form's own `defaults` -
+// a title, a description and files for its attachment list.
+// TaskCreate (11/15/2026): the full form on a computer, the quick composer on
+// a phone - the same New Task as the Tasks module's own +.
+function TaskModal({ onClose, seed }) {
   return (
     <TasksProvider>
-      <CreateTaskModal onClose={() => onClose()} />
+      <TaskCreate onClose={() => onClose()} defaults={seed || undefined} />
     </TasksProvider>
   );
 }
@@ -267,21 +271,44 @@ const CreateTicketModal = lazy(async () => {
   const { CreateTicketModal: M } = await import('../tickets/TicketsView');
   return { default: M };
 });
-function TicketModal({ onClose }) {
+// `seed` (Share to Nexus): the form's own `initial` - subject, description, files.
+function TicketModal({ onClose, seed }) {
   return (
     <TasksProvider>
       <Suspense fallback={null}>
-        <CreateTicketModal onClose={() => onClose()} />
+        <CreateTicketModal onClose={() => onClose()} initial={seed || null} />
       </Suspense>
     </TasksProvider>
   );
 }
 
-export default function QuickActionModal({ kind, onClose, initialUrl }) {
+// ── New Announcement ─────────────────────────────────────────────────────────
+// The Dashboard's own Announcements composer (administrators - the bolt shows
+// the row only to them, and the server refuses anyone else), in a sheet.
+// Lazy: the announcements chunk loads on click.
+const AnnouncementComposer = lazy(async () => {
+  const { AnnouncementComposer: C } = await import('./essentials/Announcements.jsx');
+  return { default: C };
+});
+function AnnouncementModal({ onClose }) {
+  const isMobile = useIsMobile();
+  const [dirty, setDirty] = useState(false);
+  return (
+    <Modal title="New Announcement" onClose={() => onClose()} isDirty={dirty}>
+      <Suspense fallback={null}>
+        <AnnouncementComposer isMobile={isMobile} onDirty={setDirty} onCancel={() => onClose()}
+          onSaved={() => onClose({ toast: 'Announcement saved.' })} />
+      </Suspense>
+    </Modal>
+  );
+}
+
+export default function QuickActionModal({ kind, onClose, initialUrl, seed = null }) {
+  if (kind === 'announcement') return <AnnouncementModal onClose={onClose} />;
   if (kind === 'personal-link') return <PersonalLinkComposer initialUrl={initialUrl} onClose={onClose} />;
   if (kind === 'email') return <EmailModal onClose={onClose} />;
   if (kind === 'event') return <EventModal onClose={onClose} />;
-  if (kind === 'task')  return <TaskModal  onClose={onClose} />;
-  if (kind === 'ticket') return <TicketModal onClose={onClose} />;
+  if (kind === 'task')  return <TaskModal  onClose={onClose} seed={seed} />;
+  if (kind === 'ticket') return <TicketModal onClose={onClose} seed={seed} />;
   return null;
 }

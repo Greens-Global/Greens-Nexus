@@ -36,8 +36,8 @@ const hoursText = (p) => {
   return bits.length ? bits.join(' · ') : 'No preference';
 };
 const SUB = { fontSize: 12, fontWeight: 700, color: 'var(--ink)', margin: '12px 0 6px' };
-const HINT = { fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 };
-const INPUT = { width: 'auto', fontSize: 12.5, padding: '4px 8px' };
+const HINT = { fontSize: 12, color: 'var(--muted)', marginBottom: 6 };
+const INPUT = { width: 'auto', fontSize: 13, padding: '4px 8px' };
 
 export default function MyAvailability() {
   const [week, setWeek] = useState(null);
@@ -98,7 +98,7 @@ export default function MyAvailability() {
   }
 
   const dateLine = (d, i) => (
-    <div key={d.id || `${d.date}-${i}`} title={d.note || undefined} style={{ fontSize: 12.5, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+    <div key={d.id || `${d.date}-${i}`} title={d.note || undefined} style={{ fontSize: 13, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
       <span style={{ fontWeight: 700 }}>{formatWeekday(d.date, 'short')} {formatDate(d.date)}</span>
       <span style={{ color: d.kind === 'unavailable' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>{dateText(d)}</span>
       {d.note && <span style={{ color: 'var(--muted)' }}>· {d.note}</span>}
@@ -120,7 +120,7 @@ export default function MyAvailability() {
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8 }}>
             {week.map((d) => (
-              <div key={d.weekday} title={d.note || undefined} style={{ fontSize: 12.5 }}>
+              <div key={d.weekday} title={d.note || undefined} style={{ fontSize: 13 }}>
                 <div style={{ fontWeight: 700 }}>{DAYS[d.weekday]}</div>
                 <div style={{ color: d.kind === 'unavailable' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>{dayText(d)}</div>
               </div>
@@ -131,17 +131,17 @@ export default function MyAvailability() {
             <div data-availability-dates style={{ display: 'grid', gap: 4 }}>
               {dates.map((d, i) => dateLine(d, i))}
             </div>
-          ) : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No dates set. Edit to add a day you cannot work, or can only work part of.</div>}
+          ) : <div style={{ fontSize: 13, color: 'var(--muted)' }}>No dates set. Edit to add a day you cannot work, or can only work part of.</div>}
           <div style={SUB}>Hours</div>
-          <div data-availability-hours style={{ fontSize: 12.5, color: 'var(--muted)' }}>{hoursText(prefs)}</div>
+          <div data-availability-hours style={{ fontSize: 13, color: 'var(--muted)' }}>{hoursText(prefs)}</div>
         </>
       ) : (
         <div style={{ display: 'grid', gap: 8 }}>
           {edit.days.map((d, i) => (
-            <div key={d.weekday} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
+            <div key={d.weekday} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
               <span style={{ width: 90, fontWeight: 700 }}>{DAYS[d.weekday]}</span>
               <select className="form-input" aria-label={`${DAYS[d.weekday]} availability`} value={d.kind} onChange={(e) => set(i, { kind: e.target.value })}
-                style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
+                style={{ width: 'auto', fontSize: 13, padding: '4px 30px 4px 8px' }}>
                 <option value="any">Any time</option>
                 <option value="available">Available between</option>
                 <option value="unavailable">Unavailable</option>
@@ -155,11 +155,11 @@ export default function MyAvailability() {
               )}
               {d.kind !== 'any' && (
                 <input className="form-input" placeholder="Note (optional)" aria-label={`${DAYS[d.weekday]} note`} value={d.note} onChange={(e) => set(i, { note: e.target.value })}
-                  style={{ flex: 1, minWidth: 140, fontSize: 12.5, padding: '4px 8px' }} />
+                  style={{ flex: 1, minWidth: 140, fontSize: 13, padding: '4px 8px' }} />
               )}
             </div>
           ))}
-          {badDay && <div style={{ fontSize: 11.5, color: 'hsl(var(--color-red))' }}>Set different start and end times for {DAYS[badDay.weekday]}.</div>}
+          {badDay && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Set different start and end times for {DAYS[badDay.weekday]}.</div>}
 
           <div style={SUB}>Dates</div>
           <div style={HINT}>One-off days that differ from the week above: a day you cannot work, or can only work part of.</div>
@@ -169,10 +169,10 @@ export default function MyAvailability() {
             </div>
           )}
           {edit.dates.map((d, i) => (
-            <div key={d.id || `new-${i}`} data-date-row style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
+            <div key={d.id || `new-${i}`} data-date-row style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
               <input type="date" className="form-input" aria-label={`Date ${i + 1}`} value={d.date} min={today} onChange={(e) => setDate(i, { date: e.target.value })} style={INPUT} />
               <select className="form-input" aria-label={`Date ${i + 1} availability`} value={d.kind} onChange={(e) => setDate(i, { kind: e.target.value })}
-                style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
+                style={{ width: 'auto', fontSize: 13, padding: '4px 30px 4px 8px' }}>
                 <option value="unavailable">Unavailable</option>
                 <option value="available">Available between</option>
               </select>
@@ -184,27 +184,27 @@ export default function MyAvailability() {
                 </>
               )}
               <input className="form-input" placeholder="Note (optional)" aria-label={`Date ${i + 1} note`} value={d.note} onChange={(e) => setDate(i, { note: e.target.value })}
-                style={{ flex: 1, minWidth: 140, fontSize: 12.5, padding: '4px 8px' }} />
+                style={{ flex: 1, minWidth: 140, fontSize: 13, padding: '4px 8px' }} />
               <button type="button" onClick={() => removeDate(i)} aria-label={`Remove date ${i + 1}`} title="Remove"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', padding: 2 }}><X size={14} /></button>
             </div>
           ))}
           <button type="button" className="secondary-btn" onClick={addDate} style={{ fontSize: 12, justifySelf: 'start', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Date</button>
-          {badDate && <div style={{ fontSize: 11.5, color: 'hsl(var(--color-red))' }}>{!badDate.date ? 'Pick a date for every entry.' : badDate.date < today ? 'A date has to be today or later.' : `Set different start and end times for ${formatDate(badDate.date)}.`}</div>}
+          {badDate && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>{!badDate.date ? 'Pick a date for every entry.' : badDate.date < today ? 'A date has to be today or later.' : `Set different start and end times for ${formatDate(badDate.date)}.`}</div>}
 
           <div style={SUB}>Hours</div>
           <div style={HINT}>A guide for whoever builds the schedule. 0 = no preference.</div>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-            <label style={{ display: 'grid', gap: 4, fontSize: 12.5 }}><span style={{ fontWeight: 700 }}>Preferred Hours Per Week</span>
+            <label style={{ display: 'grid', gap: 4, fontSize: 13 }}><span style={{ fontWeight: 700 }}>Preferred Hours Per Week</span>
               <input type="number" min="0" max="168" step="1" className="form-input" aria-label="Preferred hours per week" value={edit.prefs.preferredHoursWeek}
-                onChange={(e) => setPref('preferredHoursWeek', e.target.value)} style={{ width: 90, fontSize: 12.5, padding: '4px 8px' }} />
+                onChange={(e) => setPref('preferredHoursWeek', e.target.value)} style={{ width: 90, fontSize: 13, padding: '4px 8px' }} />
             </label>
-            <label style={{ display: 'grid', gap: 4, fontSize: 12.5 }}><span style={{ fontWeight: 700 }}>Most Hours Per Week</span>
+            <label style={{ display: 'grid', gap: 4, fontSize: 13 }}><span style={{ fontWeight: 700 }}>Most Hours Per Week</span>
               <input type="number" min="0" max="168" step="1" className="form-input" aria-label="Most hours per week" value={edit.prefs.maxHoursWeek}
-                onChange={(e) => setPref('maxHoursWeek', e.target.value)} style={{ width: 90, fontSize: 12.5, padding: '4px 8px' }} />
+                onChange={(e) => setPref('maxHoursWeek', e.target.value)} style={{ width: 90, fontSize: 13, padding: '4px 8px' }} />
             </label>
           </div>
-          {badPrefs && <div style={{ fontSize: 11.5, color: 'hsl(var(--color-red))' }}>Preferred hours cannot be more than your most hours.</div>}
+          {badPrefs && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Preferred hours cannot be more than your most hours.</div>}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button type="button" className="secondary-btn" onClick={() => setEdit(null)}>Cancel</button>

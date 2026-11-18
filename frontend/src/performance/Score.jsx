@@ -72,7 +72,7 @@ function Row({ it, onRate }) {
   return (
     <div className="nx-perf-score-row" data-kpi={it.kpi}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span>{it.name}</span>
           <StatusLabel label={st.label} color={st.color} size="sm" />
           {it.source === 'manual' && onRate && (
@@ -88,7 +88,7 @@ function Row({ it, onRate }) {
       </div>
       <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
         <div style={{ fontSize: 15, fontWeight: 700 }}>{it.measured ? it.display : <span style={muted}>-</span>}</div>
-        <div style={{ ...muted, fontSize: 11.5 }}>{it.measured ? `${it.attainment}% of target` : (it.source === 'manual' ? 'Awaiting a rating' : 'No data yet')}</div>
+        <div style={{ ...muted, fontSize: 12 }}>{it.measured ? `${it.attainment}% of target` : (it.source === 'manual' ? 'Awaiting a rating' : 'No data yet')}</div>
       </div>
       <div className="nx-perf-score-bar" aria-hidden="true">
         <span style={{ width: `${it.attainment || 0}%`, background: st.color }} />
@@ -116,7 +116,7 @@ export default function ScoreCard({ email = '', title = 'My Score', canRate = fa
         <Gauge size={16} /><span style={HD}>{title}</span>
         <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           <button type="button" className="secondary-btn" aria-label="Previous month" style={{ padding: '4px 6px' }} onClick={() => setMonth(m => shift(m, -1))}><ChevronLeft size={14} /></button>
-          <span style={{ fontSize: 12.5, fontWeight: 600, minWidth: 120, textAlign: 'center' }}>{monthLabel(month)}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, minWidth: 120, textAlign: 'center' }}>{monthLabel(month)}</span>
           <button type="button" className="secondary-btn" aria-label="Next month" style={{ padding: '4px 6px' }} disabled={month >= thisMonth()} onClick={() => setMonth(m => shift(m, 1))}><ChevronRight size={14} /></button>
         </span>
       </div>
@@ -127,7 +127,7 @@ export default function ScoreCard({ email = '', title = 'My Score', canRate = fa
       ) : (
         <>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-            <span data-score-total style={{ fontSize: 34, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: scoreColor(total), lineHeight: 1 }}>{total == null ? '-' : total}</span>
+            <span data-score-total style={{ fontSize: 32, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: scoreColor(total), lineHeight: 1 }}>{total == null ? '-' : total}</span>
             <span style={muted}>
               {total == null ? 'Nothing measured yet this month.' : `out of 100 for the ${data.role?.name} role`}
               {data.measuredWeight > 0 && data.measuredWeight < 100 && ` - ${data.measuredWeight}% of the weight measured so far, the rest scaled up`}

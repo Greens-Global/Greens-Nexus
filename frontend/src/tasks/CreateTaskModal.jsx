@@ -3,7 +3,7 @@
 // Due date, Estimated hours, Recurrence, Labels, Subtasks, Attachments - wired
 // to the TasksContext (subtasks + attachments created after the parent).
 import { useMemo, useRef, useState } from 'react';
-import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, AudioLines } from 'lucide-react';
+import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, ScanText, Camera, ImagePlus, Video, AudioLines, ChevronDown } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, PersonMultiSelect, usePeople, DateField, useIsMobile, localTodayISO } from './components';
@@ -17,7 +17,6 @@ import { filesFromPaste, teamInProject, uploadTaskAttachment, taskAssignees, ext
 import { dialog } from '../ui/dialog';
 import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
-import AnchoredMenu from '../components/AnchoredMenu';
 import DictateButton from '../components/DictateButton';
 import VoiceNoteButton from '../components/VoiceNoteButton';
 import { STOP_VOICE_FIRST } from '../lib/voice';
@@ -26,7 +25,8 @@ import LabelsEditor from './LabelsEditor';
 import AddSeveralModal from './AddSeveralModal';
 import { pastedTaskList } from './batchPaste';
 import { labelsInUse } from './labels';
-import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
+import LocalTimeHint from '../components/LocalTimeHint';
+import { NX, FONT, input, btn, PRIORITY_META, PRIORITY_ORDER } from './theme';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -86,7 +86,10 @@ function buildRecurrence(form) {
 
 // `onCreated(task)` runs after a successful create (Forms' Make a Task, 11/02/2026);
 // `defaults.description` seeds the description (HTML, one <p> per line).
-export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '', onCreated = null }) {
+// `startDirty`: the form opens already holding something the person typed
+// (the phone composer's Details, TaskCreate.jsx) - closing it asks first,
+// though nothing has changed since the form itself opened.
+export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '', onCreated = null, startDirty = false }) {
   const store = useTasks();
   const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail, customFields = [] } = store;
   const people = usePeople(true);   // assignee/collaborators - see TaskDetailDrawer
@@ -156,7 +159,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   // what was actually loaded into the form.
   const [initialForm] = useState(() => form);
   const [initialSubtasks] = useState(() => subtasks);
-  const dirty = JSON.stringify(form) !== JSON.stringify(initialForm)
+  const dirty = startDirty
+    || JSON.stringify(form) !== JSON.stringify(initialForm)
     || JSON.stringify(subtasks) !== JSON.stringify(initialSubtasks)
     || attachments.length > 0;
 
@@ -177,13 +181,18 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   // quick-create sheet so the same three actions are one tap away on a phone
   // instead of buried at the bottom of a long scrolling form.
   const isMobile = useIsMobile();
+  // A phone CREATING a task (11/15/2026): grouped, Create always answers, and a
+  // missing field turns red only after Create was pressed. Editing, and every
+  // computer, keep the form as it was.
+  const phoneForm = isMobile && !isEdit;
+  const [tried, setTried] = useState(false);
+  const [openGroups, setOpenGroups] = useState(() => new Set());
+  const toggleGroup = (k) => setOpenGroups((cur) => { const n = new Set(cur); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const camRef = useRef(null);
   const libRef = useRef(null);
   const scanRef = useRef(null);
   const videoRef = useRef(null);
   const titleRef = useRef(null);
-  const [photoMenu, setPhotoMenu] = useState(false);
-  const photoBtnRef = useRef(null);
   const [ocrBusy, setOcrBusy] = useState(false);
 
   // ABC scanner → capture a photo, OCR it server-side, append the text to the title.
@@ -194,8 +203,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     try {
       const { text } = await api.ocrImage(f);
       if (text && text.trim()) set('title', (form.title ? `${form.title} ` : '') + text.trim().replace(/\s+/g, ' '));
-      else alert('No text found in the image.');
-    } catch { alert("Couldn't extract text from the image."); }
+      else dialog.alert('No text found in the image.');
+    } catch { dialog.alert("Couldn't extract text from the image."); }
     finally { setOcrBusy(false); }
   };
 
@@ -261,10 +270,26 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     projects, tasks,
   );
   const req = <span style={{ color: NX.red }}>*</span>;
-  const missStyle = (key) => (missing.includes(key) ? { borderColor: NX.red } : null);
+  // A computer shows what is missing at once, as it always has; a phone only after Create (tried).
+  const showMissing = (key) => missing.includes(key) && (!phoneForm || tried);
+  const missStyle = (key) => (showMissing(key) ? { borderColor: NX.red } : null);
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      // A phone: say what is missing and open the groups that hold it.
+      if (phoneForm && !busy && !voiceRec) {
+        setTried(true);
+        setOpenGroups((cur) => {
+          const n = new Set(cur);
+          if (missing.includes('due')) n.add('when');
+          if (missing.includes('assignee')) n.add('people');
+          if (missingFields.length) n.add('fields');
+          return n;
+        });
+        if (missing.includes('title')) titleRef.current?.focus();
+      }
+      return;
+    }
     setBusy(true);
     const core = {
       title: form.title.trim(), description: form.description, assigneeIds: form.assigneeIds, ownerId: form.ownerId || '',
@@ -277,7 +302,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
       let parentId = taskId;
       let created = null;
       if (isEdit) {
-        await updateTask(taskId, core);
+        // quiet: the catch below says what went wrong - once, not once here
+        // and once more from the store.
+        await updateTask(taskId, core, { quiet: true });
         const kept = subtasks.filter((s) => s.id).map((s) => s.id);
         for (const t of tasks.filter((t) => t.parentTaskId === taskId)) if (!kept.includes(t.id)) await deleteTask(t.id).catch(() => {});
         for (const s of subtasks) if (s.id) { if (store.taskById[s.id]?.title !== s.title) await updateTask(s.id, { title: s.title }).catch(() => {}); }
@@ -298,370 +325,489 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
       if (notAttached.length) dialog.alert(notAttachedText(notAttached, isEdit ? 'saved' : 'created'), { title: 'Some Files Did Not Attach' });
       if (created) onCreated?.(created);
       onClose(true);
-    } catch (e) { alert(`Could not save task: ${e.message || e}`); setBusy(false); }
+    } catch (e) { dialog.alert(`Could not save task: ${e.message || e}`); setBusy(false); }
   };
 
   const sel = { ...input, cursor: 'pointer' };
-  return (
-    <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} onClose={() => onClose(false)}
-      isDirty={dirty} onSave={canSubmit ? submit : undefined} footer={
-      <>
-        {/* Phone only - desktop already has the Attachments field in view without
-            scrolling, and a camera/scan shortcut is meaningless with a mouse. */}
-        {isMobile && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto' }}>
-            <button ref={photoBtnRef} type="button" title="Add Photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
-              style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><ImageIcon size={20} /></button>
-            <button type="button" title="Add a Video" aria-label="Add a Video" onClick={() => videoRef.current?.click()}
-              style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Video size={20} /></button>
-            <button type="button" title="Attach File" aria-label="Attach File" onClick={() => fileRef.current?.click()}
-              style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
-            <button type="button" title="Scan Text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()}
-              style={{ ...btn('ghost'), padding: 7, color: NX.dim, opacity: ocrBusy ? 0.5 : 1 }}><ScanText size={20} /></button>
-            <VoiceNoteButton compact onFile={(f) => onFiles([f])} onRecordingChange={setVoiceRec} />
-            {ocrBusy && <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>}
-            {attachments.length > 0 && (
-              <span style={{ fontSize: 12, color: NX.faint, marginLeft: 2 }}>{attachments.length}</span>
-            )}
-            {/* Flips upward on its own - the footer is pinned to the bottom of
-                the modal - and a tap outside now closes it. */}
-            <AnchoredMenu anchorRef={photoBtnRef} open={photoMenu} onClose={() => setPhotoMenu(false)} minWidth={180}
-              style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', padding: 4 }}>
-              <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take Photo</button>
-              <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose From Device</button>
-            </AnchoredMenu>
-            {/* capture="environment" opens the rear camera on a phone. */}
-            <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
-            <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
-            <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onScan} />
-            <input ref={videoRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
-          </div>
-        )}
-        <button style={btn('ghost')} onClick={() => onClose(false)}>Cancel</button>
-        {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
-        <button title={voiceRec ? STOP_VOICE_FIRST : missing.length || missingFields.length ? `Fill in the required fields (marked *)${missingFields.length ? ` - ${missingFields.map((f) => f.name).join(', ')}` : ''}` : undefined}
-          style={{ ...btn('primary'), opacity: !canSubmit ? 0.6 : 1 }} onClick={submit} disabled={!canSubmit}>
-          {isEdit ? <><Save size={15} /> Save Changes</> : <><Plus size={15} /> Create Task</>}
-        </button>
-      </>
-    }>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div style={field}>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-            <label style={label}>Title <span style={{ color: NX.red }}>*</span></label>
-            {!isEdit && (
-              <button type="button" onClick={() => setSeveral({ text: form.title, source: 'typed' })} title="Add several tasks at once, one per line"
-                style={{ ...btn('ghost'), padding: '0 2px', fontSize: 12, fontWeight: 600, color: NX.blue, marginBottom: 5 }}><ListChecks size={13} /> Add Several</button>
-            )}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <input ref={titleRef} autoFocus value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="What needs to be done?"
-              aria-label="Title" style={{ ...input, flex: 1, minWidth: 0 }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
-              // A list on the clipboard (two or more lines) is many tasks: Add Several takes it.
-              onPaste={(e) => {
-                if (isEdit) return;
-                const list = pastedTaskList(e);
-                // Text already typed in the box stays, as the first line.
-                if (list) { e.preventDefault(); setSeveral({ text: form.title.trim() ? `${form.title.trim()}\n${list}` : list, source: 'paste' }); }
-              }} />
-            <DictateButton target={titleRef} title="Dictate the Title" />
-          </div>
-          {/* Say It fills a NEW task from one sentence; an edit keeps its fields. */}
-          {!isEdit && (
-            <div style={{ marginTop: 8 }}>
-              <SayIt people={people} myEmail={myEmail}
-                snapshot={() => ({ title: form.title, dueOn: form.dueOn, priority: form.priority, assigneeIds: form.assigneeIds })}
-                onFill={(v) => setForm((f) => ({ ...f, title: v.title, dueOn: v.dueOn, priority: v.priority, assigneeIds: v.assigneeIds }))} />
-            </div>
-          )}
-        </div>
-        <div style={field}>
-          <label style={label}>Description</label>
-          {/* No onAttachFile: the task doesn't exist yet, so there's nothing to
-              attach a file TO. The "+" menu still offers inline images (embedded
-              as data URLs), and files can be attached from the task drawer once
-              it's created. */}
-          <RichDescription value={form.description} onChange={(html) => set('description', html)} recordLinks />
-        </div>
+  const pickFiles = (e) => { onFiles(e.target.files); e.target.value = ''; };
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {/* Project and Team are ALWAYS shown, including when the modal was
-              opened from inside a project (Neil, Sept 7). Hiding them there was
-              meant to save a row you could not usefully change - but what it
-              actually produced was a Create Task form with no project on it at
-              all, which reads as the field having been lost. The project is
-              pre-filled from wherever you opened this, and still changeable:
-              seeing where a task is about to land matters more than protecting
-              a default nobody asked to have protected. */}
-          <>
-            <div style={field}>
-                <label style={label}>Project</label>
-                {/* Was a bare <select> of every project in database order. With
-                    ~30 of them that is the "unorganized and difficult" the end
-                    user reported: the ones you work in are ordered first, the
-                    rest follow alphabetically, and search covers the tail. */}
-                <ProjectPicker
-                  projects={projects} teams={teams} myEmail={myEmail}
-                  value={form.projectId}
-                  invalid={missing.includes('project')}
-                  allowNone={isEdit} noneLabel="No project"
-                  placeholder={isEdit ? 'No project' : 'Select a project…'}
-                  onCreateNew={() => setCreatingProject(true)}
-                  onChange={(pid) => {
-                    // Pre-fill Team from the project when there's exactly one
-                    // associated team - with several there's no right answer, so
-                    // it stays blank and the picker below lists them.
-                    const own = teams.filter((t) => teamInProject(t, pid));
-                    setForm((f) => ({ ...f, projectId: pid, teamId: own.length === 1 ? own[0].id : '' }));
-                  }} />
-              </div>
-              <div style={field}>
-                <label style={label}>Team</label>
-                <select value={form.teamId} onChange={(e) => set('teamId', e.target.value)} disabled={!form.projectId} style={{ ...sel, ...(!form.projectId ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}>
-                  <option value="">{form.projectId ? 'No team' : 'Pick a project first'}</option>
-                  {teams.filter((t) => teamInProject(t, form.projectId)).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
+  // ── The fields, each built once. A computer lays them out as it always has;
+  // a phone creating a task (11/15/2026) puts them in groups (phoneForm, below).
+  const titleField = (
+    <div style={field}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+        <label style={label}>Title <span style={{ color: NX.red }}>*</span></label>
+        {!isEdit && (
+          <button type="button" onClick={() => setSeveral({ text: form.title, source: 'typed' })} title="Add several tasks at once, one per line"
+            style={{ ...btn('ghost'), padding: '0 2px', fontSize: 12, fontWeight: 600, color: NX.primary, marginBottom: 5 }}><ListChecks size={13} /> Add Several</button>
+        )}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <input ref={titleRef} autoFocus={!phoneForm} value={form.title} onChange={(e) => set('title', e.target.value)} placeholder="What needs to be done?"
+          aria-label="Title" style={{ ...input, flex: 1, minWidth: 0, ...(phoneForm && tried && !form.title.trim() ? { borderColor: NX.red } : null) }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
+          // A list on the clipboard (two or more lines) is many tasks: Add Several takes it.
+          onPaste={(e) => {
+            if (isEdit) return;
+            const list = pastedTaskList(e);
+            // Text already typed in the box stays, as the first line.
+            if (list) { e.preventDefault(); setSeveral({ text: form.title.trim() ? `${form.title.trim()}\n${list}` : list, source: 'paste' }); }
+          }} />
+        {/* A phone has Say It and the keyboard's own microphone; one mic is enough. */}
+        {!phoneForm && <DictateButton target={titleRef} title="Dictate the Title" />}
+      </div>
+      {/* Say It fills a NEW task from one sentence; an edit keeps its fields. */}
+      {!isEdit && (
+        <div style={{ marginTop: 8 }}>
+          <SayIt people={people} myEmail={myEmail}
+            snapshot={() => ({ title: form.title, dueOn: form.dueOn, priority: form.priority, assigneeIds: form.assigneeIds })}
+            onFill={(v) => setForm((f) => ({ ...f, title: v.title, dueOn: v.dueOn, priority: v.priority, assigneeIds: v.assigneeIds }))} />
+        </div>
+      )}
+    </div>
+  );
+  const descriptionField = (
+    <div style={field}>
+      <label style={label}>Description</label>
+      {/* No onAttachFile: the task doesn't exist yet, so there's nothing to
+          attach a file TO. The "+" menu still offers inline images (embedded
+          as data URLs), and files can be attached from the task drawer once
+          it's created. A phone gets the short toolbar (11/15/2026). */}
+      <RichDescription value={form.description} onChange={(html) => set('description', html)} recordLinks short={phoneForm} minHeight={phoneForm ? 90 : undefined} />
+    </div>
+  );
+  // Project and Team are ALWAYS shown, including when the modal was opened
+  // from inside a project (Neil, Sept 7). Hiding them there was meant to save
+  // a row you could not usefully change - but what it actually produced was a
+  // Create Task form with no project on it at all, which reads as the field
+  // having been lost. The project is pre-filled from wherever you opened this,
+  // and still changeable: seeing where a task is about to land matters more
+  // than protecting a default nobody asked to have protected.
+  const projectField = (
+    <div style={field}>
+      <label style={label}>Project</label>
+      {/* Was a bare <select> of every project in database order. With
+          ~30 of them that is the "unorganized and difficult" the end
+          user reported: the ones you work in are ordered first, the
+          rest follow alphabetically, and search covers the tail. */}
+      <ProjectPicker
+        projects={projects} teams={teams} myEmail={myEmail}
+        value={form.projectId}
+        invalid={missing.includes('project')}
+        allowNone={isEdit} noneLabel="No project"
+        placeholder={isEdit ? 'No project' : 'Select a project…'}
+        onCreateNew={() => setCreatingProject(true)}
+        onChange={(pid) => {
+          // Pre-fill Team from the project when there's exactly one
+          // associated team - with several there's no right answer, so
+          // it stays blank and the picker below lists them.
+          const own = teams.filter((t) => teamInProject(t, pid));
+          setForm((f) => ({ ...f, projectId: pid, teamId: own.length === 1 ? own[0].id : '' }));
+        }} />
+    </div>
+  );
+  const teamOptions = teams.filter((t) => teamInProject(t, form.projectId));
+  // A phone shows Team only once there is a project with teams to pick from.
+  const teamField = (phoneForm && !teamOptions.length) ? null : (
+    <div style={field}>
+      <label style={label}>Team</label>
+      <select value={form.teamId} onChange={(e) => set('teamId', e.target.value)} disabled={!form.projectId} style={{ ...sel, ...(!form.projectId ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}>
+        <option value="">{form.projectId ? 'No team' : 'Pick a project first'}</option>
+        {teamOptions.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+      </select>
+    </div>
+  );
+  const assigneeField = (
+    <div style={field}>
+      <label style={label}>Assignee {!isEdit && req}</label>
+      <div style={{ borderRadius: 8, ...missStyle('assignee'), ...(showMissing('assignee') ? { border: `1px solid ${NX.red}` } : {}) }}>
+        {/* Multi: several people can hold one task. The first is the
+            primary (what a single-avatar surface shows), and any of them
+            can complete it - which closes it for everyone. */}
+        <PersonMultiSelect value={form.assigneeIds} onChange={(v) => set('assigneeIds', v)} addTitle="Add assignee"
+          people={people} placeholder="Assign to…" />
+      </div>
+      {/* "It is 9:40 PM for Priya" - only when it is outside their hours (11/13/2026). */}
+      <LocalTimeHint emails={form.assigneeIds} me={myEmail} />
+    </div>
+  );
+  const collaboratorsField = (
+    <div style={field}>
+      <label style={label}>Collaborators</label>
+      <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} frequent={frequent}
+        teams={store.teams} onSaveTeam={({ name, memberIds }) => store.createTeam({ name, memberIds, personal: true })}
+        placeholder="Add collaborators…" addTitle="Add collaborator" />
+    </div>
+  );
+  // Due Date | Start Date, Priority | Status, then Recurrence and the rest of
+  // its rule (Sagar, Oct 13 2026).
+  const dueField = (
+    <div style={field}>
+      <label style={label}>Due Date {!isEdit && req}</label>
+      <DateField value={form.dueOn} onChange={(v) => set('dueOn', v || '')} noPast placeholder="Pick a date" style={{ ...input, ...missStyle('due') }} />
+    </div>
+  );
+  // Start Date is optional and sits beside Due Date (Sagar, Oct 13 2026: Due
+  // Date first - it is required, Start Date is not). Left empty it fills
+  // itself in the moment the task leaves Not Started (backend
+  // _autostamp_start), so this field is for work with a KNOWN start -
+  // scheduled ahead, or started before it was written down.
+  const startField = (
+    <div style={field}>
+      <label style={label}>Start Date</label>
+      <DateField value={form.startOn} onChange={(v) => set('startOn', v || '')} placeholder="Optional - set when work begins" style={input} />
+    </div>
+  );
+  const priorityField = (
+    <div style={field}>
+      <label style={label}>Priority</label>
+      <select value={form.priority} onChange={(e) => set('priority', e.target.value)} style={sel}>
+        {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
+      </select>
+    </div>
+  );
+  const statusField = (
+    <div style={field}>
+      <label style={label}>Status</label>
+      <select value={form.recurFreq !== 'none' ? 'recurring' : form.status} onChange={(e) => set('status', e.target.value)} disabled={form.recurFreq !== 'none'} style={{ ...sel, ...(form.recurFreq !== 'none' ? { opacity: 0.7, cursor: 'not-allowed' } : {}) }}>
+        {/* Follows the chosen project, same as activeFields above. */}
+        {(store.statusOrderFor ? store.statusOrderFor(lockedProjectId || form.projectId) : store.statusOrder).map((s) => <option key={s} value={s}>{store.statusMeta[s]?.label || s}</option>)}
+      </select>
+      {form.recurFreq !== 'none' && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>Recurring tasks are always “Recurring”.</span>}
+    </div>
+  );
+  const recurrenceFields = (
+    <>
+      <div style={field}>
+        <label style={label}>Recurrence</label>
+        <select value={form.recurFreq} onChange={(e) => setRecurFreq(e.target.value)} style={sel}>
+          <option value="none">Does not repeat</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+          <option value="periodic">Periodically</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      {form.recurFreq === 'weekly' && (
+        <div style={field}>
+          <label style={label}>On These Days</label>
+          <DaysOfWeekPicker value={form.recurDaysOfWeek} onChange={(v) => setRecur({ recurDaysOfWeek: v })} />
+        </div>
+      )}
+      {form.recurFreq === 'monthly' && (
+        <div style={field}>
+          <label style={label}>Repeat On</label>
+          <MonthDayControls value={form.recurMonthRule} seedDate={form.dueOn} selectStyle={sel}
+            onChange={(v) => setRecur({ recurMonthRule: v })} />
+        </div>
+      )}
+      {form.recurFreq === 'yearly' && (
+        <div style={field}>
+          <label style={label}>Repeat On</label>
+          <YearDayControls value={form.recurYearRule} seedDate={form.dueOn} selectStyle={sel}
+            onChange={(v) => setRecur({ recurYearRule: v })} />
+        </div>
+      )}
+      {form.recurFreq === 'periodic' && (
+        <div style={field}>
+          <label style={label}>Days After Completion</label>
+          <PeriodicDaysControl value={form.recurDaysAfter} onChange={(v) => set('recurDaysAfter', v)}
+            selectStyle={sel} inputStyle={input} />
+        </div>
+      )}
+      {form.recurFreq === 'custom' && (
+        <>
+          <div style={field}>
+            <label style={label}>Every</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input type="number" min="1" step="1" value={form.recurInterval}
+                onChange={(e) => setRecur({ recurInterval: e.target.value })} style={{ ...input, width: 70 }} />
+              <select value={form.recurUnit} onChange={(e) => setRecur({ recurUnit: e.target.value })} style={sel}>
+                <option value="day">Day{Number(form.recurInterval) === 1 ? '' : 's'}</option>
+                <option value="week">Week{Number(form.recurInterval) === 1 ? '' : 's'}</option>
+                <option value="month">Month{Number(form.recurInterval) === 1 ? '' : 's'}</option>
+                <option value="year">Year{Number(form.recurInterval) === 1 ? '' : 's'}</option>
+              </select>
             </div>
-          </>
-          <div style={field}>
-            <label style={label}>Assignee {!isEdit && req}</label>
-            <div style={{ borderRadius: 8, ...missStyle('assignee'), ...(missing.includes('assignee') ? { border: `1px solid ${NX.red}` } : {}) }}>
-              {/* Multi: several people can hold one task. The first is the
-                  primary (what a single-avatar surface shows), and any of them
-                  can complete it - which closes it for everyone. */}
-              <PersonMultiSelect value={form.assigneeIds} onChange={(v) => set('assigneeIds', v)} addTitle="Add assignee"
-                people={people} placeholder="Assign to…" />
-            </div>
           </div>
-          <div style={field}>
-            <label style={label}>Collaborators</label>
-            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} frequent={frequent}
-              teams={store.teams} onSaveTeam={({ name, memberIds }) => store.createTeam({ name, memberIds, personal: true })}
-              placeholder="Add collaborators…" addTitle="Add collaborator" />
-          </div>
-          {/* Due Date | Start Date, Priority | Status, then Recurrence and the
-              rest of its rule (Sagar, Oct 13 2026). */}
-          <div style={field}>
-            <label style={label}>Due Date {!isEdit && req}</label>
-            <DateField value={form.dueOn} onChange={(v) => set('dueOn', v || '')} noPast placeholder="Pick a date" style={{ ...input, ...missStyle('due') }} />
-          </div>
-          {/* Start Date is optional and sits beside Due Date (Sagar, Oct 13
-              2026: Due Date first - it is required, Start Date is not). Left
-              empty it fills itself in the moment the task leaves Not Started
-              (backend _autostamp_start), so this field is for work with a
-              KNOWN start - scheduled ahead, or started before it was written down. */}
-          <div style={field}>
-            <label style={label}>Start Date</label>
-            <DateField value={form.startOn} onChange={(v) => set('startOn', v || '')} placeholder="Optional - set when work begins" style={input} />
-          </div>
-          <div style={field}>
-            <label style={label}>Priority</label>
-            <select value={form.priority} onChange={(e) => set('priority', e.target.value)} style={sel}>
-              {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-            </select>
-          </div>
-          <div style={field}>
-            <label style={label}>Status</label>
-            <select value={form.recurFreq !== 'none' ? 'recurring' : form.status} onChange={(e) => set('status', e.target.value)} disabled={form.recurFreq !== 'none'} style={{ ...sel, ...(form.recurFreq !== 'none' ? { opacity: 0.7, cursor: 'not-allowed' } : {}) }}>
-              {/* Follows the chosen project, same as activeFields above. */}
-              {(store.statusOrderFor ? store.statusOrderFor(lockedProjectId || form.projectId) : store.statusOrder).map((s) => <option key={s} value={s}>{store.statusMeta[s]?.label || s}</option>)}
-            </select>
-            {form.recurFreq !== 'none' && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>Recurring tasks are always “Recurring”.</span>}
-          </div>
-          <div style={field}>
-            <label style={label}>Recurrence</label>
-            <select value={form.recurFreq} onChange={(e) => setRecurFreq(e.target.value)} style={sel}>
-              <option value="none">Does not repeat</option>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-              <option value="yearly">Yearly</option>
-              <option value="periodic">Periodically</option>
-              <option value="custom">Custom</option>
-            </select>
-          </div>
-          {form.recurFreq === 'weekly' && (
+          {form.recurUnit === 'week' && (
             <div style={field}>
               <label style={label}>On These Days</label>
               <DaysOfWeekPicker value={form.recurDaysOfWeek} onChange={(v) => setRecur({ recurDaysOfWeek: v })} />
             </div>
           )}
-          {form.recurFreq === 'monthly' && (
+          {form.recurUnit === 'month' && (
             <div style={field}>
               <label style={label}>Repeat On</label>
               <MonthDayControls value={form.recurMonthRule} seedDate={form.dueOn} selectStyle={sel}
                 onChange={(v) => setRecur({ recurMonthRule: v })} />
             </div>
           )}
-          {form.recurFreq === 'yearly' && (
+          {form.recurUnit === 'year' && (
             <div style={field}>
               <label style={label}>Repeat On</label>
               <YearDayControls value={form.recurYearRule} seedDate={form.dueOn} selectStyle={sel}
                 onChange={(v) => setRecur({ recurYearRule: v })} />
             </div>
           )}
-          {form.recurFreq === 'periodic' && (
-            <div style={field}>
-              <label style={label}>Days After Completion</label>
-              <PeriodicDaysControl value={form.recurDaysAfter} onChange={(v) => set('recurDaysAfter', v)}
-                selectStyle={sel} inputStyle={input} />
-            </div>
-          )}
-          {form.recurFreq === 'custom' && (
-            <>
-              <div style={field}>
-                <label style={label}>Every</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input type="number" min="1" step="1" value={form.recurInterval}
-                    onChange={(e) => setRecur({ recurInterval: e.target.value })} style={{ ...input, width: 70 }} />
-                  <select value={form.recurUnit} onChange={(e) => setRecur({ recurUnit: e.target.value })} style={sel}>
-                    <option value="day">Day{Number(form.recurInterval) === 1 ? '' : 's'}</option>
-                    <option value="week">Week{Number(form.recurInterval) === 1 ? '' : 's'}</option>
-                    <option value="month">Month{Number(form.recurInterval) === 1 ? '' : 's'}</option>
-                    <option value="year">Year{Number(form.recurInterval) === 1 ? '' : 's'}</option>
-                  </select>
-                </div>
-              </div>
-              {form.recurUnit === 'week' && (
-                <div style={field}>
-                  <label style={label}>On These Days</label>
-                  <DaysOfWeekPicker value={form.recurDaysOfWeek} onChange={(v) => setRecur({ recurDaysOfWeek: v })} />
-                </div>
-              )}
-              {form.recurUnit === 'month' && (
-                <div style={field}>
-                  <label style={label}>Repeat On</label>
-                  <MonthDayControls value={form.recurMonthRule} seedDate={form.dueOn} selectStyle={sel}
-                    onChange={(v) => setRecur({ recurMonthRule: v })} />
-                </div>
-              )}
-              {form.recurUnit === 'year' && (
-                <div style={field}>
-                  <label style={label}>Repeat On</label>
-                  <YearDayControls value={form.recurYearRule} seedDate={form.dueOn} selectStyle={sel}
-                    onChange={(v) => setRecur({ recurYearRule: v })} />
-                </div>
-              )}
-            </>
-          )}
-          {form.recurFreq !== 'none' && (
-            <div style={field}>
-              <label style={label}>Ends</label>
-              <select value={form.recurEnd} onChange={(e) => set('recurEnd', e.target.value)} style={sel}>
-                <option value="never">Never</option>
-                <option value="on">On date</option>
-                <option value="after">After occurrences</option>
-              </select>
-            </div>
-          )}
-          {form.recurFreq !== 'none' && form.recurEnd === 'on' && (
-            <div style={field}>
-              <label style={label}>End Date</label>
-              <DateField value={form.recurUntil} onChange={(v) => set('recurUntil', v || '')} placeholder="Pick a date" style={input} />
-            </div>
-          )}
-          {form.recurFreq !== 'none' && form.recurEnd === 'after' && (
-            <div style={field}>
-              <label style={label}>Occurrences</label>
-              <input type="number" min="1" step="1" value={form.recurCount} onChange={(e) => set('recurCount', e.target.value)} placeholder="e.g. 10" style={input} />
-            </div>
-          )}
-          {/* What the rule will actually do, before it is saved - "the 4th
-              Friday" is easy to pick and easy to get wrong. */}
-          {form.recurFreq === 'periodic' && (
-            <div style={{ gridColumn: '1 / -1', fontSize: 12, color: NX.faint }}>
-              Each new task is due {clampDays(form.recurDaysAfter)} day{clampDays(form.recurDaysAfter) === 1 ? '' : 's'} after the one before it is completed.
-            </div>
-          )}
-          {recurPreview.length > 0 && (
-            <div data-testid="recur-preview" style={{ gridColumn: '1 / -1', fontSize: 12, color: NX.faint }}>
-              {form.dueOn ? `After ${fmtDate(form.dueOn)}, next due` : 'Next due'} {recurPreview.map((d) => fmtDate(d)).join(', ')}
-            </div>
-          )}
-          {/* Only where the project tracks time, or the task being edited
-              already has time on it (Oct 13 2026; taskTracksTime). */}
-          {showEstimate && (
-          <div style={field}>
-            <label style={label}>Estimated Time</label>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input type="number" min="0" step="1" value={form.estimateHrs} onChange={(e) => set('estimateHrs', e.target.value)} placeholder="hrs" style={{ ...input, flex: 1, minWidth: 0 }} />
-              <span style={{ fontWeight: 700, color: '#6b7280' }}>:</span>
-              <input type="number" min="0" max="59" step="5" value={form.estimateMin} onChange={(e) => set('estimateMin', e.target.value)} placeholder="min" style={{ ...input, flex: 1, minWidth: 0 }} />
-            </div>
+        </>
+      )}
+      {form.recurFreq !== 'none' && (
+        <div style={field}>
+          <label style={label}>Ends</label>
+          <select value={form.recurEnd} onChange={(e) => set('recurEnd', e.target.value)} style={sel}>
+            <option value="never">Never</option>
+            <option value="on">On date</option>
+            <option value="after">After occurrences</option>
+          </select>
+        </div>
+      )}
+      {form.recurFreq !== 'none' && form.recurEnd === 'on' && (
+        <div style={field}>
+          <label style={label}>End Date</label>
+          <DateField value={form.recurUntil} onChange={(v) => set('recurUntil', v || '')} placeholder="Pick a date" style={input} />
+        </div>
+      )}
+      {form.recurFreq !== 'none' && form.recurEnd === 'after' && (
+        <div style={field}>
+          <label style={label}>Occurrences</label>
+          <input type="number" min="1" step="1" value={form.recurCount} onChange={(e) => set('recurCount', e.target.value)} placeholder="e.g. 10" style={input} />
+        </div>
+      )}
+      {/* What the rule will actually do, before it is saved - "the 4th
+          Friday" is easy to pick and easy to get wrong. */}
+      {form.recurFreq === 'periodic' && (
+        <div style={{ gridColumn: '1 / -1', fontSize: 12, color: NX.faint }}>
+          Each new task is due {clampDays(form.recurDaysAfter)} day{clampDays(form.recurDaysAfter) === 1 ? '' : 's'} after the one before it is completed.
+        </div>
+      )}
+      {recurPreview.length > 0 && (
+        <div data-testid="recur-preview" style={{ gridColumn: '1 / -1', fontSize: 12, color: NX.faint }}>
+          {form.dueOn ? `After ${fmtDate(form.dueOn)}, next due` : 'Next due'} {recurPreview.map((d) => fmtDate(d)).join(', ')}
+        </div>
+      )}
+    </>
+  );
+  // Only where the project tracks time, or the task being edited already has
+  // time on it (Oct 13 2026; taskTracksTime).
+  const estimateField = showEstimate ? (
+    <div style={field}>
+      <label style={label}>Estimated Time</label>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <input type="number" min="0" step="1" value={form.estimateHrs} onChange={(e) => set('estimateHrs', e.target.value)} placeholder="hrs" style={{ ...input, flex: 1, minWidth: 0 }} />
+        <span style={{ fontWeight: 700, color: '#6b7280' }}>:</span>
+        <input type="number" min="0" max="59" step="5" value={form.estimateMin} onChange={(e) => set('estimateMin', e.target.value)} placeholder="min" style={{ ...input, flex: 1, minWidth: 0 }} />
+      </div>
+    </div>
+  ) : null;
+  const ownerField = (
+    <div style={field}>
+      <label style={label}>Task Owner</label>
+      <PersonSelect value={form.ownerId} onChange={(v) => set('ownerId', v)} people={people} placeholder="No owner" />
+    </div>
+  );
+  // Custom fields, straight after Estimated Time - the last of the built-in
+  // properties - so a project's own columns read as part of the same block
+  // rather than as an afterthought below Labels, where they used to sit under
+  // the fold and were routinely missed (Sagar, Aug 2026). Which fields appear
+  // follows the chosen project, exactly as Status does: fieldsForTask returns
+  // the workspace-wide ones plus the ones scoped to this project, and nothing
+  // renders when a project has none.
+  const customFieldsList = activeFields.map((f) => (
+    <div key={f.id} style={field}>
+      <label style={{ ...label, ...(phoneForm && tried && missingFields.includes(f) ? { color: NX.red } : null) }}>{f.name} {fieldRequired(f) && req}</label>
+      <CustomFieldInput field={f} value={form.customFieldValues[f.id]} onChange={(v) => set('customFieldValues', { ...form.customFieldValues, [f.id]: v })} />
+      {f.description && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>{f.description}</span>}
+    </div>
+  ));
+  const labelsField = (
+    <div style={field}>
+      <label style={label}>Labels</label>
+      {/* The drawer's labels box: suggestions from the labels in use,
+          Enter or comma adds, Backspace removes the last. */}
+      <div style={{ ...input, display: 'flex', alignItems: 'center', minHeight: 36, padding: '4px 9px' }}>
+        <LabelsEditor tags={form.labels} onChange={(next) => set('labels', next)} known={knownLabels}
+          placeholder="Add label + Enter" inputStyle={{ fontSize: 13, width: 160 }} />
+      </div>
+    </div>
+  );
+  const subtasksField = (
+    <div style={field}>
+      <label style={label}>Subtasks</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {subtasks.map((s, i) => (
+          <div key={s.id ?? `new-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>
+            <CircleCheck size={15} style={{ color: NX.faint }} /><span style={{ flex: 1 }}>{s.title}</span>
+            <button onClick={() => setSubtasks((arr) => arr.filter((_, x) => x !== i))} aria-label={`Remove subtask ${s.title}`} title="Remove Subtask" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={13} /></button>
           </div>
+        ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
+          <ListChecks size={15} style={{ color: NX.faint }} />
+          <input className="nx-inline-edit" value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
+            placeholder={phoneForm ? 'Add a subtask' : 'Add subtask + Enter'} enterKeyHint={phoneForm ? 'done' : undefined} style={{ flex: 1, border: 'none', fontFamily: FONT, fontSize: 13 }} />
+        </div>
+      </div>
+    </div>
+  );
+  const attachmentList = attachments.map((f, i) => (
+    <span key={`${f.name}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '3px 8px', fontSize: 12 }}>
+      {f.type?.startsWith('audio/') ? <AudioLines size={12} /> : f.type?.startsWith('video/') ? <Video size={12} /> : <Paperclip size={12} />}
+      {f.type?.startsWith('audio/') ? 'Voice Note' : f.name}
+      <button onClick={() => setAttachments((arr) => arr.filter((_, x) => x !== i))} aria-label={`Remove ${f.name}`} title="Remove File" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={12} /></button>
+    </span>
+  ));
+  const attachmentsField = phoneForm ? (
+    // A phone: one labeled row of ways to add, inside the group - not a row
+    // of bare icons in the footer as well as a list here (11/15/2026).
+    <div style={field}>
+      <label style={label}>Attachments</label>
+      {attachments.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>{attachmentList}</div>}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {[[Camera, 'Take a Photo', camRef], [ImagePlus, 'Choose Photos', libRef], [Video, 'Add a Video', videoRef], [Paperclip, 'Attach a File', fileRef], [ScanText, 'Scan Text', scanRef]].map(([Icon, text, ref]) => (
+          <button key={text} type="button" disabled={text === 'Scan Text' && ocrBusy} onClick={() => ref.current?.click()}
+            style={{ ...btn('outline'), minHeight: 40, gap: 6, fontSize: 13 }}><Icon size={15} /> {text === 'Scan Text' && ocrBusy ? 'Reading...' : text}</button>
+        ))}
+        <VoiceNoteButton onFile={(f) => onFiles([f])} onRecordingChange={setVoiceRec} />
+      </div>
+    </div>
+  ) : (
+    <div onPaste={onPasteFiles} tabIndex={0} style={{ ...field }}>
+      <label style={label}>Attachments</label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        {attachmentList}
+        <button type="button" onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), fontSize: 12, padding: '6px 10px' }}><Paperclip size={13} /> Attach File</button>
+        {/* A phone has it in the footer. */}
+        {!isMobile && <VoiceNoteButton onFile={(f) => onFiles([f])} onRecordingChange={setVoiceRec} />}
+        <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
+      </div>
+    </div>
+  );
+  // The pickers' hidden inputs: capture="environment" opens the rear camera on a phone.
+  const fileInputs = (
+    <>
+      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={pickFiles} />
+      <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={pickFiles} />
+      <input ref={libRef} type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={pickFiles} />
+      <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onScan} />
+      <input ref={videoRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={pickFiles} />
+    </>
+  );
+
+  // ── A phone creating a task: the title and description, then the rest in
+  // groups that say what they hold and open in place (11/15/2026). A group
+  // with something still needed opens by itself once Create is pressed.
+  const nameOf = (email) => (email === myEmail ? 'You' : people.find((p) => p.email === email)?.name || email);
+  const projectName = projects.find((p) => p.id === form.projectId)?.name;
+  const recurWord = { none: 'Does not repeat', daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly', periodic: 'Periodically', custom: 'Custom repeat' }[form.recurFreq];
+  const count = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  const groups = phoneForm ? [
+    { key: 'when', title: 'When', need: missing.includes('due'),
+      summary: form.dueOn ? `Due ${fmtDate(form.dueOn)} · ${recurWord}` : 'Due date needed',
+      body: <>{dueField}{startField}{recurrenceFields}</> },
+    { key: 'people', title: 'People', need: missing.includes('assignee'),
+      summary: form.assigneeIds.length ? `${form.assigneeIds.map(nameOf).join(', ')}${form.followerIds.length ? ` · ${count(form.followerIds.length, 'collaborator')}` : ''}` : 'Assignee needed',
+      body: <>{assigneeField}{collaboratorsField}{ownerField}</> },
+    { key: 'where', title: 'Where', need: false,
+      summary: projectName || 'No project',
+      body: <>{projectField}{teamField}</> },
+    { key: 'status', title: 'Status and Priority', need: false,
+      summary: `${store.statusMeta?.[form.recurFreq !== 'none' ? 'recurring' : form.status]?.label || 'Not Started'} · ${PRIORITY_META[form.priority]?.label || 'Medium'}`,
+      body: <>{priorityField}{statusField}{estimateField}</> },
+    ...(activeFields.length ? [{ key: 'fields', title: projectName ? `${projectName} Fields` : 'Fields', need: missingFields.length > 0,
+      summary: missingFields.length ? `${count(missingFields.length, 'field')} to fill in` : count(activeFields.length, 'field'),
+      body: <>{customFieldsList}</> }] : []),
+    { key: 'more', title: 'Subtasks, Labels and Files', need: false,
+      summary: [subtasks.length && count(subtasks.length, 'subtask'), form.labels.length && count(form.labels.length, 'label'), attachments.length && count(attachments.length, 'file')].filter(Boolean).join(' · ') || 'None yet',
+      body: <>{subtasksField}{labelsField}{attachmentsField}</> },
+  ] : [];
+
+  const footer = phoneForm ? (
+    // One row: Cancel and Create (11/15/2026). Create always answers - a
+    // missing field is pointed at, not hidden behind a grey button.
+    <>
+      {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red, marginRight: 'auto' }}>{STOP_VOICE_FIRST}</span>}
+      <button type="button" style={{ ...btn('ghost'), minHeight: 44 }} onClick={() => onClose(false)}>Cancel</button>
+      <button type="button" style={{ ...btn('primary'), minHeight: 44, padding: '0 18px', opacity: busy || voiceRec ? 0.6 : 1 }}
+        onClick={submit} disabled={busy || voiceRec}><Plus size={15} /> {busy ? 'Creating...' : 'Create Task'}</button>
+    </>
+  ) : (
+    <>
+      <button style={btn('ghost')} onClick={() => onClose(false)}>Cancel</button>
+      {voiceRec && <span role="status" style={{ fontSize: 12, color: NX.red }}>{STOP_VOICE_FIRST}</span>}
+      <button title={voiceRec ? STOP_VOICE_FIRST : missing.length || missingFields.length ? `Fill in the required fields (marked *)${missingFields.length ? ` - ${missingFields.map((f) => f.name).join(', ')}` : ''}` : undefined}
+        style={{ ...btn('primary'), opacity: !canSubmit ? 0.6 : 1 }} onClick={submit} disabled={!canSubmit}>
+        {isEdit ? <><Save size={15} /> Save Changes</> : <><Plus size={15} /> Create Task</>}
+      </button>
+    </>
+  );
+
+  return (
+    <Modal title={isEdit ? 'Edit Task' : 'New Task'} onClose={() => onClose(false)}
+      isDirty={dirty} onSave={canSubmit ? submit : undefined} footer={footer}>
+      {fileInputs}
+      {phoneForm ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {titleField}
+          {descriptionField}
+          {phoneForm && tried && (missing.length > 0 || missingFields.length > 0) && (
+            <div role="alert" style={{ fontSize: 13, color: NX.red }}>
+              Still needed: {[missing.includes('title') && 'a title', missing.includes('due') && 'a due date', missing.includes('assignee') && 'an assignee', ...missingFields.map((f) => f.name)].filter(Boolean).join(', ')}.
+            </div>
           )}
-          <div style={field}>
-            <label style={label}>Task Owner</label>
-            <PersonSelect value={form.ownerId} onChange={(v) => set('ownerId', v)} people={people} placeholder="No owner" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {groups.map((g) => {
+              const openNow = openGroups.has(g.key);
+              const bad = tried && g.need;
+              return (
+                <section key={g.key} style={{ border: `1px solid ${bad ? NX.red : NX.border}`, borderRadius: 14, background: NX.surface }}>
+                  <button type="button" aria-expanded={openNow} onClick={() => toggleGroup(g.key)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 54, padding: '0 14px', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, textAlign: 'left', color: NX.ink }}>
+                    <span style={{ fontSize: 15, fontWeight: 600, flexShrink: 0 }}>{g.title}</span>
+                    <span style={{ flex: 1, minWidth: 0, textAlign: 'right', fontSize: 13, color: bad ? NX.red : g.need ? NX.dim : NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.summary}</span>
+                    <ChevronDown size={16} aria-hidden="true" style={{ flexShrink: 0, color: NX.faint, transform: openNow ? 'rotate(180deg)' : 'none', transition: 'transform 160ms ease' }} />
+                  </button>
+                  {openNow && (
+                    <div style={{ borderTop: `1px solid ${NX.border}`, padding: '12px 14px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>{g.body}</div>
+                  )}
+                </section>
+              );
+            })}
           </div>
         </div>
+      ) : (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {titleField}
+        {descriptionField}
 
-        {/* Custom fields, straight after Estimated Time - the last of the
-            built-in properties - so a project's own columns read as part of the
-            same block rather than as an afterthought below Labels, where they
-            used to sit under the fold and were routinely missed (Sagar, Aug
-            2026). Which fields appear follows the chosen project, exactly as
-            Status does: fieldsForTask returns the workspace-wide ones plus
-            the ones scoped to this project, and nothing renders when a project
-            has none. Same two-column grid and label styling as the properties
-            above, so they look native rather than bolted on. */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {projectField}
+          {teamField}
+          {assigneeField}
+          {collaboratorsField}
+          {dueField}
+          {startField}
+          {priorityField}
+          {statusField}
+          {recurrenceFields}
+          {estimateField}
+          {ownerField}
+        </div>
+
+        {/* Same two-column grid and label styling as the properties above,
+            so a project's own fields look native rather than bolted on. */}
         {activeFields.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-            {activeFields.map((f) => (
-              <div key={f.id} style={field}>
-                <label style={label}>{f.name} {fieldRequired(f) && req}</label>
-                <CustomFieldInput field={f} value={form.customFieldValues[f.id]} onChange={(v) => set('customFieldValues', { ...form.customFieldValues, [f.id]: v })} />
-                {f.description && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>{f.description}</span>}
-              </div>
-            ))}
+            {customFieldsList}
           </div>
         )}
 
-        <div style={field}>
-          <label style={label}>Labels</label>
-          {/* The drawer's labels box: suggestions from the labels in use,
-              Enter or comma adds, Backspace removes the last. */}
-          <div style={{ ...input, display: 'flex', alignItems: 'center', minHeight: 36, padding: '4px 9px' }}>
-            <LabelsEditor tags={form.labels} onChange={(next) => set('labels', next)} known={knownLabels}
-              placeholder="Add label + Enter" inputStyle={{ fontSize: 13, width: 160 }} />
-          </div>
-        </div>
-
-        <div style={field}>
-          <label style={label}>Subtasks</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {subtasks.map((s, i) => (
-              <div key={s.id ?? `new-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>
-                <CircleCheck size={15} style={{ color: NX.faint }} /><span style={{ flex: 1 }}>{s.title}</span>
-                <button onClick={() => setSubtasks((arr) => arr.filter((_, x) => x !== i))} aria-label={`Remove subtask ${s.title}`} title="Remove Subtask" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={13} /></button>
-              </div>
-            ))}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
-              <ListChecks size={15} style={{ color: NX.faint }} />
-              <input className="nx-inline-edit" value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }} placeholder="Add subtask + Enter" style={{ flex: 1, border: 'none', fontFamily: FONT, fontSize: 13 }} />
-            </div>
-          </div>
-        </div>
-
-        <div onPaste={onPasteFiles} tabIndex={0} style={{ ...field }}>
-          <label style={label}>Attachments</label>
-          <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-            {attachments.map((f, i) => (
-              <span key={`${f.name}-${i}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '3px 8px', fontSize: 12 }}>
-                {f.type?.startsWith('audio/') ? <AudioLines size={12} /> : f.type?.startsWith('video/') ? <Video size={12} /> : <Paperclip size={12} />}
-                {f.type?.startsWith('audio/') ? 'Voice Note' : f.name}
-                <button onClick={() => setAttachments((arr) => arr.filter((_, x) => x !== i))} aria-label={`Remove ${f.name}`} title="Remove File" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={12} /></button>
-              </span>
-            ))}
-            <button type="button" onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), fontSize: 12, padding: '6px 10px' }}><Paperclip size={13} /> Attach File</button>
-            {/* A phone has it in the footer. */}
-            {!isMobile && <VoiceNoteButton onFile={(f) => onFiles([f])} onRecordingChange={setVoiceRec} />}
-            <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
-          </div>
-        </div>
+        {labelsField}
+        {subtasksField}
+        {attachmentsField}
       </div>
+      )}
 
       {/* Inline "create a project" - the new project is auto-selected for this task. */}
       {creatingProject && <ProjectCreateModal onClose={() => setCreatingProject(false)} onCreated={(p) => set('projectId', p.id)} />}

@@ -18,6 +18,7 @@ import { teamInProject, taskAssignees, fieldsForTask, requiredByProjectsOf, isBl
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { PillSelect } from './views/richlist';
 import { useTableColumns, TableHead, ResetColumnsButton } from './tableCols';
+import { dialog } from '../ui/dialog';
 
 // The Task List's table, cell for cell (Sagar, Oct 14 2026: "make this table
 // as the whole task module"): a rounded card, a hairline border on every
@@ -356,8 +357,8 @@ export default function DataQualityTab({ store }) {
       {selected.size > 0 && (() => {
         const selStyle = { ...inputStyle, width: 'auto', padding: '5px 8px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 };
         const apply = (patch) => { bulkUpdate([...selected], patch); clearSel(); };
-        const remove = () => {
-          if (!confirm(`Delete ${selected.size} task(s)? They go to the Recycle Bin, and Undo brings them back.`)) return;
+        const remove = async () => {
+          if (!(await dialog.confirm(`Delete ${selected.size} task(s)? They go to the Recycle Bin, and Undo brings them back.`, { title: 'Delete Tasks', confirmText: 'Delete', danger: true }))) return;
           const ids = [...selected];
           clearSel();
           deleteSelectedTasks(store, ids).catch(() => {});

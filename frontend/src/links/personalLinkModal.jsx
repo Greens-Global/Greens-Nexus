@@ -93,7 +93,7 @@ export function PersonalLinkModal({ modal, setModal, save, saving, existingLinks
             <label>URL</label>
             <input className="form-input" value={form.url} onChange={e => setForm({ url: e.target.value })} onBlur={fetchPreview} placeholder="https://..." />
             {duplicate && (
-              <p style={{ fontSize: 11.5, color: 'hsl(var(--color-red))', margin: '5px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
+              <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', margin: '5px 0 0', display: 'flex', alignItems: 'flex-start', gap: 5 }}>
                 <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} />
                 Already in your Personal Links as "{duplicate.name}" - pick a different link, or edit that one instead.
               </p>

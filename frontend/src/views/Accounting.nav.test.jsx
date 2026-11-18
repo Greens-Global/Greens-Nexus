@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 // The Accounting bar (Oct 22, Neil's spec with Charmi; Reports and Trackers
 // redrawn 11/11/2026, picture 2): Dashboard (Overview / Cash / Performance /
-// Close), Reports (All Reports, Report Builder, Packages, then one flyout per
+// Close), Reports (Report Center, Report Builder, Packages, then one flyout per
 // group - Financial Statements, Ledger & Banking, Budget vs. Actual, Review,
 // Payroll, Tax - never a flyout inside a flyout), Trackers (the working
 // tools), Financing, Records and Tools. The picked page never widens the bar.
@@ -54,7 +54,10 @@ vi.mock('../components/accounting/AllocationsTab', () => stub('allocations'));
 vi.mock('../components/accounting/AskAccountantTab', () => ({ default: ({ limited }) => <div data-testid="tab-ama" data-limited={limited ? 'yes' : 'no'} /> }));
 vi.mock('../components/accounting/ManagementFeesTab', () => stub('mgmt-fees'));
 vi.mock('../components/accounting/CompensationReport', () => stub('compensation'));
-vi.mock('../components/accounting/RecordsLists', () => ({ GlAccountsTab: () => <div data-testid="tab-gl-accounts" />, EntitiesTab: () => <div data-testid="tab-entities" /> }));
+vi.mock('../components/accounting/RecordsLists', () => ({ GlAccountsTab: () => <div data-testid="tab-gl-accounts" /> }));
+// Entities (Neil, 11/17/2026): its own tab, and one entity is `entity-<code>`.
+vi.mock('../components/accounting/entities/EntitiesTab', () => ({ default: ({ onOpen }) => <button type="button" data-testid="tab-entities" onClick={() => onOpen('67000')}>open 67000</button> }));
+vi.mock('../components/accounting/entities/EntityPage', () => ({ default: ({ code }) => <div data-testid="entity-page" data-code={code} /> }));
 vi.mock('../components/accounting/ManualJournalEntries', () => stub('manual-je'));
 vi.mock('../components/accounting/PayrollSummary', () => stub('payroll-summary'));
 vi.mock('../components/accounting/JournalTab', () => ({ default: ({ symbol }) => <div data-testid="tab-journal" data-symbol={symbol} /> }));
@@ -88,11 +91,11 @@ const menuLabels = (name) => [...screen.getByRole('menu', { name }).children].ma
 beforeEach(() => { role.canPfs = true; role.limited = false; resetAccountingPrefs(); });
 
 describe('Accounting navigation', () => {
-  it('draws exactly Dashboard, Reports, Trackers, Financing, Records and Tools', async () => {
+  it('draws exactly Dashboard, Entities, Reports, Trackers, Financing, Records and Tools', async () => {
     render(<Harness start="overview" />);
     await screen.findByTestId('tab-overview');
     const bar = [...document.querySelectorAll('.module-tabs-inline > button')].map((b) => b.textContent.trim());
-    expect(bar).toEqual(['Dashboard', 'Reports', 'Trackers', 'Financing', 'Records', 'Tools']);
+    expect(bar).toEqual(['Dashboard', 'Entities', 'Reports', 'Trackers', 'Financing', 'Records', 'Tools']);
     for (const name of [/^Dashboard/, /^Reports/, /^Trackers/, /^Financing/, /^Records/, /^Tools/]) expect(screen.getByRole('button', { name }).getAttribute('aria-haspopup')).toBe('menu');
     expect(screen.queryByRole('button', { name: /^Budget/ })).toBeNull();
   });
@@ -100,7 +103,7 @@ describe('Accounting navigation', () => {
   it('makes Records a menu of Vendors and Customers, each opening its list (Oct 22, item 12)', async () => {
     render(<Harness start="overview" />);
     fireEvent.click(await screen.findByRole('button', { name: /^Records/ }));
-    expect(menuLabels('Records')).toEqual(['Vendors', 'Customers', 'General Ledger Accounts', 'Entities', 'Journals']);
+    expect(menuLabels('Records')).toEqual(['Vendors', 'Customers', 'General Ledger Accounts', 'Journals']);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Customers' }));
     expect(screen.getByTestId('sub').textContent).toBe('customers');
     expect((await screen.findByTestId('tab-partners')).getAttribute('data-kind')).toBe('customer');
@@ -123,7 +126,7 @@ describe('Accounting navigation', () => {
     render(<Harness start="customers" />);
     expect((await screen.findByTestId('tab-partners')).getAttribute('data-kind')).toBe('customer');
     fireEvent.click(screen.getByRole('button', { name: /^Records/ }));
-    expect(menuLabels('Records')).toEqual(['Vendors', 'Customers', 'General Ledger Accounts', 'Entities', 'Journals']);
+    expect(menuLabels('Records')).toEqual(['Vendors', 'Customers', 'General Ledger Accounts', 'Journals']);
   });
 
   it('opens Manual Journal Entries from Ledger & Banking, for a limited person too (CR-10)', async () => {
@@ -134,12 +137,25 @@ describe('Accounting navigation', () => {
     expect(await screen.findByTestId('tab-manual-je')).toBeTruthy();
   });
 
-  it('opens General Ledger Accounts, Entities and every configured journal from Records (CR-12)', async () => {
+  it('opens Entities from its own tab and one entity as entity-<code>, lighting Entities (11/17/2026)', async () => {
+    render(<Harness start="overview" />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Entities/ }));
+    expect(screen.getByTestId('sub').textContent).toBe('entities');
+    fireEvent.click(await screen.findByTestId('tab-entities'));
+    expect(screen.getByTestId('sub').textContent).toBe('entity-67000');
+    expect((await screen.findByTestId('entity-page')).getAttribute('data-code')).toBe('67000');
+  });
+
+  it('lands an entity link for a limited person too', async () => {
+    role.limited = true;
+    render(<Harness start="entity-67000" />);
+    expect((await screen.findByTestId('entity-page')).getAttribute('data-code')).toBe('67000');
+  });
+
+  it('opens General Ledger Accounts and every configured journal from Records (CR-12)', async () => {
     render(<Harness start="overview" />);
     await choose(/^Records/, 'General Ledger Accounts');
     expect(await screen.findByTestId('tab-gl-accounts')).toBeTruthy();
-    await choose(/^Records/, 'Entities');
-    expect(await screen.findByTestId('tab-entities')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Records/ }));
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Journals' }));
     // Picture 3 (11/11/2026): Intacct's name, then the code in grey.
@@ -150,7 +166,7 @@ describe('Accounting navigation', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Payroll' }));
     expect(screen.getByTestId('sub').textContent).toBe('journal-PYRJ');
     expect((await screen.findByTestId('tab-journal')).getAttribute('data-symbol')).toBe('PYRJ');
-    expect(document.querySelectorAll('.module-tabs-inline > button')).toHaveLength(6);
+    expect(document.querySelectorAll('.module-tabs-inline > button')).toHaveLength(7);
   });
 
   it('never names the picked page in the bar', async () => {
@@ -176,10 +192,10 @@ describe('Accounting navigation', () => {
   it('draws Reports two levels deep, the lead pages first, and the working tools under Trackers (11/11/2026)', async () => {
     render(<Harness start="overview" />);
     fireEvent.click(await screen.findByRole('button', { name: /^Reports/ }));
-    expect(menuLabels('Reports')).toEqual(['All Reports', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Payroll', 'Tax']);
+    expect(menuLabels('Reports')).toEqual(['Report Center', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Payroll', 'Tax']);
     fireEvent.mouseEnter(screen.getByRole('menuitem', { name: 'Financial Statements' }));
     expect(menuLabels('Financial Statements')).toEqual([
-      'Balance Sheet', 'Trial Balance', 'Income Statement - Last 12 Months', 'Income Statement - Year to Date vs. Prior Year',
+      'Income Statement', 'Balance Sheet', 'Trial Balance', 'Income Statement - Last 12 Months', 'Income Statement - Year to Date vs. Prior Year',
       'Income Statement - This Month vs. Last Month', 'Income Statement by Customer', 'Income Statement by Job',
       'Income Statement by Department', 'Statement of Cash Flows', 'Cash Position', 'Personal Financial Statements',
     ]);
@@ -381,9 +397,9 @@ describe('Accounting navigation', () => {
     }
   });
 
-  it('opens All Reports and the Report Builder from the top of Reports (Oct 23, item 05)', async () => {
+  it('opens the Report Center and the Report Builder from the top of Reports (Oct 23, item 05)', async () => {
     render(<Harness start="overview" />);
-    await choose(/^Reports/, 'All Reports');
+    await choose(/^Reports/, 'Report Center');
     expect(screen.getByTestId('sub').textContent).toBe('reports');
     const center = await screen.findByTestId('tab-report-center');
     expect(screen.queryByTestId('tab-reports')).toBeNull();
@@ -397,12 +413,12 @@ describe('Accounting navigation', () => {
     expect((await screen.findByTestId('tab-report-builder')).getAttribute('data-edit')).toBe('yes');
   });
 
-  it('gives a limited person All Reports and the Report Builder', async () => {
+  it('gives a limited person the Report Center and the Report Builder', async () => {
     role.limited = true;
     render(<Harness start="report-builder" />);
     expect(await screen.findByTestId('tab-report-builder')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
-    expect(menuLabels('Reports')).toEqual(['All Reports', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Tax']);
+    expect(menuLabels('Reports')).toEqual(['Report Center', 'Report Builder', 'Packages', 'Financial Statements', 'Ledger & Banking', 'Budget vs. Actual', 'Review', 'Tax']);
   });
 
   // Picture 1 (11/11/2026, Neil: "Page Line is OK"): one grey line names the
@@ -423,7 +439,7 @@ describe('Accounting navigation', () => {
   });
 
   it('draws no page line for a link that no menu holds', async () => {
-    render(<Harness start="rpt-pnl" />);
+    render(<Harness start="rpt-budget" />);   // the plain Income Statement (rpt-pnl) is in the menu since 11/12/2026
     await screen.findByTestId('tab-reports');
     expect(screen.queryByRole('navigation', { name: 'This page' })).toBeNull();
   });

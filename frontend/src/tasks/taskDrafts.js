@@ -15,14 +15,17 @@
 //     File objects and live in memory).
 // Fields that save on their own (title, description, custom fields) are not
 // drafts; the drawer blurs them before it closes so they commit.
+// A ticket's unsent reply is kept here too (tickets/ticketDrafts.js, kind
+// 'ticketReply'): same store, same week, one draft per ticket and person.
 import { useCallback, useSyncExternalStore } from 'react';
 import { isEmptyDoc } from './RichDescription';
 
 const STORE_KEY = 'nexus.taskDrafts';
-const TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const EMPTY = Object.freeze({});
 
-// key -> { taskId, kind, text, assignTo?, parentId?, commentId?, files?, at }
+// key -> { taskId, kind, text, assignTo?, parentId?, commentId?, files?, mem?, at }
+// `files` and `mem` live in memory only - neither is written to storage.
 let drafts = load();
 const subs = new Set();
 
@@ -39,6 +42,7 @@ function save() {
     for (const [k, d] of Object.entries(drafts)) {
       if (!hasWords(d)) continue;
       const { files: _files, ...rest } = d;
+      delete rest.mem;
       out[k] = rest;
     }
     if (Object.keys(out).length) localStorage.setItem(STORE_KEY, JSON.stringify(out));
@@ -49,7 +53,8 @@ function emit() { subs.forEach((fn) => fn()); }
 function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
 
 /** Kinds: 'comment' (one per task), 'reply' (ref = thread root id),
- *  'edit' (ref = comment id), 'checklist', 'subtask'. */
+ *  'edit' (ref = comment id), 'checklist', 'subtask', and 'ticketReply'
+ *  (taskId = the ticket's id, ref = whose draft it is). */
 export function draftKey(taskId, kind, ref = '') {
   return `${taskId}:${kind}${ref ? `:${ref}` : ''}`;
 }

@@ -128,7 +128,7 @@ export default function ProgramTable({ projects, flags = {}, onOpen }) {
           </tbody>
         </table>
       </div>
-      {withMoney && <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>Budget is the contract value plus approved changes; Actual is posted to the job's Project-Job in the books; Forecast, Cost / Sq Ft and Cost / Unit are worked out. Open a job's Money tab for the ledger lines.</div>}
+      {withMoney && <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8 }}>Budget is the contract value plus approved changes; Actual is posted to the job's Project-Job in the books; Forecast, Cost / Sq Ft and Cost / Unit are worked out. Open a job's Money tab for the ledger lines.</div>}
     </div>
   );
 }

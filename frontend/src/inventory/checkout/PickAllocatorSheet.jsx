@@ -43,7 +43,7 @@ export function PickAllocatorSheet({ checkout, onClose }) {
           {busy ? <Spinner size={14} /> : <User size={14} />} Save
         </button>
       </>}>
-      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
         Approved for <strong style={{ color: 'var(--ink)' }}>{checkout.requestedBy}</strong>.
         {checkout.assignedAllocatorName ? ` ${checkout.assignedAllocatorName} was to hand it over.` : ' Nobody is set to hand it over.'}
       </p>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  weekdaysBetween, parseIsoDay, leaveRequestDays, approvedLeaveDays, tenureLabel, openShiftMinutes,
+  weekdaysBetween, parseIsoDay, leaveRequestDays, approvedLeaveDays, tenureLabel, openShiftMinutes, clockToday,
 } from './workdayStats';
 
 const d = parseIsoDay;
@@ -100,5 +100,54 @@ describe('openShiftMinutes', () => {
   it('ignores a shift open past the 16-hour guard (missed clock-out)', () => {
     const days = { '2026-09-29': { punches: [{ kind: 'in', at: new Date(2026, 8, 29, 6).toISOString() }] } };
     expect(openShiftMinutes(days, now)).toBe(0);
+  });
+});
+
+// The Workday clock card's Today view (11/17/2026).
+describe('clockToday', () => {
+  const utc = (d, h, m = 0) => new Date(Date.UTC(2026, 10, d, h, m)).toISOString().slice(0, 19);   // zone-less, like the server
+  const at = (d, h, m = 0) => Date.UTC(2026, 10, d, h, m);
+
+  it('keeps the running shift through a break - 4h 00m does not drop to 0 and jump back', () => {
+    const days = { '2026-11-17': { workedMin: 0, punches: [{ kind: 'in', at: utc(17, 8) }, { kind: 'break_start', at: utc(17, 12) }] } };
+    const args = { days, todayKey: '2026-11-17', clockedIn: true, sessionDay: '2026-11-17', sessionInAt: utc(17, 8) };
+    // Twenty minutes into the break: still the four hours worked before it.
+    const onBreak = clockToday({ ...args, now: at(17, 12, 20) });
+    expect(onBreak.liveMin).toBe(240);
+    expect(onBreak.workedToday).toBe(240);
+    // Back from the break, the same number carries on (the break is not counted).
+    const back = { '2026-11-17': { workedMin: 0, punches: [...days['2026-11-17'].punches, { kind: 'break_end', at: utc(17, 12, 30) }] } };
+    expect(clockToday({ ...args, days: back, now: at(17, 12, 40) }).workedToday).toBe(250);
+  });
+
+  it('adds the running shift to the segments already closed today', () => {
+    const days = { '2026-11-17': { workedMin: 180, punches: [
+      { kind: 'in', at: utc(17, 8) }, { kind: 'out', at: utc(17, 11) }, { kind: 'in', at: utc(17, 12) }] } };
+    const r = clockToday({ days, todayKey: '2026-11-17', clockedIn: true, sessionDay: '2026-11-17', sessionInAt: utc(17, 12), now: at(17, 13) });
+    expect(r.workedToday).toBe(240);
+    expect(r.overnight).toBe(false);
+    expect(r.firstInAt).toBe(utc(17, 8));
+    expect(r.punches).toHaveLength(3);
+  });
+
+  it('shows a shift from before midnight on Today: its time, its clock-in and its punches', () => {
+    const days = {
+      '2026-11-16': { workedMin: 480, punches: [
+        { kind: 'in', at: utc(16, 8) }, { kind: 'out', at: utc(16, 16) },      // an earlier, closed shift that day
+        { kind: 'in', at: utc(16, 22) }] },                                    // the one still running
+      '2026-11-17': { workedMin: 0, punches: [{ kind: 'break_start', at: utc(17, 1) }, { kind: 'break_end', at: utc(17, 1, 30) }] },
+    };
+    const r = clockToday({ days, todayKey: '2026-11-17', clockedIn: true, sessionDay: '2026-11-16', sessionInAt: utc(16, 22), now: at(17, 2) });
+    expect(r.overnight).toBe(true);
+    expect(r.workedToday).toBe(210);                 // 10:00 PM to 2:00 AM, less the 30-minute break
+    expect(r.firstInAt).toBe(utc(16, 22));
+    expect(r.punches.map(p => p.kind)).toEqual(['in', 'break_start', 'break_end']);   // not the closed morning shift
+  });
+
+  it('is plain when off the clock: nothing live, today only', () => {
+    const days = { '2026-11-16': { workedMin: 480, punches: [{ kind: 'in', at: utc(16, 8) }, { kind: 'out', at: utc(16, 16) }] } };
+    const r = clockToday({ days, todayKey: '2026-11-17', clockedIn: false, now: at(17, 9) });
+    expect(r).toEqual({ liveMin: 0, overnight: false, workedToday: 0, firstInAt: '', punches: [] });
+    expect(clockToday({ days: {}, todayKey: '2026-11-17', clockedIn: true, now: at(17, 9) }).workedToday).toBe(0);
   });
 });

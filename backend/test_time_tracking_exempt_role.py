@@ -11,6 +11,7 @@ Runs against its own throwaway SQLite database:
 import os
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -54,7 +55,7 @@ class TimeTrackingExemptRole(unittest.TestCase):
     def setUp(self):
         self.db = database.SessionLocal()
         for m in (models.NexusGroupMember, models.NexusGroup, models.NexusEmployee, models.PayrollRate,
-                  models.NexusNotification, models.TimesheetReview, models.HrEntity):
+                  models.NexusNotification, models.TimesheetReview, models.HrEntity, models.TimePunch):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id="ent-tte", name="TTE Co", hr_contact_email="hr.tte@greensglobal.com"))
         for i, em in enumerate((LEAD, CREW, LEGACY, GRP, BOSS)):
@@ -116,9 +117,18 @@ class TimeTrackingExemptRole(unittest.TestCase):
     def test_sign_reminder_skips_role_exempt(self):
         # Freeze "today" at the period's last day, when the nudge is due (the
         # Submit Your Time Sheet reminder fires on the last day since Oct 16 -
-        # reminders.run_daily_scan; it used to be the day before).
+        # reminders.run_daily_scan; it used to be the day before). Since
+        # 11/12/2026 it is timesheet_due's rule: the person's own local date
+        # (timeclock._employee_today) and only a period with a punch in it.
         _, pend = timeclock._pay_period(ANCHOR)
         frozen = datetime.strptime(pend, "%Y-%m-%d").replace(tzinfo=timezone.utc, hour=12)
+        for i, em in enumerate((LEAD, CREW, LEGACY, GRP)):
+            self.db.add(models.TimePunch(id=f"tte-p{i}", employee_email=em, kind="in", at=f"{ANCHOR}T16:00:00",
+                                         local_date=ANCHOR))
+        self.db.commit()
+        local_today = mock.patch("routers.timeclock._employee_today", lambda db, email: pend)
+        local_today.start()
+        self.addCleanup(local_today.stop)
 
         class _Frozen(datetime):
             @classmethod

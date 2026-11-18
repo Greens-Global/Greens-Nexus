@@ -182,7 +182,7 @@ export default function PropertyFilter({ value, options, onChange, allLabel = 'A
               gap: 6,
               padding: '6px 8px',
               borderRadius: 6,
-              fontSize: 11.5,
+              fontSize: 12,
               fontWeight: 600,
               textTransform: 'uppercase',
               letterSpacing: '0.025em',

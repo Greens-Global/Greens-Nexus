@@ -154,7 +154,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
               {typeOptions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
-          <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', marginBottom: 14 }}>
+          <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', marginBottom: 14 }}>
             <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} /> Required
           </label>
 
@@ -187,7 +187,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
             {FORMULA_TYPES.includes(type) && (
               <div style={field}>
                 <label style={label} htmlFor="form-field-formula">Formula</label>
-                <input id="form-field-formula" className="form-input" style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: 12.5 }} value={formula}
+                <input id="form-field-formula" className="form-input" style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: 13 }} value={formula}
                   placeholder="e.g. {Miles Out} - {Miles In}" onChange={(e) => setFormula(e.target.value)} />
                 <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>Worked out from the other answers while the form is filled; read-only. Name another field as {'{Its Label}'} or {'{its_token}'} - the Tasks formula language (SUM, IF, ROUND, DAYS...).</p>
               </div>
@@ -219,18 +219,18 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
             </p>
             {source === 'person' && (
               <div style={{ display: 'flex', gap: 14, marginTop: 8, flexWrap: 'wrap' }}>
-                <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+                <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
                   <input type="checkbox" checked={sensitive} onChange={(e) => setSensitive(e.target.checked)} /> Private (Pay &amp; Benefits only)
                 </label>
                 {['text', 'number'].includes(type) && (
-                  <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+                  <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
                     <input type="checkbox" checked={last4} onChange={(e) => setLast4(e.target.checked)} /> Keep Last 4 Only
                   </label>
                 )}
               </div>
             )}
             {source !== 'person' && (
-              <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', marginTop: 8 }}>
+              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', marginTop: 8 }}>
                 <input type="checkbox" checked={pay || type === 'currency'} disabled={type === 'currency'} onChange={(e) => setPay(e.target.checked)} /> This Is Pay (Pay &amp; Benefits only)
               </label>
             )}
@@ -242,15 +242,15 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
                 {options.map((o) => (
                   <div key={o} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ flex: 1, fontSize: 12.5, border: '1px solid var(--line)', borderRadius: 7, padding: '5px 9px' }}>{o}</span>
+                    <span style={{ flex: 1, fontSize: 13, border: '1px solid var(--line)', borderRadius: 7, padding: '5px 9px' }}>{o}</span>
                     <button onClick={() => setOptions(options.filter((x) => x !== o))} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex' }}><Trash2 size={13} /></button>
                   </div>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
-                <input className="form-input" style={{ flex: 1, fontSize: 12.5 }} placeholder="Add option…" value={optionDraft}
+                <input className="form-input" style={{ flex: 1, fontSize: 13 }} placeholder="Add option…" value={optionDraft}
                   onChange={(e) => setOptionDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOption(); } }} />
-                <button onClick={addOption} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600 }}><Plus size={13} /> Add</button>
+                <button onClick={addOption} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600 }}><Plus size={13} /> Add</button>
               </div>
             </div>
           )}
@@ -308,7 +308,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
           )}
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-          <button onClick={onCancel} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onCancel} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
           <button className="primary-btn" disabled={!canSave} onClick={save} style={{ opacity: canSave ? 1 : 0.6 }}>Save</button>
         </div>
       </div>

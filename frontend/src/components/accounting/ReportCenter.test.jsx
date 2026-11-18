@@ -31,7 +31,10 @@ describe('ReportCenter', () => {
     const memorized = await screen.findByRole('button', { name: 'GG Inc Balance Sheet' });
     const fin = screen.getByRole('region', { name: 'Financial' });
     const rowOf = (name) => within(fin).getByRole('button', { name }).closest('tr');
-    expect(rowOf('Balance Sheet').textContent).toContain('Standard');
+    // A standard report reads its Details, with no Type mark and no Open button beside the name.
+    expect(rowOf('Balance Sheet').textContent).toContain('Assets, liabilities and equity');
+    expect(rowOf('Balance Sheet').textContent).not.toContain('Standard');
+    expect(screen.queryByRole('button', { name: /^Open / })).toBeNull();
     expect(rowOf('GG Inc Balance Sheet').textContent).toMatch(/Memorized.*Urmi Shah.*Everyone.*10\/20\/2026/);
     const center = screen.getByRole('region', { name: 'Report Center' });
     expect(within(center).getByRole('button', { name: 'Custom Lines' }).closest('tr').textContent).toMatch(/Saved.*You.*Only the owner/);
@@ -58,5 +61,14 @@ describe('ReportCenter', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Memorized and Saved/ }));
     expect(screen.queryByRole('button', { name: 'Balance Sheet' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Custom Lines' })).toBeTruthy();
+  });
+
+  it('takes Ctrl+F for its own report filter, before the ledger search', async () => {
+    render(<ReportCenter groups={GROUPS} onOpen={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Custom Lines' });
+    const ev = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Search reports' }));
   });
 });

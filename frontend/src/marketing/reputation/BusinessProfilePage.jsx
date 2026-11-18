@@ -230,7 +230,7 @@ function SampleBusinessProfilePage({ banner, range, onRangeChange, property, onP
                 style={{
                   padding: '4px 12px',
                   borderRadius: 6,
-                  fontSize: 12.5,
+                  fontSize: 13,
                   fontWeight: 500,
                   transition: 'background-color .15s',
                   background: active ? C.gray900 : 'transparent',

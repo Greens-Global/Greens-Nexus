@@ -200,13 +200,17 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
     <div ref={ref} className="dash-grid" style={{ position: 'relative', width: '100%',
       height: boardH, minHeight: '68vh',
       transition: drag ? 'none' : 'height 0.15s',
-      // Edit mode: a soft dot at every grid intersection reads as "snap points"
-      // without the noisy full-height column lines.
+      // Edit mode: the grid's own lines, one per column and one per row - the
+      // cells a tile snaps to (Neil, 11/13/2026: in edit mode the board "loses
+      // its grid lines in the back"; the dot at each corner that stood in for
+      // them all but disappeared). View mode keeps its whisper-light grid below.
       backgroundImage: editing
-        ? 'radial-gradient(circle, var(--line) 1.5px, transparent 1.5px)'
+        ? 'linear-gradient(to right, var(--line) 1px, transparent 1px), linear-gradient(to bottom, var(--line) 1px, transparent 1px)'
         : 'none',
       backgroundSize: `${unitW}px ${ROW_H}px`,
-      backgroundPosition: `${unitW / 2}px ${ROW_H / 2}px`,
+      backgroundPosition: '0 0',
+      // The last column's and row's closing lines.
+      boxShadow: editing ? 'inset -1px -1px 0 var(--line)' : undefined,
       borderRadius: 16 }}>
       {/* View mode: a whisper-light line grid so the canvas doesn't feel bare */}
       {!editing && (

@@ -106,10 +106,10 @@ export function OverdueAlertModal({ checkouts, onClose, toast }) {
                 ref={el => { if (el) el.indeterminate = sel.size > 0 && sel.size < allWithEmail.length; }}
                 onChange={toggleAll}
                 style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
-              <span style={{ fontSize:12.5, fontWeight:700 }}>
+              <span style={{ fontSize:13, fontWeight:700 }}>
                 {sel.size > 0 ? `${sel.size} of ${allWithEmail.length} selected` : `Select all (${allWithEmail.length})`}
               </span>
-              <span style={{ marginLeft:'auto', fontSize:11.5, color:'var(--muted)' }}>
+              <span style={{ marginLeft:'auto', fontSize:12, color:'var(--muted)' }}>
                 {groups.reduce((n, g) => n + g.items.length, 0)} overdue item{groups.reduce((n, g) => n + g.items.length, 0) !== 1 ? 's' : ''}
               </span>
             </label>

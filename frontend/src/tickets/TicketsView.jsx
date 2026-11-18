@@ -49,7 +49,7 @@ import {
 } from './ticketViewShared';
 import { downloadTicketsCsv } from './ticketExport';
 import {
-  TicketMobileFilters, TicketFilterMenu, MoreMenu, SaveViewDialog,
+  TicketMobileFilters, TicketFilterMenu, MoreMenu, ViewMenu, SaveViewDialog,
 } from './TicketFilters';
 import { TicketListHeader, TicketRow } from './TicketList';
 import { TicketActionDialog } from './TicketActionDialog';
@@ -58,6 +58,8 @@ import { TicketDrawer } from './TicketDrawer';
 import { TicketBoard } from './TicketBoard';
 import PreventiveRollup from '../maintenance/PreventiveRollup';
 import PageTrail from '../components/PageTrail';
+import { SkeletonBlocks } from '../components/AsyncState';
+import NewButton from '../components/NewButton';
 
 // Re-exported: tests and other modules import these from TicketsView.
 export { TicketActionDialog, CreateTicketModal, TicketDrawer };
@@ -82,6 +84,8 @@ const LAYOUTS = ['modal', 'pane'];
 const PANE_COLS = ['checkbox', 'type', 'title', 'state', 'clock'];
 // Tabs whose count is a tally, not work waiting on you - no pill.
 const UNCOUNTED = new Set(['done', 'open', 'raised']);
+// The header tab that opens Reports (not a queue key, never a saved view's).
+const REPORTS_TAB = '__reports';
 // The queues that stand as tabs on their own; the rest sit under Other Queues (Neil, 11/06/2026).
 const PRIMARY_QUEUES = new Set(['needs_reply', 'unassigned', 'mine', 'open']);
 
@@ -107,8 +111,20 @@ export default function TicketsView() {
   // re-renders once they land - see that file for why a mutate-in-place +
   // event pattern instead of turning these constants into fetched state.
   useTicketConfig();
-  const { tickets, ticketViews = [], createTicketView, deleteTicketView,
+  const { tickets, ticketsLoaded, ticketsFailed, reloadTickets, ticketViews = [], createTicketView, deleteTicketView,
     myEmail, nameOf, updateTicket, deleteTicket } = useTasks();
+  // The first load (11/17/2026): an empty list that has not arrived yet, or
+  // could not be read, is not "No Tickets Yet". Rows of sheen until the list
+  // lands; a failed load says so with Try Again. A list already held (an
+  // earlier visit) shows at once, as before.
+  const [retrying, setRetrying] = useState(false);
+  const retryLoad = () => {
+    setRetrying(true);
+    Promise.resolve(reloadTickets?.()).catch(() => {}).finally(() => setRetrying(false));
+  };
+  const firstLoad = tickets.length ? null
+    : (ticketsLoaded === false || retrying) ? 'loading'
+      : ticketsFailed ? 'failed' : null;
   const people = usePeople();
   // For the list's own inline State/Priority dropdown (TicketRow) - mirrors
   // the drawer's canWorking gate exactly, see inlineCanWorking below.
@@ -249,6 +265,10 @@ export default function TicketsView() {
   const [view, setViewState] = useState('list');   // 'list' | 'board' | 'reports'
   const viewRef = useRef(view);
   useEffect(() => { viewRef.current = view; }, [view]);
+  // List or Board, whichever was last on screen - where a queue tab returns
+  // to from Reports.
+  const listViewRef = useRef('list');
+  useEffect(() => { if (view !== 'reports') listViewRef.current = view; }, [view]);
   // Only a ticket parked in the PANE is at stake here: the popup drawer
   // stays where it is across a view change, as it always has.
   const inPane = useCallback(() => !isMobile && viewRef.current === 'list' && layout === 'pane' && !!openIdRef.current, [isMobile, layout]);
@@ -538,8 +558,8 @@ export default function TicketsView() {
 
   // Compact controls for the floating bulk-action pill - smaller than the
   // standard form idiom so a handful of them fit in one tight row.
-  const compactSelStyle = { ...inputStyle, width: 'auto', cursor: 'pointer', appearance: 'auto', color: NX.ink, fontSize: 12.5, padding: '5px 8px', borderRadius: 8 };
-  const compactBtnStyle = { ...btn('ghost'), color: NX.surface, background: 'color-mix(in srgb, var(--nx-surface) 14%, transparent)', fontSize: 12.5, padding: '5px 9px', gap: 5 };
+  const compactSelStyle = { ...inputStyle, width: 'auto', cursor: 'pointer', appearance: 'auto', color: NX.ink, fontSize: 13, padding: '5px 8px', borderRadius: 8 };
+  const compactBtnStyle = { ...btn('ghost'), color: NX.surface, background: 'color-mix(in srgb, var(--nx-surface) 14%, transparent)', fontSize: 13, padding: '5px 9px', gap: 5 };
 
   // Bulk selection (list view only). Selection is cleared when it no longer matches.
   const toggleSel = useCallback((id) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }), []);
@@ -645,10 +665,18 @@ export default function TicketsView() {
       ...shown.filter((q) => PRIMARY_QUEUES.has(q.key)).map(tab),
       ...(more.length ? [{ key: '__more_queues', label: 'Other Queues', items: more,
         badge: more.reduce((n, t) => n + (Number(t.badge) || 0), 0) }] : []),
+      // Reports is a place to go, so it is a tab, last (Neil, 11/13/2026) -
+      // it sat in the toolbar's List / Board switch as if it were a way to
+      // show the queue. Phones keep it in their view sheet.
+      ...(isMobile ? [] : [{ key: REPORTS_TAB, label: 'Reports' }]),
     ];
-  }, [counts, itAdmin, ticketViews]);
-  const activeTab = activeSaved && ticketViews.some((v) => v.id === activeSaved) ? `view:${activeSaved}` : queue;
+  }, [counts, itAdmin, ticketViews, isMobile]);
+  const activeTab = view === 'reports' && !isMobile ? REPORTS_TAB
+    : activeSaved && ticketViews.some((v) => v.id === activeSaved) ? `view:${activeSaved}` : queue;
   const onTab = (key) => {
+    if (key === REPORTS_TAB) { setView('reports'); return; }
+    // Back from Reports to a queue: the way the list was shown before.
+    if (view === 'reports') setView(listViewRef.current);
     if (key.startsWith('view:')) {
       const v = ticketViews.find((x) => `view:${x.id}` === key);
       if (v) applyTicketView(v);
@@ -660,7 +688,7 @@ export default function TicketsView() {
   // search narrowed it - or nothing has been raised at all.
   const narrowed = !!searchQ || [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter, assigneeFilter, deskFilter].some((v) => v !== 'all');
   const emptyWords = !tickets.length
-    ? { title: 'No Tickets Yet', hint: `Nothing has been submitted so far. ${isMobile ? 'Tap + below' : 'Choose Create'} to report a problem or ask for help.` }
+    ? { title: 'No Tickets Yet', hint: `Nothing has been submitted so far. ${isMobile ? 'Tap + below' : 'Choose New'} to report a problem or ask for help.` }
     : narrowed ? { title: 'No Tickets', hint: 'No tickets match your filters.' }
       : (QUEUE_EMPTY[queue] || { title: 'No Tickets', hint: 'Nothing here right now.' });
 
@@ -694,7 +722,7 @@ export default function TicketsView() {
           <Search size={16} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: NX.faint, pointerEvents: 'none' }} />
           <input type="text" inputMode="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…"
             aria-label="Search tickets" enterKeyHint="search"
-            style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', fontSize: 16, padding: '9px 40px 9px 34px', WebkitAppearance: 'none', appearance: 'none' }} />
+            style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', fontSize: 16, padding: '9px 40px 9px 34px', WebkitAppearance: 'none', appearance: 'none' }} /> {/* type-ok: iOS zooms a field under 16px */}
           {search && (
             <button type="button" onClick={() => setSearch('')} aria-label="Clear search"
               style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0 }}>
@@ -707,26 +735,23 @@ export default function TicketsView() {
       {/* Overdue per site over the Preventive queue (11/03/2026). */}
       {activeTab === 'preventive' && <PreventiveRollup />}
 
-      {/* The toolbar - the same shape on List, Board and Reports: how the
-          tickets are shown on the left; search, Filters and the one overflow
-          menu (grouping, columns, saved views, export, the property clean-up)
-          on the right. It never changes rows between views. */}
+      {/* The toolbar (Neil, 11/13/2026: "seems cluttered and needs to be done
+          better"): what narrows the list on the left - search and Filters -
+          and on the right how it is shown (View: List or Board, the side
+          pane, grouping, columns), the overflow menu (saved views, export,
+          the property clean-up) and Create, last (Neil, 11/06/2026). The
+          List / Board / Reports switch is gone: List / Board is the View
+          menu and Reports is a tab in the header. */}
       {!isMobile && (
-        <div data-tour="ticket-toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '6px 16px', flexWrap: 'wrap', background: NX.surface }}>
-          <div data-tour="ticket-views" className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, overflowX: 'auto', flexShrink: 0 }}>
-            {TICKET_VIEW_TABS.map((tb) => (
-              <button key={tb.key} onClick={() => setView(tb.key)} title={tb.label} style={{
-                ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
-                background: view === tb.key ? NX.surface : 'transparent', color: view === tb.key ? NX.ink : NX.dim,
-                boxShadow: view === tb.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-              }}><tb.icon size={15} /> {tb.label}</button>
-            ))}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative', width: 210 }}>
-              <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…" aria-label="Search tickets" style={{ ...inputStyle, paddingLeft: 32 }} />
-            </div>
+        <div data-tour="ticket-toolbar" className="tk-toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '8px 16px', flexWrap: 'wrap', background: NX.surface }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 320px', minWidth: 0 }}>
+            {/* Reports read the filters, never the search box - so it is not drawn there. */}
+            {view !== 'reports' && (
+              <div style={{ position: 'relative', flex: '0 1 320px', minWidth: 180 }}>
+                <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tickets…" aria-label="Search tickets" style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', paddingLeft: 32 }} />
+              </div>
+            )}
             <TicketFilterMenu
               statusFilter={statusFilter} setStatusFilter={setStatusFilter}
               priorityFilter={priorityFilter} setPriorityFilter={setPriorityFilter}
@@ -736,17 +761,25 @@ export default function TicketsView() {
               serviceAreaFilter={serviceAreaFilter} setServiceAreaFilter={setServiceAreaFilter}
               assigneeFilter={assigneeFilter} setAssigneeFilter={setAssigneeFilter} assigneeOptions={assigneeOptions}
             />
-            <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={() => setNamingView(true)} onDelete={removeTicketView}
-              groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'}
-              onExport={() => downloadTicketsCsv(sortedVisible, nameOf, companyName, hrDeptName)}
-              columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={fullTable.cols} showColumns={view === 'list' && !pane}
-              layout={view === 'list' ? layout : undefined} setLayout={setLayout}
-              suggestLinks={privileged ? (style) => <SuggestPropertyLinksButton style={style} /> : null} />
-            {/* "Create", not "New Ticket" - the same word the Task module's bar
-                button uses, and the page it sits on already says Tickets
-                (Sagar, Sept 2 2026). Last in the row, after ... (Neil, 11/06/2026). */}
+          </div>
+          <div data-tour="ticket-views" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {view !== 'reports' && (
+              <ViewMenu view={view} setView={setView}
+                groupBy={groupBy} setGroupBy={setGroupBy}
+                columns={columnDefs} hidden={hidden} toggleHidden={toggleHidden} cols={fullTable.cols} showColumns={!pane}
+                layout={layout} setLayout={setLayout} />
+            )}
+            {view !== 'reports' && (
+              <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={() => setNamingView(true)} onDelete={removeTicketView}
+                onExport={() => downloadTicketsCsv(sortedVisible, nameOf, companyName, hrDeptName)}
+                suggestLinks={privileged ? (style) => <SuggestPropertyLinksButton style={style} /> : null} />
+            )}
+            {/* "+ New" - the one create button across Nexus (Neil, 11/13/2026:
+                "let's stick with that instead of + Create"); the page already
+                says Tickets (Sagar, Sept 2 2026). Last in the row, after ...
+                (Neil, 11/06/2026). */}
             <span data-tour="ticket-create" style={{ flexShrink: 0 }}>
-              <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> Create</button>
+              <NewButton items={[{ key: 'ticket', label: 'Ticket' }]} onPick={() => setCreating(true)} style={btn('primary')} className="" />
             </span>
           </div>
         </div>
@@ -754,7 +787,7 @@ export default function TicketsView() {
 
       {deskFilter === 'hr' && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 16px 0', flexWrap: 'wrap' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: NX.ink,
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: NX.ink,
             background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.28)', borderRadius: 999, padding: '4px 6px 4px 11px' }}>
             HR Requests
             <button type="button" aria-label="Show All Tickets" title="Show All Tickets" onClick={() => setDeskFilter('all')}
@@ -777,6 +810,16 @@ export default function TicketsView() {
         paddingTop: view === 'board' ? 12 : 16, paddingLeft: view === 'board' ? 12 : 16, paddingRight: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 8 : 76 }}>
         {view === 'reports' ? (
           <TicketReports listFilters={reportFilters} filterLabels={reportFilterLabels} companies={companies} />
+        ) : firstLoad === 'loading' ? (
+          <div role="status" aria-busy="true" aria-label="Loading tickets" data-testid="tickets-loading">
+            <SkeletonBlocks count={8} height={44} borderRadius={8} />
+          </div>
+        ) : firstLoad === 'failed' ? (
+          <div role="alert" data-testid="tickets-failed" style={{ textAlign: 'center', padding: '56px 20px' }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: NX.red }}>Tickets Could Not Be Loaded</div>
+            <div style={{ fontSize: 13, color: NX.dim, marginTop: 5 }}>Nothing is lost - the list just did not arrive. Check your connection and try again.</div>
+            <button type="button" onClick={retryLoad} style={{ ...btn('outline'), marginTop: 14 }}>Try Again</button>
+          </div>
         ) : view === 'board' ? (
           <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={moveOnBoard} mobile={isMobile}
             canMove={(t) => ticketRights(t, myEmail, privileged).canEditStatus} />
@@ -886,7 +929,7 @@ export default function TicketsView() {
           maxWidth: 'calc(100% - 32px)', padding: '7px 10px', borderRadius: 12,
           background: NX.ink, color: NX.surface, boxShadow: '0 10px 28px rgba(0,0,0,0.28)',   // inverse of the page in either theme - #fff text vanished on dark mode's light pill
         }}>
-          <span style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', padding: '0 2px' }}>{selIds.length} selected</span>
+          <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', padding: '0 2px' }}>{selIds.length} selected</span>
           <TicketSelect command placeholder="Set status…" options={statusOptions()} style={compactSelStyle}
             onChange={(v) => bulkPatch({ status: v })} />
           <TicketSelect command placeholder="Set priority…" options={priorityOptions()} style={compactSelStyle}

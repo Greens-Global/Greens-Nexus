@@ -38,13 +38,13 @@ export function ScopeSelect() {
 
 /** Range presets, all ending at the chosen month. `months` is how many to include; null = custom start. */
 const RANGES = [
-  { id: 'month', label: 'Single month', months: 1 },
-  { id: 'quarter', label: 'Quarter to date', months: null, quarter: true },
-  { id: 'ytd', label: 'Year to date', months: null, ytd: true },
-  { id: 'l3', label: 'Last 3 months', months: 3 },
-  { id: 'l6', label: 'Last 6 months', months: 6 },
-  { id: 't12', label: 'Trailing 12 months', months: 12 },
-  { id: 'custom', label: 'Custom start…', months: null },
+  { id: 'month', label: 'Single Month', months: 1 },
+  { id: 'quarter', label: 'Quarter to Date', months: null, quarter: true },
+  { id: 'ytd', label: 'Year to Date', months: null, ytd: true },
+  { id: 'l3', label: 'Last 3 Months', months: 3 },
+  { id: 'l6', label: 'Last 6 Months', months: 6 },
+  { id: 't12', label: 'Trailing 12 Months', months: 12 },
+  { id: 'custom', label: 'Custom Start…', months: null },
 ];
 const quarterStart = (k) => `${k.slice(0, 4)}-${String(Math.floor((Number(k.slice(5, 7)) - 1) / 3) * 3 + 1).padStart(2, '0')}`;
 const rangeStart = (preset, to) => {
@@ -74,16 +74,16 @@ export function MonthStepper() {
           <select value={fromKey} onChange={(e) => setRange(e.target.value, period)} aria-label="From month" style={{ ...input, ...active }}>
             {(fromOptions.includes(fromKey) ? fromOptions : [fromKey, ...fromOptions]).map((k) => <option key={k} value={k}>{monthLong(k)}</option>)}
           </select>
-          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>through</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>through</span>
         </>
       ) : null}
       {/* The stepper wraps as one piece - never "<" on one line and the month on the next (Oct 17). */}
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
-      <button type="button" aria-label="Previous month" style={btn} onClick={() => setPeriod(shiftKey(period, 1))}><ChevronLeft size={14} /></button>
+      <button type="button" className="acct-step" aria-label="Previous month" style={btn} onClick={() => setPeriod(shiftKey(period, 1))}><ChevronLeft size={14} /></button>
       <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Month" style={{ ...input, ...(period !== lastClosed ? active : {}) }}>
         {options.map((k) => <option key={k} value={k}>{monthLong(k)}{k === lastClosed ? ' · last closed' : ''}</option>)}
       </select>
-      <button type="button" aria-label="Next month" style={{ ...btn, opacity: period >= lastClosed ? 0.4 : 1 }} disabled={period >= lastClosed} onClick={() => setPeriod(shiftKey(period, -1))}><ChevronRight size={14} /></button>
+      <button type="button" className="acct-step" aria-label="Next month" style={{ ...btn, opacity: period >= lastClosed ? 0.4 : 1 }} disabled={period >= lastClosed} onClick={() => setPeriod(shiftKey(period, -1))}><ChevronRight size={14} /></button>
       </span>
     </div>
   );
@@ -93,7 +93,7 @@ export function BookPills() {
   const { book, setBook } = useDash();
   return (
     <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
-      {BOOKS.map(([k, label]) => <button key={k} type="button" style={{ ...pill(book === k), padding: '4px 10px', fontSize: '0.74rem' }} onClick={() => setBook(k)}>{label}</button>)}
+      {BOOKS.map(([k, label]) => <button key={k} type="button" style={{ ...pill(book === k), padding: '4px 10px', fontSize: 12 }} onClick={() => setBook(k)}>{label}</button>)}
     </div>
   );
 }
@@ -110,7 +110,7 @@ export function RefreshButton() {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
       {updatedAt || synced ? (
-        <span className="acct-bar-label-2" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+        <span className="acct-bar-label-2" style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
           {updatedAt ? `Updated ${formatTime(updatedAt)}` : ''}{updatedAt && synced ? ' · ' : ''}{synced ? `Ledger synced from Intacct ${synced}` : ''}
         </span>
       ) : null}
@@ -139,7 +139,7 @@ export function Toolbar({ right, hidePeriod }) {
       <BarMore level={2} active={book !== 'accrual' ? 1 : 0}>
         <BookPills />
       </BarMore>
-      {partners ? <BarSummary style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Partner entity · {partners}</BarSummary> : null}
+      {partners ? <BarSummary style={{ fontSize: 12, color: 'var(--text-muted)' }}>Partner entity · {partners}</BarSummary> : null}
       <div className="acct-bar-end">
         {right ? <BarMore level={1}>{right}</BarMore> : null}
         <RefreshButton />

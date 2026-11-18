@@ -32,7 +32,7 @@ function StatCard({ icon: Icon, color, label, value, caption }) {
         <Icon size={14} />
       </div>
       <div style={{ fontSize: 12, color: C.gray500, marginBottom: 4, lineHeight: 1.25 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, marginBottom: 4, ...truncate }}>{value}</div>
+      <div style={{ fontSize: 18, fontWeight: 600, color: C.gray900, lineHeight: 1.25, marginBottom: 4, ...truncate }}>{value}</div>
       <div style={{ fontSize: 11, color: C.gray400, ...truncate }}>{caption}</div>
     </div>
   )
@@ -73,11 +73,11 @@ export default function CompetitorsCard({ own, competitors }) {
       </div>
 
       <div style={{ borderRadius: 12, border: `1px solid ${C.gray200}`, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}>
-        <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Competitor Domains</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Competitor Domains</h3>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: `1px solid ${C.gray100}`, color: C.gray400, fontSize: 10.5, textTransform: 'uppercase' }}>
+              <tr style={{ borderBottom: `1px solid ${C.gray100}`, color: C.gray400, fontSize: 11, textTransform: 'uppercase' }}>
                 <th style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px', paddingLeft: 0 }}>Domain</th>
                 <th style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px' }}>DR</th>
                 <th style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px' }}>Keywords in Top 10</th>
@@ -89,7 +89,7 @@ export default function CompetitorsCard({ own, competitors }) {
               <tr style={{ borderBottom: `1px solid ${C.gray100}`, background: alpha(C.emerald50, 0.6) }}>
                 <td style={{ padding: '10px', paddingLeft: 0, fontWeight: 500, color: C.emerald700, whiteSpace: 'nowrap' }}>
                   greensstorage.com
-                  <span style={{ marginLeft: 6, padding: '2px 6px', borderRadius: 9999, fontSize: 10, fontWeight: 500, color: C.emerald700, background: C.emerald100 }}>Your Site</span>
+                  <span style={{ marginLeft: 6, padding: '2px 6px', borderRadius: 9999, fontSize: 11, fontWeight: 500, color: C.emerald700, background: C.emerald100 }}>Your Site</span>
                 </td>
                 <td style={{ padding: '10px', color: C.gray700, whiteSpace: 'nowrap' }}>{own.domainRating}</td>
                 <td style={{ padding: '10px', color: C.gray700, whiteSpace: 'nowrap' }}>{own.keywordsInTop10}</td>

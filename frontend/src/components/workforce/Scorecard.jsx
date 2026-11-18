@@ -62,7 +62,7 @@ const weekFromUrl = () => {
 
 function Chip({ meta, children }) {
   return (
-    <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 11.5, fontWeight: 700,
+    <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 700,
       color: meta.color, background: meta.tint || `${meta.color}14`, whiteSpace: 'nowrap' }}>
       {children || meta.label}
     </span>
@@ -72,8 +72,8 @@ function Chip({ meta, children }) {
 function Tile({ label, value, color }) {
   return (
     <div style={{ flex: '1 1 110px', minWidth: 110, padding: '10px 14px', borderRadius: 10, background: color, color: '#fff' }}>
-      <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 11.5, marginTop: 5, opacity: 0.92 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 12, marginTop: 5, opacity: 0.92 }}>{label}</div>
     </div>
   );
 }
@@ -89,7 +89,7 @@ function ScoreBar({ score, thresholds }) {
       <div style={{ flex: 1, height: 6, borderRadius: 3, background: NX.border2 || '#eef0f3', overflow: 'hidden' }}>
         <div style={{ width: `${Math.min(100, score)}%`, height: '100%', background: color }} />
       </div>
-      <span style={{ fontWeight: 700, fontSize: 12.5, color, width: 38, textAlign: 'right' }}>{score}%</span>
+      <span style={{ fontWeight: 700, fontSize: 13, color, width: 38, textAlign: 'right' }}>{score}%</span>
     </div>
   );
 }
@@ -101,7 +101,7 @@ function DayCells({ days }) {
         const meta = DAY_META[d.status] || DAY_META.off;
         const flags = (d.flags || []).filter((f) => FLAG_LABEL[f]);
         return (
-          <div key={d.date} style={{ border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 9px', background: NX.surface, fontSize: 11.5, minWidth: 0 }}>
+          <div key={d.date} style={{ border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 9px', background: NX.surface, fontSize: 12, minWidth: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4, marginBottom: 4 }}>
               <span style={{ fontWeight: 700, color: NX.ink }}>{d.weekday.slice(0, 3)}</span>
               <span style={{ color: NX.faint }}>{formatDate(d.date).slice(0, 5)}</span>
@@ -177,7 +177,7 @@ export default function Scorecard() {
     <div style={{ fontFamily: FONT }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <Trophy size={16} style={{ color: 'hsl(var(--color-green))' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Scorecard</span>
+        <span style={{ fontSize: 13, fontWeight: 800 }}>Scorecard</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginLeft: 8 }}>
           <button style={btn('ghost')} aria-label="Previous week" onClick={() => setWeek(addDays(data.weekStart, -7))}><ChevronLeft size={15} /></button>
           <span style={{ fontSize: 13, fontWeight: 600, minWidth: 190, textAlign: 'center' }}>
@@ -199,7 +199,7 @@ export default function Scorecard() {
           <Mail size={14} /> {mail.busy ? 'Sending…' : 'Email Me This Report'}
         </button>
       </div>
-      {mail.text && <div role="status" style={{ fontSize: 12.5, fontWeight: 600, color: mail.ok ? NX.green : NX.red, marginBottom: 10 }}>{mail.text}</div>}
+      {mail.text && <div role="status" style={{ fontSize: 13, fontWeight: 600, color: mail.ok ? NX.green : NX.red, marginBottom: 10 }}>{mail.text}</div>}
       <ViewNotice shown={people.length} total={(data.people || []).length} />
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -247,14 +247,14 @@ export default function Scorecard() {
                 <div role="button" tabIndex={0} aria-expanded={isOpen} onClick={() => toggle(p.email)}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(p.email); } }}
                   style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 2fr) repeat(3, minmax(60px, 0.7fr)) minmax(150px, 1.4fr) minmax(120px, 1fr) repeat(3, minmax(52px, 0.5fr)) 28px',
-                    gap: 8, padding: '9px 12px', alignItems: 'center', fontSize: 12.5, cursor: 'pointer', background: isOpen ? meta.tint : 'transparent' }}>
+                    gap: 8, padding: '9px 12px', alignItems: 'center', fontSize: 13, cursor: 'pointer', background: isOpen ? meta.tint : 'transparent' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 700, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
-                    <div style={{ fontSize: 11.5, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {[p.jobTitle, p.managerName && `reports to ${p.managerName}`].filter(Boolean).join(' - ')}
                     </div>
                     {(p.missingPunches > 0 || p.activePct != null) && (
-                      <div style={{ fontSize: 11.5, color: p.missingPunches ? BAND_META.below.color : NX.faint }}>
+                      <div style={{ fontSize: 12, color: p.missingPunches ? BAND_META.below.color : NX.faint }}>
                         {[p.missingPunches ? `${p.missingPunches} missing punch${p.missingPunches === 1 ? '' : 'es'}` : '',
                           p.activePct != null ? `${p.activePct}% active at the computer` : ''].filter(Boolean).join(' - ')}
                       </div>
@@ -277,7 +277,7 @@ export default function Scorecard() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 14, fontSize: 11.5, color: NX.faint, lineHeight: 1.5 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 14, fontSize: 12, color: NX.faint, lineHeight: 1.5 }}>
         <Info size={13} style={{ flexShrink: 0, marginTop: 2 }} />
         <div>
           Expected hours come from each person's published shifts, else their shift preset, else the standard day

@@ -24,7 +24,7 @@ import { readIds, pushRecentId } from '../links/shortcutStorage';
 import { looksLikeUrl } from '../links/personalLinkModal.jsx';
 import { ModalLoading, CountSkeleton } from '../components/AsyncState';
 import { useBellLists } from '../lib/notificationCounts';
-import { MoreRow, WidgetSkeleton } from './listParts.jsx';
+import { MoreRow, WidgetSkeleton, WidgetError } from './listParts.jsx';
 import { colorForLinkCategory, PERSONAL_TILE_COLOR, useFavoriteLinks, openFavorite, FavoriteTileGrid } from './favoriteLinks.jsx';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
@@ -62,7 +62,6 @@ const PendingPurchasesWidget = lazyTeam('PendingPurchasesWidget');
 
 // Essentials (Oct 7) - one file per tile so each is its own chunk and loads
 // only when that tile is on the board.
-const MyDayWidget         = lazy(() => import('./essentials/MyDay.jsx'));
 const MyWorkWidget        = lazy(() => import('./essentials/MyWork.jsx'));
 const MyTimeWidget        = lazy(() => import('./essentials/MyTime.jsx'));
 const AnnouncementsWidget = lazy(() => import('./essentials/Announcements.jsx'));
@@ -149,7 +148,9 @@ export function DashCard({ title, sub, action, children, onClick, style }) {
 // Stat tile - the DeskHome dk-stat anatomy (tinted icon chip top-left, hover
 // arrow top-right, big tabular numeral) so Home and the custom grid read as
 // ONE design world. The old corner watercolor blob is gone on purpose.
-function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onClick, tip, noted }) {
+// `failed`: the count did not load - a hyphen and "Couldn't load", never a
+// 0 or a placeholder that stays forever; `onRetry` reads the counts again.
+function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onClick, tip, noted, failed, onRetry }) {
   const go = onClick || (() => nav && navigate(nav.view, nav.sub));
   const clickable = !!(onClick || nav);
   const I = Icon || BarChart3;
@@ -157,15 +158,20 @@ function StatCard({ label, value, color, Icon, nav, hint, hintShort, hero, onCli
     // dk-stat--tile: the grid's fixed-height cell (style.css) - the label
     // keeps to one line and the hint drops out when the tile is too short
     // for it, instead of the chip and hint spilling past the card's edges.
-    <div className={`dk-stat dk-stat--tile${hero ? ' dk-stat--hero' : ''}${noted ? ' dk-stat--noted' : ''}`} onClick={clickable ? go : undefined} role={clickable ? 'button' : undefined} title={tip || (hint ? `${label} - ${hint}` : label)}
+    <div className={`dk-stat dk-stat--tile${hero ? ' dk-stat--hero' : ''}${noted || failed ? ' dk-stat--noted' : ''}`} onClick={clickable ? go : undefined} role={clickable ? 'button' : undefined} title={tip || (hint ? `${label} - ${hint}` : label)}
       style={{ height: '100%', boxSizing: 'border-box', cursor: clickable ? 'pointer' : 'default', justifyContent: 'center' }}>
       <span className="dk-stat-top">
         <span className={`dk-chip dk-chip--${color}`}><I /></span>
         {clickable && <ArrowUpRight size={15} className="dk-stat-arrow" />}
       </span>
-      <span className="dk-stat-num">{value ?? <CountSkeleton />}</span>
+      <span className="dk-stat-num">{failed ? '-' : (value ?? <CountSkeleton />)}</span>
       <span className="dk-stat-label">{label}</span>
-      {hint && <span className="dk-stat-sub">{hintShort
+      {failed ? (
+        <span className="dk-stat-sub" role="alert" style={hero ? undefined : { color: 'hsl(var(--color-red))' }}>
+          Couldn't load.{onRetry && <> <button type="button" className="link-btn" style={{ marginTop: 0, padding: 0, fontSize: 12, color: 'inherit', textDecoration: 'underline' }}
+            onClick={(e) => { e.stopPropagation(); onRetry(); }}>Try Again</button></>}
+        </span>
+      ) : hint && <span className="dk-stat-sub">{hintShort
         ? <><span className="dk-sub-long">{hint}</span><span className="dk-sub-short">{hintShort}</span></>
         : hint}</span>}
     </div>
@@ -198,7 +204,12 @@ function useKpiValue(metric, kpis) {
   return kpis ? (kpis[metric] ?? 0) : null;
 }
 
-function KpiWidget({ config, kpis }) {
+// Did this metric's read fail? `err` is useDashboards' kpisError ({ kpis,
+// signatures }). The bell's count is never the server's, so it cannot.
+const kpiFailed = (metric, err) => !!err && (metric === 'signatures_needed' ? !!err.signatures
+  : metric !== 'unread_notifications' && !!err.kpis);
+
+function KpiWidget({ config, kpis, kpisError, reloadKpis }) {
   const { openPanel } = useNotifications();
   const metric = config?.metric;
   const value = useKpiValue(metric, kpis);
@@ -208,23 +219,25 @@ function KpiWidget({ config, kpis }) {
   const foot = FOOTNOTES[metric];
   const note = foot ? foot.note(kpis) : null;
   return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={note || meta.hint} hintShort={note ? foot.note(kpis, true) : undefined} hero={!!config?.hero} onClick={onClick}
-    tip={foot ? `${meta.label} - ${foot.rule}${note ? `. ${note}` : ''}` : undefined} noted={!!note} />;
+    tip={foot ? `${meta.label} - ${foot.rule}${note ? `. ${note}` : ''}` : undefined} noted={!!note}
+    failed={kpiFailed(metric, kpisError)} onRetry={reloadKpis} />;
 }
 
-function TeamStatWidget({ config, kpis }) {
+function TeamStatWidget({ config, kpis, kpisError, reloadKpis }) {
   const { openPanel } = useNotifications();
   const meta = KPI_CATALOG[config?.metric] || { label: config?.metric, color: 'green', Icon: Users };
   const onClick = config?.metric === 'unread_notifications' ? openPanel : undefined;
   const value = useKpiValue(config?.metric, kpis);
-  return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} onClick={onClick} />;
+  return <StatCard label={meta.label} value={value} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} onClick={onClick}
+    failed={kpiFailed(config?.metric, kpisError)} onRetry={reloadKpis} />;
 }
 
-function KpiBarWidget({ config, kpis }) {
+function KpiBarWidget({ config, kpis, kpisError, reloadKpis }) {
   const { openPanel } = useNotifications();
   const metrics = config?.metrics?.length ? config.metrics
     : ['open_tasks', 'pending_requisitions', 'my_checkouts', 'warranties_expiring'];
   const { unread } = useBellLists();
-  const rows = metrics.map(m => ({ m, v: m === 'unread_notifications' ? unread : (kpis ? (kpis[m] ?? 0) : null), meta: KPI_CATALOG[m] || { label: m, color: 'blue' } }));
+  const rows = metrics.map(m => ({ m, failed: kpiFailed(m, kpisError), v: m === 'unread_notifications' ? unread : (kpis ? (kpis[m] ?? 0) : null), meta: KPI_CATALOG[m] || { label: m, color: 'blue' } }));
   const max = Math.max(1, ...rows.map(r => r.v || 0));
   const clickFor = (r) => r.m === 'unread_notifications' ? openPanel : (r.meta.nav && (() => navigate(r.meta.nav.view, r.meta.nav.sub)));
   return (
@@ -238,9 +251,9 @@ function KpiBarWidget({ config, kpis }) {
           const onClick = clickFor(r);
           return (
           <div key={r.m} onClick={onClick || undefined} style={{ cursor: onClick ? 'pointer' : 'default' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12.5, marginBottom: 3 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, marginBottom: 3 }}>
               <span style={{ color: 'var(--muted)', fontWeight: 600, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.meta.label}>{r.meta.label}</span>
-              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.v ?? <CountSkeleton />}</strong>
+              <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{r.failed ? '-' : (r.v ?? <CountSkeleton />)}</strong>
             </div>
             <div style={{ height: 7, background: 'var(--mist)', borderRadius: 99, overflow: 'hidden' }}>
               <div style={{ width: `${((r.v || 0) / max) * 100}%`, height: '100%', background: C(r.meta.color), borderRadius: 99 }} />
@@ -248,6 +261,7 @@ function KpiBarWidget({ config, kpis }) {
           </div>
           );
         })}
+        {rows.some(r => r.failed) && <WidgetError message="Couldn't load these counts." onRetry={reloadKpis} />}
       </div>
     </DashCard>
   );
@@ -278,7 +292,7 @@ function ShortcutWidget({ config }) {
 function LinkRow({ t, onClick }) {
   return (
     <button onClick={onClick} className="dash-link-row"
-      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 8px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontSize: 13.5, color: 'var(--ink)', fontFamily: 'var(--wk-font)', width: '100%' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 8px', border: 'none', background: 'none', borderRadius: 8, cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--wk-font)', width: '100%' }}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
       onMouseLeave={e => e.currentTarget.style.background = 'none'}>
       <ArrowRight size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} /> {labelFor(t)}
@@ -386,6 +400,7 @@ const LINKS_FOLDER_PREVIEW_COUNT = 3;
 function LinksFolderWidget({ config }) {
   const [state, setState] = useState({ loading: true, folder: null, links: [] });
   const [showAll, setShowAll] = useState(false);
+  const [tries, setTries] = useState(0);   // Try Again after a failed load
   useEffect(() => {
     let alive = true;
     if (!config?.folderId) { setState({ loading: false, folder: null, links: [] }); return undefined; }
@@ -403,9 +418,10 @@ function LinksFolderWidget({ config }) {
         .map(i => byId.get(i.item_id))
         .filter(Boolean);
       setState({ loading: false, folder, links });
-    }).catch(() => { if (alive) setState({ loading: false, folder: null, links: [] }); });
+      // A failed load is said: it used to read "This folder no longer exists".
+    }).catch(() => { if (alive) setState({ loading: false, folder: null, links: [], error: true }); });
     return () => { alive = false; };
-  }, [config?.folderId, config?.itemType]);
+  }, [config?.folderId, config?.itemType, tries]);
 
   const open = (link) => {
     window.open(link.url, '_blank', 'noopener,noreferrer');
@@ -415,7 +431,7 @@ function LinksFolderWidget({ config }) {
   if (!config?.folderId) {
     return (
       <DashCard title="Links Folder">
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
           No folder picked yet - Customize, then use the gear on this tile to choose one.
         </div>
       </DashCard>
@@ -428,12 +444,14 @@ function LinksFolderWidget({ config }) {
       action={<FolderOpen size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
         <WidgetSkeleton />
+      ) : state.error ? (
+        <WidgetError message="Couldn't load this folder." onRetry={() => { setState(s => ({ ...s, loading: true })); setTries(n => n + 1); }} />
       ) : !state.folder ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
           This folder no longer exists - edit this tile to pick a different one.
         </div>
       ) : state.links.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>This folder is empty.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>This folder is empty.</div>
       ) : (
         // Grid (not the shared .app-grid flex-wrap) so a handful of tiles
         // stretch to fill the card's full width instead of hugging the left
@@ -472,7 +490,7 @@ function LinksFolderWidget({ config }) {
 // Both reuse the Links Folder tile and its "All" popup above, so a link looks
 // the same whether it's opened from the Links tab or from the dashboard.
 
-const noteStyle = { fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
+const noteStyle = { fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
 const tileGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(76px, 1fr))', gap: '14px 10px' };
 
 // Open a link in a new tab and record the click the same way the Links tab
@@ -588,13 +606,15 @@ function PersonalLinksWidget() {
   const [showAll, setShowAll] = useState(false);
   const [composer, setComposer] = useState(null); // { initialUrl }
   const [note, setNote] = useState('');
+  const [tries, setTries] = useState(0);   // Try Again after a failed load
   useEffect(() => {
     let alive = true;
     api.getPersonalLinks()
       .then(p => { if (alive) setState({ loading: false, links: sortPersonalLinks(p || []) }); })
-      .catch(() => { if (alive) setState({ loading: false, links: [] }); });
+      // A failed load is said: it used to read as no links at all.
+      .catch(() => { if (alive) setState({ loading: false, links: [], error: true }); });
     return () => { alive = false; };
-  }, []);
+  }, [tries]);
   const closeComposer = (res) => {
     setComposer(null);
     if (res?.created) setState(s => ({ ...s, links: sortPersonalLinks([...s.links, res.created]) }));
@@ -619,6 +639,8 @@ function PersonalLinksWidget() {
         action={<Lock size={15} style={{ color: 'var(--muted)' }} />}>
         {state.loading ? (
           <WidgetSkeleton />
+        ) : state.error ? (
+          <WidgetError message="Couldn't load your links." onRetry={() => { setState(s => ({ ...s, loading: true })); setTries(n => n + 1); }} />
         ) : (
           <>
             <LinkTileGrid links={state.links} colorFor={() => PERSONAL_TILE_COLOR} onOpen={open}
@@ -984,7 +1006,7 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
         </span>
       ) : <Bell size={15} style={{ color: 'var(--muted)' }} />}>
       {list.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>You're all caught up.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>You're all caught up.</div>
       ) : (
         <div>
           {list.map((n, i) => {
@@ -998,7 +1020,8 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
                   background: n.read ? 'transparent' : C('blue') }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="task-title" style={{ fontWeight: n.read ? 500 : 600, color: n.read ? 'var(--muted)' : 'var(--ink)' }}>{n.title || 'Notification'}</div>
-                  {n.body && <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
+                  {/* Bell bodies carry **bold** markers; this one-line preview is plain text. */}
+                  {n.body && <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{String(n.body).replace(/\*\*/g, '')}</div>}
                 </div>
                 {dismiss && (
                   <button onClick={(e) => { e.stopPropagation(); dismiss(n.id); }} title="Clear" aria-label="Clear Notification"
@@ -1038,10 +1061,10 @@ function ClockWidget() {
     // two columns a 30px "12:45 PM" was wider than the card.
     <div className="dash-card clock-tile" onClick={() => navigate('timeclock')}
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 3, cursor: 'pointer', overflow: 'hidden' }}>
-      <div className="clock-tile-line" style={{ fontSize: 13.5, color: 'var(--wk-dim)', fontWeight: 600 }}>{greet}</div>
+      <div className="clock-tile-line" style={{ fontSize: 13, color: 'var(--wk-dim)', fontWeight: 600 }}>{greet}</div>
       <div className="clock-tile-time">{formatTime(now)}</div>
-      <div className="clock-tile-line" style={{ fontSize: 12.5, color: 'var(--wk-faint)' }}>{formatDayLong(now)}</div>
-      <div className="clock-tile-line clock-tile-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontSize: 12.5, fontWeight: 600, marginTop: 9 }}>
+      <div className="clock-tile-line" style={{ fontSize: 13, color: 'var(--wk-faint)' }}>{formatDayLong(now)}</div>
+      <div className="clock-tile-line clock-tile-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--wk-green)', fontSize: 13, fontWeight: 600, marginTop: 9 }}>
         <Clock size={13} /> Open Time Clock <ArrowRight size={12} />
       </div>
     </div>
@@ -1101,9 +1124,15 @@ export const WIDGETS = {
   // Quick Actions (styles Oct 13): the size, the resize bounds and the phone
   // height all follow the style in the tile's config - a bare icon dock is
   // one row on a phone, the list keeps what it had.
+  // RETIRED (Neil, 11/13/2026: "Remove the quick actions widget from
+  // dashboard"): the header's bolt starts things from every screen. The key
+  // stays so a saved board still loads; the tile is hidden from every board
+  // and the gallery (widgetHidden), never deleted from a saved layout, and no
+  // tile stands in for it. Never bring it back - a new way to start something
+  // is a row in lib/quickCreate.js.
   'quick-actions': { title: 'Quick Actions', cat: 'Actions',   icon: ListTodo,         size: QUICK_SIZE.icons, limits: QUICK_LIMITS.list, render: QuickActionsWidget, configurable: 'quick-actions',
                      sizeWhen: (config) => QUICK_SIZE[quickStyleOf(config)], limitsWhen: (config) => QUICK_LIMITS[quickStyleOf(config)],
-                     phoneRowsWhen: (config) => (quickStyleOf(config) === 'icons' ? 1 : undefined) },
+                     phoneRowsWhen: (config) => (quickStyleOf(config) === 'icons' ? 1 : undefined), hidden: true, retired: true },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget, fit: true },
   // 'agenda' is the pre-merge widget type (My Agenda, list-only) - kept as a
   // hidden alias so dashboards that already have one keep working, but it now
@@ -1148,9 +1177,14 @@ export const WIDGETS = {
   // Project-Wise Tasks, Team Calendar) were removed the same day; a saved
   // layout that still carries one of those keys renders CustomDashboard's
   // "Unknown widget" card, never a crash.
-  // Shown as "Action Required" since Oct 23 2026 (Neil): Tasks has its own
-  // My Day list now. The key stays 'my-day' - saved boards point at it.
-  'my-day':        { title: 'Action Required', aka: ['My Day'], cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyDayWidget, fit: true },
+  // Action Required (the old My Day tile), retired (Neil, 11/13/2026): My
+  // Work is the one list of what is mine, and a decision on someone else's
+  // request is in Dashboard > Approvals. Gone from every board and the
+  // gallery via widgetHidden; the key stays so saved layouts that carry it
+  // load cleanly, and a board that had it without My Work gets My Work in
+  // its place on load (useDashboards.swapRetired). Never drawn - `render`
+  // is My Work's only so the entry has one.
+  'my-day':        { title: 'Action Required', aka: ['My Day'], cat: 'Workday', icon: Sun,        size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget, fit: true, hidden: true, retired: true },
   'my-work':       { title: 'My Work',       cat: 'Workday', icon: Briefcase,  size: { w: 4, h: 5 }, limits: { minW: 3, minH: 4, maxW: 8, maxH: 8 },  render: MyWorkWidget, fit: true },
   // My Time (Oct 8, Neil): the simple punch tile - status, Punch In / Out /
   // Start Break / End Break, today's hours; the card opens Workday for the

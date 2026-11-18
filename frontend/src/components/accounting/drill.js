@@ -24,7 +24,10 @@ let pending = null;
 
 export function requestReportDrill(detail) {
   pending = { ...detail };
-  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'accounting', sub: STATEMENTS_SUB } }));
+  // A statement may name which one opens (`sub`, Entities 11/17/2026: an
+  // entity's Balance Sheet); everything else lands on the Income Statement.
+  const sub = /^rpt-[a-z0-9-]+$/.test(detail?.sub || '') ? detail.sub : STATEMENTS_SUB;
+  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'accounting', sub } }));
   window.dispatchEvent(new CustomEvent('nexus:accounting-drill', { detail: pending }));
 }
 
@@ -60,6 +63,15 @@ export function takeDrillReturn(screen) {
     sessionStorage.removeItem(RETURN_KEY);
     return v.state || null;
   } catch { return null; }
+}
+
+// 11/11/2026 (Neil: "do 4"): a dashboard total made of many accounts (YTD
+// Revenue, Expenses, Net Income) opens the Income Statement itself for the same
+// window, entities and book - every line of it drills to its ledger lines there.
+//
+//   requestStatement({ entities: ['32000'], from: '2026-01-01', to: '2026-10-31', book: 'accrual' })
+export function requestStatement({ entities = [], from, to, book = '', report = '' }) {
+  requestReportDrill({ statement: { entities, from, to, ...(book ? { book } : {}) }, ...(report ? { sub: `rpt-${report}` } : {}) });
 }
 
 export function takePendingDrill() {

@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const PREFS = {
   daily_briefing: { label: 'Daily Briefing', on: true },
-  weekly_digest: { label: 'Weekly Digest', on: true },
+  weekly_digest: { label: 'Weekly Briefing', on: true },
   whats_new_digest: { label: "What's New Weekly Digest", on: false },
   ticket_weekly_report: { label: 'Weekly Ticket Report', on: true, unset: true },
 };
@@ -33,9 +33,9 @@ describe('DigestEmailPrefs', () => {
     setPendingEmailStop('weekly_digest');
     render(<DigestEmailPrefs />);
     await waitFor(() => expect(mockApi.setMyEmailOptout).toHaveBeenCalledWith('weekly_digest', false));
-    expect(mockDialog.confirm.mock.calls[0][0]).toContain('Stop the Weekly Digest emails?');
+    expect(mockDialog.confirm.mock.calls[0][0]).toContain('Stop the Weekly Briefing emails?');
     expect(mockDialog.confirm.mock.calls[0][1]).toMatchObject({ confirmText: 'Stop', cancelText: 'Keep' });
-    expect(await screen.findByText('Done. You will no longer get the Weekly Digest.')).toBeTruthy();
+    expect(await screen.findByText('Done. You will no longer get the Weekly Briefing.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Start It Again' }));
     await waitFor(() => expect(mockApi.setMyEmailOptout).toHaveBeenLastCalledWith('weekly_digest', true));
   });

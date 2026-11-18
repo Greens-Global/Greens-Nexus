@@ -77,7 +77,8 @@ export function useColumnWidths(tableKey, defaults = {}, { min = 60, max = 1200 
       const l = liveRef.current;
       liveRef.current = null;
       setLive(null);
-      if (l) setWidth(l.key, l.w);
+      // A press with no drag writes nothing (it used to save the same width again).
+      if (l && l.w !== (Number(saved[l.key]) || defaults[l.key])) setWidth(l.key, l.w);
     },
     onFit: (w) => (w > 0 ? setWidth(key, w) : reset(key)),
   });

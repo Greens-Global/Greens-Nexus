@@ -17,7 +17,7 @@ import { formatDateTime } from '../lib/datetime';
 import { openNotificationTarget } from '../lib/openTarget';
 import { ticketNo } from './ticketMeta';
 
-const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+const fieldLabel = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
 // What became of a message - TicketInboundEmail.outcome.
 const OUTCOME_META = {
@@ -78,8 +78,8 @@ export function TicketInboundSettings({ cfg, set }) {
     <div style={{ borderTop: `1px solid ${NX.border2}`, paddingTop: 14, marginTop: 4 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 600 }}>Email to Ticket</div>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Email to Ticket</div>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 2 }}>
             A new email to the support mailbox from someone on the Nexus People list becomes a ticket,
             and a reply to a ticket email becomes a comment on that ticket.
           </div>
@@ -92,18 +92,18 @@ export function TicketInboundSettings({ cfg, set }) {
           <label style={fieldLabel}>Support Mailbox</label>
           <input value={mailbox} onChange={(e) => set('inboundMailbox', e.target.value)}
             placeholder="support@companydomain.com" style={inputStyle} />
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 4, marginBottom: 12 }}>
             Its own mailbox - never the Tasks reply mailbox. Ticket emails are sent with a per-ticket reply
             address{mailbox.includes('@') ? <> like <code style={{ fontSize: 11, color: NX.dim }}>{mailbox.split('@')[0]}+t1a2b…@{mailbox.split('@')[1]}</code></> : ''},
             so a reply reaches its own ticket.
           </div>
 
           <label style={fieldLabel}>Default Department for New Tickets</label>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 8 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginBottom: 8 }}>
             Per company, from the sender&apos;s People record. A company with none set has its new emails refused.
           </div>
           {companies === null ? <LoadingState compact /> : companies.length === 0 ? (
-            <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 12 }}>No companies set up yet.</div>
+            <div style={{ fontSize: 13, color: NX.faint, marginBottom: 12 }}>No companies set up yet.</div>
           ) : (
             <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
               {companies.map((co) => (
@@ -120,7 +120,7 @@ export function TicketInboundSettings({ cfg, set }) {
 
           <div style={{
             background: NX.surface2, border: `1px solid ${NX.border2}`, borderRadius: 9,
-            padding: '10px 12px', fontSize: 11.5, color: NX.dim, marginBottom: 12,
+            padding: '10px 12px', fontSize: 12, color: NX.dim, marginBottom: 12,
           }}>
             Needs the Mail.ReadWrite application permission on this mailbox. Mail from outside the company,
             guests, people who left, automated mail and replies from someone who cannot see the ticket are
@@ -134,7 +134,7 @@ export function TicketInboundSettings({ cfg, set }) {
             {result && <span style={{ fontSize: 12, color: NX.green }}>{result}</span>}
             {err && <span style={{ fontSize: 12, color: NX.red }}>{err}</span>}
           </div>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 6 }}>
             Save first - this uses the saved settings. The deployed API checks the mailbox every minute on its own.
           </div>
         </div>
@@ -170,7 +170,7 @@ export default function TicketInboundLog({ enabled = true, mailbox = '' }) {
   return (
     <div>
       {!enabled && (
-        <div style={{ ...card, padding: 12, marginBottom: 12, fontSize: 12.5, color: NX.dim, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ ...card, padding: 12, marginBottom: 12, fontSize: 13, color: NX.dim, display: 'flex', alignItems: 'center', gap: 8 }}>
           <AlertTriangle size={14} style={{ color: NX.amber, flexShrink: 0 }} />
           The support mailbox is not being read right now. Turn on Email to Ticket under Settings.
         </div>
@@ -180,7 +180,7 @@ export default function TicketInboundLog({ enabled = true, mailbox = '' }) {
           options={[['', 'All Messages'], ['created', 'Ticket Created'], ['comment', 'Comment Added'],
             ['refused', 'Refused'], ['failed', 'Failed']]} />
         <button type="button" style={btn('ghost')} onClick={load} title="Refresh" aria-label="Refresh"><RefreshCw size={14} /></button>
-        {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
+        {err && <span style={{ fontSize: 13, color: NX.red }}>{err}</span>}
       </div>
       {rows === null ? <LoadingState compact /> : rows.length === 0 ? (
         <div style={{ fontSize: 13, color: NX.faint, padding: 16, textAlign: 'center' }}>
@@ -193,13 +193,13 @@ export default function TicketInboundLog({ enabled = true, mailbox = '' }) {
             return (
               <div key={r.id} style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', flexWrap: 'wrap',
-                borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5,
+                borderBottom: `1px solid ${NX.border2}`, fontSize: 13,
               }}>
                 <StatusLabel label={meta.label} color={meta.color} size="sm" />
                 <span style={{ flexShrink: 0, width: 92 }}>
                   {r.ticketId ? (
                     <button type="button" onClick={() => openTicket(r.ticketId)} title="Open this ticket"
-                      style={{ ...btn('ghost'), padding: 0, fontSize: 12.5, fontWeight: 700, color: NX.blue }}>
+                      style={{ ...btn('ghost'), padding: 0, fontSize: 13, fontWeight: 700, color: NX.blue }}>
                       {ticketNo(r.ticketCode) || 'Open'}
                     </button>
                   ) : <span style={{ color: NX.faint }}>-</span>}

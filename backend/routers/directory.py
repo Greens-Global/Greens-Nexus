@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 
 import auth
 import cache
+import person_zone
 from database import get_db
 from models import (HrCompanyHoliday, HrDepartment, HrEntity, HrLeaveRequest, NexusEmployee,
                     ScheduledShift, TimeOffRequest, TimePunch)
@@ -95,7 +96,12 @@ def _tz_name(emp, punch_offset_min, punch_at: str | None = None) -> str:
     the map gives a name whose offset agrees with it when one is known.
     The offset is compared AT THE PUNCH'S INSTANT: an October punch in
     California (PDT, 420) read after the November switch to PST must still
-    name Los Angeles, not the zone that is UTC-7 today (Phoenix)."""
+    name Los Angeles, not the zone that is UTC-7 today (Phoenix).
+    A zone the person set for themselves (My Profile > Date & Time,
+    nexus_employees.time_zone, 11/13/2026) wins over every guess."""
+    own = person_zone.of(emp)
+    if own:
+        return own
     state = (emp.state or "").strip()
     code = state.upper() if len(state) == 2 else _STATE_NAMES.get(state.lower(), "")
     country = (emp.country or "").strip().upper()
@@ -114,6 +120,35 @@ def _tz_name(emp, punch_offset_min, punch_at: str | None = None) -> str:
         if off is not None and int(off.total_seconds() // 60) == want:
             return name
     return guess
+
+
+def inferred_zone(db: Session, emp) -> str:
+    """What the directory works out for a person who has set no zone of
+    their own: state / country and their latest punch's offset, as
+    _availability does. My Profile shows it to the person as "Detected"."""
+    email = (getattr(emp, "work_email", "") or "").lower()
+    pu = None
+    if email:
+        since = (datetime.now(timezone.utc) - timedelta(days=_RECENT_PUNCH_DAYS)).isoformat()
+        pu = (db.query(TimePunch.tz_offset_min, TimePunch.at)
+                .filter(TimePunch.at >= since, TimePunch.voided == 0)
+                .filter(func.lower(TimePunch.employee_email) == email)
+                .order_by(TimePunch.at.desc()).first())
+    guess = _Emp({"state": getattr(emp, "state", "") or "", "country": (getattr(emp, "country", "") or "").upper()})
+    return _tz_name(guess, pu[0] if pu else None, pu[1] if pu else None)
+
+
+def picker_zone(emp) -> str:
+    """A person's zone for the people pickers (/myhr/directory, cached per
+    company wall): the one they set, else the state / country guess - and
+    '' when there is nothing to guess from (the punch offset is live data
+    and stays out of that cache), so nothing is said about their clock."""
+    own = person_zone.of(emp)
+    if own:
+        return own
+    if not ((emp.state or "").strip() or (emp.country or "").strip()):
+        return ""
+    return _tz_name(_Emp({"state": emp.state or "", "country": (emp.country or "").upper()}), None)
 
 
 def _punch_instant(at: str | None) -> datetime:
@@ -215,6 +250,11 @@ def _roster(db: Session, scope) -> dict:
             "photoUrl": e.photo_url or "",
             "status": e.status or "active",                    # onboarding | active | inactive
             "employmentType": e.employment_type or "",
+            # Their own working hours, "HH:MM" in their zone ('' = not set) -
+            # so a colleague can tell it is late for them before reaching out.
+            "workStart": e.work_start or "",
+            "workEnd": e.work_end or "",
+            "_tz": person_zone.of(e),                          # the zone they set; `timeZone` is stamped per call
             "_id": e.id,                                       # for the leave join; stripped before send
             "_m365": e.m365_id or "",                          # for Teams presence; stripped before send
         })
@@ -339,12 +379,14 @@ def _availability(db: Session, people: list) -> None:
 
 
 class _Emp:
-    """Duck-typed view of a roster dict for _tz_name (state / country)."""
-    __slots__ = ("state", "country")
+    """Duck-typed view of a roster dict for _tz_name (state / country, and
+    the zone the person set for themselves)."""
+    __slots__ = ("state", "country", "time_zone")
 
     def __init__(self, p: dict):
         self.state = p.get("state", "")
         self.country = p.get("country", "")
+        self.time_zone = p.get("_tz", "")
 
 
 def _in_zone(iso: str, tz: str) -> str:
@@ -390,6 +432,7 @@ def contact_directory(user: dict = Depends(get_current_user), db: Session = Depe
     for p in people:
         p.pop("_id", None)
         p.pop("_m365", None)
+        p.pop("_tz", None)
     out = {
         "people": people,
         "departments": roster["departments"],

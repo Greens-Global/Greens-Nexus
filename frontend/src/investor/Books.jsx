@@ -31,7 +31,7 @@ function Head({ title, sub, right }) {
   );
 }
 
-const Muted = ({ children }) => <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{children}</div>;
+const Muted = ({ children }) => <div style={{ fontSize: 13, color: 'var(--muted)' }}>{children}</div>;
 
 // An amount that opens the ledger lines behind it (when it has accounts).
 function Amt({ value, onDrill, color }) {
@@ -79,7 +79,7 @@ function MembershipCell({ fundId, member, onSaved }) {
           aria-label={`${member.name} membership percentage`}
           onChange={e => { setValue(e.target.value); setState(''); }} onBlur={save}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); save(); } }}
-          style={{ width: 76, textAlign: 'right', padding: '3px 6px', fontSize: 12.5 }} />%
+          style={{ width: 76, textAlign: 'right', padding: '3px 6px', fontSize: 13 }} />%
       </span>
       {state && state !== 'saving' && <span style={{ fontSize: 11, color: 'hsl(var(--color-red))' }}>{state}</span>}
     </span>
@@ -93,7 +93,7 @@ function Tiles({ items }) {
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px 16px', marginBottom: 14 }}>
       {items.map(([label, value, onDrill]) => (
         <div key={label}>
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
             <Amt value={value} onDrill={onDrill} />
           </div>
@@ -141,7 +141,7 @@ function EntityLink({ fundId, current, onSaved }) {
           <button type="button" className="secondary-btn" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
         </div>
       )}
-      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{err}</div>}
+      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{err}</div>}
     </div>
   );
 }
@@ -195,7 +195,7 @@ export function DealBooks({ fundId, onChanged }) {
                   {importing ? <Spinner size={12} /> : <Download size={13} />} Add {unlinked} Profile{unlinked === 1 ? '' : 's'}
                 </button>
               )} />
-            {note && <div style={{ fontSize: 12.5, color: 'var(--ink)', marginBottom: 8 }}>{note}</div>}
+            {note && <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 8 }}>{note}</div>}
             {pcts.length > 0 && Math.abs(pctTotal - 100) > 0.005 && (
               <div style={{ fontSize: 12, color: 'var(--warn-fg)', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
                 <AlertTriangle size={12} /> Membership adds up to {+pctTotal.toFixed(4)}%, not 100%{pcts.length < members.length ? ` - ${members.length - pcts.length} member${members.length - pcts.length === 1 ? '' : 's'} not set` : ''}.
@@ -212,9 +212,9 @@ export function DealBooks({ fundId, onChanged }) {
                         <tr key={m.investorId || m.name}>
                           <td>
                             <div style={{ fontWeight: 600 }}>{m.name}</div>
-                            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{m.investorId ? `Accounts ${m.accounts.join(', ')}` : 'No profile yet'}</div>
+                            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{m.investorId ? `Accounts ${m.accounts.join(', ')}` : 'No profile yet'}</div>
                             {gap && (
-                              <div style={{ fontSize: 11.5, color: 'var(--warn-fg)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                              <div style={{ fontSize: 12, color: 'var(--warn-fg)', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
                                 <AlertTriangle size={11} /> Nexus capital calls show {formatCurrency(m.nexus.called)} paid in
                               </div>
                             )}
@@ -290,7 +290,7 @@ function AccountPicker({ investorId, current, onSaved, onCancel }) {
               <input type="checkbox" checked={on} disabled={!mine.length} onChange={() => toggle(p)} style={{ marginTop: 3 }} />
               <span style={{ minWidth: 0 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{p.name}</span>
-                <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)' }}>
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>
                   {p.accounts.map(a => a.accountNo).join(', ')}{taken ? ` - linked to ${taken.investorName}` : ''}
                 </span>
               </span>
@@ -301,11 +301,11 @@ function AccountPicker({ investorId, current, onSaved, onCancel }) {
         {stale.map(a => (
           <label key={a} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
             <input type="checkbox" checked={picked.has(a)} onChange={() => flip(a)} />
-            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{a} - no longer in the chart of accounts</span>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>{a} - no longer in the chart of accounts</span>
           </label>
         ))}
       </div>
-      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{err}</div>}
+      {err && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{err}</div>}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button type="button" className="secondary-btn" disabled={busy} onClick={onCancel}>Cancel</button>
         <button type="button" className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -347,7 +347,7 @@ export function InvestorBooks({ investorId, onChanged }) {
                   <tr key={x.entity}>
                     <td>
                       <div style={{ fontWeight: 600 }}>{x.name}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{x.entity}{x.fundName ? ` - Deal: ${x.fundName}` : ''}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{x.entity}{x.fundName ? ` - Deal: ${x.fundName}` : ''}</div>
                     </td>
                     <td data-th="Membership" style={num}>{x.membershipPct == null ? '-' : `${x.membershipPct}%`}</td>
                     <td data-th="Contributed" style={num}><Amt value={x.contributed} onDrill={at(`${x.name} - Contributed`, ofKind(x.accounts, 'contributed'), x.entity)} /></td>
@@ -399,8 +399,8 @@ export function ImportFromBooks({ onClose, onDone }) {
                     <tr key={e.code}>
                       <td>
                         <div style={{ fontWeight: 600 }}>{e.name}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{e.code}</div>
-                        {msg[e.code] && <div style={{ fontSize: 11.5, color: 'var(--ink)', marginTop: 2 }}>{msg[e.code]}</div>}
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{e.code}</div>
+                        {msg[e.code] && <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 2 }}>{msg[e.code]}</div>}
                       </td>
                       <td data-th="Members" style={num}>{e.members}</td>
                       <td data-th="Partner Capital" style={num}>{formatCurrency(e.partnerCapital)}</td>

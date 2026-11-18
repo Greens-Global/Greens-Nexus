@@ -73,7 +73,7 @@ export default function CampaignTable({ campaigns, onToggleStatus, searchable, s
       <div className="mktg-hscroll" style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid ' + C.gray100, color: C.gray400, fontSize: 10.5, textTransform: 'uppercase' }}>
+            <tr style={{ borderBottom: '1px solid ' + C.gray100, color: C.gray400, fontSize: 11, textTransform: 'uppercase' }}>
               {columns.map((col, i) => (
                 <th key={col.key} style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px', paddingLeft: i === 0 ? 0 : 10, whiteSpace: 'nowrap' }}>
                   <button

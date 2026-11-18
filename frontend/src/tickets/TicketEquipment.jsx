@@ -16,7 +16,7 @@ import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { dialog as appDialog } from '../ui/dialog';
 
-const hint = (text) => <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>{text}</div>;
+const hint = (text) => <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>{text}</div>;
 
 /** "GG-00012" or the asset tag - whichever the item has, serial first. */
 function itemTag(item) {
@@ -68,9 +68,9 @@ export function EquipmentPicker({ params, takenIds = [], onPick, onClose, busy =
       </div>
       <div role="listbox" aria-label="Equipment" style={{ maxHeight: 240, overflowY: 'auto', marginTop: 6 }}>
         {loading && items.length === 0 && <SkeletonBlocks count={3} height={34} />}
-        {error && <div style={{ fontSize: 12.5, color: NX.red, padding: 8 }}>{error}</div>}
+        {error && <div style={{ fontSize: 13, color: NX.red, padding: 8 }}>{error}</div>}
         {!loading && !error && shown.length === 0 && (
-          <div style={{ fontSize: 12.5, color: NX.faint, padding: 8 }}>
+          <div style={{ fontSize: 13, color: NX.faint, padding: 8 }}>
             {q ? 'No equipment matches that search.' : 'No equipment you can link. Equipment assigned to you or checked out by you shows here.'}
           </div>
         )}
@@ -83,7 +83,7 @@ export function EquipmentPicker({ params, takenIds = [], onPick, onClose, busy =
             <Laptop size={14} style={{ color: NX.faint, flexShrink: 0 }} />
             <span style={{ minWidth: 0, flex: 1 }}>
               <span style={{ display: 'block', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.name}</span>
-              <span style={{ display: 'block', fontSize: 11.5, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{itemSub(i)}</span>
+              <span style={{ display: 'block', fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{itemSub(i)}</span>
             </span>
             {i.mine && <span style={{ ...chip(NX.blue, 'rgba(37,99,235,0.12)'), fontSize: 11, padding: '1px 7px', flexShrink: 0 }}>Yours</span>}
           </button>
@@ -98,7 +98,7 @@ function ItemChip({ item, onRemove }) {
   const gone = item.removed || item.deleted;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, maxWidth: '100%', padding: '4px 8px 4px 10px',
-      borderRadius: 999, border: `1px solid ${NX.border2}`, background: NX.surface2, fontSize: 12.5, color: NX.ink }}>
+      borderRadius: 999, border: `1px solid ${NX.border2}`, background: NX.surface2, fontSize: 13, color: NX.ink }}>
       <Laptop size={13} style={{ color: NX.faint, flexShrink: 0 }} />
       <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
         title={itemSub(item) || item.name}>
@@ -106,8 +106,8 @@ function ItemChip({ item, onRemove }) {
         {itemTag(item) && <span style={{ color: NX.dim }}> · {itemTag(item)}</span>}
         {(item.assignedToName || item.assignedToEmail) && <span style={{ color: NX.faint }}> · {item.assignedToName || item.assignedToEmail}</span>}
       </span>
-      {gone && <span style={{ ...chip(NX.faint, NX.border2), fontSize: 10.5, padding: '0 6px' }}>{item.removed ? 'Removed' : 'Deleted'}</span>}
-      {item.restricted && <span title="This item belongs to another company" style={{ ...chip(NX.faint, NX.border2), fontSize: 10.5, padding: '0 6px' }}>Other Company</span>}
+      {gone && <span style={{ ...chip(NX.faint, NX.border2), fontSize: 11, padding: '0 6px' }}>{item.removed ? 'Removed' : 'Deleted'}</span>}
+      {item.restricted && <span title="This item belongs to another company" style={{ ...chip(NX.faint, NX.border2), fontSize: 11, padding: '0 6px' }}>Other Company</span>}
       {onRemove && (
         <button type="button" onClick={onRemove} aria-label={`Remove ${item.name}`} title="Remove"
           style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={12} /></button>
@@ -183,7 +183,7 @@ function OtherTickets({ item }) {
             return (
               <button key={x.id} type="button" onClick={() => openTicket(x.id)}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', border: 'none', borderRadius: 6,
-                  background: 'transparent', cursor: 'pointer', textAlign: 'left', font: 'inherit', fontSize: 12.5, color: NX.ink }}>
+                  background: 'transparent', cursor: 'pointer', textAlign: 'left', font: 'inherit', fontSize: 13, color: NX.ink }}>
                 <span style={{ color: NX.dim, flexShrink: 0 }}>{ticketNoShort(x.code)}</span>
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.subject}</span>
                 <StatusLabel size="sm" label={m.label} color={m.color} />
@@ -226,9 +226,9 @@ export function TicketEquipment({ ticketId }) {
 
   if (error) {
     return (
-      <div style={{ fontSize: 12.5, color: NX.faint }}>
+      <div style={{ fontSize: 13, color: NX.faint }}>
         <span>{error}</span>{' '}
-        <button type="button" onClick={retry} style={{ ...btn('ghost'), padding: '0 4px', fontSize: 12.5, color: NX.primary }}>Try Again</button>
+        <button type="button" onClick={retry} style={{ ...btn('ghost'), padding: '0 4px', fontSize: 13, color: NX.primary }}>Try Again</button>
       </div>
     );
   }
@@ -236,7 +236,7 @@ export function TicketEquipment({ ticketId }) {
   const items = Array.isArray(data.items) ? data.items : [];
   return (
     <div>
-      {items.length === 0 && !data.canLink && <span style={{ fontSize: 12.5, color: NX.faint }}>No equipment linked.</span>}
+      {items.length === 0 && !data.canLink && <span style={{ fontSize: 13, color: NX.faint }}>No equipment linked.</span>}
       {items.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
           {items.map((i) => (

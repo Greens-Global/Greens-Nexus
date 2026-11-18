@@ -47,7 +47,7 @@ export default class RootErrorBoundary extends Component {
           <div style={{ width: 48, height: 48, borderRadius: 13, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
             <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>
           </div>
-          <div style={{ fontWeight: 700, fontSize: 17, color: '#111827', marginBottom: 8 }}>Just a moment</div>
+          <div style={{ fontWeight: 700, fontSize: 18, color: '#111827', marginBottom: 8 }}>Just a moment</div>
           <div style={{ fontSize: 14, color: '#6b7280', lineHeight: 1.55, marginBottom: 22 }}>
             Nexus had trouble loading - this is almost always a brief hiccup. Reloading will get you right back in.
           </div>

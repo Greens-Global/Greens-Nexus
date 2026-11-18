@@ -161,17 +161,17 @@ export default function PhotoEditorModal({ employee: e, photoUrl, title = 'Profi
               style={{ flex: 1, accentColor: 'var(--pine)' }} />
             <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>+</span>
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Drag to reposition · slide to zoom · Ctrl+V to paste a screenshot</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Drag to reposition · slide to zoom · Ctrl+V to paste a screenshot</div>
         </div>
         <div style={{ padding: '14px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-          <label className="secondary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+          <label className="secondary-btn" style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
             <Camera size={13} /> {imgSrc ? 'Change photo' : 'Choose photo'}
             <input type="file" accept="image/jpeg,image/png,image/webp" hidden
               onChange={ev => { pickFile(ev.target.files?.[0]); ev.target.value = ''; }} />
           </label>
           {onRemove && initialUrl && (
             <button className="secondary-btn" onClick={remove} disabled={busy}
-              style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, color: 'hsl(var(--color-red))' }}>
+              style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, color: 'hsl(var(--color-red))' }}>
               <Trash2 size={13} /> Remove photo
             </button>
           )}

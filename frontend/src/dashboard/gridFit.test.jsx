@@ -15,20 +15,22 @@ vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => 
 
 import DashboardGrid, { fitTops, FIT_MIN_PX } from './DashboardGrid';
 import { defaultLayoutFor } from './useDashboards';
-import { WIDGETS } from './widgets.jsx';
+import { WIDGETS, widgetHidden } from './widgets.jsx';
 import { TicketQueueWidget } from './teamWidgets.jsx';
 
 const overlaps = (items) => items.some(a => items.some(b => a.i !== b.i
   && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h));
 
 describe('default layout', () => {
-  it('leaves Quick Actions off every tier, keeps it in the gallery, and never overlaps', () => {
+  it('leaves Quick Actions off every tier and never overlaps; the tile is retired (Neil, 11/13/2026)', () => {
     for (const tier of ['employee', 'supervisor', 'manager']) {
       const board = defaultLayoutFor(tier);
       expect(board.some(it => it.type === 'quick-actions')).toBe(false);
       expect(overlaps(board)).toBe(false);
     }
-    expect(WIDGETS['quick-actions'].hidden).toBeFalsy();
+    // Retired: hidden from every board and the gallery, the key kept for saved boards.
+    expect(WIDGETS['quick-actions'].retired).toBe(true);
+    expect(widgetHidden(WIDGETS['quick-actions'], {})).toBe(true);
   });
 });
 

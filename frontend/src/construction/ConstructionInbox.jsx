@@ -77,7 +77,7 @@ export default function ConstructionInbox() {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
         <Bell size={16} style={{ color: 'var(--text-secondary)' }} />
-        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+        <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
           Needs Your Attention
         </span>
         {/* The normal count, never an orange badge - orange means in progress only. */}
@@ -104,13 +104,13 @@ export default function ConstructionInbox() {
                 <meta.Icon size={16} color={`hsl(${meta.color})`} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-primary)' }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>
                   {n.title}
                 </div>
-                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
                   {n.body}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 4, opacity: 0.8 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, opacity: 0.8 }}>
                   {meta.label}
                   {n.timestamp || n.created_at ? ` - ${formatDateTime(n.timestamp || n.created_at)}` : ''}
                 </div>
@@ -128,7 +128,7 @@ export default function ConstructionInbox() {
       </div>
 
       {unread.length > 8 && (
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 10 }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 10 }}>
           and {unread.length - 8} more
         </div>
       )}

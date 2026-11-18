@@ -26,7 +26,7 @@ export default function ExtraTimeQueue({ toastOk, toastErr, onOpenTimecard, onCh
 
   if (err) return <ErrorBanner message={err} onRetry={load} />;
   if (!data) return <SkeletonBlocks count={3} height={56} borderRadius={10} />;
-  const cell = { padding: '8px 10px', borderTop: '1px solid var(--line)', fontSize: 12.5, verticalAlign: 'top' };
+  const cell = { padding: '8px 10px', borderTop: '1px solid var(--line)', fontSize: 13, verticalAlign: 'top' };
   const head = { padding: '8px 10px', fontSize: 12, fontWeight: 700, textAlign: 'left', color: 'var(--muted)', whiteSpace: 'nowrap' };
   const table = (rows, pending) => (
     <div style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 10, background: 'var(--card)' }}>
@@ -77,7 +77,7 @@ export default function ExtraTimeQueue({ toastOk, toastErr, onOpenTimecard, onCh
           India contractors claim hours past 9 on a workday, or weekend and holiday hours, with a note. Approved hours are paid at 1.35x the hourly equivalent of the daily rate; a month's time sheet waits until each claim is decided.
         </div>
         {data.pending.length ? table(data.pending, true)
-          : <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>No Extra Time is waiting on a decision.</div>}
+          : <div style={{ fontSize: 13, color: 'var(--muted)', padding: '12px 0' }}>No Extra Time is waiting on a decision.</div>}
       </div>
       {data.decided.length > 0 && (
         <div>

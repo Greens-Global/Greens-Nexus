@@ -7,6 +7,7 @@
 import { Building2, RefreshCw, Download, ShieldCheck } from "lucide-react";
 import { KpiTile, StatCard, DeptBars, RotationList } from "./vaultCards";
 import { healthByDept, auditRows } from "./vaultModel";
+import { useIsMobile } from "../lib/useIsMobile";
 
 export async function exportAudit(rows, nameOf) {
   const XLSX = await import("xlsx");
@@ -20,10 +21,46 @@ export async function exportAudit(rows, nameOf) {
 }
 
 const Num = ({ n, tone = "bad" }) => <td className={`num ${n ? `tone-${tone}` : "tone-zero"}`}>{n}</td>;
+// The health table (11/13/2026: "a table where each row and column is distinct,
+// no horizontal scroll", then "sit on the same row as By Department and Rotates
+// Next, small, no blank space"): compact fixed columns that always fit beside
+// the other two cards, a light green header, lines between columns, banded
+// rows and a total.
+const COLS = [["critical", "Critical", "warn"], ["breached", "Breached", "bad"], ["weak", "Weak", "bad"], ["reused", "Reused", "warn"],
+  ["overdue", "Overdue", "bad"], ["expiring", "Expiring", "warn"], ["noBackup", "No Backup", "warn"]];
+const SHORT = { Logins: "Logins", Critical: "Crit.", Breached: "Breach", Weak: "Weak", Reused: "Reused", Overdue: "Overdue", Expiring: "Expiring", "No Backup": "No Backup" };
+
+// On a phone (11/15/2026 phone pass) nine columns cannot fit without breaking
+// every heading into letters, so each department is one row: its name, how
+// many logins, and only the counts that are not zero, in words.
+export function HealthList({ health, fDept, onPickDept }) {
+  const total = (k) => health.reduce((n, h) => n + h[k], 0);
+  const rows = health.length > 1 ? [...health, { dept: "Total", total: total("total"), ...Object.fromEntries(COLS.map(([k]) => [k, total(k)])), isTotal: true }] : health;
+  return (
+    <div className="cv-health-list" data-health-list="">
+      {rows.map((h) => {
+        const issues = COLS.filter(([k]) => h[k] > 0);
+        const body = (<>
+          <span className="cv-health-list-top">
+            <span className="cv-health-list-name">{h.dept}</span>
+            <span className="cv-health-list-n">{h.total} login{h.total === 1 ? "" : "s"}</span>
+          </span>
+          <span className="cv-health-list-issues">
+            {issues.length ? issues.map(([k, label, tone]) => <span key={k} className={`tone-${tone}`}>{h[k]} {label}</span>) : <span className="tone-ok">Nothing to fix</span>}
+          </span>
+        </>);
+        return h.isTotal
+          ? <div key="total" className="cv-health-list-row is-total">{body}</div>
+          : <button key={h.dept} type="button" className={`cv-health-list-row${fDept === h.dept ? " is-active" : ""}`} onClick={() => onPickDept(h.dept)} aria-label={`Show ${h.dept}`}>{body}</button>;
+      })}
+    </div>
+  );
+}
 
 export default function Overview({ rows, depts, attention, sharedWithMe, requests, fDept, onPickDept, onPickCollection, onOpen, onApprovals, nameOf, canExport = true, everyone = false }) {
   const noBackup = rows.filter((c) => !c.backupOwner).length;
   const health = healthByDept(rows);
+  const isPhone = useIsMobile("(max-width: 640px)");
   return (
     <div className="cv-overview" data-overview="">
       <div className="cv-kpis is-five" style={{ marginBottom: 14 }}>
@@ -33,23 +70,27 @@ export default function Overview({ rows, depts, attention, sharedWithMe, request
         <KpiTile label="Shared With Me" value={sharedWithMe} sub={sharedWithMe ? "timed access, ends by itself" : "no shared access right now"} onGo={() => onPickCollection("shared")} goTitle="Show what was shared with me" />
         <KpiTile label="Awaiting Approval" value={requests} tone={requests ? "warn" : undefined} sub={requests ? "requests for you to decide" : "no requests waiting"} onGo={onApprovals} goTitle="Open Approvals" />
       </div>
-      <div className="cv-stats" style={{ gridTemplateColumns: "minmax(0, 1.6fr) minmax(280px, 1fr) minmax(280px, 1fr)" }}>
+      <div className="cv-stats is-health">
         <StatCard Icon={ShieldCheck} title={everyone ? "Health by Department" : "Health of Your Logins"} meta={canExport ? (
           <button type="button" className="cv-btn" style={{ padding: "3px 9px", fontSize: 12 }} onClick={() => exportAudit(rows, nameOf)} title="Who can open what, and the health per department - no passwords"><Download size={13} /> Export to Excel</button>
         ) : null}>
-          {health.length === 0 ? <p className="cv-hint">No logins yet.</p> : (
-            <div style={{ overflowX: "auto" }}>
-              <table className="cv-health">
-                <thead><tr><th>Department</th><th className="num">Logins</th><th className="num">Critical</th><th className="num">Breached</th><th className="num">Weak</th><th className="num">Reused</th><th className="num">Overdue</th><th className="num">Expiring</th><th className="num">No Backup</th></tr></thead>
-                <tbody>
-                  {health.map((h) => (
-                    <tr key={h.dept} className={`is-link${fDept === h.dept ? " is-active" : ""}`} onClick={() => onPickDept(h.dept)} title={`Show ${h.dept}`}>
-                      <td style={{ fontWeight: 600 }}>{h.dept}</td><td className="num">{h.total}</td><Num n={h.critical} tone="warn" /><Num n={h.breached} /><Num n={h.weak} /><Num n={h.reused} tone="warn" /><Num n={h.overdue} /><Num n={h.expiring} tone="warn" /><Num n={h.noBackup} tone="warn" />
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {health.length === 0 ? <p className="cv-hint">No logins yet.</p> : isPhone ? <HealthList health={health} fDept={fDept} onPickDept={onPickDept} /> : (
+            <table className="cv-health" data-health-table="">
+              <colgroup><col className="cv-health-dept" /><col />{COLS.map(([k]) => <col key={k} />)}</colgroup>
+              <thead><tr><th>Department</th><th className="num">Logins</th>{COLS.map(([k, label]) => <th key={k} className="num" title={label}>{SHORT[label]}</th>)}</tr></thead>
+              <tbody>
+                {health.map((h) => (
+                  <tr key={h.dept} className={`is-link${fDept === h.dept ? " is-active" : ""}`} onClick={() => onPickDept(h.dept)} title={`Show ${h.dept}`}>
+                    <td className="cv-health-name">{h.dept}</td><td className="num">{h.total}</td>
+                    {COLS.map(([k, , tone]) => <Num key={k} n={h[k]} tone={tone} />)}
+                  </tr>
+                ))}
+              </tbody>
+              {health.length > 1 && (
+                <tfoot><tr><td>Total</td><td className="num">{health.reduce((n, h) => n + h.total, 0)}</td>
+                  {COLS.map(([k, , tone]) => <Num key={k} n={health.reduce((n, h) => n + h[k], 0)} tone={tone} />)}</tr></tfoot>
+              )}
+            </table>
           )}
         </StatCard>
         <StatCard Icon={Building2} title="By Department" meta={`${depts.length} total`}>

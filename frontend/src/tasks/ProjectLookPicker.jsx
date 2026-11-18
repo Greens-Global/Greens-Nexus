@@ -74,7 +74,7 @@ export default function ProjectLookPicker({ color, icon, onChange, size = 38 }) 
               <p style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: '18px 0', margin: 0 }}>No icons match "{query.trim()}".</p>
             ) : groups.map((g) => (
               <div key={g.label} role="group" aria-label={g.label}>
-                <div style={{ fontSize: 11.5, color: NX.faint, padding: '8px 0 4px' }}>{g.label}</div>
+                <div style={{ fontSize: 12, color: NX.faint, padding: '8px 0 4px' }}>{g.label}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 4 }}>
                   {g.icons.map(([key, label, Icon]) => {
                     const on = key === look.iconKey;

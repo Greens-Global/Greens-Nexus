@@ -89,7 +89,7 @@ export default function LabelsManageTab() {
           </div>
         </div>
         {(data?.companies || []).length > 1 && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: NX.dim }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.dim }}>
             Company
             <select value={cid} aria-label="Company" onChange={(e) => { setData(null); setNote(''); setCompany(e.target.value); }}
               style={{ ...inputStyle, width: 'auto', padding: '6px 9px', cursor: 'pointer' }}>
@@ -100,7 +100,7 @@ export default function LabelsManageTab() {
       </div>
 
       {error && <ErrorBanner message={error} onRetry={load} />}
-      {note && <div role="status" style={{ marginBottom: 12, fontSize: 12.5, color: NX.dim }}>{note}</div>}
+      {note && <div role="status" style={{ marginBottom: 12, fontSize: 13, color: NX.dim }}>{note}</div>}
 
       {rows.length > 8 && (
         <div style={{ position: 'relative', maxWidth: 320, marginBottom: 12 }}>
@@ -142,7 +142,7 @@ export default function LabelsManageTab() {
             </button>
           </>
         )}>
-          <div className="nx-fill" style={{ gap: 14, fontSize: 13.5, color: NX.ink, lineHeight: 1.5 }}>
+          <div className="nx-fill" style={{ gap: 14, fontSize: 13, color: NX.ink, lineHeight: 1.5 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><LabelPill name={deleting.name} /></div>
             <p style={{ margin: 0 }}>
               This removes the label from {plural(deleting.count, 'task')} in this company, including tasks you may not see in your lists and tasks in the Recycle Bin, and forgets its color.
@@ -163,7 +163,7 @@ function LabelRow({ row, busy, canMerge, color, coloring, setColoring, onRecolor
     <div data-label-row={row.key}
       style={{ ...card, display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', marginBottom: 8, flexWrap: 'wrap' }}>
       <LabelPill name={row.name} />
-      <span style={{ fontSize: 12.5, color: NX.faint }}>{plural(row.count, 'task')}</span>
+      <span style={{ fontSize: 13, color: NX.faint }}>{plural(row.count, 'task')}</span>
       <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
         <button ref={paletteRef} type="button" disabled={busy} onClick={() => setColoring(!coloring)}
           title="Change Color" aria-label={`Change color of ${row.name}`} aria-expanded={coloring} style={icon}><Palette size={16} /></button>
@@ -232,7 +232,7 @@ function ImpactNote({ name, company, mode }) {
       .catch(() => { if (alive) setImpact({ failed: true }); });
     return () => { alive = false; };
   }, [name, company]);
-  if (!impact) return <div style={{ fontSize: 12.5, color: NX.faint }}>Checking what else names this label…</div>;
+  if (!impact) return <div style={{ fontSize: 13, color: NX.faint }}>Checking what else names this label…</div>;
   if (impact.failed) return null;
   const lines = [];
   if (mode === 'delete') {
@@ -257,7 +257,7 @@ function ImpactNote({ name, company, mode }) {
     ? `Task templates are not changed: ${plural(impact.templates, 'template')} still ${impact.templates === 1 ? 'uses' : 'use'} "${name}".`
     : 'Task templates are not changed.');
   return (
-    <div data-testid="label-impact" style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
+    <div data-testid="label-impact" style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 13, color: NX.dim, lineHeight: 1.5 }}>
       {lines.map((l) => <span key={l}>{l}</span>)}
     </div>
   );
@@ -282,13 +282,13 @@ function RenameModal({ row, merge, rows, busy, company, onClose, onSave }) {
           </button>
         </>
       )}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: 13.5, color: NX.ink, height: '100%' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: 13, color: NX.ink, height: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <LabelPill name={row.name} /> <span style={{ color: NX.faint }}>on {plural(row.count, 'task')}</span>
         </div>
         {merge ? (
           <div className="nx-fill" style={{ gap: 6 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Merge Into</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>Merge Into</span>
             <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="Search labels…" aria-label="Merge into" autoFocus style={inputStyle} />
             <div style={{ flex: 1, minHeight: 120, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8, padding: 4 }}>
               {others.filter((r) => !key || r.key.includes(key)).map((r) => (
@@ -301,7 +301,7 @@ function RenameModal({ row, merge, rows, busy, company, onClose, onSave }) {
           </div>
         ) : (
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>New Name</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>New Name</span>
             <input value={to} onChange={(e) => setTo(e.target.value)} autoFocus aria-label="New name" maxLength={80}
               onKeyDown={(e) => { if (e.key === 'Enter' && canSave) onSave(cleanLabel(to)); }} style={inputStyle} />
           </label>

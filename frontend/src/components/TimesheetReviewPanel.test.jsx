@@ -90,6 +90,14 @@ describe('TimesheetReviewPanel', () => {
     expect(screen.getByText('Send to Manager').closest('button')).toBeDisabled();
   });
 
+  it('before the period ends, says when - no note box and no Send it cannot use (11/13/2026)', () => {
+    const why = 'This period runs through 11/14/2026. Submit it on that day, once your last shift is in, or any day after.';
+    render(<TimesheetReviewPanel {...props} review={{ status: 'not_submitted', rounds: [], parties: [], submitBlocker: why }} />);
+    expect(screen.getByText(why)).toBeTruthy();
+    expect(screen.queryByText('Send to Manager')).toBeNull();
+    expect(screen.queryByText(/Send it now/)).toBeNull();
+  });
+
   it('lets the manager approve a time sheet nobody submitted (Oct 16)', async () => {
     render(<TimesheetReviewPanel {...props} self={false}
       review={{ status: 'not_submitted', employeeEmail: 'emp@x.com', canApprove: true, agreeBlocker: '', rounds: [], parties: [] }} />);

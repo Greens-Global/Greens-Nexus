@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, Check, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import AnchoredMenu from './AnchoredMenu';
@@ -19,8 +19,9 @@ activeSub wiring stay in the module. They just declare the strip through
 
     <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
 
-tabs: [{ key, label, Icon?, badge?, hint? }] - Icon optional (Accounting's pills are
-label-only); badge is an optional count pill (falsy hides it).
+tabs: [{ key, label, Icon?, badge?, hint?, count?, countTone? }] - Icon optional (Accounting's pills are
+label-only); badge is an optional count pill (falsy hides it); count is a plain
+number after the label, never a pill (opt-in, countTone 'red' for a call to act).
 
 Oct 6 (Charmi and Neil, 10/04): a tab may carry `items: [{ key, label, Icon? }]`
 - it then draws as a dropdown (Accounting's Dashboard > Overview / Cash /
@@ -137,6 +138,18 @@ export function ModuleActionsSlot() {
   return <div className="module-actions-row" ref={setActionsEl} />;
 }
 
+// A plain number after a tab's label (Asset Management, 11/17/2026: "Maintenance 12",
+// "Dates 10" in red) - opt-in through a tab's `count` (and `countTone: 'red'`). No pill,
+// no box: the number is words. Every other module's tabs are drawn exactly as before.
+function TabCount({ count, tone }) {
+  if (!count) return null;
+  return (
+    <span className="hdr-tab-count" style={{ marginLeft: 6, fontSize: 12, fontWeight: tone === 'red' ? 600 : 500, fontVariantNumeric: 'tabular-nums', color: tone === 'red' ? 'hsl(var(--color-red))' : 'var(--text-muted)' }}>
+      {count}
+    </span>
+  );
+}
+
 // The published tab strip itself: a plain strip, or the measured one with a
 // More dropdown - always measured in the top header, which it shares with
 // the search and the account menu.
@@ -147,7 +160,7 @@ function HeaderStrip({ entry, measured = false }) {
     // People's dropdown tabs keep only their own label in the bar (11/03/2026);
     // the others name their picked item as they do in the plain strip.
     const compact = !!(entry.overflow || entry.compactGroups);
-    const renderTab = ({ key, label, Icon, badge, items, landing, tone }, probe) => {
+    const renderTab = ({ key, label, Icon, badge, items, landing, tone, count, countTone }, probe) => {
       if (items && !probe) {
         return <TabGroupButton key={key} tab={{ key, label, Icon, items, landing, badge }} active={entry.active} className="hdr-tab" compact={compact} onSelect={pick} />;
       }
@@ -162,6 +175,7 @@ function HeaderStrip({ entry, measured = false }) {
           <span>{label}</span>
           {cur && cur.label !== label && <span className="tab-group-current">{cur.label}</span>}
           {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}<ChangeFlash value={badge} /></span>}
+          <TabCount count={count} tone={countTone} />
           {items && <ChevronDown size={14} className="tab-group-caret" />}
         </button>
       );
@@ -171,7 +185,7 @@ function HeaderStrip({ entry, measured = false }) {
   return (
     <nav className={`hdr-tabs${entry.compactGroups ? ' hdr-tabs--compact' : ''}`} aria-label="Module sections" data-tour="module-tabs">
       {ink}
-      {entry.tabs.map(({ key, label, Icon, badge, items, landing, tone }) => (items ? (
+      {entry.tabs.map(({ key, label, Icon, badge, items, landing, tone, count, countTone }) => (items ? (
         <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={entry.active} className="hdr-tab" compact={!!entry.compactGroups} onSelect={pick} />
       ) : (
         <button key={key} type="button"
@@ -181,6 +195,7 @@ function HeaderStrip({ entry, measured = false }) {
           {Icon && <Icon size={16} strokeWidth={2} />}
           <span>{label}</span>
           {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}<ChangeFlash value={badge} /></span>}
+          <TabCount count={count} tone={countTone} />
         </button>
       )))}
     </nav>
@@ -228,7 +243,7 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
   useEffect(() => { onChangeRef.current = onChange; });
 
   const itemsSig = (items) => (items ? ` [${items.map(i => `${i.key}:${i.label}${itemsSig(i.items)}`).join(',')}]` : '');
-  const signature = tabs.map(t => `${t.key} ${t.label} ${t.title ?? ''} ${t.badge ?? ''}${t.landing ? ` >${t.landing}` : ''}${itemsSig(t.items)}`).join('|');
+  const signature = tabs.map(t => `${t.key} ${t.label} ${t.title ?? ''} ${t.badge ?? ''}${t.count ? ` #${t.count}${t.countTone || ''}` : ''}${t.landing ? ` >${t.landing}` : ''}${itemsSig(t.items)}`).join('|');
   useEffect(() => {
     if (!setEntry) return;
     setEntry({ tabs, active, syncTitle, compactGroups, overflow, onChange: key => onChangeRef.current?.(key) });
@@ -240,14 +255,31 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
     return () => setEntry(null); // leaving the module empties the header slot
   }, [setEntry]);
 
+  // The tab you are on is always in view (phone review, 11/13/2026): a strip
+  // wider than the screen used to keep its start, so Exits, Runs or a
+  // Workforce Analytics tab sat past the right edge and nothing on screen
+  // said where you were. Only the strip scrolls - never the page.
+  const stripRef = useRef(null);
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip || strip.scrollWidth <= strip.clientWidth) return;
+    const on = strip.querySelector('.active, [aria-current="page"], [aria-selected="true"]');
+    if (!on) return;
+    const pad = 24;
+    const left = on.offsetLeft - strip.offsetLeft;
+    const right = left + on.offsetWidth;
+    if (left - pad < strip.scrollLeft) strip.scrollLeft = Math.max(0, left - pad);
+    else if (right + pad > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = right + pad - strip.clientWidth;
+  }, [active, signature]);
+
   // <=900px fallback - same markup contract as the old in-page strips.
   // No tabs (Asset Management's portfolio publishes only to get the bar), or
   // one that would only repeat the module's name (Help Center): no strip.
   if ((!inline && !mobileInline) || tabs.length < 2) return null;
   return (
-    <div className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
+    <div ref={stripRef} className={`scroll-tabs module-tabs-inline${inline ? ' module-tabs-inline--always' : ''}`}>
       <TabInk key={signature} active={active} variant="line" />
-      {tabs.map(({ key, label, Icon, badge, items, landing, tone }) => (items ? (
+      {tabs.map(({ key, label, Icon, badge, items, landing, tone, count, countTone }) => (items ? (
         <TabGroupButton key={key} tab={{ key, label, Icon, items, landing }} active={active} onSelect={(k) => onChange?.(k)} className="module-tab-inline-btn" iconSize={16} compact={compactGroups} />
       ) : (
         <button
@@ -259,6 +291,7 @@ export default function ModuleTabs({ tabs, active, onChange, mobileInline = true
           {/* tone: 'alarm' (Tickets, 10/31/2026) - a count that is a call to
               act (tickets nobody owns) in amber; every other count stays quiet. */}
           {badge > 0 && <span className={`hdr-tab-badge${tone === 'alarm' ? ' hdr-tab-badge--alarm' : ''}`}>{badge}<ChangeFlash value={badge} /></span>}
+          <TabCount count={count} tone={countTone} />
         </button>
       )))}
     </div>
@@ -279,8 +312,32 @@ const findItem = (items, active) => {
   return null;
 };
 
-const MENU_STYLE = { background: 'var(--bg-card, #fff)', border: '1px solid var(--border-color, #e5e7eb)', borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.15)', padding: 4, display: 'grid', gap: 1 };
-const rowStyle = (sel, on = sel) => ({ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: 'none', borderRadius: 7, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', font: 'inherit', fontSize: '0.84rem', fontWeight: on ? 700 : 500, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' });
+// The lifted menu shadow every header / module-bar menu shares (style.css --shadow-menu, 11/16/2026).
+const MENU_STYLE = { background: 'var(--bg-card, #fff)', border: '1px solid transparent', borderRadius: 10, boxShadow: 'var(--shadow-menu)', padding: 4, display: 'grid', gap: 1 };
+const rowStyle = (sel, on = sel) => ({ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: 'none', borderRadius: 7, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', color: on ? 'var(--wk-brand, #2b45e1)' : 'var(--text-primary)', font: 'inherit', fontSize: 13, fontWeight: on ? 700 : 500, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap' });
+
+// A dropdown worked from the keyboard (11/17/2026: Enter opened the menu and
+// left focus on the tab, with no way into the rows). Opened with Enter, Space
+// or the Down arrow, focus goes to the first row; Up / Down walk the rows,
+// Home / End jump to the ends, Right opens a flyout and Left closes it, Tab
+// closes the menu, and a pick returns focus to the tab. Escape is
+// AnchoredMenu's own: it closes the top menu and returns focus to what opened
+// it. A pointer never moves focus - `keys` is set by the key that opened it.
+const firstRow = (menuId) => document.getElementById(menuId)?.querySelector('[role="menuitem"]');
+function rowKeys(e) {
+  if (e.defaultPrevented) return;   // a flyout's own rows already took it
+  const menu = e.target.closest?.('[role="menu"]');
+  const rows = menu ? [...menu.querySelectorAll('[role="menuitem"]')] : [];
+  if (!rows.length) return;
+  const at = rows.indexOf(e.target);
+  const to = e.key === 'ArrowDown' ? rows[(at + 1) % rows.length]
+    : e.key === 'ArrowUp' ? rows[at <= 0 ? rows.length - 1 : at - 1]
+      : e.key === 'Home' ? rows[0]
+        : e.key === 'End' ? rows[rows.length - 1] : null;
+  if (!to) return;
+  e.preventDefault();
+  to.focus();
+}
 
 // A tab with a dropdown (Oct 6). The menu is portaled (AnchoredMenu): the
 // header strip scrolls sideways, and a scroller would clip a menu drawn
@@ -289,14 +346,22 @@ const rowStyle = (sel, on = sel) => ({ display: 'flex', alignItems: 'center', ga
 export function TabGroupButton({ tab, active, onSelect, className, iconSize = 16, compact = false }) {
   const [open, setOpen] = useState(false);
   const btn = useRef(null);
+  const menuId = useId();
+  const keys = useRef(false);
+  useEffect(() => { if (open && keys.current) firstRow(menuId)?.focus(); }, [open, menuId]);
   const { label, Icon, items, landing } = tab;
   const on = tabIsActive(tab, active);
   const current = compact ? null : findItem(items, active);
-  const pick = (key) => { setOpen(false); onSelect?.(key); };
+  const pick = (key) => { setOpen(false); if (keys.current) btn.current?.focus(); onSelect?.(key); };
   return (
     <>
       <button ref={btn} type="button" className={`${className}${on ? ' active' : ''}`} aria-haspopup="menu" aria-expanded={open}
         aria-current={on ? 'page' : undefined}
+        onPointerDown={() => { keys.current = false; }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') keys.current = true;
+          else if (e.key === 'ArrowDown') { e.preventDefault(); keys.current = true; if (open) firstRow(menuId)?.focus(); else setOpen(true); }
+        }}
         onClick={() => {
           // A group with a landing item opens it on the first click (Oct 22,
           // Neil: Dashboard comes up on Overview); the menu still opens.
@@ -309,7 +374,8 @@ export function TabGroupButton({ tab, active, onSelect, className, iconSize = 16
         {tab.badge > 0 && <span className="hdr-tab-badge">{tab.badge}<ChangeFlash value={tab.badge} /></span>}
         <ChevronDown size={14} className="tab-group-caret" style={{ opacity: 0.7, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
-      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} minWidth={200} aria-label={label} style={MENU_STYLE}>
+      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} minWidth={200} aria-label={label} style={MENU_STYLE}
+        id={menuId} onKeyDown={(e) => { if (e.key === 'Tab') { btn.current?.focus(); setOpen(false); } else rowKeys(e); }}>
         <MenuRows items={items} active={active} onPick={pick} />
       </AnchoredMenu>
     </>
@@ -340,18 +406,28 @@ function MenuRows({ items, active, onPick }) {
 
 function FlyoutRow({ item, active, onPick, open, onOpen, onClose }) {
   const row = useRef(null);
+  const menuId = useId();
+  const keys = useRef(false);
+  useEffect(() => { if (open && keys.current) firstRow(menuId)?.focus(); }, [open, menuId]);
   const on = holds(item.items, active);
   return (
     <>
       <button ref={row} type="button" role="menuitem" aria-haspopup="menu" aria-expanded={open}
-        onMouseEnter={onOpen} onClick={() => (open ? onClose() : onOpen())}
-        onKeyDown={(e) => { if (e.key === 'ArrowRight') { e.preventDefault(); onOpen(); } }}
+        onMouseEnter={() => { keys.current = false; onOpen(); }} onPointerDown={() => { keys.current = false; }}
+        onClick={() => (open ? onClose() : onOpen())}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') keys.current = true;
+          else if (e.key === 'ArrowRight') { e.preventDefault(); keys.current = true; if (open) firstRow(menuId)?.focus(); else onOpen(); }
+        }}
         style={{ ...rowStyle(false, on), fontWeight: on ? 700 : 500 }}>
         {item.Icon ? <item.Icon size={15} /> : null}
         <span style={{ flex: 1 }}>{item.label}</span>
         <ChevronRight size={14} style={{ opacity: 0.7 }} />
       </button>
-      <AnchoredMenu anchorRef={row} open={open} onClose={onClose} side="right" minWidth={200} aria-label={item.label} style={MENU_STYLE}>
+      <AnchoredMenu anchorRef={row} open={open} onClose={onClose} side="right" minWidth={200} aria-label={item.label} style={MENU_STYLE}
+        id={menuId} onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); onClose(); row.current?.focus(); } else rowKeys(e);
+        }}>
         <MenuRows items={item.items} active={active} onPick={onPick} />
       </AnchoredMenu>
     </>
@@ -370,7 +446,7 @@ export function HeaderOverflowTabs({ entry, onPick, renderTab, ink, compact = fa
   const measure = useRef(null);
   const [fit, setFit] = useState(tabs.length);
   // The active key is in it: a group tab names its picked item, so its width moves.
-  const sig = `${active}|` + tabs.map((t) => `${t.key}:${t.label}:${t.badge ?? ''}`).join('|');
+  const sig = `${active}|` + tabs.map((t) => `${t.key}:${t.label}:${t.badge ?? ''}:${t.count ?? ''}`).join('|');
   useLayoutEffect(() => {
     const box = measure.current;
     const host = box?.parentElement;
@@ -412,7 +488,7 @@ export function HeaderOverflowTabs({ entry, onPick, renderTab, ink, compact = fa
         {rest.length > 0 && (
           <TabGroupButton key="__more" className="hdr-tab" compact onSelect={onPick} active={active}
             tab={{ key: '__more', label: 'More', Icon: MoreHorizontal, badge: restBadge,
-              items: rest.map(({ key, label, Icon, badge, items }) => ({ key, label, Icon, badge, items })) }} />
+              items: rest.map(({ key, label, Icon, badge, items, count }) => ({ key, label, Icon, badge, items, ...(count ? { hint: String(count) } : {}) })) }} />
         )}
       </nav>
     </>

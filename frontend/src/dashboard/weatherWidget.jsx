@@ -40,6 +40,13 @@ const MID_MIN_H = 160;      // header + now + details (~148)
 const FOOTER_MIN_H = 185;   // ... + footer (~175)
 const FULL_MIN_H = 285;     // ... + the hourly strip (~272)
 const DAY_ROW_H = 27;
+// Wide (Neil, 11/13/2026: "it just doesn't show anything extra as the width
+// expands but the height doesn't"): from this width the tile lays out side by
+// side and the extra width carries the forecast - the week as day columns
+// beside a short tile, beside the details on a medium one, the week's list
+// beside the hours on a tall one. Phones and narrow tiles keep the stack.
+const WIDE_MIN_W = 520;
+const DAY_COL_W = 62;
 
 const deg = (v) => (v == null ? '-' : `${Math.round(v)}°`);
 // The place's own wall clock ("2026-09-28T06:40") -> "6:40 AM", never moved
@@ -69,6 +76,30 @@ function locate() {
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 30 * 60 * 1000 },
     );
   });
+}
+
+// The week as columns - day, sky, high, low, rain - for the wide layouts.
+// `tight` (a short tile) keeps the day, sky and high only.
+// `beside` (in a row): it takes the row's leftover width; under the hours it
+// takes the column's width and only its own height.
+function DayCols({ days, rgb, tight = false, beside = false }) {
+  return (
+    <div aria-label="Daily forecast" style={{ ...(beside ? { flex: 1 } : { flex: 'none', width: '100%' }), minWidth: 0, display: 'grid', gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))`, gap: 4 }}>
+      {days.map((d, i) => {
+        const ds = sky(d.code, true);
+        return (
+          <div key={d.date} title={`${ds.text} - ${d.precipChance ?? 0}% chance of rain`}
+            style={{ textAlign: 'center', padding: tight ? '3px 2px' : '6px 2px', borderRadius: 10, minWidth: 0, background: i === 0 ? `rgba(${rgb},0.14)` : 'transparent' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{dayLabel(d.date, i)}</div>
+            <ds.Icon size={18} style={{ color: `rgb(${TONE[ds.tone]})`, margin: '4px auto 2px', display: 'block' }} strokeWidth={1.8} />
+            <div style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(d.high)}</div>
+            {!tight && <div style={{ fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{deg(d.low)}</div>}
+            {!tight && <div style={{ fontSize: 11, fontWeight: 600, color: '#2563eb', minHeight: 12 }}>{(d.precipChance ?? 0) >= 20 ? `${d.precipChance}%` : ''}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // Size tiers off the tile itself, not the window - a 3-wide tile on a big
@@ -157,6 +188,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
 
   const tier = box.h < MID_MIN_H || box.w < 250 ? 'compact' : box.h < FULL_MIN_H ? 'mid' : 'full';
   const showFooter = box.h >= FOOTER_MIN_H;
+  const wide = !phone && box.w >= WIDE_MIN_W;
   // The outlook fills whatever height is left under now / details / hours /
   // footer - as many days as fit, up to seven - so a tile never shows a
   // blank band and never needs its own scrollbar.
@@ -200,11 +232,11 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
         {!small && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             <MapPin size={16} style={{ color: 'var(--muted)' }} />
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Weather</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Weather</div>
           </div>
         )}
         {!(small && searching) && (
-          <div title={msg} style={{ fontSize: small ? 12 : 12.5, color: 'var(--muted)', lineHeight: 1.45, flexShrink: 0 }}>{msg}</div>
+          <div title={msg} style={{ fontSize: small ? 12 : 13, color: 'var(--muted)', lineHeight: 1.45, flexShrink: 0 }}>{msg}</div>
         )}
         <CityPicker onPick={pickCity} autoFocus={false} fill phone={phone} onSearching={setSearching} />
       </div>,
@@ -222,7 +254,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
   const rain = rainStart(data.hourly);
   // "Rain now · 60%" / "Rain from 2 PM · 60%" - the one line a crew reads.
   const rainLine = rain && (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: '#2563eb', whiteSpace: 'nowrap' }} aria-label="Rain">
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: '#2563eb', whiteSpace: 'nowrap' }} aria-label="Rain">
       <Umbrella size={12} /> {rain === data.hourly[0] ? 'Rain now' : `Rain from ${hourLabel(rain.time)}`}{rain.precipChance != null ? ` · ${rain.precipChance}%` : ''}
     </div>
   );
@@ -230,7 +262,7 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
       {where.fixed ? <MapPin size={13} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} /> : <Navigation size={12} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} />}
       <span title={where.fixed ? title : `${title} - from your location`}
-        style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
+        style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
       {/* A 36px target on a phone; the negative margin keeps the header line
           its desktop height so the size tiers still hold. */}
       <button type="button" onClick={(e) => { e.stopPropagation(); load(); }} disabled={busy} title="Refresh" aria-label="Refresh weather"
@@ -241,16 +273,44 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
     </div>
   );
 
+  const hours = data.hourly || [];
+  const days = data.daily || [];
+  const lo = Math.min(...days.map(d => d.low)), hi = Math.max(...days.map(d => d.high));
+  const span = Math.max(1, hi - lo);
+
   // ── Compact: the glance ──
   if (tier === 'compact') {
+    // Short but wide: the glance on the left, the week beside it.
+    const cols = wide ? Math.min(7, days.length, Math.floor((box.w - 240) / DAY_COL_W)) : 0;
+    if (cols >= 3) {
+      return shell(
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0, height: '100%' }}>
+          {header}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minHeight: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto', maxWidth: 220, minWidth: 0 }}>
+              <HeroIcon size={34} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.6} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {s.text} · H {deg(t.high)} L {deg(t.low)}
+                </div>
+                {rainLine}
+              </div>
+            </div>
+            <span aria-hidden="true" style={{ width: 1, alignSelf: 'stretch', background: 'var(--line)', flexShrink: 0 }} />
+            <DayCols days={days.slice(0, cols)} rgb={rgb} tight={box.h < 120} beside />
+          </div>
+        </div>,
+      );
+    }
     return shell(
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0, height: '100%' }}>
         {header}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
           <HeroIcon size={34} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.6} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {s.text} · H {deg(t.high)} L {deg(t.low)}
             </div>
             {rainLine}
@@ -260,16 +320,117 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
     );
   }
 
-  const hours = data.hourly || [];
-  const days = data.daily || [];
-  const lo = Math.min(...days.map(d => d.low)), hi = Math.max(...days.map(d => d.high));
-  const span = Math.max(1, hi - lo);
+  // Side by side, the left column's width (the details live there).
+  const leftW = tier === 'full' ? Math.max(280, Math.min(460, box.w * 0.52)) : Math.max(260, Math.min(380, box.w * 0.42));
   const chips = [
     { Icon: Wind, label: 'Wind', value: `${Math.round(c.wind ?? 0)} ${u.wind} ${compass(c.windDir)}`.trim() },
     { Icon: Droplets, label: 'Humidity', value: `${Math.round(c.humidity ?? 0)}%` },
     { Icon: Umbrella, label: 'Rain', value: `${Math.round(t.precipChance ?? 0)}%` },
-    ...(box.w >= 380 ? [{ Icon: SunMedium, label: 'UV', value: t.uvMax == null ? '-' : `${Math.round(t.uvMax)}` }] : []),
+    ...((wide ? leftW : box.w) >= 380 ? [{ Icon: SunMedium, label: 'UV', value: t.uvMax == null ? '-' : `${Math.round(t.uvMax)}` }] : []),
   ];
+
+  // The pieces, shared by the stacked and the wide layouts.
+  const nowEl = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <HeroIcon size={48} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.5} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{s.text}</span>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span>Feels like {deg(c.feelsLike)} · H {deg(t.high)} · L {deg(t.low)}</span>
+          {rainLine}
+        </div>
+      </div>
+    </div>
+  );
+  const detailsEl = (
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${chips.length}, minmax(0, 1fr))`, gap: 6 }}>
+      {chips.map(({ Icon, label, value }) => (
+        <div key={label} title={label}
+          style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '6px 8px', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
+            <Icon size={11} /> {label}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+        </div>
+      ))}
+    </div>
+  );
+  // The next hours (the API sends a day; the strip scrolls) - its own quiet
+  // scroller (.scroll-tabs paints a paper band on phones).
+  const hoursEl = hours.length > 0 && (
+      <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, flexShrink: 0, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }} aria-label="Hourly">
+        {hours.map((h, i) => {
+          const hs = sky(h.code, h.isDay);
+          return (
+            <div key={h.time} style={{ flex: '0 0 auto', minWidth: 46, textAlign: 'center', padding: '6px 4px', borderRadius: 10,
+              background: i === 0 ? `rgba(${rgb},0.14)` : 'transparent' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{i === 0 ? 'Now' : hourLabel(h.time)}</div>
+              <hs.Icon size={17} style={{ color: `rgb(${TONE[hs.tone]})`, margin: '4px auto 2px', display: 'block' }} strokeWidth={1.8} />
+              <div style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#2563eb', minHeight: 12 }}>{h.precipChance >= 20 ? `${h.precipChance}%` : ''}</div>
+            </div>
+          );
+        })}
+      </div>
+  );
+  // The week with range bars - its lowest low to highest high.
+  const dayList = (rows) => rows >= 2 && days.length > 0 && (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0 }} aria-label="Daily forecast">
+        {days.slice(0, rows).map((d, i) => {
+          const ds = sky(d.code, true);
+          const left = ((d.low - lo) / span) * 100, width = Math.max(4, ((d.high - d.low) / span) * 100);
+          return (
+            <div key={d.date} style={{ display: 'grid', gridTemplateColumns: '46px 22px 34px 1fr 34px', alignItems: 'center', gap: 6, padding: '4px 2px', borderTop: i ? '1px solid var(--line)' : 'none' }}>
+              <span style={{ fontSize: 13, fontWeight: i === 0 ? 800 : 600 }}>{dayLabel(d.date, i)}</span>
+              <ds.Icon size={16} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} />
+              <span style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{deg(d.low)}</span>
+              <span title={`${d.precipChance ?? 0}% chance of rain`} style={{ position: 'relative', height: 6, borderRadius: 99, background: 'var(--mist)' }}>
+                <span style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: 0, bottom: 0, borderRadius: 99,
+                  background: 'linear-gradient(90deg, #38bdf8, #fbbf24 70%, #f97316)' }} />
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{deg(d.high)}</span>
+            </div>
+          );
+        })}
+      </div>
+  );
+  // Sun + freshness.
+  const footerEl = (
+      <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', flexShrink: 0 }}>
+        {t.sunrise && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunrise size={12} /> {clock12(t.sunrise)}</span>}
+        {t.sunset && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunset size={12} /> {clock12(t.sunset)}</span>}
+        {data.fetchedAt && <span style={{ marginLeft: 'auto' }}>Updated {formatTime(data.fetchedAt)}</span>}
+      </div>
+  );
+
+  // ── Wide: side by side, the extra width carrying the forecast ──
+  if (wide) {
+    const full = tier === 'full';
+    const cols = Math.min(7, days.length, Math.floor((box.w - leftW - 24) / DAY_COL_W));
+    return shell(
+      <div style={{ display: 'flex', gap: 18, minHeight: 0, height: '100%' }}>
+        <div style={{ flex: `0 0 ${Math.round(leftW)}px`, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', scrollbarWidth: 'thin' }}>
+          {header}
+          {nowEl}
+          {detailsEl}
+          {full && hoursEl}
+          {showFooter && footerEl}
+        </div>
+        <span aria-hidden="true" style={{ width: 1, alignSelf: 'stretch', background: 'var(--line)', flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, justifyContent: full ? 'flex-start' : 'center', overflow: 'hidden' }}>
+          {full
+            ? dayList(Math.min(7, Math.floor(box.h / (DAY_ROW_H + 2))))
+            : (<>
+                {box.h >= 200 && hoursEl}
+                {cols >= 2 && <DayCols days={days.slice(0, cols)} rgb={rgb} />}
+              </>)}
+        </div>
+      </div>,
+    );
+  }
 
   return shell(
     // The tiers above keep this inside the tile; overflow:auto is only the
@@ -277,84 +438,11 @@ export default function WeatherWidget({ config = {}, updateConfig, phone = false
     // .dash-scroll: its card-colored edge covers would band the sky tint.)
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, height: '100%', overflowY: 'auto', scrollbarWidth: 'thin' }}>
       {header}
-
-      {/* Now */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <HeroIcon size={48} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.5} />
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-            <span style={{ fontSize: 40, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{s.text}</span>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span>Feels like {deg(c.feelsLike)} · H {deg(t.high)} · L {deg(t.low)}</span>
-            {rainLine}
-          </div>
-        </div>
-      </div>
-
-      {/* Details */}
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${chips.length}, minmax(0, 1fr))`, gap: 6 }}>
-        {chips.map(({ Icon, label, value }) => (
-          <div key={label} title={label}
-            style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 10, padding: '6px 8px', minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-              <Icon size={11} /> {label}
-            </div>
-            <div style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* The next hours (the API sends a day; the strip scrolls) */}
-      {tier === 'full' && hours.length > 0 && (
-        // Its own quiet scroller - .scroll-tabs paints a paper band on phones.
-        <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, flexShrink: 0, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }} aria-label="Hourly">
-          {hours.map((h, i) => {
-            const hs = sky(h.code, h.isDay);
-            return (
-              <div key={h.time} style={{ flex: '0 0 auto', minWidth: 46, textAlign: 'center', padding: '6px 4px', borderRadius: 10,
-                background: i === 0 ? `rgba(${rgb},0.14)` : 'transparent' }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>{i === 0 ? 'Now' : hourLabel(h.time)}</div>
-                <hs.Icon size={17} style={{ color: `rgb(${TONE[hs.tone]})`, margin: '4px auto 2px', display: 'block' }} strokeWidth={1.8} />
-                <div style={{ fontSize: 12.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: '#2563eb', minHeight: 12 }}>{h.precipChance >= 20 ? `${h.precipChance}%` : ''}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* 7 days with range bars - the week's lowest low to highest high */}
-      {dayRows >= 2 && days.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minHeight: 0 }} aria-label="Daily forecast">
-          {days.slice(0, dayRows).map((d, i) => {
-            const ds = sky(d.code, true);
-            const left = ((d.low - lo) / span) * 100, width = Math.max(4, ((d.high - d.low) / span) * 100);
-            return (
-              <div key={d.date} style={{ display: 'grid', gridTemplateColumns: '46px 22px 34px 1fr 34px', alignItems: 'center', gap: 6, padding: '4px 2px', borderTop: i ? '1px solid var(--line)' : 'none' }}>
-                <span style={{ fontSize: 12.5, fontWeight: i === 0 ? 800 : 600 }}>{dayLabel(d.date, i)}</span>
-                <ds.Icon size={16} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} />
-                <span style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{deg(d.low)}</span>
-                <span title={`${d.precipChance ?? 0}% chance of rain`} style={{ position: 'relative', height: 6, borderRadius: 99, background: 'var(--mist)' }}>
-                  <span style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: 0, bottom: 0, borderRadius: 99,
-                    background: 'linear-gradient(90deg, #38bdf8, #fbbf24 70%, #f97316)' }} />
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{deg(d.high)}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Sun + freshness */}
-      {showFooter && (
-        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', flexShrink: 0 }}>
-          {t.sunrise && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunrise size={12} /> {clock12(t.sunrise)}</span>}
-          {t.sunset && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunset size={12} /> {clock12(t.sunset)}</span>}
-          {data.fetchedAt && <span style={{ marginLeft: 'auto' }}>Updated {formatTime(data.fetchedAt)}</span>}
-        </div>
-      )}
+      {nowEl}
+      {detailsEl}
+      {tier === 'full' && hoursEl}
+      {dayList(dayRows)}
+      {showFooter && footerEl}
     </div>,
   );
 }
@@ -383,11 +471,11 @@ export function ForecastPopup({ title, data, onClose }) {
             <s.Icon size={52} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} strokeWidth={1.5} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 40, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
+                <span style={{ fontSize: 32, fontWeight: 800, lineHeight: 1, letterSpacing: '-.03em', fontVariantNumeric: 'tabular-nums' }}>{deg(c.temp)}</span>
                 <span style={{ fontSize: 15, fontWeight: 700 }}>{s.text}</span>
                 <span style={{ fontSize: 13, color: 'var(--muted)' }}>H {deg(t.high)} · L {deg(t.low)} · Feels like {deg(c.feelsLike)}</span>
               </div>
-              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)', marginTop: 6 }}>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Wind size={12} /> {Math.round(c.wind ?? 0)} {u.wind} {compass(c.windDir)}</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Droplets size={12} /> {Math.round(c.humidity ?? 0)}%</span>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#2563eb', fontWeight: 700 }}>
@@ -410,9 +498,9 @@ export function ForecastPopup({ title, data, onClose }) {
                   <div key={h.time} style={{ textAlign: 'center', padding: '8px 4px', borderRadius: 10, background: i === 0 ? `rgba(${rgb},0.14)` : wet ? 'rgba(37,99,235,0.07)' : 'var(--card)', border: '1px solid var(--wk-line2)' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{i === 0 ? 'Now' : hourLabel(h.time)}</div>
                     <hs.Icon size={18} style={{ color: `rgb(${TONE[hs.tone]})`, margin: '5px auto 3px', display: 'block' }} strokeWidth={1.8} />
-                    <div style={{ fontSize: 13.5, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
-                    <div style={{ fontSize: 10.5, fontWeight: 600, color: '#2563eb', minHeight: 13 }}>{(h.precipChance ?? 0) >= 20 ? `${h.precipChance}%` : ''}</div>
-                    <div style={{ fontSize: 10, color: 'var(--muted)', minHeight: 12 }}>{amount(h.precip)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{deg(h.temp)}</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#2563eb', minHeight: 13 }}>{(h.precipChance ?? 0) >= 20 ? `${h.precipChance}%` : ''}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', minHeight: 12 }}>{amount(h.precip)}</div>
                   </div>
                 );
               })}
@@ -431,7 +519,7 @@ export function ForecastPopup({ title, data, onClose }) {
                   <div key={d.date} style={{ display: 'grid', gridTemplateColumns: 'minmax(96px, 1.2fr) 24px minmax(90px, 1.3fr) 72px 40px minmax(80px, 2fr) 40px 70px', alignItems: 'center', gap: 8, padding: '8px 4px', borderTop: i ? '1px solid var(--line)' : 'none', background: wet ? 'rgba(37,99,235,0.04)' : 'transparent' }}>
                     <span style={{ fontSize: 13, fontWeight: i === 0 ? 800 : 600, whiteSpace: 'nowrap' }}>{dayLabel(d.date, i)} <span style={{ color: 'var(--muted)', fontWeight: 500, fontSize: 12 }}>{formatDate(d.date)}</span></span>
                     <ds.Icon size={18} style={{ color: `rgb(${TONE[ds.tone]})` }} strokeWidth={1.8} />
-                    <span style={{ fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ds.text}</span>
+                    <span style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ds.text}</span>
                     <span style={{ fontSize: 12, fontWeight: 700, color: (d.precipChance ?? 0) >= 20 ? '#2563eb' : 'var(--muted)', whiteSpace: 'nowrap' }}>
                       {(d.precipChance ?? 0) >= 20 || amount(d.precipSum) ? `${d.precipChance ?? 0}%` + (amount(d.precipSum) ? ` · ${amount(d.precipSum)}` : '') : 'Dry'}
                     </span>
@@ -440,7 +528,7 @@ export function ForecastPopup({ title, data, onClose }) {
                       <span style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, top: 0, bottom: 0, borderRadius: 99, background: 'linear-gradient(90deg, #38bdf8, #fbbf24 70%, #f97316)' }} />
                     </span>
                     <span style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{deg(d.high)}</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
                       {d.windMax != null && <><Wind size={11} /> {Math.round(d.windMax)} {u.wind}</>}
                     </span>
                   </div>
@@ -457,7 +545,7 @@ export function ForecastPopup({ title, data, onClose }) {
 
 function ErrorState({ text, onRetry, busy }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--muted)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
       <Cloud size={22} />
       <span>{text}</span>
       <button type="button" className="secondary-btn" onClick={onRetry} disabled={busy} style={{ fontSize: 12 }}>Try Again</button>
@@ -494,12 +582,12 @@ export function CityPicker({ onPick, autoFocus = true, fill = false, phone = fal
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
         {/* 16px on a phone so iOS does not zoom the page on focus. */}
         <input className="form-input" value={q} onChange={(e) => setQ(e.target.value)} autoFocus={autoFocus}
-          placeholder="Search for a city" aria-label="Search for a city" style={{ paddingLeft: 32, width: '100%', ...(phone ? { fontSize: 16 } : null) }} />
+          placeholder="Search for a city" aria-label="Search for a city" style={{ paddingLeft: 32, width: '100%', ...(phone ? { fontSize: /* type-ok: iOS zooms a field under 16px */ 16 } : null) }} />
       </div>
       {(shown.length > 0 || (busy && active)) && (
         <div role="listbox" aria-label="Cities" className="dash-scroll"
           style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, maxHeight: 180, background: 'var(--card)', flex: '0 1 auto', minHeight: 0 }}>
-          {busy && shown.length === 0 && <div style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--muted)' }}>Searching…</div>}
+          {busy && shown.length === 0 && <div style={{ padding: '8px 10px', fontSize: 13, color: 'var(--muted)' }}>Searching…</div>}
           {shown.map((r) => (
             <button key={`${r.lat},${r.lon}`} type="button" role="option" aria-selected="false" onClick={() => { onPick(r); setQ(''); setRows([]); }}
               style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', minHeight: phone ? 40 : undefined, boxSizing: 'border-box', border: 'none', borderTop: '1px solid var(--line)', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
@@ -529,8 +617,8 @@ function ProjectPicker({ onPick }) {
       .catch(() => { if (live) setRows([]); });
     return () => { live = false; };
   }, []);
-  if (rows === null) return <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Loading projects…</div>;
-  if (!rows.length) return <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No active construction project you can see has a map point yet. Add the jobsite address in Construction and it appears here.</div>;
+  if (rows === null) return <div style={{ fontSize: 13, color: 'var(--muted)' }}>Loading projects…</div>;
+  if (!rows.length) return <div style={{ fontSize: 13, color: 'var(--muted)' }}>No active construction project you can see has a map point yet. Add the jobsite address in Construction and it appears here.</div>;
   return (
     <div role="listbox" aria-label="Construction projects" className="dash-scroll" style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, maxHeight: 180, background: 'var(--card)' }}>
       {rows.map((p) => (
@@ -613,7 +701,7 @@ export function WeatherConfigFields({ config, onChange }) {
         <div role="radiogroup" aria-label="Units" style={{ display: 'inline-flex', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden' }}>
           {[['imperial', '°F · mph'], ['metric', '°C · km/h']].map(([k, label]) => (
             <button key={k} type="button" role="radio" aria-checked={cfg.units === k} onClick={() => onChange({ units: k })}
-              style={{ padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit',
+              style={{ padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
                 background: cfg.units === k ? 'hsl(var(--color-blue))' : 'var(--card)', color: cfg.units === k ? '#fff' : 'var(--ink)' }}>{label}</button>
           ))}
         </div>

@@ -8,7 +8,7 @@
 // Cubby, and each tenant row links there. Full Screen (Neil, 10/31/2026)
 // folds the left navigation away for the wide tables and maps.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge, Map as MapIcon, Lightbulb, Users, LineChart, Tags, ArrowUpRight, ShieldAlert, Percent, Target, CalendarClock, Wrench, Download, MapPinned } from 'lucide-react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge, Map as MapIcon, Lightbulb, Users, LineChart, Tags, ArrowUpRight, ShieldAlert, Percent, Target, CalendarClock, Wrench, Download, MapPinned, Contact } from 'lucide-react';
 import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -23,6 +23,7 @@ import Lookup from '../operations/Lookup';
 import SyncStatus from '../operations/SyncStatus';
 import Revenue from '../operations/Revenue';
 import Portfolio from '../operations/Portfolio';
+import Tenants from '../operations/Tenants';
 import ThirdPartyPanel from '../operations/ThirdPartyPanel';
 import { isThirdParty } from '../operations/thirdParty';
 import FacilityPicker, { StatePicker } from '../operations/FacilityPicker';
@@ -40,6 +41,8 @@ const CustomerMap = lazy(() => import('../operations/CustomerMap'));
 
 const SYNC_POLL_MS = 3000;
 const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.";
+// Below Manager it reads without the server setting's name (phone review, 11/13/2026).
+const NOT_CONNECTED_PLAIN = 'Cubby is not connected yet - ask IT to connect it.';
 
 // The bar is five dropdowns, like Accounting's (Visesh, Oct 21): every screen
 // and every view inside one is a menu item, so nothing is picked from a row of
@@ -59,6 +62,9 @@ const TABS = [
     { key: 'customer-map', label: 'Customer Map',   Icon: MapPinned },
   ] },
   { key: 'facilities', label: 'Facilities', Icon: Warehouse, items: [
+    // The tenant directory (Neil, 11/17/2026): a read-only copy of Cubby's
+    // tenant details, only for people the access rules give Tenant Details.
+    { key: 'tenants',     label: 'Tenants',         Icon: Contact },
     { key: 'collections', label: 'Collections',     Icon: HandCoins },
     { key: 'units',       label: 'Units & Pricing', Icon: Warehouse },
     // Cubby's own name for it (Miranda, Oct 21); the key stays for links and bookmarks.
@@ -110,15 +116,19 @@ const screenOf = (key) => {
 };
 // Menu items only managers (and the Operations Full grant) see.
 const MANAGER_ITEMS = new Set(['customer-map']);
-const STAFF_TABS = TABS.filter((t) => t.key !== 'revenue-menu')
-  .map((t) => (t.items ? { ...t, items: t.items.filter((i) => !MANAGER_ITEMS.has(i.key)) } : t));
+const without = (tabs, keys) => tabs.map((t) => (t.items ? { ...t, items: t.items.filter((i) => !keys.has(i.key)) } : t));
+const STAFF_TABS = without(TABS.filter((t) => t.key !== 'revenue-menu'), MANAGER_ITEMS);
+// Tenants is in the bar only once /facility-ops/access/me says Tenant Details.
+const TENANT_ITEMS = new Set(['tenants']);
+const TABS_NO_TENANTS = without(TABS, TENANT_ITEMS);
+const STAFF_TABS_NO_TENANTS = without(STAFF_TABS, TENANT_ITEMS);
 const viewKey = (screen, view) => (view === SCREEN_VIEWS[screen].first ? screen : `${SCREEN_VIEWS[screen].prefix}-${view}`);
 // Tabs that work on one facility at a time and are not about a period. With
 // All Facilities picked they open on the first facility (the first one with a
 // site model, for the Site Map) and the dropdown shows which; the page's
 // choice itself stays All, so the other tabs still see every facility.
 const ONE_FACILITY = new Set(['market', 'revenue', 'site-map']);
-const NO_PERIOD = new Set([...ONE_FACILITY, 'pricing', 'customer-map']);
+const NO_PERIOD = new Set([...ONE_FACILITY, 'pricing', 'customer-map', 'tenants']);
 const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.key) : [t.key]));
 
 // The facility choice is remembered per viewer on this device and kept across tabs.
@@ -188,15 +198,34 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   const role = useRole();
   const [full, toggleFull] = useFullScreen('operations');
   const canSeeKeyHint = role?.can?.('manager') ?? false;
-  const canRevenue = role?.canAccessModule ? role.canAccessModule('operations', 'manager', 'full') : canSeeKeyHint;
-  const tabs = canRevenue ? TABS : STAFF_TABS;
+  const canRevenue = role?.canAccessModule ? role.canAccessModule('operations', 'manager', 'full') : (role?.can?.('manager') ?? false);
+  // Tenant Details (Neil, 11/17/2026): asked once. Until the answer is in,
+  // and when it could not be read, the Tenants tab is simply not in the bar.
+  const [tenantAccess, setTenantAccess] = useState('loading');   // loading | yes | no | error
+  const [accessTry, setAccessTry] = useState(0);
+  useEffect(() => {
+    let on = true;
+    Promise.resolve()
+      .then(() => api.opsAccessMe?.())
+      .then((a) => { if (on) setTenantAccess(a?.tenantDetails ? 'yes' : 'no'); })
+      .catch((err) => {
+        console.error('Operations: could not read the tenant access', err);
+        if (on) setTenantAccess('error');
+      });
+    return () => { on = false; };
+  }, [accessTry]);
+  const seesTenants = tenantAccess === 'yes';
+  const tabs = canRevenue ? (seesTenants ? TABS : TABS_NO_TENANTS) : (seesTenants ? STAFF_TABS : STAFF_TABS_NO_TENANTS);
   // A menu's own key opens its first item; the old mock tab ids (fms,
   // reputation, site-staff) and anything else unknown open the Overview.
   const leaves = leafKeys(tabs);
   const group = tabs.find((t) => t.key === activeSub && t.items);
   const wanted = group ? group.items[0].key : activeSub;
+  // A link straight to Tenants (the phone menu, search, a bookmark) lands on
+  // Tenants whoever follows it: the screen itself says when it is not theirs.
   const sub = leaves.includes(wanted) ? wanted
-    : (wanted === 'revenue' || String(wanted).startsWith('revenue-')) ? 'revenue' : 'overview';
+    : (wanted === 'revenue' || String(wanted).startsWith('revenue-')) ? 'revenue'
+    : wanted === 'tenants' ? 'tenants' : 'overview';
   const { screen, view } = screenOf(sub);
   const onView = (s) => (v) => onSubChange?.(viewKey(s, v));
   const alive = useRef(true);
@@ -302,7 +331,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
       </ModuleActions>
       <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>
         {state.data
-          ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
+          ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically. `}<SyncStatus data={state.data} syncing={refreshing} /></>
           : 'Storage facility figures from Cubby'}
       </p>
       {notice && <p className="ops-note" role="status" style={{ margin: '0 0 12px' }}>{notice}</p>}
@@ -323,7 +352,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
 
       {screen !== 'budget' && state.status === 'ready' && !everyFacility.length && (
         <div className="dash-card"><div className="ops-empty">
-          {state.data?.syncStatus === 'not_configured' ? NOT_CONNECTED : 'Cubby returned no facilities for this account.'}
+          {state.data?.syncStatus === 'not_configured' ? (canSeeKeyHint ? NOT_CONNECTED : NOT_CONNECTED_PLAIN) : 'Cubby returned no facilities for this account.'}
         </div></div>
       )}
 
@@ -346,7 +375,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
             <div className="ops-bar-right">
               {/* The Site Map has its own search on the map (units here, tenants anywhere) - one box, not two.
                   Until that map is on screen (loading, failed, no site model) this Lookup stands in. */}
-              {(screen !== 'site-map' || !mapSearch) && <Lookup />}
+              {(screen !== 'site-map' || !mapSearch) && screen !== 'tenants' && <Lookup />}
               {!NO_PERIOD.has(screen) && (
                 <label className="ops-period">
                   <span>Period</span>
@@ -369,6 +398,16 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {screen === 'units' && <Units data={data} many={many} focus={focus} go={go}
             />}
           {screen === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
+          {screen === 'tenants' && seesTenants && <Tenants facility={current === 'all' ? null : single} many={many}
+            within={stateOn ? facilities.filter((f) => !isThirdParty(f)).map((f) => f.id) : null} />}
+          {screen === 'tenants' && tenantAccess === 'no' && <p className="ops-note" style={{ margin: 0 }}>You do not have access to tenant details.</p>}
+          {screen === 'tenants' && tenantAccess === 'loading' && <LoadingState size="section" label="Checking your access" minHeight={160} />}
+          {screen === 'tenants' && tenantAccess === 'error' && (
+            <p className="ops-note" role="alert" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span>Couldn&apos;t check your access to tenant details.</span>
+              <button type="button" className="secondary-btn" onClick={() => { setTenantAccess('loading'); setAccessTry((n) => n + 1); }}>Try Again</button>
+            </p>
+          )}
           {screen === 'market' && <RateManagement facility={single && !isThirdParty(single) ? single : null} section={view} onSection={onView('market')} />}
           {screen === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} section={view} onSection={onView('reports')} />}
           {screen === 'revenue' && (canRevenue

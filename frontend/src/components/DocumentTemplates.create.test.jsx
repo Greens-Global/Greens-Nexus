@@ -22,20 +22,46 @@ beforeEach(() => {
 describe('New Template', () => {
   it('makes an untitled draft and opens it, with no name step', async () => {
     render(<DocumentTemplates toastOk={vi.fn()} toastErr={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: /New Template/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'New' }));      // "+ New" (Neil, 11/13/2026)
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Template/ }));
     expect(await screen.findByText('builder template t9')).toBeTruthy();
     expect(calls.createDocTemplate).toHaveBeenCalledWith({ name: 'Untitled Template', category: 'general', status: 'draft' });
     expect(screen.queryByLabelText(/Template name/i)).toBeNull();
   });
 
-  it('keeps Word, the starters and Letterheads under its arrow', async () => {
+  it('keeps Word, the starters and Letterheads in its + New menu', async () => {
     render(<DocumentTemplates toastOk={vi.fn()} toastErr={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'More ways to start a template' }));
-    for (const n of ['Blank Template', 'From a Word File...', 'Add Starter Templates', 'Letterheads']) {
+    fireEvent.click(await screen.findByRole('button', { name: 'New' }));
+    for (const n of [/^Template/, /^From a Word File\.\.\./, /^Add Starter Templates/, /^Letterheads/]) {
       expect(await screen.findByRole('menuitem', { name: n })).toBeTruthy();
     }
     expect(screen.queryByRole('button', { name: 'From Word File' })).toBeNull();
-    fireEvent.click(screen.getByRole('menuitem', { name: 'From a Word File...' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /^From a Word File/ }));
     await waitFor(() => expect(screen.getByText('word wizard')).toBeTruthy());
+  });
+});
+
+// The board is category cards (Pranshu, 11/13/2026): a card per category
+// that has a template, none for an empty one; Open shows that category's list.
+describe('The board', () => {
+  it('shows a card per category with templates, opens one, and a new template there takes its category', async () => {
+    calls.getDocTemplates.mockResolvedValue([
+      { id: 't1', name: 'Offer Letter', category: 'hr', status: 'active', state: 'published', department: '' },
+      { id: 't2', name: 'NDA', category: 'legal', status: 'active', state: 'draft', department: '' },
+    ]);
+    render(<DocumentTemplates toastOk={vi.fn()} toastErr={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: 'HR, 1 template' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Legal, 1 template' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Finance/ })).toBeNull();
+    expect(screen.queryByRole('table')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Legal, 1 template' }));
+    // No page heading (Pranshu, 11/13/2026): one line back to the cards, naming the category.
+    expect(await screen.findByRole('button', { name: 'All Templates' })).toBeTruthy();
+    expect(screen.queryByRole('heading')).toBeNull();
+    expect(screen.getByRole('table')).toBeTruthy();
+    expect(screen.queryByText('Offer Letter')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'New' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Template/ }));
+    await waitFor(() => expect(calls.createDocTemplate).toHaveBeenCalledWith({ name: 'Untitled Template', category: 'legal', status: 'draft' }));
   });
 });

@@ -18,7 +18,7 @@ import { DashCard, navigate } from './widgets.jsx';
 import { MoreRow, WidgetError, WidgetSkeleton } from './listParts.jsx';
 import { openSession } from './essentials/punchMath.js';
 
-export const noteStyle = { fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
+export const noteStyle = { fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
 const fmtH = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
 const DAY_MS = 86400000;
 // Local calendar date as YYYY-MM-DD - the key the time clock's `days` map uses.
@@ -48,10 +48,10 @@ export function Row({ Icon, title, meta, status, statusLabel, onClick }) {
       {Icon && <span className="dk-chip dk-chip--blue" style={{ width: 28, height: 28, borderRadius: 7, flexShrink: 0 }}><Icon size={14} /></span>}
       <span style={{ flex: 1, minWidth: 0 }}>
         <span title={typeof title === 'string' ? title : undefined} style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
-        {meta && <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)' }}>{meta}</span>}
+        {meta && <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{meta}</span>}
       </span>
       {statusLabel && (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color, flexShrink: 0 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color, flexShrink: 0 }}>
           <span style={{ width: 6, height: 6, borderRadius: 99, background: color }} /> {statusLabel}
         </span>
       )}
@@ -127,14 +127,14 @@ export function TimeClockWidget() {
   // Sized to fit a 2-row tile (130px on desktop, 1px border + 10px padding
   // each side = 108px of content): 26 chip + 6 + 26 numeral + 15 label + 6 +
   // 16 action line = 95px, so nothing is cut at three or four columns.
-  const num = { fontSize: 26, fontWeight: 800, letterSpacing: '-.02em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: 'var(--wk-ink)', whiteSpace: 'nowrap' };
-  const lbl = { fontSize: 11.5, lineHeight: 1.3, color: 'var(--wk-faint)', marginTop: 1, whiteSpace: 'nowrap' };
+  const num = { fontSize: 24, fontWeight: 800, letterSpacing: '-.02em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: 'var(--wk-ink)', whiteSpace: 'nowrap' };
+  const lbl = { fontSize: 12, lineHeight: 1.3, color: 'var(--wk-faint)', marginTop: 1, whiteSpace: 'nowrap' };
   return (
     <div className="dk-stat" role="button" onClick={go} title={cta}
       style={{ height: '100%', boxSizing: 'border-box', justifyContent: 'center', padding: '10px 16px', gap: 0, overflow: 'hidden' }}>
       <span className="dk-stat-top" style={{ gap: 10 }}>
         <span className={`dk-chip dk-chip--${tone === 'muted' ? 'blue' : tone}`} style={{ width: 26, height: 26, borderRadius: 7 }}><Clock /></span>
-        <span style={{ flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: stateColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <span style={{ flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: stateColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           <span style={{ width: 7, height: 7, borderRadius: 99, background: stateColor, flexShrink: 0 }} />
           {state}
         </span>
@@ -146,15 +146,15 @@ export function TimeClockWidget() {
           <span style={{ display: 'block', ...lbl }}>Today</span>
         </span>
         <span style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', ...num, fontSize: 17, color: 'var(--wk-dim)' }}>{status && !status.error ? fmtH(weekMin) : '--'}</span>
+          <span style={{ display: 'block', ...num, fontSize: 18, color: 'var(--wk-dim)' }}>{status && !status.error ? fmtH(weekMin) : '--'}</span>
           <span style={{ display: 'block', ...lbl }}>Last 7 days</span>
         </span>
       </span>
       <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 6, width: '100%', minWidth: 0, lineHeight: 1.3 }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-green)', whiteSpace: 'nowrap' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 600, color: 'var(--wk-green)', whiteSpace: 'nowrap' }}>
           {cta} <ArrowRight size={12} />
         </span>
-        {since && <span style={{ fontSize: 11.5, color: 'var(--wk-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{since}</span>}
+        {since && <span style={{ fontSize: 12, color: 'var(--wk-faint)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{since}</span>}
       </span>
     </div>
   );

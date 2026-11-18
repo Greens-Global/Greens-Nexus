@@ -152,10 +152,9 @@ describe('ReportBuilder', () => {
     expect(table.textContent).toContain('Line A');
     expect(screen.getByRole('heading', { name: 'Custom Lines' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeTruthy();
-    // The author deletes it, after a Delete / Keep check.
-    fireEvent.click(screen.getByRole('button', { name: 'Delete Custom Lines' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    await waitFor(() => expect(api.deleteAccountingSavedReport).toHaveBeenCalledWith('b1'));
+    // The author deletes it by pressing and holding (Hold to Confirm, one record).
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Delete Custom Lines, press and hold' }), { button: 0, pointerId: 1 });
+    await waitFor(() => expect(api.deleteAccountingSavedReport).toHaveBeenCalledWith('b1'), { timeout: 3000 });
     expect(await screen.findByText('Deleted.')).toBeTruthy();
     expect(screen.getByRole('textbox', { name: 'Report name' }).value).toBe('');
   });

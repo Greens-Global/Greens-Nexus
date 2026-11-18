@@ -39,20 +39,23 @@ function CountPill({ count, label, color }) {
   );
 }
 
-/** Window-selector chip (Overdue / Next 30 / Next 90 / All). Highlighted blue when active. */
+/** Window selector (Overdue / Next 30 / Next 90 / All) as text tabs - the picked one in ink, underlined. */
 function WindowChip({ value, label, active, onSelect }) {
   return (
     <button
+      type="button"
+      aria-pressed={active}
       onClick={() => onSelect(value)}
       style={{
-        padding: '5px 11px',
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 600,
+        padding: '4px 0',
+        fontSize: 13,
+        fontWeight: active ? 600 : 500,
         cursor: 'pointer',
-        border: active ? '1px solid transparent' : '1px solid var(--border-color)',
-        color: active ? '#fff' : 'var(--text-secondary)',
-        background: active ? 'hsl(var(--color-blue))' : 'var(--bg-card)',
+        border: 'none',
+        borderBottom: active ? '2px solid var(--text-primary)' : '2px solid transparent',
+        color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+        background: 'none',
+        fontFamily: 'inherit',
       }}
     >
       {label}
@@ -130,18 +133,9 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
   };
 
   return (
-    <div
-      style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border-color)',
-        borderRadius: 12,
-        padding: 16,
-        marginBottom: 16,
-        boxShadow: 'var(--shadow-sm)',
-      }}
-    >
+    <div style={{ paddingBottom: 16, marginBottom: 16, borderBottom: '1px solid var(--border-color)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>
           {title}
         </span>
         <div style={{ display: 'flex', columnGap: 16, rowGap: 4, flexWrap: 'wrap' }}>
@@ -177,7 +171,7 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
 
       {open && !chipsOnly && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', marginTop: 12 }}>
             <WindowChip value="overdue" label="Overdue" active={windowSel === 'overdue'} onSelect={setWindowSel} />
             <WindowChip value="30" label="Next 30 Days" active={windowSel === '30'} onSelect={setWindowSel} />
             <WindowChip value="90" label="Next 90 Days" active={windowSel === '90'} onSelect={setWindowSel} />
@@ -203,8 +197,7 @@ export function CriticalDates({ store, openProperty, only, onTab, hideIfEmpty, t
                 maxHeight: 340,
                 overflowY: 'auto',
                 marginTop: 10,
-                border: '1px solid var(--border-color)',
-                borderRadius: 8,
+                borderTop: '1px solid var(--border-color)',
               }}
             >
               {(showAll ? rows : rows.slice(0, ROW_CAP)).map((item, i) => (

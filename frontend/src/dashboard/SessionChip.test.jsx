@@ -32,6 +32,10 @@ describe('SessionChip', () => {
     render(<SessionChip mine={mine('break')} onOpen={() => {}} />);
     expect(screen.getByRole('button').textContent).toMatch(/^On Break/);
     expect(screen.queryByText(/Clocked In/)).toBeNull();
+    // Amber, as on the left menu's clock - never the working green dot.
+    expect(screen.getByRole('button').className).toContain('dk-session-chip--break');
+    expect(document.querySelector('.dk-dot--break')).toBeTruthy();
+    expect(document.querySelector('.dk-dot--up')).toBeNull();
   });
 
   it('says Clocked Out with the way in for a tracked person off the clock', () => {

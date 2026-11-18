@@ -68,6 +68,13 @@ jobs:
           VITE_REDIRECT_URI: ${{ vars.VITE_REDIRECT_URI }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # Source marks on production (Neil, 11/12/2026: yes, once everyone
+          # files through tickets): Point At It on a ticket can then say which
+          # file drew the thing that was clicked. Marks on elements with a
+          # handler or an aria / role attribute only (vite.config.js). The
+          # archive build (archive-assets.yml) carries the same value - the
+          # two must build the same files.
+          VITE_NX_SRC: handlers
         # No index.html → 404.html copy here: Cloudflare Pages uses the
         # _redirects SPA fallback (and a 404.html would disable it).
 

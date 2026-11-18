@@ -139,4 +139,21 @@ describe('Weather widget', () => {
     fireEvent.click(screen.getByRole('radio', { name: '°C · km/h' }));
     expect(onChange).toHaveBeenCalledWith({ units: 'metric' });
   });
+
+  // Wide (Neil, 11/13/2026: it "doesn't show anything extra as the width
+  // expands but the height doesn't"): a short, wide tile shows the week as
+  // day columns beside the glance.
+  it('a short, wide tile shows the week beside the glance', async () => {
+    const RO = global.ResizeObserver;
+    global.ResizeObserver = class { constructor(cb) { this.cb = cb; } observe() { this.cb([{ contentRect: { width: 900, height: 110 } }]); } disconnect() {} };
+    weather.mockResolvedValue({ ...FORECAST, daily: ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01'].map((date, i) => ({ date, high: 80 + i, low: 60, code: 2, precipChance: 0 })) });
+    try {
+      render(<WeatherWidget config={{ mode: 'place', place: { name: 'Austin', region: 'Texas', countryCode: 'US', lat: 30.27, lon: -97.74 } }} />);
+      expect(await screen.findByText('67°')).toBeTruthy();
+      const week = screen.getByLabelText('Daily forecast');
+      expect(week.textContent).toContain('Today');
+      expect(week.textContent).toContain('83°');
+      expect(screen.queryByLabelText('Hourly')).toBeNull();   // still the short glance, no hour strip
+    } finally { global.ResizeObserver = RO; }
+  });
 });

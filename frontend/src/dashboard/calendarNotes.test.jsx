@@ -58,6 +58,17 @@ describe('Calendar agenda', () => {
     expect(await screen.findByText('Meeting 1')).toBeTruthy();
   });
 
+  // 11/17/2026: a failed read used to fall through to "Nothing scheduled.".
+  it('says the calendar did not load, and Try Again reads it again', async () => {
+    apiMock.dashAgenda.mockReset().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ available: true, events });
+    render(<CalendarPanel />);
+    expect((await screen.findByRole('alert')).textContent).toContain("Couldn't load your calendar.");
+    expect(screen.queryByText('Nothing scheduled.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
+    expect(await screen.findByText('Meeting 1')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('sizes the tile to its content (fit), and the old My Agenda alias the same way and bounds', () => {
     expect(WIDGETS.calendar.fit).toBe(true);
     expect(WIDGETS.agenda.fit).toBe(true);

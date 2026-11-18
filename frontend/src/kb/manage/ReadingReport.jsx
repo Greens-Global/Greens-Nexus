@@ -45,7 +45,7 @@ export default function ReadingReport() {
           <div className="kb-label" style={{ marginTop: 8 }}>By Team</div>
           {rep.by_team.slice(0, 6).map((t) => (
             <div key={t.department} className="kb-row" style={{ padding: '4px 0' }}>
-              <div className="kb-grow" style={{ fontSize: 13.5 }}>{t.department}</div>
+              <div className="kb-grow" style={{ fontSize: 13 }}>{t.department}</div>
               <span className="kb-meta">{plural(t.views, 'view')} · {plural(t.readers, 'reader')}</span>
             </div>
           ))}

@@ -79,7 +79,7 @@ export default function OutboxPanel({ onClose }) {
               <div key={e.id} data-entry={e.id} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <span style={{ flex: '1 1 180px', minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{d.title}</span>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: NX.ink }}>{d.title}</span>
                     <span style={{ display: 'block', fontSize: 12, color: NX.dim }}>
                       {d.detail ? `${d.detail} - ` : ''}Saved {formatDateTime(e.createdAt)}{e.sentAt ? `, sent ${formatDateTime(e.sentAt)}` : ''}
                     </span>
@@ -92,17 +92,17 @@ export default function OutboxPanel({ onClose }) {
                 {e.state !== 'sent' && e.state !== 'sending' && (
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {e.state === 'conflict' && (
-                      <button type="button" style={{ ...btn('primary'), padding: '6px 12px', fontSize: 12.5 }} onClick={() => setChoosing(e.id)}>Choose</button>
+                      <button type="button" style={{ ...btn('primary'), padding: '6px 12px', fontSize: 13 }} onClick={() => setChoosing(e.id)}>Choose</button>
                     )}
                     {e.state === 'failed' && typeof h?.fix === 'function' && (
                       // A refused change goes back where it can be corrected
                       // (a form: its fill screen, answers and photos kept).
-                      <button type="button" style={{ ...btn('primary'), padding: '6px 12px', fontSize: 12.5 }} onClick={() => fix(e)}>
+                      <button type="button" style={{ ...btn('primary'), padding: '6px 12px', fontSize: 13 }} onClick={() => fix(e)}>
                         <Wrench size={13} /> Open and Fix
                       </button>
                     )}
                     {e.state === 'failed' && (
-                      <button type="button" style={{ ...btn('outline'), padding: '6px 12px', fontSize: 12.5 }} disabled={!s.online} onClick={() => s.retryEntry(e.id)}>
+                      <button type="button" style={{ ...btn('outline'), padding: '6px 12px', fontSize: 13 }} disabled={!s.online} onClick={() => s.retryEntry(e.id)}>
                         <RotateCcw size={13} /> Retry
                       </button>
                     )}
@@ -117,7 +117,7 @@ export default function OutboxPanel({ onClose }) {
           {others.length > 0 && (
             <div data-others style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink }}>{changes(others.length)} from another session</div>
-              <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 13, color: NX.dim, lineHeight: 1.5 }}>
                 Saved on this phone under your name in another session (for example while acting as someone). They never send from here - discard them when you are sure they are not needed.
               </div>
               {others.map((e) => {
@@ -125,7 +125,7 @@ export default function OutboxPanel({ onClose }) {
                 return (
                   <div key={e.id} style={{ border: `1px dashed ${NX.border}`, borderRadius: 12, padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <span style={{ flex: '1 1 180px', minWidth: 0 }}>
-                      <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{d.title}</span>
+                      <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: NX.ink }}>{d.title}</span>
                       <span style={{ display: 'block', fontSize: 12, color: NX.dim }}>Saved {formatDateTime(e.createdAt)}</span>
                     </span>
                     <HoldButton label="Discard" doneLabel="Discarded" size="sm" icon={Trash2} holdMs={HOLD_RECORD_MS}

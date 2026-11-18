@@ -62,6 +62,28 @@ export function breakdown(row, column) {
   })));
 }
 
+/**
+ * The Total row as a row of its own, so its figures open into accounts like
+ * any entity's: the root rows' accounts for `period` ('current' | 'prior')
+ * merged by account (a sub-entity is already inside its parent), with the
+ * sheet's own totals as the figures. `entities` lists the codes it covers.
+ */
+export const TOTAL_CODE = '__total__';
+export function totalRow(rows, totals, period = 'current', name = 'Total') {
+  const roots = (rows || []).filter((r) => !r.parent);
+  const merged = {};
+  roots.forEach((r) => Object.entries(r[period]?.accounts || {}).forEach(([g, list]) => {
+    const m = merged[g] || (merged[g] = new Map());
+    (list || []).forEach((a) => {
+      const was = m.get(a.account);
+      if (was) was.amount = Math.round((was.amount + (Number(a.amount) || 0)) * 100) / 100;
+      else m.set(a.account, { ...a, amount: Number(a.amount) || 0 });
+    });
+  }));
+  const accounts = roots.some((r) => r[period]?.accounts) ? Object.fromEntries(Object.entries(merged).map(([g, m]) => [g, [...m.values()]])) : null;
+  return { code: TOTAL_CODE, name, entities: roots.map((r) => r.code), current: { ...(totals?.[period] || {}), ...(accounts ? { accounts } : {}) } };
+}
+
 export const periodLine = (data) => (data ? `${formatDate(data.from)} - ${formatDate(data.to)}` : '');
 export const priorLine = (data) => (data?.priorFrom ? `${formatDate(data.priorFrom)} - ${formatDate(data.priorTo)}` : '');
 

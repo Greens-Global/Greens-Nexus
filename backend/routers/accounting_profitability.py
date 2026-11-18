@@ -332,8 +332,6 @@ async def profitability(
         c = meta["code"]
         m = with_debt(measures(cur.get(c, [])), ds.get(c))
         p = with_debt(measures(prior.get(c, [])), ds_prior.get(c)) if compare else None
-        if p is not None:
-            p.pop("accounts", None)
         rows.append({
             "code": c, "name": names.get(c) or labels.get(c) or c, "parent": meta["parent"],
             "current": m, "prior": p,

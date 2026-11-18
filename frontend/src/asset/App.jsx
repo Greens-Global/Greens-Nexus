@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { LoadingState } from '../components/AsyncState';
-import { ArrowLeft, Pencil, Search, Lock, Unlock, Copy, MoreHorizontal, FileText, Download, Plus, History, Trash2, Upload } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { MoreHorizontal, Download, Trash2, Upload, Plus, Building2, Truck, Wrench } from 'lucide-react';
 
 import { PT } from './lib/propertyFields.js';
 import { ASSET_SCHEMAS, inferAssetKind } from './lib/vehicleFields.js';
@@ -8,29 +7,32 @@ import { RECORD_TYPES } from './lib/recordTypes.jsx';
 import { normLabel, genId, toNumber, snapMap } from './lib/format.js';
 import { editGuard } from './lib/editGuard.js';
 import { makeLogEntry, appendLog, diffChanges, recordDisplayName } from './lib/logging.js';
-import { SHARED_FILTER_GROUPS, LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, stripTabsFor, recordLabel, recordHint, assetSub, parseAssetSub, PORTFOLIO_SUB } from './lib/navigation.js';
+import {
+  LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, stripTabsFor, recordLabel, recordHint, assetSub, parseAssetSub,
+  PORTFOLIO_TABS, OVERVIEW_SUB, portfolioSub, parsePortfolioSub, portfolioTabLabel,
+} from './lib/navigation.js';
 import { TIMELINE_FIELDS, permitColumns } from './lib/timelineFields.js';
 import { useNexusStore } from './lib/useNexusStore.js';
-import { portfolioStats, assetCompleteness } from './lib/assetMetrics.js';
-import { typeLabel } from './lib/portfolioCards.js';
-import { useAssetCompanies, companyName, companyIdOf, needsCompany, NO_COMPANY } from './lib/companies.js';
+import { useAssetCompanies, companyName, companyIdOf } from './lib/companies.js';
 import { egnyteFolderOf, normalizeEgnyteFolder } from './lib/egnyteFolder.js';
+import { DEFAULT_VIEW, decodeView, encodeView, presetView, normalizeFilters } from './lib/portfolioQuery.js';
+import { exportPortfolioCsv } from './lib/portfolioCsv.js';
+import { useTabSignals } from './lib/tabSignals.js';
+import { patchAssetRow } from './lib/assetPatch.js';
 import AnchoredMenu from '../components/AnchoredMenu';
-import { StatusLabel } from '../components/StatusLabel.jsx';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
+import { useIsMobile } from '../lib/useIsMobile';
+import { useTableValue } from '../tasks/tableCols.jsx';
 
 import { ToastHost, pushToast } from './components/shared/ToastHost.jsx';
 import { SyncStatus } from './components/shared/SyncStatus.jsx';
 import { CollectionTable } from './components/shared/CollectionTable.jsx';
-import { EmptyState } from './components/shared/EmptyState.jsx';
 import { RecordModal } from './components/shared/RecordModal.jsx';
 
 import { Portfolio } from './components/portfolio/Portfolio.jsx';
-import { AssetOverview } from './components/asset/AssetOverview.jsx';
-import { CriticalDates } from './components/asset/CriticalDates.jsx';
-import { AssetDetailForm } from './components/asset/AssetDetailForm.jsx';
+import { AssetOverviewPage } from './components/asset/AssetOverviewPage.jsx';
+import { AssetTitleBand } from './components/asset/AssetTitleBand.jsx';
 import { ParcelManager } from './components/asset/ParcelManager.jsx';
-import { AssemblageParcels } from './components/asset/AssemblageParcels.jsx';
 import { AddAssetModal } from './components/asset/AddAssetModal.jsx';
 import { TimelineTracker } from './components/asset/TimelineTracker.jsx';
 import { SimpleRecordTable } from './components/shared/SimpleRecordTable.jsx';
@@ -40,25 +42,38 @@ import { TimelineStatusModal } from './components/asset/TimelineStatusModal.jsx'
 
 import { VserviceSection } from './components/maintenance/VserviceSection.jsx';
 import { PropertyMaintenanceSection } from './components/maintenance/PropertyMaintenanceSection.jsx';
+import { PropertyTicketComposer } from './components/maintenance/ticketMounts';
 
 import { ReviewFlagsPanel } from './components/manage/ReviewFlagsPanel.jsx';
-import { ActivityLog } from './components/manage/ActivityLog.jsx';
 import { DataGapsPanel, TrashPanel } from './components/portfolio/PortfolioPanels.jsx';
-import { MenuRow } from './components/shared/MenuRow.jsx';
+import { MENU_PANEL, MenuItem, menuKeys, useMenu } from './components/portfolio/menuParts.jsx';
+
+import { OverviewTab } from './components/tabs/OverviewTab.jsx';
+import { FleetTab } from './components/tabs/FleetTab.jsx';
+import { DevelopmentTab } from './components/tabs/DevelopmentTab.jsx';
+import { MaintenanceTab } from './components/tabs/MaintenanceTab.jsx';
+import { DatesTab } from './components/tabs/DatesTab.jsx';
+import { ActivityTab } from './components/tabs/ActivityTab.jsx';
 
 import { exportAssetCsvAsFile, exportAssetPdf } from './lib/csvExport.js';
 import { ticketMaintenanceRows } from './lib/propertyTickets.js';
 import { useSession } from './lib/session.js';
 import { api } from '../api.js';
 import { AddItemModal } from '../views/InventoryManagement.jsx';
-// Oct 7 accounting feedback: a property's loans from the ledger (self-contained; see the file's header).
-import PropertyLoans from '../components/PropertyLoans.jsx';
-// A property's construction Jobs, read only (Neil, 11/03/2026, construction plan phase 2).
-import PropertyJobs from '../components/PropertyJobs.jsx';
-import PageTrail, { useTrailCrumbs } from '../components/PageTrail';
+import { useTrailCrumbs } from '../components/PageTrail';
 import ModuleTabs, { ModuleActions } from '../components/ModuleTabs';
+import NewButton from '../components/NewButton';
 
-const cityRegion = (p) => (p.city || '') + (p.state ? ', ' + p.state : '');
+// "+ New" on every portfolio tab (Neil, 11/13/2026: "+ New" is the one create button).
+const NEW_ITEMS = [
+  { key: 'property', label: 'Property', hint: 'A site, a building or land', Icon: Building2 },
+  { key: 'vehicle', label: 'Vehicle', hint: 'A car, a truck, a van', Icon: Truck },
+  { key: 'equipment', label: 'Heavy Equipment', hint: 'A loader, a lift, a generator', Icon: Wrench },
+  { key: 'import', label: 'Import From a Spreadsheet...', hint: 'Many at once, from a CSV', Icon: Upload, sep: true },
+];
+const ADD_NOUN = { warranties: 'Warranty', inspections: 'Inspection', documents: 'Plan or Document', utilities: 'Utility', ahj: 'Authority', vendors: 'Vendor', permit: 'Permit', vservice: 'Service Record', odometer: 'Odometer Reading', vdocs: 'Document' };
+const NOOP = () => {};
+const freshView = () => ({ ...DEFAULT_VIEW, filters: normalizeFilters({}), mode: '' });
 
 export default function App({ activeSub = null, onSubChange = null } = {}) {
   const session = useSession();
@@ -68,6 +83,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   // enforces both (routers/property_assets.may_repin_egnyte).
   const canEditAssets = session.level >= 4 || ['editor', 'full', 'owner'].includes(session.moduleLevel);
   const mayRepinEgnyte = session.level >= 5 || session.moduleLevel === 'owner';
+  const me = useMemo(() => ({ name: session.name || '', email: session.email || '' }), [session.name, session.email]);
+  const phone = useIsMobile();
 
   // `store` is the whole app's data: { properties, warranties, inspections, documents, ahj,
   // utilities, vendors, logs, vservice, odometer, vdocs, maintenance, _ts }. useNexusStore
@@ -78,9 +95,22 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
 
   const [view, setView] = useState('portfolio');       // 'portfolio' | a strip tab or record collection key (lib/navigation.js)
   const [activeId, setActiveId] = useState(null);        // currently open asset's id, or null
+  // The portfolio's top menu (Neil, 11/17/2026): which tab is open when no asset is, and the
+  // Properties register's view (filters, grouping, sort, mode, columns). Both ride the
+  // address (lib/navigation.js portfolioSub) so Back and a pasted link reproduce them.
+  const [portTab, setPortTab] = useState(() => parsePortfolioSub(activeSub)?.tab || 'overview');
+  const [pview, setPview] = useState(() => { const p = parsePortfolioSub(activeSub); return p?.view ? { ...freshView(), ...decodeView(p.view) } : freshView(); });
+  // The view string last written to the address: changes settle for a moment before they
+  // become a history entry, so a run of filter clicks is one Back, not ten.
+  const [committed, setCommitted] = useState(() => parsePortfolioSub(activeSub)?.view || '');
+  const [storedMode, setStoredMode] = useTableValue('asset-portfolio', 'mode', 'list');
+  const [savedViews, setSavedViews] = useTableValue('asset-portfolio', 'views', []);
+  const mode = pview.mode || storedMode || 'list';
+  // Where an open asset came from: the tab, the words Back says, the list prev / next walks.
+  const [origin, setOrigin] = useState(null);
+  const propertyList = useRef({ ids: [], label: 'Properties' });
   // The asset last opened (fleet cards, Neil 11/02/2026): Back to the portfolio outlines its
-  // card in the live accent, so you land where you were. State only - the portfolio's address
-  // stays PORTFOLIO_SUB and an open asset keeps its own "a:<id>:<view>" URL.
+  // card in the live accent, so you land where you were.
   const [lastOpenedId, setLastOpenedId] = useState(null);
   if (activeId && activeId !== lastOpenedId) setLastOpenedId(activeId);
   const [leaveAsk, setLeaveAsk] = useState(false);        // "unsaved changes" confirm dialog
@@ -90,10 +120,12 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const [equipmentItemModal, setEquipmentItemModal] = useState(null); // staged Heavy Equipment asset awaiting its paired Item Management entry
   const [lastManageVisit, setLastManageVisit] = useState(() => { try { return localStorage.getItem('nexus_manage_seen') || ''; } catch { return ''; } });
   const [highlight, setHighlight] = useState(null);
+  const [reportFor, setReportFor] = useState(null);          // Report a Problem on a phone
+  const [openTickets, setOpenTickets] = useState(null);      // ids of properties with open tickets, once asked for
   // Ticket bells and emails deep-link here (Property Tickets, Oct 2026): sub
   // "tickets|needs-action|services:<propertyId>[:<ticketId>]" opens that
-  // property's Maintenance on that tab (and the ticket). Consumed once (onSubChange(null)), so the
-  // next visit to Asset Management starts at the portfolio as usual.
+  // property's Maintenance on that tab (and the ticket). Consumed once, then the
+  // address becomes the asset's own.
   const [ticketFocus, setTicketFocus] = useState(null);
   const [subSeen, setSubSeen] = useState(null);
   const [subMissing, setSubMissing] = useState(false);
@@ -114,20 +146,28 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     pushToast?.('That property is no longer in Asset Management.', 'mut');
     onSubChange?.(null);
   }, [subSeen, activeSub, subMissing, onSubChange]);
+
+  // The register's view settles, then becomes the address.
+  const viewStr = encodeView(pview);
+  useEffect(() => {
+    if (viewStr === committed) return undefined;
+    const t = setTimeout(() => setCommitted(viewStr), 700);
+    return () => clearTimeout(t);
+  }, [viewStr, committed]);
+
   // Every open asset is a URL (Oct 2026): "a:<id>:<view>" under /property-asset, so a
-  // tab can be bookmarked, shared, reloaded and walked with the browser's Back. State
-  // writes the segment; a segment arriving from outside (a pasted link, Back) sets the
-  // state - each side skips when the other already matches, so they never ping-pong.
-  // The shell's default segment for this module is PORTFOLIO_SUB, so the portfolio
-  // keeps the address it always had.
-  const wantSub = assetSub(activeId, view === 'portfolio' ? 'property' : view) || PORTFOLIO_SUB;
+  // tab can be bookmarked, shared, reloaded and walked with the browser's Back. The
+  // portfolio's tabs are "asset-overview", "asset-portfolio[~view]", "asset-fleet"...
+  // State writes the segment; a segment arriving from outside (a pasted link, Back)
+  // sets the state - each side skips when the other already matches.
+  const wantSub = assetSub(activeId, view === 'portfolio' ? 'property' : view) || portfolioSub(portTab, committed);
   useEffect(() => {
     if (loading) return;
     // A ticket link is consumed by the render block above (it sets subSeen); its
     // state change lands here, where the address is rewritten to the asset's own
     // URL and subSeen is cleared so the same bell link works again later.
     if (ticketSub && activeSub !== subSeen) return;
-    if ((activeSub || PORTFOLIO_SUB) !== wantSub) { onSubChange?.(wantSub); if (ticketSub) setSubSeen(null); }
+    if ((activeSub || OVERVIEW_SUB) !== wantSub) { onSubChange?.(wantSub); if (ticketSub) setSubSeen(null); }
   }, [wantSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (loading || ticketSub) return;
@@ -137,30 +177,28 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       if (!store.properties.some((p) => p.id === target.id && !p.deleted)) {
         if (!store.properties.length) return;   // nothing loaded at all: not a verdict on the link
         pushToast?.('That asset is no longer in Asset Management.', 'mut');
-        onSubChange?.(PORTFOLIO_SUB);
+        onSubChange?.(portfolioSub(portTab, committed));
         return;
       }
-      const go = () => { setActiveId(target.id); setView(target.view); if (target.item) setHighlight({ tab: target.view, section: '', field: '', item: target.item, at: Date.now() }); };
+      const go = () => { setActiveId(target.id); setView(target.view); if (target.item) setHighlight({ tab: target.view, section: target.view === 'permit' ? 'Permit' : '', field: '', item: target.item, at: Date.now() }); };
       if (editGuard.dirty) { onSubChange?.(wantSub); setPendingNav(() => go); setLeaveAsk(true); } else go();
-    } else if (activeId && (!activeSub || activeSub === PORTFOLIO_SUB)) {
-      const go = () => { setActiveId(null); setView('portfolio'); };
-      if (editGuard.dirty) { onSubChange?.(wantSub); setPendingNav(() => go); setLeaveAsk(true); } else go();
+      return;
     }
+    const place = parsePortfolioSub(activeSub);
+    if (!place) return;
+    const go = () => {
+      if (activeId) { setActiveId(null); setView('portfolio'); }
+      if (place.tab !== portTab) setPortTab(place.tab);
+      if (place.tab === 'properties' && place.view !== committed) { setPview({ ...freshView(), ...decodeView(place.view) }); setCommitted(place.view); }
+    };
+    if (activeId && editGuard.dirty) { onSubChange?.(wantSub); setPendingNav(() => go); setLeaveAsk(true); } else go();
   }, [activeSub, loading]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const [typeFilter, setTypeFilter] = useState('');
-  // The portfolio's Company filter (a company id; NO_COMPANY = Needs a Company) -
-  // here, not in Portfolio, so the Needs Attention chip can open it.
-  const [companyFilter, setCompanyFilter] = useState('');
+
   // The Company picker's list and whether this person may leave an asset with none.
   const companyList = useAssetCompanies();
-  const moreRef = useRef(null);                                // the header's "more actions" button
-  const [moreOpen, setMoreOpen] = useState(false);
-  // The portfolio's own more menu and the panel open under its Needs Attention band
-  // (Data Gaps / Flagged / Activity Log / Trash - the old Manage page, in place).
-  const portfolioMoreRef = useRef(null);
-  const [portfolioMoreOpen, setPortfolioMoreOpen] = useState(false);
+  // The panel opened in place under a portfolio tab's first row: Trash, Data Gaps, Flagged.
   const [panel, setPanel] = useState(null);
-  const [lastRecord, setLastRecord] = useState(null);         // the Records segment last open, per session
+  const { open: moreOpen, setOpen: setMoreOpen, btn: moreBtn, panel: morePanel, close: closeMore } = useMenu();
   // Per-asset numbers for the tiles (occupancy, % complete) - one read, refreshed with the store.
   const [metrics, setMetrics] = useState({});
   useEffect(() => { let alive = true; api.getAssetMetrics().then((m) => { if (alive && m) setMetrics(m); }).catch(() => {}); return () => { alive = false; }; }, [store._ts]);
@@ -168,15 +206,11 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const [editState, setEditState] = useState({ editing: false, dirty: false });
   useEffect(() => editGuard.subscribe(() => setEditState((s) => (s.editing === editGuard.editing && s.dirty === editGuard.dirty) ? s : { editing: editGuard.editing, dirty: editGuard.dirty })), []);
 
-  const unseenLogCount = (store.logs || []).filter((l) => l.ts > lastManageVisit).length;
-  const markManageSeen = () => {
+  const markManageSeen = useCallback(() => {
     const now = new Date().toISOString();
     setLastManageVisit(now);
     try { localStorage.setItem('nexus_manage_seen', now); } catch { /* ignore */ }
-  };
-  // Opening the Activity Log, or any new log arriving while it is open, marks everything read.
-  useEffect(() => { if (panel === 'activity') markManageSeen(); }, [panel, store.logs]);  // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (recordViews.includes(view)) setLastRecord(view); }, [view]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!highlight) return;
@@ -218,14 +252,61 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
 
   // Officers/execs/admins (role check) can see private-flagged assets; everyone else can't.
   const canSeePrivate = session && (session.level >= 5 || /owner|officer|exec|admin/i.test(session.role || ''));
-  const visibleProperties = store.properties.filter((p) => !p.deleted && (!p.private || canSeePrivate));
+  const visibleProperties = useMemo(() => store.properties.filter((p) => !p.deleted && (!p.private || canSeePrivate)), [store.properties, canSeePrivate]);
   const deletedProperties = store.properties.filter((p) => p.deleted && (!p.private || canSeePrivate));
   const findAsset = (id) => visibleProperties.find((p) => p.id === id);
   const active = activeId ? findAsset(activeId) : null;
   const recordsFor = (coll) => (store[coll] || []).filter((r) => r.propertyId === activeId);
+  const signals = useTabSignals({ store, assets: visibleProperties });
 
-  // Stable, so the portfolio's memoized cards are not re-rendered for a new function.
-  const openAsset = useCallback((id, tab = 'property') => { setActiveId(id); setView(tab); }, []);
+  // Stable, so the portfolio's memoized cards are not re-rendered for a new function. `item`
+  // names a row to highlight: a record's words, or for a permit / timeline a row index (the
+  // tabs pass the index), turned here into the words that table highlights by.
+  const propsRef = useRef(store.properties);
+  useEffect(() => { propsRef.current = store.properties; }, [store.properties]);
+  const openAsset = useCallback((id, tab = 'property', item = '') => {
+    setActiveId(id); setView(tab);
+    if (item === '' || item == null) return;
+    let words = String(item);
+    if ((tab === 'permit' || tab === 'timeline') && /^\d+$/.test(words)) {
+      const asset = propsRef.current.find((p) => p.id === id);
+      const rows = tab === 'permit' ? (asset?.permits || []) : (asset?.timeline || []);
+      const row = rows[Number(words)];
+      const cols = tab === 'permit' ? permitColumns(rows) : TIMELINE_FIELDS;
+      words = row ? (cols.map(([k]) => String(row[k] ?? '').trim()).find(Boolean) || '') : '';
+    }
+    if (words) setHighlight({ tab, section: tab === 'permit' ? 'Permit' : tab === 'timeline' ? 'Timeline' : '', field: '', item: words, at: Date.now() });
+  }, []);
+  // An asset opened from a tab remembers the tab and its list: Back names it, "< 7 of 23 >" walks it.
+  const openFrom = useCallback((tab) => (id, v = 'property', item = '') => {
+    if (tab === 'properties') setOrigin({ tab, label: propertyList.current.label || 'Properties', ids: propertyList.current.ids });
+    else setOrigin({ tab, label: portfolioTabLabel(tab), ids: null });
+    openAsset(id, v, item);
+  }, [openAsset]);
+  const openers = useMemo(() => Object.fromEntries(PORTFOLIO_TABS.map(([k]) => [k, openFrom(k)])), [openFrom]);
+
+  /** Open a portfolio tab, from anywhere (another tab's "-> Properties", the asset's Back). */
+  const goTab = useCallback((tab, opts = {}) => {
+    const go = () => {
+      setActiveId(null); setView('portfolio'); setPanel(null);
+      setPortTab(tab);
+      if (tab === 'properties' && opts.preset) {
+        const p = presetView(opts.preset, me);
+        if (p) { const next = { ...freshView(), ...p, filters: normalizeFilters(p.filters) }; setPview(next); setCommitted(encodeView(next)); }
+      }
+    };
+    if (editGuard.dirty) { setPendingNav(() => go); setLeaveAsk(true); } else go();
+  }, [me]);
+
+  // Which properties have open tickets - asked for only when a filter needs it.
+  const loadTickets = useCallback(() => {
+    if (openTickets || !api.getMaintenancePortfolio) return;
+    Promise.resolve(api.getMaintenancePortfolio()).then((r) => {
+      const rows = Array.isArray(r) ? r : (r?.properties || r?.rows || []);
+      setOpenTickets(new Set(rows.filter((x) => Number(x.open) > 0).map((x) => x.propertyId)));
+    }).catch(() => setOpenTickets(new Set()));
+  }, [openTickets]);
+
   // Export CSV is "everything tied to an asset" - that includes its closed
   // tickets summarized as maintenance records, which live in Tickets, not in
   // the store. Fetched at export time; if that fails the file says so
@@ -238,10 +319,11 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   };
 
   /** All navigation goes through this - it's what enforces the unsaved-changes guard. */
-  const navigate = (nextView) => {
+  const navigate = (nextView, after = null) => {
     const go = () => {
-      if (nextView === 'manage') { setActiveId(null); setView('portfolio'); setPanel('activity'); return; }
+      if (nextView === 'manage') { setActiveId(null); setView('portfolio'); setPortTab('activity'); return; }
       setView(nextView);
+      if (after) after();
     };
     if (editGuard.dirty) { setPendingNav(() => go); setLeaveAsk(true); }
     else go();
@@ -251,9 +333,46 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const goToLogEntry = (entry) => {
     const tab = LOG_SECTION_TO_TAB[entry.section] || 'property';
     if (entry.propertyId) setActiveId(entry.propertyId);
+    if (!activeId) setOrigin({ tab: 'activity', label: 'Activity', ids: null });
     setView(tab);
     setHighlight({ tab, section: entry.section, field: entry.changes?.[0]?.field || '', item: entry.item || '', at: Date.now() });
   };
+
+  /** Dates' Mark Paid / Mark Renewed (and any one-asset patch from a tab): the top-level keys and
+   *  their snapshot values, ONE Activity entry, saved through the per-row sync. */
+  const onPatchAsset = useCallback((id, patch, changes = []) => {
+    setStore((s) => {
+      const idx = s.properties.findIndex((p) => p.id === id);
+      if (idx < 0) return s;
+      const next = patchAssetRow(s.properties[idx], patch);
+      return appendLog({ ...s, properties: s.properties.map((p, i) => (i === idx ? next : p)) },
+        makeLogEntry({ section: 'Property', property: next.name, propertyId: id, action: 'edited', item: next.name, changes }));
+    });
+  }, [setStore]);
+
+  /** The register's bulk line: Set Company / Set Asset Manager / Set Stage on the selected
+   *  properties (and their linked parcels) - one row save and one Activity entry per asset. */
+  const bulkSet = useCallback((ids, field, value) => {
+    const names = companyList.companies;
+    // [{ id, patch, change }] for every asset the choice would change.
+    const plan = (props) => {
+      const pick = new Set(ids);
+      props.forEach((p) => { if (p.parentId && pick.has(p.parentId)) pick.add(p.id); });
+      return props.filter((p) => pick.has(p.id) && !p.deleted).map((p) => {
+        const isProp = inferAssetKind(p) === 'property';
+        if (field === 'company') return companyIdOf(p) === value ? null : { id: p.id, patch: { companyId: value }, change: { field: 'Company', from: companyName(names, companyIdOf(p)), to: companyName(names, value) } };
+        if (field === 'manager') return String(p.manager || '') === value ? null : { id: p.id, patch: { manager: value }, change: { field: isProp ? 'PM / Asset Manager' : 'Assigned to / Operator', from: p.manager || '', to: value } };
+        return String(p.devStage || '') === value ? null : { id: p.id, patch: { devStage: value }, change: { field: isProp ? 'Development Stage' : 'Status', from: p.devStage || '', to: value } };
+      }).filter(Boolean);
+    };
+    const n = plan(store.properties).length;
+    setStore((s) => plan(s.properties).reduce((next, { id, patch, change }) => {
+      const row = patchAssetRow(next.properties.find((x) => x.id === id), patch);
+      return appendLog({ ...next, properties: next.properties.map((x) => (x.id === id ? row : x)) },
+        makeLogEntry({ section: 'Property', property: row.name, propertyId: id, action: 'edited', item: row.name, changes: [change] }));
+    }, s));
+    pushToast(n ? `Changed ${n} ${n === 1 ? 'asset' : 'assets'}` : 'Nothing to change - they already read that way', n ? 'ok' : 'mut');
+  }, [setStore, store.properties, companyList.companies]);
 
   // ---------------------------------------------------------------------------------------
   // Mutations. Every one of these follows the same shape: compute the new store, append a
@@ -788,130 +907,116 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   // Render
   // ---------------------------------------------------------------------------------------
 
-  const pulse = !active ? portfolioStats(store) : null;
-  const needData = !active ? visibleProperties.filter((p) => assetCompleteness(p).pct < 100).length : 0;
-  const flagCount = !active ? visibleProperties.reduce((n, p) => n + ((p.reviewFlags || []).length), 0) : 0;
-  // Live assets with no company yet (the one-time fill could not place them) - for an administrator to set.
-  const needCompany = !active ? visibleProperties.filter(needsCompany).length : 0;
   const assetKind = active ? inferAssetKind(active) : null;
   const recordViews = active ? recordViewsFor(assetKind) : [];
-  const stripTabs = active ? stripTabsFor(assetKind) : [];
   const onRecords = recordViews.includes(view);
-  const tabCount = (key) => !active ? 0
-    : key === 'records' ? recordViews.reduce((n, k) => n + tabCount(k), 0)
-    : key === 'timeline' ? (active.timeline || []).length
-    : key === 'permit' ? (active.permits || []).length
-    : key === 'property' ? 0 : recordsFor(key).length;
-  // Records opens on the segment last used, else the first collection with rows;
-  // clicking it while already there is a no-op.
-  const openRecords = () => {
-    if (onRecords) return;
-    navigate(recordViews.includes(lastRecord) ? lastRecord : (recordViews.find((k) => tabCount(k) > 0) || recordViews[0]));
+  const recCount = (key) => (!active ? 0 : key === 'permit' ? (active.permits || []).length : recordsFor(key).length);
+  const withRows = recordViews.filter((k) => recCount(k) > 0 || k === view);
+  const hasTimeline = !!active && ((active.timeline || []).length > 0 || view === 'timeline');
+  const openAdd = (coll) => {
+    if (coll === 'permit') setModal({ type: 'plist', field: 'permits', index: null, fields: permitColumns(active?.permits) });
+    else setModal({ type: 'row', coll, id: null });
   };
-  const backToPortfolio = () => (editGuard.dirty ? setLeaveAsk(true) : (setActiveId(null), setView('portfolio')));
-  // An open asset sits under the portfolio: ASSET MANAGEMENT / PORTFOLIO over
-  // its name (the page trail, Neil, 11/04/2026); the name is never repeated.
-  useTrailCrumbs(active ? [{ label: 'Portfolio', onClick: backToPortfolio }] : null);
-  const filterKeysForTab = SHARED_FILTER_GROUPS[view] || [view];
-  const showTabSearch = view !== 'property' && (filterKeysForTab.length > 0 || ['timeline', 'permit'].includes(view));
-  const searchValue = filterKeysForTab.length ? (filters[filterKeysForTab[0]] || '') : '';
-  const setSearchValue = (text) => setFilters((f) => {
-    const next = { ...f };
-    filterKeysForTab.forEach((k) => { next[k] = text; });
-    return next;
-  });
+  // The asset's tabs (Neil, 11/17/2026): Overview, Maintenance, Records (a dropdown of the
+  // collections that have rows, and "Add ..." for the empty ones), Timeline only when there is
+  // one, Activity. Vehicles and equipment: Overview, Records, Activity.
+  const assetTabs = !active ? [] : stripTabsFor(assetKind).filter(([k]) => k !== 'timeline' || hasTimeline).map(([key, label]) => (key === 'records' ? {
+    key: 'records', label,
+    items: [
+      ...withRows.map((k) => ({ key: k, label: recordLabel(k), hint: String(recCount(k)) })),
+      ...recordViews.filter((k) => !withRows.includes(k)).map((k) => ({ key: `add:${k}`, label: `Add ${ADD_NOUN[k] || recordLabel(k)}`, Icon: Plus })),
+    ],
+  } : { key, label }));
+  const onAssetTab = (key) => {
+    if (key.startsWith('add:')) { const coll = key.slice(4); navigate(coll, () => openAdd(coll)); return; }
+    navigate(key);
+  };
+
+  // The portfolio's top menu: a tab shows when it has something to show (the one open always
+  // does); a plain number after a name only when something waits - never a pill.
+  const portfolioTabs = PORTFOLIO_TABS.filter(([k]) => k === portTab
+    || (k === 'fleet' ? signals.hasFleet : k === 'development' ? signals.hasPipeline : k === 'maintenance' ? (signals.maintenanceKnown !== false && signals.maintenanceAllowed) : true))
+    .map(([key, label]) => ({
+      key, label,
+      ...(key === 'maintenance' && signals.maintenanceOpen ? { count: signals.maintenanceOpen } : {}),
+      ...(key === 'dates' && signals.datesPassed ? { count: signals.datesPassed, countTone: 'red' } : {}),
+    }));
+
+  // Back names where the asset was opened from ("<- Properties", a saved view's name).
+  const backLabel = origin?.label || (assetKind && assetKind !== 'property' ? 'Fleet' : 'Properties');
+  const backTab = origin?.tab || (assetKind && assetKind !== 'property' ? 'fleet' : 'properties');
+  const backToList = () => goTab(backTab);
+  useTrailCrumbs(active ? [{ label: backLabel, onClick: backToList }] : null);
+
+  // "< 7 of 23 >": the list it was opened from (the register's filtered, sorted rows), else
+  // every asset of its kind by name.
+  const walkIds = useMemo(() => {
+    if (!active) return [];
+    if (origin?.ids?.includes(active.id)) return origin.ids;
+    const kindOf = (a) => (inferAssetKind(a) === 'property' ? 'property' : 'fleet');
+    const k = kindOf(active);
+    return visibleProperties.filter((a) => kindOf(a) === k && (!a.parentId || a.id === active.id))
+      .sort((a, b) => String(a.siteName || a.name).localeCompare(String(b.siteName || b.name))).map((a) => a.id);
+  }, [active, origin, visibleProperties]);
+  const walkTo = (id) => {
+    if (!id) return;
+    const target = findAsset(id);
+    const kind = target ? inferAssetKind(target) : 'property';
+    const keep = view === 'property' || view === 'activity'
+      || (kind === 'property' ? (view === 'maintenance' || (view === 'timeline' && (target?.timeline || []).length) || recordViewsFor('property').includes(view)) : recordViewsFor(kind).includes(view));
+    const go = () => { setActiveId(id); setView(keep ? view : 'property'); };
+    if (editGuard.dirty) { setPendingNav(() => go); setLeaveAsk(true); } else go();
+  };
+  const at = active ? walkIds.indexOf(active.id) : -1;
+  const position = at < 0 ? null : {
+    index: at, total: walkIds.length,
+    onPrev: at > 0 ? () => walkTo(walkIds[at - 1]) : null,
+    onNext: at < walkIds.length - 1 ? () => walkTo(walkIds[at + 1]) : null,
+  };
+
+  // Each record table draws its own search, Export and "+ New" in its toolbar row (the floating
+  // search above the title is gone); a permit or timeline search writes filters.permit / .timeline.
+  const setQuery = (key) => (text) => setFilters((f) => ({ ...f, [key]: text }));
+
+  const flagCount = visibleProperties.reduce((n, p) => n + ((p.reviewFlags || []).length), 0);
+  const portfolioActions = (
+    <>
+      <NewButton items={NEW_ITEMS} menuLabel="New asset" onPick={(key) => (key === 'import'
+        ? setModal({ type: 'property', id: null, mode: 'import' })
+        : setModal({ type: 'property', id: null, draft: key === 'property' ? undefined : { kind: key } }))} />
+      <button ref={moreBtn} type="button" className="secondary-btn pt-more-btn" aria-label="More" aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)}>
+        <MoreHorizontal size={16} />
+      </button>
+      <AnchoredMenu anchorRef={moreBtn} open={moreOpen} onClose={() => setMoreOpen(false)} align="end" minWidth={240} style={MENU_PANEL} aria-label="More">
+        <div ref={morePanel} onKeyDown={menuKeys}>
+          <MenuItem Icon={Trash2} hint={deletedProperties.length ? String(deletedProperties.length) : ''} onClick={() => { closeMore(); setPanel('trash'); }}>Trash</MenuItem>
+          <MenuItem Icon={Upload} onClick={() => { closeMore(); setModal({ type: 'property', id: null, mode: 'import' }); }}>Import From a Spreadsheet</MenuItem>
+          <MenuItem Icon={Download} onClick={() => {
+            closeMore();
+            const ids = portTab === 'properties' ? propertyList.current.ids : null;
+            const list = ids ? ids.map(findAsset).filter(Boolean) : visibleProperties;
+            exportPortfolioCsv(list, visibleProperties, companyList.companies, metrics);
+          }}>Export as CSV</MenuItem>
+        </div>
+      </AnchoredMenu>
+    </>
+  );
+  const copyLink = () => {
+    const seg = window.location.pathname.split('/').filter(Boolean)[0] || 'property-asset';
+    const url = `${window.location.origin}/${seg}/${portfolioSub('properties', encodeView({ ...pview, mode }))}`;
+    Promise.resolve(navigator.clipboard?.writeText(url)).then(() => pushToast('Link copied - it opens this view for anyone who can see Asset Management.', 'ok'))
+      .catch(() => pushToast('Could not copy the link - copy it from the address bar.', 'mut'));
+  };
+  const tabProps = { store, assets: visibleProperties, goTab, companies: companyList.companies, metrics, session, canEdit: canEditAssets };
+  const findUnit = () => {
+    const scroll = () => setTimeout(() => document.getElementById('gt-model')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+    if (view !== 'property') navigate('property', scroll); else scroll();
+  };
 
   return (
-    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+    <div className="asset-shell" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <ToastHost />
       <SyncStatus />
-
-      {/* One page header (11/05/2026): the module bar names Asset Management;
-          the portfolio's count and actions ride its right end. */}
-      {!active && pulse && (
-        <ModuleActions>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span className="module-bar-meta">{loading && !visibleProperties.length ? 'Loading the portfolio…' : `${pulse.assets} ${pulse.assets === 1 ? 'asset' : 'assets'} in the portfolio`}</span>
-            <button className="primary-btn" onClick={() => setModal({ type: 'property', id: null })}>
-              <Plus size={14} /> Add Asset
-            </button>
-            <button ref={portfolioMoreRef} type="button" className="secondary-btn" aria-label="More" aria-haspopup="menu" aria-expanded={portfolioMoreOpen} onClick={() => setPortfolioMoreOpen((o) => !o)} style={{ padding: 8, position: 'relative' }}>
-              <MoreHorizontal size={16} />
-              {unseenLogCount > 0 && <CountBadge n={unseenLogCount} />}
-            </button>
-            <AnchoredMenu anchorRef={portfolioMoreRef} open={portfolioMoreOpen} onClose={() => setPortfolioMoreOpen(false)} align="end" minWidth={220}
-              style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
-              <MenuRow icon={History} onClick={() => { setPortfolioMoreOpen(false); setPanel('activity'); }}>Activity Log{unseenLogCount > 0 ? ` (${unseenLogCount} new)` : ''}</MenuRow>
-              <MenuRow icon={Trash2} onClick={() => { setPortfolioMoreOpen(false); setPanel('trash'); }}>Trash{deletedProperties.length ? ` (${deletedProperties.length})` : ''}</MenuRow>
-              <MenuRow icon={Upload} onClick={() => { setPortfolioMoreOpen(false); setModal({ type: 'property', id: null, mode: 'import' }); }}>Import From a Spreadsheet</MenuRow>
-            </AnchoredMenu>
-          </div>
-        </ModuleActions>
-      )}
-
-      {/* One title band, the shape every Nexus module has (Shifts, Support):
-          back, photo, name + place, the health signals as soft labels; the
-          actions on the right, the rare ones (Private, Duplicate, Export)
-          behind one "more" button. The old hero + breadcrumb bar + pill strip
-          put ~300px of chrome before any content (760px on a phone). */}
-      {active && (
-        <div className={editState.editing ? 'view-header asset-head is-editing' : 'view-header asset-head'} style={{ alignItems: 'center', marginBottom: 12 }}>
-          {/* flex-basis 320px: narrower than that (a phone) the action row wraps under
-              the title instead of squeezing the name to one letter a line. Under
-              640px asset-styles keeps the back arrow and the name on one line, hides
-              the thumbnail and lets only the edit-mode actions wrap (.asset-head). */}
-          <div className="asset-head-main" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 320px' }}>
-            <button type="button" className="secondary-btn" onClick={backToPortfolio} title="Back to Portfolio" aria-label="Back to Portfolio" style={{ padding: 8, flexShrink: 0 }}>
-              <ArrowLeft size={16} />
-            </button>
-            {(active.images?.[0] || active.image) && (
-              <img
-                className="asset-head-thumb"
-                src={active.images?.[0] || active.image}
-                alt=""
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                style={{ width: 64, height: 48, objectFit: 'cover', objectPosition: 'center 30%', borderRadius: 8, border: '1px solid var(--border-color)', flexShrink: 0 }}
-              />
-            )}
-            <div className="view-title-group" style={{ minWidth: 0 }}>
-              <PageTrail title={active.name} />
-              <h2 style={{ fontFamily: 'var(--wk-font)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{active.name}</span>
-                {active.private && <StatusLabel label="Private" color="hsl(var(--color-red))" size="sm" title="Hidden from everyone but officers" />}
-              </h2>
-              <p>{[companyName(companyList.companies, companyIdOf(active)), cityRegion(active), assetKind === 'property' ? typeLabel(active) : ''].filter(Boolean).join(' · ') || '-'}</p>
-            </div>
-          </div>
-          <div className="asset-head-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
-            {view === 'property' && !editState.editing && (
-              <button className="primary-btn" onClick={() => editGuard.startEdit?.()} disabled={!serverOk}
-                title={serverOk ? undefined : 'Connecting to the server - editing opens once the latest copy is in.'}>
-                <Pencil size={14} /> Edit
-              </button>
-            )}
-            {view === 'property' && editState.editing && (
-              <>
-                <button className="secondary-btn" onClick={() => editGuard.cancel?.()}>Cancel</button>
-                <button className="primary-btn" onClick={() => editGuard.save?.()} disabled={!editState.dirty} title={editState.dirty ? undefined : 'No changes yet'}>Save Changes</button>
-              </>
-            )}
-            <button ref={moreRef} type="button" className="secondary-btn" aria-label="More actions" aria-haspopup="menu" aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)} style={{ padding: 8 }}>
-              <MoreHorizontal size={16} />
-            </button>
-            <AnchoredMenu anchorRef={moreRef} open={moreOpen} onClose={() => setMoreOpen(false)} align="end" minWidth={220}
-              style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6 }}>
-              <MenuRow icon={active.private ? Unlock : Lock} onClick={() => { setMoreOpen(false); togglePrivate(active.id); }}>
-                {active.private ? 'Make Public' : 'Mark Private'}
-              </MenuRow>
-              <MenuRow icon={Copy} onClick={() => { setMoreOpen(false); duplicateAsset(false); }}>Duplicate</MenuRow>
-              <MenuRow icon={FileText} onClick={() => { setMoreOpen(false); exportAssetPdf(active, store); }}>Export as PDF</MenuRow>
-              <MenuRow icon={Download} onClick={() => { setMoreOpen(false); exportCsvWithTickets(active); }}>Export as CSV</MenuRow>
-            </AnchoredMenu>
-          </div>
-        </div>
-      )}
-
-      {active && <ParcelManager active={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} onLink={linkParcel} onUnlink={unlinkParcel} onTogglePrimary={togglePrimaryParcel} onMove={moveParcelOrder} onRenameGroup={renameGroup} onDuplicate={() => duplicateAsset(true)} onSetAssembled={setAssembled} />}
 
       {leaveAsk && (
         <UnsavedChangesPrompt
@@ -921,152 +1026,159 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
         />
       )}
 
-      {/* An open asset's tabs ride the module bar (11/05/2026), its search at
-          the bar's right end; a phone keeps the strip here, under the title band. */}
-      <ModuleTabs tabs={active ? stripTabs.map(([key, label]) => ({ key, label, badge: tabCount(key) })) : []}
-        active={active ? (onRecords ? 'records' : view) : ''}
-        onChange={(key) => (key === 'records' ? openRecords() : navigate(key))} />
-      {active && showTabSearch && (
-        <ModuleActions>
-          <div style={{ position: 'relative', width: 220 }}>
-            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-            <input className="form-input" placeholder="Search…" aria-label="Search this asset" value={searchValue} onChange={(e) => setSearchValue(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '7px 10px 7px 32px' }} />
-          </div>
-        </ModuleActions>
-      )}
-      {/* Records: one segment per collection, counts beside the names, the open
-          one lifted on the track - the same control the Maintenance tab uses for
-          its units. Scrolls sideways on a phone: the outer div is the scroller
-          (.scroll-tabs, edge fades under 640px), the inner one the track, so the
-          track grows with its segments instead of clipping them. */}
-      {active && onRecords && (
-        <div className="scroll-tabs asset-fade-x" style={{ marginBottom: 16 }}>
-        <div role="tablist" aria-label="Record type" style={{ display: 'flex', gap: 2, padding: 3, borderRadius: 10, background: 'var(--bg-secondary)', width: 'max-content', maxWidth: 'none' }}>
-          {recordViews.map((key) => {
-            const on = view === key;
-            const n = tabCount(key);
-            return (
-              <button key={key} type="button" role="tab" aria-selected={on} onClick={() => navigate(key)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-                  fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
-                  background: on ? 'var(--bg-card)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-secondary)', boxShadow: on ? 'var(--shadow-sm)' : 'none' }}>
-                {recordLabel(key)}
-                {recordHint(key) && <span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>{` - ${recordHint(key)}`}</span>}
-                <span style={{ fontSize: 12, fontWeight: 600, color: on ? 'var(--text-secondary)' : 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{n}</span>
-              </button>
-            );
-          })}
-        </div>
-        </div>
-      )}
-      {active && onRecords && recordHint(view) && (
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '-8px 0 12px 2px' }}>{recordLabel(view)} - {recordHint(view)}</div>
-      )}
-
-      {view === 'portfolio' && !active && loading && !visibleProperties.length && (
-        <LoadingState label="Loading assets…" minHeight={320} />
-      )}
-      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && (
-        <CriticalDates store={store} openProperty={openAsset} hideIfEmpty title="Needs Attention"
-          extraChips={[
-            { count: needData, label: 'Need Data', color: 'orange', title: 'Assets with key fields to fill', expanded: panel === 'data', onClick: () => setPanel((p) => (p === 'data' ? null : 'data')) },
-            { count: flagCount, label: 'Flagged', color: 'purple', title: 'Fields flagged for review', expanded: panel === 'flags', onClick: () => setPanel((p) => (p === 'flags' ? null : 'flags')) },
-            // Needs a Company (11/03/2026): the portfolio filtered to the assets with no company set.
-            { count: needCompany, label: 'Need a Company', color: 'orange', title: 'Assets with no company set', expanded: companyFilter === NO_COMPANY, onClick: () => setCompanyFilter((c) => (c === NO_COMPANY ? '' : NO_COMPANY)) },
-          ]} />
-      )}
-      {view === 'portfolio' && !active && panel === 'data' && (
-        <DataGapsPanel assets={visibleProperties} onOpen={openAsset} onDelete={(id) => deleteAsset(id, true)} serverOk={serverOk} onClose={() => setPanel(null)} />
-      )}
-      {view === 'portfolio' && !active && panel === 'flags' && (
-        <ReviewFlagsPanel props={visibleProperties} onClearFlag={toggleFlag} onOpen={openAsset} onPushFix={pushFieldFix} onClose={() => setPanel(null)} />
-      )}
-      {view === 'portfolio' && !active && panel === 'activity' && (
-        <div style={{ marginBottom: 16 }}>
-          <ActivityLog onClose={() => setPanel(null)} logs={store.logs || []} query="" onOpenProperty={openAsset} activeId={null} activeName="" onGoTo={goToLogEntry} onUndo={undoLogEntry} canUndo={canUndo} assetsForKind={visibleProperties} />
-        </div>
-      )}
-      {view === 'portfolio' && !active && panel === 'trash' && (
-        <TrashPanel deleted={deletedProperties} onRecover={recoverAsset} onPurge={purgeAsset} recordsOf={recordsOf} onClose={() => setPanel(null)} />
-      )}
-      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} metrics={metrics} store={store} selectedId={lastOpenedId} companies={companyList.companies} companyFilter={companyFilter} setCompanyFilter={setCompanyFilter} />}
-
-      {view === 'property' && active?.assembled && !active.parentId && <AssemblageParcels lead={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} />}
-      {view === 'property' && active && !editState.editing && (
-        <AssetOverview asset={active} store={store} onTab={navigate} onGoTo={goToLogEntry}
-          onEdit={(field) => { if (field) setHighlight({ tab: 'property', section: '', field: String(field).toLowerCase(), item: '', at: Date.now() }); editGuard.startEdit?.(); }} />
-      )}
-      {/* The property's construction Jobs, right under the overview cards. */}
-      {view === 'property' && active && !editState.editing && inferAssetKind(active) === 'property' && (
-        <PropertyJobs property={active} />
-      )}
-      {view === 'property' && active && (
-        <AssetDetailForm p={active} onSaveImages={saveImages} onSaveDetail={saveDetail} onSaveContact={saveContact} highlight={highlight?.tab === 'property' ? highlight : null} onOpenLead={(id) => openAsset(id, 'property')} onFlag={toggleFlag} companies={companyList.companies} canClearCompany={companyList.canClear}
-          egnyteLocked={!!egnyteFolderOf(active) && !mayRepinEgnyte} />
-      )}
-      {view === 'property' && active && inferAssetKind(active) === 'property' && (
-        <PropertyLoans property={active} onSaveEntityCode={(code) => setEntityCode(active.id, code)} />
-      )}
-
-      {view === 'documents' && active && (
-        <AssetEgnyteDocs asset={active} canConnect={canEditAssets} hideUnconnected={!recordsFor('documents').length}
-          onConnect={(path) => saveDetail({ 'Egnyte Folder': path })} />
-      )}
-      {['warranties', 'inspections', 'documents', 'vdocs', 'utilities', 'ahj', 'vendors', 'odometer'].map((coll) => (
-        view === coll && active && (
-          <CollectionTable
-            key={coll}
-            coll={coll}
-            rows={recordsFor(coll)}
-            active={active}
-            filters={filters}
-            setFilters={setFilters}
-            highlightItem={highlight?.tab === coll || highlight?.section === RECORD_TYPES[coll].plural ? highlight.item : ''}
-            onAdd={() => setModal({ type: 'row', coll, id: null })}
-            onEdit={(id) => setModal({ type: 'row', coll, id })}
-            emptyNode={coll !== 'documents' ? null : egnyteFolderOf(active)
-              ? <EmptyState>The asset&apos;s plans and documents are listed above, from its Egnyte folder.</EmptyState>
-              : <ConnectEgnyteEmpty asset={active} canConnect={canEditAssets} onConnect={(path) => saveDetail({ 'Egnyte Folder': path })} />}
-          />
-        )
-      ))}
-
-      {view === 'maintenance' && active && (
-        <PropertyMaintenanceSection p={active} rows={recordsFor('maintenance')} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'maintenance' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'maintenance', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'maintenance', id })} onSaveUnits={(units) => setTenantUnits(active.id, units)} onQuickAdd={(patch) => saveRecord('maintenance', null, patch)} ticketFocus={ticketFocus} />
-      )}
-      {view === 'vservice' && active && (
-        <VserviceSection p={active} rows={recordsFor('vservice')} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vservice' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vservice', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vservice', id })} onQuickAdd={(patch) => saveRecord('vservice', null, patch)} />
-      )}
-
-      {view === 'timeline' && active && (
+      {/* ---------------- The portfolio: its top menu and the open tab ---------------- */}
+      {!active && (
         <>
-          <TimelineTracker rows={active.timeline} />
-          <SimpleRecordTable
-            title="Development Timeline"
-            subtitle={active.name}
-            rows={active.timeline}
-            cols={TIMELINE_FIELDS}
-            query={filters.timeline || ''}
-            highlightItem={highlight?.section === 'Timeline' ? highlight.item : ''}
-            onAdd={() => setModal({ type: 'plist', field: 'timeline', index: null, fields: TIMELINE_FIELDS.filter(([k]) => k !== 'status') })}
-            onEdit={(i) => setModal({ type: 'plist', field: 'timeline', index: i, fields: TIMELINE_FIELDS.filter(([k]) => k !== 'status') })}
-            onStatusClick={(i, current) => setModal({ type: 'tstatus', index: i, current })}
-          />
+          <ModuleTabs tabs={portfolioTabs.map((t) => ({ ...t }))} active={portTab} onChange={(k) => goTab(k)} />
+          {/* Every tab's first row: "+ New" and "..." on the right. Properties puts its view's
+              name on the left (Portfolio draws its own row); Overview and the rest show none -
+              the tab already names the page (Neil, 11/17/2026). */}
+          {portTab !== 'properties' && (
+            <ModuleActions>
+              <div className="pt-first-row"><div className="pt-first-actions">{portfolioActions}</div></div>
+            </ModuleActions>
+          )}
+          {panel === 'trash' && <TrashPanel deleted={deletedProperties} onRecover={recoverAsset} onPurge={purgeAsset} recordsOf={recordsOf} onClose={() => setPanel(null)} />}
+          {panel === 'gaps' && <DataGapsPanel assets={visibleProperties.filter((p) => inferAssetKind(p) === 'property')} onOpen={openers.properties} onDelete={(id) => deleteAsset(id, true)} serverOk={serverOk} onClose={() => setPanel(null)} />}
+          {panel === 'flags' && <ReviewFlagsPanel props={visibleProperties} onClearFlag={toggleFlag} onOpen={openers.properties} onPushFix={pushFieldFix} onClose={() => setPanel(null)} />}
+
+          {portTab === 'properties' && (
+            <>
+              {pview.id === 'missing' && !panel && !phone && (
+                <div className="pt-aside-links">
+                  <button type="button" className="pt-link" onClick={() => setPanel('gaps')}>Show what each property is missing</button>
+                </div>
+              )}
+              <Portfolio assets={visibleProperties} store={store} metrics={metrics} companies={companyList.companies} canClearCompany={companyList.canClear}
+                flagCount={flagCount} onReviewFlags={() => setPanel('flags')} view={{ ...pview, mode }} onView={(next) => setPview({ ...next, mode: next.mode && next.mode !== storedMode ? next.mode : '' })}
+                mode={mode} onMode={(k) => { setStoredMode(k); setPview((v) => ({ ...v, mode: '' })); }}
+                saved={Array.isArray(savedViews) ? savedViews : []} onSaveViews={setSavedViews} me={me}
+                openAsset={openers.properties} lastOpenedId={lastOpenedId} serverOk={serverOk} loading={loading}
+                onBulkSet={bulkSet} canEdit={canEditAssets} openTickets={openTickets} onNeedTickets={loadTickets} onCopyLink={copyLink}
+                onListChange={(ids, label) => { propertyList.current = { ids, label }; }} actions={portfolioActions} />
+            </>
+          )}
+          {portTab === 'overview' && <OverviewTab {...tabProps} openAsset={openers.overview} onPatchAsset={onPatchAsset} />}
+          {portTab === 'fleet' && <FleetTab {...tabProps} openAsset={openers.fleet} />}
+          {portTab === 'development' && <DevelopmentTab {...tabProps} openAsset={openers.development} />}
+          {portTab === 'maintenance' && <MaintenanceTab {...tabProps} openAsset={openers.maintenance} />}
+          {portTab === 'dates' && <DatesTab {...tabProps} openAsset={openers.dates} onPatchAsset={onPatchAsset} />}
+          {portTab === 'activity' && (
+            <ActivityTab {...tabProps} openAsset={openers.activity} logs={store.logs || []} onGoTo={goToLogEntry} onUndo={undoLogEntry} canUndo={canUndo}
+              lastSeen={lastManageVisit} onSeen={markManageSeen} />
+          )}
         </>
       )}
-      {view === 'permit' && active && (
-        <SimpleRecordTable
-          title="Permits"
-          subtitle={active.name}
-          rows={active.permits}
-          cols={permitColumns(active.permits)}
-          query={filters.permit || ''}
-          highlightItem={highlight?.section === 'Permit' ? highlight.item : ''}
-          onAdd={() => setModal({ type: 'plist', field: 'permits', index: null, fields: permitColumns(active.permits) })}
-          onEdit={(i) => setModal({ type: 'plist', field: 'permits', index: i, fields: permitColumns(active.permits) })}
-          onDelete={(i) => deletePropertyListRow('permits', i, permitColumns(active.permits))}
-        />
+
+      {/* ---------------- An open asset ---------------- */}
+      {active && (
+        <>
+          <AssetTitleBand asset={active} all={visibleProperties} companies={companyList.companies} metric={metrics[active.id]} phone={phone}
+            position={position} canEdit={view === 'property'} editing={editState.editing} dirty={editState.dirty} serverOk={serverOk}
+            onEdit={() => editGuard.startEdit?.()} onCancel={() => editGuard.cancel?.()} onSave={() => editGuard.save?.()}
+            onTogglePrivate={() => togglePrivate(active.id)} onDuplicate={() => duplicateAsset(false)}
+            onExportPdf={() => exportAssetPdf(active, store)} onExportCsv={() => exportCsvWithTickets(active)}
+            onReportProblem={assetKind === 'property' ? () => setReportFor({ id: active.id, name: active.name }) : null}
+            onFindUnit={assetKind === 'property' ? findUnit : null} />
+          <ParcelManager active={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} onLink={linkParcel} onUnlink={unlinkParcel} onTogglePrimary={togglePrimaryParcel} onMove={moveParcelOrder} onRenameGroup={renameGroup} onDuplicate={() => duplicateAsset(true)} onSetAssembled={setAssembled} />
+          {/* The asset's tabs ride the module bar; a phone keeps the strip here, under the title band. */}
+          <ModuleTabs tabs={assetTabs} active={onRecords ? view : view} onChange={onAssetTab} />
+
+          {onRecords && withRows.length > 1 && (
+            <div className="at-subrow">
+              <div className="at-subtabs scroll-tabs" role="tablist" aria-label="Records">
+                {withRows.map((key) => (
+                  <button key={key} type="button" role="tab" aria-selected={view === key} className={view === key ? 'is-on' : ''} onClick={() => navigate(key)}
+                    title={recordHint(key) || undefined}>
+                    {recordLabel(key)} <span className="at-subtab-n">{recCount(key)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {onRecords && recordHint(view) && <div className="at-hint">{recordLabel(view)} - {recordHint(view)}</div>}
+
+          {view === 'property' && (
+            <AssetOverviewPage asset={active} store={store} editing={editState.editing} onTab={navigate} onGoTo={goToLogEntry}
+              onStartEdit={(field) => { if (field) setHighlight({ tab: 'property', section: '', field: String(field).toLowerCase(), item: '', at: Date.now() }); editGuard.startEdit?.(); }}
+              onSaveEntityCode={(code) => setEntityCode(active.id, code)} onOpenAsset={(id) => openAsset(id, 'property')}
+              detailFormProps={{
+                p: active, onSaveImages: saveImages, onSaveDetail: saveDetail, onSaveContact: saveContact,
+                highlight: highlight?.tab === 'property' ? highlight : null, onOpenLead: (id) => openAsset(id, 'property'), onFlag: toggleFlag,
+                companies: companyList.companies, canClearCompany: companyList.canClear, egnyteLocked: !!egnyteFolderOf(active) && !mayRepinEgnyte,
+              }} />
+          )}
+
+          {view === 'activity' && (
+            <ActivityTab {...tabProps} assets={[active]} openAsset={openAsset} logs={(store.logs || []).filter((l) => l.propertyId === active.id)}
+              onGoTo={goToLogEntry} onUndo={undoLogEntry} canUndo={canUndo} lastSeen={lastManageVisit} onSeen={NOOP} scopeName={active.name} />
+          )}
+
+          {view === 'documents' && (
+            <AssetEgnyteDocs asset={active} canConnect={canEditAssets} hideUnconnected={!recordsFor('documents').length}
+              onConnect={(path) => saveDetail({ 'Egnyte Folder': path })} />
+          )}
+          {['warranties', 'inspections', 'documents', 'vdocs', 'utilities', 'ahj', 'vendors', 'odometer'].map((coll) => (
+            view === coll && (
+              <CollectionTable
+                key={coll}
+                coll={coll}
+                rows={recordsFor(coll)}
+                active={active}
+                filters={filters}
+                setFilters={setFilters}
+                highlightItem={highlight?.tab === coll || highlight?.section === RECORD_TYPES[coll].plural ? highlight.item : ''}
+                onAdd={() => setModal({ type: 'row', coll, id: null })}
+                onEdit={(id) => setModal({ type: 'row', coll, id })}
+                emptyNode={coll !== 'documents' ? null : egnyteFolderOf(active)
+                  ? <div className="at-empty">The asset&apos;s plans and documents are listed above, from its Egnyte folder.</div>
+                  : <ConnectEgnyteEmpty asset={active} canConnect={canEditAssets} onConnect={(path) => saveDetail({ 'Egnyte Folder': path })} />}
+              />
+            )
+          ))}
+
+          {view === 'maintenance' && (
+            <PropertyMaintenanceSection p={active} rows={recordsFor('maintenance')} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'maintenance' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'maintenance', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'maintenance', id })} onSaveUnits={(units) => setTenantUnits(active.id, units)} onQuickAdd={(patch) => saveRecord('maintenance', null, patch)} ticketFocus={ticketFocus} />
+          )}
+          {view === 'vservice' && (
+            <VserviceSection p={active} rows={recordsFor('vservice')} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vservice' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vservice', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vservice', id })} onQuickAdd={(patch) => saveRecord('vservice', null, patch)} />
+          )}
+
+          {view === 'timeline' && (
+            <>
+              <TimelineTracker rows={active.timeline} />
+              <SimpleRecordTable
+                title="Development Timeline"
+                subtitle={active.name}
+                rows={active.timeline}
+                cols={TIMELINE_FIELDS}
+                query={filters.timeline || ''}
+                onQueryChange={setQuery('timeline')}
+                highlightItem={highlight?.section === 'Timeline' ? highlight.item : ''}
+                onAdd={() => setModal({ type: 'plist', field: 'timeline', index: null, fields: TIMELINE_FIELDS.filter(([k]) => k !== 'status') })}
+                onEdit={(i) => setModal({ type: 'plist', field: 'timeline', index: i, fields: TIMELINE_FIELDS.filter(([k]) => k !== 'status') })}
+                onStatusClick={(i, current) => setModal({ type: 'tstatus', index: i, current })}
+              />
+            </>
+          )}
+          {view === 'permit' && (
+            <SimpleRecordTable
+              title="Permits"
+              subtitle={active.name}
+              rows={active.permits}
+              cols={permitColumns(active.permits)}
+              query={filters.permit || ''}
+              onQueryChange={setQuery('permit')}
+              highlightItem={highlight?.section === 'Permit' ? highlight.item : ''}
+              onAdd={() => setModal({ type: 'plist', field: 'permits', index: null, fields: permitColumns(active.permits) })}
+              onEdit={(i) => setModal({ type: 'plist', field: 'permits', index: i, fields: permitColumns(active.permits) })}
+              onDelete={(i) => deletePropertyListRow('permits', i, permitColumns(active.permits))}
+            />
+          )}
+        </>
       )}
+
+      {reportFor && <PropertyTicketComposer property={reportFor} onClose={() => setReportFor(null)} />}
 
       {modal?.type === 'row' && (
         <RecordModal
@@ -1154,12 +1266,3 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     </div>
   );
 }
-
-function CountBadge({ n }) {
-  return (
-    <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-      {n}
-    </span>
-  );
-}
-

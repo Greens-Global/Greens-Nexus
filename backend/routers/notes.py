@@ -701,6 +701,41 @@ def list_notes(view: str = "all", q: str = "", tag: str = "", month: str = "", d
             "more": len(rows) > LIST_MAX}
 
 
+@router.get("/search")
+def search_notes(q: str = "", limit: int = 6, user: dict = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """The header search (11/13/2026): the caller's live notes and boards and
+    the ones shared with them - the list's own two sets, read through the
+    same _access - whose title or words hold `q`. Light on purpose: the
+    match runs in SQL over `title` and `text` (the plain words the list
+    already searches) and only the few columns a result row needs come
+    back, never a body, a drawing or the sanitizer. A trashed note is not
+    found. Ranked the search's way: a title that starts with the words, a
+    title that holds them, then a note whose words do; alphabetical inside
+    each."""
+    me = _me(user)
+    term = (q or "").strip().lower()
+    if len(term) < 2:
+        return {"notes": []}
+    limit = max(1, min(int(limit or 6), 20))
+    from sqlalchemy import func, or_
+    N = models.NexusNote
+    title, text = func.lower(func.coalesce(N.title, "")), func.lower(func.coalesce(N.text, ""))
+    rows = (db.query(N.id, N.kind, N.title, N.owner_email, N.shared_with, N.trashed_at, N.day, N.updated_at)
+            .filter(or_(N.owner_email == me, N.shared_with.like(f'%"{me}"%')))
+            .filter(or_(title.contains(term, autoescape=True), text.contains(term, autoescape=True))).all())
+
+    def rank(n) -> tuple:
+        t = (n.title or "").lower()
+        return (0 if t.startswith(term) else 1 if term in t else 2, t, n.updated_at or "")
+
+    hits = sorted((n for n in rows if not n.trashed_at and _access(n, me)), key=rank)
+    return {"notes": [{"id": n.id, "kind": n.kind or "note", "title": n.title or "", "day": n.day or "",
+                       "owner": n.owner_email, "mine": (n.owner_email or "").lower() == me,
+                       "inTitle": term in (n.title or "").lower(), "updatedAt": n.updated_at or ""}
+                      for n in hits[:limit]]}
+
+
 # ── daily scratchpad ───────────────────────────────────────────────────────
 class AppendIn(BaseModel):
     day: str

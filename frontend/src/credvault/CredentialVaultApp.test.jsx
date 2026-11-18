@@ -83,6 +83,20 @@ describe('Credentials', () => {
     expect(screen.getByText('Recently Used')).toBeTruthy();
   });
 
+  it('my own department\'s login copies without the code; another department\'s asks for it (11/13/2026)', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue() }, configurable: true });
+    calls.cvOtpStatus.mockResolvedValue({ verified: false, until: null, windowSec: 900 });
+    calls.cvCredentials.mockResolvedValue([{ ...mine, homeDept: true }, { ...mine, id: 'c3', name: 'Payroll', dept: 'HR', homeDept: false }]);
+    render(<CredentialVaultApp />);
+    await toLogins();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy password for Stripe' }));
+    await waitFor(() => expect(calls.cvReveal).toHaveBeenCalledWith('c1'));
+    expect(screen.queryByText('Verify Your Identity')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy password for Payroll' }));
+    expect(await screen.findByText('Verify Your Identity')).toBeTruthy();
+    expect(calls.cvReveal).not.toHaveBeenCalledWith('c3');
+  });
+
   it('a row I cannot open sits folded, hides the username and asks instead of revealing', async () => {
     render(<CredentialVaultApp />);
     await toLogins();
@@ -129,12 +143,16 @@ describe('Credentials', () => {
     expect(screen.getByText('Logins You Manage', { selector: '.cv-kpi-label' })).toBeTruthy();
   });
 
-  it('on a phone the detail opens as a full-screen sheet', async () => {
+  it('on a phone an owner lands on My Logins, and the detail opens as a full-screen sheet', async () => {
     const real = window.matchMedia;
     window.matchMedia = (q) => ({ matches: /max-width: 900px/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
     try {
       render(<CredentialVaultApp />);
-      await toLogins();
+      // The everyday list first (11/15/2026 phone pass); Overview is one tab away.
+      await waitFor(() => expect(row('c1')).toBeTruthy());
+      expect(screen.getByRole('tab', { name: 'My Logins' }).getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByText(/^Until \d/)).toBeTruthy();                            // the verified window, short
+      expect(screen.queryByText(/Verified until/)).toBeNull();
       expect(screen.queryByText('Copy from the row, or open a login')).toBeNull();     // no inline pane on a phone
       fireEvent.click(screen.getByRole('button', { name: 'Stripe details' }));
       const dlg = await screen.findByRole('dialog', { name: 'Stripe' });

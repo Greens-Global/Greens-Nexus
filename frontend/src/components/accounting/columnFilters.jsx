@@ -81,7 +81,7 @@ const clearLink = { border: 'none', background: 'none', font: 'inherit', color: 
 export function ColumnFiltersEmpty({ colSpan, onClear, text = 'Nothing matches these column filters.', style = null }) {
   return (
     <tr>
-      <td colSpan={colSpan || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: '0.84rem', ...style }}>
+      <td colSpan={colSpan || 1} style={{ padding: 14, color: 'var(--text-secondary)', fontSize: 13, ...style }}>
         {text}{' '}
         {onClear && <button type="button" onClick={onClear} style={clearLink}>Clear Column Filters</button>}
       </td>

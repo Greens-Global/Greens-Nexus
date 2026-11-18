@@ -53,7 +53,7 @@ export default function SerpOverviewModal({ keyword, onClose }) {
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <thead>
-            <tr style={{ borderBottom: `1px solid ${C.gray100}`, color: C.gray400, fontSize: 10.5, textTransform: 'uppercase' }}>
+            <tr style={{ borderBottom: `1px solid ${C.gray100}`, color: C.gray400, fontSize: 11, textTransform: 'uppercase' }}>
               <th style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px', paddingLeft: 0, width: 40 }}>#</th>
               <th style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px' }}>Domain</th>
               <th style={{ textAlign: 'left', fontWeight: 500, padding: '8px 10px' }}>DR</th>
@@ -77,12 +77,12 @@ export default function SerpOverviewModal({ keyword, onClose }) {
                   <div style={{ fontWeight: 500, color: r.isOwnDomain ? C.emerald700 : C.gray900 }}>
                     {r.domain}
                     {r.isOwnDomain && (
-                      <span style={{ marginLeft: 6, padding: '2px 6px', borderRadius: 9999, fontSize: 10, fontWeight: 500, color: C.emerald700, background: C.emerald100 }}>
+                      <span style={{ marginLeft: 6, padding: '2px 6px', borderRadius: 9999, fontSize: 11, fontWeight: 500, color: C.emerald700, background: C.emerald100 }}>
                         Your Site
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 11.5, color: C.gray400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>{r.title}</div>
+                  <div style={{ fontSize: 12, color: C.gray400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>{r.title}</div>
                 </td>
                 <td style={{ padding: '10px', color: C.gray700, whiteSpace: 'nowrap' }}>{r.domainRating}</td>
                 <td style={{ padding: '10px', color: C.gray700, whiteSpace: 'nowrap' }}>{formatNumber(r.backlinks)}</td>

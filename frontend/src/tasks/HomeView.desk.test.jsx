@@ -17,8 +17,11 @@ const myDay = { status: 'ready', total: 0, open: [], done: [] };
 vi.mock('./TasksContext', () => ({ useTasks: () => store }));
 // The Updates feed: empty unless a test fills it (or makes it fail).
 let activity = () => Promise.resolve([]);
+// Nexus People for the add row's typed sentence: nobody unless a test names them.
+let directory = [];
 vi.mock('../api', () => ({ api: {
   getMyTaskActivity: (...a) => activity(...a), markUpdatesSeen: () => Promise.resolve({ seenAt: '' }),
+  getPeopleDirectory: () => Promise.resolve(directory),
 } }));
 vi.mock('./myDay', () => ({ useMyDay: () => myDay }));
 vi.mock('./TaskDetailDrawer', () => ({ default: ({ taskId }) => <div data-testid="drawer">{taskId}</div> }));
@@ -59,6 +62,7 @@ beforeEach(() => {
   n = 0;
   savedHome = undefined;
   activity = () => Promise.resolve([]);
+  directory = [];
   setHome.mockClear();
   mineView.mockClear();
   Object.assign(myDay, { status: 'ready', total: 0, open: [], done: [] });
@@ -290,6 +294,27 @@ describe('quick add', () => {
     await act(async () => { resolve({ id: 'new' }); });
   });
 
+  it('a task that was not added comes back into the row, with the reason under it', async () => {
+    store.createTask = vi.fn()
+      .mockImplementationOnce(() => Promise.reject(new Error("Can't reach Nexus right now.")))
+      .mockImplementation(() => Promise.resolve({ id: 'new' }));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: /Create Task/ }));
+    const box = screen.getByRole('textbox', { name: 'Task Name' });
+    fireEvent.change(box, { target: { value: 'Call the inspector' } });
+    await act(async () => { fireEvent.keyDown(box, { key: 'Enter' }); });
+    expect(store.createTask).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('textbox', { name: 'Task Name' }).value).toBe('Call the inspector');
+    expect(screen.getByRole('alert')).toHaveTextContent('"Call the inspector" was not added. Can\'t reach Nexus right now.');
+    // Sent again once the connection is back: saved, and the line goes.
+    await act(async () => { fireEvent.keyDown(screen.getByRole('textbox', { name: 'Task Name' }), { key: 'Enter' }); });
+    expect(store.createTask).toHaveBeenCalledTimes(2);
+    expect(store.createTask.mock.calls[1][0]).toMatchObject({ title: 'Call the inspector' });
+    expect(screen.getByRole('textbox', { name: 'Task Name' }).value).toBe('');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('a pasted list opens Add Several with the typed text first, and the new undated tasks are shown', async () => {
     store.createTask = vi.fn(() => Promise.resolve({ id: 'new' }));
     store.tasks = [task({ title: 'Undated one', dueOn: '' })];
@@ -319,6 +344,47 @@ describe('quick add', () => {
     expect(screen.queryByTestId('add-several')).toBeNull();
   });
 
+  // Type it the way you say it (11/13/2026).
+  it('reads a typed sentence into chips, and Enter applies only the chips still standing', async () => {
+    directory = [{ email: SAGAR, name: 'Sagar P' }];
+    store.createTask = vi.fn(() => Promise.resolve({ id: 'new' }));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: /Create Task/ }));
+    await flush();                                    // Nexus People load once the row is open
+    const box = screen.getByRole('textbox', { name: 'Task Name' });
+    fireEvent.change(box, { target: { value: 'Call the roofer tomorrow, high priority, for Sagar' } });
+    const chips = screen.getByRole('group', { name: 'Understood From the Task Name' });
+    expect(within(chips).getByText('High')).toBeTruthy();
+    expect(within(chips).getByText('Sagar P')).toBeTruthy();
+    expect(store.createTask).not.toHaveBeenCalled();
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Remove priority High' }));   // inside the row: not a click-away
+    fireEvent.click(screen.getByRole('button', { name: 'Remove priority High' }));
+    expect(store.createTask).not.toHaveBeenCalled();
+    expect(within(chips).queryByText('High')).toBeNull();
+    await act(async () => { fireEvent.keyDown(box, { key: 'Enter' }); });
+    expect(store.createTask).toHaveBeenCalledTimes(1);
+    expect(store.createTask.mock.calls[0][0]).toMatchObject({
+      title: 'Call the roofer, high priority', dueOn: addDays(TODAY, 1), priority: 'medium', assigneeIds: [SAGAR],
+    });
+    // It is not in this card (the card lists mine), so the row says where it went.
+    expect(screen.getByText('Task added for Sagar P')).toBeTruthy();
+  });
+
+  it('a list pasted over a typed sentence still goes to Add Several, as typed', async () => {
+    store.createTask = vi.fn(() => Promise.resolve({ id: 'new' }));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByRole('button', { name: /Create Task/ }));
+    const box = screen.getByRole('textbox', { name: 'Task Name' });
+    fireEvent.change(box, { target: { value: 'Call the bank tomorrow' } });
+    expect(screen.getByRole('group', { name: 'Understood From the Task Name' })).toBeTruthy();
+    fireEvent.paste(box, { clipboardData: { getData: () => 'File the receipts\nOrder parts' } });
+    const d = JSON.parse((await screen.findByTestId('add-several')).dataset.defaults);
+    expect(d).toMatchObject({ text: 'Call the bank tomorrow\nFile the receipts\nOrder parts', dueOn: '', assigneeIds: [ME], source: 'paste' });
+    expect(store.createTask).not.toHaveBeenCalled();
+  });
+
   it('a click outside the row saves; a click inside it does not', async () => {
     store.createTask = vi.fn(() => Promise.resolve({ id: 'new' }));
     render(<HomeView onNavigate={() => {}} />);
@@ -330,6 +396,29 @@ describe('quick add', () => {
     expect(store.createTask).not.toHaveBeenCalled();
     fireEvent.pointerDown(document.body);
     expect(store.createTask).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A task link (?task=<id>) is used once (11/17/2026): it stayed in the
+// address, so the next Tasks tab to mount read it too and reopened the task.
+describe('a task link in the address', () => {
+  it('opens its task and comes off the address, keeping the rest of it', async () => {
+    const before = window.location.pathname + window.location.search;
+    window.history.replaceState(window.history.state, '', '/tasks/home?task=abc&from=email');
+    try {
+      const { unmount } = render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(screen.getByTestId('drawer').textContent).toBe('abc');
+      expect(window.location.pathname).toBe('/tasks/home');
+      expect(window.location.search).toBe('?from=email');
+      // Another Tasks tab mounting now finds no link to open.
+      unmount();
+      render(<HomeView onNavigate={() => {}} />);
+      await flush();
+      expect(screen.queryByTestId('drawer')).toBeNull();
+    } finally {
+      window.history.replaceState(window.history.state, '', before);
+    }
   });
 });
 

@@ -11,7 +11,7 @@ import { firstResponseState, fmtMoment } from '../tickets/ticketMeta';
 export default function ExpectReply({ t, style }) {
   if (!t || firstResponseState(t) !== 'due') return null;
   return (
-    <div data-testid="expect-reply" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600,
+    <div data-testid="expect-reply" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600,
       color: 'var(--muted)', marginTop: 2, ...style }}>
       <Clock size={11} aria-hidden="true" /> Expect a reply by {fmtMoment(t.firstResponseDueAt)}
     </div>

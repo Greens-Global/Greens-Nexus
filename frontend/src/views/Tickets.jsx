@@ -15,6 +15,8 @@
 // Scan to Request (11/03/2026): the sub "place/<property>[/<asset>]" - a
 // scanned site or equipment tag - opens the place's sheet over the desk
 // (maintenance/PlaceSheet.jsx, its own lazy chunk). Closing it clears the sub.
+// "report-problem" (Quick Actions > Request > Report a Problem) opens the
+// same sheet with no tag: it asks which property first.
 import { Suspense, lazy } from 'react';
 import TicketsView from '../tickets/TicketsView';
 import { NX, FONT } from '../tasks/theme';
@@ -22,9 +24,10 @@ import { parsePlaceSub } from '../maintenance/placeLink';
 import SheetGuard from '../maintenance/SheetGuard';
 
 const PlaceSheet = lazy(() => import('../maintenance/PlaceSheet'));
+const REPORT_SUB = 'report-problem';
 
 export default function Tickets({ activeSub = null, onSubChange }) {
-  const place = parsePlaceSub(activeSub);
+  const place = activeSub === REPORT_SUB ? { propertyId: '', assetId: '' } : parsePlaceSub(activeSub);
   const close = () => onSubChange?.(null);
   return (
     <div className="nx-tasks" style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
@@ -34,7 +37,7 @@ export default function Tickets({ activeSub = null, onSubChange }) {
       {place && (
         <SheetGuard onClose={close}>
           <Suspense fallback={null}>
-            <PlaceSheet propertyId={place.propertyId} assetId={place.assetId} onClose={close} />
+            <PlaceSheet key={activeSub} propertyId={place.propertyId} assetId={place.assetId} onClose={close} />
           </Suspense>
         </SheetGuard>
       )}

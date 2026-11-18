@@ -80,8 +80,8 @@ export function openTask(id) {
   setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:open-task', { detail: { taskId: id } })), 0);
 }
 
-const sectionHead = { fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', letterSpacing: 0.2, padding: '10px 8px 4px' };
-const linkBtn = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '8px 8px', minHeight: 44, fontFamily: 'var(--wk-font)' };
+const sectionHead = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', letterSpacing: 0.2, padding: '10px 8px 4px' };
+const linkBtn = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '8px 8px', minHeight: 44, fontFamily: 'var(--wk-font)' };
 
 function Tile({ tile, count, open, onClick, mobile }) {
   const { label, color, Icon } = tile;
@@ -93,9 +93,9 @@ function Tile({ tile, count, open, onClick, mobile }) {
         cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--wk-font)', color: 'var(--ink)', width: '100%', boxSizing: 'border-box' }}>
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
         <span className={`dk-chip dk-chip--${color}`} style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0 }}><Icon size={12} /></span>
-        <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{label}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{label}</span>
       </span>
-      <span style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{count}</span>
+      <span style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{count}</span>
     </button>
   );
 }

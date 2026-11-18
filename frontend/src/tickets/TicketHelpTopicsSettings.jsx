@@ -151,7 +151,7 @@ export default function TicketHelpTopicsSettings() {
   useGroupDirty(dirty, save);
 
   if (myLevel < 3) {
-    return <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13.5 }}>Manager access or above is required to edit help topics.</div>;
+    return <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Manager access or above is required to edit help topics.</div>;
   }
   if (!state || !lists) return err ? <div style={{ padding: 24, fontSize: 13, color: NX.faint }}>{err}</div> : <LoadingState />;
 
@@ -189,7 +189,7 @@ export default function TicketHelpTopicsSettings() {
     <div style={{ fontFamily: FONT, color: NX.ink }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <Tags size={15} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 13.5, fontWeight: 700 }}>What Do You Need Help With?</div>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>What Do You Need Help With?</div>
       </div>
       <div style={{ fontSize: 12, color: NX.faint, marginBottom: 14, maxWidth: 760, lineHeight: 1.5 }}>
         The choices Submit a Ticket offers once a department is picked. Drag to reorder. A department with no topics
@@ -198,7 +198,7 @@ export default function TicketHelpTopicsSettings() {
       </div>
 
       {state.names.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: NX.faint }}>No departments yet - add them in Settings &gt; Companies, with the company picked.</div>
+        <div style={{ fontSize: 13, color: NX.faint }}>No departments yet - add them in Settings &gt; Companies, with the company picked.</div>
       ) : (
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div role="tablist" aria-label="Departments" style={{ ...card, padding: 6, flex: '0 0 220px', display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -214,14 +214,14 @@ export default function TicketHelpTopicsSettings() {
                     background: on ? NX.hover : 'transparent', color: NX.ink, fontWeight: on ? 700 : 500,
                   }}>
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n}</span>
-                  <span style={{ fontSize: 11.5, color: count ? NX.dim : NX.faint, fontWeight: 600 }}>{count || 'Typed'}</span>
+                  <span style={{ fontSize: 12, color: count ? NX.dim : NX.faint, fontWeight: 600 }}>{count || 'Typed'}</span>
                 </button>
               );
             })}
           </div>
 
           <div style={{ ...card, padding: 16, flex: '1 1 420px', minWidth: 0, maxWidth: 720 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 2 }}>{selName}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{selName}</div>
             <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
               {topics.length ? `${topics.length} topic${topics.length === 1 ? '' : 's'}, plus Other.` : 'No topics - requesters type what it is about.'}
             </div>
@@ -260,7 +260,7 @@ export default function TicketHelpTopicsSettings() {
                 <Plus size={13} /> Add Topic
               </button>
             </div>
-            {newTopic.trim() && dup(newTopic) && <div style={{ fontSize: 11.5, color: NX.red, marginTop: 4 }}>{selName} already has that topic.</div>}
+            {newTopic.trim() && dup(newTopic) && <div style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>{selName} already has that topic.</div>}
 
             {asgTopic && (
               <div role="region" aria-label={`Default assignee for ${asgTopic.name}`}
@@ -274,7 +274,7 @@ export default function TicketHelpTopicsSettings() {
                   <div style={{ fontSize: 12, color: NX.faint }}>No company you can see has a {selName} department.</div>
                 ) : selCompanies.map((c) => (
                   <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                    <span style={{ width: 140, flexShrink: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.name}>{c.name}</span>
+                    <span style={{ width: 140, flexShrink: 0, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.name}>{c.name}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <PersonSelect value={(asgTopic.defaultAssignees || {})[c.id] || null}
                         people={agentOptions(deskAgents[c.id], (asgTopic.defaultAssignees || {})[c.id], people)}
@@ -282,7 +282,7 @@ export default function TicketHelpTopicsSettings() {
                     </div>
                   </div>
                 ))}
-                <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Saved with the topics - click Save below.</div>
+                <div style={{ fontSize: 12, color: NX.faint, marginTop: 4 }}>Saved with the topics - click Save below.</div>
               </div>
             )}
 
@@ -317,14 +317,14 @@ export default function TicketHelpTopicsSettings() {
                     <Plus size={13} /> Add Option
                   </button>
                 </div>
-                {newOption.trim() && dupOption(newOption) && <div style={{ fontSize: 11.5, color: NX.red, marginTop: 4 }}>That option is already listed.</div>}
+                {newOption.trim() && dupOption(newOption) && <div style={{ fontSize: 12, color: NX.red, marginTop: 4 }}>That option is already listed.</div>}
               </div>
             )}
           </div>
         </div>
       )}
 
-      {err && <div role="alert" style={{ color: NX.red, fontSize: 12.5, fontWeight: 600, marginTop: 14 }}>{err}</div>}
+      {err && <div role="alert" style={{ color: NX.red, fontSize: 13, fontWeight: 600, marginTop: 14 }}>{err}</div>}
       <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={reset}
         note="Saves every department's topics, their order, options and default assignees." />
     </div>

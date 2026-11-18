@@ -205,12 +205,13 @@ describe('MreFromLedger', () => {
   });
 
   // Oct 14 (Charmi: "Set up ledger option needs to be taken out from MRE").
-  it('offers + Add with Manual only', async () => {
+  // A menu of one is a plain + Add button: one click opens the form.
+  it('offers + Add as a plain button that opens Manual', async () => {
     render(<MreTab canEdit />);
     await screen.findByText('San Diego Gas & Electric');
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    const menu = screen.getByRole('menu', { name: 'Add a recurring expense' });
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.querySelector('span span').textContent)).toEqual(['Manual']);
+    expect(screen.queryByRole('menu', { name: 'Add a recurring expense' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Add recurring expense' })).toBeTruthy();
   });
 
   // Oct 14 (Urmi: "the number keeps reducing back").
@@ -236,7 +237,6 @@ describe('MreTab Oct 14 feedback', () => {
     render(<MreTab canEdit />);
     await screen.findByText('San Diego Gas & Electric');
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Manual/ }));
     return screen.getByRole('dialog', { name: 'Add recurring expense' });
   };
 
@@ -343,7 +343,6 @@ describe('MreTab shared controls', () => {
     render(<MreTab canEdit />);
     await screen.findByText('San Diego Gas & Electric');
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Manual/ }));
     const dialog = screen.getByRole('dialog', { name: 'Add recurring expense' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Entity' }));
     fireEvent.change(screen.getByPlaceholderText('Search entity by name or code'), { target: { value: '56000' } });
@@ -596,7 +595,6 @@ describe('MreTab call of 10/27', () => {
     expect(screen.getByLabelText('Expected Amount').style.textAlign).toBe('left');
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    fireEvent.click(within(screen.getByRole('menu', { name: 'Add a recurring expense' })).getAllByRole('menuitem')[0]);
     expect(screen.getByRole('dialog', { name: 'Add recurring expense' })).toBeTruthy();
     expect(screen.getByLabelText('Expected Amount').style.textAlign).toBe('left');
   });

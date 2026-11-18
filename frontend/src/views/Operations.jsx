@@ -1,16 +1,29 @@
 // MapPin/Users/Calendar/X went unused when the mock project dashboard was
 // replaced by ConstructionDashboard; dropped here rather than left as dead
 // imports for the next reader to wonder about.
+import { useEffect, useState } from 'react';
 import { LayoutDashboard, ClipboardList } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import ConstructionDashboard from '../construction/ConstructionDashboard';
 import SiteActivity from '../construction/SiteActivity';
 // Old sub ids still land (see the aliases there), and a project is a URL
 // (11/03/2026): project:<id> on the dashboard tab, activity:<id> on Site Activity.
-import { parseConstructionSub, projectSub, activitySub } from '../construction/lib/navigation';
+import { parseConstructionSub, projectSub, activitySub, LOG_TODAY_SUB } from '../construction/lib/navigation';
 
 export default function Operations({ activeSub, onSubChange }) {
-  const { tab, projectId, jobTab } = parseConstructionSub(activeSub);
+  const { tab, projectId, jobTab, startLog } = parseConstructionSub(activeSub);
+  // Quick Actions' Daily Log: a bumped counter (not a bool) so a second pick
+  // while already here starts again; the address goes back to the tab.
+  const [startSignal, setStartSignal] = useState(0);
+  const [seenSub, setSeenSub] = useState(null);
+  if (activeSub !== seenSub) {
+    setSeenSub(activeSub);
+    if (startLog) setStartSignal((n) => n + 1);
+  }
+  useEffect(() => {
+    if (activeSub === LOG_TODAY_SUB) onSubChange?.('construction-activity');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSub]);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -36,7 +49,7 @@ export default function Operations({ activeSub, onSubChange }) {
           Its own tab because those two are what people open every day, and they
           used to sit two levels down inside a project. */}
       {tab === 'construction-activity' && (
-        <SiteActivity projectId={projectId} onProjectChange={(id) => onSubChange?.(activitySub(id))} />
+        <SiteActivity projectId={projectId} startSignal={startSignal} onProjectChange={(id) => onSubChange?.(activitySub(id))} />
       )}
 
       {/* The mock Logistics and Equipment cards were removed 10/31/2026 (Neil):

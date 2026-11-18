@@ -14,8 +14,8 @@ import { Avatar } from './ShiftScheduleExtras';
 const POP = { position: 'absolute', zIndex: 1300, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
   boxShadow: '0 12px 32px rgba(0,0,0,0.16)', fontFamily: 'Inter,sans-serif' };
 const ITEM = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 12px', border: 'none', background: 'none',
-  cursor: 'pointer', fontSize: 12.5, fontFamily: 'inherit', color: 'var(--ink)', textAlign: 'left' };
-const HEAD = { fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', padding: '8px 12px 4px' };
+  cursor: 'pointer', fontSize: 13, fontFamily: 'inherit', color: 'var(--ink)', textAlign: 'left' };
+const HEAD = { fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', padding: '8px 12px 4px' };
 const MODAL_BACK = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'Inter,sans-serif' };
 const MODAL_CARD = { background: 'var(--card)', borderRadius: 14, padding: 20, overflowY: 'auto' };
 
@@ -48,7 +48,7 @@ export function TeamSwitcher({ groups, value, onChange }) {
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" className="secondary-btn" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
-        aria-label="Choose a group" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
+        aria-label="Choose a group" style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}>
         <Users size={14} /> {picked ? picked.name : 'All Groups'}{picked?.archived ? ' (Archived)' : ''} <ChevronDown size={13} />
       </button>
       {open && (
@@ -64,7 +64,7 @@ export function TeamSwitcher({ groups, value, onChange }) {
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 8, border: '1px solid var(--line)', borderRadius: 8, padding: '4px 8px' }}>
             <Search size={12} color="var(--muted)" />
             <input className="nx-inline-edit" value={q} onChange={e => setQ(e.target.value)} placeholder="Search groups" aria-label="Search groups" autoFocus
-              style={{ border: 'none', fontSize: 12.5, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
+              style={{ border: 'none', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
           </label>
           <div role="listbox" aria-label="Groups" style={{ maxHeight: 300, overflowY: 'auto', paddingBottom: 6 }}>
             {tab !== 'archived' && !q.trim() && (
@@ -148,7 +148,7 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
         <input type="checkbox" checked={picked.includes(em)} onChange={() => toggle(em)} aria-label={`Add ${nameOf(p)}`} />
         <Avatar name={nameOf(p)} photoUrl={p.photoUrl || p.photo_url || ''} size={24} />
         <span style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700 }}>{nameOf(p)}{p.external === true && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px' }}>External</span>}</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{nameOf(p)}{p.external === true && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 999, padding: '0 6px' }}>External</span>}</div>
         </span>
       </label>
     );
@@ -171,14 +171,14 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
         </label>
         <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
           {people === null && <div style={{ padding: 16, textAlign: 'center', color: 'var(--muted)' }}><Spinner size={16} /></div>}
-          {people !== null && !list.length && <div style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>Nobody else to add.</div>}
+          {people !== null && !list.length && <div style={{ padding: 12, fontSize: 13, color: 'var(--muted)' }}>Nobody else to add.</div>}
           {top.length > 0 && <div style={HEAD}>Recent</div>}
           {top.map((p, i) => row(p, i, 'r:'))}
           {top.length > 0 && <div style={HEAD}>All</div>}
           {list.map((p, i) => row(p, top.length + i))}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
-          {onManage && <button type="button" onClick={onManage} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-green))', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, padding: 0 }}>Manage Group</button>}
+          {onManage && <button type="button" onClick={onManage} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-green))', cursor: 'pointer', fontSize: 13, fontWeight: 700, padding: 0 }}>Manage Group</button>}
           <div style={{ flex: 1 }} />
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="primary-btn" disabled={busy || !picked.length} onClick={() => onAdd(picked)}>

@@ -74,7 +74,7 @@ export default function LabelsEditor({ tags = [], onChange, readOnly = false, kn
       <AnchoredMenu anchorRef={boxRef} open={open && suggestions.length > 0} onClose={() => setOpen(false)} role="listbox"
         aria-label="Labels in use"
         style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4, minWidth: 200, maxWidth: 320, fontFamily: FONT }}>
-        <div style={{ padding: '6px 8px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint }}>
+        <div style={{ padding: '6px 8px 4px', fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint }}>
           Labels in Use
         </div>
         {suggestions.map((s, i) => (

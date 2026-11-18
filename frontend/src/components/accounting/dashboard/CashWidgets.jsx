@@ -1,4 +1,4 @@
-import { fmtNumMD, monthLabel, mShort } from '../../../accounting/dashboard/model/months';
+import { fmtMDY, monthLabel, mShort } from '../../../accounting/dashboard/model/months';
 import { holdingClass } from '../../../accounting/dashboard/model/capital';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { BAD, Chip, Delta, Dot, EmptyBox, Eyebrow, Footnote, LoadingBox, Meter, mono, num, seriesColor, toneColor } from './Bits';
@@ -10,31 +10,31 @@ import { useFeed, useForecastMonthly, useHoldings, useTrend } from './hooks';
 // entity, bank lines to code, and the monthly cash forecast.
 
 export function InvestWidget() {
-  const { m, cashSplit } = useDash();
-  const { holdings, mv, cost, prior, isLoading } = useHoldings();
-  if (isLoading) return <LoadingBox />;
-  if (!holdings.length) return <EmptyBox title="No investment accounts in this scope" body="Add brokerage and money-market holdings under the Data tab." />;
+  const { m, cashSplit, cashLoading, cashDown } = useDash();
+  const { holdings, mv, cost, prior, isLoading, failed } = useHoldings();
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!holdings.length) return <EmptyBox title="No investment accounts in this scope" body="Add brokerage and money-market holdings under Financing > Investments." setUp={['investments', 'Financing > Investments']} />;
   const groups = ['Stocks', 'Bonds'].map((g, i) => {
     const hs = holdings.filter((h) => holdingClass(h.asset_class) === g);
     const gmv = hs.reduce((t, h) => t + h.market_value, 0);
     return { g, color: seriesColor(i), mv: gmv, cost: hs.reduce((t, h) => t + h.cost, 0), prior: hs.reduce((t, h) => t + h.prior_value, 0), share: mv ? gmv / mv : 0 };
   }).filter((x) => x.mv > 0);
-  const stat = (label, value, color) => (<div><Eyebrow>{label}</Eyebrow><div style={{ marginTop: 4, fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color }}>{value}</div></div>);
+  const stat = (label, value, color) => (<div><Eyebrow>{label}</Eyebrow><div style={{ marginTop: 4, fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color }}>{value}</div></div>);
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
         {stat('Total market value', m(mv))}
-        {stat('Month', <Delta v={prior ? (mv - prior) / prior : null} style={{ fontSize: '1rem' }} />)}
+        {stat('Month', <Delta v={prior ? (mv - prior) / prior : null} style={{ fontSize: 15 }} />)}
         {stat('Unrealized gain', m(mv - cost, { paren: true }), toneColor(mv - cost >= 0))}
-        {stat(cashSplit.ncOnly ? 'Non-controllable cash + investments' : 'Controllable cash + investments', m(cashSplit.onHand + mv, { compact: true }))}
+        {stat(cashSplit.ncOnly ? 'Non-controllable cash + investments' : 'Controllable cash + investments', cashLoading ? (cashDown ? 'Could not load' : '...') : m(cashSplit.onHand + mv, { compact: true }))}
       </div>
       <Meter segments={groups.map((g) => ({ share: g.share, color: g.color, title: `${g.g}: ${m(g.mv)}` }))} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
         {groups.map((g) => (
           <div key={g.g} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.86rem', fontWeight: 600 }}><Dot color={g.color} />{g.g}</span><span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{pctTxt(g.share, 0)} of total</span></div>
-            <div style={{ marginTop: 4, fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{m(g.mv)}</div>
-            <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600 }}><Dot color={g.color} />{g.g}</span><span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{pctTxt(g.share, 0)} of total</span></div>
+            <div style={{ marginTop: 4, fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{m(g.mv)}</div>
+            <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
               <span>Unrealized <span style={{ color: toneColor(g.mv - g.cost >= 0) }}>{m(g.mv - g.cost, { paren: true })}</span></span>
               <Delta v={g.prior ? (g.mv - g.prior) / g.prior : null} />
             </div>
@@ -61,7 +61,7 @@ export function CashTrendWidget() {
   return (
     <div>
       <AreaTrend data={data} series={series} height={170} />
-      <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+      <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 11, color: 'var(--text-muted)' }}>
         {series.map((s) => <span key={s.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Dot color={s.color} />{s.label}</span>)}
       </div>
     </div>
@@ -69,19 +69,19 @@ export function CashTrendWidget() {
 }
 
 export function EntityCashWidget() {
-  const { cashSplit, m, loading, ix } = useDash();
-  if (loading) return <LoadingBox />;
+  const { cashSplit, m, loading, cashLoading, cashDown, ix } = useDash();
+  if (loading || cashLoading) return <LoadingBox failed={cashDown} />;
   const { ctl, nc, ctlEntities, ncEntities } = cashSplit;
   if (!ctlEntities.length && !ncEntities.length) return <EmptyBox title="No cash accounts in this scope" />;
   const row = (e, i, base, muted) => (
-    <div key={e.code} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '6px 0', fontSize: '0.84rem', color: muted ? 'var(--text-muted)' : 'inherit', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
+    <div key={e.code} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '6px 0', fontSize: 13, color: muted ? 'var(--text-muted)' : 'inherit', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
       <span style={{ display: 'flex', minWidth: 0, alignItems: 'center', gap: 8 }}>
         {!muted ? <Dot color={seriesColor(i)} /> : <span style={{ width: 10, height: 10, borderRadius: 3, border: '1px dashed var(--text-muted)' }} />}
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.name || ix.byCode.get(e.code)?.name || e.code || 'No entity'}</span>
-        {e.partners ? <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>· {e.partners}</span> : null}
+        {e.partners ? <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {e.partners}</span> : null}
       </span>
       <span style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 12, fontVariantNumeric: 'tabular-nums' }}>
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{base ? pctTxt(e.balance / base, 0) : '-'}</span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{base ? pctTxt(e.balance / base, 0) : '-'}</span>
         <span style={{ fontWeight: 600 }}>{m(e.balance, { compact: true })}</span>
       </span>
     </div>
@@ -90,14 +90,14 @@ export function EntityCashWidget() {
     <div style={{ display: 'grid', gap: 12 }}>
       {ctlEntities.length ? (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><Eyebrow>Controllable</Eyebrow><span style={{ fontSize: '1rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{m(ctl)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><Eyebrow>Controllable</Eyebrow><span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{m(ctl)}</span></div>
           <Meter style={{ margin: '8px 0' }} segments={ctlEntities.map((e, i) => ({ share: ctl ? e.balance / ctl : 0, color: seriesColor(i), title: `${e.name || e.code}: ${m(e.balance)}` }))} />
           <div>{ctlEntities.map((e, i) => row(e, i, ctl))}</div>
         </div>
       ) : null}
       {ncEntities.length ? (
         <div style={{ borderTop: ctlEntities.length ? '1px dashed var(--border-color)' : 'none', paddingTop: ctlEntities.length ? 12 : 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Eyebrow>Non-controllable</Eyebrow><Chip tone="fyi">FYI</Chip></span><span style={{ fontSize: '1rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{m(nc)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Eyebrow>Non-controllable</Eyebrow><Chip tone="fyi">FYI</Chip></span><span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{m(nc)}</span></div>
           <div>{ncEntities.map((e, i) => row(e, i, nc, true))}</div>
         </div>
       ) : null}
@@ -108,18 +108,20 @@ export function EntityCashWidget() {
 
 export function UncatWidget({ onOpenBanks }) {
   const { m } = useDash();
-  const { feed, isLoading } = useFeed();
-  if (isLoading) return <LoadingBox />;
-  if (!feed || !feed.lines?.length) return <EmptyBox title="Every imported bank line has a GL account" body="New feed lines that need coding show up here with the matcher's suggestion." />;
+  const { feed, isLoading, failed } = useFeed();
+  if (isLoading) return <LoadingBox failed={failed} />;
+  // No feed is "not known", never "all coded" (11/12/2026).
+  if (!feed) return <EmptyBox title="Bank lines to code are not available" body="The accounting app did not send the bank feed. Refresh to try again." />;
+  if (!feed.lines?.length) return <EmptyBox title="Every imported bank line has a GL account" body="New feed lines that need coding show up here with the matcher's suggestion." />;
   return (
     <div>
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th>Date</th><th>Description</th><th style={num}>Amount</th><th>Suggested account</th></tr></thead>
+          <thead><tr><th>Date</th><th>Description</th><th style={num}>Amount</th><th>Suggested Account</th></tr></thead>
           <tbody>
             {feed.lines.map((l) => (
               <tr key={l.id}>
-                <td style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{fmtNumMD(l.txn_date)}</td>
+                <td style={{ color: 'var(--text-muted)', fontSize: 13 }}>{fmtMDY(l.txn_date)}</td>
                 <td style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.description}>{l.description}</td>
                 <td style={{ ...num, color: l.amount > 0 ? toneColor(true) : undefined }}>{m(l.amount, { report: true })}</td>
                 <td>{l.suggested ? <Chip><span style={{ fontFamily: 'monospace' }}>{l.suggested.gl_code}</span>&nbsp;{l.suggested.account_name}</Chip> : <Chip tone="bad">Needs review</Chip>}</td>
@@ -128,9 +130,9 @@ export function UncatWidget({ onOpenBanks }) {
           </tbody>
         </table>
       </div>
-      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
         <span>{feed.total} line{feed.total === 1 ? '' : 's'} waiting</span>
-        {onOpenBanks ? <button type="button" onClick={onOpenBanks} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Code them in Nexus Accounting →</button> : null}
+        {onOpenBanks ? <button type="button" onClick={onOpenBanks} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Open Bank Activity →</button> : null}
       </div>
     </div>
   );
@@ -141,9 +143,9 @@ export function UncatWidget({ onOpenBanks }) {
 // nothing to show). A month without budget lines is marked; with no budget at
 // all the panel says so instead of inventing numbers.
 export function CashForecastWidget() {
-  const { m, cashSplit, loading } = useDash();
+  const { m, cashSplit, loading, cashLoading, cashDown } = useDash();
   const f = useForecastMonthly();
-  if (loading || !f) return <LoadingBox />;
+  if (loading || cashLoading || !f) return <LoadingBox failed={cashDown} />;
   if (!cashSplit.onHandEntities.length) return <EmptyBox title="No cash accounts in this scope" body="Choose All Entities, Controllable Entities Only, or one of your companies." />;
   if (!f.hasBudget) {
     return <EmptyBox title={`No budget posted for the next ${FORECAST_MONTHS} months`} body={`The forecast takes each month's receipts and costs from the posted budget in Nexus Accounting (Financials, Budgets), debt service from the loan schedule and distributions from partner capital. Post a budget for ${mShort(f.months[0])} onward and it fills in.`} />;
@@ -151,7 +153,7 @@ export function CashForecastWidget() {
   const last = f.months.length - 1;
   const low = Math.min(...f.end);
   const lowIdx = f.end.indexOf(low);
-  const stat = (label, value, color, sub) => (<div><Eyebrow>{label}</Eyebrow><div style={{ marginTop: 4, fontSize: '1rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color }}>{value}</div>{sub ? <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{sub}</div> : null}</div>);
+  const stat = (label, value, color, sub) => (<div><Eyebrow>{label}</Eyebrow><div style={{ marginTop: 4, fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color }}>{value}</div>{sub ? <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{sub}</div> : null}</div>);
   const data = f.months.map((k, i) => ({ label: mShort(k), end: Math.round(f.end[i]) }));
   const rowsDef = [
     ['Rent and operating receipts', f.rent, 'in'], ['Construction billings', f.con, 'in'],

@@ -1,7 +1,7 @@
 // TicketFilters - split out of TicketsView.jsx (Oct 2026); the code below
 // moved verbatim, see TicketsView.jsx for the module overview.
 import { useRef, useState } from 'react';
-import { Plus, X, Bookmark, SlidersHorizontal, MoreHorizontal, Download } from 'lucide-react';
+import { Plus, X, Bookmark, SlidersHorizontal, MoreHorizontal, Download, Check, ChevronDown, List as ListIcon, Columns3 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
 import { Modal } from '../tasks/components';
 import { BottomSheet } from '../tasks/MobileTaskBar';
@@ -57,7 +57,7 @@ function TicketMobileFilters({
   const anyFilter = [statusFilter, priorityFilter, typeFilter, slaFilter, hrDeptFilter, serviceAreaFilter, assigneeFilter]
     .some((v) => v !== 'all');
   const wrap = { marginBottom: 14 };
-  const lab = { ...label, fontSize: 12.5 };
+  const lab = { ...label, fontSize: 13 };
   // MobileTaskBar renders filterSheet(...) raw - the caller supplies the sheet
   // chrome (same contract as the task module's MobileFilters).
   return (
@@ -207,89 +207,33 @@ function TicketFilterMenu({
         )}
         {active > 0 && (
           <button onClick={() => { setStatusFilter('all'); setPriorityFilter('all'); setTypeFilter('all'); setSlaFilter('all'); setHrDeptFilter('all'); setServiceAreaFilter('all'); setAssigneeFilter('all'); }}
-            style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 12.5 }}>Clear Filters</button>
+            style={{ ...btn('ghost'), width: '100%', justifyContent: 'center', color: NX.red, fontSize: 13 }}>Clear Filters</button>
         )}
       </AnchoredMenu>
     </>
   );
 }
 
-// The desk's one overflow menu (10/31/2026): every occasional control in one
-// place - Group By, Columns, Export, the saved views (with their delete; the
-// views themselves are tabs in the bar), Save Current View, and the property
-// link clean-up - so the toolbar stays List / Board / Reports, search, Filters
-// and this. It renders the same on every view; what does not apply (grouping
-// and columns outside the list) is simply absent.
-// `layout` / `setLayout` (10/31/2026): the desk's per-person layout - 'modal'
-// (a row opens the ticket as a popup) or 'pane' (beside the list). Shown only
-// when the caller passes them (the desktop list).
-function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showGroup,
-  onExport, columns, hidden, toggleHidden, cols, showColumns = false, suggestLinks = null,
-  layout = undefined, setLayout = undefined }) {
+// The desk's overflow menu: the saved views (with their delete; the views
+// themselves sit under Other Queues), Save Current View, Export and the
+// property link clean-up. How the list LOOKS - List or Board, the side pane,
+// grouping, columns - is the View menu's (ViewMenu, Neil 11/13/2026).
+function MoreMenu({ views, onApply, onSave, onDelete, onExport, suggestLinks = null }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const item = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, color: NX.ink, textAlign: 'left' };
   const sectionLabel = { padding: '8px 12px 4px', fontSize: 12, fontWeight: 600, color: NX.dim };
   const rule = <div style={{ borderTop: `1px solid ${NX.border2}` }} />;
-  // Hiding the last data column would leave only the checkbox / type /
-  // resolved gutters - that one stays checked and disabled.
-  const hideable = (columns || []).filter((c) => !c.fixed);
-  const visibleCount = (cols || []).filter((c) => !c.fixed).length;
   return (
     <>
       <button ref={btnRef} onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), padding: '7px 9px' }}
         title="More" aria-label="More" aria-haspopup="menu" aria-expanded={open}>
         <MoreHorizontal size={16} />
       </button>
-      {/* The "Group by" TicketSelect's portaled list counts as inside. */}
       <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} align="end" minWidth={250}
         style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', fontFamily: FONT, maxHeight: '70vh', overflowY: 'auto' }}>
-        {layout !== undefined && setLayout && (
-          <>
-            <div style={sectionLabel}>Layout</div>
-            <div style={{ padding: '0 6px 6px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 6px', boxSizing: 'border-box', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink }}>
-                <input type="checkbox" checked={layout === 'pane'}
-                  onChange={(e) => setLayout(e.target.checked ? 'pane' : 'modal')} />
-                Open Tickets in a Side Pane
-              </label>
-              <div style={{ padding: '0 6px', fontSize: 12, color: NX.faint }}>A row opens beside the list; ↑ ↓ step through the queue.</div>
-            </div>
-            {rule}
-          </>
-        )}
-        {showGroup && (
-          <>
-            <div style={sectionLabel}>Group By</div>
-            <div style={{ padding: '0 12px 10px' }}>
-              <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={{ width: '100%' }} />
-            </div>
-            {rule}
-          </>
-        )}
-        {showColumns && hideable.length > 0 && (
-          <>
-            <div style={sectionLabel}>Show Columns</div>
-            <div style={{ padding: '0 6px 6px' }}>
-              {hideable.map((c) => {
-                const checked = !(hidden || []).includes(c.key);
-                const lastOne = checked && visibleCount <= 1;
-                return (
-                  <label key={c.key} style={{
-                    display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 6px', boxSizing: 'border-box',
-                    borderRadius: 6, cursor: lastOne ? 'default' : 'pointer', fontSize: 13, color: NX.ink,
-                  }}>
-                    <input type="checkbox" checked={checked} disabled={lastOne} onChange={() => toggleHidden(c.key)} />
-                    {c.label}
-                  </label>
-                );
-              })}
-            </div>
-            {rule}
-          </>
-        )}
         <div style={sectionLabel}>Saved Views</div>
-        {views.length === 0 && <div style={{ padding: '0 12px 8px', fontSize: 12.5, color: NX.faint }}>No saved views yet.</div>}
+        {views.length === 0 && <div style={{ padding: '0 12px 8px', fontSize: 13, color: NX.faint }}>No saved views yet.</div>}
         {views.map((v) => (
           <div key={v.id} style={{ display: 'flex', alignItems: 'center' }}>
             <button onClick={() => { onApply(v); setOpen(false); }} style={{ ...item, flex: 1, minWidth: 0 }}>
@@ -307,6 +251,102 @@ function MoreMenu({ views, onApply, onSave, onDelete, groupBy, setGroupBy, showG
         )}
         {/* The property clean-up's own button and dialog, styled as a row. */}
         {suggestLinks && <div onClick={() => setOpen(false)}>{suggestLinks(item)}</div>}
+      </AnchoredMenu>
+    </>
+  );
+}
+
+// View (Neil, 11/13/2026: the Tickets bar "seems cluttered and needs to be
+// done better"): ONE button for how the tickets are shown, in place of the
+// List / Board / Reports switch that sat on the left of the toolbar and the
+// layout, grouping and columns that sat in "...". It says what is on screen
+// ("List" / "Board"); its menu holds Show As, then - on the list - the side
+// pane, Group By and the columns. Reports is a tab in the header now: it is
+// a place to go, not a way to show the queue.
+// `layout` / `setLayout` (10/31/2026): the desk's per-person layout - 'modal'
+// (a row opens the ticket as a popup) or 'pane' (beside the list).
+const SHOW_AS = [
+  { key: 'list', label: 'List', Icon: ListIcon },
+  { key: 'board', label: 'Board', Icon: Columns3 },
+];
+function ViewMenu({ view, setView, groupBy, setGroupBy, columns, hidden, toggleHidden, cols, showColumns = false,
+  layout = undefined, setLayout = undefined }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef(null);
+  const sectionLabel = { padding: '8px 12px 4px', fontSize: 12, fontWeight: 600, color: NX.dim };
+  const rule = <div style={{ borderTop: `1px solid ${NX.border2}` }} />;
+  const now = SHOW_AS.find((x) => x.key === view) || SHOW_AS[0];
+  const isList = now.key === 'list';
+  // Hiding the last data column would leave only the checkbox / type /
+  // resolved gutters - that one stays checked and disabled.
+  const hideable = (columns || []).filter((c) => !c.fixed);
+  const visibleCount = (cols || []).filter((c) => !c.fixed).length;
+  return (
+    <>
+      <button ref={btnRef} onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), gap: 6 }}
+        title="How the tickets are shown" aria-label={`View: ${now.label}`} aria-haspopup="menu" aria-expanded={open}>
+        <now.Icon size={15} /> {now.label} <ChevronDown size={14} style={{ color: NX.faint, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .16s ease-out' }} />
+      </button>
+      {/* The "Group by" TicketSelect's portaled list counts as inside. */}
+      <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} align="end" minWidth={250} aria-label="View"
+        style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', fontFamily: FONT, maxHeight: '70vh', overflowY: 'auto' }}>
+        <div style={sectionLabel}>Show As</div>
+        <div style={{ padding: '0 6px 6px' }}>
+          {SHOW_AS.map((x) => (
+            <button key={x.key} type="button" role="menuitemradio" aria-checked={x.key === now.key}
+              onClick={() => { setOpen(false); setView(x.key); }}
+              className="nx-menu-row"
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 6px', border: 'none', borderRadius: 6, background: 'transparent', cursor: 'pointer', fontFamily: FONT, fontSize: 13, fontWeight: x.key === now.key ? 600 : 500, color: x.key === now.key ? NX.primary : NX.ink, textAlign: 'left' }}>
+              <x.Icon size={15} style={{ color: x.key === now.key ? NX.primary : NX.faint }} />
+              <span style={{ flex: 1 }}>{x.label}</span>
+              {x.key === now.key && <Check size={14} />}
+            </button>
+          ))}
+        </div>
+        {isList && layout !== undefined && setLayout && (
+          <>
+            {rule}
+            <div style={sectionLabel}>Layout</div>
+            <div style={{ padding: '0 6px 6px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 6px', boxSizing: 'border-box', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: NX.ink }}>
+                <input type="checkbox" checked={layout === 'pane'}
+                  onChange={(e) => setLayout(e.target.checked ? 'pane' : 'modal')} />
+                Open Tickets in a Side Pane
+              </label>
+              <div style={{ padding: '0 6px', fontSize: 12, color: NX.faint }}>A row opens beside the list; ↑ ↓ step through the queue.</div>
+            </div>
+          </>
+        )}
+        {isList && (
+          <>
+            {rule}
+            <div style={sectionLabel}>Group By</div>
+            <div style={{ padding: '0 12px 10px' }}>
+              <TicketSelect value={groupBy} onChange={setGroupBy} options={groupByOptions()} style={{ width: '100%' }} />
+            </div>
+          </>
+        )}
+        {isList && showColumns && hideable.length > 0 && (
+          <>
+            {rule}
+            <div style={sectionLabel}>Show Columns</div>
+            <div style={{ padding: '0 6px 6px' }}>
+              {hideable.map((c) => {
+                const checked = !(hidden || []).includes(c.key);
+                const lastOne = checked && visibleCount <= 1;
+                return (
+                  <label key={c.key} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 6px', boxSizing: 'border-box',
+                    borderRadius: 6, cursor: lastOne ? 'default' : 'pointer', fontSize: 13, color: NX.ink,
+                  }}>
+                    <input type="checkbox" checked={checked} disabled={lastOne} onChange={() => toggleHidden(c.key)} />
+                    {c.label}
+                  </label>
+                );
+              })}
+            </div>
+          </>
+        )}
       </AnchoredMenu>
     </>
   );
@@ -338,7 +378,7 @@ export function SaveViewDialog({ onSave, onClose }) {
         <input id="ticket-view-name" autoFocus value={name} maxLength={80} onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }}
           placeholder="e.g. My open hardware tickets" style={{ ...inputStyle, fontFamily: FONT }} />
-        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+        <div style={{ fontSize: 12, color: NX.faint, marginTop: 6 }}>
           Saves the tab, filters, department, search, sort and grouping you have on screen now.
         </div>
         {err && <div role="alert" style={{ ...requiredHint, marginTop: 8 }}>{err}</div>}
@@ -347,4 +387,4 @@ export function SaveViewDialog({ onSave, onClose }) {
   );
 }
 
-export { TicketMobileFilters, TicketFilterMenu, MoreMenu };
+export { TicketMobileFilters, TicketFilterMenu, MoreMenu, ViewMenu };

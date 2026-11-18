@@ -39,7 +39,7 @@ The photo at each handover proves the item's condition at that moment. If a tool
 {"kind": "screen", "title": "Item Management, My Stuff", "device": "phone", "module": "Item Management", "parts": [{"kind": "list", "title": "My Stuff", "items": [{"label": "Laser level (LL-02)", "note": "Approved: take it with a photo", "badge": "Take It", "n": 1}, {"label": "Ladder, 24 ft", "note": "Handed over by R. Chen", "badge": "Confirm Receipt", "n": 2}, {"label": "Laptop (LT-114)", "note": "Assigned to you", "badge": "Accept"}, {"label": "Dolly (DL-07)", "note": "Due back 11/12/2026", "badge": "Start Return", "n": 3}]}], "callouts": [{"n": 1, "text": "You take it, with a handover photo."}, {"n": 2, "text": "Someone handed it over; confirm with your photo."}, {"n": 3, "text": "Photo, condition, Confirm Return."}]}
 ```
 
-1. Click **Borrow** (or **Request an Item** in the + menu), find the item and click **Add**.
+1. Click **Borrow** (or the bolt in the header, then **Request**, then **Item**), find the item and click **Add**.
 2. Open the cart: **Who Is It For?**, **Why Do You Need It?**, the **Return Dates** and **Who Approves It?**.
 3. Click **Request 1 Item** (or 2 Items, and so on).
 
@@ -54,7 +54,7 @@ For an assigned item, you get a bell: click **Accept**, then **It's With Me**, o
 
 ## Notes
 
-Open **Dashboard**, then **Notes**: your own working notes, such as calls to return or a handoff to a coworker. The tabs are **All**, **Pinned**, **Today** (a daily scratchpad), **Shared** and **Trash**. **New Note** in the + menu opens a Quick Note from any screen (Ctrl+Alt+N on a computer).
+Open **Dashboard**, then **Notes**: your own working notes, such as calls to return or a handoff to a coworker. The tabs are **All**, **Pinned**, **Today** (a daily scratchpad), **Shared** and **Trash**. **New Note** under the bolt in the header opens a Quick Note from any screen (Ctrl+Alt+N on a computer).
 
 Notes save as you type. **Pin** keeps one at the top, **Share** gives a coworker access to one note, and you can record voice notes or dictate. A note is **private** to you and the people you share it with, not even your manager can open it, and typing someone's name in a note notifies nobody.
 

@@ -15,8 +15,9 @@ import { api } from '../api';
 import { ErrorBanner, SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { SettingCard, SettingRow, SwitchRow } from '../components/settings/SettingsUI';
 import { formatDateTime } from '../lib/datetime';
+import { dialog } from '../ui/dialog';
 
-const note = { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 };
+const note = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 };
 
 export default function CubbyTasksSettings({ toastOk, toastErr }) {
   const [state, setState] = useState({ status: 'loading', data: null });
@@ -45,8 +46,8 @@ export default function CubbyTasksSettings({ toastOk, toastErr }) {
     } finally { setBusy(''); }
   };
   const flipOn = (next) => save('on', { on: next }, next ? 'Cubby Tasks is on' : 'Cubby Tasks is off');
-  const flipClose = (next) => {
-    if (next && !window.confirm('Close tasks in Cubby from Nexus? When someone completes or reopens a Cubby task in Nexus, Nexus will do the same in Cubby.')) return;
+  const flipClose = async (next) => {
+    if (next && !(await dialog.confirm('Close tasks in Cubby from Nexus? When someone completes or reopens a Cubby task in Nexus, Nexus will do the same in Cubby.', { title: 'Close Tasks in Cubby?', confirmText: 'Turn On' }))) return;
     save('close', { closeInCubby: next }, next ? 'Close Tasks in Cubby is on' : 'Close Tasks in Cubby is off');
   };
   const pickProject = (facilityId, projectId) => {
@@ -100,7 +101,7 @@ export default function CubbyTasksSettings({ toastOk, toastErr }) {
       </SettingCard>
 
       <div>
-        <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>Where Each Facility&apos;s Tasks Go</div>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Where Each Facility&apos;s Tasks Go</div>
         <SettingCard>
           {(s.facilities || []).length === 0 && (
             <SettingRow title="No facilities yet" desc="The facility list fills in after the first Cubby sync." />
@@ -124,10 +125,10 @@ export default function CubbyTasksSettings({ toastOk, toastErr }) {
 
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>Last Run</div>
+          <div style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>Last Run</div>
           {canEdit && (
             <button type="button" className="secondary-btn" onClick={syncNow} disabled={!s.on || busy === 'sync'}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
               {busy === 'sync' ? <Spinner size={13} /> : <RefreshCw size={13} />} Sync Now
             </button>
           )}

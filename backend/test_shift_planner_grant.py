@@ -1,8 +1,8 @@
 """The Shift Planner grant (Pranshu, 11/10/2026): an Access Group grant on
 module "shifts" lets someone below Manager run the planner for the teams
 they are named Scheduler on. Viewer reads, Editor builds and shares, Full
-also clears / imports / changes members, Owner acts as a manager inside
-Shifts for their company's people. Never Time Sheets, labor, shift types
+also clears / imports / changes members and acts as a manager inside
+Shifts for their company's people (the top grant; Owner retired 11/12/2026). Never Time Sheets, labor, shift types
 or Settings. Throwaway sqlite.
 
     python -m unittest test_shift_planner_grant -v
@@ -168,10 +168,10 @@ class ShiftPlannerGrantTests(unittest.TestCase):
         self.assertEqual(self._members(OTHERG, C1).status_code, 403)   # not their team
         self.assertEqual(self._members(CONSTR, OUT).status_code, 403)  # another company
         self.assertEqual(self.client.patch(f"/timeclock/shift-groups/{CONSTR}/meta",
-                                           json={"name": "Renamed"}).status_code, 403)   # Owner only
+                                           json={"name": "Renamed"}).status_code, 200)   # Full is the top grant (Owner retired 11/12/2026)
 
-    def test_owner_acts_as_a_manager_inside_shifts_for_their_company(self):
-        self._grant("owner")
+    def test_full_acts_as_a_manager_inside_shifts_for_their_company(self):
+        self._grant("full")
         self._as(SEJ)
         self.assertEqual(self._add(OTH).status_code, 200)        # their company, another team
         self.assertEqual(self._add(OUT).status_code, 403)        # another company
@@ -184,7 +184,7 @@ class ShiftPlannerGrantTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/timeclock/schedule/labor?start={DAY}&end={DAY}").status_code, 403)
         self.assertIn(self.client.get("/timeclock/team").status_code, (401, 403))
 
-    def test_only_an_owner_decides_a_swap(self):
+    def test_only_a_full_grant_decides_a_swap(self):
         self._as(BOSS)
         sid = self._add(C1).json()["id"]
         self.client.post("/timeclock/schedule/publish", json={"start_date": DAY, "end_date": DAY})
@@ -194,12 +194,12 @@ class ShiftPlannerGrantTests(unittest.TestCase):
         rid = ask.json()["id"]
         self._as(C2)
         self.assertEqual(self.client.post(f"/timeclock/shift-requests/{rid}/respond", json={"accept": True}).status_code, 200)
-        self._grant("full")
+        self._grant("editor")
         self._as(SEJ)
         self.assertEqual(self.client.post(f"/timeclock/shift-requests/{rid}/decide", json={"approve": True}).status_code, 403)
         db = database.SessionLocal()
         try:
-            db.query(models.NexusGroup).filter(models.NexusGroup.id == GRANT).update({"allowed_modules": "shifts:owner"})
+            db.query(models.NexusGroup).filter(models.NexusGroup.id == GRANT).update({"allowed_modules": "shifts:full"})
             db.commit()
         finally:
             db.close()

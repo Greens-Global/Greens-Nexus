@@ -53,13 +53,13 @@ export default function LeaveHistory() {
           </div>
           {err ? <ErrorBanner message={err} onRetry={() => setTick((t) => t + 1)} />
             : rows === null ? <SkeletonBlocks count={3} height={26} borderRadius={8} />
-            : rows.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No leave was recorded there.</div>
+            : rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)' }}>No leave was recorded there.</div>
             : (
               <div style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, overflow: 'hidden', maxHeight: 420, overflowY: 'auto' }}>
                 {rows.map((r) => {
                   const [label, color] = STATUS[r.status] || [r.status, '#64748b'];
                   return (
-                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 12px', borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 12px', borderTop: '1px solid var(--line)', fontSize: 13 }}>
                       <span style={{ fontWeight: 700, color: 'var(--ink)', minWidth: 140, flex: '1 1 160px' }}>{names[r.employeeId]
                         ? <AvatarName email={emails[r.employeeId]} name={names[r.employeeId]} size={22} />
                         : 'Unknown'}</span>

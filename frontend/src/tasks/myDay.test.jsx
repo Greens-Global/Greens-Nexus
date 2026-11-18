@@ -170,6 +170,43 @@ describe('My Day tab', () => {
     expect(box.value).toBe('');
   });
 
+  // Type it the way you say it (11/13/2026): a due date and a priority are
+  // read from the sentence; an assignee is not - My Day is the person's own.
+  it('the add row reads a due date and a priority from the sentence, and the task is still a pick for today', async () => {
+    const day = lib.todayISO();
+    const tomorrow = lib.addDays(day, 1);
+    apiOverride.getMyDay = vi.fn(() => Promise.resolve(payload(day)));
+    apiOverride.addToMyDay = vi.fn(() => Promise.resolve(payload(day, { tasks: [task('new', { title: 'Call the vendor for Bob', dueOn: tomorrow })], addedIds: ['new'] })));
+    render(<MyDayView onOpen={() => {}} />);
+    await screen.findByText('Nothing planned for today yet.');
+    const box = screen.getByLabelText('Add a task for today');
+    fireEvent.change(box, { target: { value: 'Call the vendor for Bob tomorrow, high priority' } });
+    const chips = screen.getByRole('group', { name: 'Understood From the Task Name' });
+    expect(within(chips).getAllByRole('button').map((b) => b.getAttribute('aria-label').replace(/ \d.*$/, ''))).toEqual(
+      [expect.stringMatching(/^Remove due date/), 'Remove priority High']);
+    await act(async () => { fireEvent.keyDown(box, { key: 'Enter' }); });
+    expect(state.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Call the vendor for Bob', assigneeIds: [ME], dueOn: tomorrow, priority: 'high',
+    }));
+    expect(apiOverride.addToMyDay).toHaveBeenCalledWith(day, 'new', true);
+    expect(box.value).toBe('');
+  });
+
+  it('a removed chip leaves the task due today, its words in the name', async () => {
+    const day = lib.todayISO();
+    apiOverride.getMyDay = vi.fn(() => Promise.resolve(payload(day)));
+    apiOverride.addToMyDay = vi.fn(() => Promise.resolve(payload(day, { tasks: [task('new', { dueOn: day })], addedIds: ['new'] })));
+    render(<MyDayView onOpen={() => {}} />);
+    await screen.findByText('Nothing planned for today yet.');
+    const box = screen.getByLabelText('Add a task for today');
+    fireEvent.change(box, { target: { value: 'tomorrow' } });
+    expect(screen.queryByRole('group', { name: 'Understood From the Task Name' })).toBeNull();   // all date: a name
+    fireEvent.change(box, { target: { value: 'Plan the walk tomorrow' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Remove due date/ }));
+    await act(async () => { fireEvent.keyDown(box, { key: 'Enter' }); });
+    expect(state.createTask).toHaveBeenCalledWith(expect.objectContaining({ title: 'Plan the walk tomorrow', dueOn: day, priority: 'medium' }));
+  });
+
   it('a reorder changes the order only, never the picks', async () => {
     const day = lib.todayISO();
     const rows = [task('a', { title: 'Pick' }), task('auto', { title: 'Due today', dueOn: day })];
@@ -338,5 +375,59 @@ describe('phone bar on My Day', () => {
     expect(screen.queryByLabelText('Filters & sort')).toBeNull();
     rerender(<MobileTaskBar views={views} view="myday" setView={() => {}} onCreate={() => {}} filterSheet={() => null} />);
     expect(screen.getByLabelText('Filters & sort')).toBeTruthy();
+  });
+});
+
+// Left From Last Time (Neil, 11/13/2026): the day still starts empty; last
+// time's picks that are still open are OFFERED once, never moved by themselves.
+describe('Left From Last Time', () => {
+  const offer = (n = 2) => ({ day: '2026-11-12', count: n, tasks: [task('a', { title: 'Call the gate vendor' }), task('b', { title: 'Order door numbers' })].slice(0, n) });
+  const day = () => lib.todayISO();
+
+  it('offers the open picks with their day in US format, and Add to Today brings them', async () => {
+    state = makeStore([]);
+    apiOverride.getMyDay = vi.fn(() => Promise.resolve({ ...payload(day()), carryOver: offer() }));
+    apiOverride.carryMyDay = vi.fn(() => Promise.resolve(payload(day(), { tasks: [task('a', { title: 'Call the gate vendor' }), task('b', { title: 'Order door numbers' })], addedIds: ['a', 'b'] })));
+    render(<MyDayView onOpen={() => {}} />);
+    const box = await screen.findByRole('region', { name: 'Left from last time' });
+    expect(within(box).getByText('2 tasks are still open from 11/12/2026')).toBeTruthy();
+    expect(within(box).getByText('Call the gate vendor, Order door numbers')).toBeTruthy();
+    expect(screen.getByText('Nothing planned for today yet.')).toBeTruthy();     // nothing moved by itself
+    await act(async () => { fireEvent.click(within(box).getByRole('button', { name: 'Add to Today' })); });
+    expect(apiOverride.carryMyDay).toHaveBeenCalledWith(day(), true);
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Left from last time' })).toBeNull());
+    expect(await screen.findByText('Call the gate vendor')).toBeTruthy();
+  });
+
+  it('Not Today ends the offer and adds nothing', async () => {
+    state = makeStore([]);
+    apiOverride.getMyDay = vi.fn(() => Promise.resolve({ ...payload(day()), carryOver: offer(1) }));
+    apiOverride.carryMyDay = vi.fn(() => Promise.resolve(payload(day())));
+    render(<MyDayView onOpen={() => {}} />);
+    const box = await screen.findByRole('region', { name: 'Left from last time' });
+    expect(within(box).getByText('1 task is still open from 11/12/2026')).toBeTruthy();
+    await act(async () => { fireEvent.click(within(box).getByRole('button', { name: 'Not Today' })); });
+    expect(apiOverride.carryMyDay).toHaveBeenCalledWith(day(), false);
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Left from last time' })).toBeNull());
+    expect(screen.getByText('Nothing planned for today yet.')).toBeTruthy();
+  });
+
+  it('puts the offer back and says so when the answer could not be saved', async () => {
+    state = makeStore([]);
+    apiOverride.getMyDay = vi.fn(() => Promise.resolve({ ...payload(day()), carryOver: offer() }));
+    apiOverride.carryMyDay = vi.fn(() => Promise.reject(new Error('offline')));
+    render(<MyDayView onOpen={() => {}} />);
+    const box = await screen.findByRole('region', { name: 'Left from last time' });
+    await act(async () => { fireEvent.click(within(box).getByRole('button', { name: 'Add to Today' })); });
+    expect(await screen.findByRole('region', { name: 'Left from last time' })).toBeTruthy();
+    expect(state.notify).toHaveBeenCalledWith('Could not add those to My Day. Please try again.');
+  });
+
+  it('shows no offer when the server has none', async () => {
+    state = makeStore([]);
+    apiOverride.getMyDay = vi.fn(() => Promise.resolve(payload(day())));
+    render(<MyDayView onOpen={() => {}} />);
+    expect(await screen.findByText('Nothing planned for today yet.')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Left from last time' })).toBeNull();
   });
 });

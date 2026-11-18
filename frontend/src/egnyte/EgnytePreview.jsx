@@ -43,7 +43,7 @@ function Unsupported({ name, size, reason }) {
   return (
     <div style={{ padding: '48px 24px', textAlign: 'center' }}>
       <FileQuestion size={30} style={{ color: 'var(--wk-faint)', marginBottom: 12 }} />
-      <div style={{ ...HEADING, fontSize: 14.5, marginBottom: 6 }}>No Preview For This File</div>
+      <div style={{ ...HEADING, fontSize: 15, marginBottom: 6 }}>No Preview For This File</div>
       <div style={{ ...BODY, maxWidth: 420, margin: '0 auto' }}>
         {reason || (
           <>
@@ -113,7 +113,7 @@ function SheetTable({ sheet, onPick }) {
           </tbody>
         </table>
         {(sheet.truncated) && (
-          <div style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)', padding: '8px 2px' }}>
+          <div style={{ ...BODY, fontSize: 12, color: 'var(--wk-faint)', padding: '8px 2px' }}>
             Showing the first {SHEET_MAX_ROWS} rows - download the file for everything.
           </div>
         )}
@@ -248,7 +248,7 @@ export default function EgnytePreview({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', borderBottom: '1px solid var(--wk-line2)', flexShrink: 0, minWidth: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ ...HEADING, fontSize: 14, ...ELLIPSIS }} title={file.name}>{file.name}</div>
-            <div style={{ ...BODY, fontSize: 11.5, color: 'var(--wk-faint)', ...ELLIPSIS }} title={file.path}>{file.path}</div>
+            <div style={{ ...BODY, fontSize: 12, color: 'var(--wk-faint)', ...ELLIPSIS }} title={file.path}>{file.path}</div>
           </div>
           {onNav && navIndex >= 0 && navCount > 1 && (
             <span style={{ ...BODY, fontSize: 12, color: 'var(--wk-faint)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
@@ -313,7 +313,7 @@ export default function EgnytePreview({
           ) : kind === 'sheet' ? (
             <SheetTable sheet={sheet} onPick={pickSheet} />
           ) : (
-            <pre style={{ margin: 0, padding: 16, fontFamily: 'ui-monospace, monospace', fontSize: 12.5, lineHeight: 1.6, color: 'var(--wk-ink)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            <pre style={{ margin: 0, padding: 16, fontFamily: 'ui-monospace, monospace', fontSize: 13, lineHeight: 1.6, color: 'var(--wk-ink)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {state.text}
             </pre>
           )}

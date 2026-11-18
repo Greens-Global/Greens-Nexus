@@ -7,7 +7,7 @@ import { C } from '../theme'
 
 const UNASSIGNED = 'Unassigned'
 
-const select = { width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12.5, background: C.white }
+const select = { width: '100%', padding: '6px 8px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, background: C.white }
 
 // Which property each Google Ads campaign counts toward. Google has no idea
 // what our properties are, so this is set once per campaign in Nexus; an
@@ -48,12 +48,12 @@ export default function CampaignFacilitiesModal({ onClose, onSaved }) {
 
   return (
     <Modal title="Map Campaigns to Properties" onClose={onClose} width="max-w-3xl" isDirty={changes.length > 0} onSave={save}>
-      <p style={{ fontSize: 12.5, color: C.gray500, marginBottom: 12 }}>
+      <p style={{ fontSize: 13, color: C.gray500, marginBottom: 12 }}>
         Each campaign's spend counts toward the property chosen here. Suggestions come from the campaign name - check them before saving.
       </p>
       {campaigns === null && !error && <SkeletonBlocks count={3} height={36} borderRadius={8} />}
       {campaigns && campaigns.length === 0 && (
-        <div style={{ fontSize: 12.5, color: C.gray400, padding: '16px 0' }}>No campaigns have synced from Google Ads yet.</div>
+        <div style={{ fontSize: 13, color: C.gray400, padding: '16px 0' }}>No campaigns have synced from Google Ads yet.</div>
       )}
       {campaigns && campaigns.length > 0 && (
         <div style={{ borderRadius: 8, border: '1px solid ' + C.gray100, overflow: 'hidden', maxHeight: '55vh', overflowY: 'auto' }}>
@@ -62,7 +62,7 @@ export default function CampaignFacilitiesModal({ onClose, onSaved }) {
             return (
               <div key={c.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: 10, padding: '8px 12px', alignItems: 'center', borderTop: i === 0 ? 'none' : '1px solid ' + C.gray100 }}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 500, color: C.gray900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: C.gray900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
                   <div style={{ fontSize: 11, color: C.gray400 }}>
                     {[c.account, c.platform, c.status].filter(Boolean).join(' · ')}
                     {suggested && <span style={{ color: C.amber600 }}> · Suggested</span>}
@@ -78,7 +78,7 @@ export default function CampaignFacilitiesModal({ onClose, onSaved }) {
           })}
         </div>
       )}
-      {error && <div role="alert" style={{ fontSize: 12.5, color: C.red600, marginTop: 10 }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: C.red600, marginTop: 10 }}>{error}</div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
         <button type="button" onClick={onClose} style={{ padding: '8px 12px', borderRadius: 8, fontSize: 13, fontWeight: 500, color: C.gray600 }}>Cancel</button>
         <button type="button" onClick={save} disabled={saving || !campaigns}

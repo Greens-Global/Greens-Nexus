@@ -1,14 +1,17 @@
 import { useState } from 'react';
-import { fmtMD, fmtMDY, mEnd, monthLong, MONTH_SHORT, mShort, mStart, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
+import { fmtMDY, mEnd, monthLong, MONTH_SHORT, mShort, mStart, shiftKey, whenTxt } from '../../../accounting/dashboard/model/months';
 import { pctTxt } from '../../../accounting/dashboard/model/money';
 import { RECON_TYPES } from '../../../accounting/dashboard/model/recon';
-import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, mono, num, toneColor } from './Bits';
+import { TARGET_CLOSE_DAY } from '../../../accounting/dashboard/model/close';
+import { BAD, Chip, EmptyBox, Footnote, GroupRow, LoadingBox, Meter, RTh, mono, num, toneColor, useDashCols } from './Bits';
+import { DrillFigure, useLineDrill } from './LineDrill';
+import { dialog } from '../../../ui/dialog';
 import { useDash } from './DashContext';
 import { useActivity, useCloseState, useDeadlines, useFlux, useIntercompany, useRecon } from './hooks';
 import { TaskViewSwitch, useCloseViews } from './closeViews';
 import { requestReportDrill } from '../drill';
 import { activityReportOf, activitySub } from '../reportModel';
-import { formatDateTime } from '../../../lib/datetime';
+import { formatDate, formatDateTime } from '../../../lib/datetime';
 import { useRole } from '../../../contexts/RoleContext';
 import ReconPanel from './ReconPanel';
 
@@ -17,24 +20,26 @@ import ReconPanel from './ReconPanel';
 
 export function CloseWidget({ onOpenClose }) {
   const { period, act } = useDash();
-  const { state, isLoading } = useCloseState();
+  const { state, isLoading, failed } = useCloseState();
   const [busy, setBusy] = useState(null);
   // My Tasks / All Tasks / Overdue on the card itself (Priyanka, Sep 24); the
   // Bookkeeper view opens on My Tasks with no setup.
   const { view, setView, role, showRow } = useCloseViews(state?.rows ?? []);
-  if (isLoading || !state) return <LoadingBox />;
-  if (!state.n) return <EmptyBox title="No close plan yet" body="Add the close checklist under the Data tab." />;
+  if (isLoading || !state) return <LoadingBox failed={failed} />;
+  if (!state.n) return <EmptyBox title="No close plan yet" body="Add the close checklist under Tools > Reference Data, Close Checklist." setUp={['data', 'Tools > Reference Data']} />;
   const open = state.rows.filter((r) => !r.done && showRow(r));
   const shownTotal = state.rows.filter(showRow).length;
   const shownDone = state.rows.filter((r) => r.done && showRow(r)).length;
   const complete = async (r) => {
     setBusy(r.id);
-    try { await act('close-task', { period, task_id: r.id, done: true, detail: `${r.title} · ${monthLong(period)}` }); } finally { setBusy(null); }
+    try { await act('close-task', { period, task_id: r.id, done: true, detail: `${r.title} · ${monthLong(period)}` }); }
+    catch (e) { await dialog.alert(e?.message || 'The task could not be saved. Try again.', { title: 'Close Checklist' }); }
+    finally { setBusy(null); }
   };
   return (
     <div style={{ display: 'grid', gap: 12 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: '0.84rem' }}>
-        <span>{monthLong(period)} · target day 10</span>
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 13 }}>
+        <span>{monthLong(period)} · target day {TARGET_CLOSE_DAY}</span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <TaskViewSwitch view={view} onChange={setView} late={state.late.length} size="xs" />
           <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{view === 'all' ? `${state.nDone}/${state.n}` : `${shownDone}/${shownTotal}`}</span>
@@ -47,19 +52,19 @@ export function CloseWidget({ onOpenClose }) {
             <label key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', cursor: 'pointer', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
               <input type="checkbox" checked={false} disabled={busy === r.id} onChange={() => complete(r)} aria-label={`Complete ${r.title}`} style={{ marginTop: 3 }} />
               <span style={{ minWidth: 0, flex: 1 }}>
-                <span style={{ display: 'block', fontSize: '0.84rem', lineHeight: 1.3 }}>{r.title}</span>
-                <span style={{ fontSize: '0.7rem', color: r.state === 'past_due' ? BAD : 'var(--text-muted)' }}>{r.owner} · day {r.day_offset}{r.state === 'past_due' ? ' · past due' : ''}</span>
+                <span style={{ display: 'block', fontSize: 13, lineHeight: 1.3 }}>{r.title}</span>
+                <span style={{ fontSize: 11, color: r.state === 'past_due' ? BAD : 'var(--text-muted)' }}>{r.owner} · day {r.day_offset}{r.state === 'past_due' ? ' · past due' : ''}</span>
               </span>
               <Chip>{r.phase}</Chip>
             </label>
           ))}
-          {open.length > 5 ? <div style={{ paddingTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)' }}>+{open.length - 5} more open</div> : null}
+          {open.length > 5 ? <div style={{ paddingTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>+{open.length - 5} more open</div> : null}
         </div>
-      ) : view === 'overdue' ? <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>Nothing overdue.</div>
-        : view === 'mine' && !shownTotal ? <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>{role ? `No tasks owned by ${role} this month.` : 'Pick your role on the Close tab and My Tasks lists what is yours.'}</div>
-        : view === 'mine' ? <div style={{ fontSize: '0.84rem', color: toneColor(true) }}>All of your tasks are done.</div>
-        : <div style={{ fontSize: '0.84rem', color: toneColor(true) }}>Closed - package delivered</div>}
-      {onOpenClose ? <button type="button" onClick={onOpenClose} style={{ alignSelf: 'flex-start', border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: '0.74rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Open the Close tab →</button> : null}
+      ) : view === 'overdue' ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nothing overdue.</div>
+        : view === 'mine' && !shownTotal ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{role ? `No tasks owned by ${role} this month.` : 'Pick your role on the Close tab and My Tasks lists what is yours.'}</div>
+        : view === 'mine' ? <div style={{ fontSize: 13, color: toneColor(true) }}>All of your tasks are done.</div>
+        : <div style={{ fontSize: 13, color: toneColor(true) }}>Closed - package delivered</div>}
+      {onOpenClose ? <button type="button" onClick={onOpenClose} style={{ alignSelf: 'flex-start', border: 'none', background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)' }}>Open the Close tab →</button> : null}
     </div>
   );
 }
@@ -87,13 +92,14 @@ export function CloseWidget({ onOpenClose }) {
 // bank record says so instead of "Never".
 export function ReconWidget({ compact, onNavigate }) {
   const { period, fromKey, book, scope, reconAccounts, m, ix, invalidate } = useDash();
-  const { rows, reconciled, remaining, isLoading } = useRecon();
+  const { rows, reconciled, remaining, isLoading, failed } = useRecon();
   const role = useRole();
   const can = (lvl) => !!role?.canAccessModule?.('accounting', 'administrator', lvl);
   const [openKey, setOpenKey] = useState(null);
+  const cw = useDashCols('recon');
   const linkOf = (r) => (onNavigate ? activityLink(r, { period, fromKey, book, scope, reconAccounts }) : null);
-  if (isLoading) return <LoadingBox />;
-  if (!rows.length) return <EmptyBox title="No accounts to reconcile" body="Bank and credit card accounts with activity in this scope appear here, plus loans and brokerage accounts from the Data tab." />;
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!rows.length) return <EmptyBox title="No accounts to reconcile" body="Bank and credit card accounts with activity in this scope appear here, plus loans and brokerage accounts from Financing > Loans and Financing > Investments." setUp={['loans', 'Financing > Loans']} />;
   const byType = RECON_TYPES.map((t) => ({ t, rows: rows.filter((r) => r.type === t) })).filter((g) => g.rows.length);
   const cols = compact ? 6 : 7;
   const entityOf = (r) => (r.entityCode ? (ix.byCode.get(r.entityCode)?.name || r.entityCode) : r.ref || '');
@@ -101,13 +107,13 @@ export function ReconWidget({ compact, onNavigate }) {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <div><span style={{ fontSize: '1.05rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled}/{rows.length} completed</span> <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>| {remaining} remaining · through {fmtMDY(mEnd(period))}{rows.some((r) => r.source === 'intacct') ? ' · bank and card status from Intacct' : ''}</span></div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{byType.map((g) => <span key={g.t}>{g.t}: {g.rows.filter((r) => r.status === 'Reconciled').length}/{g.rows.length}</span>)}</div>
+        <div><span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{reconciled}/{rows.length} completed</span> <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>| {remaining} remaining · through {fmtMDY(mEnd(period))}{rows.some((r) => r.source === 'intacct') ? ' · bank and card status from Intacct' : ''}</span></div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>{byType.map((g) => <span key={g.t}>{g.t}: {g.rows.filter((r) => r.status === 'Reconciled').length}/{g.rows.length}</span>)}</div>
       </div>
       <Meter segments={[{ share: rows.length ? reconciled / rows.length : 0, color: 'var(--wk-brand, #2b45e1)' }]} />
       <div className="req-table-wrapper">
         <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-          <thead><tr><th>Account</th>{!compact ? <th>Entity</th> : null}<th>Last Reconciled</th><th style={num}>Reconciled Balance</th><th style={num}>Current Balance</th><th style={num}>Difference</th><th>Status</th></tr></thead>
+          <thead><tr><RTh cols={cw} id="account" label="Account" />{!compact ? <RTh cols={cw} id="entity" label="Entity" /> : null}<RTh cols={cw} id="last" label="Last Reconciled" /><RTh cols={cw} id="stmt" label="Reconciled Balance" style={num} /><RTh cols={cw} id="book" label="Current Balance" style={num} /><RTh cols={cw} id="diff" label="Difference" style={num} /><RTh cols={cw} id="status" label="Status" /></tr></thead>
           <tbody>
             {byType.map((g) => (
               <GroupRows key={g.t} title={`${g.t} Accounts`} cols={cols}>
@@ -119,9 +125,9 @@ export function ReconWidget({ compact, onNavigate }) {
                         style={{ border: 'none', background: 'none', padding: 0, margin: 0, font: 'inherit', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', textAlign: 'left' }}>
                         {r.name}
                       </button>
-                    </div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
-                    {!compact ? <td style={{ fontSize: '0.78rem' }}>{entityOf(r) || '-'}</td> : null}
-                    <td style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}><LastReconciled r={r} /></td>
+                    </div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.gl ? `GL ${r.gl}` : r.ref}{r.nc ? ' · Non-controllable' : ''}</div></td>
+                    {!compact ? <td style={{ fontSize: 13 }}>{entityOf(r) || '-'}</td> : null}
+                    <td style={{ fontSize: 13, whiteSpace: 'nowrap' }}><LastReconciled r={r} /></td>
                     <td style={num}>{r.thru ? m(r.stmt, { report: true }) : '-'}</td>
                     <td style={num}>{r.gl ? (
                       <button type="button" title="See the ledger lines behind this balance (Reports tab)"
@@ -135,7 +141,7 @@ export function ReconWidget({ compact, onNavigate }) {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         {r.status === 'Reconciled' ? <Chip tone="ok">Reconciled</Chip> : <Chip tone={r.status === 'Difference' || r.status === 'Behind' ? 'bad' : 'wait'}>{r.status}</Chip>}
                         {/* Charmi, Teams 11/05/2026 ("Not able to see any option under close to reconcile the mortgage account"): said on the row, not only behind the name. */}
-                        {r.liability ? <button type="button" className="secondary-btn" style={{ fontSize: '0.72rem', padding: '2px 10px' }} onClick={() => setOpenKey(r.key)}>Reconcile</button> : null}
+                        {r.liability ? <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => setOpenKey(r.key)}>Reconcile</button> : null}
                       </div>
                     </td>
                   </tr>
@@ -146,7 +152,7 @@ export function ReconWidget({ compact, onNavigate }) {
         </table>
       </div>
       {!rows.some((r) => r.liability) ? (
-        <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>No mortgages, loans or credit lines to reconcile in this scope. They come from Financing &gt; Loans: an active loan with its GL account set shows here with a Reconcile button.</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No mortgages, loans or credit lines to reconcile in this scope. They come from Financing &gt; Loans: an active loan with its GL account set shows here with a Reconcile button.</div>
       ) : null}
       {open ? (
         <ReconPanel key={`${open.key}@${period}`} row={open} entityName={entityOf(open)} fullLink={linkOf(open)} onNavigate={onNavigate}
@@ -156,7 +162,7 @@ export function ReconWidget({ compact, onNavigate }) {
   );
 }
 
-const subLine = { fontSize: '0.7rem', color: 'var(--text-muted)' };
+const subLine = { fontSize: 11, color: 'var(--text-muted)' };
 
 /** The Last Reconciled cell: the date (MM/DD/YYYY) and, under it, where it came from. */
 export function LastReconciled({ r }) {
@@ -204,15 +210,15 @@ function GroupRows({ title, cols, children }) {
 }
 
 export function ActivityWidget() {
-  const { rows, isLoading } = useActivity(10);
-  if (isLoading) return <LoadingBox />;
+  const { rows, isLoading, failed } = useActivity(10);
+  if (isLoading) return <LoadingBox failed={failed} />;
   if (!rows.length) return <EmptyBox title="No activity yet" body="Tick a close step or leave a note and it shows up here for the team." />;
   return (
     <div>
       {rows.map((r, i) => (
         <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
-          <div style={{ minWidth: 0 }}><div style={{ fontSize: '0.84rem' }}>{r.what}</div><div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.detail}</div></div>
-          <div style={{ flexShrink: 0, textAlign: 'right' }}><Chip>{r.by_name}</Chip><div style={{ marginTop: 2, fontSize: '0.7rem', color: 'var(--text-muted)' }}>{whenTxt(r.at)}</div></div>
+          <div style={{ minWidth: 0 }}><div style={{ fontSize: 13 }}>{r.what}</div><div style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.detail}</div></div>
+          <div style={{ flexShrink: 0, textAlign: 'right' }}><Chip>{r.by_name}</Chip><div style={{ marginTop: 2, fontSize: 11, color: 'var(--text-muted)' }}>{whenTxt(r.at)}</div></div>
         </div>
       ))}
     </div>
@@ -221,9 +227,9 @@ export function ActivityWidget() {
 
 export function IcWidget() {
   const { m, ix } = useDash();
-  const { rows, isLoading } = useIntercompany();
-  if (isLoading) return <LoadingBox />;
-  if (!rows.length) return <EmptyBox title="No intercompany balances for this scope" body="Record due-to and due-from pairs under the Data tab." />;
+  const { rows, isLoading, failed } = useIntercompany();
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!rows.length) return <EmptyBox title="No intercompany balances for this scope" body="Record due-to and due-from pairs under Financing > Intercompany." setUp={['intercompany', 'Financing > Intercompany']} />;
   const off = rows.filter((r) => !r.matched).length;
   const name = (c) => ix.byCode.get(c)?.name || c;
   return (
@@ -232,8 +238,8 @@ export function IcWidget() {
       <div>
         {rows.map((r, i) => (
           <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
-            <div style={{ minWidth: 0 }}><div style={{ fontSize: '0.84rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name(r.from_code)} → {name(r.to_code)}</div><div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{r.description}</div></div>
-            <div style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8 }}><span style={{ fontSize: '0.84rem', fontVariantNumeric: 'tabular-nums' }}>{m(r.due_from, { compact: true })}</span>{r.matched ? <Chip tone="ok">Matched</Chip> : <Chip tone="bad">Off {m(r.difference)}</Chip>}</div>
+            <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name(r.from_code)} → {name(r.to_code)}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.description}</div></div>
+            <div style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 8 }}><span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>{m(r.due_from, { compact: true })}</span>{r.matched ? <Chip tone="ok">Matched</Chip> : <Chip tone="bad">Off {m(r.difference)}</Chip>}</div>
           </div>
         ))}
       </div>
@@ -241,9 +247,14 @@ export function IcWidget() {
   );
 }
 
+/** The lines behind a flux figure: a balance (`bal`) is every line through the month end, a change the month's own lines. */
+export const fluxSpan = (k, bal = false) => ({ from: bal ? '' : mStart(k), to: mEnd(k) });
+
 export function FluxWidget() {
   const { m, period, loading } = useDash();
   const { rows, hasPrior } = useFlux();
+  const [drill, lines] = useLineDrill();
+  const cw = useDashCols('flux');
   // Oct 6 (Neil: a loading animation everywhere): not "No prior month" while the ledger is still on its way.
   if (loading) return <LoadingBox />;
   if (!hasPrior) return <EmptyBox title="No prior month to compare." />;
@@ -251,16 +262,17 @@ export function FluxWidget() {
   const pk = shiftKey(period, 1);
   return (
     <div className="req-table-wrapper">
+      {lines}
       <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-        <thead><tr><th>Account</th><th style={num}>{mShort(pk)}</th><th style={num}>{mShort(period)}</th><th style={num}>Change</th><th style={num}>%</th></tr></thead>
+        <thead><tr><RTh cols={cw} id="account" label="Account" /><RTh cols={cw} id="prior" label={mShort(pk)} style={num} /><RTh cols={cw} id="balance" label={mShort(period)} style={num} /><RTh cols={cw} id="change" label="Change" style={num} /><RTh cols={cw} id="pct" label="%" style={num} /></tr></thead>
         <tbody>
           {rows.slice(0, 10).map((r) => (
             <tr key={r.id}>
               <td><span style={mono}>{r.gl}</span>{r.name}</td>
-              <td style={{ ...num, color: 'var(--text-muted)' }}>{m(r.prior, { report: true })}</td>
-              <td style={num}>{m(r.balance, { report: true })}</td>
-              <td style={{ ...num, fontWeight: 600, color: toneColor(r.change >= 0) }}>{m(r.change, { report: true })}</td>
-              <td style={{ ...num, fontSize: '0.76rem', color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</td>
+              <td style={{ ...num, color: 'var(--text-muted)' }}><DrillFigure onOpen={() => drill(r, fluxSpan(pk, true))}>{m(r.prior, { report: true })}</DrillFigure></td>
+              <td style={num}><DrillFigure onOpen={() => drill(r, fluxSpan(period, true))}>{m(r.balance, { report: true })}</DrillFigure></td>
+              <td style={{ ...num, fontWeight: 600, color: toneColor(r.change >= 0) }}><DrillFigure onOpen={() => drill(r, fluxSpan(period))}>{m(r.change, { report: true })}</DrillFigure></td>
+              <td style={{ ...num, fontSize: 12, color: 'var(--text-muted)' }}>{r.prior ? pctTxt(r.changePct, 0) : 'new'}</td>
             </tr>
           ))}
         </tbody>
@@ -270,19 +282,19 @@ export function FluxWidget() {
 }
 
 export function DeadlinesWidget() {
-  const { items, isLoading } = useDeadlines(6);
-  if (isLoading) return <LoadingBox />;
-  if (!items.length) return <EmptyBox title="No deadlines on the calendar" body="Add filings and payment dates under the Data tab." />;
+  const { items, isLoading, failed } = useDeadlines(6);
+  if (isLoading) return <LoadingBox failed={failed} />;
+  if (!items.length) return <EmptyBox title="No deadlines on the calendar" body="Add filings and payment dates under Tools > Reference Data, Filing Calendar." setUp={['data', 'Tools > Reference Data']} />;
   return (
     <div>
       {items.map(({ deadline, date, days }, i) => (
         <div key={deadline.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
-          <div style={{ width: 40, flexShrink: 0, textAlign: 'center' }}><div style={{ fontSize: '0.64rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{MONTH_SHORT[Number(date.slice(5, 7)) - 1]}</div><div style={{ fontSize: '1.1rem', fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{Number(date.slice(8, 10))}</div></div>
-          <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontSize: '0.84rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deadline.title}</div><div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{deadline.owner}</div></div>
+          <div style={{ width: 40, flexShrink: 0, textAlign: 'center' }}><div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{MONTH_SHORT[Number(date.slice(5, 7)) - 1]}</div><div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{Number(date.slice(8, 10))}</div></div>
+          <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{deadline.title}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{deadline.owner}</div></div>
           <Chip tone={days <= 7 ? 'bad' : days <= 30 ? 'wait' : 'neutral'}>{days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `In ${days} days`}</Chip>
         </div>
       ))}
-      <Footnote>Standard due dates. Confirm entity-specific deadlines with your CPA. Next: {fmtMD(items[0].date)}.</Footnote>
+      <Footnote>Standard due dates. Confirm entity-specific deadlines with your CPA. Next: {formatDate(items[0].date)}.</Footnote>
     </div>
   );
 }

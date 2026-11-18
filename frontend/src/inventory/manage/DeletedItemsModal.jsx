@@ -68,8 +68,8 @@ export function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
       <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column' }}>
         <div style={{ padding:'20px 24px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div>
-            <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Recycle Bin</h3>
-            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{rows ? `${rows.length} deleted item${rows.length !== 1 ? 's' : ''}` : 'Loading…'} · kept for {RECYCLE_BIN_DAYS} days, then removed for good (photos and checkout history are kept for the record)</p>
+            <h3 style={{ margin:0, fontSize:15, fontWeight:700 }}>Recycle Bin</h3>
+            <p style={{ margin:'3px 0 0', fontSize:13, color:'var(--muted)' }}>{rows ? `${rows.length} deleted item${rows.length !== 1 ? 's' : ''}` : 'Loading…'} · kept for {RECYCLE_BIN_DAYS} days, then removed for good (photos and checkout history are kept for the record)</p>
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
             {expired > 0 && (
@@ -83,7 +83,7 @@ export function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
             )}
             {selected.size > 0 && (
               <button onClick={() => restore([...selected])} disabled={busy}
-                style={{ display:'inline-flex', alignItems:'center', gap:6, background:'var(--pine)', color:'#fff', border:'none', borderRadius:8, padding:'7px 12px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                style={{ display:'inline-flex', alignItems:'center', gap:6, background:'var(--pine)', color:'#fff', border:'none', borderRadius:8, padding:'7px 12px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                 <RotateCcw size={13} /> Restore {selected.size}
               </button>
             )}
@@ -105,12 +105,12 @@ export function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
                   <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:8 }}>
                     <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</span>
                     {item.deletedAt && (() => { const dl = daysLeft(item.deletedAt); return dl == null ? null : (
-                      <span style={{ flexShrink:0, fontSize:10.5, fontWeight:700, padding:'1px 7px', borderRadius:20, background: dl <= 5 ? 'hsla(var(--color-red),0.12)' : 'var(--mist)', color: dl <= 5 ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
+                      <span style={{ flexShrink:0, fontSize:11, fontWeight:700, padding:'1px 7px', borderRadius:20, background: dl <= 5 ? 'hsla(var(--color-red),0.12)' : 'var(--mist)', color: dl <= 5 ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
                         {dl === 0 ? 'purges today' : `${dl} day${dl !== 1 ? 's' : ''} left`}
                       </span>
                     ); })()}
                   </div>
-                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>
+                  <div style={{ fontSize:12, color:'var(--muted)' }}>
                     {item.serialNumber || '-'} · Deleted in <strong style={{ color:'var(--ink)' }}>{item.deletedLocation || '-'}</strong>
                     {item.deletedAt && <> · {fmtWhen(item.deletedAt)}</>}
                     {item.deletedBy && <> · by {nameOf(item.deletedBy)}</>}

@@ -19,7 +19,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
 from pydantic import BaseModel
 
-from auth import get_current_user, require_level
+from auth import get_current_user, require_level_or_module
 from database import get_db
 from services import egnyte as svc
 
@@ -29,7 +29,11 @@ router = APIRouter(prefix="/egnyte", tags=["Egnyte"])
 # boundary and re-implementing them here would drift from them.
 # Writes: supervisor+. Uploading into a shared property folder is a real-world
 # action with no undo in Nexus, so it is not left at employee level.
-require_writer = require_level(2)
+# The egnyte grant's levels (11/12/2026): Viewer browses and downloads, Editor
+# uploads, renames, moves, copies and makes folders, Full also deletes (to
+# Egnyte's Trash). Supervisor+ keep every write as before.
+require_writer = require_level_or_module(2, "egnyte", "editor")
+require_deleter = require_level_or_module(2, "egnyte", "full")
 
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024   # Egnyte handles larger; this bounds our memory
 
@@ -345,7 +349,7 @@ def fs_describe(body: DescribeIn, user: dict = Depends(require_writer), db=Depen
 
 
 @router.post("/fs/delete")
-def fs_delete(body: FsActionIn, user: dict = Depends(require_writer), db=Depends(get_db)):
+def fs_delete(body: FsActionIn, user: dict = Depends(require_deleter), db=Depends(get_db)):
     """POST rather than DELETE-with-query so the path travels in the body like
     the other fs verbs and never fights URL encoding of '#' folder names."""
     path, _ = _fs_args(body, need_destination=False)

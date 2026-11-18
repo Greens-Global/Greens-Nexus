@@ -26,9 +26,9 @@ import { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../../ui/HoldButton';
 //     PushBatchDialog below.
 // The defaults still to be confirmed are in ./assumptions.js.
 
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
-const fieldLabel = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
-const small = { fontSize: '0.78rem', height: 30, padding: '0 12px' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
+const fieldLabel = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const small = { fontSize: 13, height: 30, padding: '0 12px' };
 
 export const AWAITING = 'Awaiting Bookkeeper';
 export const CHECK = 'Check In Intacct';
@@ -139,7 +139,7 @@ export function NoteCell({ row, onSaved }) {
     <input type="text" value={v} maxLength={4000} onChange={(e) => { setV(e.target.value); setState(''); }} onBlur={save}
       onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') e.currentTarget.blur(); }}
       aria-label={`Notes for ${row.entryNo || row.accountNo || 'line'}`} placeholder="Add a Note" title={err || v || undefined}
-      style={{ ...control, height: 26, width: 180, fontSize: '0.78rem', ...(err ? { borderColor: 'var(--bad-fg, #dc2626)' } : {}), ...(state === 'saving' ? { opacity: 0.6 } : {}) }} />
+      style={{ ...control, height: 26, width: 180, fontSize: 13, ...(err ? { borderColor: 'var(--bad-fg, #dc2626)' } : {}), ...(state === 'saving' ? { opacity: 0.6 } : {}) }} />
   );
 }
 
@@ -149,7 +149,7 @@ export function ReclassCell({ row, onOpen }) {
   return (
     <button type="button" className="acct-drill" onClick={(e) => { e.stopPropagation(); onOpen(row); }} onKeyDown={(e) => e.stopPropagation()}
       aria-label={rv ? `GL reclass ${rv.toAccount} ${reclassLabel(rv)}` : `Pick GL for ${row.entryNo || 'line'}`}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, whiteSpace: 'nowrap' }}>
       {rv ? <><span className="acct-code">{rv.toAccount}</span><Chip tone={RECLASS_TONE[rv.status] || 'muted'}>{reclassLabel(rv)}</Chip></> : 'Pick GL'}
     </button>
   );
@@ -205,7 +205,7 @@ export function PreviewTable({ preview }) {
   if (!preview) return null;
   return (
     <div style={{ display: 'grid', gap: 8 }} aria-label="Push preview">
-      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
         {preview.live
           ? 'Push edits these original entries in Intacct. Only the account (and vendor or customer) of the lines below changes; every amount and every other line stays exactly as it is.'
           : 'The Intacct push is switched off on this server: Push runs every check and records what it would send. Nothing changes in Intacct.'}
@@ -213,7 +213,7 @@ export function PreviewTable({ preview }) {
       </div>
       {(preview.entries || []).map((e) => (
         <div key={e.key} style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{ padding: '6px 10px', fontSize: '0.8rem', background: 'var(--bg-secondary)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ padding: '6px 10px', fontSize: 13, background: 'var(--bg-secondary)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <strong>Entry {e.entryNo || e.key}</strong>
             {e.journal && <span>{e.journal}</span>}
             {e.date && <span>{formatDate(e.date)}</span>}
@@ -224,7 +224,7 @@ export function PreviewTable({ preview }) {
           {(e.problems || []).length > 0 && (
             <div role="alert" style={{ ...bad, border: 'none', borderRadius: 0 }}>{e.problems.map((p) => <div key={p}>{p}</div>)}</div>
           )}
-          <table className="acct-lines" style={{ width: '100%', fontSize: '0.78rem' }}>
+          <table className="acct-lines" style={{ width: '100%', fontSize: 13 }}>
             <thead><tr><th>Line</th><th>Account</th><th>Vendor</th><th>Customer</th><th className="acct-num">Amount (Unchanged)</th></tr></thead>
             <tbody>
               {(e.changes || []).map((c) => (
@@ -278,7 +278,7 @@ const OUTCOME = { edited: 'Edited in Intacct', already_done: 'Already done in In
 export function PushResult({ result }) {
   if (!result) return null;
   return (
-    <div role="status" style={{ fontSize: '0.8rem', display: 'grid', gap: 2 }}>
+    <div role="status" style={{ fontSize: 13, display: 'grid', gap: 2 }}>
       {(result.results || []).map((x) => (
         <div key={x.key} style={{ color: ['edited', 'already_done', 'dry_run'].includes(x.outcome) ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' }}>
           Entry {x.entryNo || x.key}: {OUTCOME[x.outcome] || x.outcome}{x.error ? ` - ${x.error}` : ''}
@@ -301,7 +301,7 @@ export function PushBatchDialog({ rows, limit, live, onClose, onDone }) {
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Push Reclasses To Intacct</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
               Pick up to {limit} {limit === 1 ? 'line' : 'lines'}, preview exactly what changes on the original entries, then push.{live ? '' : ' The Intacct push is switched off on this server - a push only records what it would send.'}
             </div>
           </div>
@@ -311,8 +311,8 @@ export function PushBatchDialog({ rows, limit, live, onClose, onDone }) {
           {flow.error && <div role="alert" style={bad}>{flow.error}</div>}
           <PushResult result={flow.result} />
           <div className="nx-fill" style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflowY: 'auto', minHeight: 120 }}>
-            {!rows.length ? <div style={{ padding: 10, fontSize: '0.8rem', color: 'var(--text-muted)' }}>No reclass is awaiting the bookkeeper.</div> : rows.map((r) => (
-              <label key={r.reclass.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', fontSize: '0.8rem', borderBottom: '1px solid var(--border-color)' }}>
+            {!rows.length ? <div style={{ padding: 10, fontSize: 13, color: 'var(--text-muted)' }}>No reclass is awaiting the bookkeeper.</div> : rows.map((r) => (
+              <label key={r.reclass.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', fontSize: 13, borderBottom: '1px solid var(--border-color)' }}>
                 <input type="checkbox" checked={picked.includes(r.reclass.id)} disabled={!picked.includes(r.reclass.id) && picked.length >= limit}
                   onChange={() => { toggle(r.reclass.id); flow.reset(); }} aria-label={`Push ${r.entryNo || r.reclass.reclassRef}`} />
                 <span style={{ whiteSpace: 'nowrap' }}>{r.date ? formatDate(r.date) : ''}</span>
@@ -414,7 +414,7 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, reclassM
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>GL Reclass {status && <Chip tone={RECLASS_TONE[status] || 'muted'}>{reclassLabel(rv)}</Chip>}</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
               {editMode
                 ? 'Pick where this line belongs. A bookkeeper reviews it, previews the change and moves the line to that account on the original entry in Intacct - amounts never change.'
                 : 'Pick where this line belongs. A bookkeeper reviews it and pushes a new reclass entry - the original entry is never changed.'}
@@ -426,10 +426,10 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, reclassM
           {error && <div role="alert" style={bad}>{error}</div>}
           <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '8px 10px', background: 'var(--bg-secondary)' }}>
             <LineFacts line={{ ...row, entityName: row.entityName || '' }} />
-            <div style={{ fontSize: '0.78rem', marginTop: 4 }}>
+            <div style={{ fontSize: 13, marginTop: 4 }}>
               <strong>Other Side: </strong>{side?.all?.length ? side.all.map((o) => `${acct(o)} ${o.amount < 0 ? `(${formatAmount(-o.amount)})` : formatAmount(o.amount)}`).join('; ') : '-'}
             </div>
-            {row.note && <div style={{ fontSize: '0.78rem', marginTop: 4 }}><strong>Notes: </strong>{row.note}</div>}
+            {row.note && <div style={{ fontSize: 13, marginTop: 4 }}><strong>Notes: </strong>{row.note}</div>}
           </div>
           {status === 'Sent Back' && rv.reviewNote && <div role="note" style={{ ...bad, color: 'var(--text-primary)' }}>Sent back: {rv.reviewNote}</div>}
           {rv?.pushError && (status === AWAITING || status === CHECK) && !flow.error && <div role="alert" style={bad}>The last push did not go through: {rv.pushError}</div>}
@@ -444,11 +444,11 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, reclassM
                 <input id="ama-gl-search" type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search accounts by number or name" style={{ ...control, width: '100%' }} />
                 <div role="listbox" aria-label="GL accounts" style={{ flex: 1, minHeight: 100, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8, marginTop: 4 }}>
                   {gl === null ? <div className="nx-skel" style={{ height: 60, margin: 8 }} />
-                    : gl.error ? <div style={{ padding: 8, fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{gl.error}</div>
-                      : !shown.length ? <div style={{ padding: 8, fontSize: '0.8rem', color: 'var(--text-muted)' }}>No account matches.</div>
+                    : gl.error ? <div style={{ padding: 8, fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{gl.error}</div>
+                      : !shown.length ? <div style={{ padding: 8, fontSize: 13, color: 'var(--text-muted)' }}>No account matches.</div>
                         : shown.map((a) => (
                           <div key={a.code} role="option" aria-selected={to?.code === a.code} tabIndex={0} onClick={() => setTo(a)} onKeyDown={(e) => { if (e.key === 'Enter') setTo(a); }}
-                            style={{ padding: '4px 10px', fontSize: '0.8rem', cursor: 'pointer', background: to?.code === a.code ? 'var(--wk-brand-tint, #e8ecfd)' : undefined }}>
+                            style={{ padding: '4px 10px', fontSize: 13, cursor: 'pointer', background: to?.code === a.code ? 'var(--wk-brand-tint, #e8ecfd)' : undefined }}>
                             <span className="acct-code">{a.code}</span>{a.title}
                           </div>
                         ))}
@@ -470,15 +470,15 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, reclassM
                     <div role="listbox" aria-label={kind === 'vendor' ? 'Vendors' : 'Customers'} style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 8, marginTop: 4 }}>
                       {partners.loading ? <div className="nx-skel" style={{ height: 30, margin: 6 }} />
                         : partners.error ? (
-                          <div style={{ padding: 8, fontSize: '0.78rem', display: 'grid', gap: 6 }}>
+                          <div style={{ padding: 8, fontSize: 13, display: 'grid', gap: 6 }}>
                             <span style={{ color: 'var(--text-secondary)' }}>{partners.error}</span>
                             {pq.trim() && <button type="button" className="secondary-btn" onClick={() => setParty({ id: pq.trim(), name: '' })} style={{ ...small, justifySelf: 'start' }}>Use {pq.trim()} As The ID</button>}
                           </div>
-                        ) : !partners.list.length ? <div style={{ padding: 8, fontSize: '0.78rem', color: 'var(--text-muted)' }}>Nothing matches.</div>
+                        ) : !partners.list.length ? <div style={{ padding: 8, fontSize: 13, color: 'var(--text-muted)' }}>Nothing matches.</div>
                           : partners.list.map((p) => (
                             <div key={p.id} role="option" aria-selected={party?.id === p.id} tabIndex={0} onClick={() => setParty({ id: p.id, name: p.displayName || p.name })}
                               onKeyDown={(e) => { if (e.key === 'Enter') setParty({ id: p.id, name: p.displayName || p.name }); }}
-                              style={{ padding: '4px 10px', fontSize: '0.8rem', cursor: 'pointer', background: party?.id === p.id ? 'var(--wk-brand-tint, #e8ecfd)' : undefined }}>
+                              style={{ padding: '4px 10px', fontSize: 13, cursor: 'pointer', background: party?.id === p.id ? 'var(--wk-brand-tint, #e8ecfd)' : undefined }}>
                               <span className="acct-code">{p.id}</span>{p.displayName || p.name}
                             </div>
                           ))}
@@ -492,7 +492,7 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, reclassM
               </div>
             </>
           ) : rv && (
-            <div style={{ fontSize: '0.84rem', display: 'grid', gap: 4 }}>
+            <div style={{ fontSize: 13, display: 'grid', gap: 4 }}>
               <div><strong>GL:</strong> <span className="acct-code">{rv.toAccount}</span>{rv.toAccountTitle}</div>
               {rv.partyKind && <div><strong>{rv.partyKind === 'vendor' ? 'Vendor' : 'Customer'}:</strong> {rv.partyId} {rv.partyName}</div>}
               {rv.reclassMemo && <div><strong>Memo:</strong> {rv.reclassMemo}</div>}
@@ -501,7 +501,7 @@ export function ReclassDialog({ row, side, isBookkeeper, pushToIntacct, reclassM
           )}
 
           {rv && (
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', display: 'grid', gap: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'grid', gap: 2 }}>
               <div>Proposed by <AvatarName email={rv.proposedBy} name={rv.proposedByName || rv.proposedBy} size={18}><strong>{rv.proposedByName || rv.proposedBy}</strong></AvatarName>{rv.proposedAt ? ` · ${formatDateTime(rv.proposedAt)}` : ''} · Reference {rv.reclassRef}</div>
               {status === 'Pushed' && (
                 <div>Approved by <AvatarName email={rv.approvedBy} name={rv.approvedByName || rv.approvedBy} size={18}><strong>{rv.approvedByName || rv.approvedBy}</strong></AvatarName> · {formatDateTime(rv.approvedAt)}{rv.intacctRef ? ` · Intacct record ${rv.intacctRef}` : ''}</div>

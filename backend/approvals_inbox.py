@@ -123,23 +123,28 @@ def a_open(label: str = "Open") -> dict:
 # ── Registry ─────────────────────────────────────────────────────────────────
 
 class Source:
-    __slots__ = ("key", "label", "group", "fn")
+    __slots__ = ("key", "label", "group", "fn", "acts")
 
-    def __init__(self, key: str, label: str, group: str, fn: Callable):
-        self.key, self.label, self.group, self.fn = key, label, group, fn
+    def __init__(self, key: str, label: str, group: str, fn: Callable, acts: bool = False):
+        self.key, self.label, self.group, self.fn, self.acts = key, label, group, fn, acts
 
 
 SOURCES: list[Source] = []
 
 
-def source(key: str, label: str, group: str):
+def source(key: str, label: str, group: str, acts: bool = False):
     """Register a source. Order of registration = order of the per-source
-    counts; rows are sorted by age whatever the order."""
+    counts; rows are sorted by age whatever the order.
+
+    `acts=True` says the source can make a row that is the caller's OWN to-do
+    (scope="act"); yours_to_do() runs only those, so My Work never pays for
+    the sources that only hold decisions. test_my_work_sources.py fails a
+    source that builds an act row without the flag."""
     if group not in {g for g, _ in GROUPS}:
         raise ValueError(f"unknown approvals group {group!r}")
 
     def deco(fn):
-        SOURCES[:] = [s for s in SOURCES if s.key != key] + [Source(key, label, group, fn)]
+        SOURCES[:] = [s for s in SOURCES if s.key != key] + [Source(key, label, group, fn, acts)]
         return fn
     return deco
 
@@ -261,6 +266,43 @@ def collect(db: Session, user: dict, only=None) -> dict:
     return {"rows": rows, "counts": counts, "groups": groups, "scopes": scopes, "departments": departments,
             "companies": companies, "companyNames": _company_names(db, ctx), "errors": errors,
             "total": sum(counts.values()), "who": who(db, user, ctx, rows), "aging": aging(rows)}
+
+
+def yours_to_do(db: Session, user: dict) -> dict:
+    """The caller's own to-dos - the rows Dashboard > Approvals lists under
+    Yours To Do (scope="act") - for My Work (my_work_sources, 11/13/2026).
+
+    {"rows": [...], "errors": [{"source", "label"}]}
+
+    The same source functions collect() runs, so the two never disagree; only
+    the sources flagged `acts`, and none of collect()'s approver work (who,
+    aging, departments), because My Work polls this for everyone. Each row
+    carries its source's key and label."""
+    ctx: dict = {}
+    rows, errors = [], []
+    for s in SOURCES:
+        if not s.acts:
+            continue
+        try:
+            got = list(s.fn(db, user, ctx) or [])
+        except HTTPException:
+            got = []
+        except Exception:   # noqa: BLE001 - one module failing never blanks the list
+            log.exception("approvals source %s failed", s.key)
+            try:
+                db.rollback()
+            except Exception:   # noqa: BLE001
+                pass
+            errors.append({"source": s.key, "label": s.label})
+            continue
+        for r in got:
+            if r.get("scope") != "act":
+                continue
+            r["source"], r["group"], r["sourceLabel"] = s.key, s.group, s.label
+            r["priority"] = _priority(r)
+            rows.append(r)
+    rows.sort(key=lambda r: (r["createdAt"] or "9999", r["key"]))
+    return {"rows": rows, "errors": errors}
 
 
 # ── Who the caller is, and how long things wait ──────────────────────────────
@@ -625,7 +667,7 @@ def _timesheet_reviews(db: Session, user: dict, ctx: dict) -> list:
     return out
 
 
-@source("timesheet_sign", "Time Sheets To Sign", "timesheets")
+@source("timesheet_sign", "Time Sheets To Sign", "timesheets", acts=True)
 def _timesheets_to_sign(db: Session, user: dict, ctx: dict) -> list:
     """Time Sheet envelopes waiting on the caller's signature
     (timesheet_review.to_sign - the Workday > Time Sheet card)."""
@@ -647,7 +689,7 @@ def _timesheets_to_sign(db: Session, user: dict, ctx: dict) -> list:
 
 # ── Nexus Sign (Workday > Documents to Sign) ─────────────────────────────────
 
-@source("nexus_sign", "Documents To Sign", "signatures")
+@source("nexus_sign", "Documents To Sign", "signatures", acts=True)
 def _documents_to_sign(db: Session, user: dict, ctx: dict) -> list:
     """Nexus Sign documents where it is the caller's turn - Time Sheets left
     to their own source, the same filter the Documents to Sign card uses."""
@@ -788,7 +830,7 @@ def _shift_requests(db: Session, user: dict, ctx: dict) -> list:
     return out
 
 
-@source("shift_peer", "Shift Swaps", "shifts")
+@source("shift_peer", "Shift Swaps", "shifts", acts=True)
 def _shift_swaps_for_me(db: Session, user: dict, ctx: dict) -> list:
     """A teammate's swap / offer waiting for the caller's yes - upcoming
     shifts only (Workday > Time Off's Shift Requests card)."""
@@ -1316,7 +1358,7 @@ def _item_extensions(db: Session, user: dict, ctx: dict) -> list:
     return out
 
 
-@source("assignment_accept", "Items Assigned To You", "equipment")
+@source("assignment_accept", "Items Assigned To You", "equipment", acts=True)
 def _assignments_to_accept(db: Session, user: dict, ctx: dict) -> list:
     """Items assigned to the caller to accept (accept_assignment: only the
     assignee). The photo is optional on acceptance (Neil, Jul 17), so Accept
@@ -1651,7 +1693,7 @@ def _construction_logs(db: Session, user: dict, ctx: dict) -> list:
     return out
 
 
-@source("construction_rfi_response", "RFI Responses", "work")
+@source("construction_rfi_response", "RFI Responses", "work", acts=True)
 def _construction_rfis(db: Session, user: dict, ctx: dict) -> list:
     """Open RFIs whose answer is owed by the caller (construction_rfis.
     responder_email - Neil, 11/03/2026), on jobs they may still read
@@ -1847,7 +1889,7 @@ _PERF_REVIEW_WORDS = {
 }
 
 
-@source("perf_review", "Performance Reviews", "people")
+@source("perf_review", "Performance Reviews", "people", acts=True)
 def _perf_reviews(db: Session, user: dict, ctx: dict) -> list:
     import perf_reviews as pr
     if user.get("external"):
@@ -1899,7 +1941,7 @@ def _perf_goals(db: Session, user: dict, ctx: dict) -> list:
 # waiting on them (perf_plans.waiting_on) - their own to acknowledge, and as
 # HR the ones a manager sent to start and active ones past their end date.
 
-@source("perf_feedback", "Feedback Requests", "people")
+@source("perf_feedback", "Feedback Requests", "people", acts=True)
 def _perf_feedback(db: Session, user: dict, ctx: dict) -> list:
     import perf_feedback as pf
     if user.get("external"):
@@ -1923,7 +1965,7 @@ _PERF_PLAN_WORDS = {
 }
 
 
-@source("perf_plan", "Improvement Plans", "people")
+@source("perf_plan", "Improvement Plans", "people", acts=True)
 def _perf_plans(db: Session, user: dict, ctx: dict) -> list:
     import perf_plans as pp
     if user.get("external"):

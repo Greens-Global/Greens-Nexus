@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Save, Settings2, Trash2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, Save, Settings2 } from 'lucide-react';
 import { api } from '../../api';
 import Amount from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
@@ -12,6 +12,8 @@ import { formatDate, formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../../stepup/StepUp';
 import { StatusLabel } from '../StatusLabel';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
+import { WarnMark } from './warnMark';
 
 // Accounting > Allocations (Neil, 10/01: "allocations journal entry from
 // people and done monthly"). Pick a month; the basis is each person's hours
@@ -29,12 +31,13 @@ import { StatusLabel } from '../StatusLabel';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const th = { textAlign: 'left', padding: '6px 8px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)' };
+const th = { textAlign: 'left', padding: '6px 8px', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)' };
 const thNum = { ...th, textAlign: 'right' };
-const td = { padding: '4px 8px', borderBottom: '1px solid var(--border-color)', fontSize: '0.8rem', verticalAlign: 'top' };
+const td = { padding: '4px 8px', borderBottom: '1px solid var(--border-color)', fontSize: 13, verticalAlign: 'top' };
 const tdNum = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
-// The house status label, amber (11/11/2026 Accounting pass, picture 12).
-const Warn = ({ children }) => <StatusLabel size="sm" color="#d97706" label={children} />;
+// The house status label in the warning color, never color alone (11/11/2026
+// Accounting pass, pictures 8 and 12; orange is only for live).
+const Warn = ({ children }) => <StatusLabel size="sm" color="var(--warn-fg)" label={<><WarnMark size={11} />{children}</>} />;
 // Hours read as H:MM (Neil, 11/04/2026) - the exports keep their numbers.
 const hours = (min) => formatHM(min);
 const monthKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -50,13 +53,15 @@ export default function AllocationsTab({ canEdit = false }) {
   const [draft, setDraft] = useState(null);         // the mapping as edited
   const [runs, setRuns] = useState(null);
   const [busy, setBusy] = useState('');
+  const [mapError, setMapError] = useState('');
+  const [kept, setKept] = useState('');            // "Kept" / "Already Kept", a few seconds
   // Item 05 (fix 10/24): the screen is as tall as the window; the mapping,
   // the basis, the entry preview and the runs kept share what the bar leaves,
   // each scrolling in its own card (style.css .acct-fit-stack).
   const [box, setBox] = useState(null);
   const fit = useFitHeight(box);
 
-  const loadMap = useCallback(() => api.getAllocationsMap().then((d) => { setMapData(d); setDraft(d.map); }).catch(() => setMapData({ map: { journal: 'GJ', sites: {}, companies: {}, offsite: {} }, sites: [], companies: [] })), []);
+  const loadMap = useCallback(() => api.getAllocationsMap().then((d) => { setMapError(''); setMapData(d); setDraft(d.map); }).catch((e) => setMapError(e?.message || 'Could not load the account mapping.')), []);
   const loadRuns = useCallback(() => api.getAllocationRuns().then((d) => setRuns(d?.runs || [])).catch(() => setRuns([])), []);
   useEffect(() => { loadMap(); loadRuns(); }, [loadMap, loadRuns]);
 
@@ -97,8 +102,12 @@ export default function AllocationsTab({ canEdit = false }) {
     try {
       // The server rebuilds the run itself; the preview sent is only what the
       // person looked at, and it is refused (409) when the figures moved.
+      // The server answers with the run already kept when its lines are the
+      // same, so Keep Run and both exports leave ONE run, never a duplicate.
       const r = await api.saveAllocationRun({ month: preview?.month || month, entity: '', preview });
       loadRuns();
+      setKept(r?.reused ? 'Already Kept' : 'Kept');
+      setTimeout(() => setKept(''), 4000);
       return r;
     } catch (e) {
       if (isStepUpRequired(e)) { const up = await ensureStepUp(); if (up.ok) return keepRun(); }
@@ -117,17 +126,15 @@ export default function AllocationsTab({ canEdit = false }) {
     const r = await keepRun();
     if (r?.id) exportRun(r.id, kind);
   }
-  async function removeRun(r) {
-    if (!await dialog.confirm(`Remove the ${monthLabel(r.month)} run kept by ${r.byName}? Nothing was posted, so Intacct is untouched.`, { title: 'Remove Run', confirmText: 'Remove' })) return;
-    try { await api.deleteAllocationRun(r.id); loadRuns(); } catch (e) { await dialog.alert(e?.message || 'Could not remove it.', { title: 'Remove Run' }); }
-  }
+  // Held right on the row (Hold to confirm); a refusal shows under the button.
+  const removeRun = (r) => api.deleteAllocationRun(r.id);
 
   return (
     <div ref={setBox} className="acct-fit-stack" data-testid="allocations-stack" style={fit}>
       <ControlBar style={{ ...card, padding: '8px 10px' }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
           <button type="button" aria-label="Previous month" onClick={() => setMonth((m) => shiftMonth(m, -1))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronLeft size={16} /></button>
-          <strong style={{ fontSize: '0.86rem', minWidth: 80, textAlign: 'center' }}>{monthLabel(month)}</strong>
+          <strong style={{ fontSize: 14, minWidth: 80, textAlign: 'center' }}>{monthLabel(month)}</strong>
           <button type="button" aria-label="Next month" onClick={() => setMonth((m) => shiftMonth(m, 1))} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 5, display: 'inline-flex', color: 'var(--text-muted)' }}><ChevronRight size={16} /></button>
         </div>
         {/* Item 02, round 3 (UI test 10/24: two lines at 1366, the summary
@@ -146,23 +153,29 @@ export default function AllocationsTab({ canEdit = false }) {
           <BarMore level={4}>
           <SyncButton onSync={previewSync.sync} busy={state.loading && !!preview} syncedAt={previewSync.syncedAt} what="Preview" />
           </BarMore>
-          {canEdit && <BarMore level={1} active={mapOpen ? 1 : 0}><button type="button" className="secondary-btn" onClick={() => setMapOpen((v) => !v)} aria-expanded={mapOpen} title="Account Mapping" style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Settings2 size={13} /> <span className="acct-bar-label">Account Mapping</span></button></BarMore>}
+          {kept && <span role="status" style={{ fontSize: 13, color: 'var(--ok-fg, #15803d)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={13} aria-hidden="true" />{kept}</span>}
+          {canEdit && <BarMore level={1} active={mapOpen ? 1 : 0}><button type="button" className="secondary-btn" onClick={() => setMapOpen((v) => !v)} aria-expanded={mapOpen} title="Account Mapping" style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Settings2 size={13} /> <span className="acct-bar-label">Account Mapping</span></button></BarMore>}
           {canEdit && (
             <BarMore level={2}>
-            <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('csv')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct CSV</button>
-            <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('xlsx')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Excel</button>
+            <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('csv')} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct CSV</button>
+            <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('xlsx')} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Excel</button>
             </BarMore>
           )}
-          {canEdit && <button type="button" className="primary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={keepRun} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'run' ? 'Keeping...' : 'Keep Run'}</button>}
+          {canEdit && <button type="button" className="primary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={keepRun} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'run' ? 'Keeping...' : 'Keep Run'}</button>}
         </div>
       </ControlBar>
 
-      {mapOpen && draft && (
+      {mapOpen && mapError && (
         <div className="acct-stack-card" style={{ ...card, padding: 14 }}>
-          <h3 style={{ margin: '0 0 4px', fontSize: '0.95rem' }}>Account Mapping</h3>
-          <p style={{ margin: '0 0 10px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Each work site is an Intacct entity and the wage expense account its hours are charged to. Each company pays through an entity: its allocation clearing account takes the credit, and its wage account carries anyone with no site hours that month.</p>
+          <AsyncSection error errorMessage={mapError} onRetry={loadMap} />
+        </div>
+      )}
+      {mapOpen && !mapError && draft && (
+        <div className="acct-stack-card" style={{ ...card, padding: 14 }}>
+          <h3 style={{ margin: '0 0 4px', fontSize: 15 }}>Account Mapping</h3>
+          <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--text-secondary)' }}>Each work site is an Intacct entity and the wage expense account its hours are charged to. Each company pays through an entity: its allocation clearing account takes the credit, and its wage account carries anyone with no site hours that month.</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <label htmlFor="alloc-journal" style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Journal</label>
+            <label htmlFor="alloc-journal" style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>Journal</label>
             <input id="alloc-journal" type="text" value={draft.journal || ''} onChange={(e) => setDraft((cur) => ({ ...cur, journal: e.target.value }))} style={{ ...control, width: 90 }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
@@ -213,18 +226,18 @@ export default function AllocationsTab({ canEdit = false }) {
         <AsyncSection loading={state.loading && !preview} error={!!state.error} errorMessage={state.error} onRetry={() => loadPreview(month)} skeleton={<SkeletonBlocks count={2} />}>
           {preview && !preview.people.length ? (
             <div style={{ ...card, padding: 24, textAlign: 'center' }}>
-              <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.86rem' }}>No wages or site hours in {monthLabel(month)}. Hours come from Time Clock punches at work sites; wages from the payroll card.</p>
+              <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14 }}>No wages or site hours in {monthLabel(month)}. Hours come from Time Clock punches at work sites; wages from the payroll card.</p>
             </div>
           ) : preview && (
             <>
               <div className="acct-stack-card" style={card}>
-                <h3 style={{ margin: 0, padding: '10px 12px 4px', fontSize: '0.9rem' }}>Basis - {formatDate(preview.start)} to {formatDate(preview.end)}</h3>
+                <h3 style={{ margin: 0, padding: '10px 12px 4px', fontSize: 15 }}>Basis - {formatDate(preview.start)} to {formatDate(preview.end)}</h3>
                 <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <thead><tr><th style={th}>Person</th><th style={th}>Company</th><th style={thNum}>Wages</th><th style={th}>Work Site</th><th style={thNum}>Hours</th><th style={thNum}>Share</th><th style={thNum}>Amount</th><th style={th}>Entity</th><th style={th}>Account</th></tr></thead>
                   <tbody>
                     {preview.people.map((p) => p.sites.map((s, i) => (
                       <tr key={`${p.email}-${i}`}>
-                        {i === 0 && <td style={td} rowSpan={p.sites.length}><strong>{p.name}</strong><div style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{p.payType === 'fixed' ? 'Salaried' : 'Hourly'}{p.department ? ` · ${p.department}` : ''}</div></td>}
+                        {i === 0 && <td style={td} rowSpan={p.sites.length}><strong>{p.name}</strong><div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{p.payType === 'fixed' ? 'Salaried' : 'Hourly'}{p.department ? ` · ${p.department}` : ''}</div></td>}
                         {i === 0 && <td style={td} rowSpan={p.sites.length}>{p.companyName || <Warn>No Company</Warn>}</td>}
                         {i === 0 && <td style={tdNum} rowSpan={p.sites.length}><Amount value={p.wages} />{p.currency !== 'USD' ? ` ${p.currency}` : ''}</td>}
                         <td style={td}>{s.workSite}</td>
@@ -239,7 +252,7 @@ export default function AllocationsTab({ canEdit = false }) {
                 </table>
               </div>
               <div className="acct-stack-card" style={card}>
-                <h3 style={{ margin: 0, padding: '10px 12px 4px', fontSize: '0.9rem' }}>Entry Preview - {preview.entries.length} {preview.entries.length === 1 ? 'entry' : 'entries'}, dated {formatDate(preview.end)}</h3>
+                <h3 style={{ margin: 0, padding: '10px 12px 4px', fontSize: 15 }}>Entry Preview - {preview.entries.length} {preview.entries.length === 1 ? 'entry' : 'entries'}, dated {formatDate(preview.end)}</h3>
                 <table style={{ borderCollapse: 'collapse', width: '100%' }}>
                   <thead><tr><th style={th}>Entry</th><th style={th}>Account</th><th style={th}>Entity</th><th style={th}>Dept</th><th style={th}>Memo</th><th style={thNum}>Debit</th><th style={thNum}>Credit</th></tr></thead>
                   <tbody>
@@ -271,12 +284,12 @@ export default function AllocationsTab({ canEdit = false }) {
 
       <div className="acct-stack-card" style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px 4px' }}>
-          <h3 style={{ margin: 0, fontSize: '0.9rem', flex: 1 }}>Runs Kept</h3>
+          <h3 style={{ margin: 0, fontSize: 15, flex: 1 }}>Runs Kept</h3>
           <SyncButton onSync={() => { setRunsBusy(true); Promise.resolve(runsSync.sync()).finally(() => setRunsBusy(false)); }} busy={runsBusy} syncedAt={runsSync.syncedAt} what="Runs" />
         </div>
         <AsyncSection loading={runs === null} skeleton={<SkeletonBlocks count={1} height={60} />}>
           {!runs?.length ? (
-            <p style={{ margin: 0, padding: '8px 12px 14px', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>No runs yet. Keep Run saves the preview above so its file can be produced again unchanged.</p>
+            <p style={{ margin: 0, padding: '8px 12px 14px', color: 'var(--text-secondary)', fontSize: 13 }}>No runs yet. Keep Run saves the preview above so its file can be produced again unchanged.</p>
           ) : (
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead><tr><th style={th}>Month</th><th style={th}>Kept By</th><th style={th}>When</th><th style={thNum}>People</th><th style={thNum}>Wages</th><th style={thNum}>Debits</th><th style={th}></th></tr></thead>
@@ -290,9 +303,11 @@ export default function AllocationsTab({ canEdit = false }) {
                     <td style={tdNum}><Amount value={r.totals?.wages} /></td>
                     <td style={tdNum}><Amount value={r.totals?.debits} /></td>
                     <td style={{ ...td, whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      <button type="button" className="secondary-btn" disabled={busy === `x-${r.id}`} onClick={() => exportRun(r.id, 'csv')} style={{ fontSize: '0.72rem', marginRight: 6 }}>Intacct CSV</button>
-                      <button type="button" className="secondary-btn" disabled={busy === `x-${r.id}`} onClick={() => exportRun(r.id, 'xlsx')} style={{ fontSize: '0.72rem', marginRight: 6 }}>Excel</button>
-                      {canEdit && <button type="button" aria-label={`Remove run ${monthLabel(r.month)}`} onClick={() => removeRun(r)} style={{ border: 'none', background: 'none', padding: 4, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)', verticalAlign: 'middle' }}><Trash2 size={14} /></button>}
+                      <button type="button" className="secondary-btn" disabled={busy === `x-${r.id}`} onClick={() => exportRun(r.id, 'csv')} style={{ fontSize: 12, marginRight: 6 }}>Intacct CSV</button>
+                      <button type="button" className="secondary-btn" disabled={busy === `x-${r.id}`} onClick={() => exportRun(r.id, 'xlsx')} style={{ fontSize: 12, marginRight: 6 }}>Excel</button>
+                      {canEdit && <HoldButton size="sm" label="Remove" doneLabel="Removed" holdMs={HOLD_RECORD_MS} ariaLabel={`Remove run ${monthLabel(r.month)}`}
+                        fallbackMessage={`Remove the ${monthLabel(r.month)} run kept by ${r.byName}? Nothing was posted, so Intacct is untouched.`}
+                        onConfirm={() => removeRun(r)} onDone={loadRuns} />}
                     </td>
                   </tr>
                 ))}

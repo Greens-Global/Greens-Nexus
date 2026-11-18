@@ -54,7 +54,7 @@ export default function RequestsStrip({ start, end }) {
   const shown = items.slice(0, SHOW);
   return (
     <div data-requests-strip="" role="note" aria-label="Requests on these dates"
-      style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)', padding: '6px 2px', marginBottom: 8, borderBottom: '1px solid var(--wk-line)', fontFamily: 'Inter,sans-serif' }}>
+      style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap', fontSize: 13, color: 'var(--muted)', padding: '6px 2px', marginBottom: 8, borderBottom: '1px solid var(--wk-line)', fontFamily: 'Inter,sans-serif' }}>
       <Inbox size={13} aria-hidden="true" style={{ alignSelf: 'center', flexShrink: 0 }} />
       <span style={{ color: 'var(--ink)', fontWeight: 600 }}>
         {items.length === 1 ? '1 request touches these dates' : `${items.length} requests touch these dates`}{need ? ` - ${need} need${need === 1 ? 's' : ''} you` : ''}:

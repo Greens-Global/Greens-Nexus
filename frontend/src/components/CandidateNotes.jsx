@@ -76,18 +76,18 @@ export default function CandidateNotes({ candidateId, refreshKey, draft, onDraft
             aria-label="Add a note" placeholder="Add a note..."
             style={{ flex: 1, resize: 'none', overflow: 'hidden', fontFamily: 'Inter,sans-serif', fontSize: 13, lineHeight: 1.5, minHeight: 38 }} />
           <button type="button" className="primary-btn" onClick={add} disabled={busy || !text.trim()} title="Ctrl+Enter"
-            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, height: 38 }}>
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, height: 38 }}>
             {busy ? <Spinner size={12} /> : <Send size={12} />} Add Note
           </button>
         </div>
       )}
       {rows === null ? <Spinner size={16} /> : shown.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No notes yet.</div>
+        <div style={{ fontSize: 13, color: 'var(--muted)' }}>No notes yet.</div>
       ) : (
         <div style={{ maxHeight: compact ? 260 : 'none', overflowY: compact ? 'auto' : 'visible' }}>
           {groups.map(g => (
             <div key={g.day}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 6px' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', margin: '10px 0 6px' }}>
                 {g.day ? formatDate(g.day) : ''}
               </div>
               {g.items.map((e, i) => {
@@ -100,7 +100,7 @@ export default function CandidateNotes({ candidateId, refreshKey, draft, onDraft
                         {initials(e.byName)}
                       </span>
                       <div style={{ flex: 1, minWidth: 0, background: 'var(--mist)', borderRadius: '4px 12px 12px 12px', padding: '8px 12px' }}>
-                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 2 }}>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 2 }}>
                           <b style={{ color: 'var(--ink)' }}>{e.byName || 'Nexus'}</b>{when ? ` · ${when}` : ''}{e.legacy ? ' · from the old notes box' : ''}
                         </div>
                         <div style={{ fontSize: 13, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{e.note}</div>
@@ -110,7 +110,7 @@ export default function CandidateNotes({ candidateId, refreshKey, draft, onDraft
                 }
                 const Icon = e.kind === 'interview' ? Video : e.fromStage ? ArrowRight : UserPlus;
                 return (
-                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '4px 0 4px 6px', fontSize: 12.5, color: 'var(--muted)' }}>
+                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '4px 0 4px 6px', fontSize: 13, color: 'var(--muted)' }}>
                     <Icon size={13} style={{ flexShrink: 0, marginTop: 2 }} />
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{head}</span>

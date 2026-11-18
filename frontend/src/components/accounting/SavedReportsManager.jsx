@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Pencil, Search, Trash2, Users, X } from 'lucide-react';
+import { Check, Pencil, Search, Users, X } from 'lucide-react';
+import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 import { formatDate } from '../../lib/datetime';
 import { control } from './reportControls';
 import { columnModes, entityText, periodOf, presetLabel, reportDef, resolveConfig } from './reportModel';
@@ -34,7 +35,6 @@ const summarize = (config) => {
 export default function SavedReportsManager({ reports, activeId, nameOf, onOpen, onRename, onShare, onDelete, onClose }) {
   const [q, setQ] = useState('');
   const [renaming, setRenaming] = useState(null);   // { id, name }
-  const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
   useEffect(() => {
@@ -63,11 +63,11 @@ export default function SavedReportsManager({ reports, activeId, nameOf, onOpen,
   const mine = reports.filter((r) => r.mine).length;
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="Saved Reports" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '96vw', width: 'min(1180px, 96vw)', minHeight: '60vh', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Saved Reports" onClick={(e) => e.stopPropagation()} style={{ width: 'max(60vw, min(1180px, 100vw))', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Saved Reports</h3>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
               {reports.length} {reports.length === 1 ? 'report' : 'reports'} - {mine} yours, {reports.length - mine} shared with you. Open one to change its filters; Save Changes then keeps them.
             </div>
           </div>
@@ -80,7 +80,7 @@ export default function SavedReportsManager({ reports, activeId, nameOf, onOpen,
           </div>
         </div>
         <div style={{ padding: '6px 18px 14px', overflow: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem', marginBottom: 8 }}>{error}</div>}
+          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 8 }}>{error}</div>}
           <div className="acct-lines-wrap nx-fill">
             <table className="acct-lines" style={{ width: '100%', tableLayout: 'auto' }}>
               <thead>
@@ -96,7 +96,7 @@ export default function SavedReportsManager({ reports, activeId, nameOf, onOpen,
                       {renaming?.id === r.id ? (
                         <form onSubmit={(e) => { e.preventDefault(); saveName(); }} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                           <input type="text" value={renaming.name} maxLength={120} autoFocus aria-label="New name" onChange={(e) => setRenaming({ ...renaming, name: e.target.value })}
-                            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRenaming(null); } }} style={{ ...control, height: 26, flex: 1, fontSize: '0.78rem' }} />
+                            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setRenaming(null); } }} style={{ ...control, height: 26, flex: 1, fontSize: 13 }} />
                           <button type="submit" aria-label="Save name" style={ICON}><Check size={14} /></button>
                           <button type="button" aria-label="Cancel rename" onClick={() => setRenaming(null)} style={ICON}><X size={14} /></button>
                         </form>
@@ -116,22 +116,18 @@ export default function SavedReportsManager({ reports, activeId, nameOf, onOpen,
                       {r.mine ? (
                         <button type="button" onClick={() => run(r.id, () => onShare(r, !r.shared))} disabled={busy === r.id} aria-pressed={r.shared}
                           title={r.shared ? 'Shared with the accounting team - click to make it yours only' : 'Only you - click to share with the team'}
-                          style={{ ...control, height: 26, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: '0.74rem', color: r.shared ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', borderColor: r.shared ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)' }}>
+                          style={{ ...control, height: 26, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: r.shared ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', borderColor: r.shared ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)' }}>
                           <Users size={12} /> {r.shared ? 'Shared with the team' : 'Only you'}
                         </button>
                       ) : <span style={{ color: 'var(--text-secondary)' }}>Shared by {nameOf ? nameOf(r.owner) : 'a teammate'}</span>}
                     </td>
                     <td style={{ color: 'var(--text-secondary)' }}>{r.updatedAt ? formatDate(r.updatedAt) : ''}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button type="button" className="secondary-btn" style={{ fontSize: '0.74rem', padding: '3px 10px' }} onClick={() => { onOpen(r); onClose(); }}>Open</button>
-                      {r.mine && (confirm === r.id ? (
-                        <span style={{ marginLeft: 8, display: 'inline-flex', gap: 8 }}>
-                          <button type="button" className="acct-drill" style={{ color: 'var(--bad-fg, #dc2626)' }} onClick={() => { setConfirm(''); run(r.id, () => onDelete(r)); }}>Delete</button>
-                          <button type="button" className="acct-drill" onClick={() => setConfirm('')}>Keep</button>
-                        </span>
-                      ) : (
-                        <button type="button" aria-label={`Delete ${r.name}`} title="Delete" onClick={() => setConfirm(r.id)} style={{ ...ICON, marginLeft: 4 }}><Trash2 size={14} /></button>
-                      ))}
+                      <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => { onOpen(r); onClose(); }}>Open</button>
+                      {r.mine && (
+                        <HoldButton size="sm" label="Delete" doneLabel="Deleted" holdMs={HOLD_RECORD_MS} ariaLabel={`Delete ${r.name}`} style={{ marginLeft: 8 }}
+                          fallbackMessage={`Delete the saved report ${r.name}?`} onConfirm={() => onDelete(r)} />
+                      )}
                     </td>
                   </tr>
                 ))}

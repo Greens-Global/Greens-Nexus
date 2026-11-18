@@ -337,6 +337,8 @@ class PeopleReviewTests(unittest.TestCase):
         db = self._db()
         db.add(models.HrMailboxExport(id="job1", employee_id="e-ben", requested_by=SUPER, status="pending",
                                       created_at="2026-11-11T00:00:00", updated_at="2026-11-11T00:00:00"))
+        # An export runs only for someone Inactive or Left (People pass, 11/16/2026).
+        db.query(models.NexusEmployee).filter_by(id="e-ben").update({"status": "inactive"})
         db.commit()
         db.close()
         calls = {"list": 0}

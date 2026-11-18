@@ -6,7 +6,7 @@ from typing import Optional
 from database import get_db
 from models import NexusGroup, NexusGroupMember, NexusRole
 import auth
-from auth import get_current_user, require_administrator, invalidate_role_cache, _MODULE_LEVEL_RANK, _LEVELS
+from auth import get_current_user, require_administrator, invalidate_role_cache, _MODULE_LEVEL_RANK, _LEVELS, grant_level
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -31,7 +31,8 @@ def _seed_if_empty(db: Session):
 def _parse_modules(raw: str) -> list[dict]:
     """Decode 'inventory:full,it' → [{"id": "inventory", "level": "full"}, {"id": "it", "level": "viewer"}].
     A bare module id with no ':level' suffix (old data, or a malformed grant)
-    defaults to "viewer" - matching the original visibility-only behaviour."""
+    defaults to "viewer" - matching the original visibility-only behavior; a
+    stored legacy `owner` reads as `full` (auth.grant_level, 11/12/2026)."""
     out = []
     for part in (raw or "").split(","):
         part = part.strip()
@@ -41,10 +42,7 @@ def _parse_modules(raw: str) -> list[dict]:
         mid = mid.strip().lower()
         if not mid:
             continue
-        level = level.strip().lower()
-        if level not in _MODULE_LEVEL_RANK:
-            level = "viewer"
-        out.append({"id": mid, "level": level})
+        out.append({"id": mid, "level": grant_level(level)})
     return out
 
 
@@ -85,16 +83,14 @@ def _serialize(group: NexusGroup, db: Session, members: list | None = None) -> d
 
 def _modules_csv(modules: "list[ModuleGrant]") -> str:
     """Encode [{"id": "inventory", "level": "full"}, ...] → 'inventory:full,it:viewer',
-    deduping by module id (last grant for a given module wins) and validating levels."""
+    deduping by module id (last grant for a given module wins) and validating levels
+    (a client still sending the retired `owner` is stored as `full`)."""
     seen: dict[str, str] = {}
     for m in modules or []:
         mid = (m.id or "").strip().lower()
         if not mid:
             continue
-        level = (m.level or "viewer").strip().lower()
-        if level not in _MODULE_LEVEL_RANK:
-            level = "viewer"
-        seen[mid] = level
+        seen[mid] = grant_level(m.level)
     return ",".join(f"{mid}:{level}" for mid, level in sorted(seen.items()))
 
 
@@ -102,7 +98,7 @@ def _modules_csv(modules: "list[ModuleGrant]") -> str:
 
 class ModuleGrant(BaseModel):
     """One screen + the permission level the group grants for it - mirrors a
-    folder-permission row (Viewer/Editor/Full/Owner), so visibility and
+    folder-permission row (Viewer/Editor/Full; Owner retired 11/12/2026, read as Full), so visibility and
     capability are decided together as a single, explicit, auditable choice."""
     id: str
     level: str = "viewer"
@@ -219,8 +215,7 @@ def _guard_members(user: dict, db: Session, emails) -> None:
 
 def _guard_owner_only_grants(user: dict, db: Session, modules, before: str = "") -> None:
     """A grant on a module only a Super Administrator opens without one
-    (auth.OWNER_ONLY_GRANTS: Personal Financial Statements, compensation,
-    deleting people, Workflows' organization face) is a Super
+    (auth.OWNER_ONLY_GRANTS: Personal Financial Statements, compensation) is a Super
     Administrator's to give - in a group or a job role. Only an ADDED or
     RAISED grant is refused, so an Administrator can still rename a group a
     Super Administrator gave one, or take it away."""

@@ -39,13 +39,13 @@ import asyncio
 import json
 import re
 import uuid
-from datetime import datetime, timezone, timedelta, time as dtime
+from datetime import datetime, timezone, timedelta, date, time as dtime
 from html import escape
 from urllib.parse import urlencode
 
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import func, text
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
 import models
@@ -94,6 +94,7 @@ SCAN_EVERY_SEC = 15 * 60             # tight enough to catch a shift-relative
                                       # instant within 15 minutes, matching
                                       # timeclock_watch.py's 30-min precedent
                                       # for a similar per-person threshold
+LOOKBACK_DAYS_MAX = 14               # the window never reaches further back (two weeks off)
 LOOKBACK_HOURS_FIRST_RUN = 48        # "since" window when an employee has no
                                       # prior briefing logged yet
 LEAD_MINUTES_MIN, LEAD_MINUTES_MAX = 30, 360
@@ -217,10 +218,124 @@ def save_settings(db: Session, patch: dict, actor_email: str) -> dict:
 # ── Trigger + dedupe ──────────────────────────────────────────────────────
 
 def _last_log(db: Session, email: str):
+    """The last briefing actually SENT - a day logged without a send (nothing
+    to say, a holiday, time off) never moves the "since" window, so what
+    happened that day comes in the next email (Nov 17 2026: the newest row,
+    sent or not, used to reset the window to the 48-hour fallback)."""
     return (db.query(models.NexusDailyBriefingLog)
-            .filter(models.NexusDailyBriefingLog.employee_email == email)
+            .filter(models.NexusDailyBriefingLog.employee_email == email,
+                    models.NexusDailyBriefingLog.sent_at != "")
             .order_by(models.NexusDailyBriefingLog.created_at.desc())
             .first())
+
+
+# ── Days with no briefing (Neil, 11/17/2026) ────────────────────────────────
+# A company holiday on the person's calendar (a Day Off - a half day or an
+# optional holiday still sends) skips everyone; a full day of the person's own
+# approved time off skips them unless they manage someone. The send time comes
+# from shift_expect, which knows neither, so a 3:30 AM "before your shift"
+# email used to arrive on Thanksgiving and every day of a vacation.
+
+def holiday_off(db: Session, emp: "models.NexusEmployee", iso: str) -> bool:
+    if not emp or not emp.company:
+        return False
+    import holiday_policies
+    rows = (db.query(models.HrCompanyHoliday)
+            .filter(models.HrCompanyHoliday.company_id == emp.company, models.HrCompanyHoliday.date == iso).all())
+    if not rows:
+        return False
+    country = holiday_policies.person_country(
+        emp, holiday_policies.company_countries(db, [emp.company]).get(emp.company, ""))
+    h = holiday_policies.holidays_by_date(rows, country).get(iso)
+    return bool(h) and (h.get("type") or "mandatory") == "mandatory"
+
+
+def on_time_off(db: Session, email: str, iso: str) -> bool:
+    """A FULL day of approved time off (a request with hours is part of a day)."""
+    return (db.query(models.TimeOffRequest.id)
+            .filter(func.lower(models.TimeOffRequest.employee_email) == (email or "").lower(),
+                    models.TimeOffRequest.status == "approved",
+                    models.TimeOffRequest.start_date <= iso,
+                    or_(models.TimeOffRequest.end_date >= iso,
+                        and_(func.coalesce(models.TimeOffRequest.end_date, "") == "",
+                             models.TimeOffRequest.start_date == iso)),
+                    func.coalesce(models.TimeOffRequest.start_time, "") == "").first()) is not None
+
+
+def manages_anyone(db: Session, email: str) -> bool:
+    return (db.query(models.NexusEmployee.id)
+            .filter(func.lower(models.NexusEmployee.manager_email) == (email or "").lower()).first()) is not None
+
+
+def skip_reason(db: Session, emp: "models.NexusEmployee", iso: str) -> str:
+    """'holiday' / 'time_off' when this person gets no briefing on `iso`."""
+    if holiday_off(db, emp, iso):
+        return "holiday"
+    if on_time_off(db, emp.work_email, iso) and not manages_anyone(db, emp.work_email):
+        return "time_off"
+    return ""
+
+
+def _log_skip(db: Session, emp: "models.NexusEmployee", briefing_date: str, mode: str) -> None:
+    """A row for a day with no email, so the scan does not ask again today."""
+    db.add(models.NexusDailyBriefingLog(
+        id=str(uuid.uuid4()), employee_email=emp.work_email, briefing_date=briefing_date, sent_at="", mode=mode,
+        red_count=0, amber_count=0, blue_count=0, green_count=0, created_at=_now_iso()))
+    db.commit()
+
+
+def _clock(hhmm: str) -> str:
+    """'08:00' -> '8:00 AM'."""
+    try:
+        t = datetime.strptime((hhmm or "")[:5], "%H:%M")
+    except ValueError:
+        return ""
+    return t.strftime("%I:%M %p").lstrip("0")
+
+
+def today_line_for(db: Session, email: str, iso: str) -> str:
+    """'Your shift 8:00 AM - 4:30 PM, Round Rock' - the one expected-shift rule
+    (shift_expect), the published shift's label as its place. '' when no shift."""
+    try:
+        import shift_expect
+        exp = shift_expect.expected_start(db, email, date.fromisoformat(iso))
+    except Exception:
+        return ""
+    if not exp or not exp.get("start"):
+        return ""
+    start, end = _clock(exp.get("start")), _clock(exp.get("end") or "")
+    if not start:
+        return ""
+    label = ""
+    if exp.get("source") == "scheduled":
+        row = (db.query(models.ScheduledShift.label)
+               .filter(func.lower(models.ScheduledShift.employee_email) == (email or "").lower(),
+                       models.ScheduledShift.work_date == iso, models.ScheduledShift.published == 1)
+               .order_by(models.ScheduledShift.start_hhmm).first())
+        label = ((row[0] if row else "") or "").strip()
+    text = f"Your shift {start} - {end}" if end else f"Your shift starts at {start}"
+    return f"{text}, {label}" if label else text
+
+
+def since_label_for(since_iso: str, briefing_date: str, local_now: datetime) -> str:
+    """'Tuesday, 11/24/2026' when the last briefing sent was before yesterday -
+    the first one back after days off says how far back it reaches."""
+    if not since_iso or not briefing_date:
+        return ""
+    try:
+        sent = datetime.strptime(since_iso[:19], "%Y-%m-%dT%H:%M:%S")
+        day = date.fromisoformat(briefing_date)
+    except ValueError:
+        return ""
+    if local_now is not None:
+        sent = sent + (local_now - datetime.now(timezone.utc).replace(tzinfo=None))
+        # The recipient's own today, not the shift's date: a shift starting
+        # just after midnight is briefed the evening before, and its date
+        # would read every email as a two-day gap (review, 11/17/2026).
+        day = local_now.date()
+    if (day - sent.date()).days < 2:
+        return ""
+    return f"{sent.strftime('%A')}, {sent.strftime('%m/%d/%Y')}"
 
 
 def _leave_labeler(db: Session, recipient: str):
@@ -276,9 +391,14 @@ def _no_shift_eligible(emp: "models.NexusEmployee") -> bool:
 
 
 def _person_zone(db: Session, email: str, cfg: dict) -> str:
-    """The person's own time zone when Nexus knows it (their assigned Shift
-    preset's timezone, which still holds on their days off), else the
-    configured default. NexusEmployee has no timezone column."""
+    """The person's own time zone when Nexus knows it: the one they set for
+    themselves (My Profile > Date & Time, person_zone.py, 11/13/2026), else
+    their assigned Shift preset's timezone, which still holds on their days
+    off, else the configured default."""
+    import person_zone
+    own = person_zone.stored(db, email)
+    if own:
+        return own
     assign = db.query(models.ShiftAssignment).filter(models.ShiftAssignment.employee_email == email).first()
     if assign and assign.shift_id:
         preset = db.query(models.Shift).filter(models.Shift.id == assign.shift_id).first()
@@ -491,6 +611,10 @@ def _esign_action_rows(db: Session, email: str) -> list:
         req = reqs.get(p.request_id)
         if not req or not _its_their_turn(req, p):
             continue
+        own_sheet = _own_time_sheet_to_sign(db, req, p)
+        if own_sheet:
+            rows.append(own_sheet)
+            continue
         rows.append({
             "title": f"Sign: {req.title}",
             "detail": "Signature required",
@@ -502,6 +626,29 @@ def _esign_action_rows(db: Session, email: str) -> list:
             **_since(req.created_at),
         })
     return rows
+
+
+def _own_time_sheet_to_sign(db: Session, req, party) -> dict | None:
+    """The person's OWN Time Sheet out for their signature, as a Time Sheet
+    row with a Sign Time Sheet button (Neil, 11/12/2026: the reminder stays
+    until the time sheet is finalized, and the signature is that last step).
+    None for any other envelope, or a manager / HR party on an old
+    three-signer one - those stay plain "Sign:" Documents rows."""
+    import timesheet_review as tsr
+    if (getattr(req, "link_kind", "") or "") != tsr.LINK_KIND or party.role_key != "employee":
+        return None
+    r = db.query(models.TimesheetReview).filter(models.TimesheetReview.id == req.link_id).first()
+    if r is None:
+        return None
+    span = f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)}"
+    if tsr.in_correction(r):
+        title, detail = "Sign Your Corrected Time Sheet", f"HR corrected {span} - sign it to finalize your pay."
+    else:
+        who = tsr.display_name(db, r.agreed_by) if r.agreed_by else "Your manager"
+        title, detail = "Sign Your Time Sheet", f"{who} approved {span} - sign it to finalize your pay."
+    url = f"{app_url()}/workday/sign:{party.id}"
+    return {"title": title, "detail": detail, "url": url, "module": "timecard",
+            "cta": ("Sign Time Sheet", url), "urgency": "overdue", **_since(req.created_at)}
 
 
 def _envelope_url(request_id: str) -> str:
@@ -800,6 +947,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
                       + (" - resubmitted" if q["resubmitted"] else ""),
             # That person's card on that period - the same place the bell opens.
             "url": _timecard_url(q["employeeEmail"], q["periodStart"], q["payType"]),
+            "cta": ("Review Time Sheet", _timecard_url(q["employeeEmail"], q["periodStart"], q["payType"])),
             "module": "timecard",
             **_since(q.get("submittedAt")),
         })
@@ -811,6 +959,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
             "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(q['periodStart'])} - {_fmt_date(q['periodEnd'])} - {hours} - not submitted",
             "url": _timecard_url(q.get("employeeEmail"), q.get("periodStart"), q.get("payType")),
+            "cta": ("Review Time Sheet", _timecard_url(q.get("employeeEmail"), q.get("periodStart"), q.get("payType"))),
             "module": "timecard",
             **_since(q["periodEnd"]),
         })
@@ -821,53 +970,147 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
             "title": "Sign Your Updated Time Sheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - HR changed your time sheet",
             # Your own Time Sheet on THAT period, not the current one.
-            "url": f"{app_url()}/timeclock/timesheet?{urlencode({'start': r.period_start, 'type': r.pay_type or ''})}",
-            "module": "timecard",
+            "url": _own_sheet_url(r.period_start, r.pay_type),
+            "cta": ("Sign Time Sheet", _own_sheet_url(r.period_start, r.pay_type)),
+            "module": "timecard", "urgency": "overdue",
             **_since(r.updated_at),
         })
     return rows
 
 
 def _timecard_rows(db: Session, email: str) -> list:
-    """Pay-period reminders (Neil, 8/21: 'we want to make sure you get paid on
-    time. You need to do this.'). Reuses the SAME period math + sign-off state
-    the Time module's own timecard header uses - no fresh TimePunch/TimeApproval
-    query, just the existing _pay_type/_pay_period/_month_bounds/_signoff_state
-    (routers/timeclock.py). Auto-drafting an actual contractor invoice (Neil's
-    India idea) is a separate feature with no existing hook to build on - out
-    of scope here; this is the reminder half only."""
-    from routers.timeclock import _period_of, _signoff_state, _employee_today, is_time_tracking_exempt
-    # Time-tracking exempt (salaried leadership - a group flagged in Settings >
-    # Access) has no time sheet, so nothing to confirm or submit (Oct 30 2026:
-    # Neil was asked to confirm one). Their review rows for OTHER people's
-    # time sheets are separate (_timesheet_review_rows) and stay.
-    if is_time_tracking_exempt(db, email):
+    """The person's OWN Time Sheets waiting on them (Neil, 11/12/2026: "people
+    whose pay period has come to an end ... need to finalize their time sheet
+    and submit it for approval", with a button straight to it; it shows every
+    day until the time sheet is finalized). Hourly, salaried (bi-weekly or
+    monthly) and contractors (India contractors included) alike - the ONE
+    rule is timesheet_due.py, which the bell reads too. One row per period:
+    closes today / submit / fix first / resubmit, each with a solid button
+    (`cta`) opening that period's Time Sheet at its Send to Manager box.
+    Replaces the Aug 21 reminder, which checked the retired one-click
+    signature and never fired once a period had closed. Never raises: a
+    problem here must not cost the person their whole briefing."""
+    try:
+        import timesheet_due
+        return [_due_row(d) for d in timesheet_due.due_cached(db, email)
+                if d["state"] in timesheet_due.ACTION_STATES]
+    except Exception as e:   # noqa: BLE001
+        print(f"[daily-briefing] time sheet rows failed for {email}: {e}")
         return []
-    today = _employee_today(db, email)
-    start, end = _period_of(db, email, today)
-    end_d = datetime.strptime(end, "%Y-%m-%d").date()
-    today_d = datetime.strptime(today, "%Y-%m-%d").date()
-    days_to_close = (end_d - today_d).days
 
-    state = _signoff_state(db, email, start, end)
-    signed = state["signed"]
-    needs_action = signed is None or signed["stale"]
-    if not needs_action:
+
+def _timecard_update_rows(db: Session, email: str) -> list:
+    """Updates for You: the person's Time Sheet is with their manager (or HR
+    is correcting it) - nothing to do, but it stays in view until it is
+    finalized (Neil, 11/12/2026). The signature it then needs is the Nexus
+    Sign row under Action Required."""
+    try:
+        import timesheet_due
+        return [_due_row(d) for d in timesheet_due.due_cached(db, email)
+                if d["state"] in timesheet_due.UPDATE_STATES]
+    except Exception as e:   # noqa: BLE001
+        print(f"[daily-briefing] time sheet updates failed for {email}: {e}")
         return []
-    # `since` is the moment the reminder started, not a stored stamp: the
-    # Confirm row first shows two days before the period closes, the Submit
-    # row the moment it has closed (midnight after the last day, local).
-    if 0 <= days_to_close <= 2:
-        return [{"title": "Confirm Your Time Sheet",
-                 "detail": f"Pay period closes {_fmt_date(end)} - review and sign off before it locks",
-                 "url": f"{app_url()}/timeclock", "module": "timecard",
-                 **_since((end_d - timedelta(days=2)).strftime("%Y-%m-%dT00:00:00"))}]
-    if days_to_close == -1:
-        return [{"title": "Submit Your Time Sheet",
-                 "detail": f"Pay period ending {_fmt_date(end)} is closed - sign off is still open",
-                 "url": f"{app_url()}/timeclock", "module": "timecard",
-                 **_since((end_d + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00"))}]
-    return []
+
+
+def _own_sheet_url(start: str, pay_type: str, submit: bool = False) -> str:
+    """My own Time Sheet on THAT period (PayrollTimecard reads start / type on
+    mount); do=submit also takes them to its Send to Manager box. Never a
+    link that submits - mail scanners open every link in a message."""
+    q = {"start": start, "type": pay_type or ""}
+    if submit:
+        q["do"] = "submit"
+    return f"{app_url()}/timeclock/timesheet?{urlencode(q)}"
+
+
+def _period_words(d: dict) -> str:
+    """'Pay period 11/01/2026 - 11/14/2026', or 'November 2026 (11/01/2026 -
+    11/30/2026)' for a calendar month."""
+    s, e = d["start"], d["end"]
+    span = f"{_fmt_date(s)} - {_fmt_date(e)}"
+    try:
+        sd, ed = datetime.strptime(s, "%Y-%m-%d"), datetime.strptime(e, "%Y-%m-%d")
+        if sd.day == 1 and (ed + timedelta(days=1)).day == 1 and sd.month == ed.month:
+            return f"{sd.strftime('%B %Y')} ({span})"
+    except ValueError:
+        pass
+    return f"Pay period {span}"
+
+
+def _ended_words(d: dict) -> str:
+    """'ended yesterday' / 'ended Saturday' (within the week) / 'ended 10/31/2026'."""
+    try:
+        days = (datetime.strptime(d["today"], "%Y-%m-%d") - datetime.strptime(d["end"], "%Y-%m-%d")).days
+    except (KeyError, ValueError):
+        return f"ended {_fmt_date(d.get('end', ''))}"
+    if days <= 1:
+        return "ended yesterday"
+    if days < 7:
+        return f"ended {datetime.strptime(d['end'], '%Y-%m-%d').strftime('%A')}"
+    return f"ended {_fmt_date(d['end'])}"
+
+
+def _hm(minutes) -> str:
+    m = int(minutes or 0)
+    return f"{m // 60}h {m % 60:02d}m"
+
+
+def _due_row(d: dict) -> dict:
+    """One timesheet_due entry as a briefing row."""
+    period, approver = _period_words(d), d.get("approver") or ""
+    to = f"send it to {approver} for approval" if approver else "send it for approval"
+    no_manager = not d.get("approverEmail")
+    xt = int(d.get("extraTimePending") or 0)
+    extra = (f" {xt} Extra Time claim{'' if xt == 1 else 's'} still "
+             f"{'waits' if xt == 1 else 'wait'} on approval.") if xt else ""
+    base = {"module": "timecard", **_since(d.get("since"))}
+    state = d["state"]
+    if state in ("closes_today", "submit") and no_manager:
+        # Submit is refused with nobody to send it to; HR reviews it.
+        when = "ends today" if state == "closes_today" else _ended_words(d)
+        return {**base, "title": "Check Your Time Sheet",
+                "detail": f"{period} {when} - {_hm(d.get('workedMin'))} worked. You have no manager set in "
+                          f"Nexus People, so HR reviews it - check your hours now.{extra}",
+                "url": _own_sheet_url(d["start"], d["payType"]),
+                "cta": ("Review Time Sheet", _own_sheet_url(d["start"], d["payType"])),
+                "urgency": "today" if state == "closes_today" else "overdue"}
+    if state == "closes_today":
+        return {**base, "title": "Submit Your Time Sheet - Closes Today",
+                "detail": f"{period} ends today - {_hm(d.get('workedMin'))} so far. After your last shift, "
+                          f"check your hours and {to}.{extra}",
+                "url": _own_sheet_url(d["start"], d["payType"], True),
+                "cta": ("Review and Submit", _own_sheet_url(d["start"], d["payType"], True)),
+                "urgency": "today"}
+    if state == "submit" and d.get("blocker"):
+        return {**base, "title": "Fix Your Time Sheet, Then Submit",
+                "detail": f"{period} {_ended_words(d)}. {d['blocker']}{extra}",
+                "url": _own_sheet_url(d["start"], d["payType"], True),
+                "cta": ("Fix and Submit", _own_sheet_url(d["start"], d["payType"], True)),
+                "urgency": "overdue"}
+    if state == "submit":
+        return {**base, "title": "Submit Your Time Sheet",
+                "detail": f"{period} {_ended_words(d)} - {_hm(d.get('workedMin'))} worked. Check your hours "
+                          f"and {to} so you are paid on time.{extra}",
+                "url": _own_sheet_url(d["start"], d["payType"], True),
+                "cta": ("Review and Submit", _own_sheet_url(d["start"], d["payType"], True)),
+                "urgency": "overdue"}
+    if state == "resubmit":
+        who = d.get("sentBackBy") or approver or "Your manager"
+        note = (d.get("note") or "").strip()
+        said = f': "{note[:200]}"' if note else "."
+        fix = f" {d['blocker']}" if d.get("blocker") else ""
+        return {**base, "title": "Resubmit Your Time Sheet",
+                "detail": f"{who} sent {_fmt_date(d['start'])} - {_fmt_date(d['end'])} back{said}{fix}{extra}",
+                "url": _own_sheet_url(d["start"], d["payType"], True),
+                "cta": ("Review and Resubmit", _own_sheet_url(d["start"], d["payType"], True)),
+                "urgency": "overdue"}
+    if state == "with_manager":
+        return {**base, "title": f"Time Sheet With {approver} for Review" if approver else "Time Sheet Sent for Review",
+                "detail": f"{period} - you will be asked to sign it once it is approved.",
+                "url": _own_sheet_url(d["start"], d["payType"])}
+    return {**base, "title": "HR Is Correcting Your Time Sheet",
+            "detail": f"{period} - you will be asked to sign the corrected time sheet.",
+            "url": _own_sheet_url(d["start"], d["payType"])}
 
 
 def _item_needs_to_know_rows(db: Session, email: str, since_iso: str, is_manager: bool) -> list:
@@ -1246,12 +1489,17 @@ def due_task_rows(db: Session, email: str, first: str, last: str, *, label_day: 
     for t in mine:
         d = datetime.strptime(t.due_on[:10], "%Y-%m-%d")
         detail = (f"Due {d.strftime('%a')} {d.strftime('%m/%d/%Y')}" if label_day else "Due today")
+        rest = []
         if t.status == "recurring" or (t.recurrence or {}).get("freq"):
-            detail += " - recurring"
+            rest.append("recurring")
         if projects.get(t.project_id or ""):
-            detail += f" - {projects[t.project_id]}"
+            rest.append(projects[t.project_id])
+        detail = " - ".join([detail] + rest)
         rows.append({
             "title": t.title, "detail": detail,
+            # The email shows the day as a Due Today tag or a day heading
+            # (Nov 15 2026), so its line under the title is the rest.
+            "due_on": t.due_on[:10], "due_today": not label_day, "short_detail": " - ".join(rest),
             "url": f"{app_url()}/tasks/mine?task={t.id}",
             "module": "tasks", "task_id": t.id, "action_email": email, "task_open": True,
             "project_id": t.project_id or "", "task_status": t.status or "",
@@ -1271,11 +1519,30 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
         "action_required": _red_rows(db, email, my_reports) + due_today,
         "needs_to_know":   [r for r in _amber_rows(db, email, since_iso, my_reports)
                             if r.get("task_id") not in today_ids]
+                           + _timecard_update_rows(db, email)
                            + _blue_rows_manager(db, email, my_reports, briefing_date)
                            + _blue_rows_my_manager(db, email, briefing_date),
         "completed":       _green_rows(db, email, since_iso),
     }
+    stamp_waiting(sections["action_required"], briefing_date)
     return {k: v for k, v in sections.items() if v}
+
+
+def stamp_waiting(rows: list, briefing_date: str) -> None:
+    """`waiting_days` on each row that knows when it started waiting (`since`),
+    for the email's Waiting N Days tag and its longest-first order (Neil,
+    11/17/2026). A row that waited less than a day gets none."""
+    try:
+        today = date.fromisoformat(briefing_date[:10])
+    except (TypeError, ValueError):
+        return
+    for r in rows:
+        try:
+            days = (today - date.fromisoformat(str(r.get("since") or "")[:10])).days
+        except ValueError:
+            continue
+        if days >= 1:
+            r["waiting_days"] = days
 
 
 # ── Render (email-safe: inline styles, Segoe UI stack, table layout) ──────
@@ -1283,13 +1550,24 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
 # Sep 25 redesign (Neil: remove anything that reads as AI-generated, look like
 # an enterprise product). Plain, neutral layout matching the ticket/task
 # notification emails (ticket_mail_templates.ticket_email_html): dark green
-# brand bar, no emoji, no pills or gradients. Each module inside a section is
-# ONE table, one row per item, instead of a separate card per item.
+# brand bar, no emoji, no gradients.
+#
+# Nov 15 2026 pass (Neil approved the plan, before / after at
+# https://claude.ai/artifact/C6UwnwUwSXoZPd3X9AydHT): one white card per
+# section with its modules as light divider rows inside (no "ITEM / ACTIONS"
+# header per module), color only where it means something (red = needs you,
+# green = brand / done, a short bar beside each heading), white tiles three to
+# a row that jump to their section (six in one row pushed the Weekly Digest
+# wider than a phone), every section open in every client (the collapse only
+# ran in Apple Mail, so an iPhone opened the briefing with nothing showing), a
+# subject and inbox preview line that say what is waiting, "Mark Done" /
+# "Reopen" for the old "Toggle Completion", small square tags for Due Today /
+# Days Overdue, and Approve / Reject at least 40px tall on a phone.
 #
 # Email-client rules still apply: everything is inline-styled table markup
 # that renders correctly with no <style> support at all (Outlook desktop's
-# Word engine). The <style> block only adds the collapse toggle and the phone
-# layout for clients that honor it.
+# Word engine). The <style> block only adds the phone layout for clients that
+# honor it.
 # The app's own green (Oct 6: "make the green used in mails the same as the
 # default green in the application") - the --color-green status token,
 # hsl(142,60%,30%), the same #1f7a40 the task emails' buttons and the one-tap
@@ -1297,38 +1575,29 @@ def build_sections(db: Session, email: str, since_iso: str, briefing_date: str) 
 # (email_theme), so every family follows one setting.
 _GREEN = "#1f7a40"
 _BRAND = _GREEN
+_RED = "#b91c1c"
 _INK, _BODY, _MUTED, _LINE, _SOFT = "#111827", "#374151", "#6b7280", "#e5e7eb", "#f9fafb"
 _LINK = _GREEN
 
 _SECTION_META = {
-    # key: (heading, accent, summary label)
-    "action_required": ("Action Required",                    "#b91c1c", "Need your action"),
-    "needs_to_know":   ("Updates for You",                     "#b45309", "Updates for you"),
-    "completed":       ("Completed Since Your Last Briefing",  _GREEN, "Completed"),
+    # key: (heading, accent, tile label). The accent is the short bar beside
+    # the heading and the tile's number - never a tinted table. Red is for
+    # what needs the reader, green for done, ink for everything else.
+    "action_required": ("Action Required",                    _RED,   "Need Your Action"),
+    "needs_to_know":   ("Updates for You",                    _INK,   "Updates"),
+    "completed":       ("Completed Since Your Last Briefing", _GREEN, "Completed"),
     # Weekly Digest (weekly_digest.py, Sep 28) - rendered by the same code.
-    "overdue":         ("Overdue Tasks",                       "#b91c1c", "Overdue tasks"),
-    "team_overdue":    ("Your Team's Overdue Work",            "#b45309", "Team members behind"),
-    "pending":         ("Needs Your Attention",                "#b45309", "Needs your attention"),
-    "due_week":        ("Due This Week",                       "#1d4ed8", "Due this week"),
-    "time_off_ahead":  ("Upcoming Time Off",                   "#0f766e", "Time off ahead"),
-    "holidays_ahead":  ("Upcoming Holidays",                   "#7c3aed", "Holidays ahead"),
+    "overdue":         ("Overdue Tasks",                      _RED,   "Overdue Tasks"),
+    "team_overdue":    ("Your Team's Overdue Work",           _INK,   "Team Members Behind"),
+    "pending":         ("Needs Your Attention",               _RED,   "Need Your Attention"),
+    "due_week":        ("Due This Week",                      _INK,   "Due This Week"),
+    # Upcoming Time Off and Upcoming Holidays share one section in the email
+    # (weekly_digest.render); the two keys stay for the rows and the counts.
+    "coming_up":       ("Coming Up",                          _INK,   "Coming Up"),
+    "time_off_ahead":  ("Upcoming Time Off",                  _INK,   "Time Off Ahead"),
+    "holidays_ahead":  ("Upcoming Holidays",                  _INK,   "Holidays Ahead"),
 }
 _ORDER = ["action_required", "needs_to_know", "completed"]
-# Each section's tables carry that section's color (Pranshu, Sep 26): a light
-# tint for the rows, a deeper one for the header row, and a matching border,
-# so a table reads as part of its section at a glance.
-_TONE = {
-    # key: (row background, header background, border)
-    "action_required": ("#fef5f5", "#fce4e4", "#f1c7c7"),
-    "needs_to_know":   ("#fffaf0", "#fdefd5", "#f0d6a8"),
-    "completed":       ("#f3fbf5", "#dff3e6", "#bfe3cb"),
-    "overdue":         ("#fef5f5", "#fce4e4", "#f1c7c7"),
-    "team_overdue":    ("#fffaf0", "#fdefd5", "#f0d6a8"),
-    "pending":         ("#fffaf0", "#fdefd5", "#f0d6a8"),
-    "due_week":        ("#f5f8ff", "#e1e9fd", "#c3d3f7"),
-    "time_off_ahead":  ("#f0fdfa", "#d5f5ee", "#a7e3d6"),
-    "holidays_ahead":  ("#f8f5ff", "#ece6fd", "#d4c8f7"),
-}
 
 _MODULE_META = {
     "tasks":    "Tasks",
@@ -1341,7 +1610,8 @@ _MODULE_META = {
     "team":     "Team",
     "holidays": "Holidays",   # Weekly Digest Upcoming Holidays (Oct 29 2026)
 }
-_MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "shifts", "items", "team", "holidays"]
+# Time Sheet first (Neil, 11/12/2026): getting paid on time leads the email.
+_MODULE_ORDER = ["timecard", "tasks", "tickets", "documents", "time_off", "shifts", "items", "team", "holidays"]
 # "View all" target per module for the overflow rows - a plain link, so it
 # works identically in every client (Pranshu, Sep 20).
 _MODULE_VIEW_URL = {
@@ -1357,14 +1627,8 @@ _MODULE_VIEW_URL = {
 _MODULE_ROW_CAP = 18
 
 
-
-def _th(tone: tuple) -> str:
-    return (f"padding:8px 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
-            f"color:{_BODY};text-align:left;background:{tone[1]};border-bottom:1px solid {tone[2]}")
-
-
-def _td(tone: tuple) -> str:
-    return f"padding:12px;vertical-align:top;border-top:1px solid {tone[2]}"
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
 
 
 def _greeting(local_now: datetime) -> str:
@@ -1391,10 +1655,12 @@ def _recipient_local_now(db: Session, email: str) -> datetime:
 
 
 # Button colors (Pranshu, Sep 26): Approve and Open in Nexus green, Reject red.
-_BUTTON_COLOR = {"approve": _GREEN, "reject": "#b91c1c", "open": _GREEN}
+# Reject is a red OUTLINE since Nov 15 2026 (still red), so a column of
+# decisions is not a column of solid red.
+_BUTTON_COLOR = {"approve": _GREEN, "reject": _RED, "open": _GREEN}
 
 
-def _button(label: str, url: str, kind: str, *, pad: str = "5px 14px", size: str = "12px") -> str:
+def _button(label: str, url: str, kind: str, *, pad: str = "8px 14px", size: str = "13px") -> str:
     """One button, as a table CELL holding the link - put it in _button_bar.
 
     Outlook desktop draws mail with Word, which ignores padding, border-radius
@@ -1402,18 +1668,23 @@ def _button(label: str, url: str, kind: str, *, pad: str = "5px 14px", size: str
     outline with the color only behind the words (Oct 1, Outlook Classic vs
     Outlook web). A cell's bgcolor and padding (mso-padding-alt) are what Word
     does honor, so the button is the cell; everywhere else the link's own
-    padding makes the whole button clickable."""
+    padding makes the whole button clickable. `kind` is approve / reject /
+    open or a color (the closing button passes the brand color)."""
     color = _BUTTON_COLOR.get(kind, kind)
+    if kind == "reject":
+        fill, ink, edge = "#ffffff", color, "#e8b4b4"
+    else:
+        fill, ink, edge = color, "#ffffff", color
     link = (f"display:inline-block;padding:{pad};font-size:{size};font-weight:600;line-height:1.3;"
-            "color:#ffffff;text-decoration:none;border-radius:4px;white-space:nowrap")
-    return (f"<td class='nx-btn' bgcolor='{color}' style='background:{color};border-radius:4px;mso-padding-alt:{pad}'>"
-            f"<a href='{escape(url)}' style='{link}'>{escape(label)}</a></td>")
+            f"color:{ink};text-decoration:none;border-radius:6px;white-space:nowrap")
+    return (f"<td class='nx-btn' bgcolor='{fill}' style='background:{fill};border:1px solid {edge};"
+            f"border-radius:6px;mso-padding-alt:{pad}'><a href='{escape(url)}' style='{link}'>{escape(label)}</a></td>")
 
 
 def _button_bar(cells: list, align: str = "left") -> str:
-    """Buttons side by side, 6px apart, in one table row (Outlook desktop has
+    """Buttons side by side, 8px apart, in one table row (Outlook desktop has
     no inline-block to line them up with)."""
-    gap = "<td width='6' style='width:6px;font-size:0;line-height:0'>&nbsp;</td>"
+    gap = "<td class='nx-gap' width='8' style='width:8px;font-size:0;line-height:0'>&nbsp;</td>"
     cells = [c for c in cells if c]
     if not cells:
         return ""
@@ -1426,7 +1697,7 @@ def _links(pairs: list) -> str:
     # of a line when the links wrap. The trailing ordinary space is the only
     # break point, so each link wraps whole.
     sep = "&nbsp;&nbsp;&nbsp; "
-    return sep.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:12.5px;font-weight:600;"
+    return sep.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:13px;font-weight:600;"
                     f"text-decoration:none;white-space:nowrap'>{escape(label)}</a>" for label, url in pairs)
 
 
@@ -1436,17 +1707,19 @@ def _decision_buttons(kind: str, action_id: str, email: str, *, labels=("Approve
     # Email link scanners (Outlook Safe Links, Gmail) prefetch every URL in a
     # message; each link opens a one-tap confirm page
     # (routers/briefing_actions.py) that only acts on its own POST.
-    size = {"pad": "4px 10px", "size": "11.5px"} if small else {}
+    size = {"pad": "6px 12px", "size": "12.5px"} if small else {}
     return [_button(labels[0], briefing_mail_actions.action_url(kind, action_id, "approve", email), "approve", **size),
             _button(labels[1], briefing_mail_actions.action_url(kind, action_id, "reject", email), "reject", **size)]
 
 
 def _row_links(row: dict) -> list:
     """[(label, url)] for a row's own actions (Neil, 10/01 and 10/05): Comment,
-    React, Toggle Completion, Open - no Change Status, "Open" rather than "Open
-    in Nexus". Each opens the signed one-tap page (routers/mail_actions.py) or
-    the item in Nexus - a digest of many tasks cannot run them inside the
-    email, which Neil accepted on 10/05."""
+    React, the completion switch, Open - no Change Status, "Open" rather than
+    "Open in Nexus". Each opens the signed one-tap page (routers/mail_actions.py)
+    or the item in Nexus - a digest of many tasks cannot run them inside the
+    email, which Neil accepted on 10/05. The completion switch says what it
+    does (Nov 15 2026, was "Toggle Completion"): Mark Done on an open task,
+    Reopen on a finished one - and it comes first, the one most people want."""
     links = []
     if row.get("task_id"):
         # The same signed forms the task notification email uses
@@ -1454,26 +1727,26 @@ def _row_links(row: dict) -> list:
         # (task, recipient), do= picks the form.
         tok = task_mail_actions.sign_token(row["task_id"], row.get("action_email", ""))
         base = f"{task_mail_actions.api_base()}/mail-actions/page?token={tok}"
-        links += [("Comment", f"{base}&do=comment"), ("React", f"{base}&do=react")]
         if row.get("task_open") or row.get("task_done"):
-            links.append(("Toggle Completion", f"{base}&do=toggle"))
+            links.append(("Reopen" if row.get("task_done") else "Mark Done", f"{base}&do=toggle"))
         if row.get("task_extend"):
             # Weekly Digest (Neil, Sep 28): "an option to extend the tasks" -
             # do=extend applies the app's own due-date rule.
             links.append(("Extend", f"{base}&do=extend"))
+        links += [("Comment", f"{base}&do=comment"), ("React", f"{base}&do=react")]
     if row.get("url"):
         links.append(("Open", row["url"]))
     return links
 
 
 def _inline_links(pairs: list) -> str:
-    """Links on ONE line, dot-separated - the cell is nowrap, so a separator
-    can never be left dangling at a line end (the reason _links uses plain
-    spacing)."""
+    """Links on ONE line, dot-separated. On a computer the cell is nowrap, so
+    a separator is never left dangling; on a phone the dots are hidden
+    (.nx-dot) and the ordinary space after each is where the line wraps."""
     # Spaces as text, not padding: some clients drop a span's padding and ran
     # the links together ("Comment·React", Oct 6).
-    dot = f"&nbsp;&nbsp;<span style='color:{_MUTED}'>&middot;</span>&nbsp;&nbsp;"
-    return dot.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:12.5px;font-weight:600;"
+    dot = f"&nbsp;&nbsp;<span class='nx-dot' style='color:#c4c9d0'>&middot;</span>&nbsp; "
+    return dot.join(f"<a href='{escape(url)}' style='color:{_LINK};font-size:13px;font-weight:600;"
                     f"text-decoration:none;white-space:nowrap'>{escape(label)}</a>" for label, url in pairs)
 
 
@@ -1481,24 +1754,43 @@ def _actions_cell_html(row: dict, td: str) -> str:
     """The right-hand cell of a row (Neil, 10/05: "in line, the four actions
     are to the right"): the row's links, then Approve / Reject when it is a
     decision - all on ONE line, as cells of one table row so Outlook desktop
-    lines them up too."""
+    lines them up too. On a phone the cell drops under the row."""
     cells = []
+    if row.get("cta"):
+        # One solid button that says what it does (Neil, 11/12/2026: "a link
+        # directly to do so as a button") in place of the small Open link.
+        label, url = row["cta"]
+        cells.append(_button(label, url, "open"))
+        return (f"<td class='nx-td nx-act' align='right' style='{td};text-align:right;white-space:nowrap'>"
+                f"{_button_bar(cells, 'right')}</td>")
     links = _row_links(row)
-    if links:
-        cells.append(f"<td class='nx-links' style='white-space:nowrap;vertical-align:middle;padding-right:4px'>"
-                     f"{_inline_links(links)}</td>")
     if row.get("action_kind"):
         cells += _decision_buttons(row["action_kind"], row["action_id"], row["action_email"])
-    cells += _bundle_buttons(row)
-    return (f"<td class='nx-td nx-act' align='right' style='{td};text-align:right;white-space:nowrap'>"
-            f"{_button_bar(cells, 'right')}</td>")
+    if not links and not cells:
+        return f"<td class='nx-td nx-act nx-none' style='{td}'></td>"
+    # Only "Open": a computer keeps it in line; a phone hides it - the title
+    # is the same link (11/17/2026: a line of its own on every ticket).
+    only_open = not cells and [label for label, _ in links] == ["Open"]
+    # The links and the buttons are two cells of ONE row (one line on a
+    # computer); a phone stacks them - links, then buttons a thumb can hit.
+    parts = []
+    if links:
+        parts.append(f"<td class='nx-links' style='white-space:nowrap;vertical-align:middle;"
+                     f"padding:{'0 10px 0 0' if cells else '0'}'>{_inline_links(links)}</td>")
+    if cells:
+        parts.append(f"<td class='nx-btns' style='vertical-align:middle'>{_button_bar(cells, 'right')}</td>")
+    return (f"<td class='nx-td nx-act{' nx-open-only' if only_open else ''}' align='right' "
+            f"style='{td};text-align:right;white-space:nowrap'>"
+            f"<table role='presentation' cellpadding='0' cellspacing='0' border='0' align='right'><tr>"
+            f"{''.join(parts)}</tr></table></td>")
 
 
 def _bundle_buttons(row: dict) -> list:
     """Approve All / Reject All for a bundled row (an employee with several
     pending time-off requests - Neil, Oct 26: "club the requests ... allow for
-    one or more to be approved at the same time (or rejected)"), next to the
-    per-request pairs on each line (_sub_actions_html). The token names
+    one or more to be approved at the same time (or rejected)"), on the last
+    line under the per-request pairs (_sub_actions_html) - beside the title
+    they pushed the email wider than 680px (Nov 15 2026). The token names
     every request in the bundle (ids comma-joined); its page lists them with
     a checkbox each, all ticked, and decides the ticked ones together
     (routers/briefing_actions.py). A copy for someone else (the Weekly
@@ -1511,7 +1803,7 @@ def _bundle_buttons(row: dict) -> list:
                              labels=("Approve All", "Reject All"))
 
 
-def _sub_actions_html(row: dict, tone: tuple) -> str:
+def _sub_actions_html(row: dict) -> str:
     """The requests inside a bundled row, one line each with its own small
     Approve / Reject (Neil, Oct 26: individual decisions stay, beside the
     row's Approve All / Reject All). On a phone the pair drops under its
@@ -1521,143 +1813,320 @@ def _sub_actions_html(row: dict, tone: tuple) -> str:
     subs = row.get("sub_actions") or []
     if not subs:
         return ""
-    line = f"border-top:1px solid {tone[2]}"
+    line = f"border-top:1px solid {_LINE}"
     lines = "".join(
-        f"<tr><td class='nx-sub-d' style='padding:7px 0;font-size:12.5px;color:{_BODY};{line}'>"
+        f"<tr><td class='nx-sub-d' style='padding:8px 0;font-size:13px;color:{_BODY};white-space:nowrap;{line}'>"
         f"{escape(s['detail'])}</td>"
-        f"<td class='nx-sub-a' align='right' style='padding:5px 0 5px 12px;{line};white-space:nowrap;"
+        f"<td class='nx-sub-a' align='right' style='padding:6px 0 6px 12px;{line};white-space:nowrap;"
         f"vertical-align:middle'>"
         + (_button_bar(_decision_buttons(s["action_kind"], s["action_id"], s["action_email"], small=True), "right")
            if s.get("action_kind") else "")
         + "</td></tr>"
         for s in subs)
-    return f"<table width='100%' cellpadding='0' cellspacing='0' style='margin-top:8px;border-collapse:collapse'>{lines}</table>"
+    every = _bundle_buttons(row)
+    if every:
+        lines += (f"<tr><td class='nx-sub-d' style='padding:8px 0;font-size:13px;font-weight:600;color:{_INK};"
+                  f"white-space:nowrap;{line}'>All {len(subs)} Requests</td>"
+                  f"<td class='nx-sub-a' align='right' style='padding:6px 0 6px 12px;{line};white-space:nowrap;"
+                  f"vertical-align:middle'>{_button_bar(every, 'right')}</td></tr>")
+    return (f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' "
+            f"style='margin-top:10px;border-collapse:collapse'>{lines}</table>")
 
 
-def _comments_row_html(row: dict, colspan: int, tone: tuple) -> str:
-    """Last 3 comments on a task (Sep 23), full width under its row so they
-    stay readable instead of squeezed into one column."""
+def _comments_html(row: dict) -> str:
+    """The latest comment on a task (Sep 23; one since 11/17/2026 - three made
+    the email long), as a quiet line under the title. No box, no side bar."""
     if not row.get("comments"):
         return ""
-    lines = "".join(
-        f"<div style='padding:3px 0;font-size:12.5px;line-height:1.5;color:{_BODY}'>"
-        f"<span style='font-weight:600;color:{_INK}'>{escape(c['author'])}:</span> {escape(c['body'])}</div>"
-        for c in row["comments"])
-    return (f"<tr><td colspan='{colspan}' class='nx-td' style='padding:0 12px 12px'>"
-            f"<div style='background:#ffffff;border-left:3px solid {tone[2]};padding:8px 12px'>"
-            f"<div style='font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;"
-            f"color:{_MUTED};margin-bottom:2px'>Recent Comments</div>{lines}</div></td></tr>")
+    c = row["comments"][-1]
+    body = c.get("body") or ""
+    body = body if len(body) <= 160 else body[:157].rstrip() + "..."
+    return (f"<div style='margin-top:4px;font-size:13px;line-height:1.5;color:{_MUTED}'>"
+            f"<span style='color:{_BODY};font-weight:600'>{escape(c['author'])}:</span> {escape(body)}</div>")
 
 
-def _item_row_html(row: dict, with_ref: bool, tone: tuple) -> str:
-    """One row: what it is and what happened on the left - the title, the
-    update under it - and its actions on the same line at the right."""
-    td = _td(tone)
-    ref = (f"<td class='nx-td nx-ref' width='92' style='{td};font-size:12px;font-weight:600;color:{_MUTED};"
-           f"white-space:nowrap'>{escape(row.get('ref') or '')}</td>") if with_ref else ""
-    detail = (f"<div style='font-size:13px;line-height:1.45;color:{_BODY};margin-top:3px'>"
-              f"{escape(row['detail'])}</div>") if row.get("detail") else ""
-    item = (f"<td class='nx-td' style='{td}'>"
-            f"<div style='font-size:13.5px;font-weight:600;color:{_INK};line-height:1.4'>{escape(row['title'])}</div>"
-            f"{detail}{_sub_actions_html(row, tone)}</td>")
-    return f"<tr>{ref}{item}{_actions_cell_html(row, td)}</tr>{_comments_row_html(row, 3 if with_ref else 2, tone)}"
+# A row's state is plain colored text in its own line (Neil, 11/17/2026: no
+# pills or tag boxes): red when it needs you most, amber when it is getting
+# old or is due today, gray otherwise.
+_STATE_INK = {"red": "#b91c1c", "amber": "#a16207", "gray": _MUTED}
 
 
-def _overflow_footer_html(module: str, shown: list, hidden: list, with_ref: bool, tone: tuple) -> str:
-    """The line under a table that has more rows than it lists: how many are
+def _row_state(row: dict) -> tuple:
+    """(words, tone) for the row's state, or ("", "")."""
+    if row.get("overdue_days"):
+        n = row["overdue_days"]
+        return f"{n} day{'' if n == 1 else 's'} overdue", "red"
+    if row.get("due_today"):
+        return "Due today", "amber"
+    if row.get("overdue_count"):
+        return f"{row['overdue_count']} overdue", "red"
+    if row.get("waiting_days"):
+        n = row["waiting_days"]
+        return f"Waiting {n} day{'' if n == 1 else 's'}", ("red" if n >= 7 else "amber" if n >= 3 else "gray")
+    return "", ""
+
+
+_DECISION_TITLE = re.compile(r"^Approve(?: ([A-Z][\w ]*?))?: ")
+
+
+def _row_title(row: dict) -> str:
+    """The row's title as the email shows it. "Approve: X" beside Approve /
+    Reject buttons said Approve twice, so a decision row drops the word
+    ("Approve Checkout: X" reads "Checkout: X"); My Briefing and the Outlook
+    card keep the full title."""
+    title = row.get("name") or row["title"]
+    if row.get("action_kind") or any(s.get("action_kind") for s in row.get("sub_actions") or []):
+        m = _DECISION_TITLE.match(title)
+        if m:
+            title = (f"{m.group(1)}: " if m.group(1) else "") + title[m.end():]
+    return title
+
+
+def _detail_text(row: dict) -> str:
+    """The line under the title: `short_detail` (the detail without what the
+    state or the day already says), a ticket's number first, a team member's
+    tasks joined on one line."""
+    if row.get("lines"):
+        return " - ".join(row["lines"])
+    detail = row.get("short_detail") if row.get("short_detail") is not None else row.get("detail") or ""
+    if row.get("ref"):
+        detail = f"{row['ref']} - {detail}" if detail else row["ref"]
+    return detail
+
+
+def _detail_html(row: dict) -> str:
+    words, tone = _row_state(row)
+    text = escape(_detail_text(row))
+    # No separator dot: the colored words stand apart, and a wrapped line
+    # never starts or ends with a stray dot (phone, 11/17/2026).
+    state = (f"<span style='color:{_STATE_INK[tone]};font-weight:600;white-space:nowrap'>{escape(words)}</span>"
+             if words else "")
+    joined = f"{text}&nbsp;&nbsp; {state}" if text and state else (text or state)
+    return (f"<div style='font-size:13px;line-height:1.5;color:{_BODY};margin-top:2px'>{joined}</div>"
+            if joined else "")
+
+
+def _row_wrap(cells: str, first: bool) -> str:
+    """A row is its OWN little table: in one table shared by every row, the
+    widest actions of one row and the widest title area of another added up,
+    and the email grew past 680px (Nov 15 2026). Rows are parted by a hairline."""
+    edge = "" if first else f"border-top:1px solid {_LINE};"
+    return (f"<tr><td style='{edge}padding:0'><table role='presentation' width='100%' cellpadding='0' "
+            f"cellspacing='0' style='border-collapse:collapse'><tr>{cells}</tr></table></td></tr>")
+
+
+def _plain(row: dict) -> bool:
+    """A row with nothing to press and nothing under it (who is off, a
+    holiday): title and detail share ONE line."""
+    return not (row.get("cta") or row.get("action_kind") or row.get("sub_actions") or row.get("task_id")
+                or row.get("comments") or row.get("lines") or row.get("url"))
+
+
+def _item_row_html(row: dict, first: bool = False, *_legacy) -> str:
+    """One row: the title and its line on the left, its actions on the same
+    line at the right (a phone puts them underneath)."""
+    td = "padding:10px 0;vertical-align:top"
+    if _plain(row):
+        words, tone = _row_state(row)
+        rest = " &nbsp;&middot;&nbsp; ".join(p for p in (
+            escape(_detail_text(row)),
+            f"<span style='color:{_STATE_INK[tone]};font-weight:600'>{escape(words)}</span>" if words else "") if p)
+        item = (f"<td class='nx-td nx-item' style='{td};font-size:13.5px;line-height:1.5;color:{_BODY}'>"
+                f"<span style='font-weight:600;color:{_INK}'>{escape(_row_title(row))}</span>"
+                + (f" &nbsp;&middot;&nbsp; {rest}" if rest else "") + "</td>")
+        return _row_wrap(item, first)
+    # The title opens the item, so a phone can drop a lone Open link.
+    title = escape(_row_title(row))
+    if row.get("url"):
+        title = f"<a href='{escape(row['url'])}' style='color:{_INK};text-decoration:none'>{title}</a>"
+    item = (f"<td class='nx-td nx-item' style='{td}'>"
+            f"<div style='font-size:14px;font-weight:600;color:{_INK};line-height:1.4'>{title}</div>"
+            f"{_detail_html(row)}{_sub_actions_html(row)}{_comments_html(row)}</td>")
+    return _row_wrap(item + _actions_cell_html(row, td.replace("padding:10px 0", "padding:10px 0 10px 12px")), first)
+
+
+def _done_row_html(row: dict, first: bool = False) -> str:
+    """A Completed row: one quiet line with a green check - done is good news,
+    not work. A finished task keeps Reopen, Comment and React (Neil, 10/01)."""
+    td = "padding:7px 0;vertical-align:top"
+    detail = row.get("detail") or ""
+    if detail == "Completed":
+        detail = ""
+    if row.get("ref"):
+        detail = f"{row['ref']} - {detail}" if detail else row["ref"]
+    item = (f"<td class='nx-td nx-item' style='{td};font-size:13.5px;line-height:1.5;color:{_INK}'>"
+            f"<span style='color:{_GREEN};font-weight:700'>&#10003;</span>&nbsp;&nbsp;"
+            + (f"<a href='{escape(row['url'])}' style='color:{_INK};text-decoration:none'>{escape(row['title'])}</a>"
+               if row.get("url") else escape(row["title"]))
+            + (f"<span style='color:{_MUTED}'> &nbsp;&middot;&nbsp; {escape(detail)}</span>" if detail else "")
+            + "</td>")
+    return _row_wrap(item + _actions_cell_html(row, td.replace("padding:7px 0", "padding:7px 0 7px 12px")), first)
+
+
+def _overflow_html(module: str, shown: list, hidden: list) -> str:
+    """The line under a group that has more rows than it lists: how many are
     not listed, and where to see them all."""
-    cols = 3 if with_ref else 2
     more = f"{len(hidden)} more not listed. "
     # Team rows are people, not one screen: "View All" used to open the first
-    # report's first task (Oct 5), so a team table gets the count only.
+    # report's first task (Oct 5), so a team group gets the count only.
     view_url = ("" if module == "team" else
                 (shown[0].get("url") if shown else "") or f"{app_url()}{_MODULE_VIEW_URL.get(module, '')}")
     view = _links([(f"View All {len(shown) + len(hidden)} in Nexus", view_url)]) if view_url else ""
-    return (f"<tr><td colspan='{cols}' class='nx-td' style='padding:10px 12px;border-top:1px solid {tone[2]};"
-            f"background:{tone[1]};font-size:12.5px;color:{_BODY}'>{escape(more)}{view}</td></tr>")
+    return (f"<tr><td class='nx-td' style='padding:8px 0;border-top:1px solid {_LINE};"
+            f"font-size:13px;color:{_BODY}'>{escape(more)}{view}</td></tr>")
 
 
 def _group_by_module(rows: list) -> list:
     """[(module_key, label, rows), ...] in _MODULE_ORDER, any untagged module
     appended after in first-seen order so it still renders rather than vanish."""
     buckets: dict = {}
-    for r in rows:
+    # Inside a module: the one-button rows (your own Time Sheet) first, then
+    # the longest waiting, so the oldest decision is never at the bottom.
+    for r in sorted(rows, key=lambda r: (not r.get("cta"), -(r.get("waiting_days") or 0))):
         buckets.setdefault(r.get("module") or "other", []).append(r)
     order = [m for m in _MODULE_ORDER if m in buckets] + [m for m in buckets if m not in _MODULE_ORDER]
     return [(m, _MODULE_META.get(m, m.replace("_", " ").title()), buckets[m]) for m in order]
 
 
-def _module_table_html(section: str, module: str, label: str, rows: list) -> str:
-    tone = _TONE[section]
-    shown, hidden = rows[:_MODULE_ROW_CAP], rows[_MODULE_ROW_CAP:]
-    with_ref = any(r.get("ref") for r in rows)
-    th = _th(tone)
-    head = ((f"<th class='nx-th' style='{th}'>ID</th>" if with_ref else "") +
-            f"<th class='nx-th' style='{th}'>Item</th>"
-            f"<th class='nx-th' align='right' style='{th};text-align:right'>Actions</th>")
-    body = "".join(_item_row_html(r, with_ref, tone) for r in shown)
-    if hidden:
-        body += _overflow_footer_html(module, shown, hidden, with_ref, tone)
-    return (f"<div style='margin:18px 0 8px;font-size:13px;font-weight:600;color:{_INK}'>{escape(label)} "
-            f"<span style='font-weight:400;color:{_MUTED}'>({len(rows)})</span></div>"
-            # bgcolor as well as the style: Outlook desktop honors the attribute
-            # on tables more reliably than a CSS background.
-            f"<table width='100%' cellpadding='0' cellspacing='0' class='nx-tbl' bgcolor='{tone[0]}' "
-            f"style='background:{tone[0]};border:1px solid {tone[2]};border-collapse:collapse;border-radius:6px'>"
-            f"<tr class='nx-head'>{head}</tr>{body}</table>")
+def _groups(rows: list) -> list:
+    """The groups inside a section: by the rows' own `group` when every row
+    names one (Coming Up's Time Off / Holidays), else by module."""
+    if rows and all(r.get("group") for r in rows):
+        out: dict = {}
+        for r in rows:
+            out.setdefault(r["group"], []).append(r)
+        return [(rs[0].get("module") or "", label, rs) for label, rs in out.items()]
+    return _group_by_module(rows)
 
 
-def _section_html(key: str, rows: list, expanded: bool = False, note: str = "") -> str:
-    heading, accent, _ = _SECTION_META[key]
-    tables = "".join(_module_table_html(key, m, label, grows) for m, label, grows in _group_by_module(rows))
-    if note:
-        tables = f"<div style='margin:14px 0 0;font-size:13.5px;line-height:1.5;color:{_BODY}'>{escape(note)}</div>" + tables
-    sid = f"nx-sec-{key}"
-    # Checkbox-hack collapse, collapsed by default where the <style> CSS runs.
-    # The content's own inline style is display:block, so a client that
-    # ignores the CSS (Outlook desktop) shows the section expanded - never
-    # stuck hidden. Outlook desktop still drew the checkbox - "[ ]", or "[X]"
-    # on the Weekly Digest's open sections - despite mso-hide:all (Oct 1), and
-    # it cannot collapse anyway, so the checkbox and the arrow sit inside
-    # <!--[if !mso]> comments: every other client gets them, Outlook desktop
-    # never sees them.
+def _group_head_html(label: str, n: int, first: bool) -> str:
+    """A group's name as a small quiet line - no band, no box."""
+    return (f"<tr><td class='nx-grp' style='padding:{'2px' if first else '12px'} 0 2px;font-size:12px;"
+            f"font-weight:600;color:{_MUTED}'>{escape(label)}"
+            f"<span style='font-weight:400'>&nbsp;&nbsp;{n}</span></td></tr>")
+
+
+def _section_html(key: str, rows: list, expanded: bool = True, note: str = "", cap: int = None) -> str:
+    """One section: its heading and count, an optional line of text, then the
+    rows parted by hairlines - a small name over each module when there are
+    several. No colored bar, no box (Neil, 11/17/2026). `expanded` is kept for
+    old callers: every section is open (the checkbox collapse ran only in
+    Apple Mail)."""
+    heading, _, _ = _SECTION_META.get(key, (key.replace("_", " ").title(), _INK, ""))
+    groups = _groups(rows)
+    bare = len(groups) == 1   # one kind of thing needs no name over it
+    body, first = "", True
+    for module, label, grows in groups:
+        if not bare:
+            body += _group_head_html(label, len(grows), first)
+            first = True   # the row right under a name needs no hairline
+        lim = cap or _MODULE_ROW_CAP
+        shown, hidden = grows[:lim], grows[lim:]
+        draw = _done_row_html if key == "completed" else _item_row_html
+        for i, r in enumerate(shown):
+            body += draw(r, first and i == 0)
+        first = False
+        if hidden:
+            body += _overflow_html(module, shown, hidden)
+    note_html = (f"<div style='margin:0 0 4px;font-size:13px;line-height:1.5;color:{_MUTED}'>{escape(note)}</div>"
+                 if note else "")
     return f"""
-    <tr><td class="nx-pad" style="padding:26px 32px 0">
-      <!--[if !mso]><!--><input type="checkbox" id="{sid}" class="nx-acc"{" checked" if expanded else ""} style="display:none;mso-hide:all"><!--<![endif]-->
-      <label for="{sid}" class="nx-acc-label" style="display:block;cursor:pointer">
-        <table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:2px solid {accent}">
-          <tr>
-            <td style="padding:0 0 8px;font-size:16px;font-weight:600;color:{_INK}">{escape(heading)}
-              <span style="font-weight:400;color:{_MUTED}">({len(rows)})</span></td>
-            <td align="right" style="padding:0 0 8px;font-size:12px;color:{_MUTED}"><!--[if !mso]><!--><span class="nx-arrow" style="display:inline-block">&#9656;</span><!--<![endif]--></td>
-          </tr>
-        </table>
-      </label>
-      <div class="nx-content" style="display:block">{tables}</div>
+    <tr><td class="nx-pad" style="padding:22px 32px 0">
+      <div role="heading" aria-level="2" style="font-size:16px;font-weight:600;line-height:1.3;color:{_INK};padding-bottom:6px;border-bottom:1px solid {_LINE}">{escape(heading)}<span style="font-weight:400;color:{_MUTED}">&nbsp;&nbsp;{len(rows)}</span></div>
+      <div style="height:4px;line-height:4px;font-size:0">&nbsp;</div>
+      {note_html}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">{body}</table>
     </td></tr>"""
 
 
+# What each section's count says in the summary line under the greeting.
+_COUNT_WORDS = {
+    "action_required": ("need your action", "needs your action"), "pending": ("need your attention", "needs your attention"),
+    "overdue": ("overdue", "overdue"), "due_week": ("due this week", "due this week"),
+    "needs_to_know": ("updates", "update"), "team_overdue": ("team members behind", "team member behind"),
+    "completed": ("done", "done"), "coming_up": ("coming up", "coming up"),
+}
+
+
 def _summary_html(sections: dict, order: list = None) -> str:
-    present = [k for k in (order or _ORDER) if sections.get(k)]
-    if not present:
+    """ONE quiet line of counts under the greeting ("9 need your action - 2
+    overdue - 3 due this week") - words, not tiles (Neil, 11/17/2026: no stat
+    boxes). Red only on what needs the reader."""
+    parts = []
+    for k in (order or _ORDER):
+        if not sections.get(k) or k not in _COUNT_WORDS:
+            continue
+        n = len(sections[k])
+        ink = "#b91c1c" if k in ("action_required", "pending", "overdue") else _INK
+        many, one = _COUNT_WORDS[k]
+        parts.append(f"<span style='font-weight:700;color:{ink}'>{n}</span> {escape(one if n == 1 else many)}")
+    if not parts:
         return f"<div style='font-size:13.5px;color:{_MUTED}'>Nothing new since your last briefing.</div>"
-    cells = []
-    for i, k in enumerate(present):
-        _, accent, noun = _SECTION_META[k]
-        # Solid section color with white text (Pranshu, Sep 26: the light
-        # tints were too faint to read at a glance). A white gap between
-        # tiles keeps them separate.
-        gap = "border-left:6px solid #ffffff;" if i else ""
-        cells.append(f"<td class='nx-kpi' width='{100 // len(present)}%' bgcolor='{accent}' "
-                     f"style='{gap}background:{accent};padding:14px 18px;vertical-align:top'>"
-                     f"<div style='font-size:24px;font-weight:600;color:#ffffff;line-height:1'>{len(sections[k])}</div>"
-                     f"<div style='font-size:12px;color:#ffffff;margin-top:6px'>{escape(noun)}</div></td>")
-    return (f"<table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse'>"
-            f"<tr>{''.join(cells)}</tr></table>")
+    dot = f"<span style='color:{_MUTED}'>&nbsp;&nbsp;&middot;&nbsp;&nbsp;</span>"
+    return f"<div style='font-size:14px;line-height:1.6;color:{_BODY}'>{dot.join(parts)}</div>"
+
+
+_BODY_BUDGET = 80_000          # the sections; the frame and styles add ~15 KB -> under 95 KB
+_FYI_SECTIONS = ("completed", "needs_to_know", "coming_up", "team_overdue")
+
+
+def _today_html(line: str) -> str:
+    """The day under the counts: your shift and its site - plain text."""
+    if not line:
+        return ""
+    return f"<div style='font-size:13.5px;line-height:1.5;color:{_MUTED};margin-top:2px'>{escape(line)}</div>"
+
+
+def _recap_html(lines) -> str:
+    """Last Week (Weekly Briefing): a heading and a few plain lines."""
+    if not lines:
+        return ""
+    body = "".join(f"<div style='font-size:13.5px;line-height:1.6;color:{_BODY}'>{escape(t)}</div>" for t in lines)
+    return f"""
+    <tr><td class="nx-pad" style="padding:22px 32px 0">
+      <div role="heading" aria-level="2" style="font-size:16px;font-weight:600;line-height:1.3;color:{_INK};padding-bottom:6px;border-bottom:1px solid {_LINE}">Last Week</div>
+      <div style="height:8px;line-height:8px;font-size:0">&nbsp;</div>
+      {body}
+    </td></tr>"""
 
 
 _DAILY_FOOTER = ("You receive one briefing a day, before your shift starts (or at a set time on a day without "
                  "a shift). It lists what needs your attention in Nexus since your last briefing.")
+
+_OWN_SHEET_VERBS = ("Submit", "Fix", "Resubmit", "Sign", "Check")
+
+
+def daily_preheader(sections: dict) -> str:
+    """The inbox preview line (hidden in the email itself), by rules from the
+    rows: "Submit your Time Sheet, 7 decisions waiting, 2 tasks due today,
+    3 more to do, 4 updates, 4 done." Without it the inbox showed "GREENS
+    GLOBAL Monday, 11/16/2026 Daily Briefing Good morning..."."""
+    act = sections.get("action_required") or []
+    bits, counted = [], 0
+    own = [r for r in act if r.get("module") == "timecard" and "Your" in r.get("title", "")
+           and r["title"].split()[0] in _OWN_SHEET_VERBS]
+    if own:
+        bits.append(f"{own[0]['title'].split()[0].lower()} your Time Sheet")
+        counted += len(own)
+    decisions = [r for r in act if r not in own and (
+        r.get("action_kind") or r.get("sub_actions") or (r.get("title") or "").startswith(("Approve", "Review ")))]
+    if decisions:
+        bits.append(f"{_plural(len(decisions), 'decision')} waiting")
+        counted += len(decisions)
+    due = [r for r in act if r.get("due_today") and r not in decisions]
+    if due:
+        bits.append(f"{_plural(len(due), 'task')} due today")
+        counted += len(due)
+    if len(act) > counted:
+        bits.append(f"{len(act) - counted} more to do")
+    # Updates only when nothing needs action; finished items never - the
+    # preview says what needs you (11/17/2026: it ran to two lines).
+    if sections.get("needs_to_know") and not act:
+        bits.append(_plural(len(sections["needs_to_know"]), "update"))
+    if not bits:
+        return "Nothing new since your last briefing."
+    line = ", ".join(bits)
+    return line[:1].upper() + line[1:] + "."
 
 
 def _stop_link(kind: str) -> str:
@@ -1685,76 +2154,106 @@ def _brand() -> str:
 def render_email(first_name: str, briefing_date: str, sections: dict,
                  greeting: str = "Hello", logo_url: str = "", *,
                  title: str = "Daily Briefing", date_label: str = "",
-                 intro: str = "Here is what changed since your last briefing.",
-                 footer: str = _DAILY_FOOTER, order: list = None, expanded: bool = False,
+                 intro: str = None, subject: str = "", preheader: str = None,
+                 footer: str = _DAILY_FOOTER, order: list = None, expanded: bool = True,
                  cta_label: str = "Open My Briefing", cta_path: str = "/briefing",
-                 cta_hint: str = "", notes: dict = None, stop_kind: str = "daily_briefing") -> tuple:
+                 cta_hint: str = "", notes: dict = None, stop_kind: str = "daily_briefing",
+                 today_line: str = "", since_label: str = "", recap: list = None) -> tuple:
     """The briefing email. The keyword-only arguments exist for the Weekly
-    Digest (weekly_digest.py), which reuses this layout with its own section;
-    their defaults are the daily email exactly. `expanded` starts sections
-    open instead of collapsed; cta_* is the page the top link and the closing
-    button open. No hint under the button by default: "Collapse sections and
-    approve, comment or complete in one click" promised a collapse most mail
-    clients cannot do (Neil, 10/01). `notes` puts one line of text at the top of
-    a section ({section key: text}) - the digest's team summary."""
+    Digest (weekly_digest.py), which reuses this layout with its own sections;
+    their defaults are the daily email exactly. `subject`, `intro` and
+    `preheader` default to the daily's own (the count of what needs action);
+    cta_* is the page the top link and the closing button open. `expanded`
+    is accepted for old callers - every section is open. `notes` puts one
+    line of text at the top of a section ({section key: text}) - the
+    digest's team summary."""
     order = order or _ORDER
     brand = _brand()
     _d = datetime.strptime(briefing_date, "%Y-%m-%d")
     weekday_date = date_label or f"{_d.strftime('%A')}, {_d.strftime('%m/%d/%Y')}"
-    subject = f"Your {title} - {weekday_date}"
+    n_act = len(sections.get(order[0]) or [])
+    if not subject:
+        # The inbox line says whether today's needs you (Nov 15 2026; it was
+        # "Your Daily Briefing - <date>" every day).
+        subject = (f"{title} - {n_act} Need{'s' if n_act == 1 else ''} Your Action - {weekday_date}" if n_act
+                   else f"{title} - All Caught Up - {weekday_date}")
+    if intro is None:
+        # The counts are the line under it, so the greeting carries only the
+        # window when it reaches past yesterday (11/17/2026).
+        intro = f"Here is what changed since {since_label}." if since_label else ""
+    if preheader is None:
+        preheader = daily_preheader(sections)
     logo = (f"<img src='{escape(logo_url)}' alt='Greens Global' height='26' style='display:block;border:0'>"
             if logo_url else
             "<span style='color:#ffffff;font-size:14px;font-weight:700;letter-spacing:.18em'>GREENS GLOBAL</span>")
     salutation = f"{greeting}, {escape(first_name)}." if first_name else f"{greeting}."
-    body_sections = "".join(_section_html(k, sections[k], expanded, (notes or {}).get(k, ""))
-                            for k in order if sections.get(k))
-    html = f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+    # Gmail clips a message past ~102 KB and hides the rest, the Stop These
+    # Emails link included. Action Required always lists in full; the FYI
+    # sections list fewer rows (with View All) until the email fits 95 KB.
+    caps = {}
+
+    def _body():
+        return "".join(_section_html(k, sections[k], True, (notes or {}).get(k, ""), caps.get(k))
+                       for k in order if sections.get(k))
+    body_sections = _body()
+    for lim in (10, 6, 3):
+        if len(body_sections.encode()) <= _BODY_BUDGET:
+            break
+        caps = {k: lim for k in _FYI_SECTIONS}
+        body_sections = _body()
+    # The preview line, then filler so the client does not pull body text in
+    # after it. Hidden everywhere, Outlook desktop included (mso-hide).
+    pre = (f"<div style='display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;"
+           f"color:#f3f4f6;opacity:0'>{escape(preheader)}{'&nbsp;&zwnj;' * 60}</div>") if preheader else ""
+    html = f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif" lang="en">
+  {pre}
   <style>
-    .nx-acc:not(:checked) ~ .nx-content {{ display:none !important; }}
-    .nx-acc:checked ~ .nx-content {{ display:block !important; }}
-    .nx-acc:checked + .nx-acc-label .nx-arrow {{ transform:rotate(90deg); }}
     @media (max-width:560px) {{
       .nx-wrap {{ border-left:0 !important; border-right:0 !important; }}
       .nx-pad {{ padding-left:16px !important; padding-right:16px !important; }}
-      .nx-head {{ display:none !important; }}
       .nx-td {{ display:block !important; width:auto !important; }}
-      .nx-ref {{ padding-bottom:0 !important; }}
-      .nx-act {{ border-top:0 !important; padding-top:0 !important; text-align:left !important; white-space:normal !important; }}
+      .nx-item {{ padding-bottom:6px !important; }}
+      .nx-act {{ border-top:0 !important; padding:0 0 10px !important; text-align:left !important; white-space:normal !important; }}
+      .nx-none {{ display:none !important; }}
       .nx-act table {{ float:none !important; }}
+      .nx-act > table {{ float:none !important; }}
+      .nx-open-only {{ display:none !important; }}
+      .nx-links, .nx-btns {{ display:inline-block !important; vertical-align:middle !important; text-align:left !important; }}
+      .nx-links {{ white-space:normal !important; line-height:2 !important; padding:0 12px 6px 0 !important; }}
+      .nx-dot {{ display:none !important; }}
+      .nx-btn a {{ padding:11px 18px !important; font-size:14px !important; }}
       .nx-sub-d {{ display:block !important; padding-bottom:4px !important; }}
-      .nx-sub-a {{ display:block !important; border-top:0 !important; padding:0 0 8px !important; text-align:left !important; }}
+      .nx-sub-a {{ display:block !important; border-top:0 !important; padding:0 0 10px !important; text-align:left !important; }}
       .nx-sub-a table {{ float:none !important; }}
-      .nx-kpi {{ padding:12px !important; }}
     }}
   </style>
-  <table class="nx-wrap" align="center" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#ffffff;border:1px solid {_LINE};border-collapse:collapse">
+  <table role="presentation" class="nx-wrap" align="center" width="680" cellpadding="0" cellspacing="0" style="max-width:680px;width:100%;background:#ffffff;border:1px solid {_LINE};border-collapse:collapse">
     <tr>
-      <td class="nx-pad" bgcolor="{brand}" style="background:{brand};padding:16px 32px">
-        <table width="100%" cellpadding="0" cellspacing="0"><tr>
+      <td class="nx-pad" bgcolor="{brand}" style="background:{brand};padding:12px 32px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td>{logo}</td>
           <td align="right" style="font-size:12.5px;color:#e8f5ec">{escape(weekday_date)}</td>
         </tr></table>
       </td>
     </tr>
     <tr>
-      <td class="nx-pad" style="padding:28px 32px 0">
-        <div style="font-size:21px;font-weight:600;color:{_INK}">{escape(title)}</div>
-        <div style="font-size:14px;line-height:1.55;color:{_BODY};margin-top:6px">{salutation} {escape(intro)}</div>
+      <td class="nx-pad" style="padding:22px 32px 0">
+        <div role="heading" aria-level="1" style="font-size:20px;font-weight:600;color:{_INK}">{escape(title)}</div>
+        <div style="font-size:14px;line-height:1.55;color:{_BODY};margin-top:4px">{salutation}{(' ' + escape(intro)) if intro else ''}</div>
+        <div style="margin-top:6px">{_summary_html(sections, order)}</div>
+        {_today_html(today_line)}
       </td>
     </tr>
-    <tr><td class="nx-pad" style="padding:20px 32px 0">{_summary_html(sections, order)}</td></tr>
-    <tr><td class="nx-pad" style="padding:12px 32px 0;font-size:13px">
-      <a href="{escape(app_url())}{escape(cta_path)}" style="color:{_LINK};font-weight:600;text-decoration:none">{escape(cta_label)} in Nexus &rarr;</a>
-    </td></tr>
     {body_sections}
+    {_recap_html(recap)}
     <tr>
-      <td class="nx-pad" style="padding:32px 32px 28px">
-        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", brand, pad="10px 22px", size="13px")])}
+      <td class="nx-pad" style="padding:24px 32px 22px">
+        {_button_bar([_button(cta_label, f"{app_url()}{cta_path}", brand, pad="9px 18px", size="13px")])}
         {f'<div style="font-size:12px;color:{_MUTED};margin-top:8px">{escape(cta_hint)}</div>' if cta_hint else ''}
       </td>
     </tr>
     <tr>
-      <td class="nx-pad" style="background:{_SOFT};border-top:1px solid {_LINE};padding:16px 32px;font-size:11.5px;line-height:1.6;color:{_MUTED}">
+      <td class="nx-pad" style="border-top:1px solid {_LINE};padding:14px 32px;font-size:11.5px;line-height:1.6;color:{_MUTED}">
         {escape(footer)}
         {_stop_link(stop_kind)}
       </td>
@@ -1844,6 +2343,12 @@ def _page_row(db: Session, row: dict, status_cache: dict) -> dict:
         # When the item started waiting on this person - the My Day widget
         # shows "3d" / "5h" from it and sorts oldest first.
         out["createdAt"] = row["since"]
+    if row.get("cta"):
+        # The row's one button (a Time Sheet to submit / sign / review).
+        label, curl = row["cta"]
+        out["cta"] = {"label": label, "path": curl[len(base):] if base and curl.startswith(base) else curl}
+    if row.get("urgency"):
+        out["urgency"] = row["urgency"]   # My Day: overdue / today, instead of reading the wording
     if row.get("action_kind"):
         out["decision"] = {"kind": row["action_kind"], "id": row["action_id"]}
     if row.get("sub_actions"):
@@ -1887,17 +2392,40 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
     since_iso = ""
     last = _last_log(db, emp.work_email)
     if last and last.sent_at:
-        since_iso = last.sent_at
+        # Never further back than LOOKBACK_DAYS_MAX: a month with the emails
+        # off (or stopped by the person) must not turn into a month-long email.
+        floor = (datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS_MAX)).strftime("%Y-%m-%dT%H:%M:%S")
+        since_iso = max(last.sent_at[:19], floor)
     if not since_iso:
         since_iso = (datetime.now(timezone.utc) - timedelta(hours=LOOKBACK_HOURS_FIRST_RUN)).strftime("%Y-%m-%dT%H:%M:%S")
 
-    sections = build_sections(db, emp.work_email, since_iso, briefing_date)
+    built = build_sections(db, emp.work_email, since_iso, briefing_date)
+    sections = built
     first_name = (emp.first_name or "").strip()
-    greeting = _greeting(local_now or _recipient_local_now(db, emp.work_email))
+    local_now = local_now or _recipient_local_now(db, emp.work_email)
+    greeting = _greeting(local_now)
     logo_url = _logo_url(db)
-    subject, html = render_email(first_name, briefing_date, sections, greeting=greeting, logo_url=logo_url)
-
     mode = cfg.get("mode", "off")
+    # A day with nothing to act on and no updates sends nothing (Neil,
+    # 11/17/2026): its completed rows come in the next email, which starts
+    # from the last one sent (_last_log).
+    if not sections.get("action_required") and not sections.get("needs_to_know"):
+        sections = {}
+    # Monday is ONE email (Neil, 11/17/2026): the first briefing of the week
+    # on or after the Weekly Briefing's send day carries the week's sections
+    # and stands in for the separate one (weekly_digest.combine_into_daily).
+    import weekly_digest
+    week = weekly_digest.combine_into_daily(db, emp, date.fromisoformat(briefing_date), mode)
+    if week and mode == "test" and not weekly_digest._only_for(emp, list(cfg.get("test_recipients") or [])):
+        # A copy read by someone else carries no links that act as this person,
+        # the same rule as the separate Weekly Briefing's test mode.
+        week = {**week, "sections": weekly_digest._without_actions(week["sections"])}
+    extra = {"today_line": today_line_for(db, emp.work_email, briefing_date),
+             "since_label": since_label_for(since_iso if last and last.sent_at else "", briefing_date, local_now)}
+    if week:
+        sections, extra = weekly_digest.combined(built, week, briefing_date, extra)
+    subject, html = render_email(first_name, briefing_date, sections, greeting=greeting, logo_url=logo_url, **extra)
+
     # Stopped from the email's own link or Profile (email_optout.py): no
     # live email for them; the page and the bell are unchanged.
     import email_optout
@@ -1927,6 +2455,9 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
                 sent_at = _now_iso()
             except graph_mail.GraphMailError as e:
                 print(f"[daily-briefing] send failed for {emp.work_email}: {e}")
+    if week and sent_at:
+        # The week went out with this one - the separate send skips this week.
+        weekly_digest.log_combined(db, emp, date.fromisoformat(briefing_date), mode, week, sent_at)
 
     db.add(models.NexusDailyBriefingLog(
         id=str(uuid.uuid4()), employee_email=emp.work_email, briefing_date=briefing_date,
@@ -2000,6 +2531,9 @@ def _scan_once() -> int:
                     due, briefing_date, local_now = _no_shift_due(db, emp.work_email, cfg)
                 if not due:
                     db.rollback()
+                    continue
+                if skip_reason(db, emp, briefing_date):
+                    _log_skip(db, emp, briefing_date, cfg.get("mode", "off"))
                     continue
                 _send_one(db, emp, cfg, briefing_date, local_now)
                 sent += 1

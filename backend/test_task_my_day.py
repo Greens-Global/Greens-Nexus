@@ -519,5 +519,86 @@ class GuestAndRouteTests(Base):
         auth.invalidate_role_cache()
 
 
+class CarryOverTests(Base):
+    """Left From Last Time (Neil, 11/13/2026): last time's picks that are
+    still open are OFFERED on the next day - never moved by themselves."""
+
+    def carry(self, accept=True, user=ME, day=TODAY):
+        return M.carry_my_day(M.MyDayCarry(day=day, accept=accept), user=user, db=self.db)
+
+    def _doc(self, user=ME):
+        row = self.db.query(models.TaskTablePref).filter(models.TaskTablePref.owner_email == user["email"]).first()
+        self.db.refresh(row)
+        return row.my_day
+
+    def test_yesterdays_open_picks_are_offered_and_nothing_moves_by_itself(self):
+        a = self.task(title="Still open", access_level="org")
+        b = self.task(title="Finished", access_level="org")
+        self.add(a, day=YESTERDAY)
+        self.add(b, day=YESTERDAY)
+        b.completed = True
+        self.db.commit()
+        out = self.get()
+        self.assertEqual(out["tasks"], [])                       # the day still starts empty
+        self.assertEqual((out["carryOver"]["day"], out["carryOver"]["count"]), (YESTERDAY, 1))
+        self.assertEqual([t["id"] for t in out["carryOver"]["tasks"]], [a.id])
+
+    def test_add_to_today_brings_them_under_what_is_there_and_ends_the_offer(self):
+        a = self.task(title="A", access_level="org")
+        b = self.task(title="B", access_level="org")
+        new = self.task(title="New today", access_level="org")
+        self.add(a, day=YESTERDAY)
+        self.add(b, day=YESTERDAY)
+        self.add(new)                                            # today began before the answer
+        self.assertEqual(self.get()["carryOver"]["count"], 2)    # the offer survives today's first write
+        out = self.carry(True)
+        self.assertEqual(out["addedIds"], [new.id, b.id, a.id])
+        self.assertIsNone(out["carryOver"])
+        self.assertIsNone(self.get()["carryOver"])
+        self.assertNotIn("prev", self._doc())
+
+    def test_not_today_ends_the_offer_and_adds_nothing(self):
+        a = self.task(title="A", access_level="org")
+        self.add(a, day=YESTERDAY)
+        out = self.carry(False)
+        self.assertEqual((out["tasks"], out["carryOver"]), ([], None))
+        self.assertIsNone(self.get()["carryOver"])
+
+    def test_a_pick_already_on_today_or_taken_off_today_is_not_offered(self):
+        due = self.task(title="Due today", assignee=ME, due_on=TODAY, access_level="org")
+        off = self.task(title="Taken off", access_level="org")
+        self.add(due, day=YESTERDAY)
+        self.add(off, day=YESTERDAY)
+        self.assertEqual([t["id"] for t in self.get()["carryOver"]["tasks"]], [off.id])   # `due` is on today's list by itself
+        self.remove(off)
+        self.assertIsNone(self.get()["carryOver"])
+
+    def test_a_task_i_can_no_longer_see_is_never_offered(self):
+        gone = self.task(title="Restricted away", access_level="org")
+        self.add(gone, day=YESTERDAY)
+        gone.access_level = "private"
+        gone.owner_email = OTHER["email"]
+        self.db.commit()
+        self.assertIsNone(self.get()["carryOver"])
+        self.assertEqual(self.carry(True)["tasks"], [])
+
+    def test_an_old_list_is_not_offered(self):
+        a = self.task(title="A", access_level="org")
+        self.add(a, day=YESTERDAY)
+        row = self.db.query(models.TaskTablePref).filter(models.TaskTablePref.owner_email == ME["email"]).first()
+        old = (_UTC - timedelta(days=M.CARRY_DAYS + 1)).isoformat()
+        row.my_day = {**row.my_day, "day": old}
+        self.db.commit()
+        self.assertIsNone(self.get()["carryOver"])
+        row.my_day = {**row.my_day, "day": (_UTC - timedelta(days=M.CARRY_DAYS)).isoformat()}
+        self.db.commit()
+        self.assertEqual(self.get()["carryOver"]["count"], 1)
+
+    def test_nobody_elses_offer(self):
+        a = self.task(title="A", access_level="org")
+        self.add(a, day=YESTERDAY)
+        self.assertIsNone(self.get(user=OTHER)["carryOver"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,8 +20,14 @@ const SUB_ALIASES = {
 // schedule, punch, field, photos, rfis, changes, money, closeout. A job id never holds a colon.
 export const JOB_TABS = ['overview', 'schedule', 'punch', 'field', 'photos', 'rfis', 'drawings', 'permits', 'subs', 'changes', 'money', 'closeout'];
 
+// Quick Actions > New > Daily Log (Neil, 11/14/2026): Site Activity, starting
+// today's log on the person's jobsite (SiteActivity's `startSignal`); the
+// address then goes back to the tab.
+export const LOG_TODAY_SUB = 'construction-activity:log';
+
 export function parseConstructionSub(raw) {
   const sub = SUB_ALIASES[raw] || raw || 'construction-dashboard';
+  if (sub === LOG_TODAY_SUB) return { tab: 'construction-activity', projectId: '', startLog: true };
   const m = /^(project|activity):([^:]+)(?::([a-z]+))?$/.exec(sub);
   if (m) {
     const jobTab = m[1] === 'project' && JOB_TABS.includes(m[3]) && m[3] !== 'overview' ? m[3] : undefined;

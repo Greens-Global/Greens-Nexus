@@ -91,7 +91,7 @@ export function Lines({ data, series, height = 170, zero = true, hline, xKey = '
           <XAxis dataKey={xKey} tick={tick} tickLine={false} axisLine={false} interval="preserveStartEnd" />
           <YAxis tick={tick} tickLine={false} axisLine={false} tickFormatter={(v) => (count ? String(v) : compact(Number(v)))} width={count ? 32 : 58} domain={zero ? [0, 'auto'] : ['auto', 'auto']} />
           <Tooltip contentStyle={tooltipStyle} formatter={(v, name) => [count ? v : money(Number(v)), series.find((s) => s.key === name)?.label ?? name]} />
-          {hline ? <ReferenceLine y={hline.v} stroke="#dc2626" strokeDasharray="4 4" label={hline.label ? { value: hline.label, fontSize: 10, fill: '#dc2626', position: 'insideTopRight' } : undefined} /> : null}
+          {hline ? <ReferenceLine y={hline.v} stroke="#dc2626" strokeDasharray="4 4" label={hline.label ? { value: hline.label, fontSize: 11, fill: '#dc2626', position: 'insideTopRight' } : undefined} /> : null}
           {series.map((s, i) => (
             <Line key={s.key} type="monotone" dataKey={s.key} stroke={s.color ?? seriesColor(i)} strokeWidth={s.dashed ? 1.5 : 2} strokeDasharray={s.dashed ? '5 4' : undefined} dot={false} isAnimationActive={false} connectNulls={false} />
           ))}
@@ -115,9 +115,9 @@ export function Donut({ rows, total, label, sub, subColor, size = 176 }) {
         </PieChart>
       </ResponsiveContainer>
       <div style={{ pointerEvents: 'none', position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{label}</div>
-        <div style={{ fontSize: '1.1rem', fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{money(total, { compact: true })}</div>
-        {sub ? <div style={{ fontSize: '0.7rem', fontWeight: 600, color: subColor }}>{sub}</div> : null}
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{label}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{money(total, { compact: true })}</div>
+        {sub ? <div style={{ fontSize: 11, fontWeight: 600, color: subColor }}>{sub}</div> : null}
       </div>
     </div>
   );

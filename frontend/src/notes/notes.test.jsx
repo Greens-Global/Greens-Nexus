@@ -50,6 +50,29 @@ describe('Notes page', () => {
     await waitFor(() => expect(document.querySelector('.ProseMirror')?.textContent).toContain('Quarterly numbers'));
   });
 
+  // 11/17/2026: the list had no guard, so an older, slower answer landed
+  // last and the list showed the older view's notes.
+  it('shows the latest request\'s notes when an older answer arrives late', async () => {
+    const answers = [];
+    const page = (n) => ({ notes: [n], counts: { all: 2, pinned: 1, today: 1, shared: 0, trash: 0 }, tags: [] });
+    apiMock.notesList.mockImplementation((params) => new Promise((resolve) => { answers.push({ params, resolve }); }));
+    render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await act(async () => { answers[0].resolve(page(note({ id: 'a', title: 'All Notes Row' }))); });
+    expect(await screen.findByText('All Notes Row')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Pinned/ }));              // slow
+    await waitFor(() => expect(answers).toHaveLength(2));
+    fireEvent.click(screen.getByRole('tab', { name: /^All/ }));                 // asked after, answered first
+    await waitFor(() => expect(answers).toHaveLength(3));
+    expect(answers[1].params.view).toBe('pinned');
+    expect(answers[2].params.view).toBe('all');
+    await act(async () => { answers[2].resolve(page(note({ id: 'b', title: 'Newest Answer' }))); });
+    expect(await screen.findByText('Newest Answer')).toBeTruthy();
+    await act(async () => { answers[1].resolve(page(note({ id: 'c', title: 'Stale Pinned Answer' }))); });
+    expect(screen.queryByText('Stale Pinned Answer')).toBeNull();
+    expect(screen.getByText('Newest Answer')).toBeTruthy();
+  });
+
   it('shows the empty state with no notes and no note open', async () => {
     apiMock.notesList.mockResolvedValue({ notes: [], counts: { all: 0, pinned: 0, today: 0, shared: 0, trash: 0 }, tags: [] });
     render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
@@ -136,7 +159,7 @@ describe('Notes page on a phone', () => {
     expect(within(sheet).getByText(/Saved/)).toBeTruthy();
     // The list is still there under it.
     expect(screen.getByRole('button', { name: /Budget Review/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /New Note/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'New' })).toBeTruthy();
     fireEvent.click(within(sheet).getByRole('button', { name: 'Close Note' }));
     expect(onSubChange).toHaveBeenLastCalledWith('notes');
   });
@@ -209,6 +232,60 @@ describe('Quick Note', () => {
     expect(pm.textContent).toBe('Walked the north side of the building');
     await waitFor(() => expect(JSON.stringify(apiMock.noteUpdate.mock.calls.at(-1))).toContain('Walked the north side of the building'), { timeout: 4000 });
     expect(apiMock.noteCreate).toHaveBeenCalledTimes(1);
+  });
+
+  // 11/17/2026: closing within a second or so left only the first letter in
+  // the Notes list - the rest sat in a local draft nothing saved.
+  it('closed while the scratchpad is still being made: the words typed since are saved when it lands', async () => {
+    apiMock.noteDaily.mockResolvedValue({ note: null });
+    let made;
+    apiMock.noteCreate.mockImplementation(() => new Promise((res) => { made = res; }));
+    apiMock.noteUpdate.mockImplementation(async (id, patch) => note({ id, kind: 'daily', title: '', rev: 2, ...patch }));
+    const { unmount } = render(<QuickNotePanel onClose={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector('.ProseMirror')?.editor).toBeTruthy());
+    const pm = document.querySelector('.ProseMirror');
+    const type = (text) => act(async () => { pm.editor.chain().focus('end').setMeta('noteEdited', true).insertContent(text).run(); });
+    await type('W');
+    await waitFor(() => expect(apiMock.noteCreate).toHaveBeenCalledTimes(1));
+    await type('alked the north side');
+    unmount();                                            // closed before the create answered
+    expect(apiMock.noteUpdate).not.toHaveBeenCalled();
+    await act(async () => { made(note({ id: 'daily_1', kind: 'daily', title: '', body: '<p>W</p>', rev: 1 })); });
+    await waitFor(() => expect(apiMock.noteUpdate).toHaveBeenCalledTimes(1));
+    expect(apiMock.noteUpdate.mock.calls[0][0]).toBe('daily_1');
+    expect(apiMock.noteUpdate.mock.calls[0][1]).toMatchObject({ rev: 1 });
+    expect(apiMock.noteUpdate.mock.calls[0][1].body).toContain('Walked the north side');
+  });
+
+  it('closed while the new scratchpad is still loading: the words typed since are saved', async () => {
+    apiMock.noteDaily.mockResolvedValue({ note: null });
+    apiMock.noteCreate.mockImplementation(async (data) => note({ id: 'daily_1', kind: 'daily', title: '', rev: 1, ...data }));
+    apiMock.noteGet.mockImplementation(() => new Promise(() => {}));   // never lands before the close
+    apiMock.noteUpdate.mockImplementation(async (id, patch) => note({ id, kind: 'daily', title: '', rev: 2, ...patch }));
+    const { unmount } = render(<QuickNotePanel onClose={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector('.ProseMirror')?.editor).toBeTruthy());
+    const pm = document.querySelector('.ProseMirror');
+    const type = (text) => act(async () => { pm.editor.chain().focus('end').setMeta('noteEdited', true).insertContent(text).run(); });
+    await type('W');
+    await waitFor(() => expect(apiMock.noteGet).toHaveBeenCalledWith('daily_1'));
+    await type('alked');
+    unmount();
+    await waitFor(() => expect(apiMock.noteUpdate).toHaveBeenCalledTimes(1));
+    expect(apiMock.noteUpdate.mock.calls[0][1].body).toContain('Walked');
+  });
+
+  it('closed with nothing typed since the first save: nothing more is sent', async () => {
+    apiMock.noteDaily.mockResolvedValue({ note: null });
+    apiMock.noteCreate.mockImplementation(async (data) => note({ id: 'daily_1', kind: 'daily', title: '', rev: 1, ...data }));
+    apiMock.noteGet.mockImplementation(() => new Promise(() => {}));
+    const { unmount } = render(<QuickNotePanel onClose={vi.fn()} />);
+    await waitFor(() => expect(document.querySelector('.ProseMirror')?.editor).toBeTruthy());
+    const pm = document.querySelector('.ProseMirror');
+    await act(async () => { pm.editor.chain().focus('end').setMeta('noteEdited', true).insertContent('Walked').run(); });
+    await waitFor(() => expect(apiMock.noteGet).toHaveBeenCalledWith('daily_1'));
+    unmount();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(apiMock.noteUpdate).not.toHaveBeenCalled();
   });
 
   it('Escape closes it', async () => {

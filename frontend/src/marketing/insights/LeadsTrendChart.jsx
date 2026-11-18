@@ -59,7 +59,7 @@ export default function LeadsTrendChart({ rows, prevRows }) {
   return (
     <div style={{ ...card, padding: 16, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, position: 'relative' }}>
-        <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900 }}>Leads &amp; Sessions Over Time</h3>
+        <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900 }}>Leads &amp; Sessions Over Time</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={() => setCompare((c) => !c)}
@@ -158,7 +158,7 @@ export default function LeadsTrendChart({ rows, prevRows }) {
         </ComposedChart>
       </ResponsiveContainer>
 
-      <p style={{ fontSize: 11.5, color: C.gray400, marginTop: 8, lineHeight: 1.375 }}>
+      <p style={{ fontSize: 12, color: C.gray400, marginTop: 8, lineHeight: 1.375 }}>
         <span style={{ color: C.blue600, fontWeight: 500 }}>Leads</span> = people who reached out about renting a unit (filled out a form, called, or
         walked in). <span style={{ color: C.purple600, fontWeight: 500 }}>Sessions</span> = visits to your website that day.
       </p>

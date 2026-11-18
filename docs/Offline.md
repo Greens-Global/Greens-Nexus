@@ -42,6 +42,17 @@ Routing:
   both pass straight through, as do `/version.json`, `/auth-popup`, the
   Outlook add-in, the PDF engine and `/careers`. What the field reads offline
   is kept by the app (section 2), per person, never by the worker.
+- **Share to Nexus: the one write it answers.** The manifest's `share_target`
+  sends the phone's share sheet to `POST /share-target` (installed Chrome and
+  Edge; iOS has no Web Share Target). The worker keeps the words and files in
+  a cache of its own (`nexus-share` - synthetic entries, never an API answer,
+  never the outbox; ten files and 100 MB at most) and answers with a 303 to
+  `/?share=1`, where the app asks what to start with them
+  (`lib/shareTarget.js`, `components/ShareToNexus.jsx`: New Ticket, New Task
+  or New Note through the bolt's own Quick Actions). Nothing is uploaded by
+  the worker. The cache is cleared when the share is used or dismissed, on
+  sign out (`clearOfflineReadCache`) and after a day. Any failure still
+  answers the redirect - the app then says nothing came through.
 
 Updates: a deploy changes `sw.js` (the file list), which is how phones notice
 (`/sw.js` is `no-cache` in `_headers`, registered with `updateViaCache:
@@ -79,7 +90,10 @@ If the offline shell ever misbehaves in production:
    the meta cache on activate, claims open tabs and answers no request -
    everything goes to the network exactly as with no worker. Push keeps
    working: the worker is never unregistered (that would drop every push
-   subscription).
+   subscription). Share to Nexus is off with it: the `nexus-share` cache is
+   deleted too, and a share goes to the network, where
+   `functions/share-target.js` sends the app home with the same 303 (the
+   sheet says nothing came through; the person starts from inside Nexus).
 4. The app's own offline layer (the read cache and the outbox) keeps
    working - it does not depend on the worker; only opening the app with no
    signal stops.

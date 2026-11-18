@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Import Hub (Neil, 10/15): the three tool cards, the Payroll Hours card
 // loading Nexus hours and downloading the QuickBooks IIF, and the
@@ -54,6 +54,25 @@ describe('Import Hub', () => {
     expect(screen.getByText('Upload a Statement')).toBeTruthy();
     expect(screen.getByRole('tab', { name: /Payroll Hours to QuickBooks/ })).toBeTruthy();
     expect(screen.getByRole('tab', { name: /QuickBooks Payroll to Intacct/ })).toBeTruthy();
+  });
+
+  // UX pass 11/12/2026: switching cards never throws away an uploaded file;
+  // every line past the first 300 is reachable (Show All, and Show Them for the unclassified).
+  it('keeps an uploaded statement while another tool is open, and reaches every line', async () => {
+    render(<ImportHub />);
+    const csv = ['Date,Description,Amount', ...Array.from({ length: 320 }, (_, i) => `10/01/2026,LINE ${i + 1},${i + 1}.00`), ''].join('\n');
+    const file = new File([csv], 'bank.csv', { type: 'text/csv' });
+    file.text = async () => csv;
+    fireEvent.change(screen.getByLabelText('Statement file'), { target: { files: [file] } });
+    expect(await screen.findByText('bank.csv')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Payroll Hours to QuickBooks/ }));
+    expect(screen.getByText('bank.csv').closest('[hidden]')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Bank Statement to Intacct/ }));
+    expect(screen.getByText('bank.csv').closest('[hidden]')).toBeNull();
+    const preview = screen.getByRole('table', { name: 'Preview' });
+    expect(within(preview).queryByText('LINE 320')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show All' }));
+    expect(within(preview).getByText('LINE 320')).toBeTruthy();
   });
 
   it('loads every time sheet, names who is not finalized and keeps the IIF to the finalized ones (10/27 item 02)', async () => {
@@ -257,8 +276,13 @@ describe('Import Hub', () => {
     fireEvent.change(within(dialog).getByLabelText('GL Account'), { target: { value: '40200' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save Rule' }));
     await waitFor(() => expect(api.updateStatementRule).toHaveBeenCalledWith('r1', expect.objectContaining({ account: '40200' })));
-    fireEvent.click(await within(dialog).findByRole('button', { name: 'Delete rule AAA INSURANCE' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    // Hold to confirm, right on the row (no Delete / Keep step).
+    const hold = await within(dialog).findByRole('button', { name: 'Delete rule AAA INSURANCE, press and hold' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(1200); });
+    } finally { vi.useRealTimers(); }
     await waitFor(() => expect(api.deleteStatementRule).toHaveBeenCalledWith('r2'));
   });
 });

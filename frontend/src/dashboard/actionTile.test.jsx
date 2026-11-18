@@ -202,10 +202,10 @@ describe('phone stack pairing and duplicates', () => {
 });
 
 describe('Fill a Form quick action', () => {
-  it('lands where the + menu item does - Workday\'s form picker', async () => {
-    const { CREATE_ITEMS } = await import('../lib/quickCreate');
+  it('lands where the header\'s Quick Actions row does - Workday\'s form picker', async () => {
+    const { ACTIONS } = await import('../lib/quickCreate');
     const qa = QUICK_ACTIONS.find((a) => a.key === 'fill-form');
-    const plus = CREATE_ITEMS.find((i) => i.key === 'form');
+    const plus = ACTIONS.find((i) => i.key === 'form');
     expect([qa.view, qa.sub]).toEqual(['timeclock', 'form:pick']);
     expect([qa.view, qa.sub]).toEqual(plus.go);
   });

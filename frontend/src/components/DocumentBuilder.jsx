@@ -30,12 +30,13 @@ import { numberFootnotes } from '../lib/docFootnote';
 import { useTableValue } from '../tasks/tableCols';
 import NavigationPane from './docRibbon/NavigationPane';
 import RibbonDisplay from './docRibbon/RibbonDisplay';
+import { DocPhoneBar, PhoneMenuSheet } from './docRibbon/PhoneBar';
 import { ParagraphDialog, FontDialog } from './docRibbon/Dialogs';
 import KeyTips from './docRibbon/KeyTips';
 import VariablesPane from './docRibbon/VariablesPane';
 import { WordCountDialog, AccessibilityDialog } from './docRibbon/WordCountDialog';
 import { countWords, accessibilityIssues, headingsOf } from './docRibbon/docStats';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import CommentsPane from './docComments/CommentsPane';
 import { useDocComments } from './docComments/useDocComments';
 import { commentAnchorEl } from '../lib/docCommentMark';
@@ -429,7 +430,7 @@ function DocPage({ pageId, pageNumber, pageCount, docTitle, initialJson, editabl
       {compact ? (
         <>
           {footerSlot && <div style={{ marginTop: 8 }}>{footerSlot}</div>}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, fontSize: 10.5, color: '#9ca3af', marginTop: 10, paddingTop: 8, borderTop: '1px solid #eceef1', userSelect: 'none' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, fontSize: 10.5, color: '#9ca3af', marginTop: 10, paddingTop: 8, borderTop: '1px solid #eceef1', userSelect: 'none' }}>{/* type-ok: the document page footer (paper) */}
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{docTitle}</span>
             <span style={{ flex: '0 0 auto' }}>Page {pageNumber} of {pageCount}</span>
           </div>
@@ -476,6 +477,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   // 36-button ribbon and a thumbnail rail - none of which fit a 375px screen
   // as authored, so each is given a phone form rather than being hidden.
   const isMobile = useIsMobile();
+  // On a phone (Neil, 11/13/2026) the ribbon waits until it is asked for (All
+  // Formatting, or a menu command that opens one of its boxes) and the menu
+  // bar is the More sheet - docRibbon/PhoneBar.jsx.
+  const [phoneRibbon, setPhoneRibbon] = useState(false);
+  const [phoneMenu, setPhoneMenu] = useState(null);   // null = closed, '' = the menus, 'Insert' = that menu
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
@@ -1293,7 +1299,9 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     else setFooterVisible(true);
   };
 
-  const doSave = useCallback(({ allowEmpty = false } = {}) => {
+  // `quiet`: the save fired as the builder unmounts (below) - the same save,
+  // the same guards, and no state set on a component that is going away.
+  const doSave = useCallback(({ allowEmpty = false, quiet = false } = {}) => {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     // Defensive, belt-and-suspenders: even if something calls doSave directly
     // (Ctrl+S, the close-flush) before load finishes, never persist an
@@ -1324,11 +1332,12 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       return Promise.resolve();
     }
     if (!isEmptyContent(content)) lastGoodRef.current = true;
-    setSaveStatus('saving');
+    if (!quiet) setSaveStatus('saving');
     const payload = kind === 'document' ? { content, note: 'Autosave' } : { content };
     // Live: the save carries the shared state and merges a colleague's newer save first.
     return (live ? live.save(() => currentContentRef.current(), { note: 'Autosave' }) : apiUpdate(docId, payload))
       .then((res) => {
+        if (quiet) { onContentSaved?.(payload.content); return; }
         setSaveStatus('saved'); onContentSaved?.(payload.content);
         // A template's chip (Published / Unpublished Changes) follows each save.
         if (kind === 'template' && res) {
@@ -1337,8 +1346,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                              signatureRoles: res.signatureRoles } : d));
         }
       })
-      .catch(() => setSaveStatus('error'));
+      .catch(() => { if (!quiet) setSaveStatus('error'); });
   }, [docId, kind, apiUpdate, onContentSaved, live, readOnly]);
+  const doSaveRef = useRef(doSave);
+  useEffect(() => { doSaveRef.current = doSave; });
 
   // The server renders PDF/DOCX from the SAVED row, so anything that asks the
   // backend to render (Preview & Send, Export, Send for Signature) has to let
@@ -1365,7 +1376,25 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     return () => window.removeEventListener('keydown', onKey);
   }, [doSave]);
 
-  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);
+  // Leaving within AUTOSAVE_MS of the last keystroke another way than Close
+  // (another Files tab, a sidebar module, a bell row, Back) used to drop the
+  // pending autosave with its timer - the last words were gone, no warning.
+  // The save the timer would have fired goes out instead. A layout effect:
+  // its cleanup runs before any page editor is taken down, so the content is
+  // read whole; `quiet` sets no state. (Close has already saved: no timer.)
+  useLayoutEffect(() => () => {
+    if (!saveTimer.current) return;
+    try { doSaveRef.current({ quiet: true }); } catch { /* leaving must never fail on a save */ }
+  }, []);
+  // The tab hidden or the page going away: save now rather than in a moment.
+  // An ordinary request - the save is too large for a keepalive one (64 KB).
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden' && saveTimer.current) doSaveRef.current(); };
+    const onPageHide = () => { if (saveTimer.current) doSaveRef.current(); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onPageHide);
+    return () => { document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', onPageHide); };
+  }, []);
   const trackingRef = useRef(tracking);
   useEffect(() => { trackingRef.current = tracking; }, [tracking]);
   const setTrackingModeRef = useRef(() => {});
@@ -2830,7 +2859,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   const setMarginInches = (side, inches) => {
     updatePageSetup({ margins: 'custom', marginIn: { ...marginsOf(pageSetup), [side]: inches } });
   };
-  const openOnRibbon = (tab, open) => { setRibbonCollapsed(false); setRibbonTab(tab); open?.(); };
+  const openOnRibbon = (tab, open) => { setRibbonCollapsed(false); if (isMobile) setPhoneRibbon(true); setRibbonTab(tab); open?.(); };
   const keyTipTab = keyTipTabRef.current;
   const pageBreak = () => ed?.chain().focus().insertContent([{ type: 'pageBreak' }, { type: 'paragraph' }]).run();
   const linkCmd = () => openOnRibbon('insert', toggleLinkPopover);
@@ -3039,28 +3068,28 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
     <div className="nx-docb-lhpanel" style={{ width: newLhOpen ? 260 : 220, padding: 2 }}>
       {!newLhOpen ? (<>
         <button onClick={() => changeLetterhead('')}
-          style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>No Letterhead</button>
+          style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: 'var(--ink)' }}>No Letterhead</button>
         {letterheads.map(l => (
           <button key={l.id} onClick={() => changeLetterhead(l.id)}
-            style={{ display: 'block', width: '100%', textAlign: 'left', background: l.id === letterheadId ? 'var(--mist)' : 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
+            style={{ display: 'block', width: '100%', textAlign: 'left', background: l.id === letterheadId ? 'var(--mist)' : 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: 'var(--ink)' }}>
             {l.name}{l.isDefault ? ' (default)' : ''}
           </button>
         ))}
         <div style={{ borderTop: '1px solid var(--line)', margin: '4px 0' }} />
         <button onClick={() => setNewLhOpen(true)}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+          style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
           <Plus size={13} /> Add Letterhead…
         </button>
       </>) : (
         <div style={{ padding: 4 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 700 }}>New Letterhead</span>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>New Letterhead</span>
             <button onClick={() => setNewLhOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={14} /></button>
           </div>
           <input value={newLhName} onChange={e => setNewLhName(e.target.value)} placeholder="Name (e.g. IT Department)"
-            style={{ width: '100%', fontSize: 12.5, padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 6, fontFamily: 'Inter, sans-serif' }} />
+            style={{ width: '100%', fontSize: 13, padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 6, fontFamily: 'Inter, sans-serif' }} />
           <input value={newLhAddress} onChange={e => setNewLhAddress(e.target.value)} placeholder="Address (optional)"
-            style={{ width: '100%', fontSize: 12.5, padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 8, fontFamily: 'Inter, sans-serif' }} />
+            style={{ width: '100%', fontSize: 13, padding: '7px 9px', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 8, fontFamily: 'Inter, sans-serif' }} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', marginBottom: 10 }}>
             {newLhLogoUrl ? <img src={newLhLogoUrl} alt="" style={{ height: 26, maxWidth: 90, objectFit: 'contain' }} />
               : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--muted)' }}>{newLhLogoBusy ? <Spinner size={13} /> : <Upload size={13} />} Upload logo (optional)</span>}
@@ -3068,7 +3097,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               onChange={e => { const f = e.target.files?.[0]; if (f) uploadLhLogo(f); e.target.value = ''; }} />
           </label>
           <button disabled={newLhBusy || newLhLogoBusy} onClick={createLetterhead}
-            style={{ width: '100%', background: 'var(--ink)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 0', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            style={{ width: '100%', background: 'var(--ink)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 0', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             {newLhBusy ? <Spinner size={13} /> : <Check size={13} />} Add & Use
           </button>
         </div>
@@ -3084,11 +3113,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             <PersonSelect value={employeeRows.find(r => r.id === employeeId)?.email || null}
               onChange={v => { const id = employeeRows.find(r => r.email === v)?.id || ''; if (id !== employeeId) changeEmployee(id); }}
               people={employeeRows} placeholder="None" noneLabel="None" ariaLabel="Employee (merge subject)"
-              style={{ height: 36, padding: '0 13px', borderRadius: 10, fontSize: 12.5, fontWeight: 400 }} />
+              style={{ height: 36, padding: '0 13px', borderRadius: 10, fontSize: 13, fontWeight: 400 }} />
           </div>
           <div>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Entity (company)</label>
-            <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={entityId} onChange={e => changeEntity(e.target.value)}>
+            <select className="form-input" style={{ width: '100%', fontSize: 13 }} value={entityId} onChange={e => changeEntity(e.target.value)}>
               <option value="">None</option>
               {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
@@ -3110,7 +3139,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 11, color: 'var(--muted)', width: 100, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={FRIENDLY_MERGE[t]}>{FRIENDLY_MERGE[t]}</span>
               <input key={`${t}-${mergeOverrides[t] || ''}`} className="form-input" defaultValue={mergeOverrides[t] || ''}
-                placeholder="auto" style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }}
+                placeholder="auto" style={{ flex: 1, fontSize: 12, padding: '4px 7px' }}
                 onBlur={e => setOverrideValue(t, e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && e.target.blur()} />
             </div>
@@ -3127,7 +3156,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                 <span style={{ fontSize: 11, color: 'var(--muted)', width: 100, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={key}>{varLabel[key] || humanizeKey(key)}</span>
                 <input key={`${key}-${mergeOverrides[key]}`} className="form-input" defaultValue={mergeOverrides[key] || ''}
                   placeholder={varLabel[key] ? 'asked for on create' : ''}
-                  style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }}
+                  style={{ flex: 1, fontSize: 12, padding: '4px 7px' }}
                   onBlur={e => setOverrideValue(key, e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && e.target.blur()} />
                 {/* A variable the template DEFINES is removed by deleting its
@@ -3145,11 +3174,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         )}
         <div style={{ display: 'flex', gap: 5 }}>
           <input className="form-input" placeholder="variable_name" value={newVarName}
-            onChange={e => setNewVarName(e.target.value)} style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }} />
+            onChange={e => setNewVarName(e.target.value)} style={{ flex: 1, fontSize: 12, padding: '4px 7px' }} />
           <input className="form-input" placeholder="Value" value={newVarValue}
             onChange={e => setNewVarValue(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addCustomVariable()}
-            style={{ flex: 1, fontSize: 11.5, padding: '4px 7px' }} />
+            style={{ flex: 1, fontSize: 12, padding: '4px 7px' }} />
           <button onClick={addCustomVariable} disabled={!newVarName.trim() || !newVarValue.trim()}
             style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 600, opacity: (!newVarName.trim() || !newVarValue.trim()) ? 0.5 : 1 }}>
             Add
@@ -3227,7 +3256,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                 dangerouslySetInnerHTML={{ __html: html }} />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 3, gap: 2 }}>
-              <span onClick={() => goToSheet(p.id, slice)} style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, cursor: 'pointer' }}>Page {label}</span>
+              <span onClick={() => goToSheet(p.id, slice)} style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, cursor: 'pointer' }}>Page {label}</span>
               {isFirst && (
               <button ref={pageMenuOpen === p.id ? pageMenuBtn : undefined} onClick={() => setPageMenuOpen(pageMenuOpen === p.id ? '' : p.id)} title="Page options"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 1, color: 'var(--muted)', flex: '0 0 auto' }}>
@@ -3240,19 +3269,19 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             {isFirst && pageMenuOpen === p.id && (
               <AnchoredMenu anchorRef={pageMenuBtn} open onClose={() => setPageMenuOpen('')} align="end" minWidth={190}
                 style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 9, boxShadow: 'var(--shadow-lg)', padding: 5 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Duplicate page</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', padding: '4px 8px', textTransform: 'uppercase', letterSpacing: '0.03em' }}>Duplicate page</div>
                 <button onClick={() => duplicatePage(i, true)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: 'var(--ink)' }}>
                   <Copy size={13} /> With all contents
                 </button>
                 <button onClick={() => duplicatePage(i, false)} title="Keeps headings/tables/lists, clears the actual text and images"
-                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'var(--ink)' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: 'var(--ink)' }}>
                   <PageIcon size={13} /> With format only (layout, no text)
                 </button>
                 {pages.length > 1 && (<>
                   <div style={{ borderTop: '1px solid var(--line)', margin: '4px 0' }} />
                   <button onClick={() => deletePage(i)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, color: 'hsl(var(--color-red))' }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '7px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: 'hsl(var(--color-red))' }}>
                     <Trash2 size={13} /> Delete page
                   </button>
                 </>)}
@@ -3271,7 +3300,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
   };
 
   return (
-    <div className={`nx-docb${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}${fieldShading ? '' : ' doc-fields-plain'}${previewResults ? ' doc-previewing' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
+    <div className={`nx-docb${isMobile ? ' is-phone' : ''}${painterActive ? ' doc-painting' : ''}${preview ? ' is-preview' : ''}${fieldShading ? '' : ' doc-fields-plain'}${previewResults ? ' doc-previewing' : ''}`} ref={rootRef} style={previewPull ? { marginTop: -previewPull } : undefined}>
       {/* The header, Word / Google Docs style (Neil, 11/10/2026): Close, the
           file's mark, its name (typed in place; "Untitled Document" until it
           has one), the save state, then the actions. */}
@@ -3293,7 +3322,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           {SAVE_LABEL[saveStatus]}
         </span>
         {/* Word's Quick Access: Undo and Redo beside the name (11/11/2026). */}
-        {!preview && activeEditor && (
+        {!preview && activeEditor && !isMobile && (
           <span className="nx-docb-qat" role="group" aria-label="Quick Access">
             <button type="button" className="nx-docb-qbtn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!editing || !activeEditor.can().undo()}
               onMouseDown={(e) => e.preventDefault()} onClick={() => activeEditor.chain().focus().undo().run()}><Undo size={15} /></button>
@@ -3302,7 +3331,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
           </span>
         )}
         </div>
-        {!preview && activeEditor && <MenuBar menus={docMenus} />}
+        {!preview && activeEditor && !isMobile && <MenuBar menus={docMenus} />}
         </div>
         {live && <LivePeople peers={live.peers} status={live.status} />}
         {!preview && !isMobile && (
@@ -3311,7 +3340,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             <MessageSquare size={14} /> Comments
           </button>
         )}
-        {kind === 'document' && doc?.access && (
+        {kind === 'document' && doc?.access && !isMobile && (
           <button type="button" className="nx-docb-hbtn nx-docb-compact" title="Share" onClick={() => setShareOpen(true)}>
             <Users size={14} /> Share
           </button>
@@ -3329,7 +3358,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               : <span style={chipTone('green')}>Published{doc.publishedVersion ? ` v${doc.publishedVersion}` : ''}</span>}
             {(doc.status === 'draft' || doc.hasUnpublishedChanges) && !preview && (
               <button onClick={publishTemplate} disabled={publishing} className="primary-btn"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: publishing ? 0.6 : 1 }}>
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, opacity: publishing ? 0.6 : 1 }}>
                 {publishing ? <Spinner size={14} /> : <BadgeCheck size={14} />}
                 {doc.hasUnpublishedChanges ? 'Publish Changes' : 'Publish'}
               </button>
@@ -3342,7 +3371,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             <span style={{ ...chipTone('blue'), color: 'var(--muted)', background: 'var(--mist)' }}>Archived</span>
             {!preview && (
               <button onClick={activateTemplate} disabled={activating} className="primary-btn"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: activating ? 0.6 : 1 }}>
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, opacity: activating ? 0.6 : 1 }}>
                 {activating ? <Spinner size={14} /> : <BadgeCheck size={14} />}
                 Restore
               </button>
@@ -3351,16 +3380,18 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         )}
         {kind === 'document' && !preview && (
           <button onClick={() => { setPreview(true); openPdfPreview(); }} disabled={pdfPreviewLoading}
-            className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: pdfPreviewLoading ? 0.6 : 1 }}>
-            {pdfPreviewLoading ? <Spinner size={14} /> : <Send size={14} />} Preview & Send
+            className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, opacity: pdfPreviewLoading ? 0.6 : 1 }}>
+            {pdfPreviewLoading ? <Spinner size={14} /> : <Send size={14} />} {isMobile ? 'Send' : 'Preview & Send'}
           </button>
         )}
         {kind === 'document' && preview && (
           <>
+            {!isMobile && (
             <button onClick={() => window.print()} title="Print"
               className="nx-docb-hbtn">
               <Printer size={14} /> Print
             </button>
+            )}
             <button onClick={saveAsTemplate} disabled={savingTemplate} title="Save as Template"
               className="nx-docb-hbtn" style={{ opacity: savingTemplate ? 0.6 : 1 }}>
               {savingTemplate ? <Spinner size={14} /> : <FileStack size={14} />} Save as Template
@@ -3373,12 +3404,14 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               className="nx-docb-hbtn" style={{ opacity: exporting ? 0.6 : 1 }}>
               <FileDown size={14} /> {exporting === 'docx' ? 'Exporting…' : 'Export DOCX'}
             </button>
+            {!isMobile && (
             <button onClick={openInWord} disabled={!!exporting} title="Open in Word on this computer to keep editing"
               className="nx-docb-hbtn" style={{ opacity: exporting ? 0.6 : 1 }}>
               <PageIcon size={14} /> {exporting === 'word' ? 'Opening…' : 'Open in Word'}
             </button>
+            )}
             <button onClick={doSendForSignature} disabled={!!exporting} title="Send for Signature"
-              className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: exporting ? 0.6 : 1 }}>
+              className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, opacity: exporting ? 0.6 : 1 }}>
               <Send size={14} /> {exporting === 'send' ? 'Preparing…' : 'Send for Signature'}
             </button>
             <button onClick={() => { setPreview(false); closePdfPreview(); }} title="Back to Edit"
@@ -3393,10 +3426,20 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             {preview ? <EyeOff size={14} /> : <Eye size={14} />} {preview ? 'Edit' : 'Preview'}
           </button>
         )}
+        {isMobile ? (
+          /* The phone's whole menu bar - Share, Version History and every
+             command - is this one sheet. */
+          !preview && activeEditor && (
+            <button type="button" onClick={() => setPhoneMenu('')} title="File, Edit, Insert and the rest" aria-label="Document Menu" className="nx-docb-hbtn is-icon">
+              <MoreHorizontal size={18} />
+            </button>
+          )
+        ) : (<>
         <button onClick={openHistory} title="Version History" aria-label="Version History" className="nx-docb-hbtn is-icon">
           <History size={16} />
         </button>
         <FullScreenButton on={full} onToggle={toggleFull} className="nx-docb-hbtn nx-docb-compact" />
+        </>)}
       </div>
 
       {kind === 'document' && preview ? (
@@ -3419,6 +3462,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
       <>
       {!preview && activeEditor && (
         <div className="doc-ribbon-sticky">
+          {(!isMobile || phoneRibbon) && (
           <div className="doc-ribbon-tabs" role="tablist">
             {/* Word's tabs (11/11/2026). File and Help are the menu bar's: its
                 File and Help menus hold every command those two tabs had. */}
@@ -3440,8 +3484,11 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               <button type="button" role="tab" data-tab="shape" aria-selected={shownTab === 'shape'} onClick={() => { setRibbonCollapsed(false); setRibbonTab('shape'); }}
                 className={`doc-ribbon-tab is-context${shownTab === 'shape' ? ' is-active' : ''}`}>Shape Format</button>
             )}
-            <RibbonDisplay mode={ribbonMode} onMode={setRibbonMode} onToggle={toggleRibbon} />
+            {isMobile
+              ? <button type="button" className="doc-ribbon-done" onClick={() => setPhoneRibbon(false)}>Done</button>
+              : <RibbonDisplay mode={ribbonMode} onMode={setRibbonMode} onToggle={toggleRibbon} />}
           </div>
+          )}
         {isLocked && (
           /* Requirement 7 made visible. The server refuses the write either
              way; this says WHY the page will not take a keystroke, and offers
@@ -3452,7 +3499,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
             background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(217,119,6,0.35)',
           }}>
             <Lock size={14} style={{ color: '#b45309', flexShrink: 0 }} />
-            <span style={{ fontSize: 12.5, color: '#92400e', flex: 1, minWidth: 180 }}>
+            <span style={{ fontSize: 13, color: '#92400e', flex: 1, minWidth: 180 }}>
               This document is final. It carries the approved template language with the values it was
               generated from, so it is read-only.
             </span>
@@ -3474,7 +3521,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         )}
         {/* One row, never wrapped (Neil, 11/10/2026): groups that do not fit
             go into More at the end (docRibbon/ui.jsx RibbonBar). */}
-        {!ribbonCollapsed && <RibbonBar tabKey={shownTab} className={ribbonMode === 'simplified' ? 'is-simplified' : ''} role="toolbar" aria-label={`${shownTab} ribbon`} render={() => (<>
+        {(isMobile ? phoneRibbon : !ribbonCollapsed) && <RibbonBar tabKey={shownTab} scroll={isMobile} className={ribbonMode === 'simplified' ? 'is-simplified' : ''} role="toolbar" aria-label={`${shownTab} ribbon`} render={() => (<>
           {shownTab === 'home' && (
           <>
           <Group label="Clipboard">
@@ -3617,7 +3664,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                     onSubmit={(e) => { e.preventDefault(); const f = e.currentTarget; const r = Math.max(1, Math.min(50, Number(f.rows.value) || 2)); const c = Math.max(1, Math.min(20, Number(f.cols.value) || 2)); activeEditor.chain().focus().insertTable({ rows: r, cols: c, withHeaderRow: false }).run(); closeMenu(); }}>
                     <input name="cols" type="number" min={1} max={20} defaultValue={3} aria-label="Columns" /> x
                     <input name="rows" type="number" min={1} max={50} defaultValue={3} aria-label="Rows" />
-                    <button type="submit" className="primary-btn" style={{ fontSize: 11.5, padding: '4px 9px' }}>Insert Table</button>
+                    <button type="submit" className="primary-btn" style={{ fontSize: 12, padding: '4px 9px' }}>Insert Table</button>
                   </form>
                 </>
               )}
@@ -3670,7 +3717,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               onClick={() => { setSigPopoverOpen(o => !o); setSigDraft(d => ({ ...d, role: d.role || signerOptions[0]?.key || '' })); }} />
             {sigPopoverOpen && (
               <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 12, display: 'flex', flexDirection: 'column', gap: 9, width: 270 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700 }}>Insert Signature Block</div>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>Insert Signature Block</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.45 }}>
                   The signer's signature, name and date fields land here automatically when this is sent for signature.
                 </div>
@@ -3686,7 +3733,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                     value={sigDraft.newSigner} onChange={e => setSigDraft(d => ({ ...d, newSigner: e.target.value }))}
                     onKeyDown={e => e.key === 'Enter' && addSigner()} />
                   <button onClick={addSigner} disabled={!signerKeyOf(sigDraft.newSigner)} className="secondary-btn"
-                    style={{ fontSize: 11.5, padding: '5px 10px' }}>Add Signer</button>
+                    style={{ fontSize: 12, padding: '5px 10px' }}>Add Signer</button>
                 </div>
                 <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 3 }}>
                   Caption (optional)
@@ -3728,7 +3775,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
                 <input className="form-input" style={{ fontSize: 12, width: 180 }} placeholder="https://…" value={linkUrlDraft}
                   onChange={e => setLinkUrlDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && applyLink()} autoFocus />
-                <button onClick={applyLink} className="primary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }}>Apply</button>
+                <button onClick={applyLink} className="primary-btn" style={{ fontSize: 12, padding: '5px 10px' }}>Apply</button>
                 {activeEditor.isActive('link') && (
                   <button onClick={removeLink} title="Remove Link" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: 5, cursor: 'pointer', display: 'flex' }}><Link2Off size={13} /></button>
                 )}
@@ -3742,7 +3789,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input className="form-input" style={{ fontSize: 12, flex: 1 }} placeholder="Bookmark name" value={newBookmarkName}
                     onChange={e => setNewBookmarkName(e.target.value)} onKeyDown={e => e.key === 'Enter' && insertBookmark()} autoFocus />
-                  <button onClick={insertBookmark} className="primary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }}>Add</button>
+                  <button onClick={insertBookmark} className="primary-btn" style={{ fontSize: 12, padding: '5px 10px' }}>Add</button>
                 </div>
                 {currentPageBookmarks().length > 0 && (
                   <div style={{ borderTop: '1px solid var(--line)', paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 140, overflowY: 'auto' }}>
@@ -3780,13 +3827,13 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                 <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
                   {[['symbols', 'Symbols'], ['emoji', 'Emoji']].map(([key, label]) => (
                     <button key={key} type="button" onClick={() => setSymbolTab(key)} aria-selected={symbolTab === key} role="tab"
-                      style={{ width: 'auto', height: 'auto', fontSize: 11.5, fontWeight: 600, padding: '4px 10px', border: 'none', borderRadius: 0, borderBottom: symbolTab === key ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === key ? 'var(--ink)' : 'var(--muted)' }}>{label}</button>
+                      style={{ width: 'auto', height: 'auto', fontSize: 12, fontWeight: 600, padding: '4px 10px', border: 'none', borderRadius: 0, borderBottom: symbolTab === key ? '2px solid var(--ink)' : '2px solid transparent', background: 'none', cursor: 'pointer', color: symbolTab === key ? 'var(--ink)' : 'var(--muted)' }}>{label}</button>
                   ))}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 2, maxHeight: 220, overflowY: 'auto' }}>
                   {(symbolTab === 'symbols' ? SYMBOL_CHARS : EMOJI_CHARS).map((ch, i) => (
                     <button key={i} onClick={() => { insertSymbol(ch); setSymbolPopoverOpen(false); }} title={ch}
-                      style={{ width: '100%', height: 30, fontSize: 16, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 5, lineHeight: 1 }}>
+                      style={{ width: '100%', height: 30, fontSize: 15, background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 5, lineHeight: 1 }}>
                       {ch}
                     </button>
                   ))}
@@ -3823,7 +3870,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                   ))}
                   <form className="doc-ribbon-field" style={{ padding: '4px 6px', gap: 6 }} onSubmit={(e) => { e.preventDefault(); updatePageSetup({ watermark: e.currentTarget.text.value.trim().slice(0, 40) || null }); closeMenu(); }}>
                     <input name="text" defaultValue={pageSetup.watermark || ''} placeholder="Custom text" aria-label="Custom watermark" style={{ width: 120 }} />
-                    <button type="submit" className="primary-btn" style={{ fontSize: 11.5, padding: '4px 9px' }}>Set</button>
+                    <button type="submit" className="primary-btn" style={{ fontSize: 12, padding: '4px 9px' }}>Set</button>
                   </form>
                   <div className="doc-ribbon-sep" />
                   <button type="button" className="doc-ribbon-item" onClick={() => { updatePageSetup({ watermark: null }); closeMenu(); }}>Remove Watermark</button>
@@ -3858,21 +3905,21 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, width: 260, padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Page Size</label>
-                  <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={pageSetup.size}
+                  <select className="form-input" style={{ width: '100%', fontSize: 13 }} value={pageSetup.size}
                     onChange={e => updatePageSetup({ size: e.target.value })}>
                     {PAGE_SIZES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Orientation</label>
-                  <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={pageSetup.orientation}
+                  <select className="form-input" style={{ width: '100%', fontSize: 13 }} value={pageSetup.orientation}
                     onChange={e => updatePageSetup({ orientation: e.target.value })}>
                     {ORIENTATIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Margins</label>
-                  <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={pageSetup.margins}
+                  <select className="form-input" style={{ width: '100%', fontSize: 13 }} value={pageSetup.margins}
                     onChange={e => updatePageSetup(e.target.value === 'custom'
                       ? { margins: 'custom', marginIn: marginsOf(pageSetup) }
                       : { margins: e.target.value })}>
@@ -3888,13 +3935,13 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                             onChange={e => updatePageSetup({ marginIn: { ...marginsOf(pageSetup), [side]: Number(e.target.value) } })} />
                         </label>
                       ))}
-                      <span style={{ gridColumn: '1 / -1', fontSize: 10.5, color: 'var(--muted)' }}>Inches</span>
+                      <span style={{ gridColumn: '1 / -1', fontSize: 11, color: 'var(--muted)' }}>Inches</span>
                     </div>
                   )}
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Columns</label>
-                  <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={pageSetup.columns || 1}
+                  <select className="form-input" style={{ width: '100%', fontSize: 13 }} value={pageSetup.columns || 1}
                     onChange={e => updatePageSetup({ columns: Number(e.target.value) })}>
                     <option value={1}>One</option>
                     <option value={2}>Two</option>
@@ -3906,7 +3953,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                     Page Border
                   </label>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <select className="form-input" style={{ flex: 1, fontSize: 12.5 }}
+                    <select className="form-input" style={{ flex: 1, fontSize: 13 }}
                       value={pageSetup.pageBorder?.style || ''}
                       onChange={e => updatePageSetup({ pageBorder: e.target.value ? { ...(pageSetup.pageBorder || {}), style: e.target.value, width: pageSetup.pageBorder?.width || 1, color: pageSetup.pageBorder?.color || '#111827' } : null })}>
                       <option value="">None</option>
@@ -3929,14 +3976,14 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
                       style={{ width: 24, height: 24, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />
                   </label>
                 </div>
-                <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
                   Line numbers <input type="checkbox" checked={!!pageSetup.lineNumbers} onChange={e => updatePageSetup({ lineNumbers: e.target.checked })} />
                 </label>
                 <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                  <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
                     Header <input type="checkbox" checked={headerVisible} onChange={toggleHeader} />
                   </label>
-                  <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                  <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
                     Footer <input type="checkbox" checked={footerVisible} onChange={toggleFooter} />
                   </label>
                 </div>
@@ -4231,10 +4278,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               onChange={e => setFindQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && runFind()} autoFocus />
             <input className="form-input" style={{ fontSize: 12, width: 160 }} placeholder="Replace with" value={replaceQuery}
               onChange={e => setReplaceQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && replaceCurrent()} />
-            <button onClick={runFind} className="primary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }}>Find</button>
+            <button onClick={runFind} className="primary-btn" style={{ fontSize: 12, padding: '5px 10px' }}>Find</button>
             <button onClick={() => findStep(-1)} disabled={!findMatches.length} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '5px 8px', cursor: findMatches.length ? 'pointer' : 'default', fontSize: 12 }}>Prev</button>
             <button onClick={() => findStep(1)} disabled={!findMatches.length} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '5px 8px', cursor: findMatches.length ? 'pointer' : 'default', fontSize: 12 }}>Next</button>
-            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{findMatches.length ? `${findIndex + 1} of ${findMatches.length}` : 'No matches'}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{findMatches.length ? `${findIndex + 1} of ${findMatches.length}` : 'No matches'}</span>
             <button onClick={replaceCurrent} disabled={!findMatches.length} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '5px 10px', cursor: findMatches.length ? 'pointer' : 'default', fontSize: 12 }}>Replace</button>
             <button onClick={replaceAll} disabled={!findMatches.length} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '5px 10px', cursor: findMatches.length ? 'pointer' : 'default', fontSize: 12 }}>Replace All</button>
             <button onClick={() => { setFindOpen(false); setFindMatches([]); setFindIndex(-1); }} title="Close" style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={15} /></button>
@@ -4245,10 +4292,10 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
 
       {!preview && quickSections.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, margin: '-6px 0 14px' }}>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>Add section:</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Add section:</span>
           {quickSections.map(s => (
             <button key={s.heading} onClick={() => insertQuickSection(s.heading)} title={s.hint || `Insert a "${s.heading}" heading`}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter, sans-serif' }}>
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter, sans-serif' }}>
               <Plus size={13} /> {s.heading}
             </button>
           ))}
@@ -4313,7 +4360,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         const isLast = i === pages.length - 1;
         const smallBtn = (label, onClick, extra = {}) => (preview ? null : (
           <button type="button" onClick={onClick}
-            style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 10.5, fontWeight: 600, cursor: 'pointer', padding: 0, ...extra }}>{label}</button>
+            style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: 0, ...extra }}>{label}</button>
         ));
         const headerSlot = !isFirst ? undefined : headerVisible ? (
           <div>
@@ -4415,7 +4462,12 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
         </div>
       )}
 
-      {!preview && (
+      {isMobile && !preview && editing && activeEditor && !phoneRibbon && phoneMenu === null && (
+        <DocPhoneBar ed={activeEditor} editing={editing} onPicture={() => fileInputRef.current?.click()}
+          onLink={linkCmd} onPageBreak={pageBreak} onAllFormatting={() => openOnRibbon('home')} />
+      )}
+      {phoneMenu !== null && <PhoneMenuSheet menus={docMenus} startAt={phoneMenu} onClose={() => setPhoneMenu(null)} />}
+      {!preview && !isMobile && (
         <StatusBar page={(sheetStarts[pages.findIndex(p => p.id === activePageId)] || 0) + 1} pages={totalSheets}
           words={countWords([...editorsRef.current.values()]).words} zoom={zoom} setZoom={setZoom}
           onFit={zoomToFit} onPageWidth={zoomToPageWidth} onWordCount={() => setWordCountOpen(true)}
@@ -4440,16 +4492,16 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               {!versions ? (
                 <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
               ) : versions.length === 0 ? (
-                <div style={{ padding: '20px 8px', color: 'var(--muted)', fontSize: 12.5 }}>No saved versions yet.</div>
+                <div style={{ padding: '20px 8px', color: 'var(--muted)', fontSize: 13 }}>No saved versions yet.</div>
               ) : versions.map((v, i) => (
                 <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px', borderBottom: '1px solid var(--line)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700 }}>Version {v.versionNo}{i === 0 && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, color: 'hsl(var(--color-green))' }}>CURRENT</span>}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>Version {v.versionNo}{i === 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 800, color: 'hsl(var(--color-green))' }}>CURRENT</span>}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>{v.editedBy} · {formatPacificDateTime(v.editedAt, '-')}{v.note ? ` · ${v.note}` : ''}</div>
                   </div>
                   {i !== 0 && (
                     <button onClick={() => restoreVersion(v)} disabled={!!restoringId}
-                      style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, opacity: restoringId ? 0.6 : 1 }}>
+                      style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, opacity: restoringId ? 0.6 : 1 }}>
                       {restoringId === v.id ? <Spinner size={12} /> : <RotateCcw size={12} />} Restore
                     </button>
                   )}
@@ -4457,7 +4509,7 @@ function DocumentBuilderInner({ docId, kind = 'document', employees = [], entiti
               ))}
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setHistoryOpen(false)} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Close</button>
+              <button onClick={() => setHistoryOpen(false)} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Close</button>
             </div>
           </div>
         </div>

@@ -61,7 +61,12 @@ describe('PreventiveScheduleSheet', () => {
       nextDue: '', waitingOnCompletion: true, checklist: ['Walk the roof'], leadDays: 0, active: true, rev: '2026-11-03T10:00:00Z' };
     render(<PreventiveScheduleSheet propertyId="gst" svc={svc} onClose={() => {}} />);
     await screen.findByText('Next Due (after the open ticket)');
-    fireEvent.click(screen.getByRole('button', { name: 'Save Schedule' }));
+    // Save stays disabled until the sheet's options load; the label above can
+    // show first, so wait for Save itself (CI caught the click landing early,
+    // 11/13/2026).
+    const saveBtn = screen.getByRole('button', { name: 'Save Schedule' });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+    fireEvent.click(saveBtn);
     await waitFor(() => expect(updateMaintenanceService).toHaveBeenCalled());
     const body = updateMaintenanceService.mock.calls[0][2];
     // The revision it was read with rides along - a stale editor is a 409 (review M1).

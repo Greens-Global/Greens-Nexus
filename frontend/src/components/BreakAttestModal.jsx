@@ -25,21 +25,21 @@ export function BreakStatement({ attestation, onReport }) {
   const flagged = attestation?.flaggedDays || [];
   return (
     <div role="note" aria-label="Meal and Rest Breaks" style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '12px 16px', marginBottom: 14, display: 'grid', gap: 8 }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', lineHeight: 1.5 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', lineHeight: 1.5 }}>
         {attestation?.statement || STATEMENT}
       </div>
       {flagged.length > 0 && (
-        <div style={{ fontSize: 12.5, color: '#b45309', display: 'grid', gap: 2 }}>
+        <div style={{ fontSize: 13, color: '#b45309', display: 'grid', gap: 2 }}>
           <span>Your punches show:</span>
           {flagged.map(d => <span key={d.date}>{formatDate(d.date)} - {d.label}.</span>)}
         </div>
       )}
       {/* Report a Missed Break: hourly California-rule staff only - salaried
           US staff see the statement alone (canReport, Oct 20). */}
-      {attestation?.canReport !== false && <div style={{ fontSize: 12.5, color: 'var(--muted)', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      {attestation?.canReport !== false && <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <span>Missed a meal or rest break? Report it instead of signing - your manager adds the premium pay and sends it back to you.</span>
         {onReport
-          ? <button type="button" onClick={onReport} style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: 700, color: '#b45309' }}>Report a Missed Break</button>
+          ? <button type="button" onClick={onReport} style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: 13, fontWeight: 700, color: '#b45309' }}>Report a Missed Break</button>
           : <span>Open Nexus, then Workday &gt; Time Sheet, and choose Report a Missed Break.</span>}
       </div>}
     </div>
@@ -85,14 +85,14 @@ export default function BreakAttestModal({ reviewId, attestation, onClose, onSen
           Pick each day and the break you missed. This does not sign your time sheet - it goes back to your manager.
         </p>
         <div role="table" aria-label="Missed Breaks" style={{ display: 'grid', gap: 2 }}>
-          <div role="row" style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px', gap: 8, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', padding: '4px 2px' }}>
+          <div role="row" style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px', gap: 8, fontSize: 12, fontWeight: 700, color: 'var(--muted)', padding: '4px 2px' }}>
             <span role="columnheader">Day</span><span role="columnheader">Meal</span><span role="columnheader">Rest</span>
           </div>
           {days.map(ds => (
             <div role="row" key={ds} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 70px', gap: 8, alignItems: 'center', padding: '6px 2px', borderTop: '1px solid var(--line)', fontSize: 13 }}>
               <span role="cell">
                 {dow(ds)}
-                {flagged.get(ds) && <span style={{ marginLeft: 8, fontSize: 11.5, color: '#b45309' }}>{flagged.get(ds).chip}</span>}
+                {flagged.get(ds) && <span style={{ marginLeft: 8, fontSize: 12, color: '#b45309' }}>{flagged.get(ds).chip}</span>}
               </span>
               {['meal', 'rest'].map(kind => (
                 <span role="cell" key={kind}>

@@ -28,7 +28,7 @@ function toMoney(v) {
 }
 
 const cellStyle = {
-  padding: '9px 14px',
+  padding: '9px 12px 9px 0',
   color: 'var(--text-secondary)',
   whiteSpace: 'nowrap',
   borderTop: '1px solid var(--border-color)',
@@ -44,28 +44,11 @@ export function AssemblageParcels({ lead, all, onOpen }) {
   const totalCost = members.reduce((sum, m) => sum + toMoney(parcelField(m, 'Acquisition Price')), 0);
 
   return (
-    <div
-      style={{
-        marginBottom: 14,
-        borderRadius: 14,
-        border: '1px solid var(--border-color)',
-        backgroundColor: 'var(--bg-card)',
-        boxShadow: 'var(--shadow-sm)',
-        overflow: 'hidden',
-      }}
-    >
-      <div style={{ padding: '13px 16px', display: 'flex', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' }}>
-        <div
-          style={{
-            fontSize: 15,
-            fontWeight: 800,
-            color: 'var(--text-primary)',
-          }}
-        >
-          Parcels in This Assemblage
-        </div>
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
-          {members.length} parcels · ~{totalAcres.toFixed(1)} ac
+    <section aria-label="Parcels in This Assemblage" style={{ marginBottom: 24, paddingBottom: 20, borderBottom: '1px solid var(--border-color)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Parcels in This Assemblage</h3>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+          {members.length} parcels · about {totalAcres.toFixed(1)} acres
           {totalCost > 0 ? ` · $${formatNumber(totalCost)} cost basis` : ''}
         </span>
       </div>
@@ -79,13 +62,11 @@ export function AssemblageParcels({ lead, all, onOpen }) {
                   key={i}
                   style={{
                     textAlign: 'left',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
+                    fontSize: 12,
+                    fontWeight: 500,
                     color: 'var(--text-secondary)',
-                    padding: '8px 14px',
-                    backgroundColor: 'var(--bg-secondary)',
+                    padding: '8px 12px 8px 0',
+                    borderBottom: '1px solid var(--border-color)',
                     whiteSpace: 'nowrap',
                   }}
                 >
@@ -114,19 +95,7 @@ export function AssemblageParcels({ lead, all, onOpen }) {
                 >
                   <td style={{ ...cellStyle, fontWeight: 600, color: 'var(--text-primary)' }}>
                     {m.name}
-                    {isLead ? (
-                      <span
-                        style={{
-                          marginLeft: 6,
-                          fontSize: 11,
-                          fontWeight: 700,
-                          letterSpacing: '0.03em',
-                          color: 'hsl(var(--color-purple))',
-                        }}
-                      >
-                        LEAD
-                      </span>
-                    ) : null}
+                    {isLead ? <span style={{ marginLeft: 6, fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>(Lead)</span> : null}
                   </td>
                   <td style={cellStyle}>{parcelField(m, 'APN', 'apn') || '-'}</td>
                   <td style={cellStyle}>{parcelLot(m) || '-'}</td>
@@ -135,20 +104,20 @@ export function AssemblageParcels({ lead, all, onOpen }) {
                 </tr>
               );
             })}
-            <tr style={{ borderTop: '2px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-              <td style={{ padding: '9px 14px', fontWeight: 700, color: 'var(--text-primary)' }}>Total</td>
-              <td style={{ padding: '9px 14px' }} />
-              <td style={{ padding: '9px 14px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
-                ~{totalAcres.toFixed(2)} ac
+            <tr>
+              <td style={{ ...cellStyle, fontWeight: 600, color: 'var(--text-primary)' }}>Total</td>
+              <td style={cellStyle} />
+              <td style={{ ...cellStyle, fontWeight: 600, color: 'var(--text-primary)' }}>
+                about {totalAcres.toFixed(2)} acres
               </td>
-              <td style={{ padding: '9px 14px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+              <td style={{ ...cellStyle, fontWeight: 600, color: 'var(--text-primary)' }}>
                 {totalCost > 0 ? `$${formatNumber(totalCost)}` : '-'}
               </td>
-              <td style={{ padding: '9px 14px' }} />
+              <td style={cellStyle} />
             </tr>
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
   );
 }

@@ -88,7 +88,7 @@ export function rosterExists(teams, people, selected) {
 function Caption({ children, inset }) {
   return (
     <div role="presentation" style={{
-      padding: `9px ${inset}px 4px`, fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em',
+      padding: `9px ${inset}px 4px`, fontSize: 11, fontWeight: 700, letterSpacing: '.06em',
       textTransform: 'uppercase', color: NX.faint, cursor: 'default', userSelect: 'none',
     }}>{children}</div>
   );
@@ -154,14 +154,14 @@ export default function TeamPicks({ teams, people, selected, onChange, onSaveTea
             <TeamCheckbox state={state} onToggle={() => { const r = toggleRoster(cur, roster); onChange(r.next, r.adding); }} />
             <span aria-hidden style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, background: team.color || NX.purple, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Users size={12} /></span>
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
-            {(team.approvalStatus || 'approved') !== 'approved' && <span style={{ fontSize: 10.5, color: NX.faint }}>Personal</span>}
-            <span style={{ fontSize: 11.5, color: NX.faint, flexShrink: 0 }}>{roster.length}</span>
+            {(team.approvalStatus || 'approved') !== 'approved' && <span style={{ fontSize: 11, color: NX.faint }}>Personal</span>}
+            <span style={{ fontSize: 12, color: NX.faint, flexShrink: 0 }}>{roster.length}</span>
           </label>
         );
       })}
       {canSave && !saving && (
         <button type="button" onClick={() => { setSaving(true); setError(''); }}
-          style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, padding: rowPad, fontSize: 12.5, color: NX.blue, borderRadius: 0 }}>
+          style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8, padding: rowPad, fontSize: 13, color: NX.blue, borderRadius: 0 }}>
           <Users size={13} /> Save These {cur.length} People as a Team
         </button>
       )}

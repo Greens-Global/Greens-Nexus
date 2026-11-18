@@ -70,7 +70,7 @@
 // Act As and the Microsoft 365 sync are actions, not settings, so they sit
 // on the Tools tab (views/SettingsTools.jsx). Every panel is the same
 // component it was before the merge - only the wiring here changed.
-import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Settings2, ChevronRight, ChevronLeft, Tag, Shield,
   Headset, Bell, Mail, Building2, Timer,
@@ -193,6 +193,8 @@ const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSett
 const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
 // Cubby tasks in Nexus Tasks (Neil, Oct 30 2026): the switches and the facility -> project map.
 const CubbyTasksSettingsPanel = lazy(() => import('../operations/CubbyTasksSettings'));
+// Who sees which facilities and tenant details in Operations (Neil, 11/17/2026).
+const OpsAccessSettingsPanel = lazy(() => import('../operations/OpsAccessSettings'));
 // Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
 const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
 const PerformanceKudosSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceKudosSettings })));
@@ -382,10 +384,10 @@ const GROUPS = [
     needs: { role: 'administrator' },
     sub: 'A daily summary email for each employee. Send it to everyone, or to a few test recipients first.',
     keywords: 'mail digest summary email morning test recipients' },
-  { id: 'weekly-digest', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Weekly Digest',
+  { id: 'weekly-digest', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Weekly Briefing',
     needs: { role: 'administrator' },
-    sub: "A Monday email listing each employee's overdue tasks with their due dates, sent before their shift. Send it to everyone, or to a few test recipients first.",
-    keywords: 'mail weekly digest summary email overdue tasks due dates extend monday shift test recipients' },
+    sub: "A Monday email with each employee's week - overdue tasks, what is due, who is off and the holidays. When the Daily Briefing is on in the same mode, it is that day's Daily Briefing: one email, not two. Send it to everyone, or to a few test recipients first.",
+    keywords: 'mail weekly briefing digest summary email overdue tasks due dates extend monday shift test recipients' },
   { id: 'workforce-scorecard', subject: 'emails', face: 'org', scope: 'org', icon: Mail, title: 'Workforce Scorecard',
     needs: { role: 'administrator' },
     sub: 'A weekly email to managers scoring each hourly person\'s punched hours against their expected hours (US 8h, India 9h, or their shift) - who worked, who was short, who was absent.',
@@ -588,6 +590,11 @@ const GROUPS = [
     needs: { role: 'manager', grant: ['operations', 'editor'] },
     sub: 'Which Cubby unit types are mailboxes, and which records are not units at all, by the words in the unit type name.',
     keywords: 'unit types mailbox excluded words cubby facility operations units' },
+  // Access by role and by person (Neil, 11/17/2026); the route asks for an Administrator or Operations Full.
+  { id: 'ops-tenant-access', subject: 'operations', face: 'org', scope: 'org', icon: Warehouse, title: 'Tenants And Facility Access',
+    needs: { role: 'administrator', grant: ['operations', 'full'] },
+    sub: 'Which facilities each person or role sees in Operations, and who sees tenant contact details and gate codes. Tenant details are a read-only copy of Cubby.',
+    keywords: 'tenants tenant details contact phone email gate code access rules facility facilities role person access group job role cubby operations directory' },
   // Performance
   // Performance (made simple, Oct 29 2026): one group. Reviews have one
   // 4-word rating and no values, so the scale and values groups are gone.
@@ -1160,7 +1167,7 @@ function HiringSetupSection({ id, Modal, label, chrome, toastOk, toastErr, modal
   const [open, setOpen] = useState(false);
   return (
     <Group {...GROUP_META[id]} {...chrome}>
-      <button type="button" className="primary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>{label}</button>
+      <button type="button" className="primary-btn" onClick={() => setOpen(true)} style={{ fontSize: 13 }}>{label}</button>
       {open && (
         <Suspense fallback={<ModalFallback />}>
           <Modal onClose={() => setOpen(false)} toastOk={toastOk} toastErr={toastErr} {...modalProps} />
@@ -1260,7 +1267,7 @@ function SignatureZoomModal({ title, html, onClose }) {
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 12, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{title}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{title}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
             <X size={18} />
           </button>
@@ -1479,7 +1486,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 4, paddingRight: 64, minHeight: 28, display: 'flex', alignItems: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {grp.label || grp.emails?.[0] || 'Untitled'}
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {(grp.emails || []).join(', ') || 'No addresses yet'}
               </div>
               {grp.previewHtml ? <SignaturePaper html={grp.previewHtml} /> : (
@@ -1495,7 +1502,7 @@ function EmailSignatureSection({ toastOk, toastErr, chrome, company = '' }) {
               background: 'transparent', color: 'var(--muted)',
             }}>
             <Plus size={18} />
-            <span style={{ fontSize: 11.5, fontWeight: 600 }}>Add Override</span>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Add Override</span>
           </div>}
         </div>
       </div>}
@@ -1674,7 +1681,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={grp ? 'Edit Override' : 'Add Override'}
         style={{ padding: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{grp ? 'Edit Override' : 'Add Override'}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, flex: 1, color: 'var(--ink)' }}>{grp ? 'Edit Override' : 'Add Override'}</span>
           <button onClick={requestClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}>
             <X size={18} />
           </button>
@@ -1721,7 +1728,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
                 <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
                   onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadLogo(f); }} />
               </label>
-              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or press Ctrl+V to paste one</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>or press Ctrl+V to paste one</span>
               {fields.logoUrl && (
                 <button type="button" aria-label="Remove logo" onClick={() => setFieldValue('logoUrl', '')}
                   style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', padding: '4px 8px' }}>
@@ -1780,7 +1787,7 @@ function SenderOverrideModal({ templates, grp, onClose, onSaved, toastOk, toastE
                     style={{
                       display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6,
                       border: '1px solid var(--line)', background: 'var(--paper)', cursor: 'grab',
-                      opacity: dragKey === key ? 0.45 : 1, fontSize: 12.5, color: 'var(--ink)',
+                      opacity: dragKey === key ? 0.45 : 1, fontSize: 13, color: 'var(--ink)',
                     }}>
                     <GripVertical size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
                     {rowLabel}
@@ -2157,6 +2164,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ops-cubby-push':       return <LazyPanelSection key={key} id={id} Panel={OpsSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ops-cubby-tasks':      return <LazyPanelSection key={key} id={id} Panel={CubbyTasksSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'ops-tenant-access':    return <LazyPanelSection key={key} id={id} Panel={OpsAccessSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       // Phase 3: the strays, each the component its module owns.
       case 'payroll-readiness':    return <LazyPanelSection key={key} id={id} Panel={ReadinessThresholds} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ca-min-wage':          return <LazyPanelSection key={key} id={id} Panel={MinWageForm} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
@@ -2599,7 +2607,7 @@ function PolicyCard({ id, title, desc, enabled, onToggle, busy, foot, children }
 
 function PolicyNumber({ label, value, onChange, min = 0, max = 999, unit = 'min', width = 76 }) {
   return (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--muted)' }}>
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--muted)' }}>
       {label}
       <NumberBox value={value} onChange={onChange} min={min} max={max} unit={unit} width={width} label={label} />
     </label>
@@ -2655,9 +2663,13 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
   const { draft, patch, dirty, reset, begin, settle } = useDraft(cfg, { rebase: true });
   const edit = (key, p) => patch({ [key]: { ...draft[key], ...p } });
   // The latest saved rules and draft, for an Undo that runs after more changes landed.
+  // A LAYOUT effect, so they are current the moment the switches are on screen:
+  // with a passive effect a click right after the panel drew (a quick person, a
+  // busy machine - CI caught it, 11/13/2026) found no saved rules, saved nothing
+  // and rolled the switch back.
   const cfgRef = useRef(cfg);
   const draftRef = useRef(draft);
-  useEffect(() => { cfgRef.current = cfg; draftRef.current = draft; }, [cfg, draft]);
+  useLayoutEffect(() => { cfgRef.current = cfg; draftRef.current = draft; }, [cfg, draft]);
 
   // A switch saves on click (Neil, 11/02/2026), with an Undo toast that
   // writes the previous value back. Only the switch is sent: the rule's
@@ -2735,7 +2747,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr, company = '', onOverride }) {
     <>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--nx-own)', flexShrink: 0 }} aria-hidden="true" />
       This company has a rule of its own.
-      <button type="button" className="secondary-btn" style={{ fontSize: 11.5 }} disabled={busy || resetting === key} onClick={() => backToDefault(key)}>Use the Default</button>
+      <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy || resetting === key} onClick={() => backToDefault(key)}>Use the Default</button>
     </>
   ) : null);
 
@@ -2781,7 +2793,7 @@ function PayRulesSection({ chrome, company, report, footer, toastOk, toastErr })
 
 function ErrorLine({ text, onRetry }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, color: 'hsl(var(--color-red))', padding: '10px 0' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'hsl(var(--color-red))', padding: '10px 0' }}>
       <span style={{ flex: 1 }}>{text}</span>
       <button type="button" className="secondary-btn" style={{ fontSize: 12 }} onClick={onRetry}>Retry</button>
     </div>

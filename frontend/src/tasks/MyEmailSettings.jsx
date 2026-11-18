@@ -19,7 +19,7 @@ import { ZONE_GROUPS, LOCAL_TZ, zoneOptionLabel } from '../lib/worldClockZones';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import SavedCheck from '../components/SavedCheck';
 
-const label = { display: 'block', fontSize: 12.5, fontWeight: 700, color: NX.ink, marginBottom: 4 };
+const label = { display: 'block', fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 4 };
 const hint = { fontSize: 12, color: NX.dim, margin: '0 0 8px', lineHeight: 1.45 };
 const section = { padding: '14px 0', borderBottom: `1px solid ${NX.border2}` };
 const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
@@ -173,8 +173,8 @@ export default function EmailSettingsPanel({ onUnavailable }) {
                   <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', gap: 10 }}>
                     <span style={{ fontSize: 13 }}>
                       {EVENT_LABELS[k] || k}
-                      {locked && <span style={{ color: NX.faint, fontSize: 11.5 }}> - always on</span>}
-                      {companyOff && <span style={{ color: NX.faint, fontSize: 11.5 }}> - turned off for everyone by your company</span>}
+                      {locked && <span style={{ color: NX.faint, fontSize: 12 }}> - always on</span>}
+                      {companyOff && <span style={{ color: NX.faint, fontSize: 12 }}> - turned off for everyone by your company</span>}
                     </span>
                     <Toggle on={on && !companyOff} disabled={locked || companyOff}
                       onChange={() => set('events', { ...prefs.events, [k]: !on })} />
@@ -186,7 +186,7 @@ export default function EmailSettingsPanel({ onUnavailable }) {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', gap: 10 }}>
                 <span style={{ fontSize: 13 }}>
                   Projects I Follow
-                  <span style={{ color: NX.faint, fontSize: 11.5 }}> - new tasks, completions and comments</span>
+                  <span style={{ color: NX.faint, fontSize: 12 }}> - new tasks, completions and comments</span>
                 </span>
                 <Toggle on={prefs.followedProjects !== false} onChange={() => set('followedProjects', prefs.followedProjects === false)} />
               </div>
@@ -204,7 +204,7 @@ export default function EmailSettingsPanel({ onUnavailable }) {
               <label style={label}>Muted</label>
               <p style={hint}>No emails at all about these, except when someone mentions you. Mute a single task from the link at the bottom of any task email.</p>
               {prefs.mutedTaskIds.length === 0 && prefs.mutedProjectIds.length === 0 && (
-                <p style={{ fontSize: 12.5, color: NX.faint, margin: '0 0 8px' }}>Nothing muted.</p>
+                <p style={{ fontSize: 13, color: NX.faint, margin: '0 0 8px' }}>Nothing muted.</p>
               )}
               {[...prefs.mutedProjectIds.map((id) => ['project', id, `Project: ${mutedProjectName(id)}`]),
                 ...prefs.mutedTaskIds.map((id) => ['task', id, mutedTaskTitle(id)])].map(([kind, id, text]) => (
@@ -233,7 +233,7 @@ export default function EmailSettingsPanel({ onUnavailable }) {
             </div>
           </>
         )}
-        {err && <div style={{ fontSize: 12.5, color: NX.red, marginTop: 8 }}>{err}</div>}
+        {err && <div style={{ fontSize: 13, color: NX.red, marginTop: 8 }}>{err}</div>}
       </div>
   );
 }

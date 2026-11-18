@@ -6,7 +6,7 @@
 // ahead, By priority, Teams...), arranged in the person's profile. Its one
 // page-level control, Customize, is portaled up into the module bar next to
 // Manage rather than rendered here.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChevronDown, ChevronRight, SlidersHorizontal, Plus, Circle, X, GripVertical, Check, ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { DeletedTasksTab as RecycleBinPanel } from './ManageView';
-import { taskIdFromUrl, taskAssignees } from './lib';
+import { taskIdFromUrl, clearTaskIdFromUrl, taskAssignees } from './lib';
 import { NX, FONT, btn, PRIORITY_META } from './theme';
 import { useIsMobile, DateField, notPast } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
@@ -25,6 +25,8 @@ import { api } from '../api';
 import UpdatesCard from './HomeUpdates';
 import AddSeveralModal from './AddSeveralModal';
 import { pastedTaskList } from './batchPaste';
+import { useTypedTask, useTypedTaskPeople } from './useTypedTask';
+import TypedTaskChips from './TypedTaskChips';
 import ProjectIcon from './ProjectIcon';
 import { projectLook } from './projectLook';
 import { useMyDay } from './myDay';
@@ -166,6 +168,13 @@ export default function HomeView({ onNavigate, actions }) {
   useEffect(() => () => clearTimeout(noteTimer.current), []);
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
+  // Why the typed task was not added - said under the row, the name back in it.
+  const [createError, setCreateError] = useState('');
+  // The add row reads the sentence Say It reads (11/13/2026, useTypedTask.js):
+  // what it understood shows as chips under the name and only those are
+  // applied. A date picked in the row's own calendar is never read over.
+  const typedPeople = useTypedTaskPeople(creating);
+  const typedTask = useTypedTask(newTitle, { people: typedPeople, myEmail, locked: { date: !!newDue } });
   // The quick-add row saves when you leave it - Enter, Tab away, or a click
   // anywhere outside the row and its calendar - and never while its date is
   // being picked (the calendar takes focus; a picked date hands it back).
@@ -173,6 +182,8 @@ export default function HomeView({ onNavigate, actions }) {
   const titleRef = useRef(null);
   const creatingTask = useRef(false);
   const [openId, setOpenId] = useState(taskIdFromUrl);
+  // The link is used once: off the address, so another tab does not open it again.
+  useLayoutEffect(clearTaskIdFromUrl, []);
   // An update opens its task at the comment it is about ({ id, threadId, taskId }).
   const [openComment, setOpenComment] = useState(null);
   const openUpdate = (taskId, comment) => { setOpenComment(comment || null); setOpenId(taskId); };
@@ -419,18 +430,34 @@ export default function HomeView({ onNavigate, actions }) {
     if (n.taskId) setOpenId(n.taskId);
   };
 
-  const cancelCreate = () => { setCreating(false); setNewTitle(''); setNewDue(null); };
+  const cancelCreate = () => { setCreating(false); setNewTitle(''); setNewDue(null); setCreateError(''); };
   const commitCreate = async (openDetails) => {
-    const title = newTitle.trim();
+    // The name as typed, or without the words a chip stands for.
+    const title = typedTask.title;
     if (!title) { if (!openDetails) cancelCreate(); return; }
     // One save per title: cleared before the request, so Enter then a
     // click-away cannot make it twice.
     if (creatingTask.current) return;
     creatingTask.current = true;
-    const dueOn = newDue || '';
-    setNewTitle(''); setNewDue(null);
-    const t = await createTask({ title, assigneeIds: myEmail ? [myEmail] : [], dueOn, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => null);
+    const dueOn = newDue || typedTask.dueOn || '';
+    const assigneeIds = typedTask.assigneeIds.length ? typedTask.assigneeIds : (myEmail ? [myEmail] : []);
+    // What was typed, as typed - it goes back in the row if the save fails.
+    const typed = newTitle; const typedDue = newDue;
+    setNewTitle(''); setNewDue(null); setCreateError('');
+    let failure = null;
+    const t = await createTask({ title, assigneeIds, dueOn, status: 'not_started', priority: typedTask.priority || 'medium', type: 'task' }).catch((e) => { failure = e || true; return null; });
     creatingTask.current = false;
+    if (failure) {
+      // The row emptied with no word (11/17/2026): the name comes back -
+      // unless another was typed meanwhile - and the line under it says why.
+      setCreating(true);
+      setNewTitle((cur) => cur || typed);
+      setNewDue((cur) => cur || typedDue);
+      setCreateError(`"${title}" was not added. ${failure.message || 'Try again.'}`);
+      return;
+    }
+    // A task for someone else is not in this card (it lists mine) - say where it went.
+    if (t && myEmail && !assigneeIds.includes(myEmail)) noteAdded(`Task added for ${assigneeIds.map((e) => nameOf(e) || e).join(', ')}`);
     if (openDetails && t) { setCreating(false); setOpenId(t.id); }
   };
   // The click-away listener always calls the latest commitCreate.
@@ -486,7 +513,7 @@ export default function HomeView({ onNavigate, actions }) {
   // on the tiles' card at a desk before).
   const rangePicker = (
     <div>
-      <button ref={rangeRef} onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
+      <button ref={rangeRef} onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 13 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
       <AnchoredMenu anchorRef={rangeRef} open={rangeOpen} onClose={() => setRangeOpen(false)} align="end"
         style={{ width: 150, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
         {RANGES.map((r) => <button key={r.key} onClick={() => { setRange(r.key); setRangeOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: range === r.key ? NX.blue : NX.ink }}>{r.label}</button>)}
@@ -502,7 +529,7 @@ export default function HomeView({ onNavigate, actions }) {
     return <TaskLine key={t.id} t={t} {...p} due={group === 'today' || group === 'tomorrow' ? '' : p.due} compact={isMobile} onOpen={setOpenId} onToggle={toggleComplete} />;
   };
   const groupHead = (label, n, extra) => (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0 4px', fontSize: 11.5, fontWeight: 700, color: NX.faint, letterSpacing: '.02em' }}>
+    <span style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 0 4px', fontSize: 12, fontWeight: 700, color: NX.faint, letterSpacing: '.02em' }}>
       {extra}{label}<span style={{ fontWeight: 600 }}>{n}</span>
     </span>
   );
@@ -590,7 +617,7 @@ export default function HomeView({ onNavigate, actions }) {
         </div>
         {pick && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 6px 3px 10px', borderRadius: 999, background: `${NX.blue}1a`, color: NX.blue, fontSize: 12.5, fontWeight: 600 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 6px 3px 10px', borderRadius: 999, background: `${NX.blue}1a`, color: NX.blue, fontSize: 13, fontWeight: 600 }}>
               {pickLabel}
               <button type="button" onClick={() => setPick(null)} aria-label="Clear Filter" title="Clear Filter"
                 style={{ ...btn('ghost'), padding: 2, color: NX.blue, borderRadius: '50%' }}><X size={13} /></button>
@@ -598,7 +625,7 @@ export default function HomeView({ onNavigate, actions }) {
           </div>
         )}
         {creating ? (
-          <div ref={createRowRef} style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NX.blue}`, padding: '6px 0', marginBottom: 4 }}>
+          <div ref={createRowRef} style={{ position: 'relative', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NX.blue}`, padding: '6px 0', marginBottom: 4 }}>
             <Circle size={16} style={{ color: NX.faint, flexShrink: 0 }} />
             <input ref={titleRef} autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} aria-label="Task Name"
               onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }}
@@ -625,11 +652,14 @@ export default function HomeView({ onNavigate, actions }) {
             <DateField compact noPast value={newDue || ''} title="Set Due Date" color={newDue ? dueColor(newDue, false) : undefined}
               onChange={(v) => { setNewDue(notPast(v) || null); setTimeout(() => titleRef.current?.focus(), 0); }} />
             <button onMouseDown={(e) => { e.preventDefault(); commitCreate(true); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Details" aria-label="Details"><ChevronRight size={16} /></button>
+            {/* Inside the row, so a chip's X is not a click-away. */}
+            <TypedTaskChips typed={typedTask} people={typedPeople} myEmail={myEmail} inputRef={titleRef} style={{ flexBasis: '100%', paddingLeft: 24 }} />
           </div>
         ) : (
           <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>
         )}
-        {addedNote && <div role="status" style={{ fontSize: 12.5, color: NX.green, fontWeight: 600, padding: '2px 0 6px' }}>{addedNote}</div>}
+        {createError && <div role="alert" style={{ fontSize: 13, color: NX.red, padding: '2px 0 6px' }}>{createError}</div>}
+        {addedNote && <div role="status" style={{ fontSize: 13, color: NX.green, fontWeight: 600, padding: '2px 0 6px' }}>{addedNote}</div>}
         {several && (
           <AddSeveralModal defaults={{ text: several.text, dueOn: several.dueOn, assigneeIds: myEmail ? [myEmail] : [], source: 'paste' }}
             onClose={() => setSeveral(null)}
@@ -684,7 +714,7 @@ export default function HomeView({ onNavigate, actions }) {
                   <span style={{ width: 64, height: 5, borderRadius: 3, background: NX.border2, overflow: 'hidden', flexShrink: 0 }}>
                     <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 3, background: pct === 100 ? NX.green : pc }} />
                   </span>
-                  <span style={{ fontSize: 11.5, color: NX.faint, flexShrink: 0, width: 46, textAlign: 'right' }}>
+                  <span style={{ fontSize: 12, color: NX.faint, flexShrink: 0, width: 46, textAlign: 'right' }}>
                     {st.total ? `${st.done}/${st.total}` : '-'}
                   </span>
                 </button>
@@ -785,7 +815,7 @@ export default function HomeView({ onNavigate, actions }) {
       {/* Customize mode: add-widget tray (only unused widgets) */}
       {customizing && availableWidgets.length > 0 && (
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Add Widgets</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Add Widgets</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(240px, 100%), 1fr))', gap: 8 }}>
             {availableWidgets.map(({ key: k, label, Icon, desc }) => (
               <button key={k} type="button" onClick={() => persist([...widgets, k])}

@@ -6,6 +6,7 @@ import {
 } from './calendarMove';
 import { CalendarView } from './views/extras';
 import BulkActionBar from './BulkActionBar';
+import { dialog } from '../ui/dialog';
 
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ canAccessModule: () => false }) }));
 vi.mock('../components/PersonHoverCard', () => ({ default: ({ children }) => children }));
@@ -231,7 +232,7 @@ describe('BulkActionBar - Dates', () => {
     const { store } = renderBar();
     store.bulkDates.mockResolvedValueOnce({ tasks: [], changed: 1, skipped: 0, blocked: 1,
       blockedTasks: [{ id: 'a', title: 'A', code: 'series', reason: "A repeating task can't move on or before its previous occurrence (10/12/2026)." }] });
-    const alert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const alert = vi.spyOn(dialog, 'alert').mockImplementation(() => Promise.resolve());
     fireEvent.click(screen.getByText('Dates…'));
     await act(async () => { fireEvent.click(screen.getByText('Apply')); });
     expect(store.notify).toHaveBeenCalledWith('Moved 1 task 1 day later - 1 not moved');

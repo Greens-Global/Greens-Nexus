@@ -14,7 +14,7 @@ from typing import Optional
 from database import get_db
 import workflows
 from notify_company import notification_company
-from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited, admits_blank
+from auth import require_module_grant, require_owner, hr_scope, is_team_scope, get_current_user, hr_team_limited, admits_blank
 from routers.stepup import require_stepup
 from currency import is_currency
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
@@ -22,11 +22,12 @@ from services import logo_video
 
 # HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
 # supervisor/manager role no longer auto-opens HR - they need an explicit "hr"
-# Access Group grant. Reads need viewer; writes editor; hard deletes owner-grant
-# (or Global Admin). IT Admin+ bypass reads/writes; deletes stay owner-only.
+# Access Group grant. Reads need viewer; writes editor. Deleting a person is a
+# Super Administrator's by TIER, no grant opens it (the Owner grant level was
+# retired - Pranshu, 11/12/2026). Administrator+ bypass reads/writes.
 require_hr_read   = require_module_grant("hr", "viewer")
 require_hr_write  = require_module_grant("hr", "editor")
-require_hr_delete = require_module_grant("hr", "owner", bypass_level="owner")
+require_hr_delete = require_owner
 # Compensation + bank are salary-sensitive (Section B): only Global Admins (owner)
 # bypass; everyone else needs an explicit "hr_comp" Access Group grant.
 require_hr_comp_read  = require_module_grant("hr_comp", "viewer", bypass_level="owner")
@@ -200,7 +201,7 @@ def _next_code(db: Session) -> str:
     return f"GG-{best + 1:03d}"
 
 
-def _serialize(e: NexusEmployee, db: Session = None, tiers: dict = None) -> dict:
+def _serialize(e: NexusEmployee, db: Session = None, tiers: dict = None, countries: dict = None) -> dict:
     # The tier mark beside the name (Neil, 11/02/2026): `tiers` is
     # auth.tiers_by_email(db) for a list (one query), `db` reads one person
     # through the role cache; neither given = '' (the field is always there).
@@ -233,6 +234,11 @@ def _serialize(e: NexusEmployee, db: Session = None, tiers: dict = None) -> dict
         "status":         e.status,
         "location":       e.location,
         "country":        e.country or "",
+        # Their own country, else their company's (`countries` = company_countries
+        # for a list) - what India-only fields like the PAN key off.
+        "workCountry":    (_country_of(e, countries) if countries is not None
+                           else _person_country(db, e) if db is not None
+                           else (e.country or "").strip().upper()),
         "officePhone":    e.office_phone or "",
         "streetAddress":  e.street_address or "",
         "city":           e.city or "",
@@ -286,7 +292,9 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
         out = [_team_view(_serialize(e, tiers=tiers)) for e in rows]
     else:
         sees_pay = _has_comp(user, db)
-        out = [_serialize(e, tiers=tiers) for e in rows]
+        from holiday_policies import company_countries
+        countries = company_countries(db, [e.company for e in rows])
+        out = [_serialize(e, tiers=tiers, countries=countries) for e in rows]
         if not sees_pay:
             for o in out:
                 o["contractor"] = {k: v for k, v in (o.get("contractor") or {}).items() if k not in _CONTRACTOR_PAY}
@@ -305,6 +313,17 @@ def list_employees(deleted: bool = False, user: dict = Depends(require_hr_read),
     for o in out:
         o["backupManager"], o["backupManagerSource"] = backup_manager.resolve(
             (o.get("workEmail") or "").strip().lower(), people, hr_contacts)
+    # A scheduled exit (Neil, 11/14/2026): {eventId, lastDay} - the profile
+    # offers Change Last Day / Cancel Offboarding instead of a second
+    # Offboard, and the list says "Leaving MM/DD". One query for everyone.
+    from models import HrLifeEvent
+    leaving = {}
+    for ev in (db.query(HrLifeEvent.id, HrLifeEvent.employee_id, HrLifeEvent.effective_date)
+               .filter(HrLifeEvent.kind == "separation", HrLifeEvent.apply_status == "scheduled")
+               .order_by(HrLifeEvent.created_at).all()):
+        leaving[ev.employee_id] = {"eventId": ev.id, "lastDay": ev.effective_date or ""}
+    for o in out:
+        o["scheduledExit"] = leaving.get(o.get("id"))
     return out
 
 
@@ -375,6 +394,11 @@ def _team_view(row: dict) -> dict:
     but no Compliance records and no contractor rate - never pay."""
     row["compliance"] = {}
     row["contractor"] = {k: v for k, v in (row.get("contractor") or {}).items() if k not in _CONTRACTOR_PAY}
+    # The National ID / SSN / Aadhaar stays HR-side (People pass, 11/16/2026):
+    # the screen masked it, but the JSON carried it whole to every manager.
+    # The person's own My HR drops the same key (myhr.py, "masked IDs stay
+    # HR-side").
+    row["personal"] = {k: v for k, v in (row.get("personal") or {}).items() if k != "nationalId"}
     return row
 
 
@@ -390,6 +414,12 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
     if new_email and (db.query(NexusEmployee.id)
                         .filter(func.lower(NexusEmployee.work_email) == new_email).first()):
         raise HTTPException(409, f"{new_email} is already the work email of another person in People")
+    # A contractor's rate is pay (Neil, 11/11/2026): the same rule as the
+    # profile save - only Pay & Benefits sets it, on a new person too (People
+    # pass, 11/16/2026: Add Person let anyone set it, then hid it from them).
+    if (any(str((body.contractor or {}).get(k) or "").strip() for k in _CONTRACTOR_PAY)
+            and not _has_comp(user, db)):
+        raise HTTPException(403, "Only Pay & Benefits sets a contractor's rate.")
     now = datetime.now(timezone.utc).isoformat()
     row = NexusEmployee(
         id=str(uuid.uuid4()),
@@ -499,6 +529,19 @@ def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: di
     company = fields.get("company")
     if scope is not None and company is not None and company.strip() not in scope:
         raise HTTPException(403, "You can't move someone to a company outside your People access")
+    # A person's home company is part of their wall (auth._own_company_scope),
+    # so an Administrator below Super Administrator never moves their own or
+    # another Administrator's - the same rule as their access limits
+    # (access_scopes._guard_walled; CLAUDE.md Tiers: nothing set up with the
+    # walls off widens reach once they are armed). People pass, 11/16/2026.
+    import auth
+    if (company is not None and company.strip() != (row.company or "")
+            and auth.bound_by_super_rules(user, db)):
+        target = (row.work_email or "").lower()
+        if target and target == (user.get("email") or "").lower():
+            raise HTTPException(403, "You can't change your own company")
+        if target and auth.level_for(target, db) >= auth._LEVELS["administrator"]:
+            raise HTTPException(403, "Only a Super Administrator changes an Administrator's company.")
     _validate(fields.get("employment_type"), fields.get("status"), fields.get("identity_type"))
     # Offboarding goes through Offboard (POST /employees/{eid}/offboard), which
     # requires the termination date and runs the leaver steps (Neil, Teams
@@ -517,6 +560,13 @@ def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: di
     for key in ("contractor", "personal", "compliance"):
         if isinstance(fields.get(key), dict):
             fields = {**fields, key: {**(getattr(row, key, None) or {}), **fields[key]}}
+    # The emergency contact is merged one level deeper (People pass,
+    # 11/16/2026): the record sends only the emergency fields HR changed, so a
+    # phone the person updated in My HR meanwhile is kept, not written back.
+    em_in = (fields.get("personal") or {}).get("emergency")
+    if isinstance(em_in, dict):
+        em_held = ((row.personal or {}).get("emergency") or {})
+        fields = {**fields, "personal": {**fields["personal"], "emergency": {**em_held, **em_in}}}
     # A contractor's rate is pay (Neil, 11/11/2026: "fix what you think"): only
     # the Pay & Benefits grant reads or changes it - the same rule as an
     # employee's salary. Everyone else's save keeps the stored rate.
@@ -581,8 +631,19 @@ def apply_profile_update(db: Session, row: NexusEmployee, fields: dict, user: di
             # "contractor" too: its JSON carries the contractor's rate and billing rate.
             _mask = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation", "account",
                      "compliance", "contractor")
+            # Inside a JSON block (personal) the keys are masked one by one
+            # (People pass, 11/16/2026): "personal" itself matches no mask word,
+            # so its National ID and date of birth went into the log in clear.
+            _inner = _mask + ("nationalid", "dob", "birth")
+
+            def _redact(val):
+                if isinstance(val, dict):
+                    return {ik: ("(hidden)" if any(m in str(ik).lower() for m in _inner) else iv)
+                            for ik, iv in val.items()}
+                return val
             shown = {k: ("(changed)" if any(m in k.lower() for m in _mask)
-                         else [None if v[0] is None else str(v[0])[:120], None if v[1] is None else str(v[1])[:120]])
+                         else [None if v[0] is None else str(_redact(v[0]))[:120],
+                               None if v[1] is None else str(_redact(v[1]))[:120]])
                      for k, v in changes.items()}
             details = {"employee": row.work_email, "changes": shown}
             if source:
@@ -720,6 +781,16 @@ def restore_employee(eid: str, user: dict = Depends(require_hr_delete), db: Sess
     _assert_scope(row, hr_scope(user, db))
     if not row.deleted_at:
         return {"ok": True, **_pay_view(_serialize(row, db=db), user, db)}
+    # One live person per work email (People pass, 11/16/2026): a removed
+    # person's address looks free, so HR may have added them again - restoring
+    # the old row then made two live people share one email, and every lookup
+    # by email picked one of them at random. The default query sees live rows
+    # only (database.py's soft-delete filter).
+    email = (row.work_email or "").strip().lower()
+    if email and (db.query(NexusEmployee.id)
+                    .filter(func.lower(NexusEmployee.work_email) == email, NexusEmployee.id != row.id).first()):
+        raise HTTPException(409, f"{email} already belongs to someone in People. Remove or change that person "
+                                 "first, then restore this one.")
 
     q = db.query(HrRemovedIdentity)
     conds = []
@@ -802,6 +873,7 @@ class CandidateIn(BaseModel):
     notes:          Optional[str] = ""
     role_id:        Optional[str] = ""     # job role applied for; '' = Other (role_title + department typed)
     opening_id:     Optional[str] = ""     # the job opening they applied for (hiring_openings.py, Oct 27 2026)
+    allow_duplicate: Optional[bool] = False  # HR saw "already in Screening for ..." and added them anyway
 
 
 class CandidateUpdate(BaseModel):
@@ -951,7 +1023,14 @@ def hiring_options(company_id: str = "", all_roles: bool = False,
                        "offerDocs": _offer_docs_of(db, r),
                        "hasDuties": bool((r.job_description or r.description or "").strip())}
                       for r in roles],
-            "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES)}
+            "departments": depts, "departmentLeads": leads, "sources": list(HIRING_SOURCES),
+            # Interview scoring, the Leaderboard and Final Round show only while AI is on (11/14/2026).
+            "aiEnabled": _hiring_ai_on()}
+
+
+def _hiring_ai_on() -> bool:
+    from routers.hr_interviews import ai_on
+    return ai_on()
 
 
 def _offer_docs_of(db: Session, role) -> list:
@@ -1000,9 +1079,40 @@ def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends
     if emails:
         people = {r.work_email: (r.display_name or f"{r.first_name} {r.last_name}").strip()
                   for r in db.query(NexusEmployee).filter(NexusEmployee.work_email.in_(emails)).all()}
+    # The board card's one next step (11/14/2026): when they entered the stage
+    # they are in, where their offer letter stands, and whose decision vote is
+    # still owed.
+    entered: dict = {}
+    offers: dict = {}
+    if ids:
+        stage_of = {c.id: c.stage for c in rows}
+        for ev in (db.query(HrStageEvent.candidate_id, HrStageEvent.to_stage, HrStageEvent.created_at)
+                   .filter(HrStageEvent.candidate_id.in_(ids), or_(HrStageEvent.kind == "", HrStageEvent.kind.is_(None)))
+                   .order_by(HrStageEvent.created_at).all()):
+            if ev.to_stage == stage_of.get(ev.candidate_id) and (ev.created_at or "") > entered.get(ev.candidate_id, ""):
+                entered[ev.candidate_id] = ev.created_at or ""
+        offer_ids = [c.id for c in rows if c.stage == "offer"]
+        if offer_ids:
+            from hr_life_events import OPEN
+            from models import HrLifeEvent
+            for cid, status in (db.query(HrLifeEvent.candidate_id, HrLifeEvent.status)
+                                .filter(HrLifeEvent.candidate_id.in_(offer_ids), HrLifeEvent.kind == "offer").all()):
+                st = "signed" if status == "completed" else "out" if status in OPEN else ""
+                if st and offers.get(cid) != "signed":
+                    offers[cid] = st
     out = []
     for c in rows:
         d = _ser_candidate(c)
+        d["stageSince"] = entered.get(c.id) or c.created_at or ""
+        if c.stage == "offer":
+            d["offerState"] = offers.get(c.id, "none")
+        if c.stage == "decision":
+            try:
+                import hiring_decision
+                votes = hiring_decision.summary(db, c)["votes"]
+                d["decisionWaiting"] = sum(1 for v in votes if not v["vote"])
+            except Exception:   # noqa: BLE001 - a card chip never breaks the board
+                d["decisionWaiting"] = None
         d["interviewScore"] = round(best[c.id]) if c.id in best else None
         iv = rounds.get(c.id)
         d["interview"] = None if not iv else {
@@ -1085,6 +1195,46 @@ def add_candidate_note(cid: str, body: CandidateNoteIn, user: dict = Depends(req
     return {"ok": True}
 
 
+_STAGE_WORDS = {"applied": "Applied", "screening": "Screening", "interview": "Interview", "decision": "Decision",
+                "offer": "Offer", "hired": "Hired", "rejected": "Rejected"}
+
+
+def _duplicate_candidate(db: Session, email: str, scope) -> Optional[HrCandidate]:
+    """Another candidate still on the board with this email (any case), inside
+    the caller's reach - the one Add Candidate warns about."""
+    e = (email or "").strip().lower()
+    if not e:
+        return None
+    from sqlalchemy import func
+    q = db.query(HrCandidate).filter(func.lower(HrCandidate.email) == e)
+    if scope is not None:
+        q = q.filter(HrCandidate.company.in_(scope))
+    return next((c for c in q.order_by(HrCandidate.created_at.desc()).all() if not _is_inactive(c)), None)
+
+
+def hiring_bell_action(db: Session, email: str, cand: HrCandidate) -> dict:
+    """Where a hiring bell lands for this person (11/14/2026): the candidate's
+    own card for anyone who can open Hiring; an interviewer without Hiring
+    access goes to their own open task on the candidate (Decide on, Screen),
+    else the card all the same."""
+    from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, level_for
+    from models import Task
+    e = (email or "").strip().lower()
+    card = {"view": "hr", "sub": f"hr-hiring-{cand.id}"}
+    try:
+        if level_for(e, db) >= _LEVELS["administrator"] or _module_level(e, "hr", db) >= _MODULE_LEVEL_RANK["viewer"]:
+            return card
+    except Exception:   # noqa: BLE001 - a bell never fails over where it points
+        return card
+    for tid in (getattr(cand, "decision_task_id", "") or "", getattr(cand, "screen_task_id", "") or ""):
+        if not tid.strip():
+            continue
+        t = db.query(Task).filter(Task.id == tid).first()
+        if t is not None and not t.completed and e in {(x or "").lower() for x in (t.assignee_emails or [])}:
+            return {"view": "tasks", "sub": "mine", "taskId": t.id}
+    return card
+
+
 def _check_date(value: str, label: str) -> str:
     v = (value or "").strip()[:10]
     if v:
@@ -1108,6 +1258,18 @@ def create_candidate(body: CandidateIn, background: BackgroundTasks = None, user
     for value, label in ((body.last_name, "Last name"), (body.email, "Email"), (body.phone, "Phone")):
         if not (value or "").strip():
             raise HTTPException(400, f"{label} is required.")
+    if not body.allow_duplicate:
+        # The same person applying twice (11/14/2026): HR is asked first, and
+        # adds them anyway on purpose (allow_duplicate) - never refused outright.
+        dup = _duplicate_candidate(db, body.email, scope)
+        if dup is not None:
+            dup_name = f"{dup.first_name} {dup.last_name}".strip()
+            where = _STAGE_WORDS.get(dup.stage, dup.stage.title())
+            role = f" for {dup.role_title}" if (dup.role_title or "").strip() else ""
+            raise HTTPException(409, {"code": "duplicate_candidate",
+                                      "message": f"{dup_name} is already in {where}{role} - add anyway?",
+                                      "candidateId": dup.id, "name": dup_name, "stage": dup.stage,
+                                      "roleTitle": dup.role_title or ""})
     now = datetime.now(timezone.utc).isoformat()
     role_title, department = (body.role_title or "").strip(), (body.department or "").strip()
     role_id = (body.role_id or "").strip()
@@ -1263,7 +1425,8 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
 @router.patch("/candidates/{cid}")
 def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTasks = None,
                      user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
+    # Locked: a stage move, a reroute and the rounds it cancels must not race another save.
+    row = db.query(HrCandidate).filter(HrCandidate.id == cid).with_for_update().first()
     if not row:
         raise HTTPException(404, "Candidate not found")
     scope = hr_scope(user, db)
@@ -1326,6 +1489,16 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
             row.rejected_at = now
         elif row.rejected_at or row.inactive_at:
             row.rejected_at, row.inactive_at = "", ""     # reopened: back on the board
+        if body.stage in ("rejected", "applied", "screening"):
+            # Rejected, or back before the interview: the rounds still booked are
+            # withdrawn (the Teams invite too) - nobody turns up to a dead interview.
+            from models import HrInterview
+            from routers.hr_interviews import _cancel_round
+            why = "Candidate rejected" if body.stage == "rejected" else f"Moved back to {_STAGE_WORDS[body.stage]}"
+            for iv in (db.query(HrInterview).filter(HrInterview.candidate_id == row.id,
+                                                     HrInterview.status == "scheduled").all()):
+                _cancel_round(db, iv, row, user["email"], f"Interview canceled - {why}")
+            row.interview_at = ""
         # Hired -> the candidate becomes an employee master record (onboarding)
         if body.stage == "hired" and not row.employee_id:
             created_employee = create_employee_from_candidate(db, row, user["email"])
@@ -1341,7 +1514,7 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
                        f"{cand_name} ({row.role_title or row.department or 'candidate'}) is now in {body.stage.replace('_', ' ')}."
                        + (f"\nNote: {body.stage_note.strip()}" if (body.stage_note or '').strip() else ''),
                        ref_id=row.id, requested_by=user["email"],
-                       action={"view": "hr", "sub": "hr-hiring"})
+                       action=hiring_bell_action(db, row.created_by, row))
 
     # Interview scheduling: record + notify the candidate owner (the daily
     # reminder job pings again on the day itself).
@@ -1357,7 +1530,7 @@ def update_candidate(cid: str, body: CandidateUpdate, background: BackgroundTask
             _hr_notify(db, row.created_by, f"Interview Scheduled - {cand_name}",
                        f"{cand_name} ({row.role_title or 'candidate'}) is booked for {pretty}.",
                        ref_id=row.id, requested_by=user["email"],
-                       action={"view": "hr", "sub": "hr-hiring"})
+                       action=hiring_bell_action(db, row.created_by, row))
 
     if body.email is not None:
         body.email = _check_candidate_email(body.email)
@@ -5138,7 +5311,21 @@ def payroll_fields(db: Session, emp: NexusEmployee) -> dict:
         "hourlyRate": float(getattr(row, "hourly_rate", 0) or 0) if row else 0.0,
         "monthlySalary": float(getattr(row, "monthly_salary", 0) or 0) if row else 0.0,
         "isSet": row is not None,
+        # Their own country, else their company's: the screen offers the India-only
+        # GSTIN and PAN only to people in India (Neil, 11/12/2026).
+        "country": _person_country(db, emp),
     }
+
+
+def _country_of(emp: NexusEmployee, countries: dict) -> str:
+    from holiday_policies import person_country
+    return person_country(emp, countries.get(getattr(emp, "company", "") or "", ""))
+
+
+def _person_country(db: Session, emp: NexusEmployee) -> str:
+    from holiday_policies import company_countries, person_country
+    company = (getattr(emp, "company", "") or "") if emp is not None else ""
+    return person_country(emp, company_countries(db, [company]).get(company, ""))
 
 
 def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
@@ -5326,11 +5513,18 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
         current = dict(row.compensation or {})
         eff_in = str(incoming.get("effectiveDate") or "").strip()
         if eff_in:
-            # The rate history compares days as text: anything but YYYY-MM-DD
-            # (e.g. 11/05/2026) would sort before every day and apply since always.
-            try:
-                datetime.strptime(eff_in, "%Y-%m-%d")
-            except ValueError:
+            # The rate history compares days as text, so it is STORED as
+            # YYYY-MM-DD - a raw 11/05/2026 would sort before every day and
+            # apply since always. MM/DD/YYYY, the format the message names, is
+            # accepted and converted (People pass, 11/16/2026: the message
+            # gave an example the check refused).
+            for fmt in ("%Y-%m-%d", "%m/%d/%Y"):
+                try:
+                    eff_in = datetime.strptime(eff_in, fmt).strftime("%Y-%m-%d")
+                    break
+                except ValueError:
+                    continue
+            else:
                 raise HTTPException(400, "Effective Date must be a date, e.g. 11/05/2026")
             incoming["effectiveDate"] = eff_in
         # Auto-snapshot the prior base into history when the base pay changes.
@@ -5752,7 +5946,33 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     # here to re-run a mailbox / license step (did_change is False then).
     if body.status == "offboarded" and (row.status or "") != "offboarded":
         raise HTTPException(400, OFFBOARD_ONLY)
+    if (body.offboarding or {}).get("exportRequested"):
+        _assert_may_export(db, user, row)
     return _pay_view(apply_status_change(db, row, body, user["email"]), user, db)
+
+
+def _assert_may_export(db: Session, user: dict, row: NexusEmployee) -> None:
+    """Whose mailbox a People editor may export (People pass, 11/16/2026): an
+    export hands over every message, so nobody below Super Administrator
+    exports the mailbox of someone above their own tier, or of an
+    Administrator / Super Administrator."""
+    import auth
+    mine = int(user.get("level", 0) or 0)
+    if mine >= auth._LEVELS["owner"]:
+        return
+    theirs = auth.level_for((row.work_email or "").lower(), db)
+    if theirs > mine or theirs >= auth._LEVELS["administrator"]:
+        raise HTTPException(403, "Only a Super Administrator exports the mailbox of someone above your tier "
+                                 "or of an Administrator.")
+
+
+def _still_leaving(db: Session, employee_id: str) -> bool:
+    """A mailbox export runs only while its person is Inactive or Left - a
+    status set back to Active stops it (People pass, 11/16/2026: setting
+    someone Inactive with an export and straight back to Active used to keep
+    the export running on a working colleague)."""
+    status = db.query(NexusEmployee.status).filter(NexusEmployee.id == employee_id).scalar()
+    return (status or "") in ("inactive", "offboarded")
 
 
 def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, actor: str) -> dict:
@@ -5812,13 +6032,18 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
     if did_change and body.status == "offboarded" and row.work_email:
         from routers.items import force_return_person
         items_returned = force_return_person(db, row.work_email, actor)
-        if entry is not None and (items_returned["checkouts"] or items_returned["assignments"]):
-            entry["itemsReturned"] = items_returned
-        # Their future shifts leave the schedule in the same session
-        # (shift_offboard.py, Oct 15 2026) - never a reason to fail the offboarding.
+        if entry is not None and (items_returned.get("checkouts") or items_returned.get("assignments")):
+            entry["itemsReturned"] = {k: items_returned.get(k, 0) for k in ("checkouts", "assignments")}
+        if entry is not None and items_returned.get("returnPending"):
+            # Still out with them (Neil, 11/14/2026): Received / Lost on the exit.
+            entry["itemsReturnPending"] = int(items_returned["returnPending"])
+        # Their shifts AFTER THE LAST DAY leave the schedule in the same
+        # session (shift_offboard.py, Oct 15 2026) - never a reason to fail
+        # the offboarding.
         try:
             import shift_offboard
-            shifts_removed = shift_offboard.remove_future_shifts(db, row.work_email, actor)
+            shifts_removed = shift_offboard.remove_future_shifts(db, row.work_email, actor,
+                                                                 last_day=(body.effectiveDate or "").strip()[:10])
             if entry is not None and (shifts_removed["pendingDelete"] or shifts_removed["deleted"]):
                 entry["shiftsRemoved"] = shifts_removed
         except Exception as e:   # noqa: BLE001 - the offboarding goes on
@@ -5851,6 +6076,13 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
                 entry["vaultHandover"] = vault
         except Exception as e:   # noqa: BLE001 - the vault is the least of the three handovers
             print(f"[hr] credential vault handover skipped for {row.work_email}: {e}")
+    if did_change and body.status == "offboarded" and row.work_email:
+        # Their phones stop getting the bell (push.py): a leaver's devices
+        # are no place for company notices any more.
+        from models import NexusPushSubscription
+        (db.query(NexusPushSubscription)
+         .filter(func.lower(NexusPushSubscription.email) == row.work_email.strip().lower())
+         .delete(synchronize_session=False))
     row.status = body.status
     row.status_log = log
     row.updated_at = now
@@ -5883,14 +6115,27 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
                     m365["sessions"] = "ended"
                 except Exception as e:
                     m365["sessions"] = f"not ended ({str(e)[:120]}) - press Revoke Sessions in Entra"
-            if off_block.get("freeUpLicense"):
+            # Mailbox order (Neil, 11/14/2026): with an export asked for, the
+            # license stays until the export has finished - releasing it first
+            # deletes the mailbox the export is still reading. The export
+            # thread releases it once done; a failed export keeps it and says
+            # so on the exit (_after_export).
+            wait_for_export = bool(off_block.get("exportRequested") and off_block.get("freeUpLicense"))
+            if off_block.get("freeUpLicense") and not wait_for_export:
                 m365["licenses"] = _graph_remove_all_licenses(token, row.m365_id)
             if off_block.get("exportRequested"):
                 job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=actor,
                                       status="pending", created_at=now, updated_at=now)
-                db.add(job); db.commit()
-                threading.Thread(target=_run_mailbox_export, args=(job.id, row.m365_id), daemon=True).start()
+                db.add(job)
+                # The same audit row as the Export Mailbox button (People pass,
+                # 11/16/2026) - this path used to start one with none.
+                _audit_mailbox(db, {"email": actor, "role": ""}, row, "Started a mailbox export")
+                db.commit()
+                threading.Thread(target=_run_mailbox_export, args=(job.id, row.m365_id),
+                                 kwargs={"release_license": wait_for_export}, daemon=True).start()
                 m365["export"] = job.id
+                if wait_for_export:
+                    m365["licenses"] = "released once the mailbox export finishes"
         except Exception as e:
             m365["error"] = str(getattr(e, "detail", e))[:200]
     elif not row.m365_id and off_block and body.status in ("inactive", "offboarded"):
@@ -5973,13 +6218,59 @@ def _export_filename(m: dict, used: set) -> str:
     return name
 
 
-def _run_mailbox_export(job_id: str, m365_id: str) -> None:
+def _after_export(job_id: str, m365_id: str, ok: bool, why: str = "") -> None:
+    """The license waits for the export (Neil, 11/14/2026): once the export
+    is done it is released; a failed export keeps it, and the exit says
+    "Mailbox export failed - license kept" for HR. Its own session, on the
+    export's own thread - never the event loop."""
+    db = SessionLocal()
+    try:
+        job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == job.employee_id).first() if job else None
+        if emp is None:
+            return
+        import exit_statement
+        if ok:
+            try:
+                got = _graph_remove_all_licenses(_graph_token(), m365_id)
+                exit_statement.record_for_email(db, emp.work_email, job.requested_by, "license_released",
+                                                f"Mailbox exported, then the license was released ({got})")
+            except Exception as e:   # noqa: BLE001 - said on the exit, never silent
+                exit_statement.flag_for_email(db, emp.work_email, "m365_issue",
+                                              f"Mailbox exported, but the license was not released: {str(e)[:160]}")
+        else:
+            exit_statement.flag_for_email(db, emp.work_email, "mailbox_export_failed",
+                                          "Mailbox export failed - license kept"
+                                          + (f" ({why[:160]})" if why else ""))
+        db.commit()
+    except Exception as e:   # noqa: BLE001
+        print(f"[hr] after-export step failed for {job_id}: {e}")
+    finally:
+        db.close()
+
+
+def _run_mailbox_export(job_id: str, m365_id: str, release_license: bool = False) -> None:
+    """The export; with `release_license` the license is released only once
+    it has finished (or kept when it failed) - _after_export."""
+    ok, why = False, "it stopped before it finished"
+    try:
+        ok, why = _export_mailbox(job_id, m365_id)
+    finally:
+        if release_license:
+            _after_export(job_id, m365_id, ok, why)
+
+
+def _export_mailbox(job_id: str, m365_id: str) -> tuple:
+    """(finished, why not)."""
     db = SessionLocal()
     tmp_path = None
     try:
         job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
         if not job:
-            return
+            return False, "the export job is gone"
+        stopped = "Stopped: this person is no longer Inactive or Left, so their mailbox was not exported."
+        if not _still_leaving(db, job.employee_id):
+            raise RuntimeError(stopped)
         job.status = "running"; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
         headers = {"Authorization": f"Bearer {_graph_token()}"}
 
@@ -6031,6 +6322,8 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
                 if count >= _EXPORT_MSG_CAP:
                     capped = True
                     break
+                if not _still_leaving(db, job.employee_id):   # re-checked every page of 100
+                    raise RuntimeError(stopped)
                 r = graph_get(url)
                 if r.status_code in (401, 403):
                     raise RuntimeError("Graph denied mailbox read - grant the Mail.Read application permission and admin consent.")
@@ -6064,6 +6357,8 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
             if skipped:
                 zf.writestr("SKIPPED.txt", "Messages Microsoft 365 would not hand over (received, subject, reason):\n"
                             + "\n".join(skipped) + "\n")
+        if not _still_leaving(db, job.employee_id):   # never store a working colleague's mail
+            raise RuntimeError(stopped)
         path = f"exports/{job.employee_id}/{job_id}.zip"
         size = os.path.getsize(tmp_path)
 
@@ -6093,6 +6388,7 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
             parts.append(f"stopped at the {_EXPORT_MSG_CAP:,}-message limit")
         job.message = "; ".join(parts)
         job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+        return True, ""
     except Exception as e:
         try:
             job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
@@ -6101,6 +6397,7 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
                 job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
         except Exception:
             pass
+        return False, str(e)[:300]
     finally:
         if tmp_path:
             try:
@@ -6132,6 +6429,7 @@ def start_mailbox_export(eid: str, user: dict = Depends(require_hr_write), db: S
     if (emp.status or "") not in ("inactive", "offboarded"):
         raise HTTPException(409, "A mailbox export is part of offboarding - offboard this person or set them "
                                  "to Inactive first.")
+    _assert_may_export(db, user, emp)
     now = datetime.now(timezone.utc).isoformat()
     job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=eid, requested_by=user["email"],
                           status="pending", created_at=now, updated_at=now)

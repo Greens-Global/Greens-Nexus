@@ -118,8 +118,8 @@ export default function CommitmentsTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
         <div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Commitments</h3>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '3px 0 0' }}>Signed subscriptions - who committed how much, to which deal</p>
+          <h3 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: 'var(--ink)', margin: 0 }}>Commitments</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', margin: '3px 0 0' }}>Signed subscriptions - who committed how much, to which deal</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-select" style={{ width: 200 }} value={fundFilter} onChange={e => setFundFilter(e.target.value)}>
@@ -170,7 +170,7 @@ export default function CommitmentsTab() {
                   <td data-th="Doc">
                     {c.signedDocUrl ? (
                       <a href={c.signedDocUrl} target="_blank" rel="noreferrer"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'hsl(var(--color-blue))', fontSize: 12.5, fontWeight: 600, textDecoration: 'none' }}>
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'hsl(var(--color-blue))', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
                         <FileText size={13} /> {c.signedDocName || 'View Document'}
                       </a>
                     ) : (
@@ -228,7 +228,7 @@ export default function CommitmentsTab() {
                   <option value="withdrawn">Withdrawn</option>
                 </select>
               </FG>
-              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 12.5 }}>{formErr}</div>}
+              {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{formErr}</div>}
             </div>
             <div className="modal-footer">
               {modal.id && (

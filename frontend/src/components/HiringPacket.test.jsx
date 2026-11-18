@@ -76,7 +76,8 @@ describe('PacketsModal', () => {
     expect(screen.getByText('No promotion letter for Every company yet')).toBeTruthy();
     fireEvent.click(screen.getAllByText('Add Packet')[0]);
     await waitFor(() => expect(screen.getByLabelText('Works In')).toBeTruthy());
-    expect(screen.getByLabelText('Only for this role')).toBeTruthy();
+    // The role list loads after the form (a spinner first) - under CI load it can land a beat later.
+    expect(await screen.findByLabelText('Only for this role', {}, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByLabelText('Name')).toBeTruthy();
   });
 
@@ -93,6 +94,20 @@ describe('PacketsModal', () => {
     expect(document.getElementById('pk-company').value).toBe('e1');                // the editor's own Company box
     expect(screen.getByLabelText('Hired As').value).toBe('employee');
     packetSettings = [];
+  });
+});
+
+describe('PacketsModal inline', () => {
+  it('is the page under Documents > Hiring Documents: the same setup, no Close, nothing fixed over the page', async () => {
+    const onClose = vi.fn();
+    render(<PacketsModal inline onClose={onClose} toastOk={noop} toastErr={noop} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Hiring Packet/ })).toBeTruthy());
+    // No heading on the page (Pranshu, 11/13/2026); the company picker sits in the tab row.
+    expect(screen.queryByText('Hiring Documents')).toBeNull();
+    expect(screen.getByLabelText('Company')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(document.querySelector('.nx-hd')).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
 

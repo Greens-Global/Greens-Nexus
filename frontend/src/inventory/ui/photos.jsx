@@ -14,7 +14,7 @@ const DROP = {
   borderRadius: 10, border: '1px dashed var(--wk-line, var(--line))', background: 'var(--mist)',
   cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'inherit',
 };
-const NEED = { fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginLeft: 6 };
+const NEED = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginLeft: 6 };
 
 /** The one "No Photo" placeholder (a tile, a row, the record's hero). */
 export function NoPhoto({ size = 44, label = true, radius = 8, style }) {
@@ -91,7 +91,7 @@ export function PhotoUpload({ value, onChange, label = 'Photo', required = false
       <input className="form-input" type="url" value={value || ''}
         onChange={e => onChange(e.target.value.trim())} onPaste={handlePaste}
         placeholder="…or paste an image link (https://…)"
-        style={{ width: '100%', fontSize: 12.5, padding: '6px 10px', marginTop: 8 }} />
+        style={{ width: '100%', fontSize: 13, padding: '6px 10px', marginTop: 8 }} />
       <p style={HINT}>Upload a file, paste a link, or press Ctrl+V to paste a screenshot.</p>
       {err && <p style={{ fontSize: 12, color: 'var(--bad-fg)', marginTop: 5 }}>{err}</p>}
     </div>
@@ -117,7 +117,7 @@ export function PhotoSlot({ label, slotKey, photos, onChange, required = true })
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <img src={entry.preview} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)', flexShrink: 0 }} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</div>
             <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => ref.current?.click()}>Replace</button>
           </div>
         </div>

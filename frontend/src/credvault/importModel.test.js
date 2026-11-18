@@ -14,8 +14,17 @@ describe('import wizard model', () => {
     expect(rows).toHaveLength(2);
     const v = validateRows(rows, { defaultDept: 'IT' });
     expect(v[0]).toMatchObject({ ok: true, url: 'https://dcc.godaddy.com', tier: 'High', type: 'Password', dept: 'IT' });
-    expect(v[1]).toMatchObject({ ok: false, problems: ['link is not a web address'], dept: 'IT' });
+    expect(v[1]).toMatchObject({ ok: false, problems: ['weak password', 'link is not a web address'], dept: 'IT' });
     expect(validateRows([{ name: '', secret: '', url: '', dept: '' }])[0].problems).toEqual(['no name', 'no password', 'no department']);
+  });
+  it('the template rows: a company from Settings and one of its departments, else left out (11/13/2026)', () => {
+    const companies = [{ id: 'gg', name: 'Greens Global' }, { id: 'gs', name: 'Greens Storage' }];
+    const departments = [{ name: 'Operations', companyId: 'gg' }, { name: 'IT', companyId: 'gg' }, { name: 'Operations', companyId: 'gs' }];
+    const rows = applyMap([['Gate', 'Greens Storage', 'Operations', 'Strong-Pass-123!'], ['DVR', 'Greens Storage', 'IT', 'Strong-Pass-123!'], ['Wiki', 'Acme', 'IT', 'Strong-Pass-123!']],
+      guessMap(['Name', 'Company', 'Department', 'Password']));
+    const v = validateRows(rows, { companies, departments });
+    expect(v.map((r) => [r.companyId, r.problems])).toEqual([['gs', []], ['gs', ['Greens Storage has no IT department']], ['', ['no company called Acme']]]);
+    expect(toPayload(v[0], { companyId: 'gg' })).toMatchObject({ companyId: 'gs', department: 'Operations' });
   });
   it('spots what the vault already holds, by name and username or by site and username', () => {
     const existing = [{ id: 'c1', name: 'GoDaddy DNS', username: 'dns', url: 'https://dcc.godaddy.com' }, { id: 'c2', name: 'Old', username: 'x', deletedAt: 1 }];
@@ -27,6 +36,10 @@ describe('import wizard model', () => {
   it('builds the server row with the department audience, or everyone at the company', () => {
     const r = { name: 'Wi-Fi', dept: 'IT', type: 'Password', username: 'staff', secret: 's', tier: 'Standard', url: '', note: '' };
     expect(toPayload(r, { backupOwner: 'b@x.com' })).toMatchObject({ department: 'IT', backupOwner: 'b@x.com', audiences: [{ kind: 'department', value: 'IT', level: 'open' }] });
-    expect(toPayload(r, { everyone: true, companyId: 'co' }).audiences).toEqual([{ kind: 'company', value: 'co', level: 'open' }]);
+    // Picked on the review step, before the import: more departments, a company - each once.
+    const more = toPayload(r, { audiences: [{ kind: 'department', value: 'Operations' }, { kind: 'department', value: 'it' }, { kind: 'company', value: 'co', level: 'view' }], companyId: 'co', siteId: 's1' });
+    expect(more.audiences).toEqual([{ kind: 'department', value: 'IT', level: 'open' }, { kind: 'department', value: 'Operations', level: 'open' }, { kind: 'company', value: 'co', level: 'view' }]);
+    expect(more).toMatchObject({ companyId: 'co', siteId: 's1' });
+    expect(toPayload(r, { ownDept: false, audiences: [] }).audiences).toEqual([]);
   });
 });

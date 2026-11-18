@@ -15,6 +15,8 @@ let _openTicketId = null; // ticketId of the currently-mounted TicketDrawer, if 
 
 export function stashDraft(d) { _draft = { ...d, resume: false }; }
 export function appendDraftFile(f) { if (_draft) _draft.attachments = [...(_draft.attachments || []), f]; }
+/** Change the stashed form (Point At It adds its Where line while the form may be unmounted). */
+export function patchDraftForm(fn) { if (_draft) _draft.form = fn(_draft.form || {}); }
 export function takeDraft() { const d = _draft; _draft = null; return d; }
 export function peekDraft() { return _draft; }
 export function setDraftUiMounted(v) { _uiMounted = v; }

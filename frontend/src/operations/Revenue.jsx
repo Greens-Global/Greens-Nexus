@@ -24,6 +24,7 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { money } from './model';
 import SectionPicker from './SectionPicker';
 import { csvName, downloadCsv } from './csv';
+import { dialog } from '../ui/dialog';
 
 const cash = (c) => money(c, { exact: true });
 
@@ -389,17 +390,17 @@ function BatchModal({ batchId, onClose, onChanged }) {
     try { const out = await fn(); if (out) setB(out); onChanged(); } catch (e) { setErr(e?.message || 'That did not work.'); } finally { setBusy(''); }
   };
   const status = (s, ask) => act(s, async () => {
-    if (ask && !window.confirm(ask)) return null;
+    if (ask && !(await dialog.confirm(ask, { cancelText: 'Go Back' }))) return null;
     return api.opsRevenueSetStatus(batchId, s);
   });
   const push = (c) => act(c.id, async () => {
-    if (!window.confirm(`Schedule ${c.tenant}'s new rent in Cubby: ${cash(c.rent)} -> ${cash(c.newRent)}?`)) return null;
+    if (!(await dialog.confirm(`Schedule ${c.tenant}'s new rent in Cubby: ${cash(c.rent)} -> ${cash(c.newRent)}?`, { title: 'Push to Cubby', confirmText: 'Schedule' }))) return null;
     try {
       return await api.opsRevenuePush(batchId, c.id);
     } catch (e) {
-      if (e?.status === 409 && e?.detail?.cubbyDate && window.confirm(`${e.message}
+      if (e?.status === 409 && e?.detail?.cubbyDate && await dialog.confirm(`${e.message}
 
-Use Cubby's date?`)) {
+Use Cubby's date?`, { title: 'Use Cubby\'s Date?', confirmText: 'Use Cubby\'s Date' })) {
         return api.opsRevenuePush(batchId, c.id, true);
       }
       throw e;
@@ -499,7 +500,7 @@ Use Cubby's date?`)) {
         {b.audit?.length > 0 && (
           <details>
             <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>History</summary>
-            <ul style={{ fontSize: 12.5, color: 'var(--muted)', paddingLeft: 18 }}>
+            <ul style={{ fontSize: 13, color: 'var(--muted)', paddingLeft: 18 }}>
               {b.audit.map((a, i) => (
                 <li key={i}>{formatDateTime(a.at)} - {a.actor} - {a.action.replace('_', ' ')}{a.detail?.unit ? ` (${a.detail.unit})` : ''}{a.detail?.error ? `: ${a.detail.error}` : ''}</li>
               ))}
@@ -663,7 +664,7 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
                       <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                         <button type="button" className="icon-btn" aria-label={`Edit ${s.name}`} onClick={() => setModal({ kind: 'strategy', strategy: s })}><Pencil size={14} /></button>
                         <button type="button" className="icon-btn" aria-label={`Archive ${s.name}`}
-                          onClick={async () => { if (window.confirm(`Archive ${s.name}? Batches built from it keep it.`)) { await api.opsRevenueArchiveStrategy(s.id).catch(() => {}); loadStrategies(); } }}><Trash2 size={14} /></button>
+                          onClick={async () => { if (await dialog.confirm(`Archive ${s.name}? Batches built from it keep it.`, { title: 'Archive Strategy', confirmText: 'Archive' })) { await api.opsRevenueArchiveStrategy(s.id).catch(() => {}); loadStrategies(); } }}><Trash2 size={14} /></button>
                       </td>
                     </tr>
                   ))}

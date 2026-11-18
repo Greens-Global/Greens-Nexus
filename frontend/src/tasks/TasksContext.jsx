@@ -16,6 +16,7 @@ import { loadTaskData, loadOlderTasks, withRecent, withOlder, taskSnapshot, reme
 import { noteStatusChanges } from './recentChanges';
 import { applyFieldUpdate } from './formula';
 import { moveUndoBody } from './lib';
+import { dialog } from '../ui/dialog';
 
 function tasksReducer(prev, v) {
   const next = typeof v === 'function' ? v(prev) : v;
@@ -119,6 +120,11 @@ async function reloadTicketsInto(setTickets) {
 
 let pingChannelSeq = 0;
 
+// A task_events row about tickets, not tasks: the backend marks it in the
+// row's `kind` (ticket_events.PING_KIND). A row that arrives without its
+// columns reads as a task ping, as every row did before tickets pinged.
+const isTicketPing = (payload) => String(payload?.new?.kind || '').startsWith('ticket');
+
 export function TasksProvider({ children }) {
   const { myEmail } = useRole();
   const nameOf = useNameResolver();
@@ -165,6 +171,13 @@ export function TasksProvider({ children }) {
   const [ticketsLoaded, setTicketsLoaded] = useState(false);
   const ticketsLoadedRef = useRef(false);
   ticketsLoadedRef.current = ticketsLoaded;
+  // The first ticket load FAILED (11/17/2026): the list is empty because it
+  // could not be read, not because nothing was raised - the desk says so and
+  // offers Try Again instead of "No Tickets Yet". Cleared by any good answer.
+  const [ticketsFailed, setTicketsFailed] = useState(false);
+  // The long-done tasks (the first load's second part) are in too, so a task
+  // that is not in the list really is not there (TaskDetailDrawer).
+  const [allTasksLoaded, setAllTasksLoaded] = useState(false);
   const commentCache = useRef({});   // taskId -> comment[]
   // The caller's running task timer (Oct 2026): {entry, task} or null. One
   // per person at a time; the module bar's chip and the drawer both read it.
@@ -181,7 +194,7 @@ export function TasksProvider({ children }) {
     applyRef.current = {
       tasks: (v) => { setTasks((prev) => withRecent(prev, v?.tasks || [])); sinceRef.current = v?.serverTime || ''; },
       projects: setProjects, portfolios: setPortfolios, teams: setTeams,
-      tickets: (v) => { setTickets(v); setTicketsLoaded(true); }, ticketComponents: setTicketComponents,
+      tickets: (v, ok = true) => { setTickets(v); setTicketsLoaded(true); setTicketsFailed(!ok); }, ticketComponents: setTicketComponents,
       savedViews: setSavedViews, ticketViews: setTicketViews, rules: setRules,
       templates: setTemplates, projectTemplates: setProjectTemplates,
       customFields: setCustomFields, customStatuses: setCustomStatuses,
@@ -201,13 +214,16 @@ export function TasksProvider({ children }) {
 
   const loadCore = useCallback(async () => {
     let firstPaintLeft = FIRST_PAINT.length;
-    await loadTaskData((key, value) => {
-      applyRef.current[key]?.(value);
+    // `ok` false: that collection's fetch failed and `value` is what was held.
+    await loadTaskData((key, value, ok) => {
+      if (key === 'tickets') applyRef.current.tickets(value, ok !== false);
+      else applyRef.current[key]?.(value);
       if (FIRST_PAINT.includes(key) && --firstPaintLeft === 0) setLoading(false);
     });
     setLoading(false);
     const older = await loadOlderTasks();
     if (older.length) setTasks((prev) => withOlder(prev, older));
+    setAllTasksLoaded(true);
   }, []);
 
   const loadNotifications = useCallback(async () => {
@@ -270,9 +286,16 @@ export function TasksProvider({ children }) {
     });
     sinceRef.current = serverTime;
   }, []);
+  // A ticket ping's handler (set by the ticket refresh effect further down).
+  // Ticket changes ride the same task_events table, marked `kind: "ticket"`
+  // (backend ticket_events.py), and so the same ONE channel: a ticket ping
+  // refetches the ticket list and never the tasks, a task ping never the
+  // tickets - the ticket fetch is the whole list.
+  const ticketPingRef = useRef(null);
   useEffect(() => {
     let timer = null;
     const debounced = () => { clearTimeout(timer); timer = setTimeout(() => { refetchTasks(); loadNotifications(); }, 400); };
+    const onPing = (payload) => (isTicketPing(payload) ? ticketPingRef.current?.() : debounced());
     const stopPoll = pollWhileVisible(() => { refetchTasks().catch(() => {}); }, 45000);
     let channel = null;
     if (supabase) {
@@ -280,18 +303,21 @@ export function TasksProvider({ children }) {
       // for a reused topic and `.on()` on it throws - the Tasks view's provider
       // plus the header's New Task crashed the header (hotfix 11/05/2026).
       channel = supabase.channel(`task_event_pings:${++pingChannelSeq}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_events' }, debounced)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'task_events' }, onPing)
         .subscribe();
     }
     return () => { stopPoll(); clearTimeout(timer); if (channel) supabase?.removeChannel(channel); };
   }, [refetchTasks, loadNotifications]);
 
   // Tickets: they used to load once per session, so a desk agent's list went
-  // stale until a reload. Tickets do not write task_events rows (only task
-  // routes ping), so there is no realtime hook to share - poll every 60s while
-  // the tab is visible, and refresh straight away when the tab comes back
-  // from being hidden. Quiet by design: a failed fetch keeps the list on
-  // screen, and ticketsLoaded only ever moves to true.
+  // stale until a reload. Live since 11/13/2026: every committed ticket change
+  // writes a task_events row marked `kind: "ticket"` (backend
+  // ticket_events.py - nothing else in the row), and that ping refetches the
+  // list 400ms later, so a reply shows up in Needs Reply within about a
+  // second. The fallback is unchanged: poll every 60s while the tab is
+  // visible, and refresh straight away when the tab comes back from being
+  // hidden. Quiet by design: a failed fetch keeps the list on screen, and
+  // ticketsLoaded only ever moves to true.
   //  - A fetch that was in flight when a local ticket write landed is dropped
   //    (generation check) - its answer may predate that write.
   //  - An open drawer's held edits live in the drawer (its `pending` state,
@@ -302,18 +328,29 @@ export function TasksProvider({ children }) {
   //    tab-return refresh, so a tick can land seconds after one. A refresh
   //    within 15s of the last good answer is skipped (on a phone hopping
   //    between apps that was the whole list downloaded twice in a row).
+  //  - A ticket ping marks the list stale (ticketsStaleRef) until a fetch
+  //    that started AFTER it has answered. A stale list is never skipped as
+  //    "fresh"; a ping that lands while a fetch is on the wire, or whose
+  //    answer was dropped or failed, keeps the mark, so the change it stood
+  //    for is still fetched. A ping heard while the tab is hidden or another
+  //    screen is showing downloads nothing - the mark waits for the return.
   const ticketsFetching = useRef(false);
   const lastTicketFetchRef = useRef(0);
+  const ticketsStaleRef = useRef(false);
   const refreshTickets = useCallback(async () => {
     if (ticketsFetching.current) return;
-    if (Date.now() - lastTicketFetchRef.current < 15000) return;
+    const live = ticketsStaleRef.current;
+    if (!live && Date.now() - lastTicketFetchRef.current < 15000) return;
     ticketsFetching.current = true;
+    ticketsStaleRef.current = false;
     const gen = ticketGenRef.current;
+    let answered = false;
     try {
       const rows = await api.getTaskTickets();
-      if (!Array.isArray(rows)) return;
+      if (!Array.isArray(rows)) { if (live) ticketsStaleRef.current = true; return; }
       lastTicketFetchRef.current = Date.now();
-      if (gen !== ticketGenRef.current) return;
+      answered = true;
+      if (gen !== ticketGenRef.current) { if (live) ticketsStaleRef.current = true; return; }
       // Read from the rendered list (ticketsRef), not a state updater: the
       // generation check above already rules out a write still waiting to
       // render, and deciding here lets an unchanged answer skip setState.
@@ -330,10 +367,16 @@ export function TasksProvider({ children }) {
       // Already true after the first load; skipping the no-op set keeps an
       // unchanged refresh from re-rendering the module.
       if (!ticketsLoadedRef.current) setTicketsLoaded(true);
+      setTicketsFailed(false);
     } catch {
       // keep the list we have; the next tick tries again
+      if (live) ticketsStaleRef.current = true;
     } finally {
       ticketsFetching.current = false;
+      // Still stale after an answer: a ping landed meanwhile, or a local
+      // write made this answer unusable. Go again - not after a failure,
+      // which waits for the next tick instead of retrying in a loop.
+      if (answered && ticketsStaleRef.current) ticketPingRef.current?.();
     }
   }, []);
   // Only while a ticket surface is on screen: the Tickets module, or Support
@@ -363,8 +406,20 @@ export function TasksProvider({ children }) {
     };
     const arriveTimer = setInterval(onArrive, 1000);
     window.addEventListener('popstate', onArrive);
+    // A ticket ping (see the channel above): debounced like the task ping, so
+    // a burst of changes is one download.
+    let pingTimer = null;
+    const onTicketPing = () => {
+      ticketsStaleRef.current = true;
+      clearTimeout(pingTimer);
+      pingTimer = setTimeout(() => {
+        if (document.visibilityState === 'visible') refreshIfShowing();
+      }, 400);
+    };
+    ticketPingRef.current = onTicketPing;
     return () => {
-      stopPoll(); clearInterval(arriveTimer);
+      stopPoll(); clearInterval(arriveTimer); clearTimeout(pingTimer);
+      if (ticketPingRef.current === onTicketPing) ticketPingRef.current = null;
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('popstate', onArrive);
     };
@@ -434,6 +489,18 @@ export function TasksProvider({ children }) {
   const tasksRef = useRef(tasks);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
+  // What a failed save says - for EVERY failure (11/17/2026). A refusal (the
+  // server answered: a status) keeps its alert. A save that never reached
+  // the server has no `status` (api.js's network error) and used to say
+  // nothing at all - the change just went back, after "Completed" had
+  // already shown. That one is said in the toast's place, so a dropped
+  // connection under a bulk change is one notice and not a stack of alerts.
+  const sayNotSaved = useCallback((e, fallback) => {
+    if (e?.status === 401) return;
+    if (e?.status) dialog.alert(e.message || fallback);
+    else offerRef.current?.(`Not saved. ${e?.message || 'Try again.'}`, null);
+  }, []);
+
   // `quiet`: the caller says what went wrong itself (Move To's dialog), so
   // no alert here as well.
   const updateTask = useCallback(async (id, patch, { quiet = false } = {}) => {
@@ -467,10 +534,10 @@ export function TasksProvider({ children }) {
       // Surfaces things like a dependency-gate rejection (blocked by an
       // unfinished FS/SS/FF/SF task) - the optimistic change above was just
       // put back, so silence here would look like nothing happened.
-      if (!quiet && e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
+      if (!quiet) sayNotSaved(e, 'Could not update this task.');
       throw e;
     }
-  }, [patchLocalTask, refetchTasks, announceHeld]);
+  }, [patchLocalTask, refetchTasks, announceHeld, sayNotSaved]);
 
   // Undo toast - one at a time; label + a run() that reverses the action.
   // A null run() is a plain notice (no Undo button) in the same spot.
@@ -506,13 +573,17 @@ export function TasksProvider({ children }) {
       setTimeout(() => {
         pendingComplete.current.delete(t.id);
         const recurring = t.status === 'recurring' || !!t.recurrence?.freq;
-        offerUndo(
-          recurring
-            ? `Completed "${(t.title || '').slice(0, 40)}" - next occurrence created`
-            : `Completed "${(t.title || '').slice(0, 40)}"`,
-          () => updateTask(t.id, { completed: false }).catch(() => {}),
-        );
-        resolve(updateTask(t.id, { completed: true }).catch(() => {}));
+        // "Completed" once the save is in - it used to show first, and a save
+        // that then failed left it standing over a task put back to open.
+        resolve(updateTask(t.id, { completed: true }).then((saved) => {
+          offerUndo(
+            recurring
+              ? `Completed "${(t.title || '').slice(0, 40)}" - next occurrence created`
+              : `Completed "${(t.title || '').slice(0, 40)}"`,
+            () => updateTask(t.id, { completed: false }).catch(() => {}),
+          );
+          return saved;
+        }, () => {}));
       }, 550);
     });
   }, [updateTask, offerUndo]);
@@ -573,7 +644,7 @@ export function TasksProvider({ children }) {
     const failed = results.filter((r) => r.status === 'rejected');
     if (failed.length) {
       const why = failed[0].reason?.message || 'Try again from the Recycle Bin.';
-      alert(failed.length === ids.length && ids.length === 1
+      dialog.alert(failed.length === ids.length && ids.length === 1
         ? `Could not restore this task. ${why}`
         : `Could not restore ${failed.length} of ${ids.length} tasks. ${why}`);
     }
@@ -629,10 +700,10 @@ export function TasksProvider({ children }) {
       announceHeld(rows, patch);
       return rows;
     } catch (e) {
-      if (e?.status && e.status !== 401) alert(e.message || 'Could not update these tasks.');
+      sayNotSaved(e, 'Could not update these tasks.');
       throw e;
     }
-  }, [announceHeld]);
+  }, [announceHeld, sayNotSaved]);
 
   // Undo of a due-date move (the Calendar drag, Oct 22 2026): the server
   // takes the move out - no extension for the trip back, no second bell.
@@ -643,10 +714,10 @@ export function TasksProvider({ children }) {
       return saved;
     } catch (e) {
       refetchTasks().catch(() => {});
-      if (e?.status && e.status !== 401) alert(e.message || 'Could not undo that change.');
+      sayNotSaved(e, 'Could not undo that change.');
       throw e;
     }
-  }, [patchLocalTask, refetchTasks]);
+  }, [patchLocalTask, refetchTasks, sayNotSaved]);
 
   // The batch bar's Dates action (Oct 22 2026): the server moves each task
   // from its own date, so there is nothing to apply optimistically - the
@@ -658,10 +729,10 @@ export function TasksProvider({ children }) {
       setTasks((prev) => prev.map((t) => map[t.id] || t));
       return r;
     } catch (e) {
-      if (e?.status && e.status !== 401) alert(e.message || 'Could not change the dates.');
+      sayNotSaved(e, 'Could not change the dates.');
       throw e;
     }
-  }, []);
+  }, [sayNotSaved]);
 
   // The batch bar's Add Label / Remove Label (Oct 22 2026): merged into each
   // task's own labels on the server, under its row locks - the answer lands.
@@ -672,10 +743,10 @@ export function TasksProvider({ children }) {
       setTasks((prev) => prev.map((t) => map[t.id] || t));
       return rows;
     } catch (e) {
-      if (e?.status && e.status !== 401) alert(e.message || 'Could not change the labels.');
+      sayNotSaved(e, 'Could not change the labels.');
       throw e;
     }
-  }, []);
+  }, [sayNotSaved]);
 
   // Comments (loaded on demand, cached)
   const getComments = useCallback(async (taskId) => {
@@ -817,7 +888,9 @@ export function TasksProvider({ children }) {
     createTeam: mk(api.createTaskTeam, setTeams),
     updateTeam: mkUpd(api.updateTaskTeam, setTeams),
     deleteTeam: mkDel(api.deleteTaskTeam, setTeams),
-    createTicket: mk(api.createTaskTicket, setTickets),
+    // Not mk: with live tickets (ticket_events.py) the ping's refetch can
+    // land before this answer does, and the new ticket must not be listed twice.
+    createTicket: async (data) => { const r = await api.createTaskTicket(toBody(data)); setTickets((p) => [r, ...p.filter((x) => x.id !== r?.id)]); return r; },
     updateTicket: mkUpd(api.updateTaskTicket, setTickets),
     deleteTicket: mkDel(api.deleteTaskTicket, setTickets),
     createTicketComponent: mk(api.addTicketComponent, setTicketComponents),
@@ -840,6 +913,7 @@ export function TasksProvider({ children }) {
       try { rows = await api.getTaskTickets(); } catch { return; }
       if (gen !== ticketGenRef.current || !Array.isArray(rows)) return;
       setTickets(rows);
+      setTicketsFailed(false);
     },
     // A task made from a ticket (Oct 14 2026): the server links both sides in
     // one save and hands both back.
@@ -969,7 +1043,7 @@ export function TasksProvider({ children }) {
   );
 
   const value = {
-    loading, ticketsLoaded, myEmail, nameOf,
+    loading, ticketsLoaded, ticketsFailed, allTasksLoaded, refetchTasks, myEmail, nameOf,
     tasks, projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews, rules, templates,
     projectTemplates,
     customFields, customStatuses, statusMeta, statusOrder, statusOrderFor, notifications, memberRequests, intakeForms, changelog,
@@ -1049,7 +1123,7 @@ export function TasksProvider({ children }) {
         }}>
           <span>Not added: {dropped.map((e) => nameOf(e) || e).join(', ')} - not in the Nexus directory or no longer with the company.</span>
           <button type="button" onClick={() => { clearTimeout(droppedTimer.current); setDropped(null); }} aria-label="Dismiss" title="Dismiss"
-            style={{ border: 'none', background: 'none', color: '#cbd5e1', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 2, flexShrink: 0, fontFamily: 'inherit' }}>×</button>
+            style={{ border: 'none', background: 'none', color: '#cbd5e1', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: 2, flexShrink: 0, fontFamily: 'inherit' }}>×</button>
         </div>
       )}
       {/* Undo toast - completes, deletes, and recurring rolls offer a 6s rescue. */}

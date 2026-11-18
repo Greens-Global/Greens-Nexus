@@ -60,6 +60,31 @@ describe('headerClocks', () => {
     expect(view(headerClocks(['America/Los_Angeles', india], SUMMER, 'America/Los_Angeles'), SUMMER))
       .toEqual(['4:42 PM', 'India 5:12 AM']);
   });
+
+  // Home (Neil, 11/13/2026): away from the zone you work in, that zone shows
+  // next to the device's own time, marked as home.
+  it('a Californian in Texas: Texas time, then California marked as home', () => {
+    const clocks = headerClocks([], WINTER, 'America/Chicago', 'America/Los_Angeles');
+    expect(view(clocks, WINTER)).toEqual(['5:42 PM', 'California 3:42 PM PST']);
+    expect(clocks[1].away).toBe(true);
+  });
+
+  it('at home: one bare time, nothing marked away', () => {
+    const clocks = headerClocks([], WINTER, 'America/Los_Angeles', 'America/Los_Angeles');
+    expect(view(clocks, WINTER)).toEqual(['3:42 PM']);
+  });
+
+  it('someone from India in Texas: India as home, then the company\'s California', () => {
+    const india = ALL_ZONES.find((tz) => /Kolkata|Calcutta/.test(tz));
+    const clocks = headerClocks([], WINTER, 'America/Chicago', india);
+    expect(view(clocks, WINTER)).toEqual(['5:42 PM', 'India 5:12 AM', 'California 3:42 PM PST']);
+    expect(clocks.map((c) => !!c.away)).toEqual([false, true, false]);
+  });
+
+  it('someone from India at home in India: California, as before', () => {
+    const india = ALL_ZONES.find((tz) => /Kolkata|Calcutta/.test(tz));
+    expect(view(headerClocks([], WINTER, india, india), WINTER)).toEqual(['5:12 AM', 'California 3:42 PM PST']);
+  });
 });
 
 describe('zoneLabel', () => {
@@ -95,5 +120,33 @@ describe('greetingFor', () => {
     expect(greetingFor(new Date(2026, 8, 28, 9))).toBe('Good Morning');
     expect(greetingFor(new Date(2026, 8, 28, 13))).toBe('Good Afternoon');
     expect(greetingFor(new Date(2026, 8, 28, 19))).toBe('Good Evening');
+  });
+});
+
+// The phone header's short words (Neil, 11/13/2026: "CA 2:09 PM").
+describe('shortZoneLabel', () => {
+  const winter = new Date('2026-01-15T18:00:00Z');
+  const summer = new Date('2026-07-15T18:00:00Z');
+  it('says CA for California and the time family for other North American zones, in winter and summer', async () => {
+    const { shortZoneLabel } = await import('./worldClockZones');
+    expect(shortZoneLabel('America/Los_Angeles', winter)).toBe('CA');
+    for (const d of [winter, summer]) {
+      expect(shortZoneLabel('America/Chicago', d)).toBe('CT');
+      expect(shortZoneLabel('America/New_York', d)).toBe('ET');
+      expect(shortZoneLabel('America/Denver', d)).toBe('MT');
+      expect(shortZoneLabel('America/Anchorage', d)).toBe('AKT');
+    }
+  });
+  it('says the country elsewhere, shortened where it is long', async () => {
+    const { shortZoneLabel } = await import('./worldClockZones');
+    expect(shortZoneLabel('Asia/Kolkata', winter)).toBe('India');
+    expect(shortZoneLabel('Asia/Dubai', winter)).toBe('UAE');
+    expect(shortZoneLabel('Asia/Tokyo', winter)).toBe('Japan');
+    expect(shortZoneLabel('Australia/Sydney', winter)).toBe('Sydney');
+  });
+  it('rides on the home and California clocks of headerClocks', async () => {
+    const { headerClocks } = await import('./worldClockZones');
+    const clocks = headerClocks([], winter, 'America/Chicago', 'Asia/Kolkata');
+    expect(clocks.map((c) => c.short)).toEqual([undefined, 'India', 'CA']);
   });
 });

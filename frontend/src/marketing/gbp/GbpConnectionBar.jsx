@@ -6,7 +6,7 @@ import { useGbpPermissions, errorText, GBP_BAR } from './useGbp'
 
 const btn = {
   display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8,
-  border: '1px solid ' + C.gray200, fontSize: 12.5, fontWeight: 500, color: C.gray700, background: C.white, cursor: 'pointer',
+  border: '1px solid ' + C.gray200, fontSize: 13, fontWeight: 500, color: C.gray700, background: C.white, cursor: 'pointer',
 }
 const primaryBtn = { ...btn, border: 'none', background: C.emerald600, color: C.white }
 
@@ -21,7 +21,7 @@ export function Notice({ kind = 'info', children, onClose }) {
   const t = TONES[kind] || TONES.info
   return (
     <div role={kind === 'error' ? 'alert' : 'status'} style={{
-      display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px', borderRadius: 8, fontSize: 12.5,
+      display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px', borderRadius: 8, fontSize: 13,
       background: t.background, color: t.color, border: '1px solid ' + t.border, marginBottom: 12,
     }}>
       {kind === 'ok' ? <CheckCircle2 size={14} style={{ flexShrink: 0, marginTop: 1 }} /> : <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />}
@@ -126,21 +126,21 @@ export default function GbpConnectionBar({ gbp, onSynced, config = GBP_BAR }) {
           <div style={{ minWidth: 0, flex: '1 1 320px' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: C.gray900, marginBottom: 2 }}>{config.title} Is Not Connected</div>
             {status.configured ? (
-              <div style={{ fontSize: 12.5, color: C.gray500 }}>
+              <div style={{ fontSize: 13, color: C.gray500 }}>
                 {isAdmin
                   ? config.adminBlurb
                   : 'An administrator connects the Google account once.'}
                 {' '}The figures below are sample data until then.
               </div>
             ) : (
-              <div style={{ fontSize: 12.5, color: C.gray500 }}>
+              <div style={{ fontSize: 13, color: C.gray500 }}>
                 {isAdmin ? status.notConfiguredReason : 'The Google connection is not set up on this server yet.'}
                 {' '}The figures below are sample data until then.
                 {isAdmin && status.redirectUri && (
                   <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span>Redirect URI for the Google OAuth client:</span>
-                    <code style={{ fontSize: 11.5, padding: '2px 6px', borderRadius: 4, background: C.white, border: '1px solid ' + C.gray200, wordBreak: 'break-all' }}>{status.redirectUri}</code>
-                    <button onClick={copyRedirect} style={{ ...btn, padding: '3px 8px', fontSize: 11.5 }}><Copy size={11} />{copied ? 'Copied' : 'Copy'}</button>
+                    <code style={{ fontSize: 12, padding: '2px 6px', borderRadius: 4, background: C.white, border: '1px solid ' + C.gray200, wordBreak: 'break-all' }}>{status.redirectUri}</code>
+                    <button onClick={copyRedirect} style={{ ...btn, padding: '3px 8px', fontSize: 12 }}><Copy size={11} />{copied ? 'Copied' : 'Copy'}</button>
                   </div>
                 )}
               </div>
@@ -176,7 +176,7 @@ export default function GbpConnectionBar({ gbp, onSynced, config = GBP_BAR }) {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
         padding: '10px 14px', borderRadius: 10, border: '1px solid ' + C.gray200, background: C.white, marginBottom: 16,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap', fontSize: 12.5, color: C.gray500 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap', fontSize: 13, color: C.gray500 }}>
           <CheckCircle2 size={15} style={{ color: C.emerald600, flexShrink: 0 }} />
           <span style={{ color: C.gray900, fontWeight: 500 }}>Connected to Google</span>
           <span>{status.accountLabel ? `${status.accountLabel} - ` : ''}{status.accountEmail}</span>

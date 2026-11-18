@@ -140,6 +140,32 @@ describe('a comment started in the drawer', () => {
     expect(draftsFor(['t'])).toHaveLength(1);
   });
 
+  // A comment that did not post (11/17/2026): "Posting..." used to flip back
+  // with no word - the Overview box - and the Comments tab said nothing either.
+  it('a comment that did not post says so under the box and keeps its words (Overview)', async () => {
+    startComment('<p>Half a thought</p>');
+    state.addComment = vi.fn(() => Promise.reject(new Error("Can't reach Nexus right now.")));
+    render(<TaskDetailDrawer taskId="t" onClose={() => {}} />);
+    const post = await screen.findByRole('button', { name: 'Comment' });
+    await waitFor(() => expect(post).not.toBeDisabled());
+    fireEvent.click(post);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Your comment did not post. Can't reach Nexus right now."));
+    expect(getDraft(draftKey('t', 'comment')).text).toBe('<p>Half a thought</p>');
+    expect(screen.getByRole('button', { name: 'Comment' })).not.toBeDisabled();
+  });
+
+  it('a comment that did not post says so and comes back into the box (Comments tab)', async () => {
+    startComment('<p>Half a thought</p>');
+    state.addComment = vi.fn(() => Promise.reject(new Error("Can't reach Nexus right now.")));
+    render(<TaskDetailDrawer taskId="t" onClose={() => {}} />);
+    fireEvent.click(tabButton('Comments'));
+    const send = screen.getByRole('button', { name: 'Send' });
+    await waitFor(() => expect(send).not.toBeDisabled());
+    fireEvent.click(send);
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Your comment did not post. Can't reach Nexus right now."));
+    expect(getDraft(draftKey('t', 'comment')).text).toBe('<p>Half a thought</p>');
+  });
+
   it('nothing unsent closes straight away', () => {
     const onClose = vi.fn();
     render(<TaskDetailDrawer taskId="t" onClose={onClose} />);

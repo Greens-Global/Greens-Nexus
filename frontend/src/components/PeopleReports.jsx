@@ -69,7 +69,7 @@ const REPORTS = [
   },
 ];
 
-const SELECT = { fontSize: 12.5, padding: '6px 8px' };
+const SELECT = { fontSize: 13, padding: '6px 8px' };
 
 export default function PeopleReports({ employees, externals, entities }) {
   const [report, setReport] = useState('directory');
@@ -127,7 +127,7 @@ export default function PeopleReports({ employees, externals, entities }) {
       <div className="scroll-tabs" style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         {REPORTS.map(r => (
           <button key={r.key} onClick={() => setReport(r.key)}
-            style={{ padding: '7px 14px', borderRadius: 20, fontSize: 12.5, fontWeight: 700, fontFamily: 'Inter,sans-serif',
+            style={{ padding: '7px 14px', borderRadius: 20, fontSize: 13, fontWeight: 700, fontFamily: 'Inter,sans-serif',
               border: `1px solid ${report === r.key ? 'var(--pine)' : 'var(--line)'}`, cursor: 'pointer', whiteSpace: 'nowrap',
               background: report === r.key ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
               color: report === r.key ? 'var(--ink)' : 'var(--muted)' }}>
@@ -135,13 +135,13 @@ export default function PeopleReports({ employees, externals, entities }) {
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>{def.hint}</div>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>{def.hint}</div>
 
       {/* Filters (Neil asked for them by name) + the export of exactly what shows. */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
         <div style={{ position: 'relative', flex: '1 1 200px', minWidth: 160 }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input className="form-input" style={{ width: '100%', fontSize: 12.5, padding: '6px 8px 6px 28px' }}
+          <input className="form-input" style={{ width: '100%', fontSize: 13, padding: '6px 8px 6px 28px' }}
             value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, email, title, code" aria-label="Search the report" />
         </div>
         <select className="form-input" style={SELECT} value={company} onChange={e => setCompany(e.target.value)} aria-label="Company">
@@ -165,7 +165,7 @@ export default function PeopleReports({ employees, externals, entities }) {
       </div>
 
       <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'auto', background: 'var(--card)' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 760 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 760 }}>
           <thead>
             <tr>
               {def.columns.map(c => (

@@ -366,7 +366,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   // from Submit a Ticket, the plain name otherwise (Asset Management).
   const title = onSingle ? <CreateModeTabs active="batch" onChange={onSingle} /> : 'Batch Create';
   const at = (p) => (p?.name ? <> at <b>{p.name}</b></> : null);
-  const chip = (on) => ({ ...btn(on ? 'primary' : 'outline'), padding: '5px 10px', fontSize: 12.5 });
+  const chip = (on) => ({ ...btn(on ? 'primary' : 'outline'), padding: '5px 10px', fontSize: 13 });
   const err = (l, f) => errors[l.key]?.[f];
   const unitsListId = `wt-units-${propertyId || 'none'}`;
   const ticketRows = (tickets, showTopic) => (
@@ -394,8 +394,8 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
         <div role="status" style={{ fontSize: 14, color: NX.ink, marginBottom: 12, fontFamily: FONT }}>
           This batch was already filed with <b>{n} ticket{n === 1 ? '' : 's'}</b>{at(mismatch.property)}.
           {left > 0
-            ? <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 4 }}>{left} line{left === 1 ? ' was' : 's were'} added or changed after that and {left === 1 ? 'was' : 'were'} not filed yet.</div>
-            : <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 4 }}>Every line is among them - nothing was duplicated.</div>}
+            ? <div style={{ fontSize: 13, color: NX.dim, marginTop: 4 }}>{left} line{left === 1 ? ' was' : 's were'} added or changed after that and {left === 1 ? 'was' : 'were'} not filed yet.</div>
+            : <div style={{ fontSize: 13, color: NX.dim, marginTop: 4 }}>Every line is among them - nothing was duplicated.</div>}
         </div>
         {ticketRows(mismatch.tickets, false)}
       </Modal>
@@ -414,7 +414,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
           <CheckCircle2 size={22} style={{ color: NX.green, flexShrink: 0 }} />
           <div style={{ fontSize: 14, color: NX.ink }}>
             <b>{n} ticket{n === 1 ? '' : 's'}</b> created{at(done.property)}.
-            {done.replayed && <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 4 }}>These were already filed - nothing was duplicated.</div>}
+            {done.replayed && <div style={{ fontSize: 13, color: NX.dim, marginTop: 4 }}>These were already filed - nothing was duplicated.</div>}
           </div>
         </div>
         {ticketRows(done.tickets || [], true)}
@@ -425,7 +425,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   return (
     <Modal title={title} onClose={onClose} footer={<>
       <button style={{ ...btn('ghost'), color: NX.dim }} onClick={discard}>Discard Batch</button>
-      <span style={{ marginLeft: 'auto', fontSize: 12.5, color: NX.dim }}>{filled.length} line{filled.length === 1 ? '' : 's'}</span>
+      <span style={{ marginLeft: 'auto', fontSize: 13, color: NX.dim }}>{filled.length} line{filled.length === 1 ? '' : 's'}</span>
       <button style={{ ...btn('primary'), opacity: busy || uploading || recording.size ? 0.6 : 1 }} onClick={submit} disabled={busy || recording.size > 0}
         title={recording.size ? STOP_VOICE_FIRST : undefined}>
         {busy ? (unconfirmed ? 'Checking…' : 'Creating…')
@@ -435,12 +435,12 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     </>}>
       <div style={{ fontFamily: FONT }}>
         {unconfirmed && (
-          <div role="status" style={{ border: `1px solid ${NX.border}`, background: NX.surface2, borderRadius: 10, padding: '10px 12px', marginBottom: 14, fontSize: 12.5, color: NX.dim }}>
+          <div role="status" style={{ border: `1px solid ${NX.border}`, background: NX.surface2, borderRadius: 10, padding: '10px 12px', marginBottom: 14, fontSize: 13, color: NX.dim }}>
             These lines were sent but we couldn't confirm they were filed, so they're locked until Try Again gets an answer. Nothing will be filed twice.
           </div>
         )}
         {offer && (
-          <div role="status" style={{ border: `1px solid ${NX.border}`, background: NX.surface2, borderRadius: 10, padding: '10px 12px', marginBottom: 14, fontSize: 12.5, color: NX.dim }}>
+          <div role="status" style={{ border: `1px solid ${NX.border}`, background: NX.surface2, borderRadius: 10, padding: '10px 12px', marginBottom: 14, fontSize: 13, color: NX.dim }}>
             You have an unsent batch ({offer.lines.length} line{offer.lines.length === 1 ? '' : 's'}) from {formatDateTime(offer.savedAt)}.
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <button style={btn('primary')} onClick={resumeOffered}>Resume It</button>
@@ -538,22 +538,22 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
                   </div>
                 ))}
                 {l.photos.length < MAX_PHOTOS && (<>
-                  <label style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12.5, gap: 6, cursor: 'pointer' }}>
+                  <label style={{ ...btn('outline'), padding: '6px 10px', fontSize: 13, gap: 6, cursor: 'pointer' }}>
                     <Camera size={15} /> Take Photo
                     <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => { addFiles(l.key, e.target.files || []); e.target.value = ''; }} />
                   </label>
-                  <label style={{ ...btn('ghost'), padding: '6px 8px', fontSize: 12.5, gap: 6, cursor: 'pointer' }}>
+                  <label style={{ ...btn('ghost'), padding: '6px 8px', fontSize: 13, gap: 6, cursor: 'pointer' }}>
                     <ImagePlus size={15} /> Choose
                     <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={(e) => { addFiles(l.key, e.target.files || []); e.target.value = ''; }} />
                   </label>
-                  {!isMobile && <span style={{ fontSize: 11.5, color: NX.faint }}>or press Ctrl+V to paste a photo</span>}
+                  {!isMobile && <span style={{ fontSize: 12, color: NX.faint }}>or press Ctrl+V to paste a photo</span>}
                 </>)}
               </div>
               {err(l, 'photos') && <div style={requiredHint}>{err(l, 'photos')}</div>}
 
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 }}>
                 {(l.clips || []).map((c, k) => (
-                  <span key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 4px 0 10px', borderRadius: 8, fontSize: 12.5,
+                  <span key={c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34, padding: '0 4px 0 10px', borderRadius: 8, fontSize: 13,
                     border: `1px solid ${c.status === 'failed' ? NX.red : NX.border}`, background: NX.surface2, color: NX.ink }}>
                     {c.status === 'uploading' ? <Loader2 size={14} className="spin" aria-hidden="true" />
                       : c.kind === 'video' ? <Video size={14} aria-hidden="true" /> : <AudioLines size={14} aria-hidden="true" />}
@@ -571,7 +571,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
                   <VoiceNoteButton onFile={(f) => addClip(l.key, f)} onRecordingChange={onLineRecording(l.key)} />
                   {/* One clip at a time on a line: a video picked while the voice
                       note records could fill the line and drop the recording. */}
-                  <label style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12.5, gap: 6, cursor: 'pointer',
+                  <label style={{ ...btn('outline'), padding: '6px 10px', fontSize: 13, gap: 6, cursor: 'pointer',
                     ...(recording.has(l.key) ? { opacity: 0.5, pointerEvents: 'none' } : null) }}>
                     <Video size={15} /> Video
                     <input type="file" accept="video/*" capture="environment" style={{ display: 'none' }} aria-label={`Add a video to issue ${i + 1}`}
@@ -582,7 +582,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
               </div>
               {err(l, 'clips') && <div style={requiredHint}>{err(l, 'clips')}</div>}
 
-              <button type="button" onClick={() => patch(l.key, { more: !l.more })} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 6, fontSize: 12.5, color: NX.dim, gap: 4 }}>
+              <button type="button" onClick={() => patch(l.key, { more: !l.more })} style={{ ...btn('ghost'), padding: '4px 0', marginTop: 6, fontSize: 13, color: NX.dim, gap: 4 }}>
                 {l.more ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {l.more ? 'Hide Details' : 'Add Details'}
               </button>
               {l.more && (
@@ -606,13 +606,13 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
             style={{ ...btn('outline'), width: '100%', justifyContent: 'center', gap: 6, opacity: lines.length >= MAX_LINES ? 0.5 : 1 }}>
             <Plus size={15} /> Add Line
           </button>
-          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
+          <div style={{ fontSize: 12, color: NX.faint, marginTop: 6 }}>
             {lines.length >= MAX_LINES
               ? `A batch takes up to ${MAX_LINES} lines - create these, then start another.`
               : 'Press Enter in a title to start the next line. Your lines are kept on this device until you create them.'}
           </div>
         </fieldset>
-        {formError && <div role="alert" style={{ ...requiredHint, fontSize: 12.5, marginTop: 10 }}>{formError}</div>}
+        {formError && <div role="alert" style={{ ...requiredHint, fontSize: 13, marginTop: 10 }}>{formError}</div>}
       </div>
     </Modal>
   );

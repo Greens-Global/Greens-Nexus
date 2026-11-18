@@ -37,8 +37,8 @@ function Badge({ ok, title, unknownLabel, detail }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12, background: b.bg }}>
       <b.Icon size={22} style={{ color: b.color, flexShrink: 0 }} />
       <div>
-        <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink, #111827)' }}>{title}: {b.label}</div>
-        {detail && <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)', marginTop: 2 }}>{detail}</div>}
+        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink, #111827)' }}>{title}: {b.label}</div>
+        {detail && <div style={{ fontSize: 12, color: 'var(--muted, #6b7280)', marginTop: 2 }}>{detail}</div>}
       </div>
     </div>
   );
@@ -63,7 +63,7 @@ export default function PublicVerify({ token }) {
           <div style={{ width: 36, height: 36, borderRadius: 10, background: '#14532d', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15 }}>G</div>
           <div>
             <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--ink, #111827)' }}>Nexus</div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)' }}>Certificate verification</div>
+            <div style={{ fontSize: 12, color: 'var(--muted, #6b7280)' }}>Certificate verification</div>
           </div>
         </div>
         <div style={{ background: 'var(--card, #fff)', border: '1px solid var(--line, #e5e7eb)', borderRadius: 16, padding: '24px 26px', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
@@ -80,8 +80,8 @@ export default function PublicVerify({ token }) {
   if (error) return shell(
     <div style={{ textAlign: 'center', padding: '30px 10px' }}>
       <AlertTriangle size={34} style={{ color: 'hsl(30,80%,48%)', marginBottom: 12 }} />
-      <h2 style={{ fontSize: 17, margin: '0 0 8px' }}>Can't verify this document</h2>
-      <p style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', margin: 0 }}>{error}</p>
+      <h2 style={{ fontSize: 18, margin: '0 0 8px' }}>Can't verify this document</h2>
+      <p style={{ fontSize: 13, color: 'var(--muted, #6b7280)', margin: 0 }}>{error}</p>
     </div>
   );
 
@@ -94,7 +94,7 @@ export default function PublicVerify({ token }) {
   return shell(
     <>
       <h2 style={{ fontSize: 18, margin: '0 0 4px', color: 'var(--ink, #111827)' }}>Signature record verified</h2>
-      <p style={{ fontSize: 12.5, color: 'var(--muted, #6b7280)', margin: '0 0 18px' }}>
+      <p style={{ fontSize: 13, color: 'var(--muted, #6b7280)', margin: '0 0 18px' }}>
         Envelope {data.envelopeIdShort} · Completed {(data.completedAt || '').slice(0, 19).replace('T', '  ')} UTC
         {' · '}{data.signedCount} of {data.signerCount} signed
       </p>
@@ -122,14 +122,14 @@ export default function PublicVerify({ token }) {
           ['Audit chain head', data.auditChain?.head],
           ['Recorded events', String(data.auditChain?.eventCount ?? '')]].map(([label, value]) => (
           <div key={label}>
-            <div style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)', marginBottom: 2 }}>{label}</div>
-            <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11.5, wordBreak: 'break-all', color: 'var(--ink, #111827)' }}>
+            <div style={{ fontSize: 12, color: 'var(--muted, #6b7280)', marginBottom: 2 }}>{label}</div>
+            <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, wordBreak: 'break-all', color: 'var(--ink, #111827)' }}>
               {value || 'Not recorded'}
             </div>
           </div>
         ))}
       </div>
-      <p style={{ fontSize: 11.5, color: 'var(--muted, #6b7280)', marginTop: 18, lineHeight: 1.55 }}>
+      <p style={{ fontSize: 12, color: 'var(--muted, #6b7280)', marginTop: 18, lineHeight: 1.55 }}>
         These values must match the Certificate of Completion attached to your copy. Signer
         identities and document contents are not shown here - they are on the certificate itself,
         which only the parties hold.

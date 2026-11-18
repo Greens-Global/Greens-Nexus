@@ -133,6 +133,11 @@ _construction_labor.wire(SessionLocal)
 # record and moves a floating schedule on (11/03/2026, maintenance_pm_sync.py).
 import maintenance_pm_sync as _maintenance_pm_sync  # noqa: E402
 _maintenance_pm_sync.wire(SessionLocal)
+# Live tickets (11/13/2026, ticket_events.py): a committed ticket change by any
+# path pings task_events (kind "ticket", nothing else) so open ticket lists
+# refetch within a second instead of at the next 60s poll.
+import ticket_events as _ticket_events  # noqa: E402
+_ticket_events.wire(SessionLocal)
 
 
 class Base(DeclarativeBase):

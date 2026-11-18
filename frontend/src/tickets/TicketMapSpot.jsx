@@ -39,7 +39,7 @@ export function MapSpotIntake({ spot, propertyName, snapshot, hasPhoto }) {
         <div style={{ fontWeight: 700, marginTop: 4 }}>{propertyName || 'The property'}</div>
         <div>{spot.place || 'On the site'}</div>
         <div style={{ color: NX.faint, fontSize: 12 }}>{[shapeWord(spot), coords(spot)].filter(Boolean).join(' · ')}</div>
-        <div style={{ marginTop: 6, fontSize: 12.5, color: hasPhoto ? NX.green : '#9a5b00', fontWeight: 600 }}>
+        <div style={{ marginTop: 6, fontSize: 13, color: hasPhoto ? NX.green : '#9a5b00', fontWeight: 600 }}>
           {hasPhoto ? 'Photo added - the team sees it with this map.'
             : 'Add a photo of the spot below (Upload, or press Ctrl+V to paste one) - it shows the team exactly what to fix.'}
         </div>
@@ -83,7 +83,7 @@ export function TicketMapSpotCard({ ticketId, propertyId, onOpenMap = null }) {
         <div style={{ color: NX.faint, fontSize: 12 }}>{shapeWord(spot)}{ll ? <> · <a href={`https://www.google.com/maps/search/?api=1&query=${spot.lat},${spot.lng}`} target="_blank" rel="noopener noreferrer" style={{ color: NX.blue }}>{ll}</a></> : null}</div>
         {spot.photo && spot.mapImage ? <a href={spot.mapImage} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: NX.blue }}>View the Marked Map</a> : null}
         <div style={{ marginTop: 8 }}>
-          <button type="button" style={{ ...btn('outline'), padding: '5px 12px', fontSize: 12.5 }} onClick={() => { openSpotOnMap(spot, canOps); onOpenMap?.(); }}>Open on Map</button>
+          <button type="button" style={{ ...btn('outline'), padding: '5px 12px', fontSize: 13 }} onClick={() => { openSpotOnMap(spot, canOps); onOpenMap?.(); }}>Open on Map</button>
         </div>
       </div>
     </div>

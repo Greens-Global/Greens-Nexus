@@ -54,13 +54,13 @@ export function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClo
           {busy ? <><Spinner size={14} /> Approving…</> : <><CheckCircle size={14} /> Approve</>}
         </button>
       </>}>
-      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
         For <strong style={{ color: 'var(--ink)' }}>{first.requestedBy}</strong>.
         {first.reason ? <> Reason: <em>"{first.reason}"</em></> : null}
       </p>
       <div style={{ border: '1px solid var(--wk-line2, var(--line))', borderRadius: 12, marginBottom: 20 }}>
         {items.map((co, i) => (
-          <div key={co.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--wk-line2, var(--line))' : 'none', fontSize: 13.5 }}>
+          <div key={co.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--wk-line2, var(--line))' : 'none', fontSize: 13 }}>
             <span style={{ fontWeight: 600 }}>{co.itemName}</span>
             <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{fmtDueDate(co) ? `Return by ${fmtDueDate(co)}` : `${co.days} day${co.days === 1 ? '' : 's'}`}</span>
           </div>
@@ -70,7 +70,7 @@ export function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClo
         <label style={{ ...LABEL, marginBottom: 0 }} htmlFor="approve-allocator">Who Hands It Over</label>
         {currentUserEmail && (
           <button type="button" onClick={() => setPickedEmail(currentUserEmail)}
-            style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--wk-brand)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
+            style={{ fontSize: 13, fontWeight: 600, color: 'var(--wk-brand)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
             Assign to Me
           </button>
         )}

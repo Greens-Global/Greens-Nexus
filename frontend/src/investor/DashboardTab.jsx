@@ -36,7 +36,7 @@ export default function DashboardTab({ onOpenTab }) {
     return (
       <EmptyState icon={Landmark} title="No Deals Yet"
         sub="Create your first deal from the Deals tab, or load a sample portfolio to explore every screen in this module.">
-        {seedErr && <div style={{ color: 'hsl(var(--color-red))', fontSize: 12.5, marginBottom: 10 }}>{seedErr}</div>}
+        {seedErr && <div style={{ color: 'hsl(var(--color-red))', fontSize: 13, marginBottom: 10 }}>{seedErr}</div>}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
           <button className="primary-btn" onClick={() => onOpenTab('investor-funds')} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
             <Download size={14} /> Import From Intacct
@@ -45,7 +45,7 @@ export default function DashboardTab({ onOpenTab }) {
             {seeding ? <Spinner size={14} /> : <Sprout size={14} />} Load Sample Portfolio
           </button>
         </div>
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
           Demo / sample data for local review - deals, investors, commitments, capital calls, and distributions.
         </div>
       </EmptyState>
@@ -98,7 +98,7 @@ export default function DashboardTab({ onOpenTab }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {d.sampleFunds > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 10, fontSize: 12.5, color: 'var(--ink)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 10, fontSize: 13, color: 'var(--ink)' }}>
           <span>{d.sampleFunds} sample deal{d.sampleFunds === 1 ? ' is' : 's are'} still here. Remove the sample data before importing real deals from Intacct.</span>
           <button type="button" className="secondary-btn" onClick={removeSample} style={{ fontSize: 12, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Trash2 size={13} /> Remove Sample Data
@@ -133,7 +133,7 @@ export default function DashboardTab({ onOpenTab }) {
       </div>
 
       {/* Deals by status - flat dot legend, no chips */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', fontSize: 13, color: 'var(--muted)' }}>
         <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em' }}>Deals by Status</span>
         {['raising', 'active', 'exited'].map(s => (
           <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -152,13 +152,13 @@ export default function DashboardTab({ onOpenTab }) {
             </div>
           </div>
           {calls.length === 0
-            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0' }}>No open capital calls.</div>
+            ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '14px 0' }}>No open capital calls.</div>
             : calls.map(c => {
               const overdue = c.dueDate && c.dueDate < today && (c.pendingAmount ?? 0) > 0;
               return listRow(c.id, () => onOpenTab('investor-capital-calls'),
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{c.fundName} · Due {formatDate(c.dueDate)}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{c.fundName} · Due {formatDate(c.dueDate)}</div>
                 </div>,
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(c.pendingAmount)}</div>
@@ -175,11 +175,11 @@ export default function DashboardTab({ onOpenTab }) {
             </div>
           </div>
           {dists.length === 0
-            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0' }}>No distributions yet.</div>
+            ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '14px 0' }}>No distributions yet.</div>
             : dists.map(x => listRow(x.id, () => onOpenTab('investor-distributions'),
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.title}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{x.fundName} · {formatDate(x.distributionDate)}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{x.fundName} · {formatDate(x.distributionDate)}</div>
               </div>,
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-green))', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(x.totalAmount)}</div>
@@ -197,16 +197,16 @@ export default function DashboardTab({ onOpenTab }) {
           <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => onOpenTab('investor-updates')}>View All</button>
         </div>
         {updates.length === 0
-          ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0' }}>No updates posted yet.</div>
+          ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '14px 0' }}>No updates posted yet.</div>
           : updates.map(u => listRow(u.id, () => onOpenTab('investor-updates'),
             <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
               {u.pinned && <Pin size={13} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.title}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>{u.fundName || 'All Deals'}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{u.fundName || 'All Deals'}</div>
               </div>
             </div>,
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>{formatDate(u.createdAt)}</div>))}
+            <div style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>{formatDate(u.createdAt)}</div>))}
       </div>
     </div>
   );

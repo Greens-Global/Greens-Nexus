@@ -343,6 +343,20 @@ describe('MyShifts Team > Shifts with no group (Neil, 11/08/2026)', () => {
     const [from, to] = timeMySchedule.mock.calls.at(-1);
     expect((new Date(to) - new Date(from)) / 86400000).toBe(6);   // the week, whatever Month was remembered
   });
+
+  it('on a phone, an empty week is one line naming the holiday (Neil, 11/13/2026)', async () => {
+    const mm = vi.spyOn(window, 'matchMedia').mockImplementation((q) => ({
+      matches: /max-width/.test(q), media: q, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
+    }));
+    try {
+      timeMySchedule.mockResolvedValue({ ...sched, teams: [], holidays: [{ date: DAY, name: 'Founders Day' }] });
+      render(<MyShifts part="team" />);
+      expect(await screen.findByText('No shifts this week')).toBeTruthy();
+      expect(document.querySelector('[data-empty-week]')).toBeNull();
+      expect(screen.queryByText('No shifts')).toBeNull();
+      expect(screen.getByText(/Founders Day/)).toBeTruthy();
+    } finally { mm.mockRestore(); }
+  });
 });
 
 describe('MyShifts embedded (Workday > My Schedule, Oct 15 2026)', () => {

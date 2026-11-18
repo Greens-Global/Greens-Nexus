@@ -29,6 +29,7 @@ if (typeof window !== 'undefined' && !window.EXCALIDRAW_ASSET_PATH) window.EXCAL
 import 'prosemirror-view/style/prosemirror.css'
 import 'prosemirror-gapcursor/style/gapcursor.css'
 import 'prosemirror-tables/style/tables.css'
+import './fonts.css'
 import './style.css'
 import App from './App.jsx'
 import LoginPage from './views/LoginPage'
@@ -40,6 +41,7 @@ import CrisisSupportHost from './components/CrisisSupportCard'
 import { installErrorReporter } from './lib/errorReporter'
 import { registerServiceWorker } from './lib/pwa'
 import { BFF_MODE, bffBootstrap } from './bffAuth'
+import { showPreviewMark, autoPreviewSignIn } from './lib/previewSignIn'
 
 installErrorReporter();   // uncaught errors -> /client-errors -> audit trail
 // Let api.js drive the TanStack Query cache (invalidate after writes, clear on
@@ -92,7 +94,7 @@ function BootConnecting({ waitedMs = 0 }) {
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'grid', placeItems: 'center',
       background: 'var(--wk-bg, #f6f7fb)', color: 'var(--wk-dim, #676879)',
-      fontFamily: "'Figtree','Inter',system-ui,sans-serif" }}>
+      fontFamily: "'Inter', system-ui,sans-serif" }}>
       <div style={{ textAlign: 'center' }}>
         <div className="nxl-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
           <Spinner size="page" label="Reconnecting" />
@@ -177,7 +179,14 @@ if (BFF_MODE && !isPublicPath) {
   // fast normal load resolves before the timer and goes straight to the app.
   const _slow = setTimeout(() => renderConnecting(0), 600);
   bffBootstrap({ onWaiting: (ms) => { if (ms >= 600) renderConnecting(ms); } })
-    .then((authed) => { _booted = true; clearTimeout(_slow); authed ? renderApp() : renderLanding(); });
+    .then((authed) => {
+      _booted = true; clearTimeout(_slow);
+      // A Build Mode preview opened from a pin goes straight to the dev site's
+      // sign-in (once a minute at most - a failed round lands on the sign-in screen).
+      if (!authed && autoPreviewSignIn()) return;
+      authed ? renderApp() : renderLanding();
+      if (authed) showPreviewMark();
+    });
 } else {
   // MSAL mode, or a public path (/sign, /verify, /privacy, /terms) which App.jsx
   // renders itself with no session required.

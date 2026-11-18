@@ -74,11 +74,11 @@ function UseTemplateModal({ template, onClose, onCreated }) {
           </select>
         </label>
         {(template.blanks || []).length > 0 && (
-          <div className="nx-fill" style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+          <div className="nx-fill" style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6 }}>
             You will fill in: {(template.blanks || []).map(blankLabel).join(', ')}.
           </div>
         )}
-        {err && <div role="alert" style={{ fontSize: 12.5, color: 'var(--bad-fg)' }}>{err}</div>}
+        {err && <div role="alert" style={{ fontSize: 13, color: 'var(--bad-fg)' }}>{err}</div>}
       </div>
     </Modal>
   );
@@ -98,10 +98,10 @@ function TemplateCard({ t, sentence, onUse }) {
         <span className="nx-set-tile" aria-hidden="true"><LayoutTemplate size={15} /></span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, lineHeight: 1.3 }}>{t.name}</h3>
-          {t.description && <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>{t.description}</p>}
+          {t.description && <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>{t.description}</p>}
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--ink)' }}>
         <Zap size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} aria-hidden="true" />
         <span style={{ minWidth: 0 }}>{sentence}</span>
       </div>
@@ -150,7 +150,7 @@ export default function Templates({ go }) {
         <div style={{ padding: '40px 16px', textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 12 }}>
           <LayoutTemplate size={26} style={{ color: 'var(--muted)' }} aria-hidden="true" />
           <div style={{ fontSize: 14, fontWeight: 700, marginTop: 10 }}>No Templates Yet</div>
-          <p style={{ margin: '6px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>A workflow saved as a template from the builder shows up here.</p>
+          <p style={{ margin: '6px 0 0', fontSize: 13, color: 'var(--muted)' }}>A workflow saved as a template from the builder shows up here.</p>
         </div>
       ) : groups.map((g) => (
         <section key={g.key} aria-label={g.label}>

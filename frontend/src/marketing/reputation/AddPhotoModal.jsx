@@ -76,7 +76,7 @@ export default function AddPhotoModal({ facilities, defaultFacility, onAdd, onCl
                     padding: '6px 12px',
                     borderRadius: 8,
                     border: '1px solid ' + (active ? C.gray900 : C.gray200),
-                    fontSize: 12.5,
+                    fontSize: 13,
                     fontWeight: 500,
                     background: active ? C.gray900 : C.white,
                     color: active ? C.white : C.gray600,
@@ -103,7 +103,7 @@ export default function AddPhotoModal({ facilities, defaultFacility, onAdd, onCl
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12.5, fontWeight: 500, color: C.gray600, background: C.white, flexShrink: 0, cursor: 'pointer' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, fontWeight: 500, color: C.gray600, background: C.white, flexShrink: 0, cursor: 'pointer' }}
               onMouseEnter={(e) => (e.currentTarget.style.background = C.gray50)}
               onMouseLeave={(e) => (e.currentTarget.style.background = C.white)}
             >

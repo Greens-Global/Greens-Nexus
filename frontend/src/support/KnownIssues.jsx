@@ -32,7 +32,7 @@ export function KnownIssuesNotice({ style }) {
         const m = meta(i.severity);
         return (
           <div key={i.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '8px 10px', borderRadius: 8,
-            background: m.tint, borderLeft: `3px solid ${m.color}`, fontSize: 12.5, lineHeight: 1.45, color: 'var(--ink)' }}>
+            background: m.tint, borderLeft: `3px solid ${m.color}`, fontSize: 13, lineHeight: 1.45, color: 'var(--ink)' }}>
             <m.Icon size={14} style={{ color: m.color, flexShrink: 0, marginTop: 2 }} />
             <span>
               <b>Known Issue: {i.title}</b>{i.note ? ` - ${i.note}` : ''}
@@ -70,7 +70,7 @@ function IssueEditor({ issues, onClose }) {
     <Modal title="Known Issues" onClose={onClose} isDirty={dirty} onSave={save}
       footer={(
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-          {error && <span role="alert" style={{ fontSize: 12.5, color: '#dc2626', flex: 1 }}>{error}</span>}
+          {error && <span role="alert" style={{ fontSize: 13, color: '#dc2626', flex: 1 }}>{error}</span>}
           <span style={{ flex: error ? 0 : 1 }} />
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="primary-btn" onClick={save} disabled={busy || !dirty}>{busy ? 'Saving...' : 'Save'}</button>
@@ -90,7 +90,7 @@ function IssueEditor({ issues, onClose }) {
                 onChange={(e) => setRow(idx, { title: e.target.value })} style={{ ...input, fontWeight: 600 }} />
               <textarea aria-label="Note" placeholder="What people should know (optional)" value={r.note || ''} maxLength={500} rows={2}
                 onChange={(e) => setRow(idx, { note: e.target.value })} style={{ ...input, resize: 'vertical' }} />
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5, color: 'var(--muted)' }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 13, color: 'var(--muted)' }}>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Severity
                   <select value={r.severity || 'info'} onChange={(e) => setRow(idx, { severity: e.target.value })}
                     style={{ ...input, width: 'auto', padding: '5px 8px' }}>
@@ -154,7 +154,7 @@ export default function KnownIssuesBanner() {
       {canEdit && (
         <button type="button" onClick={() => setEditing(true)}
           style={{ alignSelf: 'flex-end', display: 'inline-flex', alignItems: 'center', gap: 6, border: 'none', background: 'none',
-            color: 'var(--muted)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '2px 4px' }}>
+            color: 'var(--muted)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: '2px 4px' }}>
           <Megaphone size={14} /> {issues.length ? 'Manage Known Issues' : 'Post a Known Issue'}
         </button>
       )}

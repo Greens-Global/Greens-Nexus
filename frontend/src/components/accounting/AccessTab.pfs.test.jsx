@@ -32,6 +32,7 @@ vi.mock('../PersonHoverCard', () => ({ default: ({ children }) => children }));
 vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@greensglobal.com', myRole: role.myRole }) }));
 
 import AccessTab from './AccessTab';
+import DialogGuard from '../DialogGuard';
 import { api } from '../../api';
 import { refreshPhotoMap } from '../../lib/peoplePhotos';
 
@@ -131,5 +132,39 @@ describe('Accounting > Access - PFS', () => {
     expect(within(urmi).getAllByText(/^1[0-8]000$/)).toHaveLength(5);
     await waitFor(() => expect(urmi.querySelector('img')?.getAttribute('src') || '').toContain('urmi.png'));
     api.getPeopleDirectory.mockImplementation(directory);
+  });
+
+  // UX pass 11/12/2026: a PFS level change says Saved, or the refusal, on its own row;
+  // a failed read of PFS access says so with Retry instead of the column vanishing.
+  it('answers a PFS level change on the row, and shows a PFS load error with Retry', async () => {
+    render(<AccessTab />);
+    const urmi = await screen.findByRole('combobox', { name: 'PFS access for Urmi Gor' });
+    fireEvent.change(urmi, { target: { value: 'viewer' } });
+    expect(await within(urmi.closest('td')).findByText('Saved')).toBeTruthy();
+    api.setPfsAccessLevel.mockRejectedValueOnce(new Error('Only an owner may change PFS access.'));
+    fireEvent.change(screen.getByRole('combobox', { name: 'PFS access for Urmi Gor' }), { target: { value: 'editor' } });
+    expect(await within(urmi.closest('td')).findByText('Only an owner may change PFS access.')).toBeTruthy();
+  });
+
+  it('asks before a click outside drops the PFS picked in the picker (the app popup guard)', async () => {
+    render(<><DialogGuard /><AccessTab /></>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Which PFS Priyanka Sahu can see' }));
+    const dialog = screen.getByRole('dialog', { name: 'Which PFS Priyanka Sahu can see' });
+    const overlay = dialog.parentElement;
+    expect(overlay.hasAttribute('data-nx-dirty')).toBe(false);
+    fireEvent.click(within(dialog).getByLabelText(/Only the PFS Picked Below/));
+    fireEvent.click(within(dialog).getByRole('option', { name: /Second File/ }));
+    expect(overlay.getAttribute('data-nx-dirty')).toBe('1');
+    fireEvent.click(overlay);
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep Editing' }));
+    expect(screen.getByRole('dialog', { name: 'Which PFS Priyanka Sahu can see' })).toBeTruthy();
+  });
+
+  it('says when PFS access could not be read, and reads it again on Retry', async () => {
+    api.getPfsAccessPeople.mockRejectedValueOnce(new Error('Server error'));
+    render(<AccessTab />);
+    expect(await screen.findByText(/PFS access: Server error/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Retry|Try Again/ }));
+    expect(await screen.findByRole('region', { name: 'PFS Access Without Accounting' })).toBeTruthy();
   });
 });

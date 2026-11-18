@@ -243,7 +243,7 @@ function _removePill() {
 function _showPill({ text, stopLabel, onStopClick, onCancelClick }) {
   _pill = document.createElement('div');
   _pill.style.cssText = 'position:fixed;bottom:18px;right:18px;z-index:3000;display:flex;align-items:center;gap:10px;'
-    + 'background:#0f172a;color:#fff;border-radius:12px;padding:10px 14px;font:600 12.5px Inter,sans-serif;'
+    + 'background:#0f172a;color:#fff;border-radius:12px;padding:10px 14px;font:600 13px Inter,sans-serif;'
     + 'box-shadow:0 8px 30px rgba(0,0,0,.35)';
   _pill.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.2s infinite"></span>'
     + `<span>${text} · <span data-count>0 actions</span></span>`;

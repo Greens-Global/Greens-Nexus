@@ -732,7 +732,7 @@ export function Detail({ row, kindLabel, onClose, onAct, inModal = false }) {
         {row.hint && <RecommendationChip hint={row.hint} size="md" />}
       </div>
       {row.detail && <p className="apv-detail-text">{row.detail}</p>}
-      {row.hint && recommendationReasons(row.hint) && <p className="apv-detail-text" style={{ fontSize: 12.5, color: 'var(--muted)' }}>{recommendationReasons(row.hint)}</p>}
+      {row.hint && recommendationReasons(row.hint) && <p className="apv-detail-text" style={{ fontSize: 13, color: 'var(--muted)' }}>{recommendationReasons(row.hint)}</p>}
       {row.context && <ScheduleContext row={row} />}
       {facts.length > 0 ? (
         <div className="apv-facts nx-fill">{facts.map((f) => [<div key={`${f.label}:l`}>{f.label}</div>, <div key={`${f.label}:v`}>{f.value}</div>])}</div>

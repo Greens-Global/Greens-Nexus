@@ -26,7 +26,7 @@ import models
 
 KINDS = {
     "daily_briefing": "Daily Briefing",
-    "weekly_digest": "Weekly Digest",
+    "weekly_digest": "Weekly Briefing",
     "whats_new_digest": "What's New Weekly Digest",
     "ticket_weekly_report": "Weekly Ticket Report",
 }

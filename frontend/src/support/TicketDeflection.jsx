@@ -30,14 +30,14 @@ function ArticleBody({ r }) {
   if (r.kind === 'walkthrough') {
     return (
       <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 5 }}>
-        {r.body.map((s, i) => <li key={i} style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink)' }}>{s}</li>)}
+        {r.body.map((s, i) => <li key={i} style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--ink)' }}>{s}</li>)}
       </ol>
     );
   }
   if (r.kind === 'module') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {r.body[0] && <div style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink)' }}>{r.body[0]}</div>}
+        {r.body[0] && <div style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--ink)' }}>{r.body[0]}</div>}
         {r.covers?.length > 0 && (
           <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--muted)' }}>
             Step-by-step guides: {r.covers.join(', ')}.
@@ -48,7 +48,7 @@ function ArticleBody({ r }) {
   }
   return (
     <ul style={{ margin: 0, paddingLeft: r.body.length > 1 ? 18 : 0, listStyle: r.body.length > 1 ? 'disc' : 'none', display: 'flex', flexDirection: 'column', gap: 5 }}>
-      {r.body.map((s, i) => <li key={i} style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--ink)' }}>{s}</li>)}
+      {r.body.map((s, i) => <li key={i} style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--ink)' }}>{s}</li>)}
     </ul>
   );
 }
@@ -88,7 +88,7 @@ export default function TicketDeflection({ subject, description, onSolved, onRes
     <section aria-label="Suggested Articles" data-testid="ticket-deflection"
       style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--mist)', padding: 12, margin: '2px 0 14px' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
           <BookOpen size={14} style={{ color: BRAND }} /> Suggested Articles
         </span>
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>These might solve it before you submit.</span>
@@ -108,7 +108,7 @@ export default function TicketDeflection({ subject, description, onSolved, onRes
                   <span style={{ display: 'block', fontSize: 13, fontWeight: 600, lineHeight: 1.35 }}>
                     {r.kind === 'tip' ? r.body[0] : r.title}
                   </span>
-                  <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
+                  <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
                     {r.kind === 'module' ? `${r.group} guide` : r.docName}
                   </span>
                 </span>
@@ -133,14 +133,14 @@ export default function TicketDeflection({ subject, description, onSolved, onRes
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8,
             border: '1px solid hsla(var(--color-green), 0.45)', background: 'hsla(var(--color-green), 0.1)',
-            color: 'hsl(var(--color-green))', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+            color: 'hsl(var(--color-green))', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, cursor: 'pointer',
           }}>
           <Check size={14} /> This Solved My Problem
         </button>
         <button type="button" onClick={() => setDismissed(true)}
           style={{
             padding: '6px 10px', borderRadius: 8, border: 'none', background: 'transparent',
-            color: 'var(--muted)', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+            color: 'var(--muted)', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer',
           }}>
           Still Need Help
         </button>

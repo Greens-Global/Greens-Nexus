@@ -82,11 +82,15 @@ def zone_for(db: Session, email: str) -> str:
         return hit[1]
     tz = ""
     try:
-        row = db.query(models.TaskNotifyPref.prefs).filter(models.TaskNotifyPref.email == email).first()
-        raw = row[0] if row else None
-        if isinstance(raw, str):
-            raw = json.loads(raw or "{}")
-        tz = str((raw or {}).get("timezone") or "") if isinstance(raw, dict) else ""
+        # The zone the person set for themselves wins (person_zone.py, 11/13/2026).
+        import person_zone
+        tz = person_zone.stored(db, email)
+        if not tz:
+            row = db.query(models.TaskNotifyPref.prefs).filter(models.TaskNotifyPref.email == email).first()
+            raw = row[0] if row else None
+            if isinstance(raw, str):
+                raw = json.loads(raw or "{}")
+            tz = str((raw or {}).get("timezone") or "") if isinstance(raw, dict) else ""
         if not tz:
             import auth
             import hr_analytics

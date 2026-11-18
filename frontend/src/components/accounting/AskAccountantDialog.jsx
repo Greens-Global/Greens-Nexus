@@ -17,7 +17,7 @@ import { PersonSelect as TaskPersonSelect } from '../../tasks/components';
 // entity, then the last one this person asked. People come from the curated
 // Nexus People list only.
 
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const full = { ...control, width: '100%' };
 
 const numbered = (name, id) => (id && name && name !== id ? `${id} ${name}` : name || id || '');
@@ -104,7 +104,7 @@ export function LineFacts({ line }) {
     ['Custom', line.custom],
   ].filter(([, v]) => v);
   return (
-    <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: '110px 1fr', gap: '3px 10px', fontSize: '0.8rem' }}>
+    <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: '110px 1fr', gap: '3px 10px', fontSize: 13 }}>
       {facts.map(([k, v]) => (
         <div key={k} style={{ display: 'contents' }}>
           <dt style={{ color: 'var(--text-muted)' }}>{k}</dt>
@@ -170,15 +170,15 @@ export default function AskAccountantDialog({ line, onClose, onAsked }) {
         <label style={label} htmlFor="ask-question">Question</label>
         <textarea id="ask-question" value={question} onChange={(e) => setQuestion(e.target.value)} rows={4} maxLength={4000} autoFocus
           placeholder="What do you need to know about this line?" style={{ ...full, height: 'auto', resize: 'vertical', fontFamily: 'inherit' }} />
-        {missing.question && <div role="alert" style={{ fontSize: '0.7rem', color: 'var(--bad-fg, #dc2626)', marginTop: 3 }}>{missing.question}</div>}
+        {missing.question && <div role="alert" style={{ fontSize: 11, color: 'var(--bad-fg, #dc2626)', marginTop: 3 }}>{missing.question}</div>}
       </div>
       <div>
         <label style={label} htmlFor="ask-accountant">Accountant</label>
         <PersonSelect id="ask-accountant" people={people} value={chosen} onChange={(v) => { setTouched(true); setAccountant(v); }}
           extra={chosen === settings?.lastAccountant ? settings?.lastAccountantName : null} />
         {missing.accountant
-          ? <div role="alert" style={{ fontSize: '0.7rem', color: 'var(--bad-fg, #dc2626)', marginTop: 3 }}>{missing.accountant}</div>
-          : <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>{suggested && chosen === suggested ? 'The accountant set for this entity, or the last one you asked.' : 'They need Accounting access to this entity.'}</div>}
+          ? <div role="alert" style={{ fontSize: 11, color: 'var(--bad-fg, #dc2626)', marginTop: 3 }}>{missing.accountant}</div>
+          : <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{suggested && chosen === suggested ? 'The accountant set for this entity, or the last one you asked.' : 'They need Accounting access to this entity.'}</div>}
       </div>
     </Dialog>
   );

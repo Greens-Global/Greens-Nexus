@@ -3,7 +3,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 // Render-smoke for headcount requests (Oct 27 2026): the list, a request
 // waiting on the viewer with Approve / Decline (a reason required), the
-// restricted salary shown only as "set", and the New Headcount Request form.
+// restricted salary shown only as "set", and the "+ New" Headcount Request form.
 
 const req = {
   id: 'h1', code: 'HC-0001', company: 'ent', companyName: 'Hire Co', department: 'Accounting', roleId: 'r1',
@@ -62,7 +62,7 @@ describe('HeadcountRequests', () => {
 
   it('raises a new request', async () => {
     render(<HeadcountRequests toastOk={vi.fn()} toastErr={vi.fn()} />);
-    fireEvent.click(await screen.findByText('New Headcount Request'));
+    fireEvent.click(await screen.findByRole('button', { name: 'New Headcount Request' }));
     expect(await screen.findByText('Send For Approval')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Role *'), { target: { value: 'r1' } });
     fireEvent.change(screen.getByLabelText('Justification *'), { target: { value: 'Two people left.' } });

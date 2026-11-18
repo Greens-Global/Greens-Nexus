@@ -145,6 +145,12 @@ def zone_for(db, email: str) -> str:
         import models
         from sqlalchemy import func
         if em:
+            # The zone the person set for themselves wins (person_zone.py,
+            # 11/13/2026) - models only, like the rest of this function.
+            import person_zone
+            own = person_zone.stored(db, em)
+            if own:
+                return own
             assign = (db.query(models.ShiftAssignment.shift_id)
                       .filter(func.lower(models.ShiftAssignment.employee_email) == em).first())
             if assign and assign[0]:

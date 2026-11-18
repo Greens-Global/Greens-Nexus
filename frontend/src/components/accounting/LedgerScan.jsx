@@ -49,14 +49,14 @@ export function ScanProgress({ progress, what = 'entities' }) {
   const pct = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
   return (
     <div style={{ display: 'grid', gap: 8, padding: '12px 0' }} aria-live="polite">
-      <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+      <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
         Reading the ledger...{total ? ` ${done} of ${total} ${what}` : ''}
       </div>
       <div role="progressbar" aria-valuemin={0} aria-valuemax={total || 100} aria-valuenow={total ? done : 0} aria-label="Ledger scan progress"
         style={{ height: 8, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: 'var(--wk-brand, #2b45e1)', transition: 'width 600ms ease' }} />
       </div>
-      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>The scan keeps running on the server; you can close this and open it again later.</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>The scan keeps running on the server; you can close this and open it again later.</div>
     </div>
   );
 }
@@ -131,13 +131,13 @@ export function useScanRetry(fetchFor, pollMs = POLL_MS) {
 
 /** "Read 37 of 142 entities - 105 could not be read." with the list and Retry. */
 export function ScanOutcome({ total, failed = [], onRetry, running = null, error = null }) {
-  if (!failed.length) return <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{scanStatusText(total, 0)}</div>;
+  if (!failed.length) return <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{scanStatusText(total, 0)}</div>;
   return (
-    <div role="status" style={{ fontSize: '0.8rem', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '8px 10px', display: 'grid', gap: 6 }}>
+    <div role="status" style={{ fontSize: 13, color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', borderRadius: 8, padding: '8px 10px', display: 'grid', gap: 6 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <strong style={{ flex: 1, minWidth: 220 }}><WarnMark />{scanStatusText(total, failed.length)}</strong>
         {onRetry && (
-          <button type="button" className="secondary-btn" disabled={!!running} onClick={() => onRetry(failed.map((f) => f.code))} style={{ fontSize: '0.76rem' }}>
+          <button type="button" className="secondary-btn" disabled={!!running} onClick={() => onRetry(failed.map((f) => f.code))} style={{ fontSize: 12 }}>
             {running ? `Retrying... ${running.done} of ${running.total}` : `Retry ${failed.length} ${failed.length === 1 ? 'Entity' : 'Entities'}`}
           </button>
         )}

@@ -31,7 +31,7 @@ function PersonalForm({ row, onClose, onSave }) {
           <Field label="Username / Email"><input value={form.username} onChange={(e) => set("username", e.target.value)} className="cv-ipt" placeholder="account@…" autoComplete="off" /></Field>
           <Field label="Type"><select value={form.type} onChange={(e) => set("type", e.target.value)} className="cv-ipt">{TYPES.map((t) => <option key={t}>{t}</option>)}</select></Field>
         </div>
-        <PasswordField value={form.secret} onChange={(v) => set("secret", v)} required={!editing} label={editing ? "New Password" : "Password"} placeholder={editing ? "Leave blank to keep the current password" : "Enter or generate a password"} />
+        <PasswordField value={form.secret} onChange={(v) => set("secret", v)} required={!editing} label={editing ? "New Password" : "Password"} placeholder={editing ? "Unchanged if left blank" : "Enter or generate a password"} />
         <Field label="Link"><input value={form.url} onChange={(e) => set("url", e.target.value)} className="cv-ipt" placeholder="https://… (Open signs you in from the list)" /></Field>
         <Field label="Note"><input value={form.note} onChange={(e) => set("note", e.target.value)} className="cv-ipt" placeholder="Security question, recovery hint…" /></Field>
         <div className="cv-callout tone-info"><ShieldCheck size={14} style={{ flexShrink: 0, marginTop: 1 }} /><span>Encrypted and private - not visible to any admin or team member.</span></div>
@@ -136,7 +136,7 @@ export default function PersonalVault({ myEmail, flash, active = true }) {
                   <div className="cv-sub">
                     {r.username && r.username !== "-" ? r.username : "no username"}{r.note ? ` · ${r.note}` : ""}
                   </div>
-                  <div className="cv-mono" style={{ marginTop: 4, fontSize: secret ? 13 : 13.5, letterSpacing: secret ? "normal" : ".2em", color: secret ? "var(--text-primary)" : "var(--text-muted)", wordBreak: "break-all" }}>{secret || "••••••••"}</div>
+                  <div className="cv-mono" style={{ marginTop: 4, fontSize: 13, letterSpacing: secret ? "normal" : ".2em", color: secret ? "var(--text-primary)" : "var(--text-muted)", wordBreak: "break-all" }}>{secret || "••••••••"}</div>
                 </div>
                 <div className="cv-field-actions" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
                   {r.username && r.username !== "-" && <button type="button" className="cv-iconbtn" title="Copy Username" aria-label="Copy Username" onClick={() => copy(r.username, r.id + ":u")}>{copied === r.id + ":u" ? <Check size={14} style={{ color: "var(--cv-ok)" }} /> : <Copy size={14} />}</button>}

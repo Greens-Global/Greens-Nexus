@@ -23,6 +23,7 @@ import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
+import { TimeField } from '../tasks/components';
 import { leadsFor } from './HiringSchedule';
 import { REPORTS_TO } from './OfferModal';
 import { SignModal } from './ESign';
@@ -48,9 +49,8 @@ export function EmailPreviewModal({ event, entityId = '', templateId = '', note 
     api.packetEmailPreview({ event, entityId, templateId, note, role, stage }).then(setMail).catch(e => setErr(e?.message || 'Could not render the email.'));
   }, [event, entityId, templateId, note, role, stage]);
   return (
-    <div onClick={e => e.target === e.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, height: 'min(92dvh, 860px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 4200 }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Email Preview - Subject</div>
@@ -78,7 +78,7 @@ const EMPLOYMENT_TYPES = [['full_time', 'Full-Time'], ['part_time', 'Part-Time']
 const FREQUENCIES = [['annual', 'Per Year'], ['monthly', 'Per Month'], ['semimonthly', 'Twice A Month'], ['biweekly', 'Every Two Weeks'], ['weekly', 'Per Week']];
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
-const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
+const hint = { fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
 
 // 'YYYY-MM-DD' -> 'MM/DD/YYYY' without a timezone shift (a date-only string
 // parsed as a Date is UTC midnight - the day before in the US).
@@ -87,10 +87,10 @@ export function usDay(iso) {
   return m ? `${m[2]}/${m[3]}/${m[1]}` : (iso || '');
 }
 
+// A sheet from the right (style.css "Sheets"), the bottom sheet on a phone (11/14/2026).
 const Overlay = ({ children, onClose }) => (
-  <div onClick={e => e.target === e.currentTarget && onClose()}
-    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+  <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()} style={{ zIndex: 4100 }}>
+    <div className="modal-content nx-popup" role="dialog" aria-modal="true" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
       {children}
     </div>
   </div>
@@ -98,7 +98,7 @@ const Overlay = ({ children, onClose }) => (
 const Head = ({ title, sub, onClose }) => (
   <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
     <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontWeight: 800, fontSize: 15.5 }}>{title}</div>
+      <div style={{ fontWeight: 800, fontSize: 15 }}>{title}</div>
       {sub && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{sub}</div>}
     </div>
     <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -133,7 +133,7 @@ function StatusChip({ label, tone }) {
 export function PacketSigner({ partyId, onClose, onDone, toastOk, toastErr }) {
   if (!partyId) return null;
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 4300, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
       <SignModal partyId={partyId} onClose={onClose} onDone={onDone}
         toastOk={toastOk || (() => {})} toastErr={toastErr || (() => {})} />
     </div>, document.body);
@@ -142,8 +142,8 @@ export function PacketSigner({ partyId, onClose, onDone, toastOk, toastErr }) {
 // ── Hiring > Packets ─────────────────────────────────────────────────────────
 // One event at a time, one table: each row is a packet - the role it is for,
 // its documents, its signers, where it is filed. Edited whole in PacketEditor.
-const TH = { fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: 'left', padding: '8px 12px', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-const TD = { fontSize: 12.5, padding: '11px 12px', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
+const TH = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: 'left', padding: '8px 12px', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+const TD = { fontSize: 13, padding: '11px 12px', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
 const IconBtn = ({ title, onClick, disabled, danger, children }) => (
   <button type="button" title={title} aria-label={title} onClick={onClick} disabled={disabled}
     style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: disabled ? 'default' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: danger ? 'hsl(var(--color-red))' : 'var(--ink)', opacity: disabled ? 0.5 : 1 }}>
@@ -179,7 +179,7 @@ function PacketRow({ row, onEdit, onDuplicate, onRemoved, toastErr, companyName 
             );
           })()}
           {row.engine === 'pdf' && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Uploaded PDFs - rebuild it from Documents</div>}
-          {(row.problems || []).map(p => <div key={p} style={{ color: 'hsl(var(--color-orange))', fontSize: 11.5, marginTop: 3 }}>{p}</div>)}
+          {(row.problems || []).map(p => <div key={p} style={{ color: 'hsl(var(--color-orange))', fontSize: 12, marginTop: 3 }}>{p}</div>)}
         </td>
         <td style={TD}>
           {/* Place first (Neil, Oct 22) - "Employees in CA, US"; a role only when the packet is limited to one. */}
@@ -205,8 +205,11 @@ function PacketRow({ row, onEdit, onDuplicate, onRemoved, toastErr, companyName 
 }
 
 // `companyId` + `lockCompany` (Settings' scope picker, Oct 23): opened for
-// one company, with no company select of its own.
-export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {}, companyId: lockedCompany = '', lockCompany = false }) {
+// one company, with no company select of its own. `inline` (Pranshu,
+// 11/13/2026): Documents > Hiring Documents is a PAGE, not a popup - the same
+// setup drawn in the tab, the page's title in place of the popup's head and
+// no Close; Settings keeps the popup.
+export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {}, companyId: lockedCompany = '', lockCompany = false, inline = false }) {
   const [data, setData] = useState(null);
   const [entities, setEntities] = useState([]);
   const [companyId, setCompanyId] = useState(lockedCompany || '');
@@ -216,7 +219,7 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
   const [coverKey, setCoverKey] = useState(0);
   const load = () => {
     setCoverKey(k => k + 1);
-    return api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); onClose(); });
+    return api.getPackets().then(setData).catch(e => { toastErr(e?.message || 'Could not load packets.'); if (!inline) onClose(); else setData({ events: [], settings: [] }); });
   };
   useEffect(() => { load(); api.getEntities().then(setEntities).catch(() => {}); }, []);
   // A template written since this window opened shows up when a packet opens.
@@ -255,45 +258,52 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
   };
   const countFor = (key) => (data?.settings || []).filter(s => mine(s) && s.event === key).length;
 
+  const Shell = inline ? ({ children }) => <div className="nx-hd">{children}</div> : Overlay;
+  const companyPicker = lockCompany ? (
+    <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{company}</span>
+  ) : (
+    <select className={inline ? 'nx-dl-chip' : 'form-input'} style={inline ? undefined : { width: 240, maxWidth: '100%' }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
+      <option value="">All Companies</option>
+      {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+    </select>
+  );
   return (
-    <Overlay onClose={onClose} wide>
-      <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: '8px 14px', flexShrink: 0, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 220px', minWidth: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 15.5 }}>Hiring Documents</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>What goes out through Nexus Sign when someone is hired, promoted or leaves</div>
+    <Shell onClose={onClose} wide>
+      {/* The page under Documents has no heading (Pranshu, 11/13/2026): the tab
+          says where you are; the company picker sits in the tab row. */}
+      {!inline && (
+        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: '8px 14px', flexShrink: 0, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>Hiring Documents</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>What goes out through Nexus Sign when someone is hired, promoted or leaves</div>
+          </div>
+          {companyPicker}
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        {lockCompany ? (
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{company}</span>
-        ) : (
-          <select className="form-input" style={{ width: 240, maxWidth: '100%' }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
-            <option value="">All Companies</option>
-            {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
-        )}
-        <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
-      </div>
-      <div style={{ overflowY: 'auto', flex: 1, padding: '14px 22px 22px' }}>
+      )}
+      <div className={inline ? 'nx-hd-body' : undefined} style={inline ? undefined : { overflowY: 'auto', flex: 1, padding: '14px 22px 22px' }}>
         {!data ? <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><Spinner size="section" /></div> : (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: inline ? 'wrap' : undefined }}>
               <div className="scroll-tabs" style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3, maxWidth: '100%' }}>
                 <button type="button" onClick={() => setTab('overview')}
-                  style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
+                  style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
                     background: tab === 'overview' ? 'var(--card)' : 'transparent', color: 'var(--ink)', boxShadow: tab === 'overview' ? '0 1px 3px rgba(0,0,0,0.15)' : 'none' }}>
                   What Each Hire Gets
                 </button>
                 {events.map(e => (
                   <button key={e.key} type="button" onClick={() => setTab(e.key)}
-                    style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
+                    style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap',
                       background: ev?.key === e.key ? 'var(--card)' : 'transparent', color: 'var(--ink)', boxShadow: ev?.key === e.key ? '0 1px 3px rgba(0,0,0,0.15)' : 'none' }}>
                     {e.label}{countFor(e.key) ? <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{countFor(e.key)}</span> : null}
                   </button>
                 ))}
               </div>
               <span style={{ flex: 1 }} />
+              {inline && companyPicker}
               {ev && (
                 <button type="button" className="primary-btn" onClick={() => setEditing({ event: ev, row: null })}
-                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <Plus size={13} /> Add Packet
                 </button>
               )}
@@ -309,7 +319,7 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.5 }}>Each was typed in as Other on Add Candidate. Until it has a packet of its own, the company's "Every role" packet goes out for it (if there is one).</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
                   {needing.map(r => (
-                    <div key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 10, padding: '6px 8px 6px 12px', fontSize: 12.5 }}>
+                    <div key={r.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 10, padding: '6px 8px 6px 12px', fontSize: 13 }}>
                       <span style={{ fontWeight: 600 }}>{r.name}{r.department ? ` - ${r.department}` : ''}</span>
                       {all && r.companyName && <span style={{ color: 'var(--muted)' }}>{r.companyName}</span>}
                       <button type="button" className="primary-btn" onClick={() => addFor(r)} style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -324,13 +334,13 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
               <div style={{ textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 12, padding: '36px 20px' }}>
                 <FileSignature size={26} style={{ color: 'var(--muted)' }} />
                 <div style={{ fontSize: 14, fontWeight: 700, marginTop: 8 }}>No {ev.label.toLowerCase()} for {company} yet</div>
-                <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, maxWidth: 520, margin: '4px auto 0', lineHeight: 1.5 }}>
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4, maxWidth: 520, margin: '4px auto 0', lineHeight: 1.5 }}>
                   {inherited.length
                     ? `${company} uses the default: ${inherited.map(s => `${s.templateName} (${describeRoles(s.roleNames)})`).join(', ')}. Add a packet to give it its own.`
                     : companyId ? `${company} cannot send one until a packet is added here or for every company.`
                       : 'Add a packet: pick its documents from Documents > Templates and set who signs, by role. A packet added here, with no company picked, is for every company.'}
                 </div>
-                <button type="button" className="primary-btn" onClick={() => setEditing({ event: ev, row: null })} style={{ fontSize: 12.5, marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <button type="button" className="primary-btn" onClick={() => setEditing({ event: ev, row: null })} style={{ fontSize: 13, marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <Plus size={13} /> Add Packet
                 </button>
               </div>
@@ -379,7 +389,7 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); toastOk('Packet saved.'); }} />
       )}
-    </Overlay>
+    </Shell>
   );
 }
 
@@ -569,7 +579,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             {manager ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{manager.name || manager.email}</span>
-                <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={() => set('manager_email', '')}>Change</button>
+                <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => set('manager_email', '')}>Change</button>
               </div>
             ) : (
               <PersonSearchSelect placeholder="Type a name or email" groups={[{ label: 'Nexus People', people }]} onPick={v => set('manager_email', v)} />
@@ -613,9 +623,9 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0 14px' }}>
               <div><label style={lbl}>Starts At</label>
-                <input className="form-input" type="time" style={{ width: '100%' }} value={timing.work_start} onChange={e => setTiming(t => ({ ...t, work_start: e.target.value }))} /></div>
+                <TimeField value={timing.work_start} onChange={x => setTiming(t => ({ ...t, work_start: x }))} ariaLabel="Starts at" style={{ width: '100%' }} /></div>
               <div><label style={lbl}>Ends At</label>
-                <input className="form-input" type="time" style={{ width: '100%' }} value={timing.work_end} onChange={e => setTiming(t => ({ ...t, work_end: e.target.value }))} /></div>
+                <TimeField value={timing.work_end} onChange={x => setTiming(t => ({ ...t, work_end: x }))} ariaLabel="Ends at" style={{ width: '100%' }} /></div>
               <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Work Days</label>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {DAYS.map(([k, l]) => {
@@ -640,7 +650,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
               <div style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3, width: 'fit-content', marginTop: 8 }}>
                 {[['candidate', `${c.firstName || 'They'} Fills Them In`], ['hr', 'I Will']].map(([k, l]) => (
                   <button key={k} type="button" onClick={() => setFills(k)}
-                    style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                    style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
                       background: fills === k ? 'var(--card)' : 'transparent', color: 'var(--ink)', boxShadow: fills === k ? '0 1px 3px rgba(0,0,0,0.15)' : 'none' }}>{l}</button>
                 ))}
               </div>
@@ -673,45 +683,45 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
 
         {preview && !docsMode && (
           <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
-            <div style={{ fontWeight: 800, fontSize: 13.5 }}>{preview.title}</div>
+            <div style={{ fontWeight: 800, fontSize: 13 }}>{preview.title}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, marginTop: 8 }}>
               <div>
                 <div style={{ ...lbl, marginTop: 0 }}>Documents</div>
-                {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 12.5 }}>{i + 1}. {d}</div>)}
+                {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 13 }}>{i + 1}. {d}</div>)}
               </div>
               <div>
                 <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
                 {preview.recipients.map(r => (
-                  <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>
+                  <div key={`${r.order}-${r.email}`} style={{ fontSize: 13 }}>
                     {r.order}. {r.isSubject ? `${r.name} (${r.email})` : `You (${r.role})`}{r.isSubject ? '' : ' - signs now'}
                   </div>
                 ))}
               </div>
               <div>
                 <div style={{ ...lbl, marginTop: 0 }}>Filed In Egnyte</div>
-                <div style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                <div style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
                   <FolderOpen size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--muted)' }} />
                   <span>{preview.company} &gt; Human Resources &gt; {f.employment_type === 'contractor' ? 'Contractors' : 'Employees'} &gt; {name} &gt; {preview.egnyteSubfolder}</span>
                 </div>
               </div>
             </div>
-            <div style={{ fontSize: 12.5, marginTop: 10 }}>
+            <div style={{ fontSize: 13, marginTop: 10 }}>
               Starts <b>{usDay(preview.startDate)}</b>{preview.salaryText ? <> at <b>{preview.salaryText}</b></> : null}.
               {preview.expiresOn && <> They can sign through <b>{usDay(preview.expiresOn)}</b>; after that the link expires and the packet reads Expired.</>}
             </div>
             {preview.rehire && (
-              <div style={{ fontSize: 12.5, marginTop: 8, padding: '8px 11px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)' }}>
+              <div style={{ fontSize: 13, marginTop: 8, padding: '8px 11px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)' }}>
                 <b>Rehire:</b> {preview.rehire.name} ({preview.rehire.employeeCode || 'no code'}) is already in People as {preview.rehire.status}. When they sign, that record is reactivated as Onboarding - no second record is created.
               </div>
             )}
             {preview.salaryText && preview.payInLetter === false && <Problem>This packet's letter does not show pay - {preview.salaryText} will be set as their pay when they sign, but they will not read it in the documents. Add {'{{salary}}'} to the template under Documents &gt; Nexus Sign &gt; Templates, or leave pay blank.</Problem>}
             {preview.newRole && <Problem>New role "{preview.newRole}" will be added to {preview.company}'s roles with no access - set its access in Settings &gt; Access after sending.</Problem>}
-            <div style={{ fontSize: 12.5, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--mist)' }}>
+            <div style={{ fontSize: 13, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--mist)' }}>
               <b>Nothing goes to {name} until you click Send Packet.</b> {name} signs the finished packet first - your PDFs with this offer's pay and dates printed in - and you countersign for the company after them, never before. If something is wrong, void it and send a corrected packet.
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
-              <span style={{ fontSize: 12.5 }}>{name} then gets the welcome email with a link to sign.</span>
-              <button type="button" className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }}
+              <span style={{ fontSize: 13 }}>{name} then gets the welcome email with a link to sign.</span>
+              <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }}
                 onClick={() => setMail({ event: 'hire', entityId: c.company || '', templateId: preview.templateId, note: preview.emailMessage || '' })}>Preview Email</button>
             </div>
             {(preview.unresolved || []).length > 0 && (
@@ -796,11 +806,24 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
     finally { setBusy(''); }
   }
   async function act(kind) {
-    if (kind === 'cancel' && !await dialog.confirm('Cancel this offboarding? They stay active, and any paperwork still out is voided.', { title: 'Cancel Offboarding', confirmText: 'Cancel Offboarding', cancelText: 'Keep It' })) return;
+    if (kind === 'cancel') {
+      // Voids the paperwork that is out - held (Hold to confirm, Neil, 11/14/2026).
+      await dialog.confirm('Cancel this offboarding? They stay active, the offboarding checklist is canceled, and any paperwork still out is voided.', {
+        title: 'Cancel Offboarding', hold: true, holdMs: HOLD_MAJOR_MS, confirmText: 'Cancel Offboarding', doneText: 'Canceled', cancelText: 'Keep It',
+        onConfirm: async () => {
+          setBusy('cancel');
+          try { await api.cancelOffboarding(ev.id); }
+          catch (e) { throw new Error(e?.message || 'That did not work.', { cause: e }); }
+          finally { setBusy(''); }
+          toastOk?.('Offboarding canceled.');
+          onChanged?.();
+        },
+      });
+      return;
+    }
     setBusy(kind);
     try {
-      if (kind === 'cancel') { await api.cancelOffboarding(ev.id); toastOk?.('Offboarding canceled.'); }
-      else if (kind === 'apply') { await api.retryLifeEventApply(ev.id); toastOk?.('Applied.'); }
+      if (kind === 'apply') { await api.retryLifeEventApply(ev.id); toastOk?.('Applied.'); }
       else { const out = await api.retryLifeEventFiling(ev.id); toastOk?.(out.filingStatus === 'filed' ? 'Filed in Egnyte.' : 'Still not filed - see the reason below.'); }
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'That did not work.'); }
@@ -919,7 +942,7 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
     </>
   );
   if (compact) return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid var(--line)', fontSize: 13 }}>
       <FileSignature size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       <b>{what}</b>
       <StatusChip label={label} tone={tone} />
@@ -940,25 +963,25 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
         <FileSignature size={14} style={{ color: 'var(--muted)' }} />
         <b style={{ fontSize: 13 }}>{what}</b>
         <StatusChip label={label} tone={tone} />
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--muted)' }}>Sent {formatDateTime(ev.createdAt)}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>Sent {formatDateTime(ev.createdAt)}</span>
       </div>
       {ev.kind === 'separation' && ev.applyStatus === 'scheduled' && (
-        <div style={{ fontSize: 12.5, marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Clock size={13} style={{ color: 'hsl(var(--color-blue))' }} /> Last day {usDay(ev.effectiveDate)} - Nexus marks them Left the morning after.
-          <button className="secondary-btn" onClick={() => act('cancel')} disabled={!!busy} style={{ fontSize: 11.5, padding: '3px 10px' }}>
+          <button className="secondary-btn" onClick={() => act('cancel')} disabled={!!busy} style={{ fontSize: 12, padding: '3px 10px' }}>
             {busy === 'cancel' ? <Spinner size={12} /> : 'Cancel Offboarding'}
           </button>
         </div>
       )}
       {['offer', 'hire'].includes(ev.kind) && (ev.inputs?.due_on || ev.inputs?.offer_expires) && ['awaiting_sender', 'sent', 'intake'].includes(ev.status) && (
-        <div style={{ fontSize: 12.5, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ fontSize: 13, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Clock size={13} style={{ color: 'var(--muted)' }} />
           {ev.inputs?.after_offer ? `Paperwork link open through ${usDay(ev.inputs.due_on)} - no login needed.`
             : `Offer open through ${usDay(ev.inputs.offer_expires)} - the link expires after that day.`}
         </div>
       )}
       {inPerson && (
-        <div style={{ fontSize: 12.5, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ fontSize: 13, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Printer size={13} style={{ color: 'var(--muted)' }} /> Signed in person - print it, have {ev.subjectName} sign it, then upload the signed copy.
         </div>
       )}
@@ -966,7 +989,7 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
       {ev.applyNote && (ev.status === 'completed' || ev.applyStatus) && <div style={{ fontSize: 12, marginTop: 6 }}>{ev.applyNote}</div>}
       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
         {ev.parties.map(p => (
-          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+          <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
             {p.status === 'signed' ? <CheckCircle size={13} style={{ color: 'hsl(var(--color-green))' }} /> : <Clock size={13} style={{ color: 'var(--muted)' }} />}
             <span style={{ flex: 1 }}>{p.order}. {p.name}{p.isSubject ? '' : ` (${p.role === 'manager' ? 'manager' : 'company'})`}</span>
             <span style={{ color: 'var(--muted)' }}>{p.status === 'signed' && p.signedAt ? `Signed ${formatDateTime(p.signedAt)}` : (PARTY_STATUS[p.status] || p.status)}</span>
@@ -993,7 +1016,7 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
         </div>
       )}
       {['intake', 'review'].includes(ev.status) && (
-        <div style={{ fontSize: 12.5, marginTop: 6, color: 'var(--muted)' }}>
+        <div style={{ fontSize: 13, marginTop: 6, color: 'var(--muted)' }}>
           {ev.status === 'review'
             ? `${(ev.documents || []).length} document${(ev.documents || []).length === 1 ? '' : 's'} generated - nothing is sent until HR verifies them.`
             : `Waiting for ${ev.subjectName} to fill in their details.`}
@@ -1090,7 +1113,7 @@ export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChang
       {shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} hideSign={hideSign}
         onChanged={() => { load(); onChanged?.(); }} />)}
       {restart && (
-        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
           <span style={{ color: 'var(--muted)' }}>Their hiring packet is {hireEv.status} - their right to work paperwork is not done.</span>
           <button type="button" className="primary-btn" onClick={startAgain} disabled={busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {busy ? <Spinner size={12} /> : <Send size={12} />} Start Hiring Packet Again
@@ -1136,7 +1159,7 @@ export function PersonLifeEvents({ employeeId, workEmail = '', refreshKey, onSig
   if (!signed) return <div>{cards}</div>;
   return (
     <div style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>Signed Paperwork</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>Signed Paperwork</div>
       {cards}
     </div>
   );
@@ -1181,7 +1204,7 @@ export function PaperworkStatus({ employeeId, refreshKey, pendingOnly = false })
       background: `hsla(var(--color-${tone}),0.08)`, border: `1px solid hsla(var(--color-${tone}),0.3)` }}>
       {st.done ? <CheckCircle size={16} style={{ color: `hsl(var(--color-${tone}))`, flexShrink: 0, marginTop: 1 }} />
         : <AlertTriangle size={16} style={{ color: `hsl(var(--color-${tone}))`, flexShrink: 0, marginTop: 1 }} />}
-      <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 13, lineHeight: 1.5 }}>
         <b>{st.done ? 'Onboarding Paperwork Complete' : 'Onboarding Paperwork Not Complete'}</b>
         <div style={{ color: 'var(--muted)' }}>
           {st.done ? `Their hiring packet was signed${st.ev.completedAt ? ` on ${formatDateTime(st.ev.completedAt)}` : ''} - right to work paperwork is on file.`

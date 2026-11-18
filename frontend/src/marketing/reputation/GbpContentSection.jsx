@@ -79,8 +79,8 @@ export default function GbpContentSection({
     <div style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900 }}>Manage Your Business Listing</h3>
-          <p style={{ fontSize: 11.5, color: C.gray400 }}>Publish updates, photos, and answer questions directly on your {listingLabel}.</p>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: C.gray900 }}>Manage Your Business Listing</h3>
+          <p style={{ fontSize: 12, color: C.gray400 }}>Publish updates, photos, and answer questions directly on your {listingLabel}.</p>
         </div>
         {availableTabs.length > 1 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 8, border: '1px solid ' + C.gray200, padding: 4, flexShrink: 0 }}>
@@ -93,7 +93,7 @@ export default function GbpContentSection({
                   style={{
                     padding: '6px 12px',
                     borderRadius: 6,
-                    fontSize: 12.5,
+                    fontSize: 13,
                     fontWeight: 500,
                     background: active ? C.gray900 : 'transparent',
                     color: active ? C.white : C.gray500,

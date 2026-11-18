@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Accounting -> Allocations (Oct 2): the basis per person, the entry
 // preview, unmapped sites blocking the export, the mapping editor, Keep Run
@@ -112,5 +112,39 @@ describe('AllocationsTab', () => {
     api.previewAllocations.mockRejectedValueOnce(Object.assign(new Error('stepup_required'), { status: 403 }));
     render(<AllocationsTab canEdit />);
     expect(await screen.findByText(/Verify to view wages by person/)).toBeTruthy();
+  });
+
+  // UX pass 11/12/2026.
+  it('says Kept, or Already Kept when the server answers with the run it has', async () => {
+    api.previewAllocations.mockResolvedValue(mapped);
+    render(<AllocationsTab canEdit />);
+    await screen.findByText('Pat Test');
+    fireEvent.click(screen.getByRole('button', { name: /Keep Run/ }));
+    expect(await screen.findByText('Kept')).toBeTruthy();
+    api.saveAllocationRun.mockResolvedValueOnce({ id: 'r2', month: '2026-09', reused: true });
+    await waitFor(() => expect(screen.getByRole('button', { name: /Keep Run/ })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /Keep Run/ }));
+    expect(await screen.findByText('Already Kept')).toBeTruthy();
+  });
+
+  it('removes a kept run by holding on its row', async () => {
+    render(<AllocationsTab canEdit />);
+    const hold = await screen.findByRole('button', { name: 'Remove run Aug 2026, press and hold' });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(hold, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(1200); });
+    } finally { vi.useRealTimers(); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-15T12:00:00Z')); }
+    await waitFor(() => expect(api.deleteAllocationRun).toHaveBeenCalledWith('r1'));
+  });
+
+  it('shows a mapping that could not be read, with Retry', async () => {
+    api.getAllocationsMap.mockRejectedValueOnce(new Error('Server error'));
+    render(<AllocationsTab canEdit />);
+    await screen.findByText('Pat Test');
+    fireEvent.click(screen.getByRole('button', { name: 'Account Mapping' }));
+    expect(await screen.findByText('Server error')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('heading', { name: 'Account Mapping' })).toBeTruthy();
   });
 });

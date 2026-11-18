@@ -153,7 +153,7 @@ export function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES, zInde
             </div>
           )}
         </div>
-        <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: 0 }}>
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
           Available, In Use and Assigned follow the item's checkouts and assignments. A checkout stuck waiting on a receipt is fixed with Reconcile on the item.
         </p>
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--muted)', cursor: 'pointer', lineHeight: 1.45 }}>

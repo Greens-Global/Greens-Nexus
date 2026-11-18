@@ -21,7 +21,7 @@ function Panel({ color, icon: Icon, children }) {
   return (
     <div style={{
       display: 'flex', gap: 9, alignItems: 'flex-start', padding: '9px 11px', borderRadius: 10,
-      background: `${color}14`, border: `1px solid ${color}40`, fontSize: 12.5, color: NX.ink, width: '100%',
+      background: `${color}14`, border: `1px solid ${color}40`, fontSize: 13, color: NX.ink, width: '100%',
     }}>
       <Icon size={15} style={{ color, flexShrink: 0, marginTop: 1 }} />
       <div style={{ flex: 1, minWidth: 0, display: 'grid', gap: 8 }}>{children}</div>
@@ -77,12 +77,12 @@ export default function DueNegotiation({ task }) {
             {proposal.note && <div style={{ color: NX.dim, marginTop: 3 }}>"{proposal.note}"</div>}
           </div>
           <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500}
-            placeholder="Add a note (optional)" style={{ ...inputStyle, fontSize: 12.5, padding: '6px 9px' }} />
+            placeholder="Add a note (optional)" style={{ ...inputStyle, fontSize: 13, padding: '6px 9px' }} />
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <button disabled={busy} onClick={() => run(() => api.respondTaskDue(task.id, true, note.trim()))}
-              style={{ ...btn('primary'), padding: '6px 11px', fontSize: 12.5 }}>Approve {fmtDate(proposal.dueOn)}</button>
+              style={{ ...btn('primary'), padding: '6px 11px', fontSize: 13 }}>Approve {fmtDate(proposal.dueOn)}</button>
             <button disabled={busy} onClick={() => run(() => api.respondTaskDue(task.id, false, note.trim()))}
-              style={{ ...btn('outline'), padding: '6px 11px', fontSize: 12.5 }}>Keep {fmtDate(task.dueOn)}</button>
+              style={{ ...btn('outline'), padding: '6px 11px', fontSize: 13 }}>Keep {fmtDate(task.dueOn)}</button>
           </div>
         </Panel>
       );
@@ -117,19 +117,19 @@ export default function DueNegotiation({ task }) {
                   style={{ ...inputStyle, width: 'auto', padding: '5px 9px', fontSize: 12 }} />
               </div>
               <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500}
-                placeholder="Why this date? (optional)" style={{ ...inputStyle, fontSize: 12.5, padding: '6px 9px' }} />
+                placeholder="Why this date? (optional)" style={{ ...inputStyle, fontSize: 13, padding: '6px 9px' }} />
               <div style={{ display: 'flex', gap: 6 }}>
                 <button disabled={busy || !date} onClick={() => run(() => api.proposeTaskDue(task.id, date, note.trim()))}
-                  style={{ ...btn('primary'), padding: '6px 11px', fontSize: 12.5, opacity: busy || !date ? 0.6 : 1 }}>Send Proposal</button>
-                <button onClick={() => { setMode(null); setErr(''); }} style={{ ...btn('ghost'), padding: '6px 11px', fontSize: 12.5 }}>Cancel</button>
+                  style={{ ...btn('primary'), padding: '6px 11px', fontSize: 13, opacity: busy || !date ? 0.6 : 1 }}>Send Proposal</button>
+                <button onClick={() => { setMode(null); setErr(''); }} style={{ ...btn('ghost'), padding: '6px 11px', fontSize: 13 }}>Cancel</button>
               </div>
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button disabled={busy} onClick={() => run(() => api.confirmTaskDue(task.id))}
-                style={{ ...btn('primary'), padding: '6px 11px', fontSize: 12.5 }}>Confirm Date</button>
+                style={{ ...btn('primary'), padding: '6px 11px', fontSize: 13 }}>Confirm Date</button>
               <button disabled={busy} onClick={() => setMode('propose')}
-                style={{ ...btn('outline'), padding: '6px 11px', fontSize: 12.5 }}>Propose New Date</button>
+                style={{ ...btn('outline'), padding: '6px 11px', fontSize: 13 }}>Propose New Date</button>
             </div>
           )}
         </Panel>
@@ -159,22 +159,22 @@ export default function DueNegotiation({ task }) {
           )}
           <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500}
             placeholder={mode === 'counter' ? 'Why this date? (optional)' : 'Add a note (optional)'}
-            style={{ ...inputStyle, fontSize: 12.5, padding: '6px 9px' }} />
+            style={{ ...inputStyle, fontSize: 13, padding: '6px 9px' }} />
           {mode === 'counter' ? (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button disabled={busy || !date} onClick={() => run(() => api.respondTaskDue(task.id, false, note.trim(), date))}
-                style={{ ...btn('primary'), padding: '6px 11px', fontSize: 12.5, opacity: busy || !date ? 0.6 : 1 }}>Send Suggestion</button>
+                style={{ ...btn('primary'), padding: '6px 11px', fontSize: 13, opacity: busy || !date ? 0.6 : 1 }}>Send Suggestion</button>
               <button onClick={() => { setMode(null); setDate(''); setErr(''); }}
-                style={{ ...btn('ghost'), padding: '6px 11px', fontSize: 12.5 }}>Cancel</button>
+                style={{ ...btn('ghost'), padding: '6px 11px', fontSize: 13 }}>Cancel</button>
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button disabled={busy} onClick={() => run(() => api.respondTaskDue(task.id, true, note.trim()))}
-                style={{ ...btn('primary'), padding: '6px 11px', fontSize: 12.5 }}>Accept {fmtDate(proposal.dueOn)}</button>
+                style={{ ...btn('primary'), padding: '6px 11px', fontSize: 13 }}>Accept {fmtDate(proposal.dueOn)}</button>
               <button disabled={busy} onClick={() => run(() => api.respondTaskDue(task.id, false, note.trim()))}
-                style={{ ...btn('outline'), padding: '6px 11px', fontSize: 12.5 }}>Keep {fmtDate(task.dueOn)}</button>
+                style={{ ...btn('outline'), padding: '6px 11px', fontSize: 13 }}>Keep {fmtDate(task.dueOn)}</button>
               <button disabled={busy} onClick={() => { setMode('counter'); setErr(''); }}
-                style={{ ...btn('outline'), padding: '6px 11px', fontSize: 12.5 }}>Suggest New Date</button>
+                style={{ ...btn('outline'), padding: '6px 11px', fontSize: 13 }}>Suggest New Date</button>
             </div>
           )}
         </Panel>
@@ -211,7 +211,7 @@ export default function DueNegotiation({ task }) {
               {history.map((h, i) => (
                 <div key={`${h.at}-${i}`} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: NX.dim }}>
                   <span style={{ minWidth: 0 }}>{h.text}</span>
-                  {h.extension && <span style={{ fontSize: 10.5, fontWeight: 700, color: NX.red, flexShrink: 0 }}>Extension</span>}
+                  {h.extension && <span style={{ fontSize: 11, fontWeight: 700, color: NX.red, flexShrink: 0 }}>Extension</span>}
                 </div>
               ))}
             </div>

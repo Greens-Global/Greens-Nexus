@@ -180,7 +180,7 @@ export default function JobTab({
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
         <Activity size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 130, flexShrink: 0 }}>Status</span>
-        <span style={{ fontSize: 13.5, color: 'var(--ink)', flex: 1 }}>{statusLabel || '-'}</span>
+        <span style={{ fontSize: 13, color: 'var(--ink)', flex: 1 }}>{statusLabel || '-'}</span>
         {onChangeStatus && (
           <button type="button" className="secondary-btn" onClick={onChangeStatus} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
             <Pencil size={12} /> Change Status

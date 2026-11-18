@@ -45,6 +45,8 @@ import { WarnMark } from './warnMark';
 const LEVELS = { viewer: 'Viewer', editor: 'Editor', full: 'Full', owner: 'Owner', administrator: 'Administrator' };
 const PFS_LEVELS = [['none', 'None'], ['viewer', 'Viewer'], ['editor', 'Editor']];
 const CHIP_LIMIT = 5;
+// Same members, any order (the popups' unsaved-change check).
+const sameSet = (set, list) => set.size === list.length && list.every((x) => set.has(x));
 
 // A face beside every name: the Nexus People photo, initials without one.
 function Face({ email, name, size = 26 }) {
@@ -54,7 +56,7 @@ function Face({ email, name, size = 26 }) {
   const parts = (name || '').trim().split(/\s+/).filter(Boolean);
   const initials = parts.length ? (parts[0][0] + (parts[1]?.[0] || '')).toUpperCase() : '?';
   return (
-    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(size * 0.38), fontWeight: 700, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}>
+    <span aria-hidden="true" style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.max(11, Math.round(size * 0.38)), fontWeight: 700, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}>
       {initials}
     </span>
   );
@@ -66,20 +68,20 @@ function Person({ email, name, note }) {
       <Face email={email} name={name} />
       <span style={{ minWidth: 0 }}>
         <span className="acct-person-name" style={{ fontWeight: 600, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
-        {note && <span style={{ display: 'block', fontWeight: 400, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{note}</span>}
+        {note && <span style={{ display: 'block', fontWeight: 400, fontSize: 12, color: 'var(--text-muted)' }}>{note}</span>}
       </span>
     </span>
   );
 }
 
-const chip = { display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 8px', borderRadius: 999, fontSize: '0.74rem', border: '1px solid var(--wk-brand, #2b45e1)', background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)', whiteSpace: 'nowrap' };
+const chip = { display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 8px', borderRadius: 999, fontSize: 12, border: '1px solid var(--wk-brand, #2b45e1)', background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)', whiteSpace: 'nowrap' };
 
 // Five entity chips, then "+N" that opens the rest (and "Show Less" closes them).
 function EntityChips({ codes, names }) {
   const [open, setOpen] = useState(false);
   const shown = open ? codes : codes.slice(0, CHIP_LIMIT);
   const more = codes.length - CHIP_LIMIT;
-  const toggle = { ...chip, cursor: 'pointer', font: 'inherit', fontSize: '0.74rem', fontWeight: 700, background: 'var(--bg-card)' };
+  const toggle = { ...chip, cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 700, background: 'var(--bg-card)' };
   return (
     <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
       {shown.map((c) => <span key={c} title={c} style={chip}><Building2 size={11} /> {names.get(c) || c}</span>)}
@@ -98,7 +100,7 @@ export default function AccessTab() {
   const owner = myRole === 'owner';
   const [pfs, setPfs] = useState(null);            // owners: everyone's PFS access, by email
   const [pfsFiles, setPfsFiles] = useState([]);    // owners: every PFS file, for "which PFS"
-  const [pfsError, setPfsError] = useState('');
+  const [pfsLoadError, setPfsLoadError] = useState('');
   const [pfsExtra, setPfsExtra] = useState([]);    // people added to the PFS-only list on this visit
   const [pickingFiles, setPickingFiles] = useState(null);   // { email, name, row }
   const nameOf = useNameResolver();
@@ -116,20 +118,19 @@ export default function AccessTab() {
     load();
     api.getAccountingLocations().then((d) => setEntities(d?.entities || [])).catch(() => setEntities([]));
   }, [load]);
+  // A failed read says so (with Retry) instead of the PFS column and section quietly vanishing.
+  const loadPfs = useCallback((alive = { current: true }) => api.getPfsAccessPeople()
+      .then((d) => { if (alive.current) { setPfsLoadError(''); setPfs(new Map((d?.people || []).map((p) => [p.email, p]))); setPfsFiles(d?.files || []); } })
+      .catch((e) => { if (alive.current) { setPfs(null); setPfsLoadError(e?.message || 'Could not load who has PFS access.'); } }), []);
   useEffect(() => {
     if (!owner) return undefined;
-    let alive = true;
-    api.getPfsAccessPeople()
-      .then((d) => { if (alive) { setPfs(new Map((d?.people || []).map((p) => [p.email, p]))); setPfsFiles(d?.files || []); } })
-      .catch(() => { if (alive) setPfs(null); });
-    return () => { alive = false; };
-  }, [owner]);
-  const setPfsLevel = (email, level, files) => {
-    setPfsError('');
-    return (files ? api.setPfsAccessLevel(email, level, files) : api.setPfsAccessLevel(email, level))
-      .then((row) => setPfs((m) => { const n = new Map(m); n.set(email, { ...(m.get(email) || {}), ...row }); return n; }))
-      .catch((e) => { setPfsError(e?.message || 'Could not change the PFS access.'); throw e; });
-  };
+    const alive = { current: true };
+    loadPfs(alive);
+    return () => { alive.current = false; };
+  }, [owner, loadPfs]);
+  // A refusal is shown on the row that asked (PfsLevel) or in the file picker.
+  const setPfsLevel = (email, level, files) => (files ? api.setPfsAccessLevel(email, level, files) : api.setPfsAccessLevel(email, level))
+    .then((row) => setPfs((m) => { const n = new Map(m); n.set(email, { ...(m.get(email) || {}), ...row }); return n; }));
   const pickFiles = (row, email, name) => setPickingFiles({ email, name, row });
   // PFS access for people outside the Accounting list.
   const listed = useMemo(() => new Set((people || []).map((p) => p.email)), [people]);
@@ -156,8 +157,8 @@ export default function AccessTab() {
       <div style={{ ...card, padding: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
           <div style={{ minWidth: 0, flex: '1 1 320px' }}>
-            <h3 style={{ fontSize: '0.98rem', margin: 0 }}>Who Can Read Which Entities</h3>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <h3 style={{ fontSize: 15, margin: 0 }}>Who Can Read Which Entities</h3>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
               {(people || []).length} {(people || []).length === 1 ? 'person has' : 'people have'} Accounting access{admins ? ` (${admins} by their administrator or owner role)` : ''} - {limited ? `${limited} limited to certain entities` : 'nobody is limited yet'}. Administrators and owners always see every entity.
             </div>
           </div>
@@ -166,11 +167,11 @@ export default function AccessTab() {
             <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a person or an entity" aria-label="Search a person or an entity" style={{ ...control, width: '100%', paddingLeft: 28 }} />
           </div>
           <button type="button" className="secondary-btn" onClick={() => setImporting(true)} title="Read who may see which entities in Intacct and set the same limits here"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', padding: '4px 10px' }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 10px' }}>
             <Download size={13} /> Bring From Intacct
           </button>
         </div>
-        {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem', marginBottom: 10 }}>{error}</div>}
+        {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 10 }}>{error}</div>}
 
         <div className="acct-lines-wrap">
           <table className="acct-lines" style={{ width: '100%', tableLayout: 'fixed', minWidth: pfs ? 900 : 720 }}>
@@ -192,19 +193,19 @@ export default function AccessTab() {
                   <td style={cell}>{LEVELS[p.level] || '-'}</td>
                   <td style={{ ...cell, whiteSpace: 'normal' }}>
                     {p.admin
-                      ? <span style={{ color: 'var(--text-secondary)' }} title="Administrators and owners are never limited to entities">All Entities <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>· {LEVELS[p.admin] || 'Administrator'}</span></span>
+                      ? <span style={{ color: 'var(--text-secondary)' }} title="Administrators and owners are never limited to entities">All Entities <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>· {LEVELS[p.admin] || 'Administrator'}</span></span>
                       : p.entities.length === 0 ? <span style={{ color: 'var(--text-secondary)' }}>All Entities</span> : <EntityChips codes={p.entities} names={names} />}
                   </td>
                   {pfs && <td style={cell}><PfsLevel row={pfs.get(p.email)} email={p.email} name={p.name} files={pfsFiles} onSet={setPfsLevel} onPickFiles={pickFiles} /></td>}
                   <td style={{ ...cell, color: p.lastOpened ? undefined : 'var(--text-muted)', whiteSpace: 'normal' }} title={p.opens ? `${p.opens.toLocaleString('en-US')} ${p.opens === 1 ? 'visit' : 'visits'}` : undefined}>
-                    {p.lastOpened ? `${formatDateTime(p.lastOpened)}${p.opens > 1 ? ` · ${p.opens.toLocaleString('en-US')} visits` : ''}` : 'Not yet'}
+                    {p.lastOpened ? `${formatDateTime(p.lastOpened)}${p.opens > 1 ? ` · ${p.opens.toLocaleString('en-US')} visits` : ''}` : 'Not Yet'}
                   </td>
                   <td style={{ ...cell, textAlign: 'right' }}>
                     {p.admin
-                      ? <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }} title="Administrators and owners always see every entity">Always All</span>
+                      ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }} title="Administrators and owners always see every entity">Always All</span>
                       : p.email === (myEmail || '').toLowerCase()
-                        ? <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }} title="Someone else has to change your own access">You</span>
-                        : <button type="button" className="secondary-btn" style={{ fontSize: '0.74rem', padding: '3px 10px' }} onClick={() => setEditing({ email: p.email, name: p.name, entities: p.entities })}>Change</button>}
+                        ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }} title="Someone else has to change your own access">You</span>
+                        : <button type="button" className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} onClick={() => setEditing({ email: p.email, name: p.name, entities: p.entities })}>Change</button>}
                   </td>
                 </tr>
               ))}
@@ -216,13 +217,13 @@ export default function AccessTab() {
             </tbody>
           </table>
         </div>
-        {pfsError && <div role="alert" style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem', marginTop: 10 }}>{pfsError}</div>}
+        {owner && pfsLoadError && <div style={{ marginTop: 10 }}><AsyncSection error errorMessage={`PFS access: ${pfsLoadError}`} onRetry={() => loadPfs()} /></div>}
         {pfs && (
           <section aria-label="PFS Access Without Accounting" style={{ marginTop: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
               <div style={{ flex: '1 1 300px', minWidth: 0 }}>
-                <h4 style={{ fontSize: '0.88rem', margin: 0 }}>PFS Access Without Accounting</h4>
-                <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: 2 }}>Personal financial statements open only for owners and the people given PFS access, and only the PFS picked for them. A borrower does not see their own file without it.</div>
+                <h4 style={{ fontSize: 14, margin: 0 }}>PFS Access Without Accounting</h4>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>Personal financial statements open only for owners and the people given PFS access, and only the PFS picked for them. A borrower does not see their own file without it.</div>
               </div>
               <div style={{ width: 280, maxWidth: '100%' }}>
                 <PersonSelect addButton value={null} onChange={(v) => { if (v) setPfsExtra((x) => [...x, v]); }} ariaLabel="Give PFS Access to a Person"
@@ -245,10 +246,10 @@ export default function AccessTab() {
                   </tbody>
                 </table>
               </div>
-            ) : <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Nobody outside the list above has PFS access.</div>}
+            ) : <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Nobody outside the list above has PFS access.</div>}
           </section>
         )}
-        <div style={{ marginTop: 8, fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
           <ShieldCheck size={13} style={{ flexShrink: 0, marginTop: 1 }} />
           <span>A limit covers an entity and everything under it. A limited person works in Reports, Packages and MRI only: the dashboard tabs and the accounting app show consolidated figures, so they close. Every change is written to the audit log. Last Opened is when the person last opened any Accounting tab.</span>
         </div>
@@ -270,27 +271,38 @@ export default function AccessTab() {
 // here still limit it.
 function PfsLevel({ row, email, name, files, onSet, onPickFiles }) {
   const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState(null);     // { ok, text } - the save's answer, on this row
+  const change = (level) => {
+    setBusy(true); setSaid(null);
+    Promise.resolve(onSet(email, level))
+      .then(() => { setSaid({ ok: true, text: 'Saved' }); setTimeout(() => setSaid((x) => (x?.ok ? null : x)), 2500); })
+      .catch((e) => setSaid({ ok: false, text: e?.message || 'Could not change the PFS access.' }))
+      .finally(() => setBusy(false));
+  };
   const r = row || { email, level: 'none', managedLevel: 'none', otherGroups: [], files: [], canChange: true };
-  if (r.isOwner || r.level === 'owner') return <span style={{ fontWeight: 600 }}>Owner <span style={{ fontWeight: 400, fontSize: '0.72rem', color: 'var(--text-muted)' }}>· All PFS</span></span>;
+  if (r.isOwner || r.level === 'owner') return <span style={{ fontWeight: 600 }}>Owner <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-muted)' }}>· All PFS</span></span>;
   const other = (r.otherGroups || []).filter((g) => g.level && g.level !== 'none');
   const picked = r.files || [];
   const hasAccess = (r.managedLevel && r.managedLevel !== 'none') || other.length > 0;
   return (
     <div style={{ display: 'grid', gap: 3 }}>
       <select value={r.managedLevel || 'none'} disabled={busy || r.canChange === false} aria-label={`PFS access for ${name}`}
-        onChange={(e) => { setBusy(true); Promise.resolve(onSet(email, e.target.value)).catch(() => {}).finally(() => setBusy(false)); }}
-        style={{ ...control, height: 26, fontSize: '0.76rem', width: 130 }}>
+        onChange={(e) => change(e.target.value)}
+        style={{ ...control, height: 26, fontSize: 12, width: 130 }}>
         {PFS_LEVELS.map(([k, t]) => <option key={k} value={k}>{t}</option>)}
       </select>
       {hasAccess && (
         <button type="button" onClick={() => onPickFiles(r, email, name)} disabled={r.canChange === false} aria-label={`Which PFS ${name} can see`}
           title={picked.length ? picked.map((id) => files.find((f) => f.id === id)?.name || id).join(', ') : 'Every PFS'}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 130, border: '1px solid var(--border-color)', borderRadius: 6, background: 'var(--bg-card)', padding: '2px 8px', font: 'inherit', fontSize: '0.72rem', fontWeight: 600, color: picked.length ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', cursor: 'pointer' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 130, border: '1px solid var(--border-color)', borderRadius: 6, background: 'var(--bg-card)', padding: '2px 8px', font: 'inherit', fontSize: 12, fontWeight: 600, color: picked.length ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', cursor: 'pointer' }}>
           <FileText size={11} /> {picked.length ? `${picked.length} of ${files.length || picked.length} PFS` : 'All PFS'}
         </button>
       )}
+      {said && (said.ok
+        ? <span role="status" style={{ fontSize: 11, color: 'var(--ok-fg, #15803d)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Check size={11} aria-hidden="true" />{said.text}</span>
+        : <span role="alert" style={{ fontSize: 11, color: 'var(--bad-fg, #dc2626)', whiteSpace: 'normal' }}>{said.text}</span>)}
       {other.length > 0 && (
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           Also {other.map((g) => `${LEVELS[g.level] || g.level} through ${g.name}`).join(', ')}
         </span>
       )}
@@ -305,6 +317,7 @@ function PfsFilePicker({ person, files, onClose, onSave }) {
   const start = person.row?.files || [];
   const [mode, setMode] = useState(start.length ? 'some' : 'all');
   const [picked, setPicked] = useState(() => new Set(start));
+  const dirty = (mode === 'all') !== !start.length || (mode === 'some' && !sameSet(picked, start));
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -327,14 +340,14 @@ function PfsFilePicker({ person, files, onClose, onSave }) {
   };
   const choice = (on) => ({ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' });
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={onClose} role="presentation" data-nx-dirty={dirty ? '1' : undefined}>
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={`Which PFS ${person.name} can see`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <Face email={person.email} name={person.name} size={32} />
             <div style={{ minWidth: 0 }}>
               <h3 style={{ margin: 0 }}>Which PFS {person.name} Can See</h3>
-              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>Viewer or Editor stays as set in the PFS column; this picks the files.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>Viewer or Editor stays as set in the PFS column; this picks the files.</div>
             </div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -342,11 +355,11 @@ function PfsFilePicker({ person, files, onClose, onSave }) {
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 8 }}>
           <label style={choice(mode === 'all')}>
             <input type="radio" name="pfs-files" checked={mode === 'all'} onChange={() => setMode('all')} style={{ marginTop: 3 }} />
-            <span><strong style={{ fontSize: '0.86rem' }}>All PFS</strong><br /><span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Every personal financial statement, including ones added later.</span></span>
+            <span><strong style={{ fontSize: 14 }}>All PFS</strong><br /><span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Every personal financial statement, including ones added later.</span></span>
           </label>
           <label style={choice(mode === 'some')}>
             <input type="radio" name="pfs-files" checked={mode === 'some'} onChange={() => setMode('some')} style={{ marginTop: 3 }} />
-            <span><strong style={{ fontSize: '0.86rem' }}>Only the PFS Picked Below</strong><br /><span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>The others do not show in their list and do not open. A PFS they create is added for them.</span></span>
+            <span><strong style={{ fontSize: 14 }}>Only the PFS Picked Below</strong><br /><span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>The others do not show in their list and do not open. A PFS they create is added for them.</span></span>
           </label>
           {mode === 'some' && (
             <div>
@@ -359,19 +372,19 @@ function PfsFilePicker({ person, files, onClose, onSave }) {
                   const on = picked.has(f.id);
                   return (
                     <button key={f.id} type="button" role="option" aria-selected={on} onClick={() => toggle(f.id)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: '0.8rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
                       <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{on ? <Check size={14} /> : null}</span>
                       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                      {f.archived && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>Archived</span>}
+                      {f.archived && <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>Archived</span>}
                     </button>
                   );
                 })}
-                {!shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 8 }}>{files.length ? 'No PFS matches.' : 'There are no PFS yet.'}</div>}
+                {!shown.length && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 8 }}>{files.length ? 'No PFS matches.' : 'There are no PFS yet.'}</div>}
               </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>{picked.size} picked.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{picked.size} picked.</div>
             </div>
           )}
-          {error && <div style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
+          {error && <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
         </div>
         <div className="modal-footer">
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
@@ -422,23 +435,23 @@ function IntacctImport({ names, onClose, onApplied }) {
         <div className="modal-header" style={{ padding: '12px 18px 10px' }}>
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>Entity Access From Intacct</h3>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
               Who may see which entities in Intacct, matched to Nexus people by email. Tick who to bring over; Apply sets their Nexus limit to the Intacct list. An unrestricted Intacct user gets every entity here too.
             </div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '6px 18px 10px', display: 'grid', gap: 8 }}>
-          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
-          {(data?.notes || []).map((n) => <div key={n} style={{ fontSize: '0.78rem', color: 'var(--warn-fg)' }}><WarnMark />{n}</div>)}
+          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>{error}</div>}
+          {(data?.notes || []).map((n) => <div key={n} style={{ fontSize: 13, color: 'var(--warn-fg)' }}><WarnMark />{n}</div>)}
           {!data && !error && <SkeletonBlocks count={4} />}
           {data && (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13, color: 'var(--text-secondary)' }}>
                 <span>{people.length} Intacct {people.length === 1 ? 'user' : 'users'} · {matched.length} matched to Nexus people · {picked.size} ticked</span>
                 {matched.length > 0 && (
                   <button type="button" onClick={() => setPicked(picked.size === matched.length ? new Set() : new Set(matched.map((p) => p.email)))}
-                    style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.76rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', padding: 0 }}>
+                    style={{ border: 'none', background: 'none', font: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', padding: 0 }}>
                     {picked.size === matched.length ? 'Clear All' : 'Select All Matched'}
                   </button>
                 )}
@@ -452,15 +465,15 @@ function IntacctImport({ names, onClose, onApplied }) {
                     {people.map((p) => (
                       <tr key={`${p.login}-${p.email}`} style={{ opacity: p.matched ? 1 : 0.6 }}>
                         <td>{p.matched && !p.unknown ? <input type="checkbox" aria-label={`Bring ${p.name || p.intacctName}`} checked={picked.has(p.email)} onChange={() => toggle(p.email)} /> : null}</td>
-                        <td title={p.email || undefined}>{p.intacctName || p.login}{p.login && p.intacctName ? <span className="acct-code" style={{ marginLeft: 8 }}>{p.login}</span> : null}{p.status && !/active/i.test(p.status) ? <span style={{ marginLeft: 8, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{p.status}</span> : null}</td>
+                        <td title={p.email || undefined}>{p.intacctName || p.login}{p.login && p.intacctName ? <span className="acct-code" style={{ marginLeft: 8 }}>{p.login}</span> : null}{p.status && !/active/i.test(p.status) ? <span style={{ marginLeft: 8, fontSize: 12, color: 'var(--text-muted)' }}>{p.status}</span> : null}</td>
                         <td>{p.matched ? <>{p.name}{!p.hasGrant && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> · no Accounting access yet</span>}</> : <span style={{ color: 'var(--text-muted)' }}>{p.email ? 'Not in Nexus People' : 'No email in Intacct'}</span>}</td>
-                        <td style={{ whiteSpace: 'normal', maxWidth: 360, fontWeight: p.differs ? 600 : 400 }}>
+                        <td style={{ whiteSpace: 'normal', fontWeight: p.differs ? 600 : 400 }}>
                           {p.unknown
                             ? <span style={{ color: 'var(--bad-fg, #dc2626)', fontWeight: 600 }} title="Intacct says this user is restricted, but the connection's login may not read which entities. Grant it the User Restrictions permission in Intacct and open this again.">Restricted - entities not readable</span>
                             : list(p.entities)}
-                          {p.departments?.length ? <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>Departments in Intacct: {p.departments.join(', ')} (not carried over)</span> : null}
+                          {p.departments?.length ? <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>Departments in Intacct: {p.departments.join(', ')} (not carried over)</span> : null}
                         </td>
-                        <td style={{ whiteSpace: 'normal', maxWidth: 360, color: p.matched ? undefined : 'var(--text-muted)' }}>{p.matched ? list(p.current) : '-'}{p.matched && !p.differs ? <span style={{ marginLeft: 6, fontSize: '0.72rem', color: 'var(--ok-fg, #15803d)' }}>Same</span> : null}</td>
+                        <td style={{ whiteSpace: 'normal', color: p.matched ? undefined : 'var(--text-muted)' }}>{p.matched ? list(p.current) : '-'}{p.matched && !p.differs ? <span style={{ marginLeft: 6, fontSize: 12, color: 'var(--ok-fg, #15803d)' }}>Same</span> : null}</td>
                       </tr>
                     ))}
                     {!people.length && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '18px 10px' }}>Intacct returned no users.</td></tr>}
@@ -469,7 +482,7 @@ function IntacctImport({ names, onClose, onApplied }) {
               </div>
             </>
           )}
-          {result && <div role="status" style={{ fontSize: '0.8rem', color: 'var(--ok-fg, #15803d)' }}>{result.applied.length} {result.applied.length === 1 ? 'person' : 'people'} now limited as Intacct has them.</div>}
+          {result && <div role="status" style={{ fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>{result.applied.length} {result.applied.length === 1 ? 'person' : 'people'} now limited as Intacct has them.</div>}
         </div>
         <div className="modal-footer">
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
@@ -483,6 +496,7 @@ function IntacctImport({ names, onClose, onApplied }) {
 function EntityLimit({ person, entities, onClose, onSaved }) {
   const [mode, setMode] = useState(person.entities.length ? 'some' : 'all');
   const [picked, setPicked] = useState(() => new Set(person.entities));
+  const dirty = (mode === 'all') !== !person.entities.length || (mode === 'some' && !sameSet(picked, person.entities));
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -511,23 +525,23 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
   };
   const choice = (on) => ({ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)'}`, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'var(--bg-card)' });
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={onClose} role="presentation" data-nx-dirty={dirty ? '1' : undefined}>
       <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={`Entities ${person.name} can read`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Entities {person.name} Can Read</h3>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 2 }}>Applies to reports, search, drill-downs and journal entries.</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>Applies to reports, search, drill-downs and journal entries.</div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 8 }}>
           <label style={choice(mode === 'all')}>
             <input type="radio" name="acct-limit" checked={mode === 'all'} onChange={() => setMode('all')} style={{ marginTop: 3 }} />
-            <span><strong style={{ fontSize: '0.86rem' }}>All Entities</strong><br /><span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Everything on the ledger, the dashboard tabs and the accounting app.</span></span>
+            <span><strong style={{ fontSize: 14 }}>All Entities</strong><br /><span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Everything on the ledger, the dashboard tabs and the accounting app.</span></span>
           </label>
           <label style={choice(mode === 'some')}>
             <input type="radio" name="acct-limit" checked={mode === 'some'} onChange={() => setMode('some')} style={{ marginTop: 3 }} />
-            <span><strong style={{ fontSize: '0.86rem' }}>Only the Entities Picked Below</strong><br /><span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Reports, Packages and MRI only. The dashboard tabs and the accounting app close for this person.</span></span>
+            <span><strong style={{ fontSize: 14 }}>Only the Entities Picked Below</strong><br /><span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Reports, Packages and MRI only. The dashboard tabs and the accounting app close for this person.</span></span>
           </label>
           {mode === 'some' && (
             <div>
@@ -536,10 +550,10 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
                 <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search entity by name or code" aria-label="Search entity by name or code" autoFocus style={{ ...control, width: '100%', paddingLeft: 26 }} />
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 6 }}>
-                <button type="button" onClick={selectAll} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.76rem', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', padding: 0 }}>
+                <button type="button" onClick={selectAll} style={{ border: 'none', background: 'none', font: 'inherit', fontSize: 12, fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer', padding: 0 }}>
                   {allShown ? 'Clear All' : q.trim() ? 'Select All Shown' : 'Select All'}
                 </button>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
                   <input type="checkbox" checked={showHistorical} onChange={(e) => setShowHistorical(e.target.checked)} /> Show historical (H) entities
                 </label>
               </div>
@@ -548,19 +562,19 @@ function EntityLimit({ person, entities, onClose, onSaved }) {
                   const on = picked.has(o.code);
                   return (
                     <button key={o.code} type="button" role="option" aria-selected={on} onClick={() => toggle(o.code)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: '0.8rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, background: on ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' }}>
                       <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{on ? <Check size={14} /> : null}</span>
                       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: o.depth ? 14 : 0 }}>{o.name || o.code}</span>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{o.code}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{o.code}</span>
                     </button>
                   );
                 })}
-                {!shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 8 }}>No entity matches.</div>}
+                {!shown.length && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: 8 }}>No entity matches.</div>}
               </div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>{picked.size} picked. Picking an entity includes everything under it.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{picked.size} picked. Picking an entity includes everything under it.</div>
             </div>
           )}
-          {error && <div style={{ fontSize: '0.8rem', color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
+          {error && <div style={{ fontSize: 13, color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
         </div>
         <div className="modal-footer">
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>

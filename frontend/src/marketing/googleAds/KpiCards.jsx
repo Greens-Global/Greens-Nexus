@@ -56,11 +56,11 @@ export default function KpiCards({ current, previous, previousRange, onSelectMet
                   {isUp ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
                   {Math.abs(change).toFixed(1)}%
                 </span>
-                <span style={{ fontSize: 10, color: C.gray400, whiteSpace: 'nowrap' }}>{prevLabel}</span>
+                <span style={{ fontSize: 11, color: C.gray400, whiteSpace: 'nowrap' }}>{prevLabel}</span>
               </div>
             </div>
-            <div style={{ fontSize: 12.5, color: C.gray500, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div style={{ fontSize: 13, color: C.gray500, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label}</div>
+            <div style={{ fontSize: 18, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {c.format(current[c.key])}
             </div>
           </button>

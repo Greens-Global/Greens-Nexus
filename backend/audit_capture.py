@@ -133,6 +133,10 @@ class system_job:
 NOISE_TABLES: frozenset[str] = frozenset({
     # the audit trail itself
     "audit_logs", "audit_changes",
+    # Operations' read-only copy of Cubby tenant details (Neil, 11/17/2026):
+    # phone numbers, addresses and gate codes never belong in the change log,
+    # and every row is rewritten by the 15-minute sync.
+    "ops_tenants", "ops_lease_extras",
     # sessions, one-time codes, OAuth state and stored tokens (secrets + churn)
     "server_sessions", "stepup_sessions", "external_login_codes", "vault_otp_challenges",
     "vault_otp_sessions", "vault_personal_unlock_sessions", "vault_personal_auth",
@@ -198,7 +202,7 @@ _SECRET_PHRASES = ("api_key", "private_key", "secret_key", "access_key", "client
                    "signature_png", "drawn_signature", "sig_image")
 # HR / pay identity values (mirrors hr.py's field audit mask, Sep 22).
 _HR_MASK = ("ssn", "salary", "pay", "rate", "bank", "tax", "passport", "id_number", "compensation",
-            "account", "dob", "birth")
+            "account", "dob", "birth", "nationalid")
 _HR_TABLES = {"nexus_employees", "hr_candidates", "hr_life_events", "hr_self_requests",
               "hr_sign_parties"}
 # Whole columns of an HR table hidden by name: a signer's `field_values` is
@@ -370,7 +374,25 @@ def _col_props(mapper):
     return cached
 
 
+def _hr_json(table: str, v):
+    """Inside an HR table's JSON column (a person's `personal` block), hide the
+    keys an _HR_MASK word names - the National ID and date of birth went into
+    the change log in clear, because only secret words were checked inside a
+    JSON value (People pass, 11/16/2026)."""
+    if table not in _HR_TABLES:
+        return v
+    if isinstance(v, str) and v.lstrip()[:1] == "{":
+        try:
+            v = json.loads(v)
+        except ValueError:
+            return v
+    if isinstance(v, dict):
+        return {k: ("[redacted]" if any(m in str(k).lower() for m in _HR_MASK) else x) for k, x in v.items()}
+    return v
+
+
 def _field(table: str, col: str, before, after, *, has_before: bool, has_after: bool) -> Optional[dict]:
+    before, after = _hr_json(table, before), _hr_json(table, after)
     reason = _redact_reason(table, col)
     if reason:
         out = {"r": reason}

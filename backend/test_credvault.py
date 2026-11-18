@@ -70,6 +70,10 @@ class VaultHardeningTests(unittest.TestCase):
             pass
 
     def setUp(self):
+        import vault_head
+        _req = vault_head.require
+        vault_head.require = lambda *a, **k: None   # the head code has its own suite (test_vault_head.py)
+        self.addCleanup(setattr, vault_head, "require", _req)
         self.client = TestClient(main.app)
         self._skip = auth.SKIP_AUTH
         auth.SKIP_AUTH = True
@@ -125,6 +129,20 @@ class VaultHardeningTests(unittest.TestCase):
             c = db.get(models.VaultCredential, cid)
             db.refresh(c)
             return c
+        finally:
+            db.close()
+
+    def _bells(self, who):
+        db = database.SessionLocal()
+        try:
+            return db.query(models.NexusNotification).filter(models.NexusNotification.recipient == who).all()
+        finally:
+            db.close()
+
+    def _get(self, cid):
+        db = database.SessionLocal()
+        try:
+            return db.get(models.VaultCredential, cid)
         finally:
             db.close()
 
@@ -267,7 +285,7 @@ class VaultHardeningTests(unittest.TestCase):
         r = self._as(BACKUP).post(f"/credvault/credentials/{cid}/share",
                                   json={"recipientEmail": OTHER, "durationMs": 3600000, "durationLabel": "1 Hour"})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json(), {"granted": True})
+        self.assertEqual(r.json()["granted"], 1)
 
     # ── ownership ──────────────────────────────────────────────────────────
     def test_transfer_by_owner_backup_or_admin_to_someone_in_people(self):
@@ -430,18 +448,35 @@ class VaultHardeningTests(unittest.TestCase):
         self.assertEqual((rows[0]["name"], rows[0]["note"]), ("Bank (joint)", "with Sam"))
 
     # ── daily reminders ────────────────────────────────────────────────────
-    def test_rotation_reminders_once_a_day_to_owner_and_backup(self):
-        cid = self._create()
+    def test_expiry_alerts_3_1_0_days_before_then_weekly_to_owner_backup_and_head(self):
+        # 11/13/2026: 3 days, 1 day, the day, then weekly while expired - owner, backup owner, department head.
         db = database.SessionLocal()
-        c = db.get(models.VaultCredential, cid)
-        c.rotated_at = (datetime.now(timezone.utc) - timedelta(days=85)).isoformat()    # due in 5 days
+        db.query(models.HrDepartment).delete()
+        db.add(models.HrDepartment(id="dA", company_id=CO_A, name="Accounting", lead_email=PEER, backup_email=""))
         db.commit()
-        self.assertEqual(CV.rotation_reminders(db), 2)
-        self.assertEqual(CV.rotation_reminders(db), 0)                                 # same day: no repeat
-        bells = db.query(models.NexusNotification).filter(models.NexusNotification.type == "vault_rotation").all()
-        self.assertEqual({b.recipient for b in bells}, {OWNER, BACKUP})
-        self.assertIn("due in 5 days", bells[0].body)
+        cid = self._create()
+        c = db.get(models.VaultCredential, cid)
+        for ago, alerts in ((85, 0), (87, 1), (88, 0), (89, 1), (90, 1)):
+            c.rotated_at = (datetime.now(timezone.utc) - timedelta(days=ago)).isoformat()
+            db.query(models.NexusNotification).filter(models.NexusNotification.type == "vault_expiry").delete()
+            db.commit()
+            self.assertEqual(CV.rotation_reminders(db), alerts, f"{ago} days after the last change")
+        self.assertEqual(CV.rotation_reminders(db), 0)                                   # same day: once
+        bells = db.query(models.NexusNotification).filter(models.NexusNotification.type == "vault_expiry").all()
+        self.assertEqual({b.recipient for b in bells}, {OWNER, BACKUP, PEER})
+        self.assertIn("expires today", bells[0].body)
         self.assertEqual(json.loads(bells[0].action), {"view": "credvault", "sub": f"cred-{cid}"})
+        c.rotated_at = (datetime.now(timezone.utc) - timedelta(days=95)).isoformat()   # expired 5 days ago
+        db.commit()
+        self.assertEqual(CV.rotation_reminders(db), 1)
+        self.assertEqual(CV.rotation_reminders(db), 0)                                   # weekly, not daily
+        # A new password moves the rotation on: nothing more to say.
+        self.assertEqual(self._as(OWNER).patch(f"/credvault/credentials/{cid}", json={"name": "Stripe", "dept": "Accounting", "secret": "N3w-Rotated-Value!"}).status_code, 200)
+        db.query(models.NexusNotification).filter(models.NexusNotification.type == "vault_expired").delete()
+        db.commit()
+        self.assertEqual(CV.rotation_reminders(db), 0)
+        db.query(models.HrDepartment).delete()
+        db.commit()
         db.close()
 
     def test_bells_carry_where_to_open(self):
@@ -465,7 +500,11 @@ class VaultHardeningTests(unittest.TestCase):
         self.assertEqual(row["url"], "")
 
     def test_rows_you_cannot_open_carry_no_health_facts(self):
-        cid = self._create(secret="weak")
+        cid = self._create()
+        db = database.SessionLocal()
+        db.get(models.VaultCredential, cid).strength = "weak"     # an older login - new weak ones are refused
+        db.commit()
+        db.close()
         row = [c for c in self._as(OTHER).get("/credvault/credentials").json() if c["id"] == cid][0]
         self.assertEqual((row["strength"], row["reused"], row["rotatedAt"], row["rotatedDays"], row["expiresInDays"], row["hasPrevious"]),
                          ("", False, "", 0, None, False))
@@ -530,6 +569,98 @@ class VaultHardeningTests(unittest.TestCase):
         self.assertNotIn("Far", [e["cred"] for e in self._logs(OWNER)])
         self.assertIn("Far", [e["cred"] for e in self._logs(FAR)])
         self.assertNotIn("Far", [e["cred"] for e in self._logs(ADMIN)])   # Company A's Administrator
+
+    # ── 11/13/2026 feedback ───────────────────────────────────────────────
+    def test_whoever_trashed_it_cannot_also_erase_it_when_another_owner_can_check(self):
+        cid = self._create()                       # OWNER owns it, BACKUP is the backup owner
+        self.assertEqual(self._as(OWNER).delete(f"/credvault/credentials/{cid}").status_code, 200)
+        bells = [n for n in self._bells(BACKUP) if n.title == "Credentials - Moved to the Trash"]
+        self.assertEqual(len(bells), 1)
+        self.assertIn("Delete Permanently to confirm", bells[0].body)
+        r = self._as(OWNER).delete(f"/credvault/credentials/{cid}/permanent")
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertIn("second person", r.json()["detail"])
+        self.assertEqual(self._as(BACKUP).delete(f"/credvault/credentials/{cid}/permanent").status_code, 200)
+        self.assertIsNone(self._get(cid))
+        self.assertTrue(any(l["action"] == "Deleted Permanently" for l in self._logs(ADMIN)))
+
+    def test_a_sole_owner_erases_their_own_after_the_trash(self):
+        cid = self._create(backupOwner="")
+        self._as(OWNER).delete(f"/credvault/credentials/{cid}")
+        self.assertEqual(self._as(OWNER).delete(f"/credvault/credentials/{cid}/permanent").status_code, 200)
+
+    def test_bulk_trash_tells_the_other_owner_too(self):
+        cid = self._create()
+        self.assertEqual(self._as(OWNER).post("/credvault/credentials/bulk-delete", json={"ids": [cid]}).json()["deleted"], 1)
+        self.assertEqual(len([n for n in self._bells(BACKUP) if n.title == "Credentials - Moved to the Trash"]), 1)
+        self.assertEqual(self._as(OWNER).delete(f"/credvault/credentials/{cid}/permanent").status_code, 403)
+
+    def test_a_login_can_belong_to_one_location(self):
+        db = database.SessionLocal()
+        db.query(models.HrCompanyWorkSite).delete()
+        db.query(models.HrWorkSite).delete()
+        db.add(models.HrWorkSite(id="site-1", name="Fresno Storage"))
+        db.add(models.HrCompanyWorkSite(id=f"{CO_A}:site-1", company_id=CO_A, site_id="site-1"))
+        db.commit()
+        db.close()
+        self.assertEqual(self._as(OWNER).post("/credvault/credentials", json={"name": "Gate", "dept": "Accounting", "secret": "x-Y-z-123456!", "siteId": "nope"}).status_code, 400)
+        cid = self._create(siteId="site-1")
+        row = next(c for c in self._as(OWNER).get("/credvault/credentials").json() if c["id"] == cid)
+        self.assertEqual(row["siteId"], "site-1")
+        opts = self._as(OWNER).get("/credvault/audience-options").json()
+        self.assertEqual([s["name"] for s in opts["sites"]], ["Fresno Storage"])
+        # An edit without siteId keeps it; "" clears it, and the log says so.
+        self.assertEqual(self._as(OWNER).patch(f"/credvault/credentials/{cid}", json={"name": "Stripe", "dept": "Accounting"}).status_code, 200)
+        self.assertEqual(self._cred(cid).site_id, "site-1")
+        self.assertEqual(self._as(OWNER).patch(f"/credvault/credentials/{cid}", json={"name": "Stripe", "dept": "Accounting", "siteId": ""}).status_code, 200)
+        self.assertEqual(self._cred(cid).site_id, "")
+
+    def test_access_groups_carry_the_departments_of_their_people(self):
+        groups = {g["id"]: g for g in self._as(OWNER).get("/credvault/audience-options").json()["groups"]}
+        # g-vault holds Accounting and Operations people (FAR's Accounting is in company B - still a department name).
+        self.assertEqual(groups["g-vault"]["departments"], ["Accounting", "Operations"])
+
+    def test_own_department_opens_without_the_code_other_departments_and_critical_still_ask(self):
+        cid = self._create(audiences=[{"kind": "department", "value": "Accounting", "level": "open"},
+                                      {"kind": "person", "value": OTHER, "level": "open"}])
+        rows = {c["id"]: c for c in self._as(PEER).get("/credvault/credentials").json()}
+        self.assertTrue(rows[cid]["homeDept"])
+        # PEER is in Accounting, like the login: no code needed, and the log says so.
+        r = self._as(PEER).post(f"/credvault/credentials/{cid}/reveal")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["secret"], "Corr3ct-Horse-Battery!")
+        logged = [l for l in self._logs(ADMIN) if l["action"] == "Revealed"]
+        self.assertIn("own department", json.dumps(logged[0]))
+        # OTHER (Operations) may open it too, but from another department: the code first.
+        self.assertFalse({c["id"]: c for c in self._as(OTHER).get("/credvault/credentials").json()}[cid]["homeDept"])
+        r = self._as(OTHER).post(f"/credvault/credentials/{cid}/reveal")
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertEqual(r.json()["detail"]["code"], "vault_otp_required")
+        self._otp(OTHER)
+        self.assertEqual(self._as(OTHER).post(f"/credvault/credentials/{cid}/reveal").status_code, 200)
+        # Critical: the code always, even for the owner in the same department.
+        crit = self._create(name="Bank", tier="Critical")
+        self.assertFalse({c["id"]: c for c in self._as(OWNER).get("/credvault/credentials").json()}[crit]["homeDept"])
+        r = self._as(OWNER).post(f"/credvault/credentials/{crit}/reveal")
+        self.assertEqual(r.status_code, 403, r.text)
+        self.assertEqual(r.json()["detail"]["code"], "vault_otp_required")
+
+    def test_department_head_comes_from_the_logins_own_company(self):
+        db = database.SessionLocal()
+        db.query(models.HrDepartment).delete()
+        # OWNER works at company A, where they are the backup head; the login is company B's.
+        db.add(models.HrDepartment(id="dA", company_id=CO_A, name="Accounting", lead_email="", backup_email=OWNER))
+        db.add(models.HrDepartment(id="dB", company_id=CO_B, name="Accounting", lead_email=FAR, backup_email=PEER))
+        db.commit()
+        db.close()
+        cid = self._create(companyId=CO_B, backupOwner="")
+        acc = self._as(OWNER).get(f"/credvault/credentials/{cid}/access").json()
+        self.assertEqual(acc["heads"], sorted([FAR, PEER]))
+        self.assertEqual(acc["headRoles"], {FAR: "Department Head", PEER: "Backup Head"})
+        db = database.SessionLocal()
+        db.query(models.HrDepartment).delete()
+        db.commit()
+        db.close()
 
     def test_no_grant_no_vault(self):
         self.assertEqual(self._as(NOGRANT).get("/credvault/credentials").status_code, 403)

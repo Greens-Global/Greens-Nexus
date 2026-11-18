@@ -49,7 +49,7 @@ export default function EmployeeCombobox({ people, value, onChange, labelFor, ti
     <div ref={boxRef} style={{ position: 'relative', minWidth: 180, ...style }} title={title}>
       <div className="form-input" onMouseDown={e => { if (e.target !== inputRef.current) { e.preventDefault(); inputRef.current?.focus(); openList(); } }}
         style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', cursor: 'text', fontSize: 13, fontWeight: 700,
-          ...(search ? { fontSize: 12.5, fontWeight: 500, padding: '7px 10px', borderRadius: 10, borderColor: 'var(--line)' } : {}) }}>
+          ...(search ? { fontSize: 13, fontWeight: 500, padding: '7px 10px', borderRadius: 10, borderColor: 'var(--line)' } : {}) }}>
         {(open || search) && <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
         <input className="nx-inline-edit" ref={inputRef} role="combobox" aria-label="Employee" aria-expanded={open} aria-autocomplete="list"
           value={open ? q : (current ? label(current) : '')}
@@ -69,12 +69,12 @@ export default function EmployeeCombobox({ people, value, onChange, labelFor, ti
         style={{ width: Math.max(boxWidth || 0, 220), maxHeight: 360, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: '4px 0' }}>
         <div ref={listRef}>
           {shown.length === 0 ? (
-            <div style={{ padding: '9px 12px', fontSize: 12.5, color: 'var(--muted)' }}>No matches</div>
+            <div style={{ padding: '9px 12px', fontSize: 13, color: 'var(--muted)' }}>No matches</div>
           ) : shown.map((p, i) => (
             <button key={p.email} type="button" role="option" aria-selected={i === hi}
               onMouseDown={ev => { ev.preventDefault(); pick(p); }} onMouseEnter={() => setHi(i)}
               style={{ display: 'block', width: '100%', textAlign: 'left', padding: '7px 12px', border: 'none', cursor: 'pointer',
-                background: i === hi ? 'var(--mist)' : 'none', fontSize: 12.5, fontFamily: 'Inter,sans-serif',
+                background: i === hi ? 'var(--mist)' : 'none', fontSize: 13, fontFamily: 'Inter,sans-serif',
                 fontWeight: p.email === value ? 700 : 500, color: p.email === value ? 'var(--wk-brand, var(--ink))' : 'var(--ink)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {label(p)}

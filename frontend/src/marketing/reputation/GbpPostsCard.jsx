@@ -74,12 +74,12 @@ function PostCard({ p, showFacility, onEditClick }) {
       )}
       <div style={{ padding: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-          <span style={{ padding: '2px 8px', borderRadius: 9999, fontSize: 10.5, fontWeight: 500, color: TYPE_STYLE[p.type].color, background: TYPE_STYLE[p.type].background }}>{p.type}</span>
+          <span style={{ padding: '2px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 500, color: TYPE_STYLE[p.type].color, background: TYPE_STYLE[p.type].background }}>{p.type}</span>
           <span
             style={{
               padding: '2px 8px',
               borderRadius: 9999,
-              fontSize: 10.5,
+              fontSize: 11,
               fontWeight: 500,
               color: p.status === 'LIVE' ? C.emerald600 : C.gray500,
               background: p.status === 'LIVE' ? C.emerald50 : C.gray100,
@@ -89,9 +89,9 @@ function PostCard({ p, showFacility, onEditClick }) {
           </span>
           {showFacility && <span style={{ fontSize: 11, color: C.gray400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.facility}</span>}
         </div>
-        <p style={{ fontSize: 12.5, color: C.gray700, lineHeight: 1.375, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', minHeight: '3em' }}>{p.text}</p>
+        <p style={{ fontSize: 13, color: C.gray700, lineHeight: 1.375, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', minHeight: '3em' }}>{p.text}</p>
         {p.ctaLabel && (
-          <button style={{ marginTop: 10, width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid ' + C.gray300, fontSize: 11.5, fontWeight: 500, color: C.gray700, background: C.white, cursor: 'pointer' }}>
+          <button style={{ marginTop: 10, width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid ' + C.gray300, fontSize: 12, fontWeight: 500, color: C.gray700, background: C.white, cursor: 'pointer' }}>
             {p.ctaLabel}
           </button>
         )}
@@ -112,7 +112,7 @@ export default function GbpPostsCard({ posts, showFacility, onAddClick, onEditCl
         <p style={{ fontSize: 12, color: C.gray500 }}>Google Posts appear directly on your listing and typically expire after 1-2 weeks.</p>
         <button
           onClick={onAddClick}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, background: C.emerald600, color: C.white, fontSize: 12.5, fontWeight: 500, border: 'none', flexShrink: 0, cursor: 'pointer' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, background: C.emerald600, color: C.white, fontSize: 13, fontWeight: 500, border: 'none', flexShrink: 0, cursor: 'pointer' }}
           onMouseEnter={(e) => (e.currentTarget.style.background = C.emerald700)}
           onMouseLeave={(e) => (e.currentTarget.style.background = C.emerald600)}
         >
@@ -124,7 +124,7 @@ export default function GbpPostsCard({ posts, showFacility, onAddClick, onEditCl
         {posts.map((p) => (
           <PostCard key={p.id} p={p} showFacility={showFacility} onEditClick={onEditClick} />
         ))}
-        {posts.length === 0 && <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: C.gray400, padding: '32px 0', fontSize: 12.5 }}>No posts yet.</div>}
+        {posts.length === 0 && <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: C.gray400, padding: '32px 0', fontSize: 13 }}>No posts yet.</div>}
       </div>
     </div>
   )

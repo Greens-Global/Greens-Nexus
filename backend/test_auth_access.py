@@ -46,6 +46,12 @@ KNOWN_PUBLIC = {
     "/health/schema",
     "/auth/login", "/auth/callback",       # BFF login: OAuth flow can't require auth; callback is state+PKCE guarded
     "/auth/logout",                        # only clears the session cookie; harmless without a valid session
+    # Build Mode hosted previews (11/13/2026, build_preview.py): the handoff
+    # reads the dev site's own session cookie itself (no session -> sign in
+    # first) and checks the Build Mode grant; the claim is pre-session by
+    # definition - a single-use 60 s code bound to a PKCE verifier and the
+    # preview's origin, the grant checked again.
+    "/auth/preview-handoff", "/auth/preview-claim",
     "/site-models/public/{pid}",           # customer unit finder (/map/<id>): geometry + unit numbers, never occupancy (routers/site_models.public_view)
     "/unit-map/t/{token}",                 # customer unit map (/find/<token>): HMAC-signed {model, unit}; one unit + geometry, never occupancy (routers/unit_map.py)
     "/unit-map/u",                         # Cubby template link: per-facility HMAC key -> the signed token; same customer view
@@ -125,6 +131,14 @@ KNOWN_PUBLIC = {
     # not a public page.
     "/esign/public/{token}/history",
     "/esign/public/verify/{verify_token}",
+    # Credentials shared with someone outside Nexus (routers/vault_share.py):
+    # the 43-char share token is the credential, the password needs a one-time
+    # code sent to the address the owner typed, codes lock out after misses,
+    # the share expires on its own, and the prefix is in SENSITIVE_PREFIXES
+    # (30/min per IP).
+    "/vault-share/{token}",
+    "/vault-share/{token}/code",
+    "/vault-share/{token}/verify",
     "/timeclock/agent/checkin",            # agent device token (get_agent_device)
     "/timeclock/agent/screenshot",
     "/timeclock/agent/activity",

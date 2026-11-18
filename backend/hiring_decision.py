@@ -170,7 +170,7 @@ def vote_from_comment(db: Session, task_id: str, author: str, body: str) -> bool
 
 
 def _tell_hr(db: Session, cand: models.HrCandidate, by: str) -> None:
-    from routers.hr import _hr_notify
+    from routers.hr import _hr_notify, hiring_bell_action
     name = f"{cand.first_name} {cand.last_name}".strip()
     verdict = "Hire" if cand.decision == "hire" else "Reject"
     nxt = "make the offer" if cand.decision == "hire" else "reject them on their card"
@@ -181,7 +181,7 @@ def _tell_hr(db: Session, cand: models.HrCandidate, by: str) -> None:
     for email in to - {"", by}:
         _hr_notify(db, email, f"Final Call On {name}: {verdict}",
                    f"{_name(db, by)} decided: {verdict}. Open {name} in Hiring and {nxt}.",
-                   ref_id=cand.id, requested_by=by, action={"view": "hr", "sub": "hr-hiring"})
+                   ref_id=cand.id, requested_by=by, action=hiring_bell_action(db, email, cand))
 
 
 def summary(db: Session, cand: models.HrCandidate) -> dict:

@@ -23,8 +23,8 @@ import { useLoad } from '../lib/job';
 import { validate } from '../lib/upload';
 import { addJobPhoto, loadTimeline } from '../constructionOffline';
 
-const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)' };
-const btn = { padding: '7px 12px', fontSize: '0.82rem', minHeight: 36 };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)' };
+const btn = { padding: '7px 12px', fontSize: 13, minHeight: 36 };
 
 function Thumb({ p, picked, onPick, onOpen, pairRole }) {
   return (
@@ -231,7 +231,7 @@ export default function PhotosTab({ project }) {
       {anyPicked && (
         <div role="toolbar" aria-label="Picked photos" style={{ ...CARD, marginBottom: 12, padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
           position: 'sticky', top: 8, zIndex: 3 }}>
-          <span style={{ fontWeight: 600, fontSize: '0.86rem' }}>
+          <span style={{ fontWeight: 600, fontSize: 14 }}>
             {picked.length} photo{picked.length === 1 ? '' : 's'}{pickedPairs.length ? `, ${pickedPairs.length} pair${pickedPairs.length === 1 ? '' : 's'}` : ''} picked
           </span>
           <span style={{ flex: 1 }} />
@@ -241,11 +241,11 @@ export default function PhotosTab({ project }) {
           <button className="secondary-btn" style={btn} onClick={() => { setPicked([]); setPickedPairs([]); }}>Clear</button>
         </div>
       )}
-      {msg && <div role="alert" style={{ fontSize: '0.82rem', color: 'hsl(var(--color-red))', marginBottom: 10 }}>{msg}</div>}
+      {msg && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))', marginBottom: 10 }}>{msg}</div>}
 
       {pairs.length > 0 && (
         <section style={{ ...CARD, marginBottom: 14 }} aria-label="Before and After">
-          <h3 style={{ fontSize: '1rem', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}><Columns2 size={16} />Before and After</h3>
+          <h3 style={{ fontSize: 15, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}><Columns2 size={16} />Before and After</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
             {pairs.map((pr) => {
               const b = byId[pr.beforeId], a = byId[pr.afterId];
@@ -279,16 +279,16 @@ export default function PhotosTab({ project }) {
         <div style={CARD}><Empty icon={Camera} title="No photos yet" hint="Photos arrive with the daily logs, punch items marked Done, and Add Photos above." /></div>
       ) : days.map((d) => (
         <section key={d.day} style={{ ...CARD, marginBottom: 14 }} aria-label={formatDate(d.day, d.day)}>
-          <h3 style={{ fontSize: '0.95rem', marginBottom: 10 }}>{formatDate(d.day, d.day)} <span style={quiet}>· {d.photos.length} photo{d.photos.length === 1 ? '' : 's'}</span></h3>
+          <h3 style={{ fontSize: 15, marginBottom: 10 }}>{formatDate(d.day, d.day)} <span style={quiet}>· {d.photos.length} photo{d.photos.length === 1 ? '' : 's'}</span></h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
             {d.photos.map((p) => (
               <div key={p.id} style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
                 <Thumb p={p} picked={picked.includes(p.id)} onPick={togglePick} onOpen={setOpen} pairRole={roleOf(p.id)} />
-                <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {formatTimeIn(p.takenAt, data.timeZone, '')}{p.uploadedByName ? ` · ${p.uploadedByName}` : ''}
                 </div>
                 {(p.locationText || (p.tags || []).length > 0) && (
-                  <div style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'flex', gap: 6, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', gap: 6, overflow: 'hidden', whiteSpace: 'nowrap' }}>
                     {p.locationText && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><MapPin size={10} aria-hidden="true" />{p.locationText}</span>}
                     {(p.tags || []).filter((t) => t !== 'markup').slice(0, 2).map((t) => <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><Tag size={10} aria-hidden="true" />{t}</span>)}
                   </div>

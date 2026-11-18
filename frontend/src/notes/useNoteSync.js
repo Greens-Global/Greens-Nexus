@@ -34,6 +34,12 @@
 //     a board) is not retried: the field is dropped, `problem` holds the
 //     server's words for the status line, and the last good scene stays on
 //     the server; the next change tries again.
+//   - A save to a note this person can no longer save is not retried either
+//     (11/17/2026: it was re-sent forever, even after leaving the note): the
+//     note went to the Trash (a 409 carrying it), the share became read only
+//     (403), or the note is gone or no longer shared (404). The pending save
+//     is dropped, the note on screen becomes the server's copy (In the Trash /
+//     Read Only / not available), and the local draft stays on the device.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { clearDraft, readDraft, writeDraft } from './notesModel';
@@ -213,7 +219,36 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
       pending.current = { ...sent, ...(pending.current || {}) };
       const d = err?.status === 409 ? err.detail : null;
       const bad = d ? null : refusedFields(err, sent, board);
-      if (d?.note && c && d.epoch) {
+      const here = () => noteRef.current?.id === n.id;
+      if (d?.note?.trashedAt || err?.status === 403 || err?.status === 404) {
+        // Not this person's to save any more: sending it again would be
+        // refused forever. Drop it and show where the note stands.
+        pending.current = null;
+        external.current = false;
+        if (d) {
+          rev.current = d.note.rev;
+          setBase(d.note);
+          if (here()) { put(d.note); setStatus('saved'); }
+        } else if (err.status === 404) {
+          if (here()) { put(null); setStatus('missing'); }
+        } else {
+          // 403: read it again for what this person may do now (Read Only).
+          try {
+            const fresh = await api.noteGet(n.id);
+            if (here()) {
+              rev.current = fresh.rev;
+              setBase(fresh);
+              put(pending.current ? { ...fresh, title: noteRef.current.title, body: noteRef.current.body } : fresh);
+              if (!pending.current) setStatus('saved');
+            }
+          } catch (e2) {
+            if (here()) {
+              if (e2?.status === 404) { pending.current = null; put(null); setStatus('missing'); }
+              else { setProblem((typeof err.detail === 'string' && err.detail) || err.message || 'This could not be saved.'); setStatus('error'); }
+            }
+          }
+        }
+      } else if (d?.note && c && d.epoch) {
         // The live state was rebuilt elsewhere (Quick Note, a restore):
         // merge these words into the saved copy, join the new session, and
         // the next save puts the merged words into it (setHtml above).
@@ -276,7 +311,8 @@ export function useNoteSync(id, { onSaved, collabRef } = {}) {
     api.noteGet(id).then((n) => {
       if (!alive) return;
       rev.current = n.rev;
-      const draft = n.can === 'read' ? null : readDraft(id);
+      // A note in the Trash takes no save: its draft waits for a restore.
+      const draft = n.can === 'read' || n.trashedAt ? null : readDraft(id);
       const board = n.kind === 'board';
       const sceneDiffers = board && typeof draft?.scene === 'string' && draft.scene !== (n.scene || '');
       const titleDiffers = !!draft && (draft.title ?? n.title) !== n.title;

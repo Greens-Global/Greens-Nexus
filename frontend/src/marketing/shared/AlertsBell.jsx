@@ -57,7 +57,7 @@ export default function AlertsBell({ alerts, onNavigate, onClearAlert }) {
               right: -4,
               background: C.red500,
               color: C.white,
-              fontSize: 10,
+              fontSize: 11,
               lineHeight: 1,
               borderRadius: 9999,
               width: 16,
@@ -96,7 +96,7 @@ export default function AlertsBell({ alerts, onNavigate, onClearAlert }) {
                 onMouseEnter={(e) => (e.currentTarget.style.color = C.gray700)}
                 onMouseLeave={(e) => (e.currentTarget.style.color = C.gray400)}
                 style={{
-                  fontSize: 11.5,
+                  fontSize: 12,
                   fontWeight: 500,
                   color: C.gray400,
                   background: 'none',
@@ -109,7 +109,7 @@ export default function AlertsBell({ alerts, onNavigate, onClearAlert }) {
             )}
           </div>
           {alerts.length === 0 ? (
-            <div style={{ padding: '16px 8px', textAlign: 'center', fontSize: 12.5, color: C.gray400 }}>
+            <div style={{ padding: '16px 8px', textAlign: 'center', fontSize: 13, color: C.gray400 }}>
               You're all caught up.
             </div>
           ) : (
@@ -160,10 +160,10 @@ export default function AlertsBell({ alerts, onNavigate, onClearAlert }) {
                       />
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12.5, fontWeight: 500, color: C.gray900 }}>{a.title}</span>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: C.gray900 }}>{a.title}</span>
                           <span
                             style={{
-                              fontSize: 10,
+                              fontSize: 11,
                               padding: '2px 6px',
                               borderRadius: 9999,
                               fontWeight: 500,

@@ -95,7 +95,8 @@ def get_my_role(
     if user.get("external"):
         return {"email": user["email"], "role": "employee", "is_external": True,
                 "level": 1, "title": _job_title(db, user["email"]),
-                "date_format": _date_format(db, user["email"])}
+                "date_format": _date_format(db, user["email"]),
+                "home_zone": _home_zone(db, user["email"])}
     # hr_scope: the caller's own company-scoped People access (Neil, Aug 25) -
     # a list of HrEntity ids, or null when unrestricted. The frontend hides
     # company-wide actions (M365 sync, Company setup) and shows a scope chip.
@@ -117,6 +118,14 @@ def get_my_role(
             "hr_team": is_team_scope(scope),
             "time_tracking_exempt": is_time_tracking_exempt(db, user["email"]),
             "date_format": _date_format(db, user["email"]),
+            # home_zone (Neil, 11/13/2026: "If we are out of our main time
+            # zone it should show the original time zone we are from as a
+            # secondary time zone"): the IANA zone the person works in - their
+            # Shift preset's zone, else their company's team zone, else the
+            # tenant's, else California (item_due.zone_for, the one reading).
+            # The Dashboard's clock shows it beside the device's own time
+            # whenever the two read differently.
+            "home_zone": _home_zone(db, user["email"]),
             # hr_contact_for (11/02/2026): the companies whose HR contact the
             # caller is (People > Companies) - HR for them whatever their
             # grant says (hr_access.is_hr_for_company), so a screen can show
@@ -137,6 +146,14 @@ def get_my_role(
             # when People's /hr/entities is not the caller's to read (a
             # manager who may still change their company's shift settings).
             "manage_company_rows": _manage_company_rows(db, user)}
+
+
+def _home_zone(db: Session, email: str) -> str:
+    try:
+        from item_due import zone_for
+        return zone_for(db, email)
+    except Exception:   # noqa: BLE001 - no zone worked out reads as the company's home clock
+        return "America/Los_Angeles"
 
 
 def _manage_company_rows(db: Session, user: dict) -> list:

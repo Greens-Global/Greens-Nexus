@@ -34,7 +34,7 @@ export function Segmented({ value, onChange, options, label }) {
     <div role="tablist" aria-label={label} style={{ display: 'inline-flex', padding: 3, borderRadius: 10, background: 'var(--mist)', gap: 2, maxWidth: '100%', overflowX: 'auto' }}>
       {options.map(o => (
         <button key={o.key} type="button" role="tab" aria-selected={value === o.key} onClick={() => onChange(o.key)}
-          style={{ padding: '6px 12px', minHeight: 32, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5,
+          style={{ padding: '6px 12px', minHeight: 32, borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13,
             fontWeight: 600, whiteSpace: 'nowrap', background: value === o.key ? 'var(--card)' : 'transparent',
             color: value === o.key ? 'var(--ink)' : 'var(--muted)', boxShadow: value === o.key ? 'var(--wk-shadow)' : 'none' }}>
           {o.label}
@@ -52,9 +52,9 @@ export function NumberTiles({ metrics }) {
       {shown.map(m => (
         <div key={m.key} title={m.description} data-metric={m.key}
           style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', minWidth: 0 }}>
-          <div style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1.15 }}>{m.display}</div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 2 }}>{m.label}</div>
-          {m.detail && <div style={{ ...muted, fontSize: 11.5, marginTop: 2 }}>{m.detail}</div>}
+          <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1.15 }}>{m.display}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>{m.label}</div>
+          {m.detail && <div style={{ ...muted, fontSize: 12, marginTop: 2 }}>{m.detail}</div>}
         </div>
       ))}
     </div>

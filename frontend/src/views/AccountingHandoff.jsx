@@ -50,7 +50,7 @@ export default function AccountingHandoff({ next }) {
     return (
       <div role="status" aria-live="polite" style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 24, fontFamily: 'Inter, system-ui, sans-serif' }}>
         <Spinner size="view" />
-        <span style={{ color: 'var(--text-secondary)', fontSize: '0.92rem' }}>Opening Nexus Accounting...</span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: 15 }}>Opening Nexus Accounting...</span>
       </div>
     );
   }
@@ -62,16 +62,16 @@ export default function AccountingHandoff({ next }) {
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
               <span style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--bad-bg)', color: 'var(--bad-fg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ShieldX size={18} /></span>
-              <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Access Denied</h2>
+              <h2 style={{ margin: 0, fontSize: 18 }}>Access Denied</h2>
             </div>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', lineHeight: 1.5, margin: 0 }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.5, margin: 0 }}>
               Nexus Accounting is limited to people who have been granted the Nexus Accounting App in Settings &gt; Access. Ask an administrator to add you, then try again.
             </p>
           </>
         ) : (
           <>
-            <h2 style={{ margin: '0 0 6px', fontSize: '1.25rem' }}>Could Not Reach Nexus Accounting</h2>
-            <p style={{ color: 'var(--bad-fg)', fontSize: '0.9rem', margin: 0 }}>{message}</p>
+            <h2 style={{ margin: '0 0 6px', fontSize: 18 }}>Could Not Reach Nexus Accounting</h2>
+            <p style={{ color: 'var(--bad-fg)', fontSize: 15, margin: 0 }}>{message}</p>
           </>
         )}
 

@@ -17,14 +17,14 @@ import CopyButton from '../ui/CopyButton';
 // job-role/group machinery on the person panel) and the panel section with
 // invite status + Resend Invite / Deactivate / Remove.
 
-const field = { width: '100%', padding: '9px 12px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13.5, fontFamily: 'Inter,sans-serif', boxSizing: 'border-box' };
+const field = { width: '100%', padding: '9px 12px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'Inter,sans-serif', boxSizing: 'border-box' };
 const label = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginBottom: 5, display: 'block' };
-const actionBtn = (color, borderColor) => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, border: `1px solid ${borderColor || 'var(--line)'}`, background: 'transparent', color: color || 'var(--ink)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' });
+const actionBtn = (color, borderColor) => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, border: `1px solid ${borderColor || 'var(--line)'}`, background: 'transparent', color: color || 'var(--ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' });
 
 // Small "External" identity chip for people lists.
 export function ExternalBadge() {
   return (
-    <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+    <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)', padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' }}>
       External
     </span>
   );
@@ -42,7 +42,7 @@ export function InvitePill({ status }) {
       : { text: 'Invite Failed', color: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.10)' };
   return (
     <span title={status === 'failed' ? 'The Microsoft invitation email could not be sent - use Resend Invite after fixing the Graph permission, or invite manually in Entra.' : ''}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, color: s.color, background: s.bg, whiteSpace: 'nowrap' }}>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, color: s.color, background: s.bg, whiteSpace: 'nowrap' }}>
       {s.text}
     </span>
   );
@@ -112,7 +112,7 @@ export function useExternalInviteForm(initial) {
         <input style={field} type="email" value={email}
           placeholder="name@partnercompany.com" onChange={e => setEmail(e.target.value)} />
         {emailChanged && (
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 }}>
             Their job role, groups, and access carry over to the corrected address. Any invite link or
             sign-in code already sent to the old address stops working - use Resend Invite afterward.
           </div>
@@ -153,7 +153,7 @@ export function useExternalInviteForm(initial) {
               </span>
               <span style={{ minWidth: 0 }}>
                 <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{t}</span>
-                <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{d}</span>
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{d}</span>
               </span>
             </button>
           ))}
@@ -166,7 +166,7 @@ export function useExternalInviteForm(initial) {
           : ''}They start with no access - assign a job role or groups on their Access tab, exactly like an employee. Whatever you grant, they still never appear in people pickers, never receive company-wide notifications, and in Tasks and Tickets only see items they are assigned to, following, or raised themselves.
       </div>
 
-      {error && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', fontWeight: 600 }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))', fontWeight: 600 }}>{error}</div>}
     </div>
   );
   const submitLabel = editing ? 'Save Changes' : sendInvite ? 'Send Invite' : 'Create for Testing';
@@ -279,16 +279,16 @@ export function TestCodeDialog({ ext, result, onClose }) {
     <div style={{ position: 'fixed', inset: 0, zIndex: 1450, background: 'rgba(15,23,42,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }} onClick={onClose}>
       <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, border: '1px solid var(--line)', padding: 24, fontFamily: 'Inter,sans-serif' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>Test Sign-In Code</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>Test Sign-In Code</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}><X size={17} /></button>
         </div>
-        <p style={{ margin: '0 0 14px', fontSize: 12.5, lineHeight: 1.55, color: 'var(--muted)' }}>
+        <p style={{ margin: '0 0 14px', fontSize: 13, lineHeight: 1.55, color: 'var(--muted)' }}>
           Sign in at the login page's <b>Partner Sign-In</b> as <b>{ext?.email}</b> with this code to walk their exact
           experience. Shown once - it can't be read back later. Expires in 24 hours and dies at release.
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, border: '1px dashed var(--line)', background: 'var(--mist)', marginBottom: 14 }}>
           <span style={{ flex: 1, fontSize: 24, fontWeight: 800, letterSpacing: 6, color: 'var(--ink)', fontFamily: 'ui-monospace,monospace' }}>{result.code}</span>
-          <CopyButton value={result.code} what="code" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
+          <CopyButton value={result.code} what="code" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
         </div>
         <button className="primary-btn" onClick={onClose} style={{ width: '100%' }}>Done</button>
       </div>
@@ -322,13 +322,13 @@ export function ExternalPersonSection({ ext, onChanged, onRemoved, toastOk, toas
         <ExternalBadge />
         {!staged && <InvitePill status={ext.inviteStatus} />}
         {staged && (
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.12)', padding: '2px 10px', borderRadius: 20 }}>Staged - Not Released</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', background: 'rgba(180,83,9,0.12)', padding: '2px 10px', borderRadius: 20 }}>Staged - Not Released</span>
         )}
         {!staged && ext.status !== 'active' && (
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', background: 'color-mix(in srgb, var(--muted) 12%, transparent)', padding: '2px 10px', borderRadius: 20 }}>Deactivated</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'color-mix(in srgb, var(--muted) 12%, transparent)', padding: '2px 10px', borderRadius: 20 }}>Deactivated</span>
         )}
         {expired && (
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.10)', padding: '2px 10px', borderRadius: 20 }}>Expired</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.10)', padding: '2px 10px', borderRadius: 20 }}>Expired</span>
         )}
       </div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, lineHeight: 1.5 }}>
@@ -399,7 +399,7 @@ function StatusBadge({ user }) {
     : expired ? { text: 'Expired', color: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.10)' }
       : { text: 'Active', color: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' };
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, color: s.color, background: s.bg, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, color: s.color, background: s.bg, whiteSpace: 'nowrap' }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />{s.text}
     </span>
   );
@@ -429,7 +429,7 @@ export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
   });
   const mintCode = async (u) => { const r = await testCode(u); if (r) setCodeFor({ ext: u, result: r }); };
 
-  if (error) return <div style={{ padding: 24, fontSize: 13.5, color: 'var(--muted)' }}>{error}</div>;
+  if (error) return <div style={{ padding: 24, fontSize: 13, color: 'var(--muted)' }}>{error}</div>;
   if (!users) return <SkeletonBlocks count={3} height={64} />;
 
   return (
@@ -447,7 +447,7 @@ export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
         <div style={{ padding: '44px 20px', textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 14 }}>
           <Globe size={26} style={{ color: 'var(--muted)', marginBottom: 9 }} />
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 5 }}>No external users yet</div>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', maxWidth: 380, margin: '0 auto', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 380, margin: '0 auto', lineHeight: 1.5 }}>
             Invite each partner contact here - they get an activation email and sign in with a one-time code.
           </div>
         </div>
@@ -457,7 +457,7 @@ export default function ExternalUsersPanel({ toastOk, toastErr, onChanged }) {
             <div key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderRadius: 13, border: '1px solid var(--line)', background: 'var(--card)', flexWrap: 'wrap' }}>
               <div style={{ minWidth: 220, flex: '1 1 240px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{u.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{u.name}</span>
                   <ExternalBadge />
                   <StatusBadge user={u} />
                   <InvitePill status={u.inviteStatus} />

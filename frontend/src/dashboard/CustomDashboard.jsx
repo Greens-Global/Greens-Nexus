@@ -1,6 +1,6 @@
-import { useState, useRef, Suspense } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import { SkeletonBlocks } from '../components/AsyncState';
-import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal, Check } from 'lucide-react';
+import { LayoutGrid, Plus, Save, Pencil, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal, Check, ChevronDown } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards, resolveCollisions } from './useDashboards';
@@ -14,6 +14,9 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import { useIsMobile } from '../lib/useIsMobile';
 import AnchoredMenu from '../components/AnchoredMenu';
+import { dialog } from '../ui/dialog';
+import { HOLD_MAJOR_MS, HOLD_RECORD_MS } from '../ui/HoldButton';
+import { setInlineDirty } from '../lib/dialogGuard';
 
 // Portrait phones, plus phones held sideways (touch screen, short viewport).
 const PHONE_QUERY = '(max-width: 640px), (pointer: coarse) and (max-height: 500px)';
@@ -57,6 +60,18 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
         <UnsavedChangesPrompt onKeepEditing={guard.keepEditing} onDiscard={onClose} onSave={guard.saveAndClose} saving={guard.saving || busy} />
       )}
     </>
+  );
+}
+
+// One row of the Customize menu: an action (its icon) or a view to switch to
+// (a radio row, ticked when it is the one on screen).
+function CzRow({ icon: Icon, label, hint, on, checked, danger, radio }) {
+  return (
+    <button type="button" role={radio ? 'menuitemradio' : 'menuitem'} aria-checked={radio ? !!checked : undefined}
+      className={`dk-cz-row${danger ? ' is-danger' : ''}${checked ? ' is-on' : ''}`} onClick={on}>
+      <span className="dk-cz-ico" aria-hidden="true">{radio ? (checked ? <Check size={14} /> : null) : <Icon size={14} />}</span>
+      <span className="dk-cz-words"><span className="dk-cz-label">{label}</span>{hint && <span className="dk-cz-hint">{hint}</span>}</span>
+    </button>
   );
 }
 
@@ -129,13 +144,13 @@ export default function CustomDashboard() {
 
   const renderWidget = (it, { phone = false } = {}) => {
     const def = WIDGETS[it.type];
-    if (!def) return <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 16 }}>This widget is no longer available.</div>;
+    if (!def) return <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: 16 }}>This widget is no longer available.</div>;
     // Role-gated widget in a layout the user inherited (e.g. a dept template):
     // show an inert card instead of the real panel - and never delete it from
     // their saved layout.
     if (!canSeeWidget(def)) {
       return (
-        <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center', padding: 16 }}>
+        <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13, textAlign: 'center', padding: 16 }}>
           "{def.title}" needs {def.module ? (def.moduleLabel || def.module) : def.minRole} access
         </div>
       );
@@ -149,6 +164,7 @@ export default function CustomDashboard() {
         <Suspense fallback={<div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', overflow: 'hidden' }}><WidgetSkeleton rows={2} /></div>}>
           <Comp
             config={it.config || {}} size={{ w: it.w, h: it.h }} phone={phone} kpis={d.kpis} notifications={notifications}
+            kpisError={d.kpisError} reloadKpis={d.reloadKpis}
             markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}
             // Outside Customize a widget's own change (the Weather tile's city)
             // saves straight to the view - there is no Save button there.
@@ -187,22 +203,40 @@ export default function CustomDashboard() {
     onSubmit: wrap(name => d.publishDepartment(name), 'Published to your department'),
   });
   const makeDefault = wrap(async () => { setMenu(false); if (d.activeId) await d.setDefaultView(d.activeId); }, 'Set as your default');
-  const del = wrap(async () => {
+  // Delete View cannot be taken back: a hold in the shared dialog (a view
+  // shared with a department is the longer hold). "View deleted" follows a
+  // real delete only - Cancel used to show it too.
+  const del = async () => {
     setMenu(false);
-    if (!d.activeId) return;
-    const msg = d.activeView?.scope === 'department'
-      ? `Delete "${d.activeView?.name}" for everyone in ${d.activeView?.department || 'the department'}?`
-      : `Delete "${d.activeView?.name}"?`;
-    if (window.confirm(msg)) await d.removeView(d.activeId);
-  }, 'View deleted');
+    const id = d.activeId;
+    if (!id) return;
+    const shared = d.activeView?.scope === 'department';
+    const msg = shared
+      ? `Delete "${d.activeView?.name}" for everyone in ${d.activeView?.department || 'the department'}? This can't be undone.`
+      : `Delete "${d.activeView?.name}"? This can't be undone.`;
+    await dialog.confirm(msg, {
+      title: 'Delete View?', hold: true, holdMs: shared ? HOLD_MAJOR_MS : HOLD_RECORD_MS, confirmText: 'Delete View', doneText: 'Deleted',
+      onConfirm: async () => { await d.removeView(id); flash('View deleted'); },
+    });
+  };
 
   // Guard against silently losing unsaved layout changes.
-  const confirmDiscard = () => !d.dirty || window.confirm('You have unsaved layout changes - discard them?');
-  const guardedSwitch = (id) => { if (confirmDiscard()) d.switchView(id); };
-  const guardedNew = () => { if (confirmDiscard()) createNew(); };
-  const guardedDone = () => { if (confirmDiscard()) d.cancelEdit(); };
+  const confirmDiscard = async () => !d.dirty || dialog.confirm('You have unsaved layout changes - discard them?',
+    { title: 'Discard Changes?', confirmText: 'Discard', cancelText: 'Keep Editing', danger: true });
+  const guardedSwitch = async (id) => { if (await confirmDiscard()) d.switchView(id); };
+  const guardedNew = async () => { if (await confirmDiscard()) createNew(); };
+  const guardedDone = async () => { if (await confirmDiscard()) d.cancelEdit(); };
+  // Leaving another way (a Dashboard tab, a sidebar module, a reload) asks
+  // too: the unsaved layout is registered with the app's own leave guard
+  // (lib/dialogGuard.js) while it is dirty, and taken off on Save, Done,
+  // Discard and unmount.
+  const layoutDirty = d.editing && d.dirty;
+  useEffect(() => {
+    setInlineDirty('dashboard-layout', layoutDirty, { labels: ['the dashboard layout'] });
+    return () => setInlineDirty('dashboard-layout', false);
+  }, [layoutDirty]);
 
-  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'var(--wk-font)', cursor: 'pointer' };
+  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, fontFamily: 'var(--wk-font)', cursor: 'pointer' };
   const saveLabel = d.dirty ? 'Save' : 'Saved';
 
   // Delete: your own personal views always; a department view only if you're a
@@ -231,17 +265,10 @@ export default function CustomDashboard() {
     ],
   ].filter(s => s.length > 0);
 
-  // Menu header caption: what the actions below apply to.
-  const scopeCaption = !d.activeView
-    ? 'Built-in layout'
-    : d.activeView.scope === 'department'
-      ? `${d.activeView.department || 'Department'} · shared view`
-      : `Personal view${d.activeView.isDefault ? ' · default' : ''}`;
-
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       {toast && (
-        <div role="status" style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12.5, fontWeight: 600,
+        <div role="status" style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 13, fontWeight: 600,
           background: toast.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c',
           // Phone: float it just above the bottom bar - the top of a long
@@ -250,42 +277,26 @@ export default function CustomDashboard() {
             margin: 0, zIndex: 395, whiteSpace: 'nowrap', background: 'var(--card)', border: '1px solid var(--wk-line2)', boxShadow: '0 8px 24px rgba(0,0,0,0.18)' } : null) }}>{toast.t}</div>
       )}
 
-      {/* Controls: view picker + Customize + the "…" view menu. Used to sit in
-          their own title band ("Dashboard" / "Viewing X") above the greeting -
-          repeating the tab-strip label as a big h2 plus a whole separate
-          control row wasted vertical space for no new information (Neil,
-          Sep 15). They now live in the greeting's header-right instead, so
-          the page starts at "Good morning" and gets straight to the KPIs. */}
+      {/* The saved views did not load: say so (they used to just be missing
+          from Customize). Not while editing - a reload would drop the edits. */}
+      {d.viewsError && !d.loading && !d.editing && (
+        <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12, fontSize: 13, color: 'hsl(var(--color-red))' }}>
+          <span>Couldn't load your saved views.</span>
+          <button type="button" className="secondary-btn" style={{ minHeight: 36, padding: '6px 14px', fontSize: 13 }} onClick={d.reload}>Try Again</button>
+        </div>
+      )}
+
+      {/* Controls: ONE Customize in the greeting's header-right (Neil,
+          11/13/2026: "simplify the Dashboard icons at the top right into
+          just Customize"). The view picker and the "..." view menu that sat
+          beside it are rows of its menu now; editing shows the edit toolbar
+          (Add Widget, Auto-Fit, Save, Done) in its place. */}
       {(() => {
-        // Split so the "…" menu can sit tight against the session chip
-        // (Pranshu, Sep 15) while the view picker/Customize keep their own
-        // group with normal spacing.
         const controls = (
           // On a phone this is one item in the greeting's scrolling toolbar
           // row (.dk-toolbar, see DeskGreeting) rather than a full-width
           // stack of its own - the picker sizes to its name (Sep 23).
           <div className="dk-controls" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: isMobile ? 'nowrap' : 'wrap', justifyContent: isMobile ? 'flex-start' : 'flex-end', flexShrink: 0 }}>
-            <select value={d.activeId || ''}
-              onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
-              className="form-input" title="Switch dashboard view"
-              style={{ fontSize: 12.5, fontWeight: 600, width: isMobile ? 'auto' : 170, maxWidth: isMobile ? 176 : undefined, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', flexShrink: 0 }}>
-              <option value="">Home</option>
-              {d.views.filter(v => v.scope === 'personal').length > 0 && (
-                <optgroup label="My Views">
-                  {d.views.filter(v => v.scope === 'personal').map(v => (
-                    <option key={v.id} value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>
-                  ))}
-                </optgroup>
-              )}
-              {d.views.filter(v => v.scope === 'department').length > 0 && (
-                <optgroup label="Department Views">
-                  {d.views.filter(v => v.scope === 'department').map(v => (
-                    <option key={v.id} value={v.id}>{v.name} (dept)</option>
-                  ))}
-                </optgroup>
-              )}
-              <option value="__new__">＋ New View…</option>
-            </select>
             {d.editing ? (
               // On a phone these live in the bottom bar (below) instead.
               !isPhone && (
@@ -296,45 +307,50 @@ export default function CustomDashboard() {
                   <button className="secondary-btn" style={btn} onClick={guardedDone}><X size={14} /> Done</button>
                 </>
               )
-            ) : isPhone ? (
-              // Icon only on a phone (Neil, Sep 28) - the word crowded the
-              // toolbar row; the label stays for screen readers and long-press.
-              <button className="secondary-btn dk-icon-btn" style={{ ...btn, padding: '7px 10px' }} onClick={() => d.setEditing(true)} title="Customize" aria-label="Customize"><SlidersHorizontal size={16} /></button>
             ) : (
-              <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
+              // ONE Customize (Neil, 11/13/2026: "merge the functionality of
+              // the '...' button and My View into Customize"): it opens the
+              // menu below - Edit Layout, the views to switch between, and
+              // what can be done to the view on screen.
+              <button ref={menuBtn} type="button" className="secondary-btn dk-customize" style={btn}
+                onClick={() => setMenu(m => !m)} aria-haspopup="menu" aria-expanded={menu} aria-label="Customize" title="Customize your dashboard">
+                {/* A phone shows the icon alone (style.css). */}
+                <SlidersHorizontal size={14} aria-hidden="true" /> <span className="dk-customize-word">Customize</span><ChevronDown size={14} className="dk-customize-caret" aria-hidden="true" />
+              </button>
             )}
           </div>
         );
-        // The single home for view-level actions (rename, default, publish,
-        // delete). Lives outside edit mode too - renaming a view shouldn't
-        // require entering Customize - and stays available while editing so
-        // you can fork the on-screen layout with "Save as new view". Kept
-        // separate from `controls` so it renders after the session chip, as
-        // its own distinct button at the row's right corner - not merged
-        // with the chip (Pranshu, Sep 15 2nd follow-up).
+        // The Customize menu: Edit Layout, then the views (Home, yours,
+        // your department's, New View...), then what can be done to the view
+        // on screen (rename, default, save as new, publish, delete). While
+        // editing, the edit toolbar stands in its place.
+        const personalViews = d.views.filter(v => v.scope === 'personal');
+        const deptViews = d.views.filter(v => v.scope === 'department');
+        const pickView = (id) => { setMenu(false); guardedSwitch(id); };
         const viewMenu = (
-          <>
-            <button ref={menuBtn} className="secondary-btn dk-icon-btn" style={{ ...btn, padding: '6px 9px', flexShrink: 0 }} onClick={() => setMenu(m => !m)} title="View options" aria-label="View options" aria-haspopup="menu" aria-expanded={menu}><MoreHorizontal size={15} /></button>
-            {/* Portaled: on a phone the toolbar is a horizontal scroller, which
-                clipped the old in-place menu at its bottom edge. */}
-            <AnchoredMenu anchorRef={menuBtn} open={menu} onClose={() => setMenu(false)} align="end" minWidth={220}
-              style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 18px 50px rgba(17,24,39,0.18)', padding: 6 }}>
-              <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default layout'}</div>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', marginTop: 2 }}>{scopeCaption}</div>
+          // Portaled: on a phone the toolbar is a horizontal scroller, which
+          // clipped an in-place menu at its bottom edge.
+          <AnchoredMenu anchorRef={menuBtn} open={menu && !d.editing} onClose={() => setMenu(false)} align="end" minWidth={264}
+            className="dk-cz-menu" aria-label="Customize">
+            <CzRow icon={LayoutGrid} label="Edit Layout" hint="Add, move and resize widgets" on={() => { setMenu(false); d.setEditing(true); }} />
+            <div className="dk-cz-sep" role="separator" />
+            <div className="dk-cz-head" aria-hidden="true">Views</div>
+            <CzRow radio checked={!d.activeId} label="Home" hint="The standard dashboard" on={() => pickView(null)} />
+            {personalViews.map(v => (
+              <CzRow key={v.id} radio checked={d.activeId === v.id} label={v.name} hint={v.isDefault ? 'Your default' : ''} on={() => pickView(v.id)} />
+            ))}
+            {deptViews.map(v => (
+              <CzRow key={v.id} radio checked={d.activeId === v.id} label={v.name} hint={`${v.department || 'Department'} - shared view`} on={() => pickView(v.id)} />
+            ))}
+            <CzRow icon={Plus} label="New View..." on={() => { setMenu(false); guardedNew(); }} />
+            {menuSections.map((section, si) => (
+              <div key={si} role="none">
+                <div className="dk-cz-sep" role="separator" />
+                {si === 0 && d.activeView && <div className="dk-cz-head" aria-hidden="true">{d.activeView.name}</div>}
+                {section.map((m) => <CzRow key={m.label} icon={m.icon} label={m.label} danger={m.danger} on={() => { setMenu(false); m.on(); }} />)}
               </div>
-              {menuSections.map((section, si) => (
-                <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
-                  {section.map((m, i) => (
-                    <button key={i} role="menuitem" onClick={() => { setMenu(false); m.on(); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'var(--wk-font)', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                      <m.icon size={14} /> {m.label}
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </AnchoredMenu>
-          </>
+            ))}
+          </AnchoredMenu>
         );
         return d.loading ? (
           <div style={{ padding: '8px 0' }}><SkeletonBlocks count={4} height={90} /></div>
@@ -343,7 +359,7 @@ export default function CustomDashboard() {
              Customize keep the widget grid untouched below. The view
              picker/Customize/... controls live in the greeting's
              header-right now, not a separate title band above it. */
-          <DeskHome kpis={d.kpis} notifications={notifications} markRead={markRead} headerRight={controls} headerMenu={viewMenu} />
+          <DeskHome kpis={d.kpis} kpisError={d.kpisError} onRetryKpis={d.reloadKpis} notifications={notifications} markRead={markRead} headerRight={controls} headerMenu={viewMenu} />
         ) : (
           /* Saved views + Customize keep the page greeting - it belongs to the
              Dashboard, not to a layout, so picking a custom view (or saving one
@@ -351,7 +367,7 @@ export default function CustomDashboard() {
           <>
             <div style={{ margin: '2px 0 18px' }}><DeskGreeting right={controls} menu={viewMenu} /></div>
             {d.editing && isPhone && (
-              <p style={{ margin: '0 2px 18px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.45 }}>
+              <p style={{ margin: '0 2px 18px', fontSize: 13, color: 'var(--muted)', lineHeight: 1.45 }}>
                 Use the arrows to reorder, the gear to change what a widget shows. The new order carries over to desktop.
               </p>
             )}

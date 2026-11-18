@@ -71,7 +71,7 @@ export default function AudienceModal({ value, onChange, onClose, title = 'Who T
                   <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span className="kb-tag" style={{ fontWeight: 700 }}>{i === 0 ? 'WHERE' : 'AND'}</span>
-                      <span style={{ fontWeight: 600, fontSize: 13.5 }}>{label}</span><span className="kb-meta">is any of</span>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>{label}</span><span className="kb-meta">is any of</span>
                       <button type="button" className="kb-ibtn" style={{ width: 24, height: 24, marginLeft: 'auto', border: 0 }} aria-label="Remove rule" onClick={() => removeRow(k)}><X size={13} /></button>
                     </div>
                     <div className="kb-pills">

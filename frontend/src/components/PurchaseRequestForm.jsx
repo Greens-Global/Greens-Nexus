@@ -127,12 +127,12 @@ export default function PurchaseRequestForm({ onSubmitted, onCancel }) {
               {directory.map(d => <option key={d.email} value={`${d.name} - ${d.email}`} />)}
             </datalist>
             {behalfName.trim() && !behalfMatch && (
-              <p style={{ fontSize:11.5, color:'hsl(var(--color-orange))', margin:'6px 0 0' }}>
+              <p style={{ fontSize:12, color:'hsl(var(--color-orange))', margin:'6px 0 0' }}>
                 Pick a name from the list so the request shows in their requests.
               </p>
             )}
             {behalfMatch && (
-              <p style={{ fontSize:11.5, color:'hsl(var(--color-green))', margin:'6px 0 0' }}>
+              <p style={{ fontSize:12, color:'hsl(var(--color-green))', margin:'6px 0 0' }}>
                 ✓ Will appear in {behalfMatch.name}'s purchase requests ({behalfMatch.email})
               </p>
             )}
@@ -185,7 +185,7 @@ export default function PurchaseRequestForm({ onSubmitted, onCancel }) {
           <option value="">- select a manager -</option>
           {approvers.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
         </select>
-        <p style={{ fontSize:11.5, color:'var(--muted)', margin:'6px 0 0' }}>
+        <p style={{ fontSize:12, color:'var(--muted)', margin:'6px 0 0' }}>
           Only this manager will be notified of your request.
         </p>
       </div>
@@ -204,7 +204,7 @@ export default function PurchaseRequestForm({ onSubmitted, onCancel }) {
       </div>
 
       {submitError && (
-        <p role="alert" style={{ color:'hsl(var(--color-red))', fontSize:'0.85rem', fontWeight:600, margin:'0 0 12px' }}>
+        <p role="alert" style={{ color:'hsl(var(--color-red))', fontSize:13, fontWeight:600, margin:'0 0 12px' }}>
           {submitError}
         </p>
       )}

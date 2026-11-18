@@ -4,8 +4,9 @@
 // Entries - what people filled (EntriesList), a row opening beside the list
 // (EntryPanel). Nothing here decides anything by itself.
 import { useEffect, useMemo, useState } from 'react';
-import { ClipboardList, Plus, Search } from 'lucide-react';
+import { ClipboardList, Search } from 'lucide-react';
 import { api } from '../api';
+import NewButton from '../components/NewButton';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
 import { TEMPLATE_STATES, templateStatus } from '../lib/documentLibrary';
@@ -172,7 +173,7 @@ export default function FormsTab({ toastOk, toastErr, activeSub = '' }) {
     <div role="tablist" aria-label="Forms" className="scroll-tabs" style={{ display: 'inline-flex', gap: 2, padding: 3, border: '1px solid var(--line)', borderRadius: 10, background: 'var(--mist)', marginBottom: 14 }}>
       {SEGMENTS.map(([k, l]) => (
         <button key={k} type="button" role="tab" aria-selected={segment === k} onClick={() => { setSegment(k); setSelectedId(''); }}
-          style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 650, cursor: 'pointer', fontFamily: 'inherit',
+          style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 650, cursor: 'pointer', fontFamily: 'inherit',
             background: segment === k ? 'var(--card)' : 'transparent', color: segment === k ? 'var(--ink)' : 'var(--muted)', boxShadow: segment === k ? 'var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.08))' : 'none' }}>
           {l}
         </button>
@@ -218,9 +219,8 @@ export default function FormsTab({ toastOk, toastErr, activeSub = '' }) {
               <option value="draft">{TEMPLATE_STATES.draft.label}</option>
               <option value="archived">{TEMPLATE_STATES.archived.label}</option>
             </select>
-            <button type="button" className="primary-btn" onClick={() => setCreating(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Plus size={14} /> New Form
-            </button>
+            {/* "+ New", the one create button across Nexus (Neil, 11/13/2026). */}
+            <NewButton items={[{ key: 'form', label: 'Form' }]} onPick={() => setCreating(true)} />
           </div>
 
           {!templates ? (

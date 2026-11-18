@@ -12,7 +12,13 @@ const promptMock = vi.fn();
 vi.mock('../ui/dialog', () => ({ dialog: { prompt: (...a) => promptMock(...a), confirm: vi.fn(), alert: vi.fn() } }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [] }) }));
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'hr@x.com' }) }));
-vi.mock('../tasks/components', () => ({ DateField: () => null }));
+vi.mock('../tasks/components', () => ({
+  DateField: () => null, TimeField: () => null,
+  // The sheet itself: its header, body and footer, with a close that just closes.
+  Modal: ({ header, footer, children, onClose }) => (
+    <div>{header?.('t', onClose)}{children}<footer>{typeof footer === 'function' ? footer(onClose) : footer}</footer></div>
+  ),
+}));
 vi.mock('./PersonSearchSelect', () => ({ default: () => null }));
 
 const { ScheduleInterviewModal } = await import('./HiringSchedule');

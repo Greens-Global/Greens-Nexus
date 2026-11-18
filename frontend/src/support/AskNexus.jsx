@@ -30,7 +30,7 @@ function Inline({ text, cite, open }) {
         <button key={i} type="button" className="nx-ask-cite" onClick={() => open(s)} title={s.title}
           aria-label={`Source: ${s.title}`}
           style={{ border: 'none', background: 'rgba(43,69,225,0.10)', color: BRAND, borderRadius: 4, padding: '0 4px', margin: '0 1px',
-            fontSize: 10.5, fontWeight: 700, cursor: 'pointer', verticalAlign: 'super', lineHeight: 1.2, fontFamily: 'inherit' }}>
+            fontSize: 11, fontWeight: 700, cursor: 'pointer', verticalAlign: 'super', lineHeight: 1.2, fontFamily: 'inherit' }}>
           {s.label}
         </button>
       );
@@ -153,7 +153,7 @@ export default function AskNexus({ question, allow, onFileTicket, onOpened, onAn
 
       {!res && !error && (
         <div role="status" style={{ display: 'grid', gap: 6 }}>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Nexus is reading the guides...</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nexus is reading the guides...</div>
           {[92, 78, 60].map((w) => <div key={w} className="hw-skeleton" style={{ height: 10, width: `${w}%`, margin: 0 }} />)}
         </div>
       )}
@@ -186,7 +186,7 @@ export default function AskNexus({ question, allow, onFileTicket, onOpened, onAn
 
       {sources.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {!res?.offline && <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>Sources</div>}
+          {!res?.offline && <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>Sources</div>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {sources.map((s) => <SourceChip key={`${s.kind}:${s.id}`} s={s} onOpened={onOpened} />)}
           </div>
@@ -197,11 +197,11 @@ export default function AskNexus({ question, allow, onFileTicket, onOpened, onAn
 
       {(res || error) && onFileTicket && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-          <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: 1, minWidth: 140 }}>
+          <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1, minWidth: 140 }}>
             {notCovered || error || res?.offline ? 'Our support team can help with this.' : 'Still need help?'}
           </span>
           <button type="button" className={notCovered || error ? 'primary-btn' : 'secondary-btn'} onClick={() => onFileTicket(q)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5 }}>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 13 }}>
             <TicketIcon size={14} /> File a Ticket
           </button>
         </div>

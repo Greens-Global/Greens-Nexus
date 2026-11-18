@@ -9,7 +9,8 @@ const apiMock = vi.hoisted(() => ({ mySignatures: vi.fn(), dashKpis: vi.fn(), ge
 const openPanel = vi.hoisted(() => vi.fn());
 vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil Kadakia', username: 'neil@greensglobal.com' }] }) }));
-vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: () => false, actingAs: null }) }));
+const role = vi.hoisted(() => ({ can: () => false, actingAs: null, myHomeZone: '' }));
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => role }));
 vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel }) }));
 vi.mock('../lib/useTimeStatus', () => ({ useTimeStatus: () => ({ status: null, reload: vi.fn() }) }));
 vi.mock('./QuickActionModals.jsx', () => ({ default: () => null }));
@@ -22,7 +23,7 @@ beforeEach(() => {
   apiMock.mySignatures.mockResolvedValue([1, 2, 3, 4].map((i) => ({ id: i, title: `Offer letter ${i}` })));
   apiMock.dashKpis.mockResolvedValue({ kpis: {} });
 });
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); role.myHomeZone = ''; });
 
 describe('DeskHome attention queue', () => {
   it('counts every item, shows seven, and View All opens the rest', async () => {
@@ -45,8 +46,10 @@ describe('DeskHome attention queue', () => {
     await waitFor(() => expect(document.querySelectorAll('.dk-queue-row')).toHaveLength(2));
     expect(screen.queryByRole('button', { name: /View All/ })).toBeNull();
     expect(screen.getByText('2 items')).toBeTruthy();
-    for (const t of ['Needs Your Attention', 'Quick Actions', 'Open Tasks']) expect(screen.getByText(t)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Request an Item/ })).toBeTruthy();
+    for (const t of ['Needs Your Attention', 'Open Tasks']) expect(screen.getByText(t)).toBeTruthy();
+    // The Quick Actions card is gone (Neil, 11/13/2026) - the header's bolt starts things.
+    expect(screen.queryByText('Quick Actions')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Request an Item/ })).toBeNull();
     // The three retired white tiles are count buttons under Open Tasks (Neil, 11/08/2026).
     expect(screen.queryByText('Signatures Needed')).toBeNull();
     for (const t of ['Checked Out 0', 'Equipment 0', 'To Sign 1']) expect(screen.getByRole('button', { name: t })).toBeTruthy();
@@ -91,5 +94,77 @@ describe('DeskHome greeting (Neil, 11/04/2026)', () => {
     expect(date?.textContent).toMatch(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday), /);
     expect(date.compareDocumentPosition(h1) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector('.dk-head-sub').textContent).not.toContain(date.textContent);
+  });
+
+  // Away from home (Neil, 11/13/2026): the person's home zone shows under the
+  // big clock with a house; at home there is no home line.
+  it('shows the home time zone, marked as home, when the device is elsewhere', async () => {
+    role.myHomeZone = 'Pacific/Kiritimati';   // UTC+14 - never the test machine's own clock
+    render(<DeskHome notifications={[]} />);
+    await screen.findByRole('heading', { level: 1 });
+    const home = document.querySelector('.dk-zones .dk-zone.is-home');
+    expect(home).toBeTruthy();
+    expect(home.textContent).toMatch(/^Home time: /);
+    expect(home.querySelector('svg.dk-zone-home')).toBeTruthy();
+    expect(document.querySelector('.dk-zones').compareDocumentPosition(document.querySelector('.dk-clock')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+  });
+});
+
+// 11/17/2026: "You're all caught up." stood over an Open Tasks band counting
+// work. The greeting reads the band's own number (kpis.my_open_tasks: in
+// progress, overdue or due in the next 30 days) - no new request.
+describe('DeskHome greeting line', () => {
+  const sub = () => document.querySelector('.dk-head-sub').textContent;
+
+  it('names the open tasks instead of "all caught up" when nothing else waits', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    render(<DeskHome notifications={[]} kpis={{ my_open_tasks: 3, my_checkouts: 0, my_assignments: 0 }} />);
+    await waitFor(() => expect(sub()).toBe('You have 3 open tasks.'));
+    cleanup();
+    render(<DeskHome notifications={[]} kpis={{ my_open_tasks: 1, my_checkouts: 0, my_assignments: 0 }} />);
+    await waitFor(() => expect(sub()).toBe('You have 1 open task.'));
+  });
+
+  it('says "all caught up" only with nothing waiting and no open tasks', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    render(<DeskHome notifications={[]} kpis={{ my_open_tasks: 0, my_checkouts: 0, my_assignments: 0 }} />);
+    await waitFor(() => expect(sub()).toBe("You're all caught up."));
+  });
+
+  it('the attention count still leads when something waits', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    render(<DeskHome notifications={[notif(1)]} kpis={{ my_open_tasks: 3 }} />);
+    await waitFor(() => expect(sub()).toBe('You have 1 item that need your attention today.'));
+  });
+});
+
+// 11/17/2026: a failed count read left the band on a placeholder forever (or
+// "To Sign 0"). It says so once, with Try Again.
+describe('DeskHome counts that did not load', () => {
+  it('the KPI read failed: a hyphen and one line with Try Again, no placeholder, no "all caught up"', async () => {
+    apiMock.mySignatures.mockResolvedValue([]);
+    const onRetryKpis = vi.fn();
+    render(<DeskHome notifications={[]} kpis={{ signatures_needed: 0 }} kpisError={{ kpis: true, signatures: false }} onRetryKpis={onRetryKpis} />);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain("Couldn't load your counts.");
+    expect(document.querySelector('.dk-hero [data-count-skeleton]')).toBeNull();
+    expect(document.querySelector('.dk-hero .dk-stat-num').textContent).toBe('-');
+    expect(await screen.findByRole('button', { name: 'To Sign 0' })).toBeTruthy();   // what did load still shows
+    expect(document.querySelector('.dk-head-sub').textContent).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
+    expect(onRetryKpis).toHaveBeenCalledTimes(1);
+  });
+
+  it('the signature read failed: "To Sign" is not 0, and Try Again reads it again', async () => {
+    apiMock.mySignatures.mockRejectedValueOnce(new Error('offline'));
+    render(<DeskHome notifications={[]} kpis={{ my_open_tasks: 0, my_checkouts: 2, my_assignments: 1 }} />);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain("Couldn't load To Sign.");
+    expect(screen.queryByRole('button', { name: /^To Sign/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Checked Out 2' })).toBeTruthy();
+    apiMock.mySignatures.mockResolvedValue([{ id: 1, title: 'Offer letter' }]);
+    fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
+    expect(await screen.findByRole('button', { name: 'To Sign 1' })).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

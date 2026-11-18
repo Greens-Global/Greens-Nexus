@@ -1,7 +1,9 @@
 // My Work tile (Essentials, Oct 7): render-smoke + behavior against the
 // /me/work shape (mocked). Grouping and the 7-row cap, Complete finishing a
 // task in place, the unread dot on a ticket reply, the empty state, and the
-// two ways a row opens (task vs ticket).
+// two ways a row opens (task vs ticket). Since 11/13/2026 the list is every
+// kind of work that is mine: the kind chips, the other kinds' rows and links,
+// a source that failed being named, and View All opening the whole list.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 
@@ -73,7 +75,7 @@ describe('workSub', () => {
 });
 
 describe('My Work tile', () => {
-  it('renders the groups with counts, seven rows at most, and View All goes to My Tasks', async () => {
+  it('renders the groups with counts, seven rows at most, and View All opens the whole list', async () => {
     apiMock.getMyWork.mockResolvedValue(shape({
       overdue: [task('o1', '2026-10-01'), task('o2', '2026-10-02')],
       today: [task('t1', '2026-10-08'), ticket('t2', '2026-10-08')],
@@ -89,10 +91,17 @@ describe('My Work tile', () => {
     // Tasks and tickets together, so it says so - never read against the
     // My Open Tasks number (live tasks only).
     expect(screen.getByText('9 Open Tasks and Tickets')).toBeTruthy();
-    expect(screen.getByText(/View All/).textContent).not.toMatch(/\d/);   // My Tasks holds no tickets
+    expect(screen.getByText(/View All/).textContent).not.toMatch(/\d/);
     expect(screen.getByText('Rollout · Due 10/01/2026')).toBeTruthy();   // US date
     expect(screen.getByText('#27 · Due 10/08/2026')).toBeTruthy();       // ticket number, not project
+    expect(screen.queryByRole('group', { name: 'Show' })).toBeNull();     // one kind of list: no chips
+    // View All: the whole list beside the page - all nine rows, Later included.
     fireEvent.click(screen.getByText(/View All/));
+    expect(await screen.findByText('Open My Tasks')).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(screen.getByText('Later')).toBeTruthy();
+    expect(screen.getAllByLabelText(/^Open /).length).toBeGreaterThanOrEqual(9);
+    fireEvent.click(screen.getByText('Open My Tasks'));
     expect(events).toContainEqual(['nexus:navigate', { view: 'tasks', sub: 'mine' }]);
   });
 
@@ -193,5 +202,116 @@ describe('My Work tile', () => {
     expect(await screen.findByText('Dependency not finished')).toBeTruthy();
     expect(screen.getByText('Task a')).toBeTruthy();
     expect(screen.queryByText('Task b')).toBeNull();
+  });
+});
+
+// ── One list of everything that is mine (Neil, 11/13/2026) ──────────────────
+const todo = (id, dueOn, extra = {}) => ({
+  kind: 'todo', source: 'todo', id, code: '', title: `Sign ${id}`, project: 'Documents To Sign', dueOn, status: 'todo',
+  statusLabel: 'Waiting on You', priority: 'medium', unread: false, view: 'myhr', sub: `sign:${id}`,
+  link: { view: 'myhr', sub: `sign:${id}` }, cta: 'Review & Sign', detail: '', ...extra,
+});
+const sheetRow = (extra = {}) => ({
+  kind: 'timesheet', source: 'timesheet', id: '2026-10-25:hourly', code: '', title: 'Submit Your Time Sheet', project: 'Time Sheet',
+  dueOn: '2026-11-07', status: 'timesheet', statusLabel: 'Not Submitted', priority: 'high', unread: false, view: 'timeclock',
+  sub: 'timesheet', link: { view: 'timeclock', sub: 'timesheet', start: '2026-10-25', payType: 'hourly', submit: true },
+  cta: 'Review and Submit', detail: '', ...extra,
+});
+const course = (id, dueOn, extra = {}) => ({
+  kind: 'course', source: 'training', id, code: '', title: `Course ${id}`, project: 'Training', dueOn, status: 'not_started',
+  statusLabel: 'Not Started', priority: 'medium', unread: false, view: 'sop', sub: `course:${id}`,
+  link: { view: 'sop', sub: `course:${id}` }, cta: 'Start', detail: '', ...extra,
+});
+const mixed = (extra = {}) => ({
+  ...shape({
+    overdue: [sheetRow(), course('c1', '2026-11-10')],
+    today: [task('t1', '2026-11-13', { source: 'tasks' }), todo('nexus_sign:p1', '2026-11-13')],
+    week: [ticket('k1', '2026-11-15', { source: 'tickets' })],
+  }),
+  sources: [{ key: 'tasks', label: 'Tasks', count: 1 }, { key: 'tickets', label: 'Tickets', count: 1 },
+    { key: 'todo', label: 'Yours To Do', count: 1 }, { key: 'timesheet', label: 'Time Sheet', count: 1 },
+    { key: 'training', label: 'Training', count: 1 }],
+  errors: [], ...extra,
+});
+
+describe('My Work is one list', () => {
+  it('shows every kind together, says what the number is, and only a task has Complete', async () => {
+    apiMock.getMyWork.mockResolvedValue(mixed());
+    render(<MyWork />);
+    expect(await screen.findByText('Submit Your Time Sheet')).toBeTruthy();
+    expect(screen.getByText('5 Waiting on You')).toBeTruthy();
+    expect(screen.getByText('Time Sheet · Due 11/07/2026')).toBeTruthy();
+    expect(screen.getByText('Documents To Sign · Due 11/13/2026')).toBeTruthy();
+    expect(screen.getAllByLabelText(/^Open /)).toHaveLength(5);
+    expect(screen.getAllByLabelText(/^Complete /)).toHaveLength(1);
+    expect(screen.getByLabelText('Complete Task t1')).toBeTruthy();
+  });
+
+  it('kind chips filter the list and say which is on', async () => {
+    apiMock.getMyWork.mockResolvedValue(mixed());
+    render(<MyWork />);
+    await screen.findByText('Submit Your Time Sheet');
+    const chips = screen.getByRole('group', { name: 'Show' });
+    expect([...chips.querySelectorAll('button')].map((b) => b.textContent.replace(/\s+/g, ' ').trim()))
+      .toEqual(['All 5', 'Tasks 1', 'Tickets 1', 'Yours To Do 1', 'Time Sheet 1', 'Training 1']);
+    expect(screen.getByRole('button', { name: /^All/ }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: /^Training/ }));
+    expect(screen.getByRole('button', { name: /^Training/ }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getAllByLabelText(/^Open /)).toHaveLength(1);
+    expect(screen.getByLabelText('Open Course c1')).toBeTruthy();
+    expect(screen.queryByText('Today')).toBeNull();          // no empty groups left behind
+    fireEvent.click(screen.getByRole('button', { name: /^All/ }));
+    expect(screen.getAllByLabelText(/^Open /)).toHaveLength(5);
+  });
+
+  it('a row of another kind opens the screen that owns it, by its own link', async () => {
+    window.addEventListener('nexus:open-my-timecard', onEvent);
+    openItem(todo('nexus_sign:p1', ''));
+    expect(events).toEqual([['nexus:navigate', { view: 'myhr', sub: 'sign:nexus_sign:p1' }]]);
+    events.length = 0;
+    openItem(course('c1', ''));
+    expect(events).toEqual([['nexus:navigate', { view: 'sop', sub: 'course:c1' }]]);
+    events.length = 0;
+    // The Time Sheet row lands on that period, at Send to Manager.
+    openItem(sheetRow());
+    await new Promise((r) => setTimeout(r, 0));
+    window.removeEventListener('nexus:open-my-timecard', onEvent);
+    expect(events[0]).toEqual(['nexus:navigate', { view: 'timeclock', sub: 'timesheet' }]);
+    expect(events).toContainEqual(['nexus:open-my-timecard', { start: '2026-10-25', payType: 'hourly', submit: true }]);
+    expect(takePendingOpen('myTimecard')).toEqual({ start: '2026-10-25', payType: 'hourly', submit: true });
+  });
+
+  it('names a source that could not load - beside the rows, and in place of "nothing due"', async () => {
+    apiMock.getMyWork.mockResolvedValue(mixed({ errors: [{ source: 'training', label: 'Training' }] }));
+    const { unmount } = render(<MyWork />);
+    expect(await screen.findByText("Couldn't load Training.")).toBeTruthy();
+    expect(screen.getAllByLabelText(/^Open /)).toHaveLength(5);
+    unmount();
+    apiMock.getMyWork.mockResolvedValue({ ...shape({}), sources: [], errors: [{ source: 'todo', label: 'Yours To Do' }, { source: 'training', label: 'Training' }] });
+    render(<MyWork />);
+    expect(await screen.findByText("Couldn't load Yours To Do and Training.")).toBeTruthy();
+    expect(screen.queryByText('Nothing due this week.')).toBeNull();
+  });
+
+  it('the whole list keeps the chip and closes when a row is opened', async () => {
+    apiMock.getMyWork.mockResolvedValue(mixed());
+    render(<MyWork />);
+    await screen.findByText('Submit Your Time Sheet');
+    fireEvent.click(screen.getByRole('button', { name: /^Yours To Do/ }));
+    fireEvent.click(screen.getByText(/View All/));
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.querySelectorAll('[aria-label^="Open "]')).toHaveLength(1);
+    expect(dialog.querySelector('[aria-pressed="true"]').textContent).toMatch(/^Yours To Do/);
+    fireEvent.click(dialog.querySelector('[aria-label="Open Sign nexus_sign:p1"]'));
+    expect(events).toContainEqual(['nexus:navigate', { view: 'myhr', sub: 'sign:nexus_sign:p1' }]);
+    await waitFor(() => expect(screen.queryByText('Open My Tasks')).toBeNull());
+  });
+});
+
+describe('workSub', () => {
+  it('says Waiting on You once the list holds more than tasks and tickets', () => {
+    expect(workSub(3, [{ key: 'tasks', count: 2 }, { key: 'training', count: 1 }])).toBe('3 Waiting on You');
+    expect(workSub(3, [{ key: 'tasks', count: 2 }, { key: 'tickets', count: 1 }])).toBe('3 Open Tasks and Tickets');
+    expect(workSub(2, [{ key: 'tasks', count: 2 }, { key: 'training', count: 0 }])).toBe('2 Open Tasks and Tickets');
   });
 });

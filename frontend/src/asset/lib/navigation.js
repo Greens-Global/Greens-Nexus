@@ -17,6 +17,7 @@ export const TAB_LIST = [
   ['vendors', 'Vendors'],
   ['permit', 'Permits'],
   ['timeline', 'Timeline'],
+  ['activity', 'Activity'],
 ];
 
 // The detail page's strip (Neil, Oct 21 2026): Overview, Maintenance, Records,
@@ -34,8 +35,8 @@ export function recordViewsFor(assetKind) {
 }
 export function stripTabsFor(assetKind) {
   return assetKind === 'property'
-    ? [['property', 'Overview'], ['maintenance', 'Maintenance'], ['records', 'Records'], ['timeline', 'Timeline']]
-    : [['property', 'Overview'], ['records', 'Records']];
+    ? [['property', 'Overview'], ['maintenance', 'Maintenance'], ['records', 'Records'], ['timeline', 'Timeline'], ['activity', 'Activity']]
+    : [['property', 'Overview'], ['records', 'Records'], ['activity', 'Activity']];
 }
 /** A record collection's segment label: short, Title Case. */
 /** A one-line explanation under a record segment whose name is an initialism. */
@@ -113,8 +114,41 @@ export function wordStatusTone(status) {
   return 'mut';
 }
 
-// The shell's default segment for /property-asset (its DEFAULT_SUBS): the portfolio.
+// The Properties register keeps the address it always had (old links, bookmarks).
 export const PORTFOLIO_SUB = 'asset-portfolio';
+
+// The portfolio's top menu (Neil, 11/17/2026): Overview (the landing tab, the shell's
+// DEFAULT_SUBS), Properties, Fleet, Development, Maintenance, Dates, Activity. Each tab
+// is one segment under /property-asset; Properties may carry its view after a "~"
+// (lib/portfolioQuery.js encodeView), so Back and a pasted link reproduce it.
+export const PORTFOLIO_TABS = [
+  ['overview', 'Overview', 'asset-overview'],
+  ['properties', 'Properties', PORTFOLIO_SUB],
+  ['fleet', 'Fleet', 'asset-fleet'],
+  ['development', 'Development', 'asset-development'],
+  ['maintenance', 'Maintenance', 'asset-maintenance'],
+  ['dates', 'Dates', 'asset-dates'],
+  ['activity', 'Activity', 'asset-activity'],
+];
+export const OVERVIEW_SUB = 'asset-overview';
+export const portfolioTabLabel = (tab) => (PORTFOLIO_TABS.find(([k]) => k === tab) || [])[1] || '';
+
+/** The address of a portfolio tab, with the Properties view string when there is one. */
+export function portfolioSub(tab, viewStr = '') {
+  const row = PORTFOLIO_TABS.find(([k]) => k === tab) || PORTFOLIO_TABS[0];
+  return tab === 'properties' && viewStr ? `${row[2]}~${viewStr}` : row[2];
+}
+
+/** { tab, view } for a portfolio address, or null for anything else (an asset, a ticket link). */
+export function parsePortfolioSub(sub) {
+  const s = String(sub || '');
+  if (!s) return { tab: 'overview', view: '' };
+  const at = s.indexOf('~');
+  const head = at < 0 ? s : s.slice(0, at);
+  const row = PORTFOLIO_TABS.find(([, , key]) => key === head);
+  if (!row) return null;
+  return { tab: row[0], view: row[0] === 'properties' && at >= 0 ? s.slice(at + 1) : '' };
+}
 
 // Deep links (Oct 2026): an open asset is one URL segment under /property-asset,
 // "a:<id>:<view>" - the view is a strip tab or a record collection key. The

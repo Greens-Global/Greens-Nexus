@@ -292,7 +292,7 @@ export default function HolidayPolicyEditor({ policy = null, entities: entitiesP
             {rowsForYear.length === 0 ? (
               <p style={{ ...HINT, padding: 14 }}>No holidays in {year} yet. Tick them in the list above, or add one by hand below.</p>
             ) : rowsForYear.map(({ h, i }) => (
-              <div key={`${h.key || 'row'}|${i}`} data-policy-holiday={h.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', fontSize: 12.5 }}>
+              <div key={`${h.key || 'row'}|${i}`} data-policy-holiday={h.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', fontSize: 13 }}>
                 <div style={{ minWidth: 150, display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <DateField value={h.date} onChange={v => changeDate(i, v)} disabled={readOnly} title="Change Date" style={{ fontWeight: 700 }} />
                   {h.actualDate && h.actualDate !== h.date && (

@@ -6,18 +6,19 @@ import { dialog } from '../ui/dialog';
 import { StatusLabel } from './StatusLabel';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
-import { ZONE_GROUPS, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
+import { ZONE_GROUPS, ALL_ZONES, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel, canonicalTz } from '../lib/worldClockZones';
 import { Spinner } from './AsyncState';
 import EmailSettingsPanel from '../tasks/MyEmailSettings';
 import KbTrainingEmailPref from './KbTrainingEmailPref';
 import DigestEmailPrefs from './DigestEmailPrefs';
 import WorkflowTextPref from './WorkflowTextPref';
 import { DATE_FORMATS, getDateFormat, setDateFormat, formatDate, formatDateTime } from '../lib/datetime';
-import { Modal, useIsMobile } from '../tasks/components';
+import { Modal, useIsMobile, TimeField } from '../tasks/components';
 import { SettingCard, SettingRow, SwitchRow } from './settings/SettingsUI';
 import { useRailMotion, FOLLOW_COMPANY } from '../lib/railMotion';
 import SaveRow from './SaveRow';
 import { useInstallPrompt, usePushSubscription } from '../lib/pwa';
+import { FS } from '../lib/typeScale';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
@@ -90,6 +91,13 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     return () => { live = false; clearTimeout(t); };
   }, [sig, sigSaved]);
   const [dateFmtStatus, setDateFmtStatus] = useState('');
+  // My Time Zone and Working Hours (11/13/2026): kept on the person's own
+  // People record (PUT /myhr/profile), so colleagues see the right clock for
+  // them. Selects, so each saves on change; working hours are a pair and save
+  // once both ends are picked (or both cleared).
+  const [zoneStatus, setZoneStatus] = useState('');
+  const [hoursStatus, setHoursStatus] = useState('');
+  const [hours, setHours] = useState(null);   // { start, end } while a pair is half picked
   // Fixed MAX_ZONES slots, '' = unset - a dropdown per slot (Pranshu, Sep 1).
   // Local (the detected system zone) always shows first on the greeting and
   // is not one of these slots (Pranshu, Sep 9).
@@ -148,6 +156,25 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
       setSignature(s); const v = fromSignature(s); setSig(v); setSigSaved(v); setLiveSigHtml(null); setSigStatus('Saved.');
     } catch (e) { setSigStatus(e?.message || 'Could not save.'); }
     setSigBusy(false);
+  }
+
+  async function saveMyZone(tz) {
+    setZoneStatus('Saving...');
+    try {
+      setProfile(await api.myHrProfileSave({ time_zone: tz }));
+      setZoneStatus('Saved.');
+    } catch (err) { setZoneStatus(err?.message || 'Could not save your time zone.'); }
+  }
+
+  async function pickHours(patch) {
+    const next = { start: hours?.start ?? profile?.workStart ?? '', end: hours?.end ?? profile?.workEnd ?? '', ...patch };
+    if (!next.start !== !next.end) { setHours(next); setHoursStatus('Pick the other time to save.'); return; }
+    if (next.start && next.start === next.end) { setHours(next); setHoursStatus('The start and end cannot be the same time.'); return; }
+    setHours(next); setHoursStatus('Saving...');
+    try {
+      setProfile(await api.myHrProfileSave({ work_start: next.start, work_end: next.end }));
+      setHours(null); setHoursStatus('Saved.');
+    } catch (err) { setHoursStatus(err?.message || 'Could not save your working hours.'); }
   }
 
   // Every date on every screen is already drawn, so a reload shows the new order everywhere.
@@ -221,20 +248,20 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
         {profile?.photoUrl ? (
           <img src={profile.photoUrl} alt="" style={{ width: 64, height: 64, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
         ) : (
-          <div aria-hidden="true" style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'grid', placeItems: 'center', fontSize: 20, fontWeight: 700 }}>
+          <div aria-hidden="true" style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'grid', placeItems: 'center', fontSize: 18, fontWeight: 700 }}>
             {profile ? (initials || <User size={24} />) : <User size={24} />}
           </div>
         )}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         {!profile && !error ? <Spinner size="inline" /> : (<>
-          <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--ink)', lineHeight: 1.3 }}>{fullName || profile?.workEmail || 'You'}</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)', lineHeight: 1.3 }}>{fullName || profile?.workEmail || 'You'}</div>
           {profile?.workEmail && <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 1 }}>{profile.workEmail}</div>}
           {profile?.jobTitle && (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>{profile.jobTitle}{profile.department ? ` - ${profile.department}` : ''}</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 1 }}>{profile.jobTitle}{profile.department ? ` - ${profile.department}` : ''}</div>
           )}
           {error && !profile && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12.5, lineHeight: 1.45, color: 'var(--muted)', marginTop: 2 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 13, lineHeight: 1.45, color: 'var(--muted)', marginTop: 2 }}>
               <Info size={13} aria-hidden="true" style={{ flex: 'none', marginTop: 2 }} /> {error}
             </div>
           )}
@@ -244,7 +271,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
       </div>
       {profile && (
         <button type="button" className="secondary-btn" onClick={() => setPhotoOpen(true)}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flex: 'none' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, flex: 'none' }}>
           <Camera size={14} aria-hidden="true" /> {profile.photoUrl ? 'Change Photo' : 'Add Photo'}
         </button>
       )}
@@ -259,7 +286,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
         return (
           <button key={key} type="button" role="radio" aria-checked={on} onClick={() => onPick(key)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
-              fontFamily: 'inherit', fontSize: 12.5, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)',
+              fontFamily: 'inherit', fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)',
               background: on ? 'var(--card)' : 'transparent', boxShadow: on ? '0 1px 2px rgba(15,23,42,.12)' : 'none' }}>
             {swatch && <span aria-hidden="true" style={{ width: 11, height: 11, borderRadius: 3, background: swatch, border: '1px solid rgba(0,0,0,.12)' }} />}
             {text}
@@ -268,6 +295,11 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
       })}
     </span>
   );
+  // The zone on the People record in this browser's own spelling of it (the
+  // options are canonical: "Asia/Kolkata" reads "Asia/Calcutta" on some engines).
+  const myZone = profile?.timeZone ? (canonicalTz(profile.timeZone) || profile.timeZone) : '';
+  const detectedZone = profile?.detectedTimeZone ? (canonicalTz(profile.detectedTimeZone) || '') : '';
+  const shownHours = hours || { start: profile?.workStart || '', end: profile?.workEnd || '' };
   const zoneSelect = (val, i) => (
     <select className="form-input" value={val} onChange={(e) => setSlot(i, e.target.value)} aria-label={`Extra clock ${i + 1}`}
       style={{ fontSize: 13, width: isMobile ? '100%' : 300 }}>
@@ -284,7 +316,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     appearance: (
       <SettingCard>
         {onThemeToggle && (
-          <SwitchRow id="profile-dark" title="Dark Mode" desc="Dark backgrounds across Nexus, on this device."
+          <SwitchRow id="profile-dark" title="Dark Mode" desc="Dark backgrounds across Nexus. Your choice follows your account to every device you sign in on."
             checked={theme === 'dark'} onChange={() => onThemeToggle()} />
         )}
         {setWkTheme && (
@@ -309,8 +341,8 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             : installer.canInstall ? 'Put Nexus on your home screen: it opens full screen, with its own icon.'
               : installer.isIos ? 'In Safari, tap Share, then Add to Home Screen.'
                 : 'Open Nexus in Chrome, Edge or Safari on your phone to install it to the home screen.'}
-          control={installer.isStandalone ? <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Installed</span>
-            : installer.canInstall ? <button type="button" className="primary-btn" style={{ fontSize: 12.5 }} onClick={() => installer.install()}>Install</button>
+          control={installer.isStandalone ? <span style={{ fontSize: 13, color: 'var(--muted)' }}>Installed</span>
+            : installer.canInstall ? <button type="button" className="primary-btn" style={{ fontSize: 13 }} onClick={() => installer.install()}>Install</button>
               : null} />
         <SwitchRow id="profile-push" title="Push to This Device"
           desc={!pushSub.supported ? (installer.isStandalone ? 'Not available on this phone. Update it to iOS 16.4 or later.'
@@ -337,7 +369,34 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
               {DATE_FORMATS.map((f) => <option key={f} value={f}>{f} - {formatDate(new Date(), '', undefined, f)}{f === DATE_FORMATS[0] ? ' (Default)' : ''}</option>)}
             </select>
           )} />
-        <SettingRow title="Your Time Zone"
+        {profile?.workEmail && (<>
+          <SettingRow title="My Time Zone"
+            desc={zoneStatus || 'The clock colleagues see for you in the Contact Directory. Until you pick one, Nexus works it out from your location and your punches.'}
+            control={(
+              <select className="form-input" aria-label="My Time Zone" value={myZone} onChange={(e) => saveMyZone(e.target.value)}
+                disabled={zoneStatus === 'Saving...'} style={{ fontSize: FS.body, width: isMobile ? '100%' : 300 }}>
+                <option value="">{detectedZone ? `Detected: ${zoneOptionLabel(detectedZone)}` : 'Detected Automatically'}</option>
+                {myZone && !ALL_ZONES.includes(myZone) && <option value={myZone}>{zoneOptionLabel(myZone)}</option>}
+                {Object.entries(ZONE_GROUPS).map(([region, tzs]) => (
+                  <optgroup key={region} label={region.replace(/_/g, ' ')}>
+                    {tzs.map((tz) => <option key={tz} value={tz}>{zoneOptionLabel(tz)}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            )} />
+          <SettingRow title="Working Hours"
+            desc={hoursStatus || 'When you usually work, on your own clock. Outside these hours, colleagues see a quiet note before they assign you work.'}
+            control={(
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <TimeField step={30} value={shownHours.start} onChange={(v) => pickHours({ start: v })} ariaLabel="Working Hours Start"
+                  emptyLabel="Not Set" disabled={hoursStatus === 'Saving...'} style={{ width: 124, fontSize: FS.body }} />
+                <span style={{ fontSize: FS.body, color: 'var(--muted)' }}>to</span>
+                <TimeField step={30} value={shownHours.end} onChange={(v) => pickHours({ end: v })} ariaLabel="Working Hours End"
+                  emptyLabel="Not Set" disabled={hoursStatus === 'Saving...'} style={{ width: 124, fontSize: FS.body }} />
+              </span>
+            )} />
+        </>)}
+        <SettingRow title="This Device's Time Zone"
           desc="From this computer. It shows first on your Dashboard greeting, with California time beside it when yours is different."
           control={<span style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right', display: 'block', maxWidth: 300 }}>{zoneOptionLabel(LOCAL_TZ)}</span>} />
         {zoneSlots.map((val, i) => (
@@ -349,7 +408,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     ),
     signature: !signature ? (sigError ? <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{sigError}</p> : <Spinner size="section" />) : (
       <>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 14 }}>
           Your name, role and company email come from your directory record, and the design is set by your administrator. These are yours to change.
         </div>
         <div onPaste={onSigPaste} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: 22, alignItems: 'start' }}>
@@ -360,7 +419,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             {field('closing', 'Sign-Off', 'e.g. Sincerely, or write your own',
               signature.closingPresets?.some(c => c) && (
                 <select className="form-input" value="" aria-label="Pick a sign-off" onChange={e => { if (e.target.value) setSig((v) => ({ ...v, closing: e.target.value })); }}
-                  style={{ fontSize: 12.5, width: 130, flex: 'none' }}>
+                  style={{ fontSize: 13, width: 130, flex: 'none' }}>
                   <option value="">Pick One…</option>
                   {signature.closingPresets.filter(c => c).map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -371,26 +430,26 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
                 {signature.logoUrl && (
                   <img src={signature.logoUrl} alt="" style={{ height: 30, maxWidth: 110, objectFit: 'contain', borderRadius: 4, background: '#fff', border: '1px solid var(--line)', padding: 2 }} />
                 )}
-                <label className="secondary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: logoBusy ? 0.6 : 1 }}>
+                <label className="secondary-btn" style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: logoBusy ? 0.6 : 1 }}>
                   {logoBusy ? <Spinner size={12} /> : <Camera size={13} />}
                   {signature.logoUrlOverride ? 'Replace Logo' : 'Upload Logo'}
                   <input type="file" accept="image/*" style={{ display: 'none' }} disabled={logoBusy}
                     onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) uploadSignatureLogo(f); }} />
                 </label>
                 {signature.logoUrlOverride && (
-                  <button type="button" className="secondary-btn" onClick={removeSignatureLogo} disabled={logoBusy} style={{ fontSize: 12.5 }}>
+                  <button type="button" className="secondary-btn" onClick={removeSignatureLogo} disabled={logoBusy} style={{ fontSize: 13 }}>
                     Use Company Logo
                   </button>
                 )}
               </span>
-              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or press Ctrl+V to paste one</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>or press Ctrl+V to paste one</span>
             </div>
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2, var(--muted))' }}>Preview</span>
               <button type="button" className="secondary-btn" onClick={copySignature}
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy Signature'}
               </button>
             </div>
@@ -527,7 +586,7 @@ function SecuritySection({ isMobile }) {
   }
 
   const sub = { margin: '0 0 8px', fontSize: 13, fontWeight: 600, color: 'var(--ink)' };
-  const hint = { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.55, margin: '0 0 12px' };
+  const hint = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, margin: '0 0 12px' };
   const chip = (label, color) => <StatusLabel label={label} color={color} size="sm" />;
 
   return (
@@ -543,7 +602,7 @@ function SecuritySection({ isMobile }) {
               desc={_place([s.location, s.ip, s.lastSeen ? `Last seen ${formatDateTime(s.lastSeen)}` : ''])}
               control={s.current ? chip('This Device', CHIP_HERE) : (
                 <button type="button" className="secondary-btn" onClick={() => signOutOne(s)} disabled={busy !== ''}
-                  style={{ fontSize: 12.5 }}>
+                  style={{ fontSize: 13 }}>
                   {busy === s.id ? 'Signing Out\u2026' : 'Sign Out'}
                 </button>
               )} />
@@ -552,10 +611,10 @@ function SecuritySection({ isMobile }) {
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '12px 0 22px' }}>
         <button type="button" className="secondary-btn" onClick={signOutOthers}
-          disabled={busy !== '' || others.length === 0} style={{ fontSize: 12.5 }}>
+          disabled={busy !== '' || others.length === 0} style={{ fontSize: 13 }}>
           {busy === 'others' ? 'Signing Out\u2026' : 'Sign Out Other Devices'}
         </button>
-        {msg && <span role="status" style={{ fontSize: 12.5, color: /Could not/.test(msg) ? 'hsl(var(--color-red))' : 'var(--muted)' }}>{msg}</span>}
+        {msg && <span role="status" style={{ fontSize: 13, color: /Could not/.test(msg) ? 'hsl(var(--color-red))' : 'var(--muted)' }}>{msg}</span>}
       </div>
 
       <h4 style={sub}>Recent Sign-Ins</h4>

@@ -190,41 +190,39 @@ describe('CompensationReport', () => {
     await waitFor(() => expect(api.getCompensationLines).toHaveBeenCalledWith({ from: '2026-01-01', to: '2026-12-31', employees: ['E-0084'], accounts: ['61908'] }));
     const p = panel();
     expect(within(p).getByRole('heading', { name: 'Bonus' })).toBeTruthy();
-    const table = await within(p).findByRole('table', { name: /Ledger lines/ });
-    // Intacct's General Ledger columns, each with its drag handle (widths kept per person).
+    const table = await within(p).findByRole('table', { name: /ledger lines/i });
+    // The shared lines panel's General Ledger columns (LinesPanel, 11/12/2026), each with its drag handle (widths kept per person).
     const heads = within(table).getAllByRole('columnheader');
-    expect(heads.map((h) => h.firstChild.textContent)).toEqual(['Posted Date', 'Entry', 'Doc', 'Account', 'Memo', 'Location', 'Vendor', 'Customer', 'Item', 'Employee', 'Department', 'Debit', 'Credit', 'Balance']);
-    expect(within(table).getByRole('separator', { name: 'Resize the Memo column' })).toBeTruthy();
+    expect(heads.map((h) => h.firstChild.textContent)).toEqual(['Date', 'Entry', 'Doc', 'Account', 'Name', 'Description', 'Entity', 'Department', 'Debit', 'Credit', 'Balance']);
+    expect(within(table).getByRole('separator', { name: 'Resize the Description column' })).toBeTruthy();
     const line = within(table).getByText('03/15/2026').closest('tr');
     for (const t of ['PYRJ-12', '70376e43', 'Q1 bonus', '(AM) GS -Valley center', 'Valinda Cranfill', 'Storage']) expect(line.textContent).toContain(t);
     // The entry opens the transaction behind the line (the second level of the drill).
-    expect(within(line).getByRole('button', { name: 'PYRJ-12' }).title).toBe('Open the transaction behind this line');
+    expect(within(line).getByRole('button', { name: 'PYRJ-12' }).title).toBe('Open this journal entry');
     fireEvent.click(within(p).getByRole('button', { name: '61908 Bonus' }));
     expect(parkDrillReturn).toHaveBeenCalledWith('compensation', expect.objectContaining({ view: 'people' }));
     expect(requestReportDrill).toHaveBeenCalledWith(expect.objectContaining({ account: '61908', from: '2026-01-01', to: '2026-12-31',
       party: { kind: 'employee', code: 'E-0084', name: 'Valinda Cranfill' }, back: { label: 'Back to Compensation', sub: 'compensation' } }));
   });
 
-  it('the Memo column of the ledger lines drags wider, and the width is kept for the next figure (UI test 10/28)', async () => {
+  it('the Description column of the ledger lines drags wider, and the width is kept for the next figure (UI test 10/28)', async () => {
     render(<CompensationReport />);
     await screen.findByText('Valinda Cranfill');
     fireEvent.click(screen.getByRole('button', { name: 'Bonus for Valinda Cranfill: 850.00 - open the ledger lines' }));
-    const table = await within(panel()).findByRole('table', { name: /Ledger lines/ });
-    const memo = () => within(panel()).getByRole('table', { name: /Ledger lines/ }).querySelectorAll('thead th')[4];
-    expect(memo().style.width).toBe('150px');
-    const before = parseFloat(table.style.width);
+    const table = await within(panel()).findByRole('table', { name: /ledger lines/i });
+    const memo = () => within(panel()).getByRole('table', { name: /ledger lines/i }).querySelectorAll('thead th')[5];
+    expect(memo().style.width).toBe('240px');
     // jsdom measures every cell 0 wide, so the drag's 240 px is the new width
     // (pointer events as MouseEvents: jsdom's PointerEvent drops clientX).
     const at = (type, x) => new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x });
-    fireEvent(within(table).getByRole('separator', { name: 'Resize the Memo column' }), at('pointerdown', 100));
-    fireEvent(window, at('pointermove', 340));
-    fireEvent(window, at('pointerup', 340));
-    await waitFor(() => expect(memo().style.width).toBe('240px'));
-    expect(parseFloat(table.style.width)).toBe(before + 90);
+    fireEvent(within(table).getByRole('separator', { name: 'Resize the Description column' }), at('pointerdown', 100));
+    fireEvent(window, at('pointermove', 420));
+    fireEvent(window, at('pointerup', 420));
+    await waitFor(() => expect(memo().style.width).toBe('320px'));
     fireEvent.keyDown(window, { key: 'Escape' });
     fireEvent.click(screen.getByRole('button', { name: 'Bonus for Valinda Cranfill: 850.00 - open the ledger lines' }));
-    await within(panel()).findByRole('table', { name: /Ledger lines/ });
-    expect(memo().style.width).toBe('240px');
+    await within(panel()).findByRole('table', { name: /ledger lines/i });
+    expect(memo().style.width).toBe('320px');
   });
 
   it('from the person\'s report, a figure opens its lines with a way back; the health split asks for one side only', async () => {
@@ -264,12 +262,29 @@ describe('CompensationReport', () => {
     expect(await screen.findByText(/No payroll on the ledger carries an employee in these months/)).toBeTruthy();
   });
 
+  // 11/11/2026: the month boxes are the house DateField (monthOnly), never a
+  // native month input - open it, pick the year, then the month.
+  function pickMonth(title, year, month) {
+    fireEvent.click(screen.getByTitle(title));
+    fireEvent.click(screen.getByTitle('Pick a year'));
+    fireEvent.click(screen.getByRole('button', { name: year }));
+    fireEvent.click(screen.getByRole('button', { name: month }));
+  }
+
+  it('shows the range as month names in the house box', async () => {
+    render(<CompensationReport />);
+    await screen.findByText('Valinda Cranfill');
+    pickMonth('To Month', '2026', 'Mar');
+    expect(screen.getByTitle('To Month').textContent).toBe('March 2026');
+    expect(document.querySelector('input[type="month"]')).toBeNull();
+  });
+
   // 10/30 (Neil): no Run Report button - a valid range runs itself; a bad
   // one shows why and never reads the ledger.
   it('refuses a range longer than a year', async () => {
     render(<CompensationReport />);
     await screen.findByText('Valinda Cranfill');
-    fireEvent.change(screen.getByLabelText('From Month'), { target: { value: '2024-01' } });
+    pickMonth('From Month', '2024', 'Jan');
     expect(screen.getByText('Pick at most 12 months.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Run Report' })).toBeNull();
     expect(api.getCompensationReport).toHaveBeenCalledTimes(1);
@@ -278,7 +293,7 @@ describe('CompensationReport', () => {
   it('a changed range runs by itself after a beat', async () => {
     render(<CompensationReport />);
     await screen.findByText('Valinda Cranfill');
-    fireEvent.change(screen.getByLabelText('From Month'), { target: { value: '2026-03' } });
+    pickMonth('From Month', '2026', 'Mar');
     await waitFor(() => expect(api.getCompensationReport).toHaveBeenCalledTimes(2), { timeout: 2500 });
     expect(api.getCompensationReport).toHaveBeenLastCalledWith('2026-03', expect.any(String));
   });

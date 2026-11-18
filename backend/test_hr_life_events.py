@@ -1087,6 +1087,57 @@ class OffboardTests(LifeEventCase):
         with self.assertRaises(hle.PacketError):
             self._off("2099-02-28")
 
+    def test_a_signed_package_is_never_replaced_and_change_last_day_keeps_it(self):
+        # Neil, 11/14/2026: a signed (or open, or no-paperwork) scheduled exit
+        # was silently canceled and a second package sent. Now: 409, and the
+        # date moves with Change Last Day - the package untouched.
+        for m in (models.HrChecklist, models.HrChecklistItem, models.ExitStatement):
+            self.db.query(m).delete()
+        self.db.commit()
+        ev, _r = self._off("2099-01-31")
+        rid = ev.sign_request_id
+        self._sign(self._party(rid, ERIN))
+        self._sign(self._party(rid, HR))
+        self.assertEqual(self._ev(ev.id).status, "completed")
+        with self.assertRaises(hle.PacketError) as e:
+            self._off("2099-02-28")
+        self.assertEqual(e.exception.status, 409)
+        self.assertIn("Change Last Day", str(e.exception))
+        self.assertEqual(self._ev(ev.id).apply_status, "scheduled")
+        invited = len(self.invited)
+        hle.change_last_day(self.db, self._ev(ev.id), "2099-02-28", HR)
+        ev = self._ev(ev.id)
+        self.assertEqual((ev.effective_date, ev.status, ev.sign_request_id, ev.apply_status),
+                         ("2099-02-28", "completed", rid, "scheduled"))
+        self.assertEqual(self.db.query(models.HrSignRequest).filter_by(id=rid).one().status, "completed")
+        self.assertEqual(len(self.invited), invited)                 # nothing sent again
+        self.assertEqual(self.db.query(models.HrLifeEvent).filter_by(kind="separation").count(), 1)
+        cl = self.db.query(models.HrChecklist).filter_by(employee_id="id-erin", kind="offboarding").one()
+        self.assertEqual(cl.anchor_date, "2099-02-28")
+
+    def test_send_separation_package_to_someone_already_left(self):
+        for m in (models.HrChecklist, models.HrChecklistItem, models.ExitStatement):
+            self.db.query(m).delete()
+        self.db.commit()
+        ev, _r = self._off(hle._today(), send_package=False)           # left with no paperwork
+        self.assertEqual(self._emp().status, "offboarded")
+        with self.assertRaises(hle.PacketError):                       # plan_separation still refuses a Left person
+            self._off(hle._today())
+        pk = hle.send_separation_package(self.db, HR_USER, "id-erin", {}, None, excluded_ack=True)
+        pk = self._ev(pk.id)
+        self.assertEqual((pk.apply_status, pk.subject_email, pk.status), ("", "erin@gmail.com", "sent"))
+        self.assertEqual(self._emp().status, "offboarded")
+        self.assertEqual(self._ev(ev.id).apply_status, "applied")       # the exit itself is untouched
+        erin = self._party(pk.sign_request_id, "erin@gmail.com")
+        company = self._party(pk.sign_request_id, HR)
+        self.assertEqual(erin.kind, "external")
+        self.assertLess(erin.ordinal, company.ordinal)                 # they sign first, the company after
+        with self.assertRaises(hle.PacketError) as e:                  # one out already
+            hle.send_separation_package(self.db, HR_USER, "id-erin", {}, None, excluded_ack=True)
+        self.assertEqual(e.exception.status, 409)
+        esign.void_request(pk.sign_request_id, user=HR_USER, db=self.db)   # voided: it may go again
+        hle.send_separation_package(self.db, HR_USER, "id-erin", {}, None, excluded_ack=True)
+
 
 class EmailAndRoleTests(LifeEventCase):
     """Pranshu, Oct 8: the job title is one of the company's roles, "Other"

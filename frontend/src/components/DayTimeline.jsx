@@ -29,6 +29,18 @@ export function daySegments(punches) {
 }
 
 const HOUR = 3600000;
+// The window around [a, b] padded out to WHOLE HOURS ON THE READER'S CLOCK -
+// the clock the labels and the hover times are written in. Snapping to whole
+// UTC hours put every tick on the half hour in a half-hour zone (India,
+// UTC+5:30) under a label that names the hour only, so each label read 30
+// minutes early (11/17/2026). `offsetOf` is Date#getTimezoneOffset for a
+// moment (minutes, positive west of UTC) - read per end, so a day that
+// crosses a clock change still lands on whole hours.
+const zoneOffset = (t) => new Date(t).getTimezoneOffset();
+function hourWindow(a, b, offsetOf = zoneOffset) {
+  const lo = offsetOf(a) * 60000, hi = offsetOf(b) * 60000;
+  return { min: Math.floor((a - lo) / HOUR) * HOUR + lo, max: Math.ceil((b - hi) / HOUR) * HOUR + hi };
+}
 const fmtT = (t) => new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 const fmtDur = (ms) => {
   const m = Math.round(ms / 60000);
@@ -65,9 +77,8 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
     s.open ? { ...s, b: Math.min(s.b, cap), dangling: !isToday } : s);
   if (!segs.length) return null;
 
-  // Zoom to the actual punched window, padded to whole hours.
-  const min = Math.floor(Math.min(...segs.map(s => s.a)) / HOUR) * HOUR;
-  const max = Math.ceil(Math.max(...segs.map(s => s.b)) / HOUR) * HOUR;
+  // Zoom to the actual punched window, padded to whole hours on the reader's clock.
+  const { min, max } = hourWindow(Math.min(...segs.map(s => s.a)), Math.max(...segs.map(s => s.b)));
   const span = Math.max(max - min, HOUR);
   const pct = (t) => ((t - min) / span) * 100;
   const live = segs.some(s => s.open);
@@ -124,7 +135,7 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
               <div style={{ position: 'absolute', left: `${x}%`, top: -2, bottom: -2, width: 2, borderRadius: 1,
                 background: 'var(--ink)', opacity: 0.55, pointerEvents: 'none' }} />
               <span style={{ position: 'absolute', left: `${x}%`, bottom: '100%',
-                transform: `translate(${x > 88 ? '-100%' : '-50%'}, -1px)`, fontSize: 9, fontWeight: 700,
+                transform: `translate(${x > 88 ? '-100%' : '-50%'}, -1px)`, fontSize: 11, fontWeight: 700,
                 color: 'var(--muted)', pointerEvents: 'none' }}>Now</span>
             </>
           );
@@ -134,7 +145,7 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
         <div style={{ position: 'relative', height: 13, marginTop: 2 }}>
           {tickList.map(t => (
             <span key={t} style={{ position: 'absolute', left: `${pct(t)}%`, transform: 'translateX(-50%)',
-              fontSize: 9, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+              fontSize: 11, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
               {new Date(t).toLocaleTimeString('en-US', { hour: 'numeric' })}
             </span>
           ))}

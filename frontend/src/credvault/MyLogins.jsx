@@ -5,9 +5,10 @@
 // see but not open sit folded at the bottom with Request Access. The screen
 // owns the gated calls; this file lays the list out.
 import { useState } from "react";
-import { Search, X, Star, Clock, Copy, Check, KeyRound, ExternalLink, ChevronDown, ChevronRight, Send, ShieldAlert, Lock, ShieldCheck } from "lucide-react";
+import { Search, X, Star, Clock, Copy, Check, KeyRound, ExternalLink, ChevronDown, ChevronRight, Send, Lock, ShieldCheck } from "lucide-react";
 import { ACCESS_LABEL, groupLogins, healthFlags, healthTone, siteOf, timeLeft } from "./vaultModel";
 import { Monogram } from "./vaultCards";
+import { TierChip } from "./vaultShared";
 
 /** The site's own icon when the row has a link, else the department monogram. */
 export function SiteIcon({ cred, depts, size = 38 }) {
@@ -55,12 +56,13 @@ function Row({ cred, depts, active, favorite, now, nameOf, done, onOpen, onToggl
       <button type="button" className="cv-login-open cv-login-main" onClick={() => onOpen(cred.id)} style={{ display: "block" }}>
         <div className="cv-login-name">
           <span>{cred.name}</span>
-          {cred.tier === "Critical" && <span className="cv-chip cv-chip-xs tone-bad"><ShieldAlert size={10} /> Critical</span>}
+          {cred.tier === "Critical" && <TierChip tier="Critical" xs />}
           {flags.length > 0 && <span className={`cv-dot tone-${tone}`} title={flags.map((f) => f.label).join(", ")} />}
           {favorite && <Star size={11} className="cv-prow-star" fill="currentColor" />}
         </div>
         <div className="cv-login-sub">
           {cred.username && cred.username !== "-" ? cred.username : siteOf(cred.url) || cred.dept}
+          {cred.siteName ? <> · {cred.siteName}</> : null}
           {cred.access === "shared" && cred.grantUntil ? <> · <Clock size={10} style={{ verticalAlign: -1 }} /> {timeLeft(cred.grantUntil - now)} left</> : null}
           {cred.access === "person" ? <> · shared with you by {nameOf(cred.owner)}</> : null}
         </div>
@@ -124,7 +126,7 @@ export default function MyLogins({
           <div className="cv-login" key={c.id} data-login={c.id}>
             <button type="button" className="cv-login-open" onClick={() => onOpen(c.id)} aria-label={`${c.name} details`}><SiteIcon cred={c} depts={depts} /></button>
             <button type="button" className="cv-login-open cv-login-main" onClick={() => onOpen(c.id)} style={{ display: "block" }}>
-              <div className="cv-login-name"><span>{c.name}</span>{c.tier === "Critical" && <span className="cv-chip cv-chip-xs tone-bad">Critical</span>}<span className="cv-chip cv-chip-xs tone-muted">{ACCESS_LABEL[c.access]}</span></div>
+              <div className="cv-login-name"><span>{c.name}</span>{c.tier === "Critical" && <TierChip tier="Critical" xs />}<span className="cv-chip cv-chip-xs tone-muted">{ACCESS_LABEL[c.access]}</span></div>
               <div className="cv-login-sub">{c.dept} · owned by {nameOf(c.owner)}{c.access === "view" && c.username && c.username !== "-" ? ` · ${c.username}` : ""}</div>
             </button>
             <span className="cv-login-actions">

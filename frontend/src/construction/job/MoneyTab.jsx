@@ -27,22 +27,22 @@ import ActualLines from './ActualLines';
 // Its own chunk: only a manager adding or opening a commitment loads it.
 const CommitmentSheet = lazy(() => import('./CommitmentSheet'));
 
-const quiet = { fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 };
-const h3 = { fontSize: '0.98rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 };
+const h3 = { fontSize: 15, fontWeight: 700, margin: 0, color: 'var(--text-primary)' };
 const STAGE_TONE = { requested: TONE.yellow, posting: TONE.blue, received: TONE.blue, paid: TONE.green };
 
 function Figure({ label, value, hint, onDrill, testId, tone }) {
   const text = value == null ? '-' : usd(value);
   return (
     <div data-money-figure={testId} style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, padding: '12px 14px', border: '1px solid var(--border-color)', borderRadius: 10, background: 'var(--bg-card)' }}>
-      <span style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{label}</span>
+      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{label}</span>
       {onDrill && value != null ? (
         <button type="button" className="acct-drill" onClick={onDrill} title="See the ledger lines behind this amount" aria-label={`Ledger lines behind ${label}`}
-          style={{ border: 'none', background: 'none', margin: 0, padding: 0, fontFamily: 'inherit', cursor: 'pointer', fontSize: '1.2rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', textAlign: 'left', width: 'fit-content', color: tone || 'var(--text-primary)', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 4 }}>{text}</button>
+          style={{ border: 'none', background: 'none', margin: 0, padding: 0, fontFamily: 'inherit', cursor: 'pointer', fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', textAlign: 'left', width: 'fit-content', color: tone || 'var(--text-primary)', textDecoration: 'underline', textDecorationColor: 'var(--border-color)', textUnderlineOffset: 4 }}>{text}</button>
       ) : (
-        <span style={{ fontSize: '1.2rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: tone || 'var(--text-primary)' }}>{text}</span>
+        <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: tone || 'var(--text-primary)' }}>{text}</span>
       )}
-      {hint && <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>{hint}</span>}
+      {hint && <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{hint}</span>}
     </div>
   );
 }
@@ -155,7 +155,7 @@ export default function MoneyTab({ project, money, onEdit }) {
             </span>
           )}
           {m.canMap && onEdit && (
-            <button type="button" className="secondary-btn" onClick={onEdit} style={{ marginLeft: 'auto', padding: '6px 12px', fontSize: '0.8rem' }}>
+            <button type="button" className="secondary-btn" onClick={onEdit} style={{ marginLeft: 'auto', padding: '6px 12px', fontSize: 13 }}>
               <Pencil size={13} />{m.mapped ? 'Change Mapping' : 'Map to the Books'}
             </button>
           )}
@@ -282,7 +282,7 @@ export default function MoneyTab({ project, money, onEdit }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <h3 style={h3}>Commitments</h3>
             {m.canMap && (
-              <button type="button" className="secondary-btn" onClick={() => setSheet('new')} style={{ marginLeft: 'auto', padding: '6px 12px', fontSize: '0.8rem' }}>
+              <button type="button" className="secondary-btn" onClick={() => setSheet('new')} style={{ marginLeft: 'auto', padding: '6px 12px', fontSize: 13 }}>
                 <Plus size={13} />Add Commitment
               </button>
             )}

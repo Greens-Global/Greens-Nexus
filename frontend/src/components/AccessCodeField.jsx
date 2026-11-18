@@ -62,7 +62,7 @@ export default function AccessCodeField({ value = '', onChange, phone = '', code
           onChange={(e) => onChange(e.target.value)}
           placeholder={compact ? 'Access code (optional)'
             : 'Access code (optional) - the link will ask for it'}
-          style={{ width: '100%', fontSize: compact ? 11.5 : 12, paddingRight: value ? 58 : 34 }} />
+          style={{ width: '100%', fontSize: 12, paddingRight: value ? 58 : 34 }} />
         {value && (
           <button type="button" onClick={copy} title={copied ? 'Copied' : 'Copy the code'}
             aria-label="Copy access code" style={{ ...iconBtn, right: 30 }}>

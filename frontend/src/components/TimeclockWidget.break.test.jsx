@@ -38,6 +38,19 @@ const openChip = () => fireEvent.click(screen.getByTitle('Time clock - tap for c
 beforeEach(() => { punchMock.punchDurable.mockReset(); timeStatus.applyPunch.mockReset(); timeStatus.status = clockedIn(); delete window.__nexusCapture; });
 afterEach(() => { cleanup(); delete window.__nexusCapture; });
 
+// 11/17/2026: the capsule (z 1190) sat on the right end of a popup's footer.
+describe('TimeclockWidget capsule', () => {
+  it('installs the one rule that takes the capsule away while a popup is open', () => {
+    const rule = document.getElementById('tc-capsule-rules')?.textContent || '';
+    expect(rule).toContain('.modal-overlay:not(.is-closing)');
+    expect(rule).toContain('.nx-overlay:not(.is-closing)');
+    expect(rule).toMatch(/\.tc-capsule \{ display: none/);
+    render(<TimeclockWidget />);
+    expect(document.querySelector('.tc-capsule')).toBeTruthy();   // the element the rule names
+    expect(document.querySelectorAll('#tc-capsule-rules')).toHaveLength(1);
+  });
+});
+
 describe('TimeclockWidget break prompts', () => {
   it('Start Break opens the reason prompt; the punch records once it is sent, with the moment the button was pressed, and the chip flips on the answer', async () => {
     const punch = { kind: 'break_start', at: stamp(new Date()), localDate: TODAY };

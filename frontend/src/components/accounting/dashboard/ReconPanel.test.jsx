@@ -20,6 +20,7 @@ vi.mock('../drill', () => ({ requestReportDrill: vi.fn() }));
 vi.mock('../../../investor/lib/upload', () => ({ uploadToSupabase: vi.fn(), safeFileName: (s) => s }));
 
 import ReconPanel from './ReconPanel';
+import { HOLD_RECORD_MS } from '../../../ui/HoldButton';
 import { requestReportDrill } from '../drill';
 
 const bank = { key: 'gl:a@34000', type: 'Bank', name: 'INK - F&M - 5446', entityCode: '34000', gl: '11336', thru: '2026-09-30', book: 9082.4, stmt: 9082.4, diff: 0, status: 'Reconciled', source: 'intacct', intacctRef: 'INK FM 5446', intacctMatch: 'gl' };
@@ -76,14 +77,19 @@ describe('ReconPanel - liability reconciliation (item 09)', () => {
     const onSaved = vi.fn();
     render(<ReconPanel row={loan} entityName="Isha Kadakia" canEdit onSaved={onSaved} onClose={vi.fn()} />);
     const box = await screen.findByLabelText('Statement Ending Balance');
-    const mark = screen.getByRole('button', { name: 'Mark Reconciled' });
+    // It locks the month, so it is a press and hold (11/12/2026).
+    const mark = screen.getByRole('button', { name: 'Mark Reconciled, press and hold' });
     fireEvent.change(box, { target: { value: '412,357.67' } });
     expect(screen.getByText('12.00')).toBeTruthy();
     expect(mark.disabled).toBe(true);
     fireEvent.change(box, { target: { value: '412,345.67' } });
     expect(mark.disabled).toBe(false);
     api.getLiabilityRecon.mockResolvedValue(detail({ id: 'r1', period: '2026-09', status: 'reconciled', statementDate: '2026-09-30', statementBalance: 412345.67, difference: 0, reconciledBy: 'Charmi Desai', reconciledAt: '2026-10-27T12:00:00.000Z' }));
-    await act(async () => { fireEvent.click(mark); });
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(mark, { button: 0, pointerId: 1 });
+      await act(async () => { vi.advanceTimersByTime(HOLD_RECORD_MS); });
+    } finally { vi.useRealTimers(); }
     expect(api.saveLiabilityRecon).toHaveBeenCalledWith('L1', '2026-09', expect.objectContaining({ statementBalance: 412345.67, statementDate: '2026-09-30', reconcile: true }));
     await waitFor(() => expect(screen.getByText(/Reconciled by Charmi Desai on 10\/27\/2026/)).toBeTruthy());
     expect(onSaved).toHaveBeenCalled();
@@ -108,6 +114,6 @@ describe('ReconPanel - liability reconciliation (item 09)', () => {
     api.getLiabilityRecon.mockResolvedValue(detail());
     render(<ReconPanel row={loan} entityName="" onClose={vi.fn()} />);
     expect((await screen.findByLabelText('Statement Ending Balance')).disabled).toBe(true);
-    expect(screen.queryByRole('button', { name: 'Mark Reconciled' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Mark Reconciled/ })).toBeNull();
   });
 });

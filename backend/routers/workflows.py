@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 import job_switch
 import models
-from auth import get_current_user, require_module_grant
+from auth import get_current_user, require_module_grant, require_owner
 from database import get_db
 from workflows import approvals, automations, catalog, describe, engine, scheduler, store, templates
 from workflows import settings as wf_settings
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/workflows", tags=["Workflows"])
 R = require_module_grant("workflows", "viewer")
 E = require_module_grant("workflows", "editor")
 F = require_module_grant("workflows", "full")
-GA = require_module_grant("workflows", "owner", bypass_level="owner")
+GA = require_owner   # the organization face: Super Administrator by tier, no grant (Owner grant level retired 11/12/2026)
 
 
 def _now() -> str:

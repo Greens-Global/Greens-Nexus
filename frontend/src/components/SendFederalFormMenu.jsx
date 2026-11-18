@@ -54,7 +54,7 @@ export default function SendFederalFormMenu({ employee, toastOk, toastErr, onSen
   return (
     <>
       <button ref={btnRef} type="button" className="secondary-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}
-        style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
         <FileSignature size={12} aria-hidden="true" /> Send Federal Form <ChevronDown size={12} aria-hidden="true" />
       </button>
       <AnchoredMenu anchorRef={btnRef} open={open} onClose={() => setOpen(false)} align="end" minWidth={320}
@@ -71,9 +71,9 @@ export default function SendFederalFormMenu({ employee, toastOk, toastErr, onSen
               <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700 }}>
                 {federalFormLabel(f)}
                 {busy === f.kind && <Spinner size={12} />}
-                {expired && <span style={{ fontSize: 10.5, fontWeight: 700, color: '#b91c1c' }}>Expired</span>}
+                {expired && <span style={{ fontSize: 11, fontWeight: 700, color: '#b91c1c' }}>Expired</span>}
               </span>
-              {sub && <span style={{ display: 'block', fontSize: 11.5, color: expired ? '#b91c1c' : 'var(--muted)', marginTop: 2, lineHeight: 1.4, whiteSpace: 'normal' }}>{sub}</span>}
+              {sub && <span style={{ display: 'block', fontSize: 12, color: expired ? '#b91c1c' : 'var(--muted)', marginTop: 2, lineHeight: 1.4, whiteSpace: 'normal' }}>{sub}</span>}
             </button>
           );
         })}

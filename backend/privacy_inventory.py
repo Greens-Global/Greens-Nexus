@@ -200,8 +200,8 @@ PROCESSORS = [
      "purpose": "Reading the status of the organization's network devices for IT.",
      "data": "No personal data.",
      "hosts": ["api.ui.com", "unifi.ui.com"]},
-    {"key": "github", "name": "GitHub", "group": "business", "env": ["GITHUB_TOKEN"], "where": "server",
-     "purpose": "Reading the software change log for What's New.",
+    {"key": "github", "name": "GitHub", "group": "business", "env": ["GITHUB_TOKEN", "NEXUS_GITHUB_MERGE_TOKEN"], "where": "server",
+     "purpose": "Reading the software change log for What's New; merging a Build Mode pull request into the development branch when a Super Administrator asks.",
      "data": "No personal data of yours; developer names on changes.",
      "hosts": ["api.github.com", "github.com"]},
     {"key": "webhooks", "name": "Workflow webhooks the organization sets up", "group": "business",
@@ -239,6 +239,19 @@ PROCESSORS = [
      "data": "The text, photo or record the feature works on, for example your question, a ticket's "
              "conversation, or an interview transcript.",
      "hosts": ["api.anthropic.com", "claude.ai"]},
+    # Build Mode (routers/dev_notes.py). Not behind the AI switch and not the
+    # organization's Anthropic key: each developer's OWN Claude Code works the
+    # pins they send - in their terminal since 10/24/2026, or in Claude's cloud
+    # once they connect it (build_mode_cloud.py, Neil 11/12/2026). `always` so
+    # the notice lists it: whether a given developer has connected is theirs.
+    {"key": "claude_code_build_mode", "name": "Anthropic (Claude Code, for Build Mode)", "group": "ai",
+     "always": True, "env": [], "where": "a developer's own Claude Code", "admin_configured": True,
+     "purpose": "Build Mode: a developer with Build Mode access pins a comment on a screen and sends it to "
+                "their own Claude Code, which makes the fix. Only people granted Build Mode can do this.",
+     "data": "What the developer pinned: their comment, a picture of that part of the screen with sensitive "
+             "fields blacked out, the element's details and the page's recent technical logs. Personal "
+             "Financial Statements and the credential vault are never captured.",
+     "hosts": ["api.anthropic.com", "claude.ai"]},
 
     # Public data and map services - little or no personal data.
     {"key": "nominatim", "name": "OpenStreetMap (Nominatim and Overpass)", "group": "public", "always": True,
@@ -259,10 +272,6 @@ PROCESSORS = [
      "purpose": "Forecasts and weather alerts for work sites.",
      "data": "Work site coordinates, rounded; never who you are.",
      "hosts": ["api.open-meteo.com", "geocoding-api.open-meteo.com", "api.weather.gov"]},
-    {"key": "fonts", "name": "Google Fonts", "group": "public", "always": True, "env": [], "where": "browser",
-     "purpose": "The typefaces the screens use.",
-     "data": "Your IP address and browser details.",
-     "hosts": ["fonts.googleapis.com", "fonts.gstatic.com"]},
     {"key": "favicons", "name": "Website icon services (icon.horse, Google)", "group": "public",
      "always": True, "env": [], "where": "server and browser",
      "purpose": "Showing a website's icon next to a saved link or login.",

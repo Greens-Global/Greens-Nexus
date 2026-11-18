@@ -118,7 +118,7 @@ export default function Sessions({ course }) {
                 {s.status === 'canceled' ? <Chip color="#64748b">Canceled</Chip>
                   : <button type="button" className="kb-btn sm ghost" style={{ marginLeft: 'auto' }} onClick={() => cancel(s)}><X />Cancel Session</button>}
               </div>
-              {s.notes && <div style={{ fontSize: 13.5, marginBottom: 8 }}>{s.notes}</div>}
+              {s.notes && <div style={{ fontSize: 13, marginBottom: 8 }}>{s.notes}</div>}
               {s.attendees.length === 0 && <div className="kb-empty">Nobody invited.</div>}
               {s.attendees.map((a) => (
                 <div key={a.email} className="kb-row">

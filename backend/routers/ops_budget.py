@@ -29,19 +29,19 @@ import ops_budget_cubby
 import ops_budget_workbook as wbk
 import hb_history
 import hb_models  # noqa: F401 - registers the hb_* tables before create_all
-from auth import _module_level, require_level_or_module
+from auth import _MODULE_LEVEL_RANK, _module_level, require_level_or_module
 from database import get_db
 from ops_budget_models import OpsBudgetLoad
 
 router = APIRouter(prefix="/ops-budget", tags=["Operations"])
 
 require_read = require_level_or_module(2, "operations", "viewer")
-require_admin = require_level_or_module(4, "operations", "owner")
+require_admin = require_level_or_module(4, "operations", "full")
 
 
 def _can_upload(user: dict, db: Session) -> bool:
     try:
-        return user.get("level", 0) >= 4 or _module_level(user["email"], "operations", db) >= 4
+        return user.get("level", 0) >= 4 or _module_level(user["email"], "operations", db) >= _MODULE_LEVEL_RANK["full"]
     except Exception:  # noqa: BLE001 - a grant lookup blip only hides the button
         return False
 

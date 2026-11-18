@@ -51,7 +51,7 @@ export default function PhotoReviews() {
       {rows.map((r) => (
         <div key={r.id} className="kb-row" style={{ alignItems: 'flex-start' }}>
           <img src={r.photo_url} alt={`Photo from ${r.user_name}`} style={{ width: 96, height: 72, objectFit: 'cover', borderRadius: 8 }} />
-          <div className="kb-grow"><div className="kb-title">{r.user_name}</div><div style={{ fontSize: 13.5 }}>{r.question}</div><div className="kb-meta">{r.course_title} · {fmtDateTime(r.created_at)}</div></div>
+          <div className="kb-grow"><div className="kb-title">{r.user_name}</div><div style={{ fontSize: 13 }}>{r.question}</div><div className="kb-meta">{r.course_title} · {fmtDateTime(r.created_at)}</div></div>
           <button type="button" className="kb-btn sm pri" onClick={() => approve(r)}><Check />Approve</button>
           <button type="button" className="kb-btn sm" onClick={() => setBack(r)}><Undo2 />Send Back</button>
         </div>

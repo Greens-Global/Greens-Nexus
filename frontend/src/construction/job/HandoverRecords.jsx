@@ -19,7 +19,7 @@ import { clientId } from '../lib/job';
 export const KIND_LABEL = { warranty: 'Warranty', permit: 'Permit', inspection: 'Inspection', document: 'Document' };
 export const RESULT = { passed: ['Passed', TONE.green], failed: ['Failed', TONE.red], partial: ['Partial', TONE.yellow], pending: ['Pending', TONE.slate] };
 const DOC_CATS = [['as_built', 'As-Built'], ['om_manual', 'O&M Manual'], ['certificate', 'Certificate of Occupancy'], ['other', 'Other']];
-const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)' };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)' };
 
 function AddRecord({ project, kinds, onAdded }) {
   const [kind, setKind] = useState(kinds[0]);
@@ -46,7 +46,7 @@ function AddRecord({ project, kinds, onAdded }) {
         <div role="group" aria-label="Kind" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {kinds.map((k) => (
             <button key={k} type="button" aria-pressed={kind === k} onClick={() => { setKind(k); setF({}); }}
-              className={kind === k ? 'primary-btn' : 'secondary-btn'} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>{KIND_LABEL[k]}</button>
+              className={kind === k ? 'primary-btn' : 'secondary-btn'} style={{ padding: '6px 12px', fontSize: 13 }}>{KIND_LABEL[k]}</button>
           ))}
         </div>
       )}
@@ -72,7 +72,7 @@ function AddRecord({ project, kinds, onAdded }) {
         )}
       </div>
       {input('notes', 'Notes')}
-      {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{error}</div>}
+      {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</div>}
       <div><button type="submit" className="primary-btn" disabled={busy}><Plus size={14} />{busy ? 'Adding…' : `Add ${KIND_LABEL[kind]}`}</button></div>
     </form>
   );
@@ -90,7 +90,7 @@ export default function HandoverRecords({ project, data, reload, kinds = Object.
   const setResult = (r, result) => api.updateCloseoutRecord(r.id, { result }).then(reload).catch(() => {});
   return (
     <section style={{ ...CARD, marginBottom: 14 }} aria-label={title}>
-      <h3 style={{ fontSize: '1.05rem', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><Icon size={16} />{title}</h3>
+      <h3 style={{ fontSize: 18, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><Icon size={16} />{title}</h3>
       <p style={{ ...quiet, margin: '0 0 12px' }}>
         {blurb || (data.property ? <>Close Out adds these to <b>{data.property.name}</b> in Asset Management{data.property.canWrite ? '' : ' (someone with edit access there has to close out, or send them later)'}; an equipment warranty also goes on its item in Items.</>
           : 'Link the job to a property (Edit Job) so Close Out can add these to Asset Management.')}
@@ -102,12 +102,12 @@ export default function HandoverRecords({ project, data, reload, kinds = Object.
           return (
             <div key={r.id} data-closeout-record={r.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '9px 0', borderTop: '1px solid var(--border-color)' }}>
               <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-                <div style={{ fontSize: '0.88rem' }}><b>{KIND_LABEL[r.kind]}</b> · {r.title || r.number}</div>
+                <div style={{ fontSize: 14 }}><b>{KIND_LABEL[r.kind]}</b> · {r.title || r.number}</div>
                 <div style={quiet}>{describe(r).filter(Boolean).join(' · ')}</div>
-                {r.written?.error && <div style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{r.written.error}</div>}
+                {r.written?.error && <div style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{r.written.error}</div>}
               </div>
               {mayDecide ? (
-                <select className="form-input" aria-label={`Result of ${r.title || r.number}`} value={r.result || ''} style={{ width: 130, padding: '4px 8px', fontSize: '0.8rem' }}
+                <select className="form-input" aria-label={`Result of ${r.title || r.number}`} value={r.result || ''} style={{ width: 130, padding: '4px 8px', fontSize: 13 }}
                   onChange={(e) => setResult(r, e.target.value)}>
                   <option value="">Not Known</option>
                   {Object.entries(RESULT).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}

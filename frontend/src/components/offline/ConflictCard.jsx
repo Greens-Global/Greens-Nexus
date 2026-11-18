@@ -58,7 +58,7 @@ export default function ConflictCard({ entry, handler, title, onChoose, onClose 
           {entry?.error ? ` ${entry.error}` : ''}
         </p>
         {rows.length > 0 && (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, marginBottom: 10 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 10 }}>
             <thead>
               <tr>
                 {['Field', 'Yours (on This Phone)', 'Theirs (on the Server)'].map((h) => (
@@ -77,7 +77,7 @@ export default function ConflictCard({ entry, handler, title, onChoose, onClose 
             </tbody>
           </table>
         )}
-        <p style={{ margin: 0, color: NX.dim, fontSize: 12.5 }}>
+        <p style={{ margin: 0, color: NX.dim, fontSize: 13 }}>
           {theirs
             ? 'Keep Mine sends your change over theirs. Use Theirs (press and hold) keeps what is on the server and drops your change from this phone.'
             : 'Keep Mine sends your change over theirs. To keep what is on the server instead, close this and Discard your change.'}

@@ -166,6 +166,23 @@ describe('BuildMode', () => {
     expect(sessionStorage.getItem('nexus:build-mode:open-pin')).toBe('held-1');
   });
 
+  // 11/12/2026: the pin was looked for only when the mode turned on, so a
+  // "Claude Replied On Pin #n" bell clicked with Build Mode already on did nothing.
+  it('a bell clicked while the mode is already on still opens its pin', async () => {
+    enabled = true;
+    sessionStorage.setItem('nexus:build-mode', '1');
+    await mount();
+    await screen.findByRole('toolbar', { name: 'Build Mode tools' }, { timeout: 10000 });
+    const { api } = await import('../api');
+    expect(api.devNotesGet).not.toHaveBeenCalled();
+    api.devNotesGet.mockImplementationOnce(() => Promise.resolve(pin({ id: 'late-1', number: 9, status: 'needs_input' })));
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'dev-notes', sub: 'pin:late-1' } }));
+    await waitFor(() => expect(api.devNotesGet).toHaveBeenCalledWith('late-1'));
+    const { store } = await import('./store');
+    await waitFor(() => expect(store.get().openPinId).toBe('late-1'));
+    expect(store.get().pendingPin).toBe('');
+  });
+
   it('a blocked route shows the off-on-this-screen bar and no overlay', async () => {
     enabled = true;
     sessionStorage.setItem('nexus:build-mode', '1');

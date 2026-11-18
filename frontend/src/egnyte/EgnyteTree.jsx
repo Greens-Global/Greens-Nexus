@@ -43,7 +43,7 @@ function TreeRow({ depth, active, hasChildren, expanded, loading, label, icon, o
         style={{
           flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8,
           background: 'none', border: 'none', cursor: 'pointer', padding: '7px 6px 7px 0',
-          fontFamily: 'inherit', fontSize: 13.5, fontWeight: active ? 700 : 500,
+          fontFamily: 'inherit', fontSize: 13, fontWeight: active ? 700 : 500,
           color: active ? 'var(--wk-brand)' : 'var(--wk-ink)', textAlign: 'left',
         }}
       >
@@ -213,7 +213,7 @@ export default function EgnyteTree({ currentPath = '', onSelect, refreshSignal, 
     <nav aria-label="Egnyte folders" style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
       {bookmarks.length > 0 && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 6px 4px', color: 'var(--wk-dim)', fontSize: 11.5, fontWeight: 600 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 6px 4px', color: 'var(--wk-dim)', fontSize: 12, fontWeight: 600 }}>
             <Bookmark size={13} /> Bookmarks
           </div>
           {bookmarks.map(b => (

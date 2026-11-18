@@ -64,7 +64,7 @@ export function LatestCommentPreview({ comment, nameOf, onOpen, compact = false,
           )}
         </span>
         <span style={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <span className="nx-clamp-2" style={{ fontSize: 12.5, lineHeight: 1.35, color: NX.ink, overflowWrap: 'anywhere' }}>{comment.preview}</span>
+          <span className="nx-clamp-2" style={{ fontSize: 13, lineHeight: 1.35, color: NX.ink, overflowWrap: 'anywhere' }}>{comment.preview}</span>
           {when && <span style={{ fontSize: 11, color: NX.faint }}>{when}</span>}
         </span>
       </button>
@@ -89,8 +89,8 @@ export function LatestCommentPreview({ comment, nameOf, onOpen, compact = false,
           <Lock size={10} aria-label="Internal note" style={{ position: 'absolute', right: -4, bottom: -3, color: NX.amber, background: NX.surface, borderRadius: '50%', padding: 1 }} />
         )}
       </span>
-      <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5, color: NX.dim }}>{comment.preview}</span>
-      {when && <span style={{ flexShrink: 0, fontSize: 11.5, color: NX.faint }}>{when}</span>}
+      <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: NX.dim }}>{comment.preview}</span>
+      {when && <span style={{ flexShrink: 0, fontSize: 12, color: NX.faint }}>{when}</span>}
     </button>
   );
 }

@@ -45,6 +45,8 @@ import { hasUnsavedWork, askToLeave, guardPopstate, rememberEntry, runPopGuard }
 // signal state that hides the "reconnecting" bar while there is no signal.
 import OfflineBar from "./components/offline/OfflineBar";
 import { useOffline } from "./lib/offline/useOffline";
+// The installed app: icon shortcuts, the icon's count and Share to Nexus.
+import InstalledApp from "./components/InstalledApp";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -78,6 +80,7 @@ const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicIntake        = lazy(() => import("./views/PublicIntake"));
+const PublicVaultShare    = lazy(() => import("./views/PublicVaultShare"));
 const PublicCareers       = lazy(() => import("./views/PublicCareers"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
@@ -218,14 +221,14 @@ function AuthLoader({ stuck }) {
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink, #111827)' }}>Signing you in…</div>
       {stuck && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 13, marginTop: 2 }}>
-          <div style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', maxWidth: 330, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted, #6b7280)', maxWidth: 330, lineHeight: 1.5 }}>
             This is taking longer than usual. You can retry the sign-in or reload the page.
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={retry} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: 'var(--ink, #111827)', color: 'var(--paper, #fff)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+            <button onClick={retry} style={{ padding: '9px 20px', borderRadius: 9, border: 'none', background: 'var(--ink, #111827)', color: 'var(--paper, #fff)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
               Sign in again
             </button>
-            <button onClick={() => window.location.reload()} style={{ padding: '9px 20px', borderRadius: 9, border: '1px solid var(--line, #e6e8eb)', background: 'transparent', color: 'var(--ink, #111827)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+            <button onClick={() => window.location.reload()} style={{ padding: '9px 20px', borderRadius: 9, border: '1px solid var(--line, #e6e8eb)', background: 'transparent', color: 'var(--ink, #111827)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
               Reload
             </button>
           </div>
@@ -268,8 +271,8 @@ function AuthStuckOverlay() {
   };
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 100000, background: 'var(--paper, #f6f7f9)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 15, fontFamily: 'Inter, sans-serif', padding: '0 24px', textAlign: 'center' }}>
-      <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--ink, #111827)' }}>Your session has expired</div>
-      <div style={{ fontSize: 13.5, color: 'var(--muted, #6b7280)', maxWidth: 360, lineHeight: 1.55 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink, #111827)' }}>Your session has expired</div>
+      <div style={{ fontSize: 13, color: 'var(--muted, #6b7280)', maxWidth: 360, lineHeight: 1.55 }}>
         We couldn't refresh your sign-in automatically - your browser may be blocking Microsoft's background cookies. Sign in again to continue.
       </div>
       <button onClick={signIn} style={{ padding: '10px 22px', borderRadius: 10, border: 'none', background: 'var(--ink, #111827)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
@@ -340,7 +343,7 @@ const LEGAL_VIEWS = new Set(['legal', 'privacy-policy', 'terms-conditions']);
 // everyone's default (Neil, Oct 12 2026); changing it is gated inside.
 const OPEN_VIEWS = new Set(['whats-new']);
 
-function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
+function ProtectedView({ activeView, activeSub, onSubChange, onNavigate, onBounce = onNavigate }) {
   const { can, myGrantedModules, isExternal } = useRole();
   const minRole = VIEW_MIN_ROLES[activeView];
 
@@ -363,11 +366,13 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 
   // An external landing on a non-granted view (e.g. the default 'dashboard'
   // after login) is bounced to their first granted module instead of being
-  // parked on the Access Restricted panel.
+  // parked on the Access Restricted panel. The bounce REPLACES the entry it
+  // leaves (onBounce): pushed, Back returned to "/" and bounced again, so a
+  // guest could never go Back out of their landing module.
   const firstGranted = isExternal ? (myGrantedModules.keys().next().value ?? null) : null;
   useEffect(() => {
-    if (isExternal && !hasAccess && firstGranted) onNavigate(firstGranted);
-  }, [isExternal, hasAccess, firstGranted, onNavigate]);
+    if (isExternal && !hasAccess && firstGranted) onBounce(firstGranted);
+  }, [isExternal, hasAccess, firstGranted, onBounce]);
 
   // A role-change approver sent here by the bell or the email, who cannot
   // open People itself: the decision dialog alone, then the dashboard (see
@@ -384,10 +389,10 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--color-red))" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 17, color: 'var(--ink)', marginBottom: 6 }}>Access Restricted</div>
+          <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--ink)', marginBottom: 6 }}>Access Restricted</div>
           <div style={{ fontSize: 14, color: 'var(--muted)', maxWidth: 320, lineHeight: 1.5 }}>You don't have permission to view this page. Contact your administrator if you need access.</div>
         </div>
-        <button onClick={() => onNavigate('dashboard')} style={{ marginTop: 4, padding: '9px 24px', borderRadius: 9, border: 'none', background: 'var(--ink)', color: 'var(--paper)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+        <button onClick={() => onNavigate('dashboard')} style={{ marginTop: 4, padding: '9px 24px', borderRadius: 9, border: 'none', background: 'var(--ink)', color: 'var(--paper)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
           Go to Dashboard
         </button>
       </div>
@@ -524,7 +529,7 @@ const DEFAULT_SUBS = {
   ops:               "construction-dashboard",
   operations:        "overview",
   development:       "dev-permits",
-  "property-asset":  "asset-portfolio",
+  "property-asset":  "asset-overview",   // Asset Management lands on Overview (Neil, 11/17/2026); /asset-portfolio is Properties
   hr:                "hr-ms",
   documents:         "documents-files",   // Files opens on Browse Files (Neil, 11/10/2026); a documents-only grant gets its first tab
   "investor-relations": "investor-dashboard",
@@ -562,6 +567,16 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicIntake token={token} />
+      </Suspense>
+    );
+  }
+  // A login shared outside Nexus (/vault-share/{token}, 11/13/2026) - same
+  // reasoning: the person has no login; the link plus a one-time code is it.
+  if (parsePath().view === 'vault-share') {
+    const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicVaultShare token={token} />
       </Suspense>
     );
   }
@@ -678,9 +693,11 @@ function MainApp() {
   // canGoBack/prevLabel always reflect the CURRENT history entry, kept in
   // sync identically whether the move came from this app's arrow or the
   // browser's own back/forward.
-  const [canGoBack, setCanGoBack] = useState(false);
-  const [prevLabel, setPrevLabel] = useState(null);
-  const [prevView, setPrevView] = useState(null);
+  // Seeded from the entry itself: after a reload it still carries its stamp,
+  // and starting empty took the header's Back line and the phone's arrow away.
+  const [canGoBack, setCanGoBack] = useState(() => (window.history.state?.depth || 0) > 0);
+  const [prevLabel, setPrevLabel] = useState(() => window.history.state?.fromLabel || null);
+  const [prevView, setPrevView] = useState(() => window.history.state?.fromView || null);
   const prevLocRef = useRef({ view: activeView, sub: activeSub });
   // The page's own name (its lit tab, else the module), kept by ModuleBar: a
   // move inside one module stamps it, so Back reads "Hiring", not "People".
@@ -732,6 +749,10 @@ function MainApp() {
       // (chevron icon swap) before this handler runs - a detached target fails
       // contains() and instantly re-collapsed the nav. Ignore detached nodes.
       if (!document.documentElement.contains(e.target)) return;
+      // The top header never folds it (Neil, 11/12/2026, navigation review):
+      // folding re-measures the module tabs under the pointer, so the first
+      // click on a header menu (Tickets' More) opened nothing.
+      if (e.target.closest?.('.top-header')) return;
       if (sidebarRef.current && !sidebarRef.current.contains(e.target)) {
         setSidebarCollapsed(true);
       }
@@ -826,6 +847,14 @@ function MainApp() {
     setSidebarOpen(false);
   }
 
+  // A bounce off a screen this person cannot open (ProtectedView): the next
+  // address write replaces that screen's entry instead of pushing over it.
+  const bounceFrom = useRef(null);
+  function bounce(view) {
+    bounceFrom.current = { view: activeView, sub: activeSub };
+    navigate(view);
+  }
+
   useEffect(() => {
     const handler = e => navigate(e.detail.view, e.detail.sub ?? null);
     window.addEventListener('nexus:navigate', handler);
@@ -857,9 +886,14 @@ function MainApp() {
       if (runPopGuard(e)) { rememberEntry(); return; }
       guardPopstate(e, () => {
         const { view, sub } = parsePath();
-        fromPopstate.current = true;
+        const nextSub = sub ?? getDefaultSub(view);
+        // Only a pop that changes the screen: one that lands on the screen
+        // already showing (a #hash on the same address) changes no state, so
+        // the address effect never ran to clear the flag and the NEXT in-app
+        // move was not written to the address bar or history.
+        fromPopstate.current = view !== prevLocRef.current.view || nextSub !== prevLocRef.current.sub;
         setActiveView(view);
-        setActiveSub(sub ?? getDefaultSub(view));
+        setActiveSub(nextSub);
         setCanGoBack((e.state?.depth || 0) > 0);
         setPrevLabel(e.state?.fromLabel || null);
         setPrevView(e.state?.fromView || null);
@@ -883,11 +917,14 @@ function MainApp() {
       : activeView === 'dashboard' && activeSub === 'links'
         ? '/links'
         : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
-    if (window.location.pathname !== path && first) {
+    const bounced = !!bounceFrom.current && bounceFrom.current.view === prevLocRef.current.view && bounceFrom.current.sub === prevLocRef.current.sub;
+    if (bounced) bounceFrom.current = null;
+    if (window.location.pathname !== path && (first || bounced)) {
       // The FIRST write only rewrites the address the app was opened at (an
       // old alias, a default tab added) - REPLACE it: a pushed copy left the
       // old address one Back away, and opening it again rewrote it again, so
-      // Back never left (Items redesign review, 11/02/2026).
+      // Back never left (Items redesign review, 11/02/2026). A guest's bounce
+      // off a screen they cannot open replaces it for the same reason.
       window.history.replaceState(window.history.state, '', addressFor(path, { first, search: window.location.search, hash: window.location.hash }));
       rememberEntry();
     } else if (window.location.pathname !== path) {
@@ -925,6 +962,7 @@ function MainApp() {
         <WidgetBoundary name="pull-to-refresh" resetKey={widgetKey}><PullToRefresh /></WidgetBoundary>
         <WidgetBoundary name="task-prefetch" resetKey={widgetKey}><TaskPrefetch /></WidgetBoundary>
         <WidgetBoundary name="build-mode" resetKey={widgetKey}><BuildMode view={activeView} sub={activeSub} /></WidgetBoundary>
+        <WidgetBoundary name="installed-app" resetKey={widgetKey}><InstalledApp /></WidgetBoundary>
         {activeView === 'sso' && activeSub === 'accounting' && (
           <Suspense fallback={<ViewLoading />}>
             <AccountingHandoff next={new URLSearchParams(window.location.search).get('next') || undefined} />
@@ -942,6 +980,9 @@ function MainApp() {
             Service is reconnecting - data may be delayed. Retrying automatically…
           </div>
         )}
+        {/* Keyboard users skip the left menu and the header (navigation review, 11/12/2026). */}
+        <a href="#nx-main" className="nx-skip-link"
+          onClick={(e) => { e.preventDefault(); document.getElementById('nx-main')?.focus(); }}>Skip to Content</a>
         <div className="app-container" style={serverDown ? { paddingTop: 34 } : undefined}>
           <WidgetBoundary name="sidebar" resetKey={widgetKey}
             fallback={<NavFallback as="aside" className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`} />}>
@@ -954,6 +995,8 @@ function MainApp() {
             onClose={() => setSidebarOpen(false)}
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+            pinned={sidebarPinned}
+            onTogglePin={() => setSidebarPinned(p => !p)}
           />
           </WidgetBoundary>
           {/* App-style mobile chrome - phones only (CSS-gated ≤900px):
@@ -973,7 +1016,7 @@ function MainApp() {
           {/* The page trail (Neil, 11/04/2026): the module, then the pages above
               a record, on a line above the page title - components/PageTrail.jsx. */}
           <PageTrailProvider view={activeView} label={viewLabel(activeView)} onNavigate={navigate}>
-          <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
+          <main id="nx-main" tabIndex={-1} className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             {/* The announcement bar - across the top of the page, above the
                 header: the weekly "New in Nexus" news, or "a new version is
                 ready, Reload" (components/FeatureBanner.jsx). */}
@@ -1032,6 +1075,7 @@ function MainApp() {
                   activeSub={activeSub}
                   onSubChange={s => setActiveSub(s)}
                   onNavigate={navigate}
+                  onBounce={bounce}
                 />
               </Suspense>
               </ViewErrorBoundary>

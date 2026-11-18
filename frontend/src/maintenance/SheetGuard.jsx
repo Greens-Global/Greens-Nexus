@@ -14,7 +14,7 @@ export default class SheetGuard extends Component {
       <div role="alertdialog" aria-label="Could not open" style={{ position: 'fixed', inset: 0, zIndex: 4300, background: 'rgba(17,24,39,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
         <div className="nx-popup nx-center" style={{ background: 'var(--card)', color: 'var(--ink)', borderRadius: 14, padding: 20, maxWidth: 420, boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>This Could Not Open</div>
-          <div style={{ fontSize: 13.5, color: 'var(--muted)' }}>Nexus may have just been updated. Reload the page and try again.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Nexus may have just been updated. Reload the page and try again.</div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button type="button" className="secondary-btn" onClick={this.props.onClose}>Close</button>
             <button type="button" className="primary-btn" onClick={() => window.location.reload()}>Reload</button>

@@ -42,7 +42,7 @@ function Quiz({ course, onDone }) {
   if (result?.pending_review) {
     return (
       <section className="kb-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, textAlign: 'center', padding: 28 }}>
-        <div style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 21, fontWeight: 700 }}>Waiting for Review</div>
+        <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 24, fontWeight: 700 }}>Waiting for Review</div>
         <div className="kb-meta">Your photo goes to your manager or the course owner. You get a bell with your result; this does not use a try until it is reviewed.</div>
       </section>
     );
@@ -52,8 +52,8 @@ function Quiz({ course, onDone }) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <section className="kb-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, textAlign: 'center' }}>
-          <div className="kb-ring" style={{ background: `conic-gradient(${result.passed ? '#1e7b4e' : '#dc2626'} 0 ${pct}%, #e5e7eb ${pct}% 100%)` }}><div><b style={{ fontSize: 28, letterSpacing: '-.02em', lineHeight: 1 }}>{pct}%</b><span className="kb-meta">{result.correct} of {result.total}</span></div></div>
-          <div style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 21, fontWeight: 700 }}>{result.passed ? 'You passed.' : `Not quite. You need ${result.pass_pct}%.`}</div>
+          <div className="kb-ring" style={{ background: `conic-gradient(${result.passed ? '#1e7b4e' : '#dc2626'} 0 ${pct}%, #e5e7eb ${pct}% 100%)` }}><div><b style={{ fontSize: 32, letterSpacing: '-.02em', lineHeight: 1 }}>{pct}%</b><span className="kb-meta">{result.correct} of {result.total}</span></div></div>
+          <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 24, fontWeight: 700 }}>{result.passed ? 'You passed.' : `Not quite. You need ${result.pass_pct}%.`}</div>
           <div className="kb-meta">Try {result.tries_used} · {result.locked ? 'no tries left: your manager can unlock another round' : result.passed ? '' : `${result.tries_left} ${result.tries_left === 1 ? 'try' : 'tries'} left`}</div>
         </section>
         {!result.passed && result.missed.length > 0 && (
@@ -61,7 +61,7 @@ function Quiz({ course, onDone }) {
             <div className="kb-title">Reread these before you try again</div>
             {result.missed.map((m) => (
               <div key={m.id} className="kb-card soft" style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <b style={{ fontSize: 14.5 }}>{m.q}{m.unanswered ? <span className="kb-meta"> (not answered)</span> : ''}</b>
+                <b style={{ fontSize: 15 }}>{m.q}{m.unanswered ? <span className="kb-meta"> (not answered)</span> : ''}</b>
                 {m.explanation && <div className="kb-meta">{m.explanation}</div>}
                 {m.lesson_title && <span className="kb-chip" style={{ '--c': '#2b45e1', alignSelf: 'flex-start' }}><BookOpen size={12} style={{ marginLeft: -2 }} />{m.lesson_title}</span>}
               </div>
@@ -79,7 +79,7 @@ function Quiz({ course, onDone }) {
   if (!attempt) {
     return (
       <section className="kb-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div className="kb-title" style={{ fontSize: 17 }}>Final Quiz</div>
+        <div className="kb-title" style={{ fontSize: 18 }}>Final Quiz</div>
         <div className="kb-meta">{quiz.draw ? `${quiz.draw} of ${quiz.question_count} questions` : plural(quiz.question_count, 'question')} · {quiz.pass_pct}% to pass · {quiz.tries_allowed} tries{quiz.tries_used ? ` (${quiz.tries_used} used)` : ''}</div>
         {quiz.in_review ? <Banner kind="blue" icon={Lock}>Your answers are waiting for a photo review. You get a bell with the result.</Banner>
           : quiz.locked ? <Banner kind="amber" icon={Lock}>Finish every lesson first. The quiz opens when the last one is marked done.</Banner>
@@ -94,13 +94,13 @@ function Quiz({ course, onDone }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <section className="kb-card kb-quiz-head">
-        <div className="kb-title" style={{ fontSize: 16 }}>Final Quiz</div>
+        <div className="kb-title" style={{ fontSize: 15 }}>Final Quiz</div>
         <div className="kb-meta">Try {attempt.try_number || (quiz.tries_used + 1)} · {attempt.pass_pct}% to pass · {answered} of {attempt.questions.length} answered</div>
         <ProgressTrack size="sm" value={attempt.questions.length ? answered / attempt.questions.length : 0} state={answered >= attempt.questions.length ? 'done' : 'live'} label="Questions answered" valueText={`${answered} of ${attempt.questions.length} answered`} style={{ marginTop: 8 }} />
       </section>
       {attempt.questions.map((q, i) => (
         <section key={q._id} className="kb-card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontWeight: 600, fontSize: 15.5 }}>{i + 1}. {q.q}{q.type === 'multi' && <span className="kb-meta" style={{ fontWeight: 400 }}> (choose all that apply)</span>}</div>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>{i + 1}. {q.q}{q.type === 'multi' && <span className="kb-meta" style={{ fontWeight: 400 }}> (choose all that apply)</span>}</div>
           {q.type === 'order' ? <OrderAnswer q={q} value={answers[q._id]} onChange={(v) => setAnswers((a) => ({ ...a, [q._id]: v }))} />
             : q.type === 'short' ? <ShortAnswer q={q} value={answers[q._id]} onChange={(v) => setAnswers((a) => ({ ...a, [q._id]: v }))} />
             : q.type === 'photo' ? <PhotoAnswer q={q} value={answers[q._id]} onChange={(v) => setAnswers((a) => ({ ...a, [q._id]: v }))} />
@@ -128,7 +128,7 @@ function Checkpoint({ course, lesson, onDone }) {
   if (!attempt) return <div className="kb-empty">Loading the checkpoint...</div>;
   if (result) return (
     <section className="kb-card" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div className="kb-title" style={{ fontSize: 17 }}>{result.correct} of {result.total} right</div>
+      <div className="kb-title" style={{ fontSize: 18 }}>{result.correct} of {result.total} right</div>
       <div className="kb-meta">A checkpoint is practice; it does not count as a quiz try. {result.missed.length ? 'Worth rereading:' : 'Well done.'}</div>
       {result.missed.map((m) => <div key={m.id} className="kb-card soft" style={{ padding: 10 }}><b style={{ fontSize: 14 }}>{m.q}</b>{m.explanation && <div className="kb-meta">{m.explanation}</div>}</div>)}
     </section>
@@ -287,24 +287,24 @@ export default function CoursePlayer({ id, me, lesson: startLesson = '' }) {
                 </div>
                 <div className="kb-lesson" onClick={() => setCur('home')} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setCur('home'); }}>
                   <span className="num"><Home size={12} /></span>
-                  <span className="kb-grow"><span style={{ fontWeight: 600, fontSize: 13.5, display: 'block' }}>Course Home</span><span className="kb-meta">overview and outline</span></span>
+                  <span className="kb-grow"><span style={{ fontWeight: 600, fontSize: 13, display: 'block' }}>Course Home</span><span className="kb-meta">overview and outline</span></span>
                 </div>
                 {course.lessons.map((L, i) => (
                   <div key={L._id} className={`kb-lesson${cur === L._id ? ' on' : ''}`} onClick={() => setCur(L._id)} role="button" tabIndex={0} aria-current={cur === L._id ? 'step' : undefined} onKeyDown={(e) => { if (e.key === 'Enter') setCur(L._id); }}>
                     <span className={`num${L.done ? ' done' : ''}`}>{L.done ? <Check size={13} /> : i + 1}</span>
-                    <span className="kb-grow"><span style={{ fontWeight: 600, fontSize: 13.5, display: 'block' }}>{L.title}</span><span className="kb-meta">{L.type === 'checkpoint' ? `Checkpoint · ${plural(L.question_count, 'question')}` : L.type === 'page' ? `Library page · ${plural(L.reading_minutes, 'minute')}` : `${plural(L.reading_minutes, 'minute')}`}</span></span>
+                    <span className="kb-grow"><span style={{ fontWeight: 600, fontSize: 13, display: 'block' }}>{L.title}</span><span className="kb-meta">{L.type === 'checkpoint' ? `Checkpoint · ${plural(L.question_count, 'question')}` : L.type === 'page' ? `Library page · ${plural(L.reading_minutes, 'minute')}` : `${plural(L.reading_minutes, 'minute')}`}</span></span>
                   </div>
                 ))}
                 {course.delivery === 'in_person' && (
                   <div className={`kb-lesson${cur === 'inperson' ? ' on' : ''}`} onClick={() => setCur('inperson')} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setCur('inperson'); }}>
                     <span className={`num${course.my_status === 'Completed' ? ' done' : ''}`}>{course.my_status === 'Completed' ? <Check size={13} /> : <UserCheck size={12} />}</span>
-                    <span className="kb-grow"><span style={{ fontWeight: 600, fontSize: 13.5, display: 'block' }}>In-Person Sign-Off</span><span className="kb-meta">{course.sessions?.length ? course.sessions[0].when : 'with a trainer or your manager'}</span></span>
+                    <span className="kb-grow"><span style={{ fontWeight: 600, fontSize: 13, display: 'block' }}>In-Person Sign-Off</span><span className="kb-meta">{course.sessions?.length ? course.sessions[0].when : 'with a trainer or your manager'}</span></span>
                   </div>
                 )}
                 {course.delivery !== 'in_person' && course.quiz.question_count > 0 && (
                   <div className={`kb-lesson${cur === 'quiz' ? ' on' : ''}`} onClick={() => setCur('quiz')} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setCur('quiz'); }}>
                     <span className={`num${course.quiz.passed ? ' done' : ''}`}>{course.quiz.passed ? <Check size={13} /> : course.quiz.locked ? <Lock size={12} /> : '?'}</span>
-                    <span className="kb-grow"><span style={{ fontWeight: 600, fontSize: 13.5, display: 'block' }}>Final Quiz</span><span className="kb-meta">{course.quiz.draw ? `${course.quiz.draw} of ${course.quiz.question_count}` : course.quiz.question_count} questions · {course.quiz.pass_pct}% to pass</span></span>
+                    <span className="kb-grow"><span style={{ fontWeight: 600, fontSize: 13, display: 'block' }}>Final Quiz</span><span className="kb-meta">{course.quiz.draw ? `${course.quiz.draw} of ${course.quiz.question_count}` : course.quiz.question_count} questions · {course.quiz.pass_pct}% to pass</span></span>
                   </div>
                 )}
               </section>
@@ -368,7 +368,7 @@ export default function CoursePlayer({ id, me, lesson: startLesson = '' }) {
               {cur === 'quiz' && <Quiz course={course} onDone={load} />}
               {cur === 'inperson' && course.my_status !== 'Completed' && (
                 <section className="kb-card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div className="kb-title" style={{ fontSize: 17 }}>Completed In Person</div>
+                  <div className="kb-title" style={{ fontSize: 18 }}>Completed In Person</div>
                   <div className="kb-meta">This course is finished on site: a trainer marks you Attended at a session, or your manager signs you off after watching you do it. The certificate follows.</div>
                   {(course.sessions || []).length === 0 ? <div className="kb-empty">No session is booked for you yet. Your manager or the course owner will add you to one.</div>
                     : course.sessions.map((s) => (
@@ -380,7 +380,7 @@ export default function CoursePlayer({ id, me, lesson: startLesson = '' }) {
               {(cur === 'done' || (course.my_status === 'Completed' && cur !== 'quiz' && !course.lessons.some((L) => L._id === cur))) && (
                 <section className="kb-card kb-finish">
                   <Award size={30} style={{ color: 'var(--kb-green)' }} />
-                  <div style={{ fontFamily: "'Figtree','Inter',sans-serif", fontSize: 24, fontWeight: 700 }}>Course Completed</div>
+                  <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 24, fontWeight: 700 }}>Course Completed</div>
                   <div className="kb-meta">{fmtDate(course.completed_at)}{course.quiz.score != null && course.quiz.question_count ? ` · ${course.quiz.score}%` : ''}{course.expires ? ` · valid through ${fmtDate(course.expires)}` : ''}</div>
                   {course.certificate && <><div className="kb-meta">Certificate {course.certificate.serial}</div><button type="button" className="kb-btn pri" onClick={download}><Download />Download Certificate</button></>}
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>

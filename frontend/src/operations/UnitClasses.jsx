@@ -59,7 +59,7 @@ export default function UnitClasses({ rules, canEdit, onSaved }) {
           </div>
         </form>
       ) : (
-        <div style={{ display: 'grid', gap: 4, fontSize: 13.5 }}>
+        <div style={{ display: 'grid', gap: 4, fontSize: 13 }}>
           <div>Mailbox: the unit type name contains {quoted(rules.mailbox)}. Mailboxes have their own occupancy and are left out of storage occupancy and off market.</div>
           <div>Not counted: the unit type name contains {quoted(rules.excluded)} (records switched off in Cubby).</div>
         </div>

@@ -7,11 +7,17 @@ import { PopoverPanel, usePopover } from './reportControls';
 // toolbar: filters ... Customize, Export, (Sync Now), + Add.
 export default function AddMenu({ items, ariaLabel = 'Add', align = 'right' }) {
   const [open, setOpen, ref] = usePopover();
-  const item = { display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, background: 'none', padding: '7px 8px', font: 'inherit', fontSize: '0.8rem', color: 'var(--text-primary)', cursor: 'pointer' };
+  const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' };
+  // One way to add = a plain "+ Add" button, never a menu of one.
+  if (items.length === 1) {
+    const only = items[0];
+    return <button type="button" className="primary-btn" onClick={only.onPick} title={only.hint || only.label} style={btn}><Plus size={14} /> Add</button>;
+  }
+  const item = { display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, background: 'none', padding: '7px 8px', font: 'inherit', fontSize: 13, color: 'var(--text-primary)', cursor: 'pointer' };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" className="primary-btn" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}>
+        style={btn}>
         <Plus size={14} /> Add <ChevronDown size={13} />
       </button>
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} align={align} role="menu" aria-label={ariaLabel}
@@ -21,7 +27,7 @@ export default function AddMenu({ items, ariaLabel = 'Add', align = 'right' }) {
             {Icon ? <Icon size={14} style={{ color: 'var(--text-muted)', marginTop: 2, flexShrink: 0 }} /> : null}
             <span>
               <span style={{ display: 'block', fontWeight: 600 }}>{label}</span>
-              {hint && <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{hint}</span>}
+              {hint && <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{hint}</span>}
             </span>
           </button>
         ))}

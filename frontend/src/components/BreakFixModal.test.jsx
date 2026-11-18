@@ -121,6 +121,23 @@ describe('BreakFixModal', () => {
     expect(onDone).toHaveBeenCalled();
   });
 
+  // On a person's own Time Sheet the toast is an in-page message behind the
+  // dialog (11/17/2026): the reason it did not send is said inside the form.
+  it('says a missing reason and a refused request inside the dialog', async () => {
+    open(true);
+    fireEvent.click(screen.getByText('Send Request'));
+    expect(screen.getByRole('alert').textContent).toBe('Add a reason so your approver can confirm it.');
+    expect(timePunchRequestCreate).not.toHaveBeenCalled();
+    timePunchRequestCreate.mockRejectedValueOnce(new Error('You already asked for this punch.'));
+    fireEvent.change(document.querySelector('input[type="datetime-local"]'), { target: { value: '2026-08-05T23:30' } });
+    fireEvent.change(screen.getByPlaceholderText(/Why it's missing/), { target: { value: 'Phone died' } });
+    fireEvent.click(screen.getByText('Send Request'));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('You already asked for this punch.'));
+    // The next try clears it.
+    fireEvent.click(screen.getByText('Send Request'));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
   it('still sends a request when it is the employee', async () => {
     open(true);
     expect(screen.getByRole('dialog', { name: 'Request a missing break punch' })).toBeTruthy();

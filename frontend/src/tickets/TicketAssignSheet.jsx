@@ -27,7 +27,7 @@ export function TicketAssignSheet({ value, people, onPick, onClose, title = 'Ass
       <div style={{ position: 'relative', marginBottom: 10 }}>
         <Search size={16} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: NX.faint, pointerEvents: 'none' }} />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" aria-label="Search people"
-          enterKeyHint="search" style={{ ...inputStyle, fontSize: 16, padding: '10px 12px 10px 34px' }} />
+          enterKeyHint="search" style={{ ...inputStyle, fontSize: 16, padding: '10px 12px 10px 34px' }} /> {/* type-ok: iOS zooms a field under 16px */}
       </div>
       <div role="listbox" aria-label={title}>
         {!q && (

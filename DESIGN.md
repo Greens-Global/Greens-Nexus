@@ -27,7 +27,7 @@ terminal/mono styling, neon, glassmorphism, heavy gradients.
 ## Live accent (Neil, 11/02/2026)
 
 Mock: https://claude.ai/artifact/PwncxMck8YaSkFkQ8hmTHE. **Green stays the brand**
-(primary buttons, the active nav item, links, the N tile, anything done). **Orange
+(primary buttons, the active nav item, links, anything done). **Orange
 means "in progress / now" and nothing else.**
 
 - Tokens (style.css "Live accent" block, contrast ratios in its comment):
@@ -54,11 +54,18 @@ means "in progress / now" and nothing else.**
 ## Type
 
 **Font: Inter, everywhere (Neil, 11/12/2026)** - it holds up better than
-Figtree at 11-13px in dense tables, and Nexus is mostly tables and lists. This
-replaces "Figtree for desk surfaces". Moving `--wk-font` from Figtree to Inter is
-its own release, checked against before / after screenshots (Inter sets wider
-than Figtree at the same size, so tight spots - the rail, tabs, chips - can
-wrap or cut off).
+Figtree at 11-13px in dense tables, and Nexus is mostly tables and lists. It
+replaced Figtree (the frame, Dashboard, Workday, sign-in, Knowledge Base
+headings) and Plus Jakarta Sans (Construction headings); `--wk-font` is Inter,
+and buttons and fields inherit the page font. Checked against before / after
+screenshots at 1440, 1280 and phone widths - nothing new cut off.
+
+Inter is BUNDLED with the app (`frontend/src/fonts.css`, from
+`@fontsource-variable/inter`): one variable file for every weight, served from
+our own origin, never Google Fonts - no third-party request, nothing for the
+CSP to allow (`font-src 'self'`), and it works offline (the Latin files are in
+the offline shell, `scripts/offline-manifest.mjs`). Never add a font from a
+CDN or a second family; a new screen gets Inter by inheriting it.
 
 **The scale (Neil, 11/12/2026)** - the only text sizes. `FS` in
 `frontend/src/lib/typeScale.js`, the same numbers as the `--fs-*` tokens in
@@ -84,6 +91,13 @@ the scale carries `type-ok: <why>` on its line - the 16px phone form fields
 are the main one (iOS zooms the page on a field under 16px).
 
 ## Grammar
+
+**No rectangles (Neil, 11/17/2026 - outranks the items below).** No colored side or top
+bars as accents, no stat tiles / KPI boxes, no bordered box or tinted panel per section, no
+boxed info strips, no pill or tag boxes around counts or states, no uppercase eyebrows - in
+screens, emails, PDFs, mockups and artifacts alike. Hierarchy comes from type, whitespace
+and hairline dividers; counts read as words in a line; a state is plain colored text.
+Buttons stay buttons. See CLAUDE.md, Frontend conventions.
 
 - **Cards on canvas**: white, radius 8, soft border + shadow; card header = title + optional
   count pill + right meta. No nested cards.
@@ -119,3 +133,27 @@ Two selectable light worlds (profile menu → Theme, `data-wktheme` on `<html>`,
 - All existing behavior preserved (nav filtering, saved dashboard views + Customize grid,
   drawer/palette/zoom/theme, MSAL). Sentence-case labels; American English.
 - Zero states designed, never blank; sample-data widgets labeled.
+
+## The Nexus mark (Pranshu, 11/15/2026)
+
+The brand is the ring mark the designer drew: six module segments on a
+green-to-blue ring around the two-figure N. The sources are
+`frontend/brand-src/` (black background baked in) and
+`frontend/scripts/make-brand-assets.py` cuts every asset the app uses, so
+never edit a PNG by hand:
+
+- `public/brand/nexus-n.png` - the two-figure N alone, transparent: every
+  SMALL size (Pranshu, 11/15/2026: the ring's icons are mush under ~40px).
+  The sidebar (`.dk-mark`, 34px, beside the Nexus wordmark in Inter), the
+  Help panel, the browser tab and the phone's home screen (`public/icons/*`,
+  `public/favicon-32.png`, the N on a white tile).
+- `public/brand/nexus-mark.png` - the full ring, transparent: Welcome to
+  Nexus on the login page (84px) and anything else 64px or larger.
+- `public/brand/nexus-lockup-white.png` - the ring on a white disc with the
+  white "Nexus" wordmark from the designer's file, the module tagline cut
+  off. Dark backgrounds only (the green login panel); on a light surface use
+  the N plus text.
+- The notification badge (`nexus-badge-96.png`) stays the flat white N: a
+  badge is one color.
+
+Never draw a green rounded square with an N again - that was the old mark.

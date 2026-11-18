@@ -78,7 +78,7 @@ export default class ViewErrorBoundary extends Component {
       return (
         <div role="status" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', padding: 20 }}>
           <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '28px 30px', maxWidth: 420, textAlign: 'center', fontFamily: 'Inter, sans-serif' }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)', marginBottom: 8 }}>You Are Offline</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)', marginBottom: 8 }}>You Are Offline</div>
             <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55 }}>
               This screen is not saved on this device yet. It opens by itself when you are back online. Anything you saved on this device still sends.
             </div>
@@ -89,7 +89,7 @@ export default class ViewErrorBoundary extends Component {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', padding: 20 }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '28px 30px', maxWidth: 420, textAlign: 'center', fontFamily: 'Inter, sans-serif' }}>
-          <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)', marginBottom: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)', marginBottom: 8 }}>
             {stale ? 'Nexus was updated' : 'This section hit a snag'}
           </div>
           <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 18 }}>

@@ -139,7 +139,7 @@ def jobs() -> list[dict]:
              "Reads kudos posts in Teams back into Nexus - reactions and replies become thanks - and keeps "
              "the Teams notifications renewed; off means they wait.", "Every minute", "performance:performance-kudos-chat"),
         _job("daily_briefing", "Daily Briefing", "The morning briefing email.", "Daily", "notifications:briefing"),
-        _job("weekly_digest", "Weekly Digest", "The Monday digest email.", "Weekly", "notifications:digest"),
+        _job("weekly_digest", "Weekly Briefing", "The Monday Weekly Briefing email.", "Weekly", "notifications:digest"),
         _job("announcements_publish", "Announcements Publish",
              "Publishes announcements scheduled for later and sends their Teams or email notices.",
              "Every minute"),

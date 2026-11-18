@@ -43,7 +43,7 @@ export function PeriodPicker({ year, onYear, period, onPeriod, custom, onCustom 
   return (
     <div role="group" aria-label="Period" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
       <button type="button" style={arrow} aria-label="Previous year" onClick={() => onYear(year - 1)}><ChevronLeft size={16} /></button>
-      <strong style={{ fontSize: '0.86rem', minWidth: 40, textAlign: 'center' }}>{year}</strong>
+      <strong style={{ fontSize: 14, minWidth: 40, textAlign: 'center' }}>{year}</strong>
       <button type="button" style={arrow} aria-label="Next year" disabled={year >= new Date().getFullYear() + 1} onClick={() => onYear(year + 1)}><ChevronRight size={16} /></button>
       {/* 10/27 call, item 09: one width whatever is picked (the longest choice), so a period never moves the bar's buttons. */}
       <select value={period} onChange={(e) => onPeriod(e.target.value)} aria-label="Months" style={{ ...control, ...fitSelect(PERIODS.find((p) => p.key === period)?.label, { base: widest(PERIODS.map((p) => p.label)) }) }}>
@@ -52,7 +52,7 @@ export function PeriodPicker({ year, onYear, period, onPeriod, custom, onCustom 
       {period === 'custom' && (
         <>
           <select value={custom[0]} onChange={(e) => onCustom([Number(e.target.value), Math.max(custom[1], Number(e.target.value))])} aria-label="From month" style={control}>{MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}</select>
-          <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>to</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>to</span>
           <select value={custom[1]} onChange={(e) => onCustom([Math.min(custom[0], Number(e.target.value)), Number(e.target.value)])} aria-label="To month" style={control}>{MONTHS.map((m, i) => <option key={m} value={i}>{m}</option>)}</select>
         </>
       )}
@@ -92,13 +92,13 @@ export function PossiblyEndedChip({ flag, kind = 'mre' }) {
     + `If it has ended, ${kind === 'mri' ? 'set its Status to Ended' : 'edit it and press End Today'}. Flagged ${formatDate(flag.since)}${flag.taskId ? '; an accounting task was opened' : ''}.`;
   return (
     <span title={tip} aria-label={`Possibly Ended. ${tip}`} data-testid="possibly-ended"
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6, padding: '0 7px', borderRadius: 999, fontSize: '0.66rem', fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'middle', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', flexShrink: 0 }}>
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6, padding: '0 7px', borderRadius: 999, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', verticalAlign: 'middle', color: 'var(--warn-fg)', background: 'var(--warn-bg)', border: '1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent)', flexShrink: 0 }}>
       <AlertTriangle size={10} /> Possibly Ended
     </span>
   );
 }
 
-const lbl = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const lbl = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 
 const RECHECK_POLL_MS = 3000;
 const RECHECK_GIVE_UP_MS = 10 * 60_000;
@@ -167,7 +167,7 @@ export function RecurringSettingsButton({ onChecked, recheck = null }) {
   return (
     <>
       <button type="button" className="secondary-btn" onClick={() => setOpen(true)} aria-haspopup="dialog" aria-label="Settings" title="Possibly Ended check and vendor folders"
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', height: 30, padding: '0 12px' }}><Settings size={14} /> <span className="acct-bar-label">Settings</span></button>
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' }}><Settings size={14} /> <span className="acct-bar-label">Settings</span></button>
       {/* On the page, not inside the bar: from the bar's More menu (item 02) it
           would sit under the menu's layer and hide when the menu closes. */}
       {open && createPortal(<RecurringSettingsDialog onClose={() => setOpen(false)} recheck={recheck || own} />, document.body)}
@@ -214,31 +214,31 @@ function RecurringSettingsDialog({ onClose, recheck }) {
   const last = recheck.status === 'done' && recheck.last ? recheck.last : s?.lastCheck;
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label="MRI and MRE settings" onClick={(e) => e.stopPropagation()}
-        style={{ width: '60vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', minHeight: '60vh', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="MRI and MRE settings" onClick={(e) => e.stopPropagation()}
+        style={{ display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>MRI and MRE Settings</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={arrow}><X size={18} /></button>
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 16, overflowY: 'auto', flex: 1, alignContent: 'start' }}>
-          {!s ? <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>Loading...</div> : (
+        <div className="nx-fill" style={{ padding: '14px 24px 6px', display: 'grid', gap: 16, overflowY: 'auto', alignContent: 'start' }}>
+          {!s ? <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading...</div> : (
             <>
               <div>
                 <label style={lbl} htmlFor="rs-months">Possibly Ended After (Months)</label>
                 <input id="rs-months" type="number" min={1} max={24} step={1} value={s.staleMonths} onChange={(e) => setS({ ...s, staleMonths: e.target.value })} style={{ ...control, width: 120 }} />
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
                   Once a day, and right away when a new number is saved, an active line with nothing posted for a while is flagged Possibly Ended: on MRE a monthly line after this many months in a row, a quarterly, semi-annual or annual one after one cycle and a month (4, 7 or 13 months); on MRI a source after this many months (at least one full cycle of its frequency). One accounting task is opened for it - assigned to the entity&apos;s accountants in Ask My Accountant&apos;s settings. The task closes itself when money posts again or the line is ended. Nothing about the line is changed.
                 </div>
-                <div data-testid="last-check" style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                <div data-testid="last-check" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
                   {recheck.status === 'running' ? 'Checking now...' : lastCheckText(last)}
                 </div>
               </div>
               <EgnyteField id="rs-root" labelText="Vendor Folders Root (Egnyte)" value={s.egnyteRoot || ''} onChange={(v) => setS({ ...s, egnyteRoot: v })} />
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: -10 }}>Find Folder on an MRE line looks for the vendor&apos;s folder under here first, then searches Egnyte for the vendor&apos;s name.</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -10 }}>Find Folder on an MRE line looks for the vendor&apos;s folder under here first, then searches Egnyte for the vendor&apos;s name.</div>
             </>
           )}
-          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' }}>{error}</div>}
-          {done && <div role="status" style={{ fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>{done}</div>}
+          {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>{error}</div>}
+          {done && <div role="status" style={{ fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>{done}</div>}
         </div>
         <div className="modal-footer" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button type="button" className="secondary-btn" onClick={check} disabled={!!busy || recheck.status === 'running'} title="Run the daily Possibly Ended check now">{busy === 'check' || recheck.status === 'running' ? 'Checking...' : 'Check Now'}</button>
@@ -249,4 +249,27 @@ function RecurringSettingsDialog({ onClose, recheck }) {
       </div>
     </div>
   );
+}
+
+// The inline question a dialog with unsaved changes asks when it is clicked
+// off or Escaped (Neil, 10/14) - never window.confirm. MRI's lease and month
+// editors and MRE's line editor share it.
+export function LeaveConfirm({ onKeep, onDiscard }) {
+  const keep = useRef(null);
+  useEffect(() => { keep.current?.focus(); }, []);
+  return (
+    <div className="modal-footer" role="alertdialog" aria-label="Unsaved changes" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} style={{ color: 'var(--warn-fg)' }} />You have unsaved changes.</span>
+      <span style={{ display: 'inline-flex', gap: 8 }}>
+        <button type="button" className="secondary-btn" onClick={onDiscard} style={{ color: 'var(--bad-fg, #dc2626)' }}>Discard Edits</button>
+        <button type="button" ref={keep} className="primary-btn" onClick={onKeep}>Keep Editing</button>
+      </span>
+    </div>
+  );
+}
+
+// Beside a greyed-out Save: what is still missing, so the button says why.
+export function StillNeeded({ missing }) {
+  if (!missing.length) return null;
+  return <span role="status" style={{ fontSize: 12, color: 'var(--text-muted)' }}>Still needed: {missing.join(', ')}</span>;
 }

@@ -165,6 +165,26 @@ describe('a heading', () => {
 });
 
 describe('saved views', () => {
+  // MRE in production showed Unsaved and Update on a fresh open: a press on a
+  // heading's edge that never moved it wrote the width the column already had.
+  it('a press on the resize edge that does not move it leaves the view clean; a real drag marks it', async () => {
+    render(<Harness />);
+    const edge = within(screen.getByTestId('th-customer')).getByRole('separator');
+    // jsdom has no PointerEvent: a MouseEvent of the pointer type carries clientX.
+    const press = (to) => {
+      fireEvent(edge, new MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 100 }));
+      act(() => { window.dispatchEvent(new MouseEvent('pointermove', { clientX: to })); });
+      act(() => { window.dispatchEvent(new MouseEvent('pointerup', { clientX: to })); });
+    };
+    press(100);
+    await flushSave();
+    expect(screen.queryByText('Unsaved')).toBeNull();
+    expect(api.saveAccountingPrefs).not.toHaveBeenCalled();
+    press(220);
+    await flushSave();
+    expect(screen.getByText('Unsaved')).toBeTruthy();
+  });
+
   it('marks a change Unsaved, saves it as a view, updates it, clears back to it - per person, kept on the server', async () => {
     const { unmount } = render(<Harness />);
     expect(screen.queryByText('Unsaved')).toBeNull();

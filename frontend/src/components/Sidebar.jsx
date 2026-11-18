@@ -10,7 +10,7 @@ import {
   ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Handshake,
-  Settings, ChevronLeft,
+  Settings, ChevronLeft, Pin,
   HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale, TrendingUp,
   FlaskConical,
   KeyRound,
@@ -158,6 +158,7 @@ export const NAV = [
       { subview: "revenue",     label: "ECRI Management", icon: TrendingUp },
       { subview: "portfolio",   label: "Portfolio",       icon: Gauge },
       { subview: "site-map",    label: "Site Map",        icon: MapIcon },
+      { subview: "tenants",     label: "Tenants",         icon: Users },
     ],
   },
   // Development was removed from the nav (Neil, Aug 11) - the module isn't
@@ -256,7 +257,7 @@ function cascadeCount(visible) {
   return n;
 }
 
-const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
+const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse, pinned = false, onTogglePin }, ref) {
   const { can, myGrantedModules, isExternal } = useRole();
   const counts = useActionCounts();
   // The time clock (components/SidebarClock.jsx, Oct 14 2026) replaces the
@@ -481,14 +482,26 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           <NavTip label="Go to Dashboard" side="right">
           <a href="#dashboard" className="sidebar-brand" aria-label="Nexus - go to Dashboard"
             onClick={(e) => { e.preventDefault(); onNavigate('dashboard'); }}>
-            <span className="dk-mark" aria-hidden="true">N</span>
+            <img className="dk-mark" src="/brand/nexus-n.png" alt="" aria-hidden="true" />
             {!collapsed && <span className="company-name" style={{ '--i': 0 }}>Nexus</span>}
           </a>
           </NavTip>
+          {/* Keep Open (Neil, 11/12/2026, navigation review: "keep auto-fold, but
+              fix it"): the menu still folds when you click elsewhere, and this
+              pin - the same choice as My Profile > Appearance > Sidebar - keeps
+              it open. Only on the open rail; the folded one has no room. */}
+          {!collapsed && onTogglePin && (
+            <NavTip label={pinned ? 'Let It Fold When You Click Elsewhere' : 'Keep the Menu Open'} side="right">
+            <button type="button" className={`sidebar-pin${pinned ? ' is-on' : ''}`} onClick={onTogglePin}
+              aria-pressed={pinned} aria-label="Keep the menu open">
+              <Pin style={{ width: 14, height: 14 }} fill={pinned ? 'currentColor' : 'none'} aria-hidden="true" />
+            </button>
+            </NavTip>
+          )}
         </div>
 
         {/* ── Nav ── */}
-        <nav className="sidebar-nav" ref={navRef}>
+        <nav className="sidebar-nav" ref={navRef} aria-label="Main menu">
           {morePill('above')}
           <ul ref={listRef} className="nav-list" role="none" onPointerLeave={onListLeave}>
             {motionOn && (

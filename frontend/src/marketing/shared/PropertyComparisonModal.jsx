@@ -22,7 +22,7 @@ export default function PropertyComparisonModal({ title, rows, columns, onClose 
               style={{
                 borderBottom: '1px solid ' + C.gray100,
                 color: C.gray400,
-                fontSize: 10.5,
+                fontSize: 11,
                 textTransform: 'uppercase',
               }}
             >

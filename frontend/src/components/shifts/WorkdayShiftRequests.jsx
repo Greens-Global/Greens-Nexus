@@ -87,10 +87,10 @@ export default function WorkdayShiftRequests({ toast }) {
     <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10, flexWrap: 'wrap' }}>
         <span className="wkc-chip"><CalendarClock size={14} /></span>
-        <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Shift Requests</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>Shift Requests</span>
         {anyKind && (
           <button type="button" className="primary-btn" onClick={() => setAsking(true)} disabled={!reqs || mine === null}
-            style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> New Request</button>
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> New Request</button>
         )}
       </div>
       {kindsText && (
@@ -100,7 +100,7 @@ export default function WorkdayShiftRequests({ toast }) {
         </div>
       )}
       <AsyncSection loading={!reqs && !reqsError} error={!!reqsError} onRetry={retry} errorMessage="Your shift requests could not be loaded right now." skeleton={<SkeletonBlocks count={2} height={48} borderRadius={10} />}
-        isEmpty={!incoming.length && !list.length} emptyContent={<div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>No shift requests yet.</div>}>
+        isEmpty={!incoming.length && !list.length} emptyContent={<div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>No shift requests yet.</div>}>
         {mineError && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginBottom: 8 }}>Your shared shifts could not be loaded, so a swap or an offer may not be possible right now.</div>}
         <div style={{ display: 'grid', gap: 8 }}>
           {incoming.map((r) => {
@@ -111,9 +111,9 @@ export default function WorkdayShiftRequests({ toast }) {
                 <div style={{ fontSize: 13, color: 'var(--ink)', margin: '4px 0' }}>{r.summary}.</div>
                 {(r.shift || r.targetShift) && (
                   <div style={{ display: 'grid', gridTemplateColumns: r.targetShift ? '1fr auto 1fr' : '1fr', gap: 8, alignItems: 'center', maxWidth: 480, margin: '6px 0' }}>
-                    {r.shift && <ShiftBlock shift={r.shift} style={{ marginBottom: 0 }}><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{who(r.requester)} · {formatDate(r.shift.date)}</div></ShiftBlock>}
+                    {r.shift && <ShiftBlock shift={r.shift} style={{ marginBottom: 0 }}><div style={{ fontSize: 11, color: 'var(--muted)' }}>{who(r.requester)} · {formatDate(r.shift.date)}</div></ShiftBlock>}
                     {r.targetShift && <ArrowLeftRight size={14} color="var(--muted)" />}
-                    {r.targetShift && <ShiftBlock shift={r.targetShift} style={{ marginBottom: 0 }}><div style={{ fontSize: 10.5, color: 'var(--muted)' }}>You · {formatDate(r.targetShift.date)}</div></ShiftBlock>}
+                    {r.targetShift && <ShiftBlock shift={r.targetShift} style={{ marginBottom: 0 }}><div style={{ fontSize: 11, color: 'var(--muted)' }}>You · {formatDate(r.targetShift.date)}</div></ShiftBlock>}
                   </div>
                 )}
                 {r.note && <div style={{ fontSize: 12, color: 'var(--muted)' }}>“{r.note}”</div>}
@@ -128,7 +128,7 @@ export default function WorkdayShiftRequests({ toast }) {
           })}
           {shownList.map((r) => (
             <div key={r.id} style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ flex: 1, minWidth: 200, fontSize: 12.5, color: 'var(--ink)' }}>
+              <span style={{ flex: 1, minWidth: 200, fontSize: 13, color: 'var(--ink)' }}>
                 {mySummary(r)}
                 {r.decisionNote ? <span style={{ color: 'var(--muted)' }}> · {r.decisionNote}</span> : null}
               </span>

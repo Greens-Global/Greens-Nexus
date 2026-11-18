@@ -382,6 +382,14 @@ function layoutFlat(graph, { dir = 'TB', origin = { x: 0, y: 0 }, wrap = false }
   const ranks = [];
   queue.forEach((v) => { (ranks[rank[v]] ||= []).push(v); });
 
+  // A long straight run wraps (Neil, 11/12/2026): past CHAIN_WRAP boxes a
+  // process takes the next row, starting again at the start - never one line
+  // longer than a person reads without scrolling. Only a plain chain (one
+  // box after another, no branch, no loop); anything else keeps its layers.
+  if (ranks.length > CHAIN_WRAP && ranks.every((r) => r.length === 1) && !back.size && edges.length === nodes.length - 1) {
+    return chainLayout(ranks.map((r) => nodes[r[0]]), edges, { dir, origin });
+  }
+
   // Order within ranks: barycenter of neighbors, a few sweeps down and up.
   const pos = nodes.map(() => 0);
   ranks.forEach((r) => r.forEach((v, i) => { pos[v] = i; }));
@@ -434,6 +442,25 @@ function layoutFlat(graph, { dir = 'TB', origin = { x: 0, y: 0 }, wrap = false }
     const x = Math.round(origin.x + (lr ? a : c));
     const y = Math.round(origin.y + (lr ? c : a));
     return { ...n, x, y };
+  });
+  return { nodes: out, edges, dir };
+}
+
+export const CHAIN_WRAP = 6;
+/** A chain in lines of CHAIN_WRAP: rows for Left to Right (each starting
+ *  again at the left), columns for Top to Bottom (each starting again at
+ *  the top). Every box sits centered in a cell the size of the largest. */
+function chainLayout(chain, edges, { dir, origin }) {
+  const lr = dir === 'LR';
+  const cellW = Math.max(...chain.map((n) => n.w));
+  const cellH = Math.max(...chain.map((n) => n.h));
+  const out = chain.map((n, i) => {
+    const step = i % CHAIN_WRAP, line = Math.floor(i / CHAIN_WRAP);
+    const col = lr ? step : line, row = lr ? line : step;
+    // along the flow: room for an arrow label; between the lines: room for the arrow that comes back
+    const gapX = lr ? GAP_ALONG : GAP_ALONG;
+    const gapY = lr ? GAP_ALONG : GAP_ALONG;
+    return { ...n, x: Math.round(origin.x + col * (cellW + gapX) + (cellW - n.w) / 2), y: Math.round(origin.y + row * (cellH + gapY) + (cellH - n.h) / 2) };
   });
   return { nodes: out, edges, dir };
 }

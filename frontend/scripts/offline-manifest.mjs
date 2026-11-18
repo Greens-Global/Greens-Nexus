@@ -59,6 +59,10 @@ export const OFFLINE_STATIC = [
   '/icons/nexus-192.png',
   '/icons/nexus-badge-96.png',
   '/icons/apple-touch-icon-180.png',
+  '/favicon-32.png',
+  '/brand/nexus-mark.png',          // the login ring (11/15/2026)
+  '/brand/nexus-n.png',             // the sidebar and Help mark
+  '/brand/nexus-lockup-white.png',
 ];
 
 const PLACEHOLDER = /const MANIFEST = null;[^\n]*/;
@@ -97,8 +101,16 @@ export function offlineFiles(bundle, screens = OFFLINE_SCREENS) {
     const ids = (c.moduleIds || Object.keys(c.modules || {})).map(norm);
     if (ids.some((id) => screens.some((s) => id.includes(`/${s}`) || id.includes(s)))) add(c);
   }
+  // The app font (src/fonts.css): its Latin files, so a phone that installs
+  // the shell offline still draws Inter. The other scripts' files load when
+  // a page needs them, online, and are kept as they go.
+  for (const a of Object.values(bundle)) {
+    if (a && a.type === 'asset' && FONT_FILES.test(a.fileName)) want.add(a.fileName);
+  }
   return [...want].filter((f) => f.startsWith('assets/')).sort().map((f) => `/${f}`);
 }
+
+export const FONT_FILES = /^assets\/inter-latin(-ext)?-wght-normal-.*\.woff2$/;
 
 export function offlineManifestPlugin({ buildId }) {
   let assets = [];

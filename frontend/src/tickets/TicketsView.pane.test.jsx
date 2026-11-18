@@ -52,6 +52,11 @@ const { default: TicketsView } = await import('./TicketsView');
 const { __setTablePrefsCache } = await import('../tasks/tableCols');
 
 const key = (k, target = document.body) => fireEvent.keyDown(target, { key: k });
+// View (11/13/2026): List / Board is a choice in the View menu, not a button of its own.
+const showAs = async (label) => {
+  fireEvent.click(screen.getByRole('button', { name: /^View: / }));
+  fireEvent.click(await screen.findByRole('menuitemradio', { name: label }));
+};
 const drawer = () => screen.queryByTestId('ticket-drawer');
 
 beforeEach(() => { __setTablePrefsCache({ 'tickets-v3': { layout: 'pane' } }); });
@@ -98,14 +103,14 @@ describe('Tickets desk - side pane', () => {
     expect(pane).toBeTruthy();
   });
 
-  it('is a checkbox in the More menu, on here, and the Board ignores the pane', async () => {
+  it('is a checkbox in the View menu, on here, and the Board ignores the pane', async () => {
     render(<TicketsView />);
     await screen.findByText('Printer jam');
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View: List' }));
     const sw = screen.getByLabelText('Open Tickets in a Side Pane');
     expect(sw.checked).toBe(true);
     key('Escape');
-    fireEvent.click(screen.getByRole('button', { name: /Board/ }));
+    await showAs('Board');
     await screen.findByTestId('ticket-board');
     expect(screen.queryByText('Pick a Ticket')).toBeNull();
   });
@@ -136,11 +141,11 @@ describe('Tickets desk - side pane', () => {
     await screen.findByTestId('ticket-drawer');
     fireEvent.change(prioritySelect(), { target: { value: 'high' } });
     confirmSwitch.mockImplementation(() => Promise.resolve(false));
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Board/ })); });
+    await act(async () => { await showAs('Board'); });
     expect(screen.queryByTestId('ticket-board')).toBeNull();            // Keep Editing: still on the list
     expect(screen.getByTestId('ticket-drawer')).toBeTruthy();
     confirmSwitch.mockImplementation(() => Promise.resolve(true));
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Board/ })); });
+    await act(async () => { await showAs('Board'); });
     await screen.findByTestId('ticket-board');
     expect(screen.queryByTestId('ticket-drawer')).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -151,9 +156,29 @@ describe('Tickets desk - side pane', () => {
     await screen.findByText('Printer jam');
     fireEvent.click(screen.getByText('Printer jam'));
     await screen.findByTestId('ticket-drawer');
-    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(screen.getByRole('button', { name: 'View: List' }));
     await act(async () => { fireEvent.click(screen.getByLabelText('Open Tickets in a Side Pane')); });
     await waitFor(() => expect(screen.queryByTestId('ticket-drawer')).toBeNull());
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+// The bar (Neil, 11/13/2026): Reports is the header's last tab; a queue tab
+// brings back the list as it was shown; the toolbar has no List / Board /
+// Reports switch, and on Reports only Filters and Create remain.
+describe('Reports as a tab, List / Board in View', () => {
+  it('opens Reports from its tab and comes back to the Board from a queue', async () => {
+    render(<TicketsView />);
+    await screen.findByText('Printer jam');
+    expect(screen.queryByRole('button', { name: /^List$/ })).toBeNull();
+    await showAs('Board');
+    await screen.findByTestId('ticket-board');
+    fireEvent.click(screen.getByRole('button', { name: /^Reports/ }));
+    await waitFor(() => expect(screen.queryByTestId('ticket-board')).toBeNull());
+    expect(screen.queryByLabelText('Search tickets')).toBeNull();
+    expect(screen.queryByRole('button', { name: /^View: / })).toBeNull();
+    expect(screen.getByRole('button', { name: /Filters/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^All Open/ }));
+    await screen.findByTestId('ticket-board');
   });
 });

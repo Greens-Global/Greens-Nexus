@@ -56,10 +56,10 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
     <div role="dialog" aria-modal="true" className="modal-overlay" style={{ zIndex:4100 }} onClick={e => e.target === e.currentTarget && guard.requestClose()}>
       <div className="modal-content nx-popup" style={{ display:'flex', flexDirection:'column', padding:'22px 26px 20px' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-          <h3 style={{ margin:0, fontSize:16, fontWeight:700, display:'inline-flex', alignItems:'center', gap:7 }}><Tag size={16} /> Manage Item Types</h3>
+          <h3 style={{ margin:0, fontSize:15, fontWeight:700, display:'inline-flex', alignItems:'center', gap:7 }}><Tag size={16} /> Manage Item Types</h3>
           <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
-        <p style={{ margin:'0 0 14px', fontSize:12.5, color:'var(--muted)' }}>
+        <p style={{ margin:'0 0 14px', fontSize:13, color:'var(--muted)' }}>
           These are the types everyone picks from. A CSV import may match a new/unknown type to one of these or create it - the created ones are reported after the import. Add or curate them here.
         </p>
         <div style={{ display:'flex', gap:8, marginBottom:14 }}>
@@ -87,7 +87,7 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
               {setting(t) && (() => {
                 const st = setting(t);
                 return (
-                  <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', fontSize:12.5, color:'var(--muted)' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap', fontSize:13, color:'var(--muted)' }}>
                     <label style={{ display:'inline-flex', alignItems:'center', gap:8, cursor: st.canEdit ? 'pointer' : 'default' }}>
                       <input type="checkbox" role="switch" aria-checked={st.borrowable} checked={st.borrowable} disabled={!st.canEdit}
                         aria-label={`${t} is borrowable`} style={{ accentColor:'var(--wk-brand)', cursor:'pointer' }}
@@ -96,12 +96,12 @@ export function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast
                     </label>
                     {st.canEdit && st.borrowableSet != null && (
                       <button type="button" onClick={() => saveSetting(t, { use_default: true }, `${t} follows the default again.`)}
-                        style={{ background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--wk-brand)', fontSize:12.5, fontWeight:600 }}>Use the Default</button>
+                        style={{ background:'none', border:'none', padding:0, cursor:'pointer', color:'var(--wk-brand)', fontSize:13, fontWeight:600 }}>Use the Default</button>
                     )}
                     <label style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
                       Longest Loan
                       <select className="form-input" value={st.maxLoanDays || 0} aria-label={`Longest loan for ${t}`} disabled={!st.canEdit}
-                        style={{ height:30, padding:'0 8px', fontSize:12.5, width:'auto' }}
+                        style={{ height:30, padding:'0 8px', fontSize:13, width:'auto' }}
                         onChange={e => { const d = Number(e.target.value); saveSetting(t, { max_loan_days: d }, d ? `${t} can be borrowed for up to ${d} day${d === 1 ? '' : 's'}.` : `${t} has no loan cap (up to ${LOAN_CEILING_DAYS} days).`); }}>
                         {[...new Set([...LOAN_CHOICES, st.maxLoanDays || 0])].sort((a, b) => a - b).map(d => <option key={d} value={d}>{d ? `${d} day${d === 1 ? '' : 's'}` : `No Cap (${LOAN_CEILING_DAYS} days)`}</option>)}
                       </select>

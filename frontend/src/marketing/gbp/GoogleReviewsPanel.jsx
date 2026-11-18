@@ -48,7 +48,7 @@ function Stat({ label, value, sub }) {
   return (
     <div style={{ ...card, padding: 14 }}>
       <div style={{ fontSize: 12, color: C.gray500, marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 600, color: C.gray900, lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 24, fontWeight: 600, color: C.gray900, lineHeight: 1.1 }}>{value}</div>
       {sub && <div style={{ marginTop: 6 }}>{sub}</div>}
     </div>
   )
@@ -122,10 +122,10 @@ function ReviewItem({ review, location, canReply, onChange }) {
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
-            <span style={{ fontWeight: 500, color: C.gray900, fontSize: 13.5 }}>{review.reviewer || 'Google User'}</span>
+            <span style={{ fontWeight: 500, color: C.gray900, fontSize: 13 }}>{review.reviewer || 'Google User'}</span>
             <StarRating value={review.rating} size={12} />
             <span style={{
-              padding: '2px 8px', borderRadius: 6, fontSize: 10.5, fontWeight: 500,
+              padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 500,
               ...(review.replied ? { background: C.emerald50, color: C.emerald700 } : { background: C.amber50, color: C.amber700 }),
             }}>
               {review.replied ? 'Replied' : 'Awaiting Reply'}
@@ -133,18 +133,18 @@ function ReviewItem({ review, location, canReply, onChange }) {
           </div>
           {review.comment
             ? <p style={{ fontSize: 13, color: C.gray700, marginBottom: 4, whiteSpace: 'pre-wrap' }}>{review.comment}</p>
-            : <p style={{ fontSize: 12.5, color: C.gray400, fontStyle: 'italic', marginBottom: 4 }}>Rating only - no written review.</p>}
-          <p style={{ fontSize: 11.5, color: C.gray400 }}>{review.location} &middot; {formatDateTime(review.createdAt)}</p>
+            : <p style={{ fontSize: 13, color: C.gray400, fontStyle: 'italic', marginBottom: 4 }}>Rating only - no written review.</p>}
+          <p style={{ fontSize: 12, color: C.gray400 }}>{review.location} &middot; {formatDateTime(review.createdAt)}</p>
         </div>
       </div>
 
       <div style={{ borderRadius: 8, background: C.gray50, border: '1px solid ' + C.gray100, padding: 12, marginTop: 10, marginLeft: 44 }}>
         {review.replied && !editing && (
           <>
-            <div style={{ fontSize: 11.5, fontWeight: 500, color: C.gray500, marginBottom: 4 }}>Response From the Owner</div>
+            <div style={{ fontSize: 12, fontWeight: 500, color: C.gray500, marginBottom: 4 }}>Response From the Owner</div>
             <p style={{ fontSize: 13, color: C.gray700, marginBottom: 8, whiteSpace: 'pre-wrap' }}>{review.reply}</p>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11.5, color: C.gray500 }}>
+              <span style={{ fontSize: 12, color: C.gray500 }}>
                 {review.repliedBy
                   ? `Replied by ${review.repliedByName || review.repliedBy} on ${formatDateTime(review.repliedAt)}`
                   : `Replied in Google directly${review.replyUpdatedAt ? ` on ${formatDateTime(review.replyUpdatedAt)}` : ''}`}

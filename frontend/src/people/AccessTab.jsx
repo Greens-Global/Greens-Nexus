@@ -30,9 +30,9 @@ import { LevelPill, TierBadge, rolesForCompany } from '../views/RolesAccess';
 
 const TIERS = Object.keys(ROLES);
 const head = { fontSize: 13, fontWeight: 700, color: 'var(--ink)', margin: '22px 0 8px', display: 'flex', alignItems: 'center', gap: 8 };
-const sub = { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 };
+const sub = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 };
 const rowLine = { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' };
-const select = { padding: '7px 10px', fontSize: 12.5, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontFamily: 'Inter,sans-serif' };
+const select = { padding: '7px 10px', fontSize: 13, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontFamily: 'Inter,sans-serif' };
 
 export default function AccessTab({
   email, identityType = 'internal', companyId = '', employee = null, external = null,
@@ -82,7 +82,7 @@ export default function AccessTab({
     api.getEntities().then((e) => setEntities(Array.isArray(e) ? e : [])).catch(() => {});
   }, []);
 
-  if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet - provision their account first to manage access.</div>;
+  if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13, padding: '20px 4px' }}>This person has no work email yet - provision their account first to manage access.</div>;
   if (!data && loadError) return <ErrorBanner message={loadError} onRetry={() => { setLoadErr({ email, v: '' }); load(); }} />;
   if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>;
 
@@ -174,7 +174,7 @@ export default function AccessTab({
         <span style={{ flex: 1 }} />
         <button type="button" className="secondary-btn" onClick={() => (onChangeRole ? onChangeRole() : setRoleOpen(true))}
           title="The reason is kept in their role history"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <Shield size={13} /> {data.job_role ? 'Change Role' : 'Set Job Role'}
         </button>
       </div>
@@ -203,7 +203,7 @@ export default function AccessTab({
                   {TIERS.map((t) => <option key={t} value={t}>{ROLES[t].label}</option>)}
                 </select>
                 {data.tier_pinned && data.job_role && (
-                  <button type="button" className="secondary-btn" onClick={resetTier} style={{ fontSize: 12.5 }}>Reset to Role Tier</button>
+                  <button type="button" className="secondary-btn" onClick={resetTier} style={{ fontSize: 13 }}>Reset to Role Tier</button>
                 )}
               </>
             )}
@@ -257,14 +257,14 @@ export default function AccessTab({
             <div key={m.module} style={{ ...rowLine, alignItems: 'flex-start' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{mod?.label || m.module}</div>
-                <div style={{ ...sub, fontSize: 11.5, marginTop: 2 }}>{capabilityText(m.module, m.level, mod?.label)}</div>
+                <div style={{ ...sub, fontSize: 12, marginTop: 2 }}>{capabilityText(m.module, m.level, mod?.label)}</div>
               </div>
               <LevelPill level={m.level} title={`${mod?.label || m.module} · ${MODULE_LEVELS[m.level]?.label || m.level}`} />
               <span style={{ fontSize: 12, color: 'var(--muted)', minWidth: 120, textAlign: 'right' }}>{m.manual ? `From ${m.source}` : 'From their job role'}</span>
             </div>
           );
         })}
-      <div style={{ ...sub, fontSize: 11.5, marginTop: 8 }}>Access is the job role plus any groups, taking the highest level per module.</div>
+      <div style={{ ...sub, fontSize: 12, marginTop: 8 }}>Access is the job role plus any groups, taking the highest level per module.</div>
 
       {roleOpen && (
         <RoleChangeModal

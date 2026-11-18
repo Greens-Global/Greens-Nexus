@@ -11,7 +11,7 @@ function Card({ icon: Icon, color, label, value, caption }) {
         <Icon size={14} />
       </div>
       <div style={{ fontSize: 12, color: C.gray500, marginBottom: 4, lineHeight: 1.25 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, marginBottom: 4, ...ellipsis }}>{value}</div>
+      <div style={{ fontSize: 18, fontWeight: 600, color: C.gray900, lineHeight: 1.25, marginBottom: 4, ...ellipsis }}>{value}</div>
       <div style={{ fontSize: 11, color: C.gray400, ...ellipsis }}>{caption}</div>
     </div>
   )

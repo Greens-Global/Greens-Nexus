@@ -1,12 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MARKUP_TOOLS, strokeStyle, toolFromEngine, commentPin, wrapWords, nextCommentNumber, stageToBoard, restyle, removeSelected, colorByKey, PIN_MAX, sizeByKey, isSizeKey,
+  MARKUP_TOOLS, MORE_TOOLS, strokeStyle, toolFromEngine, commentPin, wrapWords, nextCommentNumber, stageToBoard, restyle, removeSelected, colorByKey, PIN_MAX, sizeByKey, isSizeKey,
 } from './markupTools';
 import { FONT_HAND, FONT_SANS } from './scene';
 
 describe('markup tools', () => {
   it('offers the reviewer set, in order', () => {
-    expect(MARKUP_TOOLS.map((t) => t.key)).toEqual(['select', 'hand', 'pen', 'highlight', 'sticky', 'arrow', 'box', 'text', 'comment', 'eraser']);
+    // Section (the engine's frame) joined the bar on 11/12/2026 - Neil: "Section can join the main bar".
+    expect(MARKUP_TOOLS.map((t) => t.key)).toEqual(['select', 'hand', 'pen', 'highlight', 'sticky', 'arrow', 'box', 'frame', 'text', 'comment', 'eraser']);
+    expect(MARKUP_TOOLS.find((t) => t.key === 'frame')).toMatchObject({ label: 'Section', engine: 'frame' });
+    expect(MORE_TOOLS.some((t) => t.key === 'frame')).toBe(false);
   });
 
   it('draws the highlighter wide and see-through, the pen solid at the picked width', () => {

@@ -19,7 +19,7 @@
 /**
  * @param {object} ctx
  * @param {(k: string) => void} ctx.setQueue   open a queue tab (needs_reply / unassigned / …)
- * @param {(k: string) => void} ctx.setView    switch the List/Board/Reports view
+ * @param {(k: string) => void} ctx.setView    switch the List / Board / Reports view
  * @param {boolean}             ctx.isMobile   phone layout (toolbar is hidden, Create is the floating +)
  */
 export function buildTicketTourSteps({ setQueue, setView, isMobile }) {
@@ -34,20 +34,20 @@ export function buildTicketTourSteps({ setQueue, setView, isMobile }) {
       target: 'ticket-views',
       when: () => !isMobile,
       before: () => setView('list'),
-      title: 'List, Board or Reports',
-      body: 'List is the sortable table you land on. Board groups the same tickets into columns you drag between. Reports charts volume, SLA performance and where time is going - useful for a desk lead, not just an individual agent.',
+      title: 'List or Board, and Reports',
+      body: 'View shows the queue as the sortable List you land on or as a Board of columns you drag between - and holds the side pane, grouping and the columns you see. Reports, the last tab in the bar above, charts volume, SLA performance and where time is going - useful for a desk lead, not just an individual agent.',
     },
     {
       target: 'ticket-create',
       when: () => !isMobile,
       title: 'Raising a ticket',
-      body: 'Create walks you through picking a type, then only the fields that type needs. Some types route to an approver before anyone can be assigned; Facility and IT requests can attach a screen recording of the problem right from the form.',
+      body: 'New walks you through picking a type, then only the fields that type needs. Some types route to an approver before anyone can be assigned; Facility and IT requests can attach a screen recording of the problem right from the form.',
     },
     {
       target: 'ticket-toolbar',
       when: () => !isMobile,
       title: 'Search, filter, and save the combination',
-      body: 'Search checks the title, description and even the app named on the ticket. Filters narrows by status, priority, type, SLA, department, service area or assignee. More (the three dots) holds grouping, the columns you see, export and your saved views - "+ View" in the bar saves what you have on screen as a tab of its own.',
+      body: 'Search checks the title, description and even the app named on the ticket. Filters narrows by status, priority, type, SLA, department, service area or assignee. More (the three dots) holds your saved views - Save Current View keeps what you have on screen under Other Queues - and Export.',
     },
     {
       target: 'ticket-body',
@@ -55,7 +55,7 @@ export function buildTicketTourSteps({ setQueue, setView, isMobile }) {
       title: 'Working a ticket',
       body: isMobile
         ? 'Tap a card to open the full thread, attachments and history. Search sits under the tabs, and the filter button in the bar below narrows and sorts the list. Finished tickets live under Done, out of the way.'
-        : 'Click a row - or press ↓ and Enter - to open the full thread, attachments and history; Previous and Next step through the queue from inside it. Click Status / Priority right in the list to change it without opening anything. The More menu can open tickets in a side pane beside the list instead of over it. Finished tickets live under Done, out of the way.',
+        : 'Click a row - or press ↓ and Enter - to open the full thread, attachments and history; Previous and Next step through the queue from inside it. Click Status / Priority right in the list to change it without opening anything. The View menu can open tickets in a side pane beside the list instead of over it. Finished tickets live under Done, out of the way.',
     },
   ];
 

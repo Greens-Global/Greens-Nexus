@@ -39,7 +39,7 @@ export default function KbTrainingEmailPref() {
         desc={state.orgEmailOn
           ? 'Off keeps due-soon reminders in the notification bell only. Overdue training and policies to sign always email you.'
           : 'Training reminder emails are turned off for everyone, so reminders arrive in the notification bell only.'} />
-      {msg && <div role="status" style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{msg}</div>}
+      {msg && <div role="status" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>{msg}</div>}
     </div>
   );
 }

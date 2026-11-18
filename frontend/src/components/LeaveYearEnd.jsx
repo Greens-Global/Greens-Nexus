@@ -108,7 +108,7 @@ export function LeaveYearEndSettings({ toastOk, toastErr, company = '', onOverri
           )}>
           {draft[`${b}Mode`] === 'carry_cap' && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>Carry up to</span>
+              <span style={{ fontSize: 13, color: 'var(--muted)' }}>Carry up to</span>
               <NumberBox label={`${label} carry-over cap`} min={0} max={2000} value={draft[`${b}Cap`]} onChange={(v) => edit({ [`${b}Cap`]: v === '' ? '' : Number(v) })} />
               <select className="form-input" aria-label={`${label} cap unit`} value={draft[`${b}CapUnit`]} disabled={!!picking} onChange={(e) => pickNow({ [`${b}CapUnit`]: e.target.value })}
                 style={{ fontSize: 13, width: 'auto' }}>
@@ -235,7 +235,7 @@ export function LeaveYearEndPreview({ toastOk, toastErr }) {
     } catch (e) { toastErr?.(e?.message || 'Could not apply the year end.'); }
     setBusy(false);
   }
-  const seg = (on) => ({ padding: '6px 12px', fontSize: 12.5, fontWeight: 700, borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--wk-font)',
+  const seg = (on) => ({ padding: '6px 12px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', fontFamily: 'var(--wk-font)',
     border: `1px solid ${on ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, background: on ? 'var(--wk-brand-tint)' : 'var(--card)', color: on ? 'var(--wk-brand)' : 'var(--muted)' });
 
   return (
@@ -246,7 +246,7 @@ export function LeaveYearEndPreview({ toastOk, toastErr }) {
         <span style={{ flex: 1 }} />
         {companies.length > 0 && (
           <select className="form-input" aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)}
-            style={{ fontSize: 12.5, padding: '4px 8px', width: 'auto', maxWidth: '100%' }}>
+            style={{ fontSize: 13, padding: '4px 8px', width: 'auto', maxWidth: '100%' }}>
             {data.canAll && <option value="">All Companies</option>}
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
           </select>
@@ -265,7 +265,7 @@ export function LeaveYearEndPreview({ toastOk, toastErr }) {
       </div>
       {err ? <ErrorBanner message={err} onRetry={load} />
         : data === undefined ? <SkeletonBlocks count={3} height={30} borderRadius={8} />
-        : people.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nobody with a balance here yet.</div>
+        : people.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '10px 0' }}>Nobody with a balance here yet.</div>
         : (
           <>
             <div style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, overflow: 'hidden' }}>
@@ -290,7 +290,7 @@ export function LeaveYearEndPreview({ toastOk, toastErr }) {
                 Expires: vacation {fmtLeave(data.totals?.vacation?.expired || 0)}, sick {fmtLeave(data.totals?.sick?.expired || 0)} across {people.length} {people.length === 1 ? 'person' : 'people'}.
               </span>
               {period === 'last' && owed && (
-                <button type="button" className="primary-btn" disabled={busy} onClick={apply} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <button type="button" className="primary-btn" disabled={busy} onClick={apply} style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   {busy && <Spinner size={12} />} Apply Year End
                 </button>
               )}

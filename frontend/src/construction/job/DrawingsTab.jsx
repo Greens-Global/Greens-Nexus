@@ -19,7 +19,7 @@ import { useLoad } from '../lib/job';
 import { filesFromPaste, uploadConstructionMedia, validate } from '../lib/upload';
 
 const DISCIPLINES = ['Architectural', 'Structural', 'Civil', 'Mechanical', 'Electrical', 'Plumbing', 'Fire Protection', 'Landscape', 'Other'];
-const quiet = { fontSize: '0.82rem', color: 'var(--text-secondary)' };
+const quiet = { fontSize: 13, color: 'var(--text-secondary)' };
 
 function DrawingSheet({ project, base, onClose, onSaved }) {
   const [f, setF] = useState({ sheet: base?.sheetNumber || '', title: base?.title || '', discipline: base?.discipline || '', revision: '', revisionOn: '' });
@@ -87,7 +87,7 @@ function DrawingSheet({ project, base, onClose, onSaved }) {
             onChange={(e) => { take(e.target.files); e.target.value = ''; }} />
           <span style={quiet}>{file ? <b style={{ color: 'var(--text-primary)' }}>{file.name}</b> : 'A PDF or a scan of the sheet. Drop it here, choose it, or press Ctrl+V to paste it.'}</span>
         </div>
-        {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'hsl(var(--color-red))' }}>{error}</div>}
+        {error && <div role="alert" style={{ fontSize: 13, color: 'hsl(var(--color-red))' }}>{error}</div>}
         <div><button type="submit" className="primary-btn" disabled={busy}><Plus size={14} />{busy ? 'Uploading…' : base ? 'Add Revision' : 'Add Sheet'}</button></div>
       </form>
     </Modal>
@@ -107,7 +107,7 @@ export default function DrawingsTab({ project }) {
   const old = all.length - current.length;
   return (
     <section style={{ ...CARD, marginBottom: 14 }} aria-label="Drawings">
-      <h3 style={{ fontSize: '1.05rem', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><FileStack size={16} />Drawings</h3>
+      <h3 style={{ fontSize: 18, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><FileStack size={16} />Drawings</h3>
       <p style={{ ...quiet, margin: '0 0 12px' }}>
         {current.length === 0 ? 'No sheets yet. ' : `${current.length} current sheet${current.length === 1 ? '' : 's'}${old ? `, ${old} superseded` : ''}. `}
         Build from the current sheet only. A new revision supersedes the one before and tells the crew and the managers.
@@ -125,17 +125,17 @@ export default function DrawingsTab({ project }) {
         return (
           <div key={d.id} data-drawing={d.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '9px 0', borderTop: '1px solid var(--border-color)', opacity: live ? 1 : 0.7 }}>
             <div style={{ flex: '1 1 240px', minWidth: 0 }}>
-              <div style={{ fontSize: '0.88rem' }}><b>{d.sheetNumber}</b>{d.title ? ` · ${d.title}` : ''}</div>
+              <div style={{ fontSize: 14 }}><b>{d.sheetNumber}</b>{d.title ? ` · ${d.title}` : ''}</div>
               <div style={quiet}>{[`Rev ${d.revision}`, d.revisionOn ? formatDate(d.revisionOn, d.revisionOn) : '', d.discipline].filter(Boolean).join(' · ')}</div>
             </div>
             <StatusLabel size="sm" label={live ? 'Current' : 'Superseded'} color={live ? TONE.green : TONE.slate} />
-            {d.fileUrl && <a href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }}>Open File</a>}
+            {d.fileUrl && <a href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ padding: '6px 10px', fontSize: 13 }}>Open File</a>}
             {d.egnytePath && isPdfName(d.egnytePath) && (
-              <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }}
+              <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: 13 }}
                 onClick={() => openEgnyteInPdfTools({ path: d.egnytePath, name: d.egnytePath.split('/').pop() })}>Open In PDF Tools</button>
             )}
             {data.canEdit && live && (
-              <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: '0.8rem' }} onClick={() => setSheet(d)}>New Revision</button>
+              <button type="button" className="secondary-btn" style={{ padding: '6px 10px', fontSize: 13 }} onClick={() => setSheet(d)}>New Revision</button>
             )}
             {data.canEdit && (
               <HoldButton label="Remove" ariaLabel={`Remove ${d.sheetNumber} Rev ${d.revision}`} doneLabel="Removed" holdMs={HOLD_RECORD_MS} size="sm"

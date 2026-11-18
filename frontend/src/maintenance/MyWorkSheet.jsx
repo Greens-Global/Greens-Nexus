@@ -43,10 +43,10 @@ export default function MyWorkSheet({ onClose, initial = null }) {
       footer={<button type="button" className="secondary-btn" onClick={() => setScanning(true)}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 42 }}><ScanLine size={15} /> Scan a Tag</button>}>
       {!data && !error && <SkeletonBlocks count={4} height={64} borderRadius={10} />}
-      {error && !data && <div style={{ fontSize: 13.5 }}>{error} <button type="button" className="secondary-btn" onClick={load}>Try Again</button></div>}
+      {error && !data && <div style={{ fontSize: 13 }}>{error} <button type="button" className="secondary-btn" onClick={load}>Try Again</button></div>}
       {data && (
         <div>
-          <div style={{ fontSize: 13.5, color: 'var(--muted)', marginBottom: 6 }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
             {rows.length === 0 ? 'Nothing open for you right now.' : `${rows.length} open${data.overdue ? ` · ${data.overdue} overdue` : ''}${data.preventive ? ` · ${data.preventive} preventive` : ''}`}
           </div>
           {notice && <div role="alert" style={{ color: OVERDUE_COLOR, fontSize: 13 }}>{notice}</div>}
@@ -55,8 +55,8 @@ export default function MyWorkSheet({ onClose, initial = null }) {
             const done = steps.filter((s) => s.done).length;
             return (
               <TicketLine key={r.id} row={r} onOpen={() => { onClose(); openTicket(r.id); }}>
-                {steps.length > 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)', alignSelf: 'center' }}>{done} of {steps.length} Steps</span>}
-                {!r.mine && <span style={{ fontSize: 12.5, color: 'var(--muted)', alignSelf: 'center' }}>Unassigned</span>}
+                {steps.length > 0 && <span style={{ fontSize: 13, color: 'var(--muted)', alignSelf: 'center' }}>{done} of {steps.length} Steps</span>}
+                {!r.mine && <span style={{ fontSize: 13, color: 'var(--muted)', alignSelf: 'center' }}>Unassigned</span>}
                 {r.status !== 'in_progress' && data.canStart && (
                   <button type="button" className="secondary-btn" disabled={busy === r.id} onClick={() => start(r)}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 42 }}>

@@ -226,21 +226,25 @@
   function mountLanding() {
     var left = document.querySelector('.welcome-left');
     if (!left) return false;
+    // On a touch screen adobe-ui.js draws a row of tiles under Choose a File
+    // (11/13/2026); Egnyte and Documents join it as short tiles there.
+    var tiles = document.querySelector('.welcome-start-more');
     var box = document.getElementById('nxOpenFromNexus');
     if (!box) {
       box = document.createElement('div');
       box.id = 'nxOpenFromNexus';
       box.className = 'nx-open-from';
-      left.appendChild(box);
+      (tiles || left).appendChild(box);
     }
     box.textContent = '';
-    var entries = [['Open From Egnyte', 'open-egnyte', 'egnyte']];
-    if (config.canDocuments) entries.push(['Open From Documents', 'open-documents', 'documents']);
+    var entries = [['Open From Egnyte', 'open-egnyte', 'egnyte', 'Egnyte']];
+    if (config.canDocuments) entries.push(['Open From Documents', 'open-documents', 'documents', 'Documents']);
     entries.forEach(function (entry) {
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.innerHTML = icon(entry[2]);
-      btn.appendChild(document.createTextNode(entry[0]));
+      btn.appendChild(document.createTextNode(tiles ? entry[3] : entry[0]));
+      if (tiles) btn.setAttribute('aria-label', entry[0]);
       btn.setAttribute('data-nx-action', entry[1]);
       btn.addEventListener('click', function (e) { e.stopPropagation(); ask(entry[1]); });
       box.appendChild(btn);

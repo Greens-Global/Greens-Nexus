@@ -95,7 +95,7 @@ export default function TeamLeaveCalendar({ embedded = false }) {
   const onDay = (ds) => entries.filter((e) => e.startDate <= ds && ds <= e.endDate);
   const holidayOn = (ds) => holidays.filter((h) => h.date === ds);
 
-  const btn = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32, padding: '0 10px', fontSize: 12.5 };
+  const btn = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32, padding: '0 10px', fontSize: 13 };
 
   return (
     <section aria-label="Team Leave Calendar" data-tlc="" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '14px 16px', margin: embedded ? 0 : '14px 0', boxShadow: 'var(--wk-shadow)', fontFamily: 'var(--wk-font)' }}>
@@ -108,7 +108,7 @@ export default function TeamLeaveCalendar({ embedded = false }) {
         <span style={{ flex: 1 }} />
         {companies.length > 0 && (
           <select className="form-input" aria-label="Company" value={company} onChange={(e) => setCompany(e.target.value)}
-            style={{ fontSize: 12.5, padding: '4px 8px', width: 'auto', maxWidth: '100%' }}>
+            style={{ fontSize: 13, padding: '4px 8px', width: 'auto', maxWidth: '100%' }}>
             <option value="">All Companies</option>
             {companies.map((c) => <option key={c.id} value={c.id}>{c.name || c.id}</option>)}
           </select>
@@ -134,13 +134,13 @@ export default function TeamLeaveCalendar({ embedded = false }) {
               return (
                 <div key={ds} style={{ border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '8px 10px', background: ds === today ? 'var(--wk-brand-tint)' : 'var(--mist)' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{WEEKDAYS[new Date(y, m - 1, d).getDay()]} {formatDate(ds, ds)}</div>
-                  {hol.map((h) => <div key={h.name} style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-blue))', marginTop: 3 }}>Holiday - {h.name}</div>)}
+                  {hol.map((h) => <div key={h.name} style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', marginTop: 3 }}>Holiday - {h.name}</div>)}
                   {out.map((e) => <Chip key={e.id} e={e} full />)}
                 </div>
               );
             })}
             {!entries.length && !holidays.length && (
-              <div style={{ fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: '14px 0' }}>Nobody is out this month.</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: '14px 0' }}>Nobody is out this month.</div>
             )}
           </div>
         ) : (
@@ -161,9 +161,9 @@ export default function TeamLeaveCalendar({ embedded = false }) {
                   <div key={ds} className="tlc-cell" style={{ minHeight: 56, borderRadius: 10, padding: '5px 6px', minWidth: 0, animationDelay: `${Math.min((d - 1) * 8, 190)}ms`,
                     background: ds === today ? 'var(--wk-brand-tint)' : weekend ? 'transparent' : 'var(--mist)',
                     border: `1px solid ${ds === today ? 'var(--wk-brand)' : 'var(--wk-line2)'}` }}>
-                    <div style={{ fontSize: 11.5, fontWeight: 700, color: ds === today ? 'var(--wk-brand)' : weekend ? 'var(--wk-faint, var(--muted))' : 'var(--muted)' }}>{d}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: ds === today ? 'var(--wk-brand)' : weekend ? 'var(--wk-faint, var(--muted))' : 'var(--muted)' }}>{d}</div>
                     {hol.map((h) => (
-                      <div key={h.name} title={`Holiday - ${h.name}`} style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-blue))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</div>
+                      <div key={h.name} title={`Holiday - ${h.name}`} style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-blue))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</div>
                     ))}
                     {/* Photos, not name chips (11/03/2026): a day holds many
                         more people as a face stack, details on hover, and a
@@ -184,7 +184,7 @@ export default function TeamLeaveCalendar({ embedded = false }) {
                         })}
                         {out.length > shown.length && (
                           <span title={out.slice(shown.length).map((e) => `${e.name} - ${e.label}`).join('\n')}
-                            style={{ marginLeft: 9, fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>+{out.length - shown.length}</span>
+                            style={{ marginLeft: 9, fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>+{out.length - shown.length}</span>
                         )}
                       </div>
                     )}
@@ -192,7 +192,7 @@ export default function TeamLeaveCalendar({ embedded = false }) {
                 );
               })}
             </div>
-            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, fontSize: 11.5, color: 'var(--muted)' }}>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
               <span><span style={{ display: 'inline-block', width: 11, height: 11, borderRadius: '50%', background: 'hsla(var(--color-green),0.3)', marginRight: 5, verticalAlign: -1 }} />Approved - hover a face for the details</span>
               <span><span style={{ display: 'inline-block', width: 11, height: 11, borderRadius: '50%', border: '1.5px dashed hsl(var(--color-orange))', marginRight: 5, verticalAlign: -2 }} />Pending</span>
               <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: 'hsla(var(--color-blue),0.3)', marginRight: 5, verticalAlign: -1 }} />Holiday</span>

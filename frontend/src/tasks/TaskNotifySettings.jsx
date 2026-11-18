@@ -23,7 +23,7 @@ import { useDraft } from '../lib/useDraft';
 import { useGroupDirty } from '../lib/groupDirty';
 import { dialog } from '../ui/dialog';
 
-const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
+const fieldLabel = { display: 'block', fontSize: 13, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
 const EVENT_LABELS = {
   created: 'Task Created', assigned: 'Task Assigned', due_soon: 'Due Date Reminder',
@@ -60,7 +60,7 @@ function Field({ label, hint, id, children }) {
     <div style={field}>
       <label style={fieldLabel} htmlFor={id}>{label}</label>
       {children}
-      {hint && <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 4 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 12, color: NX.dim, marginTop: 4 }}>{hint}</div>}
     </div>
   );
 }
@@ -141,7 +141,7 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
 
   if (myLevel < 3) {
     return (
-      <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13.5 }}>
+      <div style={{ padding: 40, textAlign: 'center', color: NX.dim, fontSize: 13 }}>
         Manager access or above is required to view task notification settings.
       </div>
     );
@@ -180,7 +180,7 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
       {tab === 'settings' ? (
         <>
           {notice && (
-            <div role="status" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 12, color: notice.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{notice.text}</div>
+            <div role="status" style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: notice.ok ? 'var(--nx-tag-green-fg)' : NX.red }}>{notice.text}</div>
           )}
           {/* Two cards side by side on a wide screen: the switches (each saves
               when clicked) first, then the typed mail fields with the one Save
@@ -191,7 +191,7 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
               <label style={fieldLabel}>Notification Types</label>
               {Object.entries(EVENT_LABELS).map(([k, lab]) => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
-                  <span style={{ fontSize: 13.5 }}>{lab}</span>
+                  <span style={{ fontSize: 13 }}>{lab}</span>
                   <Toggle label={lab} on={!!cfg.enabledEvents?.[k]} onChange={() => setEvent(k, !cfg.enabledEvents?.[k])} />
                 </div>
               ))}
@@ -223,7 +223,7 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
 
             <div style={{ ...card, padding: 18 }}>
               {locked && (
-                <div style={{ fontSize: 11.5, color: NX.dim, marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: NX.dim, marginBottom: 12 }}>
                   The sending mailbox, Default CC, reply-to address and email replies apply to every company - only a Super Administrator can change them.
                 </div>
               )}
@@ -251,7 +251,7 @@ export default function TaskNotifySettings({ toastOk, toastErr }) {
 
               <InboundSection cfg={cfg} draft={draft} editDraft={editDraft} locked={locked} />
 
-              {err && <div style={{ fontSize: 12.5, color: NX.red, margin: '14px 0 0' }}>{err}</div>}
+              {err && <div style={{ fontSize: 13, color: NX.red, margin: '14px 0 0' }}>{err}</div>}
               <SaveRow dirty={dirty} busy={saving} onSave={save} onDiscard={() => { reset(); setErr(''); }}
                 note="Saves the mailbox, reminder and reply fields in this card. The switches save as you click them." />
             </div>
@@ -280,8 +280,8 @@ function InboundSwitch({ on, onChange, locked = false }) {
   return (
     <div style={{ ...field, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 600 }}>Accept Replies by Email</div>
-        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 2 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Accept Replies by Email</div>
+        <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>
           When someone replies to a task notification, post their reply as a comment on that
           task, with any files they attached.
         </div>
@@ -323,7 +323,7 @@ function InboundSection({ cfg, draft, editDraft, locked = false }) {
           mailbox - worth showing, because it is the first thing that looks
           wrong to an admin reading a sent notification. */}
       {mailbox.includes('@') && (
-        <div style={{ fontSize: 11.5, color: NX.dim, marginTop: -6, marginBottom: 14 }}>
+        <div style={{ fontSize: 12, color: NX.dim, marginTop: -6, marginBottom: 14 }}>
           Notifications are sent with a per-task reply address like{' '}
           <code style={{ fontSize: 11, color: NX.dim }}>
             {mailbox.split('@')[0]}+a1b2…@{mailbox.split('@')[1]}
@@ -334,7 +334,7 @@ function InboundSection({ cfg, draft, editDraft, locked = false }) {
 
       <div style={{
         background: NX.surface2, border: `1px solid ${NX.border2}`, borderRadius: 9,
-        padding: '10px 12px', fontSize: 11.5, color: NX.dim, marginBottom: 12,
+        padding: '10px 12px', fontSize: 12, color: NX.dim, marginBottom: 12,
       }}>
         Needs the Mail.ReadWrite application permission on this mailbox. Replies from anyone
         outside the company, or from someone without commenter access to the project, are
@@ -348,7 +348,7 @@ function InboundSection({ cfg, draft, editDraft, locked = false }) {
         {result && <span style={{ fontSize: 12, color: 'var(--nx-tag-green-fg)' }}>{result}</span>}
         {err && <span style={{ fontSize: 12, color: NX.red }}>{err}</span>}
       </div>
-      <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 6 }}>
+      <div style={{ fontSize: 12, color: NX.dim, marginTop: 6 }}>
         Save first - this checks the mailbox using the settings already saved. The deployed
         API checks it every minute on its own.
       </div>
@@ -408,7 +408,7 @@ function RepliesLog({ replyTo, enabled }) {
     <div>
       {!enabled && (
         <div style={{
-          ...card, padding: 12, marginBottom: 12, fontSize: 12.5, color: NX.dim,
+          ...card, padding: 12, marginBottom: 12, fontSize: 13, color: NX.dim,
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
           <AlertTriangle size={14} style={{ color: 'var(--nx-own)', flexShrink: 0 }} />
@@ -424,7 +424,7 @@ function RepliesLog({ replyTo, enabled }) {
           <option value="failed">Failed</option>
         </select>
         <button style={btn('ghost')} onClick={load} title="Refresh"><RefreshCw size={14} /></button>
-        {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
+        {err && <span style={{ fontSize: 13, color: NX.red }}>{err}</span>}
       </div>
       {rows === null ? (
         <LoadingState compact />
@@ -447,7 +447,7 @@ function RepliesLog({ replyTo, enabled }) {
                 title={task ? `Open ${task.code || 'this task'}` : undefined}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
-                  borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5,
+                  borderBottom: `1px solid ${NX.border2}`, fontSize: 13,
                   cursor: task ? 'pointer' : 'default',
                 }}>
                 <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
@@ -517,7 +517,7 @@ function DeliveryLog() {
           <option value="retrying">Retrying</option>
         </select>
         <button style={btn('ghost')} onClick={load} title="Refresh"><RefreshCw size={14} /></button>
-        {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
+        {err && <span style={{ fontSize: 13, color: NX.red }}>{err}</span>}
       </div>
       {rows === null ? (
         <LoadingState compact />
@@ -528,7 +528,7 @@ function DeliveryLog() {
           {rows.map((r) => {
             const meta = STATUS_META[r.status] || STATUS_META.pending;
             return (
-              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5 }}>
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13 }}>
                 <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                 <span style={{ fontWeight: 700, flexShrink: 0, width: 78 }}>{r.taskCode}</span>
                 <span style={{ color: NX.dim, flexShrink: 0, width: 100, textTransform: 'capitalize' }}>{r.eventType?.replace('_', ' ')}</span>

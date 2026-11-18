@@ -48,7 +48,12 @@ describe('LinesPanel', () => {
     expect(within(panel).getByRole('button', { name: /Open Full/ })).toBeTruthy();
     const table = await within(panel).findByRole('table', { name: /ledger lines/ });
     expect(within(table).getByText('Total - 2 lines').closest('tr').textContent).toContain('385.00');
-    for (const c of ['Date', 'Entry', 'Account', 'Name', 'Description', 'Amount']) expect(within(table).getByRole('separator', { name: `Resize the ${c} column` })).toBeTruthy();
+    // Oldest first, the running balance carried down: 410.00, then 385.00.
+    const body = within(table).getAllByRole('row').slice(1, 3).map((r) => r.textContent);
+    expect(body[0]).toContain('AP-2001');
+    expect(body[0].endsWith('410.00')).toBe(true);
+    expect(body[1].endsWith('385.00')).toBe(true);
+    for (const c of ['Date', 'Entry', 'Doc', 'Account', 'Name', 'Description', 'Entity', 'Department', 'Debit', 'Credit', 'Balance']) expect(within(table).getByRole('separator', { name: `Resize the ${c} column` })).toBeTruthy();
     // A column dragged (double-click fits; jsdom has no layout - the 60 px floor) is kept.
     fireEvent.doubleClick(within(table).getByRole('separator', { name: 'Resize the Description column' }));
     await waitFor(() => expect(within(table).getByRole('columnheader', { name: /Description/ }).style.width).toBe('60px'));

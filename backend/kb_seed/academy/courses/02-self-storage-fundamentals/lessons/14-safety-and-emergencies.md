@@ -60,7 +60,7 @@ If a customer, vendor or coworker is hurt: call 911 if it is serious; help only 
 
 ## Documenting an Incident With Nexus Forms
 
-Every incident is written up the same day: a break-in, an injury, damage, a person living in a unit, a fire, a flood. In Nexus, open **Fill a Form** (from Workday, the + menu or the Quick Actions dock) and choose the incident report your site uses.
+Every incident is written up the same day: a break-in, an injury, damage, a person living in a unit, a fire, a flood. In Nexus, open **Fill a Form** (from Workday, the bolt in the header or the Quick Actions dock) and choose the incident report your site uses.
 
 | Part | Example |
 |---|---|

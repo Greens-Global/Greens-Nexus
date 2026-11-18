@@ -89,19 +89,21 @@ describe('TileCard fleet face', () => {
     expect(screen.getByText('500 mi')).toBeTruthy();
   });
 
-  it('keeps the property tile for a property', () => {
-    const { container } = render(<TileCard pr={{ id: 'p1', name: 'Greens Austin', devStage: 'Stabilized', entity: 'Greens LLC' }} openProperty={() => {}} store={{}} selected />);
+  it('keeps the property tile for a property: nothing on the photo, the outline on the last opened', () => {
+    const { container } = render(<TileCard pr={{ id: 'p1', name: 'Greens Austin', devStage: 'Stabilized', entity: 'Greens LLC', image: 'x.jpg' }} openProperty={() => {}} store={{}} selected />);
     expect(container.querySelector('.fleet-card')).toBeNull();
-    expect(screen.getByText('Owner')).toBeTruthy();
+    expect(container.querySelector('.pt-tile.is-selected .pt-tile-photo img')).toBeTruthy();
+    expect(container.querySelector('.pt-tile-photo').textContent).toBe('');
+    // A plain Stabilized property says nothing about its stage.
+    expect(screen.queryByText('Stabilized')).toBeNull();
   });
 
-  // 11/05/2026: an asset with no figures hides its stats - never "- Acres" / "- NRSF".
-  it('hides a stat with no value on a property tile', () => {
+  // One facts line, the same measures in the same order; never "- Acres".
+  it('shows one facts line, or says there is no size on file', () => {
     const { rerender } = render(<TileCard pr={{ id: 'p2', name: 'Blank Lot', devStage: 'Stabilized' }} openProperty={() => {}} store={{}} />);
-    expect(screen.queryByText('Acres')).toBeNull();
-    expect(screen.queryByText('NRSF')).toBeNull();
-    rerender(<TileCard pr={{ id: 'p2', name: 'Blank Lot', acreage: '2.5', nrsf: '' }} openProperty={() => {}} store={{}} />);
-    expect(screen.getByText('Acres')).toBeTruthy();
-    expect(screen.queryByText('NRSF')).toBeNull();
+    expect(screen.getByText('No size on file')).toBeTruthy();
+    rerender(<TileCard pr={{ id: 'p2', name: 'Blank Lot', acreage: '2.5', nrsf: '', devStage: 'Stabilized - Renovation' }} openProperty={() => {}} store={{}} />);
+    expect(screen.getByText('2.50 acres')).toBeTruthy();
+    expect(screen.getByText('Renovation under way')).toBeTruthy();
   });
 });

@@ -100,7 +100,7 @@ function AttentionStrip({ rows, onDrill }) {
           <CheckCircle2 size={18} />
           <div>
             <div style={{ fontWeight: 600 }}>All Clear</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No module is reporting an overdue, breached, unassigned or expiring item.</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>No module is reporting an overdue, breached, unassigned or expiring item.</div>
           </div>
         </div>
       ) : (
@@ -484,7 +484,7 @@ export default function BiInsights() {
           <AlertTriangle size={18} />
           <div>
             <div style={{ fontWeight: 600 }}>The Board Could Not Load</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{state.error}</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>{state.error}</div>
           </div>
           <button type="button" className="secondary-btn" onClick={load} style={{ marginLeft: 'auto' }}>Try Again</button>
         </div>

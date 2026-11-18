@@ -1,15 +1,14 @@
 // Task Module - the Tasks workspace: toolbar (search / group / view-kind) + the
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useLayoutEffect, useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin, Palette, Upload } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, projectRoleWithTeams, roleAtLeast, withSubtasks, topLevel, taskInProject, importedSubtaskFilter } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, taskStats, taskIdFromUrl, clearTaskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, projectRoleWithTeams, roleAtLeast, withSubtasks, topLevel, taskInProject, importedSubtaskFilter } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
 import { EmptyState, usePeople, useIsMobile, ProjectAccessButton, ExportMenu } from './components';
-import CreateTaskModal from './CreateTaskModal';
-import QuickCreateTask from './QuickCreateTask';
+import TaskCreate from './TaskCreate';
 import MobileTaskBar from './MobileTaskBar';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { useTableValue } from './tableCols';
@@ -159,12 +158,15 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [templating, setTemplating] = useState(false);   // Save as Template dialog
   const [duplicating, setDuplicating] = useState(false);  // Duplicate Project dialog
   const [openId, setOpenId] = useState(taskIdFromUrl);
+  // The link is used once: off the address, so another tab does not open it again.
+  useLayoutEffect(clearTaskIdFromUrl, []);
   // The Custom grouping's sections (sec, above): this project's own, shared
   // by everyone on it (customSections.js) - the Board's Section columns too.
-  const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
-  const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
-  // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
-  const openCreate = (defs) => (isMobile ? setQuickCreate(defs) : setCreating(defs));
+  // New task: TaskCreate.jsx picks the form - the quick composer on a phone,
+  // the full form on a computer - from the same context defaults. A fresh
+  // object each time, so a second tap while "Task Added" shows starts over.
+  const [creating, setCreating] = useState(null);
+  const openCreate = (defs) => setCreating({ ...(defs || {}) });
 
   const filter = {
     ...filters, search,
@@ -323,7 +325,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         {onBack && (
           <button onClick={onBack} title="Back" aria-label="Back" style={{ ...btn('ghost'), padding: 6, marginLeft: -6, color: NX.dim }}><ArrowLeft size={18} /></button>
         )}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 20, fontWeight: 700, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 18, fontWeight: 700, minWidth: 0 }}>
           {lockedProject ? (
             <>
               <ProjectIcon project={lockedProject} size={19} fallbackColor={NX.purple} />
@@ -404,9 +406,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         </div>
         {lockedProjectId && (view === 'list' || view === 'board') && (canSetDefault || isProjectDefault) && (
           isProjectDefault
-            ? <span title="Everyone opens this project this way unless they pick another view" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap' }}><Pin size={12} /> Project Default</span>
+            ? <span title="Everyone opens this project this way unless they pick another view" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: NX.faint, whiteSpace: 'nowrap' }}><Pin size={12} /> Project Default</span>
             : <button type="button" onClick={makeDefault} disabled={defaultSaving} title="Everyone will open this project in this view and grouping unless they pick another"
-                style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 11.5, color: NX.dim, whiteSpace: 'nowrap' }}><Pin size={12} /> Make Default View</button>
+                style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, color: NX.dim, whiteSpace: 'nowrap' }}><Pin size={12} /> Make Default View</button>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <div style={{ position: 'relative', width: 143 }}>
@@ -473,7 +475,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {importedIds && (
         <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 20px', background: NX.surface2, borderBottom: `1px solid ${NX.border}`, fontSize: 13, color: NX.dim, flexWrap: 'wrap' }}>
           <span>Showing the {importedIds.size} task{importedIds.size === 1 ? '' : 's'} you just imported.</span>
-          <button type="button" onClick={() => setImported(null)} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12.5 }}>Show All Tasks</button>
+          <button type="button" onClick={() => setImported(null)} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 13 }}>Show All Tasks</button>
         </div>
       )}
 
@@ -579,8 +581,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         />
       )}
 
-      {quickCreate && <QuickCreateTask defaults={quickCreate} onClose={() => setQuickCreate(null)} onFullDetails={(d) => { setQuickCreate(null); setCreating({ ...quickCreate, ...d }); }} />}
-      {creating && <CreateTaskModal defaults={creating} onClose={() => setCreating(null)} lockedProjectId={lockedProjectId || ''} />}
+      {creating && <TaskCreate defaults={creating} onClose={() => setCreating(null)} lockedProjectId={lockedProjectId || ''} />}
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
       {importing && lockedProject && (
         <Suspense fallback={null}>

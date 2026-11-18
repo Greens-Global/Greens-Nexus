@@ -44,15 +44,15 @@ export default function ApproveBar({ review, anchor, empName, next, panelRef, on
       </span>
       {r.canSendBack && (
         <button type="button" className="secondary-btn" onClick={toPanel} disabled={busy}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Undo2 size={13} /> Send Back</button>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}><Undo2 size={13} /> Send Back</button>
       )}
       <button type="button" className="secondary-btn" disabled={busy || !!blocked} onClick={() => approve(false)}
-        title={blocked || undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+        title={blocked || undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
         <CheckCircle size={13} /> Review &amp; Approve
       </button>
       {next && (
         <button type="button" className="primary-btn" disabled={busy || !!blocked} onClick={() => approve(true)}
-          title={blocked || `Approve, then open ${next.name}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          title={blocked || `Approve, then open ${next.name}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           Approve and Next <ChevronRight size={14} />
         </button>
       )}

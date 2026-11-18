@@ -115,14 +115,14 @@ export function PerformanceKudosSettings({ company = '', onOverride, toastOk, to
             {canEdit && (
               <>
                 <input className="form-input" value={draft} onChange={e => setDraft(e.target.value.slice(0, 40))} placeholder="e.g. Ownership" aria-label="New value"
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} style={{ width: 150, fontSize: 12.5, padding: '3px 8px' }} />
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} style={{ width: 150, fontSize: 13, padding: '3px 8px' }} />
                 <button type="button" className="secondary-btn" onClick={add} disabled={busy || !draft.trim()} style={{ fontSize: 12 }}>Add Value</button>
               </>
             )}
             {!values.length && !canEdit && <span style={{ fontSize: 12, color: 'var(--muted)' }}>None yet.</span>}
           </div>
           {company && canEdit && meta.override && (
-            <div style={{ marginTop: 8 }}><button type="button" className="secondary-btn" disabled={busy} onClick={() => save([], true)} style={{ fontSize: 11.5 }}>Use the Default</button></div>
+            <div style={{ marginTop: 8 }}><button type="button" className="secondary-btn" disabled={busy} onClick={() => save([], true)} style={{ fontSize: 12 }}>Use the Default</button></div>
           )}
         </SettingRow>
       </SettingCard>

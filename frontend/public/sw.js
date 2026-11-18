@@ -44,9 +44,23 @@
 // were no worker) and keeps push. It is never unregistered - that would drop
 // every phone's push subscription.
 //
+// SHARE TO NEXUS (the manifest's share_target; app side src/lib/shareTarget.js).
+// An installed Nexus is in the phone's share sheet (Chrome / Edge only - iOS
+// has no Web Share Target). The share arrives as ONE request, a multipart
+// POST to /share-target, and that is the only write this worker ever answers:
+// the words and files are kept in their own cache (SHARE_CACHE - synthetic
+// entries, never an API answer, never the outbox) and the browser is sent to
+// /?share=1 with a 303, where the app asks what to start with them. Nothing
+// is uploaded here; the app clears the cache when the share is used or
+// dismissed, on sign out, and after a day. Whatever goes wrong, the answer is
+// still the redirect home (the app then says nothing came through) - never
+// an error page. With the kill switch on, the POST goes to the network like
+// everything else (functions/share-target.js sends it home) and activate
+// removes the share cache with the shell caches.
+//
 // Served from /sw.js (frontend/public), scope '/'. Registered by
 // src/lib/pwa.js. In `npm run dev` MANIFEST stays null and this worker never
-// touches a request (push only).
+// touches a page, a file or the API (push and Share to Nexus only).
 const MANIFEST = null; // @nx-offline-manifest (replaced by the build)
 const KILL = false; // @nx-offline-kill (true when built with VITE_OFFLINE_SHELL=off)
 
@@ -173,7 +187,54 @@ async function staticFile(request) {
   }
 }
 
+// ── Share to Nexus ───────────────────────────────────────────────────────────
+// The names below are read by the app too (src/lib/shareTarget.js) - change
+// both together (src/lib/shareTarget.test.js checks they match).
+const SHARE_PATH = '/share-target';
+const SHARE_CACHE = 'nexus-share';
+const SHARE_META = '/__nexus-share/meta';
+const SHARE_FILE = '/__nexus-share/file/';
+const SHARE_MAX_FILES = 10;
+const SHARE_MAX_BYTES = 100 * 1024 * 1024;   // every shared file together
+const SHARE_MAX_TEXT = 20000;
+
+function isShare(request) {
+  if (KILL || request.method !== 'POST') return false;
+  try {
+    const url = new URL(request.url);
+    return url.origin === self.location.origin && url.pathname === SHARE_PATH;
+  } catch { return false; }
+}
+
+async function keepShare(request) {
+  const form = await request.formData();
+  const words = (k) => { const v = form.get(k); return typeof v === 'string' ? v.slice(0, SHARE_MAX_TEXT) : ''; };
+  const files = form.getAll('files').filter((f) => f && typeof f !== 'string' && f.size > 0);
+  await caches.delete(SHARE_CACHE);            // one share at a time: the newest replaces the last
+  const cache = await caches.open(SHARE_CACHE);
+  const kept = [];
+  let bytes = 0;
+  let skipped = 0;
+  for (const f of files) {
+    if (kept.length >= SHARE_MAX_FILES || bytes + f.size > SHARE_MAX_BYTES) { skipped += 1; continue; }
+    const key = `${SHARE_FILE}${kept.length}`;
+    try {
+      await cache.put(key, new Response(f, { headers: { 'Content-Type': f.type || 'application/octet-stream' } }));
+      kept.push({ key, name: f.name || `Shared File ${kept.length + 1}`, type: f.type || '', size: f.size, lastModified: f.lastModified || 0 });
+      bytes += f.size;
+    } catch { skipped += 1; }                   // no room on the phone for this one
+  }
+  const meta = { at: Date.now(), title: words('title'), text: words('text'), url: words('url'), files: kept, skipped };
+  await cache.put(SHARE_META, new Response(JSON.stringify(meta), { headers: { 'Content-Type': 'application/json' } }));
+}
+
+async function share(request) {
+  try { await keepShare(request); } catch { /* nothing kept: the app says so */ }
+  return Response.redirect(new URL('/?share=1', self.location.origin).href, 303);
+}
+
 self.addEventListener('fetch', (event) => {
+  if (isShare(event.request)) { event.respondWith(share(event.request)); return; }
   const kind = route(event.request);
   if (kind === 'pass') return;                 // the browser handles it as if there were no worker
   if (kind === 'page') event.respondWith(page(event.request));
@@ -216,7 +277,7 @@ self.addEventListener('install', (event) => {
 // order is creation order and would keep an ancient build forever.
 async function cleanUp() {
   if (KILL) {
-    for (const n of await caches.keys()) if (n.startsWith(PREFIX) || n === META_CACHE) await caches.delete(n);
+    for (const n of await caches.keys()) if (n.startsWith(PREFIX) || n === META_CACHE || n === SHARE_CACHE) await caches.delete(n);
     return;
   }
   if (!MANIFEST) return;

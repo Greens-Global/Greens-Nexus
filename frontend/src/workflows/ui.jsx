@@ -19,7 +19,7 @@ export function SectionTitle({ children, action, count }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
       <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--ink)', fontFamily: FONT, flex: 1, minWidth: 0 }}>
         {children}
-        {count != null && <span style={{ marginLeft: 8, fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>{count}</span>}
+        {count != null && <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>{count}</span>}
       </h3>
       {action}
     </div>
@@ -40,13 +40,13 @@ export function Chip({ on, onClick, children, count, ...rest }) {
 }
 
 /** A plain text button that reads as a link (a row title, Open). */
-export function LinkButton({ children, onClick, title, style }) {
+export function LinkButton({ children, onClick, title, style, className, 'aria-label': ariaLabel }) {
   return (
-    <button type="button" onClick={onClick} title={title}
+    <button type="button" className={className} aria-label={ariaLabel} onClick={onClick} title={title}
       style={{ background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', color: 'var(--wk-brand)', fontWeight: 600, cursor: 'pointer', textAlign: 'left', fontFamily: FONT, ...style }}>
       {children}
     </button>
   );
 }
 
-export const Muted = ({ children, style }) => <span style={{ color: 'var(--muted)', fontSize: 12.5, ...style }}>{children}</span>;
+export const Muted = ({ children, style, className }) => <span className={className} style={{ color: 'var(--muted)', fontSize: 13, ...style }}>{children}</span>;

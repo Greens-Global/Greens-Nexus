@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Shield, Plus, X, Search, Pencil, Trash2, UserPlus, Check, ChevronRight, ChevronDown,
   LayoutGrid, Copy, MonitorOff, TimerOff, PlayCircle, Users, User, MailPlus, ChevronLeft,
-  Hash, MessageSquare,
+  Hash, MessageSquare, HelpCircle,
 } from 'lucide-react';
 import { ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
 import AccessTab from '../people/AccessTab';
@@ -14,9 +14,9 @@ import { usePeopleDirectory } from '../lib/queries';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
-import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
+import { useRole, MODULES, MODULE_LEVELS, ROLES, grantLevel } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
-import { capabilityText } from '../lib/moduleCapabilities';
+import { MODULE_CAPABILITIES, capabilityText, tierText } from '../lib/moduleCapabilities';
 import GuidedTour from '../components/GuidedTour';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { PersonSelect, Modal as SheetModal } from '../tasks/components';
@@ -31,12 +31,11 @@ import PageTrail from '../components/PageTrail';
 // their access, every line says where it came from), Job roles render as
 // plain-English cards, and the full matrix lives in a tamed Audit tab with
 // module families that expand on demand.
-const LEVEL_ORDER = ['viewer', 'editor', 'full', 'owner'];
-// Not offered in a role's bundle: admin screens, the compensation reveal (its
-// own toggle), and Development - off the nav since Neil, Aug 11 ("the module
-// isn't being built right now"), so a grant on it opened nothing (Oct 2).
-// Existing grants on it stay harmless; the view still resolves for old links.
-const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp', 'development'].includes(m.id));
+// Owner was retired (11/2026): the API reads a stored 'owner' as Full.
+const LEVEL_ORDER = ['viewer', 'editor', 'full'];
+// Not offered in a role's bundle: admin screens and the compensation reveal
+// (its own toggle). Development left MODULES with the dead grant (11/2026).
+const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp'].includes(m.id));
 const TIERS = Object.keys(ROLES);
 
 // Starter bundle for a brand-new Employee-tier job role - prefills the editor
@@ -60,11 +59,13 @@ const FAMILIES = [
   { id: 'company',  label: 'Company',       modules: ['sop', 'hr', 'documents', 'external-links', 'support'] },
   { id: 'money',    label: 'Money',         modules: ['accounting', 'investor-relations'] },
   { id: 'field',    label: 'Field & assets', modules: ['inventory', 'property-asset', 'ops', 'operations'] },
-  { id: 'growth',   label: 'Growth',        modules: ['marketing', 'development'] },
+  { id: 'growth',   label: 'Growth',        modules: ['marketing'] },
   { id: 'adminit',  label: 'Admin & IT',    modules: ['it', 'testing', 'credvault', 'admin-console'] },
 ].map(f => ({ ...f, modules: f.modules.filter(id => GRANTABLE.some(m => m.id === id)) }));
 
 const moduleLabel = id => MODULES.find(m => m.id === id)?.label || id;
+// A row's grants as { moduleId: level }; a stored legacy 'owner' reads as Full.
+const bundleOf = allowed => Object.fromEntries((allowed || []).map(g => [g.id, grantLevel(g.level)]));
 const PEOPLE_PAGE_SIZE = 10;
 
 // Tiny face for chips and rows - falls back to an initial when there's no photo.
@@ -75,17 +76,17 @@ export function Avatar({ name, src, size = 20 }) {
 }
 
 // ── shared bits (also reused by the People card Access section) ───────────────
-export function LevelPill({ level, title }) {
-  if (!level) return <span style={{ color: 'var(--muted)', opacity: 0.4 }}>-</span>;
-  const label = MODULE_LEVELS[level]?.label || level;
-  const base = { display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap' };
+export function LevelPill({ level: raw, title }) {
+  if (!raw) return <span style={{ color: 'var(--muted)', opacity: 0.4 }}>-</span>;
+  const level = grantLevel(raw);   // an old cached 'owner' row reads as Full
+  const label = MODULE_LEVELS[level].label;
+  const base = { display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap' };
   const styles = {
     viewer: { ...base, background: 'transparent', color: 'var(--muted)', boxShadow: 'inset 0 0 0 1.5px var(--line-strong,var(--line))' },
     editor: { ...base, background: 'color-mix(in srgb, var(--ink) 12%, transparent)', color: 'var(--ink)' },
     full:   { ...base, background: 'var(--ink)', color: 'var(--card)' },
-    owner:  { ...base, background: 'var(--ink)', color: 'var(--card)', boxShadow: 'inset 0 0 0 1.5px color-mix(in srgb, var(--card) 45%, transparent)' },
   };
-  return <span style={styles[level] || styles.viewer} title={title || MODULE_LEVELS[level]?.description || ''}>{label}</span>;
+  return <span style={styles[level]} title={title || MODULE_LEVELS[level].description}>{label}</span>;
 }
 
 // A level pill that also names the module it's for - so a row of grants reads
@@ -94,7 +95,7 @@ export function ModuleLevelPill({ moduleId, level }) {
   const mod = MODULES.find(m => m.id === moduleId);
   const label = mod?.label || moduleId;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 5px 3px 11px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap' }}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 5px 3px 11px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
       title={capabilityText(moduleId, level, label)}>
       {label}<LevelPill level={level} />
     </span>
@@ -104,20 +105,20 @@ export function ModuleLevelPill({ moduleId, level }) {
 export function TierBadge({ tier }) {
   const r = ROLES[tier] || ROLES.employee;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, background: r.bg, color: r.color, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: r.bg, color: r.color, whiteSpace: 'nowrap' }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />{r.label}
     </span>
   );
 }
 
-// "Owns: Accounting · Edits: Documents, Tasks · Views: Dashboard +2" - the
+// "Runs: Accounting · Edits: Documents, Tasks · Views: Dashboard +2" - the
 // plain-English one-liner that replaces a row of 20 pills on role cards.
-const LEVEL_VERB = { owner: 'Owns', full: 'Runs', editor: 'Edits', viewer: 'Views' };
+const LEVEL_VERB = { full: 'Runs', editor: 'Edits', viewer: 'Views' };
 function bundleSummary(allowed) {
-  const byLevel = { owner: [], full: [], editor: [], viewer: [] };
-  (allowed || []).forEach(g => { (byLevel[g.level] || byLevel.viewer).push(moduleLabel(g.id)); });
+  const byLevel = { full: [], editor: [], viewer: [] };
+  (allowed || []).forEach(g => { byLevel[grantLevel(g.level)].push(moduleLabel(g.id)); });
   const parts = [];
-  for (const lvl of ['owner', 'full', 'editor', 'viewer']) {
+  for (const lvl of ['full', 'editor', 'viewer']) {
     const list = byLevel[lvl];
     if (!list.length) continue;
     const shown = list.slice(0, 3).join(', ');
@@ -184,6 +185,9 @@ export default function RolesAccess({ embedded = false }) {
   const [toast, setToast] = useState(null);
   const [tour, setTour] = useState(false);
   useEffect(() => registerTour('roles', 'Roles & Access', () => setTour(true)), []);   // the Help panel's Take the Tour (lib/tours.js)
+  // "Open in Matrix" from an editor's Level Guide: the Matrix tab, this module picked and lit.
+  const [guideJump, setGuideJump] = useState(null);
+  const openGuideInMatrix = id => { setSub('audit'); setGuideJump({ id, n: Date.now() }); };
   const [collapsedDepts, setCollapsedDepts] = useState(() => new Set());   // department sections closed
   const toggleDept = d => setCollapsedDepts(s => { const n = new Set(s); n.has(d) ? n.delete(d) : n.add(d); return n; });
   const [dragRole, setDragRole] = useState(null);   // job-role id being dragged
@@ -363,7 +367,7 @@ export default function RolesAccess({ embedded = false }) {
           has it. */}
       <div style={{ marginTop: 8, minHeight: 24, display: 'flex', alignItems: 'center' }}>
         {embedded ? (
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
             {r.member_count ? `${r.member_count} ${r.member_count === 1 ? 'person' : 'people'}` : 'Nobody yet'}
           </span>
         ) : (() => {
@@ -379,7 +383,7 @@ export default function RolesAccess({ embedded = false }) {
               {mem.length > 8 && <span style={{ marginLeft: 5, fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>+{mem.length - 8}</span>}
             </span>
           ) : (
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>{filterOn && r.member_count ? 'None in this filter' : 'Nobody yet'}</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{filterOn && r.member_count ? 'None in this filter' : 'Nobody yet'}</span>
           );
         })()}
       </div>
@@ -466,7 +470,7 @@ export default function RolesAccess({ embedded = false }) {
       <div className="scroll-tabs" data-tour="tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1, alignItems: 'center' }}>
         {tabs.map(([key, label, Icon]) => (
           <button key={key} onClick={() => setSub(key)}
-            style={{ background: 'none', border: 'none', padding: '10px 16px', fontFamily: 'Inter,sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
+            style={{ background: 'none', border: 'none', padding: '10px 16px', fontFamily: 'Inter,sans-serif', fontWeight: 600, fontSize: 13, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
             <Icon size={16} /> {label}
             {sub === key && <span style={{ position: 'absolute', left: 0, right: 0, bottom: -1, height: 2.5, background: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
           </button>
@@ -479,20 +483,20 @@ export default function RolesAccess({ embedded = false }) {
             <label htmlFor="ra-filter-company" style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', margin: '4px 0 8px', whiteSpace: 'nowrap' }}>Filter by Company</label>
             <select id="ra-filter-company" value={co} onChange={e => setCo(e.target.value)} aria-label="Filter every tab by company"
               title="Shows only this company's people on every tab"
-              style={{ ...input, width: 'auto', maxWidth: 170, padding: '6px 9px', fontSize: 12.5, margin: '4px 0 8px' }}>
+              style={{ ...input, width: 'auto', maxWidth: 170, padding: '6px 9px', fontSize: 13, margin: '4px 0 8px' }}>
               <option value="">All Companies</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <select value={dept} onChange={e => setDept(e.target.value)} aria-label="Filter every tab by department"
               title="Shows only this department's people on every tab" disabled={!deptOptions.length}
-              style={{ ...input, width: 'auto', maxWidth: 160, padding: '6px 9px', fontSize: 12.5, margin: '4px 0 8px', opacity: deptOptions.length ? 1 : 0.55 }}>
+              style={{ ...input, width: 'auto', maxWidth: 160, padding: '6px 9px', fontSize: 13, margin: '4px 0 8px', opacity: deptOptions.length ? 1 : 0.55 }}>
               <option value="">{deptOptions.length ? 'All Departments' : 'No Departments'}</option>
               {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           </>
         )}
         <button onClick={() => setTour(true)} title="A guided walkthrough of how to give out access - nothing is changed while it runs."
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '6px 14px', margin: '4px 4px 8px 0', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line)', borderRadius: 999, padding: '6px 14px', margin: '4px 4px 8px 0', fontFamily: 'Inter,sans-serif', fontWeight: 700, fontSize: 13, cursor: 'pointer', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
           <PlayCircle size={15} /> Simulate
         </button>
       </div>
@@ -511,7 +515,7 @@ export default function RolesAccess({ embedded = false }) {
           <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 18 }} className="ra-grid">
             <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
               {embedded && (
-                <p style={{ margin: 0, flex: 1, minWidth: 240, fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                <p style={{ margin: 0, flex: 1, minWidth: 240, fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>
                   Roles people at any company can hold. Editing one changes it for everyone who has it. A company's own roles show with that company picked in Applies To.
                 </p>
               )}
@@ -535,7 +539,7 @@ export default function RolesAccess({ embedded = false }) {
                       onMouseOver={e => { e.currentTarget.style.background = 'var(--mist)'; }}
                       onMouseOut={e => { e.currentTarget.style.background = 'none'; }}>
                       <ChevronRight size={15} style={{ color: 'var(--muted)', transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform .25s ease', flexShrink: 0 }} />
-                      <span style={{ flex: 1, fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: isDropTarget ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{deptName}</span>
+                      <span style={{ flex: 1, fontSize: 12, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: isDropTarget ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{deptName}</span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', background: 'var(--mist)', borderRadius: 999, padding: '1px 8px' }}>{isDropTarget ? 'Drop here' : deptRoles.length}</span>
                     </button>
                     {/* grid-template-rows 0fr↔1fr = smooth height without layout thrash. */}
@@ -549,7 +553,7 @@ export default function RolesAccess({ embedded = false }) {
               })}
             </div>
             <div ref={rolePanelRef} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, alignSelf: 'start', scrollMarginTop: 12 }}>
-              {!selected ? <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13.5 }}>Pick a job role to see its full bundle, or create a new one.</div> : (
+              {!selected ? <div style={{ color: 'var(--muted)', padding: '40px 10px', textAlign: 'center', fontSize: 13 }}>Pick a job role to see its full bundle, or create a new one.</div> : (
                 <>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
                     <div style={{ flex: 1, minWidth: 140 }}><h3 style={{ fontSize: 18, fontWeight: 800 }}>{selected.name}</h3></div>
@@ -575,7 +579,7 @@ export default function RolesAccess({ embedded = false }) {
                   {selected.description && <p style={{ color: 'var(--muted)', fontSize: 13, margin: '8px 0 0', maxWidth: '60ch' }}>{selected.description}</p>}
                   {selected.teams?.id && !selected.bod_exempt && (
                     <div title="Where people in this role post their BOD, EOD and break messages"
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10, padding: '5px 11px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 10, padding: '5px 11px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 13, fontWeight: 600 }}>
                       {selected.teams.type === 'channel' ? <Hash size={12} /> : <MessageSquare size={12} />} Day messages post to {teamsTargetLabel(selected.teams)}
                     </div>
                   )}
@@ -600,16 +604,16 @@ export default function RolesAccess({ embedded = false }) {
                         onSaved={saved => setJobRoles(list => (list || []).map(x => (x.id === saved.id ? { ...x, ...saved } : x)))} />
                     </div>
                   ) : (<>
-                  {['owner', 'full', 'editor', 'viewer'].map(lvl => {
-                    const mods = (selected.allowed_modules || []).filter(g => g.level === lvl);
+                  {['full', 'editor', 'viewer'].map(lvl => {
+                    const mods = (selected.allowed_modules || []).filter(g => grantLevel(g.level) === lvl);
                     if (!mods.length) return null;
                     return (
                       <div key={lvl}>
-                        <div style={sectLabel}>{{ owner: 'Owns (full + manage access)', full: 'Can run fully', editor: 'Can create and edit', viewer: 'Can view' }[lvl]}</div>
+                        <div style={sectLabel}>{{ full: 'Can run fully', editor: 'Can create and edit', viewer: 'Can view' }[lvl]}</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
                           {mods.map(g => (
                             <span key={g.id} title={capabilityText(g.id, g.level, moduleLabel(g.id))}
-                              style={{ padding: '5px 12px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                              style={{ padding: '5px 12px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 13, fontWeight: 600 }}>
                               {moduleLabel(g.id)}
                             </span>
                           ))}
@@ -631,11 +635,11 @@ export default function RolesAccess({ embedded = false }) {
                         return (
                           <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 10px', borderRadius: 10, background: 'var(--paper)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
                             <Avatar name={nameOf(em)} src={photoOf[em]} size={24} />
-                            <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(em)}</span>
                             {info.role && <TierBadge tier={info.role} />}
                             {info.pinned && (
                               <span title="Tier set for this person directly - a role-tier change won't move them."
-                                style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 7px', borderRadius: 6 }}>
+                                style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 7px', borderRadius: 6 }}>
                                 Override
                               </span>
                             )}
@@ -645,7 +649,7 @@ export default function RolesAccess({ embedded = false }) {
                               {TIERS.filter(canAssignTier).map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
                             </select>
                             {info.pinned && (
-                              <button className="secondary-btn" onClick={() => resetMemberTier(em)} title="Follow the role tier again" style={{ padding: '4px 9px', fontSize: 11.5 }}>Reset</button>
+                              <button className="secondary-btn" onClick={() => resetMemberTier(em)} title="Follow the role tier again" style={{ padding: '4px 9px', fontSize: 12 }}>Reset</button>
                             )}
                             <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`}
                               style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
@@ -661,7 +665,7 @@ export default function RolesAccess({ embedded = false }) {
                   <button className="secondary-btn" data-tour="assign" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
                     <UserPlus size={14} /> Assign a person
                   </button>
-                  <div style={{ marginTop: 14, background: 'hsla(var(--color-blue),0.08)', border: '1px solid hsla(var(--color-blue),0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 12.5, color: 'var(--ink)' }}>
+                  <div style={{ marginTop: 14, background: 'hsla(var(--color-blue),0.08)', border: '1px solid hsla(var(--color-blue),0.2)', borderRadius: 10, padding: '10px 12px', fontSize: 13, color: 'var(--ink)' }}>
                     Editing the bundle applies to all {selected.member_count} people who hold this role. Extra groups layer on top.
                   </div>
                   </>)}
@@ -686,9 +690,9 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <span style={{ fontWeight: 800, fontSize: 14, flex: 1 }}>+ {g.name}</span>
                     {g.is_global_admin
-                      ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(230,50%,55%,0.14)', color: 'hsl(230,45%,50%)' }}>Super Administrators</span>
+                      ? <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(230,50%,55%,0.14)', color: 'hsl(230,45%,50%)' }}>Super Administrators</span>
                       : g.company_id
-                        ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>{companies.find(c => c.id === g.company_id)?.name || 'Company role'}</span>
+                        ? <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))' }}>{companies.find(c => c.id === g.company_id)?.name || 'Company role'}</span>
                         : null}
                     <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>{(g.members || []).length} {(g.members || []).length === 1 ? 'person' : 'people'}</span>
                     <button className="secondary-btn" style={{ padding: '5px 9px' }} onClick={() => setEditGroup(g)} title="Edit group"><Pencil size={13} /></button>
@@ -699,11 +703,11 @@ export default function RolesAccess({ embedded = false }) {
                   {(g.members || []).filter(inFilter).length > 0 && (
                     <div style={{ marginTop: 9, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {(g.members || []).filter(inFilter).slice(0, 6).map(em => (
-                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px 3px 4px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 11.5, fontWeight: 600 }}>
+                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px 3px 4px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12, fontWeight: 600 }}>
                           <Avatar name={nameOf(em)} src={photoOf[em]} size={18} />{nameOf(em)}
                         </span>
                       ))}
-                      {(g.members || []).filter(inFilter).length > 6 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>+{(g.members || []).filter(inFilter).length - 6} more</span>}
+                      {(g.members || []).filter(inFilter).length > 6 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>+{(g.members || []).filter(inFilter).length - 6} more</span>}
                     </div>
                   )}
                 </div>
@@ -716,10 +720,10 @@ export default function RolesAccess({ embedded = false }) {
 
       {/* ── AUDIT (tamed matrix) ── */}
       {sub === 'audit' && (
-        <AuditMatrix jobRoles={jobRoles} groups={groups} companyName={companyName} />
+        <AuditMatrix jobRoles={jobRoles} groups={groups} companyName={companyName} guide={guideJump} />
       )}
 
-      {editing !== undefined && <RoleEditor role={editing} jobRoles={jobRoles} onClose={() => setEditing(undefined)}
+      {editing !== undefined && <RoleEditor role={editing} jobRoles={jobRoles} onClose={() => setEditing(undefined)} onOpenGuide={openGuideInMatrix}
         onSaved={r => {
           setEditing(undefined); toastOk(`Saved “${r.name}”.`); setSelId(r.id);
           // Merge the server's response into local state IMMEDIATELY. The refetch
@@ -729,7 +733,7 @@ export default function RolesAccess({ embedded = false }) {
           setJobRoles(prev => { const arr = prev || []; return arr.some(x => x.id === r.id) ? arr.map(x => x.id === r.id ? r : x) : [...arr, r]; });
           loadRoles();
         }} onErr={toastErr} />}
-      {editGroup !== undefined && <GroupEditor group={editGroup} jobRoles={jobRoles} onClose={() => setEditGroup(undefined)}
+      {editGroup !== undefined && <GroupEditor group={editGroup} jobRoles={jobRoles} onClose={() => setEditGroup(undefined)} onOpenGuide={openGuideInMatrix}
         onSaved={g => {
           setEditGroup(undefined); toastOk(`Saved “${g.name}”.`);
           setGroups(prev => { const arr = prev || []; return arr.some(x => x.id === g.id) ? arr.map(x => x.id === g.id ? g : x) : [...arr, g]; });
@@ -784,7 +788,7 @@ function PeopleTab({ people, membership, entities = [], person, setPerson, nameO
         </div>
         <button className="secondary-btn" onClick={() => setInviteOpen(true)}
           title="Invite a partner-company person as a Microsoft guest - they appear here like anyone else"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 13px', fontSize: 12.5, whiteSpace: 'nowrap' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 13px', fontSize: 13, whiteSpace: 'nowrap' }}>
           <MailPlus size={14} /> Invite External User
         </button>
       </div>
@@ -835,7 +839,7 @@ function PeopleTab({ people, membership, entities = [], person, setPerson, nameO
           <div data-tour="person-panel" style={{ fontFamily: 'Inter,sans-serif' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
               <Avatar name={shownName} src={photoOf[person]} size={34} />
-              <div style={{ fontSize: 16, fontWeight: 800, flex: 1, minWidth: 0 }}>{shownName}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, flex: 1, minWidth: 0 }}>{shownName}</div>
               {extRec && <ExternalBadge />}
             </div>
             <AccessTab key={person} email={person} identityType={extRec ? 'external' : 'internal'}
@@ -861,10 +865,58 @@ function PeopleTab({ people, membership, entities = [], person, setPerson, nameO
   );
 }
 
+// ── Level Guide - what Viewer / Editor / Full unlock on one module, and what
+// still needs a tier. Above the Matrix, and in the editors' "What does this
+// unlock?" card. `lit` paints it yellow for a beat after a jump from a row.
+export function LevelGuide({ moduleId, onPick, lit = false }) {
+  const m = GRANTABLE.find(x => x.id === moduleId) || GRANTABLE[0];
+  const tiers = tierText(m.id);
+  const note = MODULE_CAPABILITIES[m.id]?.note;
+  return (
+    <div data-tour="level-guide">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>What Does This Unlock?</span>
+        <select value={m.id} onChange={e => onPick(e.target.value)} aria-label="Module"
+          style={{ ...input, width: 'auto', padding: '5px 8px', fontSize: 12 }}>
+          {GRANTABLE.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}
+        </select>
+      </div>
+      <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px', transition: 'background 1.2s, box-shadow 1.2s',
+        background: lit ? 'var(--wk-warn-tint, #fff8dc)' : 'var(--card)', boxShadow: lit ? '0 0 0 2px #f5c518' : 'none' }}>
+        {LEVEL_ORDER.map(l => (
+          <div key={l} style={{ display: 'grid', gridTemplateColumns: '64px 1fr', gap: 12, alignItems: 'start', padding: '6px 0', fontSize: 13, lineHeight: 1.45 }}>
+            <span><LevelPill level={l} /></span>
+            <span>{capabilityText(m.id, l, m.label)}</span>
+          </div>
+        ))}
+        <div style={{ borderTop: '1px solid var(--line)', margin: '8px 0 10px' }} />
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
+          {tiers.map(t => <div key={t}>{t}</div>)}
+          {note && <div style={{ marginTop: 6, fontStyle: 'italic' }}>{note}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── AUDIT tab - the matrix, tamed with module families ───────────────────────
-function AuditMatrix({ jobRoles, groups, companyName }) {
+function AuditMatrix({ jobRoles, groups, companyName, guide }) {
   const [open, setOpen] = useState(() => new Set());       // expanded family ids
   const [hoverCol, setHoverCol] = useState(null);          // family id or module id
+  // The Level Guide above the table: the picked module, lit for ~4 s after a jump.
+  const [picked, setPicked] = useState(guide?.id || GRANTABLE[0].id);
+  const [lit, setLit] = useState(false);
+  const guideRef = useRef(null);
+  useEffect(() => {
+    if (!guide) return undefined;
+    setPicked(guide.id);
+    const fam = FAMILIES.find(f => f.modules.includes(guide.id));
+    if (fam) setOpen(s => new Set(s).add(fam.id));
+    setLit(true);
+    guideRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    const t = setTimeout(() => setLit(false), 4000);
+    return () => clearTimeout(t);
+  }, [guide]);
 
   const toggle = id => setOpen(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -880,7 +932,11 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
     return { level: top, mixed: new Set(lvls).size > 1 || lvls.length < fam.modules.length };
   };
 
-  const colHl = key => hoverCol === key ? { background: 'color-mix(in srgb, var(--ink) 5%, transparent)' } : {};
+  const colHl = key => ({
+    transition: 'background 1.2s',
+    ...(lit && key === picked ? { background: 'var(--wk-warn-tint, #fff8dc)' }
+      : hoverCol === key ? { background: 'color-mix(in srgb, var(--ink) 5%, transparent)' } : {}),
+  });
 
   // Keyed by id: two companies can each have a role with the same name.
   const renderRow = (id, name, meta, byId, extra) => (
@@ -913,6 +969,9 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
 
   return (
     <>
+      <div ref={guideRef} style={{ marginBottom: 16 }}>
+        <LevelGuide moduleId={picked} onPick={setPicked} lit={lit} />
+      </div>
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', margin: '0 0 12px', fontSize: 12, color: 'var(--muted)' }}>
         <span style={{ fontWeight: 700 }}>Access level:</span>
         {LEVEL_ORDER.map(l => <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title={MODULE_LEVELS[l]?.description || ''}><LevelPill level={l} /></span>)}
@@ -938,7 +997,7 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
               ))}
             </tr>
             <tr>
-              <th style={{ ...thCorner, top: 34, fontWeight: 400, fontSize: 10.5 }}>{jobRoles.length} roles · {groups.length} groups</th>
+              <th style={{ ...thCorner, top: 34, fontWeight: 400, fontSize: 11 }}>{jobRoles.length} roles · {groups.length} groups</th>
               {FAMILIES.map(fam => open.has(fam.id)
                 ? fam.modules.map(id => (
                   <th key={id} style={{ ...thCol, top: 34, ...colHl(id) }} onMouseEnter={() => setHoverCol(id)} onMouseLeave={() => setHoverCol(null)}>{moduleLabel(id)}</th>
@@ -954,13 +1013,13 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
                 <TierBadge tier={r.tier} />
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>{r.member_count} ppl · {r.company_id ? companyName(r.company_id) : 'All companies'}</span>
               </div>,
-              Object.fromEntries((r.allowed_modules || []).map(g => [g.id, g.level])),
+              bundleOf(r.allowed_modules),
               false,
             ))}
             {groups.length > 0 && (
               <tr>
                 <th style={{ ...thRow, borderTop: '2px solid var(--line)', paddingTop: 14 }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Extra access groups</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>Extra access groups</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, fontWeight: 400 }}>Added on top of a job role</div>
                 </th>
                 {FAMILIES.map(fam => (open.has(fam.id) ? fam.modules : [fam.id]).map(k => <td key={k} style={{ ...tdCell, borderTop: '2px solid var(--line)' }} />))}
@@ -969,7 +1028,7 @@ function AuditMatrix({ jobRoles, groups, companyName }) {
             {groups.map(g => renderRow(
               g.id, g.name,
               <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>{(g.members || []).length} {(g.members || []).length === 1 ? 'person' : 'people'}</div>,
-              Object.fromEntries((g.allowed_modules || []).map(x => [x.id, x.level])),
+              bundleOf(g.allowed_modules),
               true,
             ))}
           </tbody>
@@ -1024,7 +1083,7 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
         <div style={{ minWidth: 210 }}>
           <PersonSelect value={val || null} onChange={v => { if ((v || '') !== (val || '')) saveDefault(v || ''); }} disabled={busy === 'save'} people={pickable}
             placeholder="No Default Approver" noneLabel="No Default Approver" ariaLabel="Default approver"
-            style={{ ...input, padding: '7px 10px', fontSize: 12.5, fontWeight: 400 }} />
+            style={{ ...input, padding: '7px 10px', fontSize: 13, fontWeight: 400 }} />
         </div>
         <button className="secondary-btn" disabled={!val || !!busy || !role.member_count} onClick={applyAll}
           style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -1032,7 +1091,7 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
           Apply to all {role.member_count} {role.member_count === 1 ? 'member' : 'members'}
         </button>
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5, maxWidth: '60ch' }}>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5, maxWidth: '60ch' }}>
         Who approves this role's time sheets and punch fixes. New people mapped to the role inherit them automatically (if they don't already have a manager); Apply to all backfills everyone currently in it. A person's own card always wins.
       </div>
     </div>
@@ -1060,8 +1119,9 @@ function dashboardScopeOf(bundle) {
     : bundle['manager-dashboard'] ? 'manager' : 'dashboard';
 }
 
-function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 300 }) {
+function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 300, onOpenInMatrix }) {
   const [bulk, setBulk] = useState('');
+  const [guideFor, setGuideFor] = useState(null);   // module id whose Level Guide card is open
   const [inheritFrom, setInheritFrom] = useState('');
   const grant = (id, level) => setBundle(b => {
     const n = { ...b };
@@ -1114,7 +1174,7 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
             onChange={e => {
               const src = inheritSources.find(r => r.id === e.target.value);
               setInheritFrom('');
-              if (src) setBundle(Object.fromEntries((src.allowed_modules || []).map(g => [g.id, g.level])));
+              if (src) setBundle(bundleOf(src.allowed_modules));
             }}
             style={{ ...input, width: 'auto', padding: '5px 8px', fontSize: 12 }}>
             <option value="">Inherit from role…</option>
@@ -1143,14 +1203,23 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
                 {on && <Check size={12} />}
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: on ? 700 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, fontWeight: on ? 700 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</span>
+                  <button type="button" onClick={() => setGuideFor(m.id)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11, color: 'var(--muted)', textDecoration: 'underline', textUnderlineOffset: 2 }}>
+                    <HelpCircle size={12} /> What does this unlock?
+                  </button>
+                </div>
                 {on && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>{capabilityText(m.id, on, m.label)}</div>}
+                {on && tierText(m.id).length > 1 && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.35 }}>Still needs a tier: {tierText(m.id).slice(0, -1).join('; ')}</div>
+                )}
               </div>
               {isDashboard && on && (
                 <select value={scope} onChange={e => setDashboardScope(e.target.value)}
                   aria-label="Which dashboard screens this grants"
                   title="Manager Dashboard is a tab inside Dashboard now - choose whether this grant includes it"
-                  style={{ ...input, width: 'auto', padding: '4px 8px', fontSize: 11.5, flexShrink: 0 }}>
+                  style={{ ...input, width: 'auto', padding: '4px 8px', fontSize: 12, flexShrink: 0 }}>
                   {DASHBOARD_SCOPES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
               )}
@@ -1164,7 +1233,7 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
                     <span key={l} style={{ position: 'relative', display: 'inline-flex' }}>
                       <button type="button" onClick={pick} aria-pressed={active}
                         title={active ? `${m.label}: ${MODULE_LEVELS[l].label}` : capabilityText(m.id, l, m.label)}
-                        style={{ padding: '4px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                        style={{ padding: '4px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
                           border: `1.5px solid ${active ? 'var(--ink)' : 'var(--line)'}`,
                           background: active ? 'var(--ink)' : 'transparent',
                           color: active ? 'var(--card)' : 'var(--muted)', transition: 'background .12s, color .12s, border-color .12s' }}>
@@ -1188,9 +1257,20 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
           );
         })}
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7 }}>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 7 }}>
         One click grants a screen at that level; the x on the selected level removes it. {checkedCount} of {visibleIds.length} screens granted.
       </div>
+      {/* The Level Guide as a card over the editor, so the draft stays put;
+          Open in Matrix closes the editor (asking about a dirty draft first). */}
+      {guideFor && (
+        <Modal title="Level Guide" onClose={() => setGuideFor(null)}>
+          <LevelGuide moduleId={guideFor} onPick={setGuideFor} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+            {onOpenInMatrix && <button type="button" className="secondary-btn" onClick={() => { const id = guideFor; setGuideFor(null); onOpenInMatrix(id); }}>Open in Matrix</button>}
+            <button type="button" className="primary-btn" onClick={() => setGuideFor(null)}>Done</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1199,13 +1279,27 @@ function BundleEditor({ bundle, setBundle, inheritSources = [], listMaxHeight = 
 // `companyId` places a NEW role in that company (Company Settings > Roles);
 // `departments` offers that company's departments instead of the ones other
 // roles happen to use. An existing role's company is never changed from here.
-export function RoleEditor({ role, jobRoles = [], companyId = '', departments, onClose, onSaved, onErr }) {
+// "Open in Matrix" from an editor's Level Guide closes the editor the usual way
+// (a dirty draft still asks Save / Discard / Keep Editing) and jumps once it is
+// gone. Gives the Modal its closeRef and wraps the editor's close / saved.
+function useGuideJump(onClose, onSaved, onOpenGuide) {
+  const closeRef = useRef(null);
+  const afterClose = useRef(null);
+  const thenJump = fn => (...a) => { fn(...a); afterClose.current?.(); afterClose.current = null; };
+  return {
+    closeRef, close: thenJump(onClose), finish: thenJump(onSaved),
+    openInMatrix: onOpenGuide && (id => { afterClose.current = () => onOpenGuide(id); closeRef.current?.(); }),
+  };
+}
+
+export function RoleEditor({ role, jobRoles = [], companyId = '', departments, onClose, onSaved, onErr, onOpenGuide }) {
+  const { closeRef, close, finish, openInMatrix } = useGuideJump(onClose, onSaved, onOpenGuide);
   const [name, setName] = useState(role?.name || '');
   const [tier, setTier] = useState(role?.tier || 'employee');
   const [dept, setDept] = useState(role?.department || '');
   const [desc, setDesc] = useState(role?.description || '');
   const [bundle, setBundle] = useState(() => {
-    const initial = Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level]));
+    const initial = bundleOf(role?.allowed_modules);
     // New role, still on the default Employee tier, nothing picked yet - seed
     // the everyday baseline instead of opening on a blank grid.
     if (!role?.id && !Object.keys(initial).length && (role?.tier || 'employee') === 'employee') {
@@ -1220,7 +1314,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
   const [teams, setTeams] = useState(() => ({ ...EMPTY_TEAMS_TARGET, ...(role?.teams || {}) }));
   const [busy, setBusy] = useState(false);
   const deptOptions = departments || [...new Set((jobRoles || []).map(r => r.department).filter(Boolean))].sort();
-  const initialBundle = useMemo(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])), [role]);
+  const initialBundle = useMemo(() => bundleOf(role?.allowed_modules), [role]);
   const dirty = name !== (role?.name || '') || tier !== (role?.tier || 'employee') || dept !== (role?.department || '')
     || desc !== (role?.description || '') || monExempt !== !!role?.monitoring_exempt
     || bodExempt !== !!role?.bod_exempt
@@ -1237,12 +1331,12 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
       // A seed object with no id (from Duplicate) creates a new role rather than editing the original.
       const saved = role?.id ? await api.updateJobRole(role.id, body)
         : await api.createJobRole({ ...body, company_id: companyId || role?.company_id || '' });
-      onSaved(saved);
+      finish(saved);
     } catch (e) { onErr(e?.message || 'Could not save job role.'); setBusy(false); }
   }
 
   return (
-    <Modal onClose={onClose} title={role?.id ? 'Edit Job Role' : 'New Job Role'} size="xl" isDirty={dirty} onSave={name.trim() ? save : undefined}>
+    <Modal onClose={close} closeRef={closeRef} title={role?.id ? 'Edit Job Role' : 'New Job Role'} size="xl" isDirty={dirty} onSave={name.trim() ? save : undefined}>
       {/* Two columns on a wide screen (Neil, 10/06: "make the screen larger"):
           who the role is on the left, what it opens on the right with room to
           show every module at once. Wraps to one column on a narrow screen. */}
@@ -1262,12 +1356,12 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
           }} style={input}>
             {TIERS.map(t => <option key={t} value={t}>{ROLES[t].label}</option>)}
           </select>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 400 }}>{ROLES[tier]?.description}</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>{ROLES[tier]?.description}</span>
         </label>
         <label style={fieldLabel}>Department
           <input value={dept} onChange={e => setDept(e.target.value)} placeholder="e.g. Accounting" list="jr-dept-options" style={input} />
           <datalist id="jr-dept-options">{deptOptions.map(d => <option key={d} value={d} />)}</datalist>
-          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 400 }}>Groups this role under a department in the list. Leave blank for “Other”.</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400 }}>Groups this role under a department in the list. Leave blank for “Other”.</span>
         </label>
         <label style={fieldLabel}>Description
           <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={2} placeholder="Plain-language: what this role does" style={{ ...input, resize: 'vertical' }} /></label>
@@ -1281,7 +1375,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
             {monExempt && <Check size={13} />}</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Exempt from screen-share monitoring</span>
-            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
               People in this role clock in without sharing a screen, and no screenshots are captured for them. Everyone else must share a screen to clock in. Use for leadership.
             </span>
           </span>
@@ -1295,7 +1389,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
             {bodExempt && <Check size={13} />}</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Skip day and break messages</span>
-            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
               People in this role are never asked for the beginning/end-of-day or break messages - punches go straight through. Use for field workers who cannot type these out.
             </span>
           </span>
@@ -1309,7 +1403,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
             {ttExempt && <Check size={13} />}</span>
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Exempt from time tracking</span>
-            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
               People in this role have no time clock and no time sheet. Use for salaried leadership who are not tracked.
             </span>
           </span>
@@ -1320,7 +1414,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
         <div style={{ ...sectLabel, marginTop: 10, marginBottom: 0 }}>Teams Messages</div>
         <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '11px 13px' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 3 }}>Where BOD, EOD and break messages post</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.45, marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.45, marginBottom: 10 }}>
             {bodExempt
               ? 'People in this role skip these messages (see above), so nothing posts.'
               : 'Everyone given this role posts here, ahead of any shift group setting. Leave empty to keep using the shift group.'}
@@ -1330,12 +1424,12 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
       </div>
       <div style={{ flex: '2 1 480px', minWidth: 0 }}>
         <div style={{ ...sectLabel, marginTop: 0 }}>Module Bundle</div>
-        <BundleEditor bundle={bundle} setBundle={setBundle} listMaxHeight="max(320px, calc(94vh - 260px))"
+        <BundleEditor bundle={bundle} setBundle={setBundle} listMaxHeight="max(320px, calc(94vh - 260px))" onOpenInMatrix={openInMatrix}
           inheritSources={(jobRoles || []).filter(r => r.id !== role?.id)} />
       </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-        <button className="secondary-btn" onClick={onClose}>Cancel</button>
+        <button className="secondary-btn" onClick={close}>Cancel</button>
         <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Spinner size={14} />} Save Job Role</button>
       </div>
     </Modal>
@@ -1403,17 +1497,18 @@ function CompanyWallsPanel({ toastOk, toastErr, roleMap, groups }) {
 }
 
 
-function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
+function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr, onOpenGuide }) {
+  const { closeRef, close, finish, openInMatrix } = useGuideJump(onClose, onSaved, onOpenGuide);
   const { myLevel } = useRole();
   const canFlag = (myLevel || 0) >= 5;   // only a Super Administrator flags a group (Tiers, Neil 11/02/2026)
   const [name, setName] = useState(group?.name || '');
-  const [bundle, setBundle] = useState(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])));
+  const [bundle, setBundle] = useState(() => bundleOf(group?.allowed_modules));
   const [companyId, setCompanyId] = useState(group?.company_id || '');
   const [globalAdmin, setGlobalAdmin] = useState(!!group?.is_global_admin);
   const [companies, setCompanies] = useState([]);
   const [busy, setBusy] = useState(false);
   useEffect(() => { api.getEntities().then(list => setCompanies(list || [])).catch(() => setCompanies([])); }, []);
-  const initialBundle = useMemo(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])), [group]);
+  const initialBundle = useMemo(() => bundleOf(group?.allowed_modules), [group]);
   const dirty = name !== (group?.name || '') || JSON.stringify(bundle) !== JSON.stringify(initialBundle)
     || companyId !== (group?.company_id || '') || globalAdmin !== !!group?.is_global_admin;
 
@@ -1424,12 +1519,12 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
       company_id: globalAdmin ? '' : companyId, ...(canFlag ? { is_global_admin: globalAdmin } : {}) };
     try {
       const saved = group ? await api.updateGroup(group.id, body) : await api.createGroup(body);
-      onSaved(saved);
+      finish(saved);
     } catch (e) { onErr(e?.message || 'Could not save group.'); setBusy(false); }
   }
 
   return (
-    <Modal onClose={onClose} title={group ? 'Edit group' : 'New group'} wide isDirty={dirty} onSave={name.trim() ? save : undefined}>
+    <Modal onClose={close} closeRef={closeRef} title={group ? 'Edit group' : 'New group'} wide isDirty={dirty} onSave={name.trim() ? save : undefined}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting - Viewer" style={input} /></label>
@@ -1448,18 +1543,18 @@ function GroupEditor({ group, jobRoles = [], onClose, onSaved, onErr }) {
             </label>
           )}
         </div>
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: -6 }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: -6 }}>
           {globalAdmin ? 'Members are unrestricted across all companies - the only role that sees past the walls.'
             : companyId ? 'Members are confined to this company once the walls are armed.'
             : 'Org-wide group - members are placed by their own company (or the Super Administrators group).'}
         </div>
         <div>
           <div style={{ ...sectLabel, marginTop: 4 }}>Modules this group grants</div>
-          <BundleEditor bundle={bundle} setBundle={setBundle} inheritSources={jobRoles || []} />
+          <BundleEditor bundle={bundle} setBundle={setBundle} inheritSources={jobRoles || []} onOpenInMatrix={openInMatrix} />
         </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
-        <button className="secondary-btn" onClick={onClose}>Cancel</button>
+        <button className="secondary-btn" onClick={close}>Cancel</button>
         <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Spinner size={14} />} Save group</button>
       </div>
     </Modal>
@@ -1534,7 +1629,7 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
 
   return (
     <Modal onClose={onClose} title={`Assign to “${role.name}”`}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like - this stays open until you close it. Someone who already holds another role is a role change: pick them, write the reason, then click Assign.{roleCompany ? ' Only people at this role’s company are listed, plus anyone with no company set.' : ''}</div>
+      <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like - this stays open until you close it. Someone who already holds another role is a role change: pick them, write the reason, then click Assign.{roleCompany ? ' Only people at this role’s company are listed, plus anyone with no company set.' : ''}</div>
       <div style={{ position: 'relative', marginBottom: 10 }}>
         <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
         <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
@@ -1553,8 +1648,8 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
                 <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}{roleCompany && !p.company ? ' · No company set' : ''}</div>
                   {held && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Holds {held}{canSwap ? '' : ' - only HR, an Administrator or a Super Administrator can change their role'}</div>}</div>
                 {busy === p.email ? <Spinner size={15} />
-                  : picked ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'var(--pine)' }}><Check size={14} /> Picked</span>
-                  : isAdded ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))' }}><Check size={14} /> Added</span>
+                  : picked ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: 'var(--pine)' }}><Check size={14} /> Picked</span>
+                  : isAdded ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-green))' }}><Check size={14} /> Added</span>
                   : <ChevronRight size={15} style={{ color: 'var(--muted)' }} />}
               </button>
             );
@@ -1567,7 +1662,7 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
             placeholder={`Why ${swaps.length === 1 ? swaps[0].name : `these ${swaps.length} people`} move to ${role.name}`}
             style={{ ...input, resize: 'vertical', fontFamily: 'Inter,sans-serif' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-            <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1 }}>Shown on their Role History. {swaps.length === 1 ? 'They already hold' : 'Each already holds'} another role - it changes now.</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1 }}>Shown on their Role History. {swaps.length === 1 ? 'They already hold' : 'Each already holds'} another role - it changes now.</span>
             <button className="primary-btn" onClick={assignSwaps} disabled={!!busy || !reason.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'swaps' ? <Spinner size={14} /> : null} Assign {swaps.length}
             </button>
@@ -1575,10 +1670,10 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
         </div>
       )}
       {warning && (
-        <div role="status" style={{ marginTop: 10, background: 'hsla(38,92%,50%,0.1)', border: '1px solid hsla(38,92%,50%,0.35)', borderRadius: 10, padding: '8px 12px', fontSize: 12.5, color: 'var(--ink)' }}>{warning}</div>
+        <div role="status" style={{ marginTop: 10, background: 'hsla(38,92%,50%,0.1)', border: '1px solid hsla(38,92%,50%,0.35)', borderRadius: 10, padding: '8px 12px', fontSize: 13, color: 'var(--ink)' }}>{warning}</div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
-        <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: 1 }}>{addedThisSitting > 0 ? `Added ${addedThisSitting} ${addedThisSitting === 1 ? 'person' : 'people'} this time.` : ''}</span>
+        <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>{addedThisSitting > 0 ? `Added ${addedThisSitting} ${addedThisSitting === 1 ? 'person' : 'people'} this time.` : ''}</span>
         <button className="primary-btn" onClick={onClose}>Done</button>
       </div>
     </Modal>
@@ -1593,15 +1688,21 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
 // Every size but xl is .nx-popup: 60% of the screen (CLAUDE.md popup rule).
 // size="xl" (the job-role editor again, Neil, 10/06: "make the screen larger"):
 // nearly the whole screen, details beside a tall module list.
-function Modal({ title, children, onClose, size, isDirty = false, onSave }) {
+// `closeRef` hands the caller requestClose (the Level Guide's Open in Matrix
+// closes the editor the usual way); the top-most open Modal alone takes Escape.
+const modalStack = [];
+function Modal({ title, children, onClose, size, isDirty = false, onSave, closeRef }) {
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [me] = useState(() => ({}));   // this Modal's token on modalStack
   const requestClose = () => { if (isDirty) setConfirming(true); else onClose(); };
+  useEffect(() => { if (closeRef) closeRef.current = requestClose; });
+  useEffect(() => { modalStack.push(me); return () => { modalStack.splice(modalStack.indexOf(me), 1); }; }, [me]);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
+    const onKey = (e) => { if (e.key === 'Escape' && modalStack[modalStack.length - 1] === me) requestClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, isDirty]);
+  }, [onClose, isDirty, me]);
   const saveAndClose = async () => {
     if (!onSave) { setConfirming(false); onClose(); return; }
     setSaving(true);
@@ -1615,7 +1716,7 @@ function Modal({ title, children, onClose, size, isDirty = false, onSave }) {
         overflow: 'auto', padding: size === 'xl' ? 24 : 20,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 800, flex: 1 }}>{title}</h3>
+          <h3 style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{title}</h3>
           <button onClick={requestClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         {children}
@@ -1643,13 +1744,13 @@ function Modal({ title, children, onClose, size, isDirty = false, onSave }) {
 // Content-area loading: skeleton placeholders (not a bare spinner) so the layout
 // stays stable and it reads as "loading this list", the standardized pattern.
 const ListSkeleton = () => <div style={{ padding: '8px 4px' }}><SkeletonBlocks count={5} height={54} /></div>;
-const Empty = ({ text }) => <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13.5 }}>{text}</div>;
+const Empty = ({ text }) => <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>{text}</div>;
 
 const thCorner = { position: 'sticky', left: 0, top: 0, zIndex: 3, background: 'var(--card)', textAlign: 'left', padding: '11px 14px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', borderRight: '1px solid var(--line)', borderBottom: '1.5px solid var(--line)', minWidth: 190 };
 const thCol = { position: 'sticky', top: 0, zIndex: 2, background: 'var(--card)', padding: '9px 10px', fontSize: 11, fontWeight: 700, color: 'var(--muted)', borderBottom: '1.5px solid var(--line)', minWidth: 92, textAlign: 'center', verticalAlign: 'bottom' };
 const thRow = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--card)', textAlign: 'left', padding: '10px 14px', borderRight: '1px solid var(--line)', borderBottom: '1px solid var(--line)', minWidth: 190 };
 const tdCell = { padding: '8px 10px', textAlign: 'center', borderBottom: '1px solid var(--line)' };
 const roleTabBtn = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', whiteSpace: 'nowrap', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, marginBottom: -1 };
-const sectLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', margin: '20px 0 10px' };
-const fieldLabel = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' };
+const sectLabel = { fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', margin: '20px 0 10px' };
+const fieldLabel = { display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, fontWeight: 600, color: 'var(--ink)' };
 const input = { padding: '9px 11px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--paper)', color: 'var(--ink)', fontSize: 13, fontFamily: 'Inter,sans-serif', width: '100%' };

@@ -5,8 +5,8 @@ import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useAccountingPrefs } from './prefs';
-import { BarMore, BarSearch, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, fitSelect } from './reportControls';
-import { useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
+import { BarMore, BarSearch, ColumnResizer, ControlBar, CustomizeButton, DENSITIES, EntitiesPicker, EntityPicker, ExportMenu, Pager, PopoverPanel, SyncButton, control, fitSelect } from './reportControls';
+import { useColumnWidths, useCustomizePrefs, useFitHeight, usePaged } from './tableHooks';
 import { TableViewBar, ViewHead, useTableView, viewCells, viewTable } from './tableView';
 import { useTableSync } from './tableSync';
 import { cellStyle, headStyle } from './columnStyles';
@@ -19,10 +19,11 @@ import { ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, useLedgerSc
 import AddMenu from './AddMenu';
 import AnchoredMenu from '../AnchoredMenu';
 import { EgnyteField } from './LoanDialogs';
-import { CUSTOM_MAX_MONTHS, FREQUENCY, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
+import { CUSTOM_MAX_MONTHS, FREQUENCY, LeaveConfirm, PeriodPicker, PossiblyEndedChip, RecheckStatus, RecurringSettingsButton, StillNeeded, frequencyLabel, periodMonths, periodText, stepMonths, useStaleRecheck } from './recurringShared';
 import { CompletenessButton, CompletenessPanel, gapCount, mreGaps, useJumpToRow } from './completeness';
 import { DateField } from '../../tasks/components';
 import HoldButton from '../../ui/HoldButton';
+import { isBypassing } from '../../lib/dialogGuard';
 
 export { CUSTOM_MAX_MONTHS, frequencyLabel, stepMonths };
 
@@ -188,9 +189,9 @@ const STATUS = {
   unknown: { label: 'Not Read', fg: 'var(--text-muted)', bg: 'var(--bg-secondary)' },
 };
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
-const label = { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
+const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const icon = { border: 'none', background: 'none', padding: 5, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' };
-const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: '0.84rem' };
+const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const num = { textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
 const monthLabel = (m) => (m ? `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}` : '');
 const notAvailable = (e) => e?.status === 503 || /not configured|not available/i.test(e?.message || '');
@@ -592,7 +593,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
           </div>
         </ControlBar>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: '0.78rem', fontVariantNumeric: 'tabular-nums', padding: '0 4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 13, fontVariantNumeric: 'tabular-nums', padding: '0 4px' }}>
           <span style={{ color: 'var(--text-muted)' }}>{periodLabel}</span>
           <span>Expected to Date <strong><Amount value={sum.expectedToDate} /></strong></span>
           <span>Paid to Date <strong><Amount value={sum.paidToDate} /></strong></span>
@@ -605,19 +606,19 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
 
         {error && <div style={bad}>{error}</div>}
         {data?.warning && (
-          <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '0.82rem', color: 'var(--warn-fg)' }}>
+          <div style={{ ...card, padding: '8px 12px', borderColor: 'var(--warn-fg)', display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: 'var(--warn-fg)' }}>
             <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />{data.warning}
           </div>
         )}
         {sent && (
-          <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem', color: 'var(--ok-fg, #15803d)' }}>
+          <div role="status" style={{ ...card, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--ok-fg, #15803d)' }}>
             <span style={{ flex: 1 }}>{sent.text}{sent.url && <> <a href={sent.url} target="_blank" rel="noreferrer">Open the File</a></>}</span>
             <button type="button" onClick={() => setSent(null)} aria-label="Dismiss" style={icon}><X size={14} /></button>
           </div>
         )}
 
         {loading && !data?.rows?.length ? <SkeletonBlocks count={4} /> : !rows.length && !filtering && !view.count ? (
-          <div style={{ ...card, padding: '18px 16px', fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
+          <div style={{ ...card, padding: '18px 16px', fontSize: 14, color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
             <strong style={{ color: 'var(--text-primary)' }}>{(data?.rows || []).length ? 'Nothing matches these filters.' : 'No recurring expenses yet.'}</strong>
             <span>
               {(data?.rows || []).length
@@ -654,9 +655,9 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
 
 function Toggle({ checked, onChange, title, hint }) {
   return (
-    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ marginTop: 2 }} />
-      <span>{title}<span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{hint}</span></span>
+      <span>{title}<span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{hint}</span></span>
     </label>
   );
 }
@@ -673,7 +674,7 @@ function Legend({ value = [], onChange }) {
         return (
           <button key={k} type="button" aria-pressed={picked} onClick={() => toggle(k)}
             title={picked ? `Showing lines with a ${STATUS[k].label} month - click to show every line again` : `Show only the lines with a ${STATUS[k].label} month in the months shown`}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, font: 'inherit', fontSize: '0.7rem', fontWeight: 700, color: STATUS[k].fg, background: STATUS[k].bg, cursor: 'pointer', borderRadius: 999, padding: '0 8px', lineHeight: '18px',
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, font: 'inherit', fontSize: 11, fontWeight: 700, color: STATUS[k].fg, background: STATUS[k].bg, cursor: 'pointer', borderRadius: 999, padding: '0 8px', lineHeight: '18px',
               border: picked ? '1px solid var(--wk-brand, #2b45e1)' : k === 'upcoming' ? '1px dashed var(--border-color)' : '1px solid transparent', boxShadow: picked ? '0 0 0 1px var(--wk-brand, #2b45e1)' : 'none' }}>
             {picked && <Check size={11} aria-hidden="true" />}{STATUS[k].label}
           </button>
@@ -681,7 +682,7 @@ function Legend({ value = [], onChange }) {
       })}
       {value.length > 0 && (
         <button type="button" onClick={() => onChange([])} aria-label="Clear the legend filter"
-          style={{ border: 'none', background: 'none', padding: '0 2px', font: 'inherit', fontSize: '0.72rem', color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer' }}>Clear</button>
+          style={{ border: 'none', background: 'none', padding: '0 2px', font: 'inherit', fontSize: 12, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer' }}>Clear</button>
       )}
     </span>
   );
@@ -771,7 +772,7 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, onClearTyp
                   expected: (
                     <td className="acct-num mre-x" style={cellStyle(w('expected'))} title={`${frequencyLabel(r.line)} from ${formatDate(r.line.startDate) || 'the start'}${r.line.endDate ? ` to ${formatDate(r.line.endDate)}` : ''}${r.line.variancePct ? `; paid within ${r.line.variancePct}% counts as Paid` : ''}`}>
                       <Amount value={r.line.expectedAmount} />
-                      <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{frequencyLabel(r.line)}</span>
+                      <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{frequencyLabel(r.line)}</span>
                     </td>
                   ),
                   ...months,
@@ -830,7 +831,7 @@ function MreLines({ line, from, to, title, onClose }) {
 }
 
 function Chip({ text }) {
-  return <span style={{ fontSize: '0.66rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', borderRadius: 999, padding: '0 6px', flexShrink: 0 }}>{text}</span>;
+  return <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', borderRadius: 999, padding: '0 6px', flexShrink: 0 }}>{text}</span>;
 }
 
 function MonthCell({ cell, width, onOpen = null }) {
@@ -860,11 +861,11 @@ function NotesCell({ line, canEdit, onSave }) {
   const [text, setText] = useState(line.notes || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  if (!canEdit) return <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{line.notes}</span>;
+  if (!canEdit) return <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{line.notes}</span>;
   if (!editing) {
     return (
       <button type="button" onClick={() => { setText(line.notes || ''); setEditing(true); setError(''); }} aria-label={`Notes for ${line.vendorName}`}
-        style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: '0.78rem', textAlign: 'left', cursor: 'text', color: line.notes ? 'var(--text-secondary)' : 'var(--text-muted)', width: '100%' }}>
+        style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: 13, textAlign: 'left', cursor: 'text', color: line.notes ? 'var(--text-secondary)' : 'var(--text-muted)', width: '100%' }}>
         {line.notes || 'Add a Note'}
       </button>
     );
@@ -884,7 +885,7 @@ function NotesCell({ line, canEdit, onSave }) {
         onChange={(e) => setText(e.target.value)} onBlur={save}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') setEditing(false); }}
         style={{ ...control, width: '100%', height: 26 }} />
-      {error && <div style={{ fontSize: '0.7rem', color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
+      {error && <div style={{ fontSize: 11, color: 'var(--bad-fg, #dc2626)' }}>{error}</div>}
     </div>
   );
 }
@@ -923,9 +924,9 @@ function VendorName({ id, name }) {
       style={{ minWidth: 0, fontWeight: 600, cursor: 'default', textDecoration: 'underline dotted var(--border-color)', textUnderlineOffset: 3 }}>
       {name || id}
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} role="tooltip" aria-label={`${name} contact`} onMouseEnter={keep} onMouseLeave={hide}
-        style={{ width: 280, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 12, display: 'grid', gap: 6, fontSize: '0.8rem', fontWeight: 400, whiteSpace: 'normal' }}>
+        style={{ width: 280, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 12, display: 'grid', gap: 6, fontSize: 13, fontWeight: 400, whiteSpace: 'normal' }}>
         <div style={{ fontWeight: 700 }}>{v?.displayName || v?.name || name}</div>
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Vendor {id}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Vendor {id}</div>
         {state?.loading && <SkeletonBlocks count={1} />}
         {state?.error && <div style={{ color: 'var(--bad-fg, #dc2626)' }}>{state.error}</div>}
         {state?.loaded && state.available === false && <div style={{ color: 'var(--text-muted)' }}>Contact details are not available yet - the accounting app needs its update.</div>}
@@ -983,12 +984,12 @@ function VendorCombobox({ id, vendors, text, onText, onPick }) {
       <AnchoredMenu anchorRef={boxRef} open={open} onClose={() => setOpen(false)} role="listbox" id={`${id}-list`} aria-label="Vendors"
         style={{ width: Math.max(width, 300), maxHeight: 320, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 4 }}>
         <div ref={listRef}>
-          {vendors === null ? <div style={{ padding: '7px 10px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Loading vendors...</div>
-            : !shown.length ? <div style={{ padding: '7px 10px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{text.trim() ? 'No vendor matches - what you typed is kept as the vendor.' : 'No vendors on the ledger yet.'}</div>
+          {vendors === null ? <div style={{ padding: '7px 10px', fontSize: 13, color: 'var(--text-muted)' }}>Loading vendors...</div>
+            : !shown.length ? <div style={{ padding: '7px 10px', fontSize: 13, color: 'var(--text-muted)' }}>{text.trim() ? 'No vendor matches - what you typed is kept as the vendor.' : 'No vendors on the ledger yet.'}</div>
               : shown.map((v, i) => (
                 <button key={v.code} type="button" role="option" aria-selected={i === hi}
                   onMouseDown={(e) => { e.preventDefault(); pick(v); }} onMouseEnter={() => setHi(i)}
-                  style={{ display: 'flex', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, padding: '5px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--text-primary)', background: i === hi ? 'var(--wk-brand-tint, #e8ecfd)' : 'none' }}>
+                  style={{ display: 'flex', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, padding: '5px 8px', font: 'inherit', fontSize: 13, cursor: 'pointer', color: 'var(--text-primary)', background: i === hi ? 'var(--wk-brand-tint, #e8ecfd)' : 'none' }}>
                   <span className="acct-code" style={{ minWidth: 72, flexShrink: 0, marginRight: 0 }}>{v.code}</span>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name || v.code}</span>
                 </button>
@@ -1001,20 +1002,31 @@ function VendorCombobox({ id, vendors, text, onText, onPick }) {
 
 function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
   const [l, setL] = useState(() => ({ ...line, accountsText: (line.expenseAccounts || []).join(', ') }));
+  const [initial] = useState(() => JSON.stringify(l));
   const [vendors, setVendors] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const set = (p) => setL((x) => ({ ...x, ...p }));
+  // The MRI editors' rule (Neil, 10/14): a click off or Escape with unsaved
+  // changes asks Keep Editing / Discard Edits instead of losing the form.
+  const dirty = JSON.stringify(l) !== initial;
+  const [leaving, setLeaving] = useState(false);
+  const live = useRef({ unsaved: false, leaving: false });
+  useEffect(() => { live.current = { unsaved: dirty, leaving }; }, [dirty, leaving]);
+  // isBypassing: the app-wide guard (lib/dialogGuard.js) already asked and this is its Discard.
+  const tryClose = useCallback(() => { if (live.current.unsaved && !isBypassing()) setLeaving(true); else onClose(); }, [onClose]);
   useEffect(() => {
     api.getAccountingDimensionValues('vendor').then((d) => setVendors(d?.values || [])).catch(() => setVendors([]));
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key !== 'Escape') return; if (live.current.leaving) setLeaving(false); else tryClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  const accounts =
- String(l.accountsText || '').split(',').map((x) => x.trim()).filter(Boolean);
+  }, [tryClose]);
+  const accounts = String(l.accountsText || '').split(',').map((x) => x.trim()).filter(Boolean);
   const customOk = l.frequency !== 'custom' || (Number(l.frequencyMonths) >= 1 && Number(l.frequencyMonths) <= CUSTOM_MAX_MONTHS);
-  const ready = l.entityCode && l.vendorId.trim() && accounts.length && customOk;
+  const missing = [!l.entityCode && 'Entity', !l.vendorId.trim() && 'Vendor', !accounts.length && 'Expense Accounts', !customOk && 'Every (Months)'].filter(Boolean);
+  const ready = !missing.length;
   const body = () => ({
     entityCode: l.entityCode, entityName: entities.find((e) => e.code === l.entityCode)?.name || l.entityName || '', vendorId: l.vendorId.trim(), vendorName: l.vendorName.trim(),
     expenseAccounts: accounts, category: l.category, frequency: l.frequency, expectedAmount: Number(l.expectedAmount) || 0,
@@ -1047,18 +1059,18 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
   };
   const pickVendor = (v) => set({ vendorId: v.code, vendorName: v.name || v.code, vendorText: vendorLabel(v.code, v.name) });
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 };
-  const hint = { fontSize: '0.68rem', color: 'var(--text-muted)' };
+  const hint = { fontSize: 11, color: 'var(--text-muted)' };
   const vendorText = l.vendorText ?? vendorLabel(l.vendorId, l.vendorName);
   const thisYear = Number((l.startDate || '').slice(0, 4)) > new Date().getFullYear() ? Number(l.startDate.slice(0, 4)) : new Date().getFullYear();
   const dueMonths = MONTHS.filter((_m, i) => dueInMonth({ ...l, status: 'active' }, thisYear, i + 1));
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={l.id ? 'Edit recurring expense' : 'Add recurring expense'} onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={tryClose} role="presentation">
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label={l.id ? 'Edit recurring expense' : 'Add recurring expense'} onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h3 style={{ margin: 0 }}>{l.id ? 'Edit Recurring Expense' : 'Add Recurring Expense'}</h3>
-          <button type="button" onClick={onClose} aria-label="Close" style={icon}><X size={18} /></button>
+          <button type="button" onClick={tryClose} aria-label="Close" style={icon}><X size={18} /></button>
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '72vh', overflowY: 'auto' }}>
+        <div className="nx-fill" style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, alignContent: 'start', overflowY: 'auto' }}>
           {error && <div style={bad}>{error}</div>}
           <div style={grid}>
             <div>
@@ -1155,7 +1167,7 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
               onChange={(v) => set({ egnyteFolder: v })} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
               <button type="button" className="secondary-btn" onClick={findFolder} disabled={!(l.vendorName || l.vendorId) || finding?.busy}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', height: 28, padding: '0 10px' }}><FolderSearch size={13} /> {finding?.busy ? 'Finding...' : 'Find Folder'}</button>
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, height: 28, padding: '0 10px' }}><FolderSearch size={13} /> {finding?.busy ? 'Finding...' : 'Find Folder'}</button>
               <span style={hint}>Looks for the vendor&apos;s folder by name{finding?.root ? ` under ${finding.root}` : ''} and in Egnyte&apos;s search. Pick one, or Browse, paste or Clear.</span>
             </div>
             {finding?.error && <div style={{ ...hint, color: 'var(--bad-fg, #dc2626)', marginTop: 4 }}>{finding.error}</div>}
@@ -1163,7 +1175,7 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
               <div role="list" aria-label="Suggested folders" style={{ display: 'grid', gap: 4, marginTop: 6 }}>
                 {finding.suggestions.map((f) => (
                   <button key={f.path} type="button" role="listitem" onClick={() => { set({ egnyteFolder: f.path }); setFinding(null); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', border: '1px solid var(--border-color)', borderRadius: 8, padding: '5px 10px', background: 'var(--bg-card)', font: 'inherit', fontSize: '0.78rem', cursor: 'pointer', color: 'var(--text-primary)' }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', border: '1px solid var(--border-color)', borderRadius: 8, padding: '5px 10px', background: 'var(--bg-card)', font: 'inherit', fontSize: 13, cursor: 'pointer', color: 'var(--text-primary)' }}>
                     <FolderOpen size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                     <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.path}>{f.path}</span>
                     <span style={{ ...hint, flexShrink: 0 }}>{f.score >= 1 ? 'Same Name' : f.score >= 0.85 ? 'Close Match' : 'Partial Match'}</span>
@@ -1177,7 +1189,8 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
             <textarea id="mre-notes" value={l.notes} onChange={(e) => set({ notes: e.target.value })} rows={2} maxLength={1000} style={{ ...control, width: '100%', height: 'auto', padding: 8 }} />
           </div>
         </div>
-        <div className="modal-footer" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 24px 16px' }}>
+        {leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
+        <div className="modal-footer" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '10px 24px 16px' }}>
           {/* Press and hold (11/11/2026 Accounting pass, picture 10): one record, no second click. */}
           {l.id && canDelete && (
             <HoldButton size="sm" label="Delete" doneLabel="Deleted" disabled={busy} fallbackMessage="Delete this expense for good? A bill that stopped should be ended instead."
@@ -1185,9 +1198,11 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
           )}
           {l.id && l.status !== 'ended' && <button type="button" className="secondary-btn" disabled={busy} onClick={() => run(api.endMreLine(l.id, iso(new Date())))}>End Today</button>}
           <span style={{ flex: 1 }} />
+          <StillNeeded missing={missing} />
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
           <button type="button" className="primary-btn" disabled={!ready || busy} onClick={save}>{busy ? 'Saving...' : 'Save'}</button>
         </div>
+        )}
       </div>
     </div>
   );
@@ -1223,6 +1238,8 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
   const [done, setDone] = useState(null);
   const shown = error || scan.error;
   const rows = data?.proposals || [];
+  const cw = useColumnWidths('mre-from-ledger', {}, { min: 50 });
+  const th = (key, label, style = null) => <th aria-label={label} style={headStyle(cw.width(key), style)}>{label}<ColumnResizer {...cw.resizer(key, label)} /></th>;
   const fresh = rows.filter((p) => p.status === 'new');
   const keyOf = (p) => `${p.entityCode}|${p.vendorId}`;
   const count = fresh.filter((p) => !unticked.has(keyOf(p))).length;
@@ -1238,19 +1255,19 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
   };
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Add recurring expenses from the ledger" onClick={(e) => e.stopPropagation()} style={{ width: 'max(60vw, min(100%, 1080px))' }}>
+      <div className="modal-content nx-popup" role="dialog" aria-modal="true" aria-label="Add recurring expenses from the ledger" onClick={(e) => e.stopPropagation()} style={{ width: 'max(60vw, min(100%, 1080px))', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <div>
             <h3 style={{ margin: 0 }}>Add From the Ledger</h3>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
               Vendors who posted to an expense account at a stable amount in at least {min} of the last twelve months{data?.from ? ` (${monthLabel(data.from)} to ${monthLabel(data.to)})` : ''}, {entityLabel.toLowerCase().startsWith('all') ? 'every active entity you may read' : entityLabel}. The expected amount is the most common of the last three postings; debt service is left to Loans &amp; Financing.
             </div>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={icon}><X size={18} /></button>
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, maxHeight: '72vh', overflowY: 'auto' }}>
+        <div className="nx-fill" style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, alignContent: 'start', overflowY: 'auto' }}>
           {!done && (
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
               At least
               <select value={min} onChange={(e) => { setMin(Number(e.target.value)); setUnticked(new Set()); again.reset(); }} aria-label="Minimum months at a stable amount" style={control}>
                 {[2, 3, 4, 6, 9, 12].map((n) => <option key={n} value={n}>{n} months</option>)}
@@ -1259,28 +1276,28 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
             </label>
           )}
           {shown && (notAvailable(shown)
-            ? <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>Not available here.</strong> The accounting service is not connected on this environment, so there is no ledger to read. Use Manual.</div>
+            ? <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}><strong style={{ color: 'var(--text-primary)' }}>Not available here.</strong> The accounting service is not connected on this environment, so there is no ledger to read. Use Manual.</div>
             : (
               <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ flex: 1 }}>{shown.message || 'Could not read the ledger.'}</span>
-                {scan.error && <button type="button" className="secondary-btn" onClick={retry} style={{ fontSize: '0.76rem' }}>Try Again</button>}
+                {scan.error && <button type="button" className="secondary-btn" onClick={retry} style={{ fontSize: 12 }}>Try Again</button>}
               </div>
             ))}
           {data && !done && (
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               {entitiesScannedText(data)}.
             </div>
           )}
           {data && !done && <ScanOutcome total={data.entitiesScanned ?? 0} failed={failed} onRetry={again.run} running={again.running} error={again.error} />}
           {progress ? <ScanProgress progress={progress} /> : scan.error ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (
-            <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
+            <div style={{ fontSize: 14, display: 'grid', gap: 6 }}>
               <strong>{done.created.length} recurring {done.created.length === 1 ? 'expense' : 'expenses'} added{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>
               {done.created.map((p) => <div key={keyOf(p)}>{vendorLabel(p.vendorId, p.vendorName)} at {p.entityName} - <Amount value={p.expectedAmount} /> {FREQUENCY[p.frequency]?.toLowerCase()}</div>)}
               {done.skipped.map((p) => <div key={keyOf(p)} style={{ color: 'var(--text-muted)' }}>{p.vendorId} at {p.entityCode}: {p.why}</div>)}
             </div>
           ) : !rows.length ? (
             shown && notAvailable(shown) ? null : (
-              <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)', display: 'grid', gap: 6 }}>
                 <strong style={{ color: 'var(--text-primary)' }}>{failed.length ? 'No recurring vendor payments found in the entities that were read.' : 'No recurring vendor payments found.'}</strong>
                 <span>Read {data.entitiesRead ?? 0} active {data.entitiesRead === 1 ? 'entity' : 'entities'}{failed.length ? ` (${failed.length} more could not be read - Retry them above before deciding)` : ''}; {data.entitiesWithExpenses ?? 0} had expense postings, but no vendor posted the same amount in at least {min} months. Lower the bar above, or add one with Manual.</span>
               </div>
@@ -1288,7 +1305,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
           ) : (
             <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
               <table className="req-table" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                <thead><tr><th style={{ width: 30 }} /><th>Vendor</th><th>Entity</th><th>Expense Accounts</th><th>Category</th><th>Frequency</th><th style={num}>Expected</th><th style={num}>Months Posted</th><th style={num}>Paid (12 Mo)</th><th>Status</th></tr></thead>
+                <thead><tr><th style={{ width: 30 }} />{th('vendor', 'Vendor')}{th('entity', 'Entity')}{th('accounts', 'Expense Accounts')}{th('category', 'Category')}{th('frequency', 'Frequency')}{th('expected', 'Expected', num)}{th('months', 'Months Posted', num)}{th('paid', 'Paid (12 Mo)', num)}{th('status', 'Status')}</tr></thead>
                 <tbody>
                   {rows.map((p) => {
                     const k = keyOf(p);
@@ -1311,8 +1328,8 @@ export function MreFromLedger({ entities = [], entityLabel = 'All Entities', onC
                         <td style={num} title={`${p.stableMonths} at the expected amount; first ${monthLabel(p.firstMonth)}, last ${monthLabel(p.lastMonth)}`}>{p.postedMonths} ({p.stableMonths} Stable)</td>
                         <td style={num}><Amount value={p.paid12} /></td>
                         <td>{isNew
-                          ? <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: 999, color: 'var(--warn-fg)', background: 'var(--warn-bg)' }}>New</span>
-                          : <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '1px 8px', borderRadius: 999, color: 'var(--ok-fg, #15803d)', background: 'rgba(21,128,61,0.10)' }}>Set Up</span>}
+                          ? <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 999, color: 'var(--warn-fg)', background: 'var(--warn-bg)' }}>New</span>
+                          : <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 999, color: 'var(--ok-fg, #15803d)', background: 'rgba(21,128,61,0.10)' }}>Set Up</span>}
                         </td>
                       </tr>
                     );

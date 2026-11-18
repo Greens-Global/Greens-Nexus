@@ -20,7 +20,7 @@
 }
 .nxs-dec { font-size: 11px; font-weight: 700; letter-spacing: -0.02em; }
 .nxs-frozen { display: inline-flex; color: var(--muted); padding: 0 4px; }
-.nxs-readonly { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--muted); padding: 0 8px; }
+.nxs-readonly { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 8px; }
 
 .nxs-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
 .nxs-namebox {
@@ -41,9 +41,9 @@
 }
 .nxs-suggest button {
   display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; border: none;
-  background: none; border-radius: 6px; padding: 6px 8px; cursor: pointer; color: var(--ink); font: 12.5px Inter, sans-serif;
+  background: none; border-radius: 6px; padding: 6px 8px; cursor: pointer; color: var(--ink); font: 13px Inter, sans-serif;
 }
-.nxs-suggest button span, .nxs-hint { font-size: 11.5px; color: var(--muted); }
+.nxs-suggest button span, .nxs-hint { font-size: 12px; color: var(--muted); }
 .nxs-suggest button.is-on, .nxs-suggest button:hover { background: var(--mist); }
 .nxs-hint { padding: 6px 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
@@ -84,7 +84,7 @@
 }
 .nxs-tag {
   position: absolute; right: -2px; bottom: 100%; z-index: 6; pointer-events: none; white-space: nowrap;
-  font-size: 10.5px; font-weight: 600; color: #fff; padding: 1px 5px; border-radius: 4px 4px 4px 0;
+  font-size: 11px; font-weight: 600; color: #fff; padding: 1px 5px; border-radius: 4px 4px 4px 0;
 }
 .nxs-fill {
   position: absolute; right: -4px; bottom: -4px; width: 7px; height: 7px; z-index: 4;
@@ -93,7 +93,7 @@
 
 .nxs-head {
   position: absolute; box-sizing: border-box; display: flex; align-items: center; justify-content: center;
-  background: var(--nxs-head); color: var(--muted); font-size: 11.5px; font-weight: 600; user-select: none;
+  background: var(--nxs-head); color: var(--muted); font-size: 12px; font-weight: 600; user-select: none;
   border-right: 1px solid var(--nxs-grid); border-bottom: 1px solid var(--nxs-grid); cursor: default;
 }
 .nxs-head.is-on { background: var(--nxs-head-on); color: var(--ink); }
@@ -117,7 +117,7 @@
 .nxs-tabs::-webkit-scrollbar { display: none; }
 .nxs-tab { display: flex; align-items: center; border-bottom: 3px solid transparent; flex: 0 0 auto; }
 .nxs-tab > button:first-child, .nxs-tab input {
-  font: 600 12.5px Inter, sans-serif; color: var(--muted); background: none; border: none; padding: 6px 12px; cursor: pointer; white-space: nowrap;
+  font: 600 13px Inter, sans-serif; color: var(--muted); background: none; border: none; padding: 6px 12px; cursor: pointer; white-space: nowrap;
 }
 .nxs-tab input { color: var(--ink); background: var(--card); border: 1px solid var(--nx-primary); border-radius: 4px; padding: 3px 6px; width: 140px; cursor: text; }
 .nxs-tab.is-on { background: var(--card); }
@@ -216,7 +216,7 @@ textarea.nxs-cell-input { resize: none; padding-top: 3px; white-space: pre; over
 
 .nxs-panel { display: flex; flex-direction: column; font-family: Inter, sans-serif; color: var(--ink); }
 .nxs-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); }
-.nxs-panel-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.nxs-panel-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
 .nxs-panel-body { padding: 14px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
 .nxs-panel-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-top: 1px solid var(--line); }
 .nxs-icon { border: none; background: none; color: var(--muted); cursor: pointer; width: 30px; height: 30px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
@@ -233,7 +233,7 @@ textarea.nxs-cell-input { resize: none; padding-top: 3px; white-space: pre; over
 .nxs-rules { display: flex; flex-direction: column; gap: 6px; }
 .nxs-rule { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
 .nxs-rule.is-on { border-color: var(--nx-primary); }
-.nxs-rule-main { flex: 1; display: flex; align-items: center; gap: 10px; text-align: left; border: none; background: none; color: var(--ink); font: 12.5px Inter, sans-serif; cursor: pointer; min-width: 0; }
+.nxs-rule-main { flex: 1; display: flex; align-items: center; gap: 10px; text-align: left; border: none; background: none; color: var(--ink); font: 13px Inter, sans-serif; cursor: pointer; min-width: 0; }
 .nxs-swatch { width: 40px; height: 24px; border-radius: 4px; border: 1px solid var(--line); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; flex: 0 0 auto; }
 .nxs-preset { border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; font: 12px Inter, sans-serif; cursor: pointer; }
 .nxs-preset.is-on { outline: 2px solid var(--nx-primary); outline-offset: 1px; }
@@ -241,12 +241,12 @@ textarea.nxs-cell-input { resize: none; padding-top: 3px; white-space: pre; over
 .nxs-radio legend { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
 .nxs-radio label { display: flex; align-items: center; gap: 6px; }
 .nxs-sortby { font-size: 12px; font-weight: 600; color: var(--muted); min-width: 56px; }
-.nxs-hint-text, .nxs-empty { font-size: 12.5px; color: var(--muted); margin: 0; line-height: 1.5; }
+.nxs-hint-text, .nxs-empty { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.5; }
 .nxs-search { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 7px; padding: 0 8px; color: var(--muted); background: var(--card); }
 .nxs-search input { flex: 1; min-width: 0; height: 30px; border: none; outline: none; background: none; color: var(--ink); font: 13px Inter, sans-serif; }
 .nxs-keys h3 { margin: 10px 0 4px; font-size: 12px; font-weight: 700; }
 .nxs-key-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
-.nxs-key-row kbd { font: 600 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--mist); border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; white-space: nowrap; color: var(--ink); }
+.nxs-key-row kbd { font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--mist); border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px; white-space: nowrap; color: var(--ink); }
 
 .nxs-popbox {
   background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-lg);
@@ -258,16 +258,16 @@ textarea.nxs-cell-input { resize: none; padding-top: 3px; white-space: pre; over
 .nxs-values .nxs-check { justify-content: flex-start; }
 .nxs-values .nxs-check > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nxs-vars { max-height: 320px; }
-.nxs-count { color: var(--muted); font-size: 11.5px; }
+.nxs-count { color: var(--muted); font-size: 12px; }
 .nxs-opt { display: flex; justify-content: space-between; gap: 8px; text-align: left; border: none; background: none; color: var(--ink); font: 13px Inter, sans-serif; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
 .nxs-opt:hover, .nxs-opt.is-on { background: var(--mist); }
 .nxs-muted { color: var(--muted); font-size: 12px; }
 .nxs-link { border: none; background: none; color: var(--nx-primary); font: 600 12px Inter, sans-serif; cursor: pointer; padding: 0; }
 
 @media (max-width: 640px) {
-  .nxs-panel-body .form-input, .nxs-popbox .form-input, .nxs-search input, textarea.nxs-cell-input { font-size: 16px; }
+  .nxs-panel-body .form-input, .nxs-popbox .form-input, .nxs-search input, textarea.nxs-cell-input { font-size: 16px; } /* type-ok: iOS zooms a field under 16px */
   .nxs-namebox { width: 64px; }
-  .nxs-formula, .nxs-namebox, .nxs-find input, .nxs-tab input { font-size: 16px; }   /* iOS zooms into smaller text */
+  .nxs-formula, .nxs-namebox, .nxs-find input, .nxs-tab input { font-size: 16px; }   /* iOS zooms into smaller text */ /* type-ok: iOS zooms a field under 16px */
   .nxs-cell { cursor: default; }
 }
 

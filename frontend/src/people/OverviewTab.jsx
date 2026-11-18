@@ -49,6 +49,12 @@ export default function OverviewTab({ e, employees = [], canEdit = false, canSyn
     onSave: async (draft) => {
       if (!draft.first_name.trim()) { toastErr('A first name is needed.'); return false; }
       const body = changedKeys(saved, draft);
+      // Only the emergency fields that changed (People pass, 11/16/2026): the
+      // server merges them into the stored contact, so a phone the person
+      // updated in My HR while this record was open is not written back.
+      if (body.personal?.emergency) {
+        body.personal = { ...body.personal, emergency: changedKeys(saved.personal.emergency, draft.personal.emergency) };
+      }
       if (!Object.keys(body).length) return true;
       try {
         const out = await api.updateEmployee(e.id, body);
@@ -110,7 +116,7 @@ export default function OverviewTab({ e, employees = [], canEdit = false, canSyn
             <select id="ov-identity_type" className="form-input" style={BOX} value={d.identity_type} onChange={set('identity_type')}>
               {ACCOUNT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>External and guest people can be kept to specific companies on the Access tab.</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>External and guest people can be kept to specific companies on the Access tab.</div>
           </Row>
           <Row label="Notes" htmlFor="ov-notes">
             <textarea id="ov-notes" className="form-input" rows={2} style={{ ...BOX, resize: 'vertical', fontFamily: 'inherit' }} value={d.notes} onChange={set('notes')} />
@@ -148,7 +154,7 @@ export default function OverviewTab({ e, employees = [], canEdit = false, canSyn
               <option value="">-</option>
               {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name} ({c.code})</option>)}
             </select>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Where this person actually is - also drives their email signature's phone country code.</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Where this person actually is - also drives their email signature's phone country code.</div>
           </Row>
         </div>
       ) : (
@@ -244,7 +250,7 @@ function OfficeContactHead({ e, canSync, onSynced, toastOk, toastErr, children }
       {linked && canSync && (
         <button type="button" className="secondary-btn" onClick={syncNow} disabled={busy}
           title="Bring this person's details in step with Microsoft 365 now"
-          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}>
+          style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}>
           {busy ? <Spinner size={12} /> : <RefreshCw size={12} />} Sync Now
         </button>
       )}

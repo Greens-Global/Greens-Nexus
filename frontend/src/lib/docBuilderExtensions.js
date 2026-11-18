@@ -147,9 +147,9 @@ export const SignatureBlock = Node.create({
       style: 'border:1px dashed hsl(var(--color-blue));border-radius:8px;padding:8px 12px;margin:10px 0;max-width:340px;background:hsla(var(--color-blue), 0.06);font-family:Inter,sans-serif;',
     },
     ['div', { style: 'font-size:11px;font-weight:700;letter-spacing:.02em;color:hsl(var(--color-blue));' }, `Signature - ${who}`],
-    ...(label ? [['div', { style: 'font-size:12.5px;font-weight:600;margin-top:4px;color:#111827;' }, label]] : []),
+    ...(label ? [['div', { style: 'font-size:13px;font-weight:600;margin-top:4px;color:#111827;' }, label]] : []),
     ['div', { style: 'border-bottom:1px solid #6b7280;height:22px;margin-top:4px;' }],
-    ['div', { style: 'font-size:10.5px;color:#6b7280;margin-top:3px;' }, lines]];
+    ['div', { style: 'font-size:11px;color:#6b7280;margin-top:3px;' }, lines]];
   },
 });
 

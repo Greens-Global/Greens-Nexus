@@ -170,10 +170,10 @@ export default function ManualJournalEntries() {
         </BarMore>
         {/* 10/23 meeting, item 02 (fix 10/24): the two switches move into More on a narrow row; the search is an icon until used. */}
         <BarMore level={1} active={(edited ? 0 : 1) + (grouped === MANUAL_JE_GROUP_BY_USER ? 0 : 1)}>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
           <input type="checkbox" checked={edited} onChange={(e) => setEdited(e.target.checked)} /> Include system entries a person changed
         </label>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
           <input type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} /> Group by user
         </label>
         </BarMore>
@@ -194,17 +194,17 @@ export default function ManualJournalEntries() {
       </ControlBar>
 
       {data && data.available === false && (
-        <div role="note" style={{ ...card, padding: 16, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
+        <div role="note" style={{ ...card, padding: 16, fontSize: 14, color: 'var(--text-secondary)' }}>
           <strong style={{ color: 'var(--text-primary)' }}>Manual Journal Entries are not available here.</strong> {data.reason}
         </div>
       )}
-      {data?.note && <div role="note" style={{ ...card, padding: 12, fontSize: '0.82rem', color: 'var(--warn-fg, #b45309)' }}>{data.note}</div>}
-      {res.error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', fontSize: '0.84rem' }}>{res.error}</div>}
+      {data?.note && <div role="note" style={{ ...card, padding: 12, fontSize: 13, color: 'var(--warn-fg, #b45309)' }}>{data.note}</div>}
+      {res.error && <div role="alert" style={{ ...card, padding: 12, color: 'var(--bad-fg, #dc2626)', fontSize: 13 }}>{res.error}</div>}
       {loading && !data && <div role="status" aria-label="Reading Intacct" style={{ ...card, padding: 12 }}><SkeletonBlocks count={5} /></div>}
 
       {data?.available && (
         <div style={{ ...card, padding: 0, overflow: 'hidden', opacity: loading ? 0.6 : 1 }}>
-          <div style={{ padding: '8px 10px', fontSize: '0.78rem', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ padding: '8px 10px', fontSize: 13, color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-color)' }}>
             <strong>{rows.length}</strong> manual {rows.length === 1 ? 'entry' : 'entries'} of {data.scanned} in {formatDate(data.from)} - {formatDate(data.to)} · Amount <strong><Amount value={total} /></strong>
             {' · '}Not manual: entries created by {(data.excludedUsers || []).join(', ') || 'system'} or by a bank-feed or other rule. Posted / Changed By is the last person to change or post the entry (Intacct&apos;s MODIFIEDBY); a rule&apos;s draft that a person only posted shows here as changed by that person.
           </div>
@@ -229,13 +229,13 @@ export default function ManualJournalEntries() {
                       {view.columns.map((c) => (c.key === 'open' ? (
                         <td key={c.key}>
                           <button type="button" className="secondary-btn" disabled={opening === r.recordNo} onClick={() => open(r)} aria-label={`Open entry ${r.batchNo}`}
-                            style={{ fontSize: '0.72rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>Open <ExternalLink size={11} /></button>
+                            style={{ fontSize: 12, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>Open <ExternalLink size={11} /></button>
                         </td>
                       ) : (
                         <td key={c.key} style={cellStyle(c.width, c.num ? { textAlign: 'right' } : null)} title={c.text(r)}>
                           {/* Call of 10/27 with Charmi, item 17: the amount opens the entry behind it, as Open does. */}
                           {c.num ? <button type="button" className="acct-drill" disabled={opening === r.recordNo} onClick={() => open(r)} title="Open the entry behind this amount"><Amount value={c.value(r)} /></button> : c.text(r)}
-                          {c.key === 'postedBy' && r.kind === 'edited' && <span style={{ marginLeft: 6, fontSize: '0.68rem', padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}>Changed by a Person</span>}
+                          {c.key === 'postedBy' && r.kind === 'edited' && <span style={{ marginLeft: 6, fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)' }}>Changed by a Person</span>}
                         </td>
                       )))}
                     </tr>

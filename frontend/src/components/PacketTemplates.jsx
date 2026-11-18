@@ -23,7 +23,7 @@ const SIGNER_HINT = {
   separation: 'The person leaving signs first; you countersign for the company after them.',
 };
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
-const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
+const hint = { fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 };
 const Problem = ({ children }) => (
   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '8px 12px', fontSize: 12, marginTop: 8 }}>
     <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} /><span>{children}</span>
@@ -133,7 +133,7 @@ export function PacketEditor({ packet, event, eventLabel, companyId, companyName
       <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{t.id ? 'Edit' : 'New'} {eventLabel} - {companyName}</div>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>{t.id ? 'Edit' : 'New'} {eventLabel} - {companyName}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Your PDFs with the signature boxes placed once; Offer Fields print each offer's pay and dates at send.</div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -158,13 +158,13 @@ export function PacketEditor({ packet, event, eventLabel, companyId, companyName
           <div style={hint}>The company's own roles are listed first, then the roles shared across every company. Pick one to give that role its own packet - IT gets one packet, Accounting another. "Every role" is the packet for roles that have no packet of their own.</div>
 
           <label style={lbl}>Documents</label>
-          {t.attachments.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>No PDF yet. Upload your {eventLabel.toLowerCase()} - the offer letter, NDA and the rest can be one merged PDF or several.</div>}
+          {t.attachments.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>No PDF yet. Upload your {eventLabel.toLowerCase()} - the offer letter, NDA and the rest can be one merged PDF or several.</div>}
           {t.attachments.map((a, i) => (
             <div key={a.path} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
               <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{a.pages || '?'} page{a.pages === 1 ? '' : 's'} · {describeFields(a.fields)}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.pages || '?'} page{a.pages === 1 ? '' : 's'} · {describeFields(a.fields)}</div>
               </div>
               <button type="button" className="secondary-btn" onClick={() => setPlacing(i)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><PenTool size={12} /> Place Fields</button>
               <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('attachments', move(t.attachments, i, -1))} style={{ padding: '4px 6px' }} aria-label="Move up"><ChevronUp size={13} /></button>

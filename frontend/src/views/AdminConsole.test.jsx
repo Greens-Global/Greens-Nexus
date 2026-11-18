@@ -238,7 +238,7 @@ describe('AdminConsole', () => {
     const onSubChange = vi.fn();
     render(<AdminConsole activeSub="emails" onSubChange={onSubChange} />);
     expect(screen.getByRole('heading', { name: 'Emails & Reminders' })).toBeInTheDocument();
-    for (const t of ['Task Notifications', 'Daily Briefing', 'Weekly Digest', 'Workforce Scorecard', 'HR & Compliance Reminders', 'Equipment Reminders']) {
+    for (const t of ['Task Notifications', 'Daily Briefing', 'Weekly Briefing', 'Workforce Scorecard', 'HR & Compliance Reminders', 'Equipment Reminders']) {
       expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
     }
     // Nothing to expand: the panels are already there.
@@ -482,6 +482,27 @@ describe('AdminConsole', () => {
     await undo.mock.calls[0][1]();
     expect(apiOverrides.timeRoundingSet).toHaveBeenLastCalledWith({ enabled: false, nearestMin: 5 }, '');
     await waitFor(() => expect(screen.getByRole('switch', { name: 'Punch Rounding' })).not.toBeChecked());
+  });
+
+  // The race CI caught (11/13/2026): a click the moment the switch appears -
+  // before React's passive effects ran - found no saved rules and saved
+  // nothing. A MutationObserver clicks as soon as the switch is in the DOM.
+  it('Pay Rules: a switch clicked the moment it appears still saves', async () => {
+    payRules();
+    const { dialog } = await import('../ui/dialog');
+    vi.spyOn(dialog, 'undo').mockImplementation(() => {});
+    let clicked = false;
+    const mo = new MutationObserver(() => {
+      if (clicked) return;
+      const sw = document.querySelector('[role="switch"][aria-label="Punch Rounding"]');
+      if (sw) { clicked = true; sw.click(); }
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+    try {
+      render(<AdminConsole activeSub="pay:timeclock-policy" onSubChange={() => {}} />);
+      await waitFor(() => expect(clicked).toBe(true), { timeout: 5000 });
+      await waitFor(() => expect(apiOverrides.timeRoundingSet).toHaveBeenCalledWith({ enabled: true, nearestMin: 5 }, ''));
+    } finally { mo.disconnect(); }
   });
 
   it('Pay Rules: a failed switch rolls back; a partly failed Save keeps the failed rule\'s edits', async () => {
@@ -910,7 +931,7 @@ describe('AdminConsole', () => {
     fireEvent.change(box, { target: { value: 'no-show' } });
     expect(screen.getByRole('region', { name: 'Attendance' })).toBeInTheDocument();
     fireEvent.change(box, { target: { value: 'mail' } });
-    for (const t of ['Email Appearance', 'Task Notifications', 'Daily Briefing', 'Weekly Digest', 'HR & Compliance Reminders']) {
+    for (const t of ['Email Appearance', 'Task Notifications', 'Daily Briefing', 'Weekly Briefing', 'HR & Compliance Reminders']) {
       expect(screen.getByRole('region', { name: t })).toBeInTheDocument();
     }
   });

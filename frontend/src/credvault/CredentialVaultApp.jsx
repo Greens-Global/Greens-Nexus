@@ -16,29 +16,29 @@
    links arrive as `activeSub` (vaultModel.parseSub) from the bell and the
    header search; a credential link lands in My Logins with it open. */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  KeyRound, ShieldCheck, Shield, Search, Plus, Upload, Star, Trash2, Users, ChevronRight, ChevronDown, X,
-  CheckCircle2, XCircle, History, Lock, Inbox, LayoutList, LayoutDashboard,
-} from "lucide-react";
+import { KeyRound, ShieldCheck, Shield, Search, Upload, Star, Trash2, Users, ChevronRight, X,
+  CheckCircle2, XCircle, History, Lock, Inbox, LayoutList, LayoutDashboard } from "lucide-react";
 import { api } from "../api";
 import { ensureStepUp, isStepUpRequired } from "../stepup/StepUp";
 import { dialog } from "../ui/dialog";
 import { SkeletonBlocks } from "../components/AsyncState";
 import ModuleTabs, { ModuleActions } from "../components/ModuleTabs";
+import NewButton from "../components/NewButton";
 import { useRole } from "../contexts/RoleContext";
 import { useNameResolver } from "../lib/useNameResolver";
 import { useIsMobile } from "../lib/useIsMobile";
-import { formatDateTime } from "../lib/datetime";
-import { usePeople, useClickOutside } from "../tasks/components";
-import { VaultOtpModal, DEFAULT_DEPTS, TYPES, TIERS, agoLabel, actionStyle } from "./vaultShared";
+import { formatDateTime, formatTime } from "../lib/datetime";
+import { usePeople, DateField } from "../tasks/components";
+import { VaultOtpModal, DEFAULT_DEPTS, TYPES, TIERS, TierChip, agoLabel, actionStyle } from "./vaultShared";
 import {
   ACCESS_LABEL, ACCESS_TONE, collectionsFor, filterCredentials, sortCredentials, healthFlags, healthTone,
-  parseSub, verifiedLabel, readFavorites, writeFavorites, logMatches, live, readRecents, noteRecent, siteOf,
+  parseSub, verifiedLabel, readFavorites, writeFavorites, logMatches, live, readRecents, noteRecent, siteOf, secondOwners,
 } from "./vaultModel";
 import { Monogram } from "./vaultCards";
 import MyLogins from "./MyLogins";
 import Overview from "./Overview";
 import CredentialSheet, { CredentialDetail } from "./CredentialDrawer";
+import HeadCodeModal from "./HeadCode";
 import { CredentialForm, ImportWizard, ShareModal, RequestModal } from "./CredentialForm";
 import PersonalVault from "./PersonalVault";
 import { Pager } from "./vaultShared";
@@ -58,12 +58,12 @@ export default function CredentialVaultApp({ activeSub }) {
   const isMobile = useIsMobile("(max-width: 900px)");
 
   // ── data ────────────────────────────────────────────────────────────────
-  const [creds, setCreds] = useState([]);
+  const [rawCreds, setCreds] = useState([]);
   const [requests, setRequests] = useState([]);
   const [logs, setLogs] = useState([]);
   const [otp, setOtp] = useState({ verified: false, until: null });
   const [hrDepts, setHrDepts] = useState([]);
-  const [orgOpts, setOrgOpts] = useState({ companies: [], departments: [] });   // Settings > Companies, for the form and the Overview filter
+  const [orgOpts, setOrgOpts] = useState({ companies: [], departments: [], sites: [] });   // Settings > Companies / Locations, for the form and the filters
   const [fCompany, setFCompany] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -76,7 +76,7 @@ export default function CredentialVaultApp({ activeSub }) {
   useEffect(() => {
     refresh().catch(() => setLoadError(true)).finally(() => setLoading(false));
     api.getProjectDepartments().then((rows) => setHrDepts((rows || []).map((d) => d.name).filter(Boolean))).catch(() => {});
-    api.cvAudienceOptions().then((o) => setOrgOpts({ companies: o?.companies || [], departments: o?.departments || [] })).catch(() => {});
+    api.cvAudienceOptions().then((o) => setOrgOpts({ companies: o?.companies || [], departments: o?.departments || [], sites: o?.sites || [] })).catch(() => {});
   }, [refresh]);
 
   // ── ui state ────────────────────────────────────────────────────────────
@@ -89,6 +89,7 @@ export default function CredentialVaultApp({ activeSub }) {
   useEffect(() => { if (!loading && !isAdmin && collection === "all") setCollection("mine"); }, [loading, isAdmin, collection]);
   const [query, setQuery] = useState("");
   const [fDept, setFDept] = useState("");
+  const [fSite, setFSite] = useState("");
   const [fType, setFType] = useState("All");
   const [fTier, setFTier] = useState("All");
   const [sort, setSort] = useState({ col: "name", dir: "asc" });
@@ -103,9 +104,6 @@ export default function CredentialVaultApp({ activeSub }) {
   const [revealed, setRevealed] = useState(null);          // { id, secret, previousSecret?, prevRotatedAt? }
   const [form, setForm] = useState(null);                  // { cred | null }
   const [importOpen, setImportOpen] = useState(false);
-  const [addMenu, setAddMenu] = useState(false);
-  const addRef = useRef(null);
-  useClickOutside([addRef], () => setAddMenu(false), addMenu);
   const [shareFor, setShareFor] = useState(null);
   const [requestFor, setRequestFor] = useState(null);
   const [otpGate, setOtpGate] = useState(null);            // { run }
@@ -130,11 +128,12 @@ export default function CredentialVaultApp({ activeSub }) {
   const applySub = useCallback((sub) => {
     const { tab: t, credId, collection: col, create } = parseSub(sub);
     if (!t) return;
-    setTab(t === "vault" ? (credId ? "logins" : "overview") : t);
+    // A collection (Trash, Needs Attention) lives in the Overview's list, on a phone too.
+    setTab(t === "vault" ? (credId || (isMobile && !col) ? "logins" : "overview") : t);
     if (col) setCollection(col);
     if (credId) { setCollection("all"); setFDept(""); setSelectedId(credId); }
     if (create && canWrite) setForm({ cred: null });
-  }, [canWrite]);
+  }, [canWrite, isMobile]);
   useEffect(() => { applySub(activeSub); }, [activeSub, applySub]);
   useEffect(() => {
     const h = (e) => { if (e.detail?.view === "credvault") applySub(e.detail.sub); };
@@ -144,6 +143,11 @@ export default function CredentialVaultApp({ activeSub }) {
 
   // ── derived ─────────────────────────────────────────────────────────────
   const ctx = useMemo(() => ({ favorites, myEmail }), [favorites, myEmail]);
+  // Each login carries its location's name (11/13/2026), so search, the row and the panel can show it.
+  const creds = useMemo(() => {
+    const names = Object.fromEntries(orgOpts.sites.map((x) => [x.id, x.name]));
+    return rawCreds.map((c) => (c.siteId ? { ...c, siteName: names[c.siteId] || "" } : c));
+  }, [rawCreds, orgOpts.sites]);
   // Overview scope (Pranshu, Oct 29 2026): a Super Administrator sees every login;
   // an owner, backup owner or department head sees the ones they manage plus
   // what is shared with them - never the whole company's list or health.
@@ -158,10 +162,11 @@ export default function CredentialVaultApp({ activeSub }) {
     return [...set];
   }, [liveRows, hrDepts]);
   const deptsInUse = useMemo(() => [...new Set(liveRows.map((c) => c.dept).filter(Boolean))].sort(), [liveRows]);
+  const sitesInUse = useMemo(() => orgOpts.sites.filter((x) => liveRows.some((c) => c.siteId === x.id)), [liveRows, orgOpts.sites]);
   const rows = useMemo(() => {
     const base = filterCredentials(scoped, { collection, query, type: fType, tier: fTier, ...ctx }).filter((c) => !fCompany || c.companyId === fCompany);
-    return sortCredentials(fDept ? base.filter((c) => c.dept === fDept) : base, sort);
-  }, [scoped, collection, query, fType, fTier, fDept, fCompany, ctx, sort]);
+    return sortCredentials(base.filter((c) => (!fDept || c.dept === fDept) && (!fSite || c.siteId === fSite)), sort);
+  }, [scoped, collection, query, fType, fTier, fDept, fSite, fCompany, ctx, sort]);
   const selected = useMemo(() => creds.find((c) => c.id === selectedId) || null, [creds, selectedId]);
   const verified = otp.verified && otp.until > now;
   const attention = countOf("attention");
@@ -175,12 +180,14 @@ export default function CredentialVaultApp({ activeSub }) {
   const sharedWithMe = countOf("shared");
   const canManage = isAdmin || creds.some((c) => c.canEdit);
   // The landing tab is decided once the list is in: Overview for owners,
-  // heads and admins - unless a deep link already picked a place.
+  // heads and admins - unless a deep link already picked a place. A phone
+  // lands on My Logins, the everyday list (11/15/2026 phone pass): the audit
+  // numbers are one tap away, a password to copy should not be.
   useEffect(() => {
     if (loading || landed.current) return;
     landed.current = true;
-    if (canManage && !parseSub(activeSub).tab) setTab("overview");
-  }, [loading, canManage, activeSub]);
+    if (canManage && !isMobile && !parseSub(activeSub).tab) setTab("overview");
+  }, [loading, canManage, activeSub, isMobile]);
   useEffect(() => {
     if (!clipLeft) return undefined;
     const t = setTimeout(() => setClipLeft((n) => n - 1), 1000);
@@ -206,7 +213,9 @@ export default function CredentialVaultApp({ activeSub }) {
   // reveal / share / approve runs straight away. The window is checked at
   // click time, and an action the API still refuses with vault_otp_required
   // re-opens the gate with the same action instead of a toast.
-  function gated(run) {
+  // `skip`: a login of my own department opens without the code (homeDept,
+  // 11/13/2026); if the server still asks, the catch below opens the gate.
+  function gated(run, skip = false) {
     const wrapped = () => run().catch(async (e) => {
       if (e?.detail?.code === "vault_otp_required") { setOtp({ verified: false, until: null }); setOtpGate({ run: wrapped }); return; }
       // Critical + Settings > Security step-up (Oct 29 2026): run the Entra
@@ -214,7 +223,7 @@ export default function CredentialVaultApp({ activeSub }) {
       if (isStepUpRequired(e)) { const r = await ensureStepUp(); if (r.ok) return wrapped(); if (!r.cancelled) flash("Verification did not complete.", "info"); return; }
       throw e;
     });
-    if (otp.verified && otp.until > Date.now()) return wrapped();
+    if (skip || (otp.verified && otp.until > Date.now())) return wrapped();
     setOtpGate({ run: wrapped });
     return undefined;
   }
@@ -241,14 +250,14 @@ export default function CredentialVaultApp({ activeSub }) {
     gated(async () => {
       try { const res = await api.cvReveal(c.id); await clip(res.secret, `${c.id}:p`); copiedSecret(c); }
       catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not copy.", "info"); }
-    });
+    }, c.homeDept);
   }
   // Copy Code from the row: the current authenticator code, behind the same gate.
   function copyCode(c) {
     gated(async () => {
       try { const r = await api.cvTotp(c.id); await clip(r.code, `${c.id}:t`); used(c.id); flash(`Code copied - good for ${r.left}s.`); }
       catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not get the code.", "info"); }
-    });
+    }, c.homeDept);
   }
   // Open: copy the password, then open the site - the username is in the
   // toast, so signing in is paste, type, done. (The clipboard cannot be
@@ -263,17 +272,31 @@ export default function CredentialVaultApp({ activeSub }) {
         window.open(c.url, "_blank", "noopener,noreferrer");
         flash(`Password copied - paste it on ${site}.${c.username && c.username !== "-" ? ` Username: ${c.username}` : ""}`);
       } catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not open.", "info"); }
-    });
+    }, c.homeDept);
   }
 
+  // The department head's code (11/13/2026): a change the server answers with
+  // head_code_required opens the code card; once it is confirmed the same
+  // change runs again. Cancel rejects, so the form / button keeps its state.
+  const [headGate, setHeadGate] = useState(null);
+  function withHead(run, action) {
+    return run().catch((e) => {
+      if (e?.detail?.code !== "head_code_required") throw e;
+      return new Promise((resolve, reject) => setHeadGate({
+        scopes: e.detail.scopes || [], action,
+        done: () => { setHeadGate(null); withHead(run, action).then(resolve, reject); },
+        cancel: () => { setHeadGate(null); reject(new Error("Not saved - it waits for the department head's code.")); },
+      }));
+    });
+  }
   async function saveCredential(f) {
     if (form?.cred) {
-      await api.cvUpdate(form.cred.id, f);
-      if (f.owner && f.owner !== form.cred.owner) await api.cvTransfer(form.cred.id, f.owner);
+      await withHead(() => api.cvUpdate(form.cred.id, f), `change ${f.name}`);
+      if (f.owner && f.owner !== form.cred.owner) await withHead(() => api.cvTransfer(form.cred.id, f.owner), `hand ${f.name} to a new owner`);
       flash(`${f.name} updated.`);
     } else {
-      const res = await api.cvCreate(f);
-      if (f.owner && f.owner !== myEmail) await api.cvTransfer(res.id, f.owner);
+      const res = await withHead(() => api.cvCreate(f), `add ${f.name}`);
+      if (f.owner && f.owner !== myEmail) await withHead(() => api.cvTransfer(res.id, f.owner), `hand ${f.name} to a new owner`);
       flash(`${f.name} added.`);
       setSelectedId(res.id);
     }
@@ -283,38 +306,41 @@ export default function CredentialVaultApp({ activeSub }) {
   // The wizard shows the result itself and closes on Done; this only sends
   // the rows and refreshes the list behind it.
   async function importRows(list) {
-    const res = await api.cvImport(list);
+    const res = await withHead(() => api.cvImport(list), `import ${list.length} login${list.length === 1 ? "" : "s"}`);
     refresh().catch(() => {});
     return res;
   }
   async function trash(c) {
-    const ok = await dialog.confirm(`Move ${c.name} to the trash? It can be recovered from there.`, { title: "Move to Trash", confirmText: "Move to Trash", danger: true });
+    const second = secondOwners(c, myEmail);
+    const ok = await dialog.confirm(`Move ${c.name} to the trash? It can be recovered from there.${second.length ? ` To delete it for good, ${second.map(nameOf).join(" or ")} or an admin confirms - not you.` : ""}`, { title: "Move to Trash", confirmText: "Move to Trash", danger: true });
     if (!ok) return;
-    try { await api.cvDelete(c.id); closeDetail(); await refresh(); flash(`${c.name} moved to the trash.`); } catch (e) { flash(e?.message || "Could not remove.", "info"); }
+    try { await withHead(() => api.cvDelete(c.id), `move ${c.name} to the trash`); closeDetail(); await refresh(); flash(`${c.name} moved to the trash.`); } catch (e) { flash(e?.message || "Could not remove.", "info"); }
   }
   async function trashChecked() {
     const n = checkedEditable.length;
     const ok = await dialog.confirm(`Move ${n} credential${n === 1 ? "" : "s"} to the trash?`, { title: "Move to Trash", confirmText: "Move to Trash", danger: true });
     if (!ok) return;
-    try { await api.cvBulkDelete(checkedEditable.map((c) => c.id)); setChecked(new Set()); await refresh(); flash(`${n} moved to the trash.`); } catch (e) { flash(e?.message || "Could not remove.", "info"); }
+    try { await withHead(() => api.cvBulkDelete(checkedEditable.map((c) => c.id)), `move ${n} logins to the trash`); setChecked(new Set()); await refresh(); flash(`${n} moved to the trash.`); } catch (e) { flash(e?.message || "Could not remove.", "info"); }
   }
   async function restore(c) {
-    try { await api.cvRestore(c.id); await refresh(); flash(`${c.name} recovered.`); } catch (e) { flash(e?.message || "Could not recover.", "info"); }
+    try { await withHead(() => api.cvRestore(c.id), `recover ${c.name}`); await refresh(); flash(`${c.name} recovered.`); } catch (e) { flash(e?.message || "Could not recover.", "info"); }
   }
   // Held on the drawer's Delete Permanently (Neil, Oct 30 2026): no dialog;
   // a refusal throws so the button rewinds with the reason.
   async function purge(c) {
-    try { await api.cvPurge(c.id); } catch (e) { throw new Error(e?.message || "Could not delete.", { cause: e }); }
+    try { await withHead(() => api.cvPurge(c.id), `delete ${c.name} for good`); } catch (e) { throw new Error(e?.message || "Could not delete.", { cause: e }); }
     closeDetail(); await refresh(); flash(`${c.name} deleted permanently.`, "info");
   }
   async function share(c, body) {
     setShareFor(null);
     await gated(async () => {
       try {
-        const r = await api.cvShare(c.id, body);
+        const r = await withHead(() => api.cvShare(c.id, body), `share ${c.name}`);
         await refresh();
-        const who = body.recipients.length === 1 && !body.departments.length ? nameOf(body.recipients[0]) : `${r?.granted ?? ""} ${r?.granted === 1 ? "person" : "people"}`.trim();
-        flash(`${c.name} shared with ${who} ${body.durationLabel.startsWith("Until") ? body.durationLabel.toLowerCase() : `for ${body.durationLabel.toLowerCase()}`}.`);
+        const total = (r?.granted || 0) + (r?.external || 0);
+        const who = body.recipients.length === 1 && !body.departments.length && !(body.externals || []).length ? nameOf(body.recipients[0]) : `${total} ${total === 1 ? "person" : "people"}`;
+        flash(`${c.name} shared with ${who} ${body.durationLabel.startsWith("Until") ? body.durationLabel.toLowerCase() : `for ${body.durationLabel.toLowerCase()}`}.${r?.external ? ` ${r.external} outside Nexus got an email link.` : ""}`);
+        if (r?.devLinks?.length) console.info("[credvault] local test links (no email here):", r.devLinks);
       } catch (e) { if (otpError(e)) throw e; flash(e?.message || "Could not share.", "info"); }
     });
   }
@@ -354,10 +380,10 @@ export default function CredentialVaultApp({ activeSub }) {
   const editableInView = rows.filter((c) => c.canEdit && !c.deletedAt);
   const allChecked = editableInView.length > 0 && editableInView.every((c) => checked.has(c.id));
   const detailProps = selected && {
-    cred: selected, logs, myEmail, nameOf, depts: deptsInUse,
+    cred: selected, logs, myEmail, nameOf, depts: deptsInUse, siteName: selected.siteName || "",
     favorite: favorites.has(selected.id), onToggleFavorite: () => toggleFavorite(selected.id),
     revealed: revealed?.id === selected.id ? revealed : null,
-    onReveal: () => gated(() => reveal(selected)), onHide: () => setRevealed(null), onCopiedSecret: () => copiedSecret(selected),
+    onReveal: () => gated(() => reveal(selected), selected.homeDept), onHide: () => setRevealed(null), onCopiedSecret: () => copiedSecret(selected),
     onEdit: () => setForm({ cred: selected }), onTrash: () => trash(selected), onRestore: () => restore(selected), onPurge: () => purge(selected),
     onShare: () => setShareFor(selected), onRequest: () => setRequestFor(selected), onChanged: () => refresh().catch(() => {}),
     onClose: closeDetail,
@@ -369,21 +395,17 @@ export default function CredentialVaultApp({ activeSub }) {
           lights the tab; the code chip and Add Credential ride the bar's right end. */}
       <ModuleActions>
         <div className="cv-header-actions">
+          {/* A phone keeps the bar to one row: the verified window as its time
+              alone, and no "Code on First Reveal" - the open login says so. */}
           {verified
-            ? <span className="cv-chip tone-ok cv-chip-lg" title="Reveals and approvals inside this window do not ask for another code"><ShieldCheck size={13} /> {verifiedLabel(otp.until, now)}</span>
-            : <span className="cv-chip cv-chip-lg" title="The first reveal asks for a code by text or email"><Shield size={13} /> Code on First Reveal</span>}
+            ? <span className="cv-chip tone-ok cv-chip-lg" title="Reveals and approvals inside this window do not ask for another code"><ShieldCheck size={13} /> {isMobile ? `Until ${formatTime(new Date(otp.until))}` : verifiedLabel(otp.until, now)}</span>
+            : !isMobile && <span className="cv-chip cv-chip-lg" title="The first reveal asks for a code by text or email - except your own department's logins"><Shield size={13} /> Code on First Reveal</span>}
           {canWrite && (
-            <div ref={addRef} style={{ position: "relative" }}>
-              <button type="button" className="primary-btn" onClick={() => setAddMenu((v) => !v)} aria-haspopup="menu" aria-expanded={addMenu}>
-                <Plus size={15} /> Add Credential <ChevronDown size={14} />
-              </button>
-              {addMenu && (
-                <div className="cv-menu" role="menu">
-                  <button type="button" role="menuitem" className="cv-menu-item" onClick={() => { setAddMenu(false); setForm({ cred: null }); }}><Plus size={14} /> New Credential</button>
-                  <button type="button" role="menuitem" className="cv-menu-item" onClick={() => { setAddMenu(false); setImportOpen(true); }}><Upload size={14} /> Import From a Spreadsheet</button>
-                </div>
-              )}
-            </div>
+            // "+ New", the one create button across Nexus (Neil, 11/13/2026).
+            <NewButton title="Add a credential" items={[
+              { key: 'cred', label: 'Credential', hint: 'One login, key or secret', Icon: KeyRound },
+              { key: 'import', label: 'Import From a Spreadsheet...', hint: 'Many at once, from a CSV or Excel file', Icon: Upload },
+            ]} onPick={(k) => (k === 'cred' ? setForm({ cred: null }) : setImportOpen(true))} />
           )}
         </div>
       </ModuleActions>
@@ -438,14 +460,19 @@ export default function CredentialVaultApp({ activeSub }) {
             <select className="form-input cv-dir-select" value={fDept} onChange={(e) => setFDept(e.target.value)} aria-label="Department">
               <option value="">All Departments</option>{deptsInUse.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
+            {sitesInUse.length > 0 && (
+              <select className="form-input cv-dir-select" value={fSite} onChange={(e) => setFSite(e.target.value)} aria-label="Location">
+                <option value="">All Locations</option>{sitesInUse.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+            )}
             <select className="form-input cv-dir-select" value={fType} onChange={(e) => setFType(e.target.value)} aria-label="Type">
-              <option value="All">All types</option>{TYPES.map((t) => <option key={t}>{t}</option>)}
+              <option value="All">All Types</option>{TYPES.map((t) => <option key={t}>{t}</option>)}
             </select>
             <select className="form-input cv-dir-select" value={fTier} onChange={(e) => setFTier(e.target.value)} aria-label="Tier">
-              <option value="All">All tiers</option>{TIERS.map((t) => <option key={t}>{t}</option>)}
+              <option value="All">All Tiers</option>{TIERS.map((t) => <option key={t}>{t}</option>)}
             </select>
             <select className="form-input cv-dir-select" value={sort.col} onChange={(e) => setSort({ col: e.target.value, dir: "asc" })} aria-label="Sort by">
-              <option value="name">Name A-Z</option><option value="dept">Department</option><option value="owner">Owner</option><option value="rotated">Oldest rotation</option><option value="health">Needs attention first</option>
+              <option value="name">Name A-Z</option><option value="dept">Department</option><option value="owner">Owner</option><option value="rotated">Oldest Rotation</option><option value="health">Needs Attention First</option>
             </select>
           </div>
           <div className="cv-dir-tabs scroll-tabs" role="tablist" aria-label="Collections">
@@ -480,8 +507,8 @@ export default function CredentialVaultApp({ activeSub }) {
               {rows.length === 0 && (
                 <div className="cv-empty">
                   <KeyRound size={28} style={{ opacity: .25, display: "block", margin: "0 auto 10px" }} />
-                  <strong>{collection === "trash" ? "The trash is empty" : query || fDept ? "No credentials match" : collection === "shared" ? "Nothing shared with you right now" : collection === "favorites" ? "No favorites yet" : collection === "attention" ? "All clear" : collection === "nobackup" ? "Every login has a backup owner" : "No credentials here yet"}</strong>
-                  {collection === "favorites" ? "Star a credential to keep it at hand." : collection === "attention" ? "Nothing you can open is weak, reused, overdue or expiring." : query || fDept ? "Try another name, username, link, owner or department." : canWrite && collection !== "trash" ? "Add one, or import a CSV." : ""}
+                  <strong>{collection === "trash" ? "The trash is empty" : query || fDept || fSite ? "No credentials match" : collection === "shared" ? "Nothing shared with you right now" : collection === "favorites" ? "No favorites yet" : collection === "attention" ? "All clear" : collection === "nobackup" ? "Every login has a backup owner" : "No credentials here yet"}</strong>
+                  {collection === "favorites" ? "Star a credential to keep it at hand." : collection === "attention" ? "Nothing you can open is weak, reused, overdue or expiring." : query || fDept || fSite ? "Try another name, username, link, owner or department." : canWrite && collection !== "trash" ? "Add one, or import a CSV." : ""}
                 </div>
               )}
               {rows.map((c) => {
@@ -500,15 +527,16 @@ export default function CredentialVaultApp({ activeSub }) {
                     <div className="cv-prow-main">
                       <div className="cv-prow-name">
                         <span className="cv-truncate">{c.name}</span>
-                        {c.tier !== "Standard" && <span className={`cv-chip cv-chip-xs ${c.tier === "Critical" ? "tone-bad" : "tone-warn"}`}>{c.tier}</span>}
+                        <TierChip tier={c.tier} xs />
                         {favorites.has(c.id) && <Star size={12} className="cv-prow-star" fill="currentColor" />}
                       </div>
                       <div className="cv-prow-sub">
                         {c.dept || "No department"}
+                        {c.siteName ? <> · {c.siteName}</> : null}
                         {c.canReveal && c.username && c.username !== "-" ? <> · <span className="cv-truncate-inline">{c.username}</span></> : null}
                         {!c.canReveal && !c.deletedAt ? <> · <span className="cv-muted">owned by {nameOf(c.owner)}</span></> : null}
                       </div>
-                      {flags.length > 0 && <div className="cv-prow-flags">{flags.slice(0, 2).map((f) => <span key={f.key} className={`cv-chip cv-chip-xs tone-${f.tone}`}>{f.label}</span>)}</div>}
+                      {flags.length > 0 && <div className="cv-prow-flags">{flags.slice(0, 2).map((f) => <span key={f.key} className={`cv-chip cv-chip-xs tone-${f.tone}`} title={f.hint}>{f.label}</span>)}</div>}
                     </div>
                     <span className={`cv-chip cv-chip-xs tone-${c.deletedAt ? "bad" : ACCESS_TONE[c.access] || "muted"} cv-prow-access`}>{c.deletedAt ? "In Trash" : ACCESS_LABEL[c.access]}</span>
                     <span className={`cv-dot tone-${tone}`} title={c.canReveal ? (flags.map((f) => f.label).join(", ") || "Healthy") : "Ask for access to see its health"} />
@@ -560,7 +588,7 @@ export default function CredentialVaultApp({ activeSub }) {
 
       {tab === "activity" && (
         <div className="wkc">
-          <div className="cv-dir-head">
+          <div className="cv-dir-head is-activity">
             <span className="wkc-chip"><History size={14} /></span>
             <span className="wkc-title">Activity</span>
             <span className="cv-count-pill">{visibleLog.length}</span>
@@ -568,9 +596,10 @@ export default function CredentialVaultApp({ activeSub }) {
               <Search size={13} style={{ flexShrink: 0 }} />
               <input placeholder="Search activity…" aria-label="Search activity" value={logFilter.query} onChange={(e) => setLogFilter((f) => ({ ...f, query: e.target.value }))} />
             </label>
-            <select className="form-input cv-dir-select" value={logFilter.action} onChange={(e) => setLogFilter((f) => ({ ...f, action: e.target.value }))} aria-label="Action">{LOG_ACTIONS.map((a) => <option key={a} value={a}>{a === "All" ? "All actions" : a}</option>)}</select>
-            <input type="date" className="form-input cv-dir-select" aria-label="From" value={logFilter.from} onChange={(e) => setLogFilter((f) => ({ ...f, from: e.target.value }))} />
-            <input type="date" className="form-input cv-dir-select" aria-label="To" value={logFilter.to} onChange={(e) => setLogFilter((f) => ({ ...f, to: e.target.value }))} />
+            <select className="form-input cv-dir-select" value={logFilter.action} onChange={(e) => setLogFilter((f) => ({ ...f, action: e.target.value }))} aria-label="Action">{LOG_ACTIONS.map((a) => <option key={a} value={a}>{a === "All" ? "All Actions" : a}</option>)}</select>
+            {/* The house date box, not the browser's (a phone drew its own mm/dd/yyyy). */}
+            <span className="form-input cv-dir-date"><DateField value={logFilter.from} onChange={(v) => setLogFilter((f) => ({ ...f, from: v || "" }))} placeholder="From" title="From" max={logFilter.to || ""} /></span>
+            <span className="form-input cv-dir-date"><DateField value={logFilter.to} onChange={(v) => setLogFilter((f) => ({ ...f, to: v || "" }))} placeholder="To" title="To" min={logFilter.from || ""} /></span>
           </div>
           {visibleLog.length === 0 && <div className="cv-empty"><strong>No activity matches</strong>Try another person, credential, action or date range.</div>}
           <div className="cv-divide">
@@ -581,8 +610,8 @@ export default function CredentialVaultApp({ activeSub }) {
                   role={linked ? "button" : undefined} tabIndex={linked ? 0 : undefined} onKeyDown={(e2) => { if (linked && (e2.key === "Enter" || e2.key === " ")) { e2.preventDefault(); open(e.credId); } }}>
                   <span className="cv-avatar">{(e.actor || "?").split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase()}</span>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div><b style={{ fontWeight: 600 }}>{e.actor}</b> <span style={{ ...actionStyle(e.action), borderRadius: 6, padding: "1px 7px", fontSize: 11.5, fontWeight: 600 }}>{e.action}</span> <span style={{ color: "var(--text-secondary)" }}>{e.cred}</span></div>
-                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
+                    <div><b style={{ fontWeight: 600 }}>{e.actor}</b> <span style={{ ...actionStyle(e.action), borderRadius: 6, padding: "1px 7px", fontSize: 12, fontWeight: 600 }}>{e.action}</span> <span style={{ color: "var(--text-secondary)" }}>{e.cred}</span></div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
                       {e.dept !== "-" ? e.dept : ""}
                       {e.ip ? <span title={e.userAgent || ""} style={{ paddingLeft: e.dept !== "-" ? 8 : 0 }}>from {e.ip}</span> : null}
                       {Array.isArray(e.detail) && e.detail.length > 0 && <span className="cv-diff" style={{ paddingLeft: e.dept !== "-" ? 8 : 0 }}>{e.detail.map((d, i) => <span key={i} style={{ marginRight: 10 }}>{d.field}: {d.from ? <><s>{d.from}</s> → </> : null}{d.to}</span>)}</span>}
@@ -599,9 +628,10 @@ export default function CredentialVaultApp({ activeSub }) {
       )}
 
       {selected && isMobile && <CredentialSheet key={selected.id} {...detailProps} />}
-      {form && <CredentialForm cred={form.cred} depts={depts} people={people} myEmail={myEmail} nameOf={nameOf} companies={orgOpts.companies} deptRows={orgOpts.departments} myCompanyId={orgOpts.companies.length === 1 ? orgOpts.companies[0].id : ""} onClose={() => setForm(null)} onSave={saveCredential} />}
-      {importOpen && <ImportWizard depts={depts} people={people} myEmail={myEmail} existing={creds} nameOf={nameOf} onClose={() => setImportOpen(false)} onImport={importRows} />}
-      {shareFor && <ShareModal cred={shareFor} people={people.filter((p) => p.email !== myEmail)} nameOf={nameOf} deptRows={orgOpts.departments} companies={orgOpts.companies} onClose={() => setShareFor(null)} onSubmit={(body) => share(shareFor, body)} />}
+      {form && <CredentialForm cred={form.cred} people={people} myEmail={myEmail} nameOf={nameOf} companies={orgOpts.companies} sites={orgOpts.sites} myCompanyId={orgOpts.companies.length === 1 ? orgOpts.companies[0].id : ""} onClose={() => setForm(null)} onSave={saveCredential} />}
+      {importOpen && <ImportWizard depts={depts} sites={orgOpts.sites} departments={orgOpts.departments} people={people} myEmail={myEmail} existing={creds} nameOf={nameOf} onClose={() => setImportOpen(false)} onImport={importRows} />}
+      {headGate && <HeadCodeModal scopes={headGate.scopes} action={headGate.action} onDone={headGate.done} onCancel={headGate.cancel} />}
+      {shareFor && <ShareModal cred={shareFor} people={people.filter((p) => p.email !== myEmail)} nameOf={nameOf} onClose={() => setShareFor(null)} onSubmit={(body) => share(shareFor, body)} />}
       {requestFor && <RequestModal cred={requestFor} nameOf={nameOf} onClose={() => setRequestFor(null)} onSubmit={(ms, label) => request(requestFor, ms, label)} />}
       {otpGate && <VaultOtpModal onClose={() => setOtpGate(null)} onVerified={afterOtp} />}
 

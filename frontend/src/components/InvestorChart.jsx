@@ -51,8 +51,8 @@ function InvestorCard({ v, dragging, onPointerDown }) {
       }}>
       <InitialsAvatar name={name} size={34} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
-        <div style={{ fontSize: 10.5, color: 'var(--muted)', textTransform: 'capitalize', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'capitalize', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {[(v.entityType || v.entity_type || '').replace(/_/g, ' '), v.status].filter(Boolean).join(' · ') || 'Investor'}
         </div>
       </div>
@@ -196,7 +196,7 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
           {investors.length} investor{investors.length === 1 ? '' : 's'} · drag a card onto an owner to change who manages them · same book as Investor Relations
         </span>
         <span style={{ flex: 1 }} />
@@ -249,7 +249,7 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
                       : <InitialsAvatar name={ownerName} size={40} />}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ownerName}</div>
-                      <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Relationship owner · {list.length} investor{list.length === 1 ? '' : 's'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>Relationship owner · {list.length} investor{list.length === 1 ? '' : 's'}</div>
                     </div>
                   </div>
                   {/* stub → sibling rail → child stubs, org-chart style */}
@@ -279,12 +279,12 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
           {[['−', () => zoomBy(1 / 1.25)], [`${Math.round(zoom * 100)}%`, () => { setZoom(1); setPan({ x: 40, y: 24 }); }], ['+', () => zoomBy(1.25)]].map(([label, fn], i) => (
             <button key={i} onClick={fn} title={i === 1 ? 'Reset view' : ''}
               style={{ minWidth: 34, height: 30, borderRadius: 8, border: 'none', background: i === 1 ? 'var(--mist)' : 'transparent',
-                fontSize: i === 1 ? 11 : 16, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                fontSize: i === 1 ? 11 : 15, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
               {label}
             </button>
           ))}
         </div>
-        <span style={{ position: 'absolute', left: 14, bottom: 14, fontSize: 10.5, color: 'var(--muted)', pointerEvents: 'none' }}>
+        <span style={{ position: 'absolute', left: 14, bottom: 14, fontSize: 11, color: 'var(--muted)', pointerEvents: 'none' }}>
           Drag the canvas to move around · drag an investor onto an owner to re-assign
         </span>
       </div>
@@ -319,17 +319,17 @@ export default function InvestorChart({ employees = [], toastOk, toastErr }) {
           <div className="nx-popup" style={{ background: 'var(--card)', borderRadius: 16, boxShadow: 'var(--shadow-lg)' }}>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="wkc-chip"><Briefcase size={14} /></span>
-              <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>Add Investor</h3>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Add Investor</h3>
               <button onClick={addGuard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
             </div>
             <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
-              <div><label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Name</label>
+              <div><label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Name</label>
                 <input className="form-input" autoFocus placeholder="e.g. Malay Shah" value={adding.name}
                   onChange={e => setAdding(p => ({ ...p, name: e.target.value }))} style={{ width: '100%' }} /></div>
-              <div><label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Email (optional)</label>
+              <div><label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Email (optional)</label>
                 <input className="form-input" placeholder="name@example.com" value={adding.email}
                   onChange={e => setAdding(p => ({ ...p, email: e.target.value }))} style={{ width: '100%' }} /></div>
-              <div><label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Managed by</label>
+              <div><label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Managed by</label>
                 <select className="form-input" value={adding.owner} onChange={e => setAdding(p => ({ ...p, owner: e.target.value }))} style={{ width: '100%' }}>
                   <option value="">Nobody yet</option>
                   {ownerOptions.map(o => <option key={o.email} value={o.email}>{o.name}</option>)}

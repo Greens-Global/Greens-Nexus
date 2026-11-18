@@ -5,7 +5,7 @@ import { C } from '../theme'
 
 export const GOOGLE_CHANNELS = ['Google Search', 'Google Display', 'Google Shopping', 'Google Remarketing', 'Google Local', 'YouTube Ads']
 
-const labelStyle = { display: 'block', fontSize: 12.5, fontWeight: 500, color: C.gray600, marginBottom: 6 }
+const labelStyle = { display: 'block', fontSize: 13, fontWeight: 500, color: C.gray600, marginBottom: 6 }
 const fieldStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }
 
 export default function NewCampaignModal({ onClose, onCreate, defaultFacility }) {
@@ -87,7 +87,7 @@ export default function NewCampaignModal({ onClose, onCreate, defaultFacility })
             style={fieldStyle}
           />
         </div>
-        {error && <div style={{ fontSize: 12.5, color: C.red500 }}>{error}</div>}
+        {error && <div style={{ fontSize: 13, color: C.red500 }}>{error}</div>}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>
           <button
             type="button"

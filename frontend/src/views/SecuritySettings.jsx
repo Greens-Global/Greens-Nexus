@@ -265,7 +265,7 @@ export default function SecuritySettings({ toastOk, toastErr, groups = GROUPS })
                         aria-invalid={!!errors[f.key]} aria-label={f.label} aria-describedby={`${inputId}-desc`}
                         onChange={e => setDraft(d => ({ ...d, [f.key]: e.target.value === '' ? '' : Number(e.target.value) }))}
                         style={{ width: 96 }} />
-                      <span style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.unit}{said ? ` (${said})` : ''}</span>
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.unit}{said ? ` (${said})` : ''}</span>
                     </>
                   )}>
                   <span className={`nx-set-badge${shownSource === 'saved' ? ' is-own' : ''}`}>{SOURCE_LABEL[shownSource]}{(f.key in changes) ? ' (Unsaved)' : ''}</span>

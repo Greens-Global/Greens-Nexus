@@ -85,11 +85,11 @@ export default function NotesWidget({ config, saveConfig, canSaveConfig, phone }
         <form className="nt-w-capture" onSubmit={capture}>
           <StickyNote size={15} aria-hidden="true" style={{ color: 'var(--wk-orange)', flexShrink: 0 }} />
           <input value={line} onChange={(e) => setLine(e.target.value)} disabled={busy} aria-label="Add to today's scratchpad"
-            placeholder="Jot something down - [ ] makes a to-do" style={{ fontSize: phone ? 16 : 13.5 }} maxLength={2000} />
+            placeholder="Jot something down - [ ] makes a to-do" style={{ fontSize: /* type-ok: iOS zooms a field under 16px */ phone ? 16 : 13 }} maxLength={2000} />
           {line.trim() && <button type="submit" className="nt-icon-btn" aria-label="Add" title="Add (Enter)"><CornerDownLeft size={14} /></button>}
         </form>
         {legacy && !canSaveConfig && (
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{legacy}</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{legacy}</div>
         )}
         <div className="nt-w-list">
           {error && <div className="nt-empty" style={{ padding: 10 }}>{error} <button type="button" className="nt-tag" onClick={load}>Retry</button></div>}

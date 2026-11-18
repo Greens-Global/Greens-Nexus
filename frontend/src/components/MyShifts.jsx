@@ -3,8 +3,11 @@ import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, CalendarDays, Info, 
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { zoneClock, formatHHMM, formatMonthDay, formatDate } from '../lib/datetime';
+import { FS } from '../lib/typeScale';
+import { utcToInputTz } from '../lib/displayTz';
 import { zoneOptionLabel } from '../lib/worldClockZones';
 import { useNameResolver } from '../lib/useNameResolver';
+import { useRole } from '../contexts/RoleContext';
 import { useIsMobile } from '../lib/useIsMobile';
 import { ErrorBanner, SkeletonBlocks } from './AsyncState';
 import { shiftPhase } from './shiftScheduleLib';
@@ -14,11 +17,20 @@ import ShiftRequestDialog, { PENDING } from './shifts/ShiftRequestDialog';
 import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
 import DateBlock from './shifts/DateBlock';
 import ScheduleMonth from './shifts/ScheduleMonth';
-import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText, actualFor, viewDays } from './shifts/shiftLib';
+import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, dayShort, shortTime, shiftShortText, actualFor, viewDays } from './shifts/shiftLib';
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
 import { formsForShift, jobOfShift } from '../forms/formRules';
 import { ModalLoading } from './AsyncState';
+
+// "Today" is the person's own day, in the zone they work in (/roles/me
+// home_zone - RoleContext's myHomeZone), not the phone's: with the two apart,
+// Shifts and the Time Sheet named different days today (phone review,
+// 11/13/2026). It used to read the Time Sheet's display zone, which is
+// California unless a Time Sheet is on screen - so an India-based person saw
+// the Today mark on yesterday until early afternoon (11/17/2026). Before the
+// role has answered (no zone yet) it falls back to that display zone.
+const ownToday = (zone = '') => (zone ? zoneClock(zone).date : utcToInputTz(new Date().toISOString().slice(0, 19)).slice(0, 10));
 // Fill a Form (Forms & Checklists, Neil 11/02/2026): a shift card's "Fill
 // <title>" opens the fill sheet with the shift - loaded on first use.
 const FillForm = lazy(() => import('../forms/FillForm'));
@@ -58,6 +70,8 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   const mine = part !== 'team';
   const [availOpen, setAvailOpen] = useState(false);
   const nameOf = useNameResolver();
+  // `|| {}`: the role context is null outside RoleProvider (render tests).
+  const { myHomeZone = '' } = useRole() || {};
   const phone = useIsMobile();
   // The small Fill / Request buttons under a shift, big enough for a thumb on a phone.
   const smallTap = phone ? { minHeight: 28, padding: '4px 9px' } : null;
@@ -114,20 +128,36 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   // until its own answer lands (no state reset inside the effect).
   const [fetched, setFetched] = useState(null);   // { key: 'start|end', data }
   useEffect(() => {
-    if (!data || monthView || start > todayIso()) return undefined;
+    if (!data || monthView || start > ownToday(myHomeZone)) return undefined;
     let live = true;
     const key = `${start}|${end}`;
     Promise.resolve().then(() => api.timeSchedActuals(start, end))
       .then((r) => { if (live) setFetched({ key, data: r && typeof r === 'object' && r.cells ? r : null }); })
       .catch(() => { if (live) setFetched({ key, data: null }); });
     return () => { live = false; };
-  }, [data, monthView, start, end]);
+  }, [data, monthView, start, end, myHomeZone]);
   const actuals = fetched && fetched.key === `${start}|${end}` ? fetched.data : null;
   const actualOf = useCallback((s, sole) => actualFor(actuals?.cells?.[`${s.email}|${s.date}`], s, sole), [actuals]);
   const [reqs, reloadReqs] = useShiftRequests(start, end);
   const [ask, setAsk] = useState(null);          // { shift } while the request dialog is open
-  const [flash, setFlash] = useState('');
-  const done = (msg) => { setAsk(null); setFlash(msg); reloadReqs(); setReload((n) => n + 1); };
+  // What an action did, or why it did not (11/17/2026): { text, ok, at }.
+  // `ok` false is a failure, drawn in the error color; null is plain news.
+  // `at` is where it is drawn - beside the control that was used ('weather',
+  // 'calendar', 'texts'), else under the week. It used to be one line under
+  // the week for everything, always in success green, and it never cleared.
+  // Now it goes after a few seconds, or when the next action speaks.
+  const [flash, setFlash] = useState(null);
+  const say = useCallback((text, ok = true, at = '') => setFlash(text ? { text, ok, at } : null), []);
+  useEffect(() => {
+    if (!flash) return undefined;
+    const t = setTimeout(() => setFlash(null), 7000);
+    return () => clearTimeout(t);
+  }, [flash]);
+  const flashLine = (at, style) => (flash && flash.at === at ? (
+    <div role={flash.ok === false ? 'alert' : 'status'} data-flash={at || 'week'}
+      style={{ fontSize: 13, fontWeight: 600, color: flash.ok === false ? 'hsl(var(--color-red))' : flash.ok ? 'hsl(var(--color-green))' : 'var(--muted)', ...style }}>{flash.text}</div>
+  ) : null);
+  const done = (msg) => { setAsk(null); say(msg); reloadReqs(); setReload((n) => n + 1); };
   const [busyOpen, setBusyOpen] = useState('');
   // Weather calls on my days (Weather Call, Oct 2026): what a manager
   // decided and whether I have acknowledged it - one tap here does it.
@@ -143,15 +173,15 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   }, [reload]);
   async function acknowledge(c) {
     setAcking(c.id);
-    try { await api.weatherCallAck(c.id); setCalls((cs) => cs.map((x) => (x.id === c.id ? { ...x, ackAt: new Date().toISOString() } : x))); setFlash('Acknowledged. Your manager can see you saw it.'); }
-    catch (e) { setFlash(e?.message || 'Could not acknowledge.'); }
+    try { await api.weatherCallAck(c.id); setCalls((cs) => cs.map((x) => (x.id === c.id ? { ...x, ackAt: new Date().toISOString() } : x))); say('Acknowledged. Your manager can see you saw it.', true, 'weather'); }
+    catch (e) { say(e?.message || 'Could not acknowledge.', false, 'weather'); }
     setAcking('');
   }
   async function setWeatherSms(on) {
     const before = prefs;
     setPrefs((p) => ({ ...p, weatherSms: on }));
     try { setPrefs(await api.weatherCallMyPrefsSave({ weatherSms: on })); }
-    catch { setPrefs(before); setFlash('Could not save that.'); }
+    catch { setPrefs(before); say('Could not save that.', false, 'texts'); }
   }
   const openCalls = calls.filter((c) => !c.ackAt);
   // Shifts Phase 3a (Oct 14): the schedule comes to people. The shared
@@ -204,7 +234,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   // superseded and went with a later confirm): say so once, quietly.
   if (wanted && confirms && !confirms.some((c) => c.publishId === wanted)) {
     setWanted('');
-    setFlash('No confirmation is waiting for that schedule.');
+    setFlash({ text: 'No confirmation is waiting for that schedule.', ok: null, at: '' });
   }
   async function confirmSchedule(c) {
     setConfirming(c.publishId); setConfirmErr('');
@@ -217,18 +247,20 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
     const before = calPrefs;
     setCalPrefs((p) => ({ ...p, shiftCalendar: on }));
     try { const r = await api.timeMyPrefsSet({ shiftCalendar: on }); if (r && typeof r === 'object') setCalPrefs(r); }
-    catch { setCalPrefs(before); setFlash('Could not save that.'); }
+    catch { setCalPrefs(before); say('Could not save that.', false, 'calendar'); }
   }
   const toConfirm = (wanted && (confirms || []).find((c) => c.publishId === wanted)) || (confirms || [])[0] || null;
   const moreWaiting = (confirms || []).length - 1;
   async function requestOpen(s) {
     setBusyOpen(s.id);
     try { await api.shiftRequestCreate({ kind: 'open', shift_id: s.id }); done('Request sent. A manager will approve it.'); }
-    catch (e) { setFlash(e?.message || 'Could not send the request.'); }
+    catch (e) { say(e?.message || 'Could not send the request.', false); }
     setBusyOpen('');
   }
 
-  const todayKey = todayIso();
+  // Read on every render (the 30 s `now` tick redraws this), so the Today
+  // mark moves at the person's own midnight.
+  const todayKey = ownToday(myHomeZone);
   const days = useMemo(() => {
     if (!data) return [];
     const placed = {};
@@ -249,8 +281,8 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       return { date: d, key, shifts, usual, timeoff: off.filter((t) => t.startDate <= key && t.endDate >= key), holiday: hol[key] || null, note: dayNote[key] || '', isToday: key === todayKey };
     });
   }, [data, first, monthDays, todayKey]);
-  const thisWeek = !monthView && start === isoDate(weekStartOf(now, weekStart));
-  const thisMonth = !!monthDays && start === isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  const thisWeek = !monthView && start === isoDate(weekStartOf(parseIso(todayKey), weekStart));
+  const thisMonth = !!monthDays && start === `${todayKey.slice(0, 7)}-01`;
   const atNow = monthView ? thisMonth : thisWeek;
   const step = (n) => setCursor((c) => (monthView ? new Date(c.getFullYear(), c.getMonth() + n, 1) : addDays(c, 7 * n)));
   const unit = monthView ? 'Month' : 'Week';
@@ -337,7 +369,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
   const canAsk = ((reqs?.teammates || []).length > 0 && (cfg.swaps === true || cfg.offers === true)) || canRelease;
   const pendingIds = new Set((reqs?.mine || []).filter((r) => PENDING.includes(r.status)).map((r) => r.shift?.id));
   const openList = cfg.openShifts ? reqs?.openShifts || [] : [];
-  const whenText = (x) => (x.d.isToday ? 'today' : x.d.key === isoDate(addDays(now, 1)) ? 'tomorrow' : dayShort(x.d.date));
+  const whenText = (x) => (x.d.isToday ? 'today' : x.d.key === isoDate(addDays(parseIso(todayKey), 1)) ? 'tomorrow' : dayShort(x.d.date));
 
   return (
     <div>
@@ -345,8 +377,8 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
         <div style={{ display: 'inline-flex', alignItems: 'center', border: '1px solid var(--wk-line2)', borderRadius: 10, overflow: 'hidden', background: 'var(--card)' }}>
           <button type="button" onClick={() => step(-1)} title={`Previous ${unit}`} aria-label={`Previous ${unit.toLowerCase()}`}
             style={{ border: 'none', background: 'none', padding: '7px 9px', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><ChevronLeft size={16} /></button>
-          <button type="button" onClick={() => setCursor(new Date())} disabled={atNow}
-            style={{ border: 'none', borderLeft: '1px solid var(--wk-line2)', borderRight: '1px solid var(--wk-line2)', background: 'none', padding: '7px 12px', cursor: atNow ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
+          <button type="button" onClick={() => setCursor(parseIso(todayKey))} disabled={atNow}
+            style={{ border: 'none', borderLeft: '1px solid var(--wk-line2)', borderRight: '1px solid var(--wk-line2)', background: 'none', padding: '7px 12px', cursor: atNow ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
             This {unit}
           </button>
           <button type="button" onClick={() => step(1)} title={`Next ${unit}`} aria-label={`Next ${unit.toLowerCase()}`}
@@ -362,7 +394,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
               const on = (monthView ? 'month' : 'week') === k;
               return (
                 <button key={k} type="button" onClick={() => setRange(k)} aria-pressed={on}
-                  style={{ border: 'none', padding: '6px 12px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+                  style={{ border: 'none', padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
                     background: on ? 'var(--wk-brand-tint)' : 'transparent', color: on ? 'var(--wk-brand)' : 'var(--muted)' }}>{label}</button>
               );
             })}
@@ -372,7 +404,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           <div role="tablist" aria-label="Whose week" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 2, background: 'var(--wk-line2)', borderRadius: 9, padding: 2 }}>
             {[['mine', 'My Week'], ['team', 'Team']].map(([k, label]) => (
               <button key={k} type="button" role="tab" aria-selected={part === k} onClick={() => setPart(k)}
-                style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, padding: '5px 12px', borderRadius: 7,
+                style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, padding: '5px 12px', borderRadius: 7,
                   background: part === k ? 'var(--card)' : 'transparent', color: part === k ? 'var(--ink)' : 'var(--muted)', boxShadow: part === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
                 {label}
               </button>
@@ -392,7 +424,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
             {moreWaiting > 0 && <span style={{ color: 'var(--muted)', fontSize: 12 }}> {moreWaiting} more waiting.</span>}
             {confirmErr && <span role="status" style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{confirmErr}</span>}
           </div>
-          <button type="button" className="primary-btn" onClick={() => confirmSchedule(toConfirm)} disabled={confirming === toConfirm.publishId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <button type="button" className="primary-btn" onClick={() => confirmSchedule(toConfirm)} disabled={confirming === toConfirm.publishId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
             <Check size={13} /> Confirm
           </button>
         </div>
@@ -408,16 +440,18 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
                 <div style={{ fontSize: 13, fontWeight: 800 }}>{c.headline}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>{c.groupName} · {formatMonthDay(parseIso(c.date))}{c.reason ? ` · ${c.reason}` : ''}{c.outcome === 'cancelled' && c.status === 'active' ? ' · The day is unpaid.' : ''}</div>
               </div>
-              <button type="button" className="primary-btn" onClick={() => acknowledge(c)} disabled={acking === c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              <button type="button" className="primary-btn" onClick={() => acknowledge(c)} disabled={acking === c.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                 <Check size={13} /> Acknowledge
               </button>
             </div>
           ))}
         </div>
       )}
+      {/* Beside the weather calls, and still there once the last one is acknowledged. */}
+      {mine && flashLine('weather', { marginBottom: 12 })}
 
       {mine && glance && !error && (
-        <div role="status" aria-label="Week summary" style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
+        <div role="status" aria-label="Week summary" style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
           {thisWeek ? 'This week' : 'That week'}: <b style={{ color: 'var(--ink)' }}>{glance.shiftCount} shift{glance.shiftCount === 1 ? '' : 's'}</b>
           {' · '}<b style={{ color: 'var(--ink)' }}>{fmtHrs(glance.mins)}</b>
           {' · '}{glance.offDays ? <b style={{ color: 'hsl(var(--color-orange))' }}>{glance.offDays} day{glance.offDays === 1 ? '' : 's'} off{glance.pending ? ' (one requested)' : ''}</b> : 'no time off'}
@@ -431,48 +465,45 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           waits on the shifts fetch, the Team toggle or an error, and it does
           not read "That week: ... Time off this year" when stepping weeks. */}
       {trail && (
-        <div data-trail style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>{trail}</div>
+        <div data-trail style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>{trail}</div>
       )}
       {mine && glance && !error && calPrefs && (
         <CalendarRow prefs={calPrefs} companyOn={calPrefs.companyOutlookCalendar === true} hasMailbox={calPrefs.hasMailbox !== false}
-          onToggle={setShiftCalendar} onFlash={setFlash} />
+          onToggle={setShiftCalendar} onFlash={(text, ok = true) => say(text, ok, 'calendar')} />
       )}
+      {mine && flashLine('calendar', { marginTop: -6, marginBottom: 12 })}
 
       {error ? (
         <ErrorBanner message="Your shifts could not be loaded right now." onRetry={() => setReload((n) => n + 1)} />
       ) : !data ? (
         <SkeletonBlocks count={7} height={96} gridTemplateColumns="repeat(auto-fill, minmax(150px, 1fr))" />
-      ) : !mine ? null : (
+      ) : !mine ? null : (phone && days.every(quietDay)) ? <QuietWeek days={days} /> : (
         <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : embedded ? 'repeat(7, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
           {days.map((d, i) => (
             <div key={d.key} style={{
               background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 12, padding: '10px 11px', minHeight: phone ? 0 : anyShift ? 96 : 56,
               boxShadow: d.isToday ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 5,
             }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 800, color: d.isToday ? 'var(--wk-brand)' : 'var(--ink)', whiteSpace: 'nowrap' }}>{dayShort(d.date)}</span>
-                {(i === 0 || d.date.getDate() === 1) && <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>{formatMonthDay(d.date).replace(/ \d+$/, '')}</span>}
-                {d.isToday && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand)', marginLeft: 'auto' }}>Today</span>}
-              </div>
-              {d.holiday && <div style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={11} /> {d.holiday}</div>}
-              {d.note && <div title={d.note} style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-orange))', display: 'flex', alignItems: 'flex-start', gap: 5 }}><StickyNote size={11} style={{ flexShrink: 0, marginTop: 2 }} /> <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.note}</span></div>}
+              <DayHead d={d} first={i === 0} />
+              {d.holiday && <div style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={11} /> {d.holiday}</div>}
+              {d.note && <div title={d.note} style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-orange))', display: 'flex', alignItems: 'flex-start', gap: 5 }}><StickyNote size={11} style={{ flexShrink: 0, marginTop: 2 }} /> <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.note}</span></div>}
               {d.timeoff.map((t, i2) => <TimeOffBlock key={t.id || i2} off={t} style={{ marginBottom: 0 }} />)}
               {d.shifts.map((s) => {
                 const askable = canAsk && s.date >= todayKey && !pendingIds.has(s.id);
                 return (
                   <ShiftBlock key={s.id} shift={s} teamZone={teamZone} style={{ marginBottom: 0 }} actual={actualOf(s, d.shifts.length === 1)} tapActual>
-                    {s.note && <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.note}</div>}
+                    {s.note && <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.note}</div>}
                     {formsForShift(shiftForms, s, data?.teams).map((f) => (
                       <button key={f.id} type="button" onClick={() => setFillForm({ form: f, shift: s })} aria-label={`Fill ${f.title}`}
-                        style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
+                        style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
                           border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', maxWidth: '100%', ...smallTap }}>
                         <ClipboardList size={10} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Fill {f.title}</span>
                       </button>
                     ))}
-                    {pendingIds.has(s.id) ? <div style={{ fontSize: 10.5, color: 'hsl(var(--color-orange))', fontWeight: 600, marginTop: 2 }}>Request Pending</div>
+                    {pendingIds.has(s.id) ? <div style={{ fontSize: 11, color: 'hsl(var(--color-orange))', fontWeight: 600, marginTop: 2 }}>Request Pending</div>
                       : askable && (
                         <button type="button" onClick={() => setAsk({ shift: s })} aria-label={`Request a swap${canRelease ? ', offer or release' : ' or offer'} for ${formatHHMM(s.start)} - ${formatHHMM(s.end)}`}
-                          style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
+                          style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
                             border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit', ...smallTap }}>
                           <ArrowLeftRight size={10} /> Request
                         </button>
@@ -482,7 +513,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
               })}
               {!d.shifts.length && !d.holiday && !d.timeoff.length && d.usual && (
                 <div title="Your regular hours. No shift is shared for this day yet." style={{ marginTop: 'auto', border: '1px dashed var(--wk-line2, var(--line))', borderRadius: 6, padding: '4px 8px' }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>Usual Hours</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Usual Hours</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{formatHHMM(d.usual.start)} - {formatHHMM(d.usual.end)}</div>
                 </div>
               )}
@@ -491,11 +522,11 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
         </div>
       )}
 
-      {flash && <div role="status" style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>{flash}</div>}
+      {flashLine('', { marginTop: 12 })}
       {fillForm && (
         <Suspense fallback={<ModalLoading zIndex={4100} />}>
           <FillForm templateId={fillForm.form.id} shiftId={fillForm.shift.id} workSiteId={fillForm.form.workSiteId || ''} projectId={jobOfShift(fillForm.shift)} onClose={() => setFillForm(null)}
-            onSent={(entry) => setFlash(`${entry?.title || fillForm.form.title} sent`)} />
+            onSent={(entry) => say(`${entry?.title || fillForm.form.title} sent`)} />
         </Suspense>
       )}
       {ask && reqs && (
@@ -519,15 +550,15 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
           ) : null} />
       ) : data ? (
         <div>
-          <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Your manager shares shifts here. Swaps and open-shift requests are in Workday &gt; Time Off.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>Your manager shares shifts here. Swaps and open-shift requests are in Workday &gt; Time Off.</div>
           <EmptyWeek days={days} phone={phone} embedded={embedded} />
-          {teamZoneLabel && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>}
+          {teamZoneLabel && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>}
         </div>
       ) : null}
 
       {mine && embedded && (
         <button type="button" onClick={() => setAvailOpen((v) => !v)} aria-expanded={availOpen}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
           {availOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />} My Availability
         </button>
       )}
@@ -543,11 +574,49 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
       </div>}
       {/* The texts switch is for people in a weather department only (10/29/2026). */}
       {mine && prefs && prefs.weatherOn !== false && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 13, cursor: 'pointer', color: 'var(--ink)' }}>
           <input type="checkbox" checked={prefs.weatherSms !== false} onChange={(e) => setWeatherSms(e.target.checked)} aria-label="Text me when a weather call changes my shift" />
           Text me when a weather call changes my shift{prefs.phone ? '' : ' (no phone number on file - ask HR to add one)'}
         </label>
       )}
+      {mine && flashLine('texts', { marginTop: 6 })}
+    </div>
+  );
+}
+
+// A day card's header: the day ("Mon 16"), the month on the week's first day
+// and on the 1st, and Today. In a narrow column (the Workday card's seven
+// across) the three did not fit and the next card cut Today off - "Mon 16 Nov
+// Tod" (11/17/2026). Today's own card drops the month (Today already says
+// where the week is), and the row wraps rather than run under its neighbor,
+// so the day, the date and Today are whole at every width. Plain colored
+// text, on the type scale (FS.body for the day, FS.meta for the rest).
+function DayHead({ d, first }) {
+  const month = (first || d.date.getDate() === 1) && !d.isToday;
+  return (
+    <div data-day-head="" style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 5, rowGap: 0, minWidth: 0 }}>
+      <span style={{ fontSize: FS.body, fontWeight: 800, color: d.isToday ? 'var(--wk-brand)' : 'var(--ink)', whiteSpace: 'nowrap' }}>{dayShort(d.date)}</span>
+      {month && <span style={{ fontSize: FS.meta, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{formatMonthDay(d.date).replace(/ \d+$/, '')}</span>}
+      {d.isToday && <span style={{ fontSize: FS.meta, fontWeight: 700, color: 'var(--wk-brand)', whiteSpace: 'nowrap', marginLeft: 'auto' }}>Today</span>}
+    </div>
+  );
+}
+
+// A week with nothing in it, on a phone (Neil, 11/13/2026: yes to the phone
+// review's "one line, not seven No shifts cards"): one card saying so, with a
+// company holiday named under it. A computer keeps the seven day cells.
+const quietDay = (d) => !d.shifts?.length && !d.timeoff?.length && !d.note;   // a holiday is named on the card
+function QuietWeek({ days }) {
+  const holidays = days.filter((d) => d.holiday);
+  return (
+    <div data-quiet-week="" style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '12px 14px',
+      boxShadow: 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)' }}>No shifts this week</div>
+      {holidays.map((d) => (
+        <div key={d.key} style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <CalendarDays size={11} /> {dayShort(d.date)} {formatMonthDay(d.date)} - {d.holiday}
+        </div>
+      ))}
     </div>
   );
 }
@@ -556,6 +625,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
 // day cells - the day, a company holiday's name, else "No shifts". Nothing
 // personal (own shifts, time off, Request, actuals): a group view, not My Week.
 function EmptyWeek({ days, phone, embedded }) {
+  if (phone) return <QuietWeek days={days} />;
   return (
     <div data-empty-week="" style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : embedded ? 'repeat(7, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
       {days.map((d, i) => (
@@ -563,13 +633,9 @@ function EmptyWeek({ days, phone, embedded }) {
           background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 12, padding: '10px 11px', minHeight: phone ? 0 : 96,
           boxShadow: d.isToday ? '0 0 0 3px var(--wk-brand-tint)' : 'var(--wk-shadow)', display: 'flex', flexDirection: 'column', gap: 5,
         }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-            <span style={{ fontSize: 13.5, fontWeight: 800, color: d.isToday ? 'var(--wk-brand)' : 'var(--ink)', whiteSpace: 'nowrap' }}>{dayShort(d.date)}</span>
-            {(i === 0 || d.date.getDate() === 1) && <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>{formatMonthDay(d.date).replace(/ \d+$/, '')}</span>}
-            {d.isToday && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--wk-brand)', marginLeft: 'auto' }}>Today</span>}
-          </div>
-          {d.holiday ? <div style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={11} /> {d.holiday}</div>
-            : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shifts</div>}
+          <DayHead d={d} first={i === 0} />
+          {d.holiday ? <div style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', gap: 5 }}><CalendarDays size={11} /> {d.holiday}</div>
+            : <div style={{ fontSize: 13, color: 'var(--muted)' }}>No shifts</div>}
         </div>
       ))}
     </div>
@@ -614,12 +680,12 @@ export function CalendarRow({ prefs, companyOn, hasMailbox = true, onToggle, onF
     if (!sure) return;
     setRotating(true);
     try { const r = await api.timeMyIcalRotate(); setLink(r?.url ? { url: r.url } : { error: 'The link is not available right now.' }); setCopied(false); onFlash?.('New link made. The old one no longer works.'); }
-    catch (e) { onFlash?.(e?.message || 'Could not make a new link.'); }
+    catch (e) { onFlash?.(e?.message || 'Could not make a new link.', false); }
     setRotating(false);
   }
   const on = !!prefs && prefs.shiftCalendar !== false;
   return (
-    <div data-calendar-row="" style={{ marginBottom: 12, fontSize: 12.5 }}>
+    <div data-calendar-row="" style={{ marginBottom: 12, fontSize: 13 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <CalendarDays size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
         {/* Off by default (Oct 15 2026): with the company switch off there
@@ -640,7 +706,7 @@ export function CalendarRow({ prefs, companyOn, hasMailbox = true, onToggle, onF
         )}
         {companyOn && <span aria-hidden="true" style={{ color: 'var(--muted)' }}>·</span>}
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
-          style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
+          style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--wk-brand)' }}>
           Subscribe in another calendar
         </button>
       </div>

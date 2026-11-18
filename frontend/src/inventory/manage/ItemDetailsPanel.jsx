@@ -72,14 +72,14 @@ export function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved
           </div>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontWeight:700, fontSize:15, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
-            <div style={{ fontSize:11.5, color:'var(--muted)', fontFamily:'ui-monospace,Menlo,monospace' }}>{item.serialNumber || '-'}</div>
+            <div style={{ fontSize:12, color:'var(--muted)', fontFamily:'ui-monospace,Menlo,monospace' }}>{item.serialNumber || '-'}</div>
           </div>
           <button onClick={guard.requestClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
 
         <div style={{ overflowY:'auto', flex:1, padding:'14px 22px' }}>
           {/* Core facts - read-only here, edited via the Edit modal */}
-          <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', marginBottom:4 }}>CORE</div>
+          <div style={{ fontSize:11, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', marginBottom:4 }}>CORE</div>
           <Row label="Type"><TypeBadge type={item.itemType} /></Row>
           <Row label="Make / Model">{[cleanField(item.make), cleanField(item.model), cleanField(item.year)].filter(Boolean).join(' ') || '-'}</Row>
           <Row label="Department">{cleanField(item.department) || '-'}</Row>
@@ -90,7 +90,7 @@ export function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved
           {personHeld && <Row label="Held by">{nameOf(item.assignedToEmail, item.assignedToName)}</Row>}
 
           {/* Operational status (Neil) */}
-          <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>OPERATIONAL STATUS</div>
+          <div style={{ fontSize:11, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>OPERATIONAL STATUS</div>
           <Row label="Status">
             {canEdit ? (
               <select className="form-input" style={{ width:'100%' }} value={op} onChange={e => setOp(e.target.value)}>
@@ -111,7 +111,7 @@ export function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved
           {/* Location assignment (Ankush) - only when not held by a person */}
           {canEdit && item.ownershipType === 'permanent' && !personHeld && (
             <>
-              <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>ASSIGN TO LOCATION</div>
+              <div style={{ fontSize:11, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>ASSIGN TO LOCATION</div>
               <Row label="Location">
                 <input className="form-input" style={{ width:'100%' }} value={loc} onChange={e => setLoc(e.target.value)}
                   placeholder="e.g. GSVC Server Room - leave blank to unassign" />
@@ -121,16 +121,16 @@ export function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved
           )}
 
           {/* Custom fields (Ankush) */}
-          <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>CUSTOM FIELDS</div>
+          <div style={{ fontSize:11, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>CUSTOM FIELDS</div>
           {applicable.length === 0 ? (
-            <div style={{ fontSize:12.5, color:'var(--muted)', padding:'6px 0' }}>No custom fields defined for this item type.</div>
+            <div style={{ fontSize:13, color:'var(--muted)', padding:'6px 0' }}>No custom fields defined for this item type.</div>
           ) : applicable.map(f => (
             <Row key={f.id} label={f.label}>
               {!canEdit ? <span>{String(values[f.fieldKey] ?? '') || '-'}</span>
                 : f.fieldType === 'boolean' ? (
                   <label style={{ display:'inline-flex', alignItems:'center', gap:7, cursor:'pointer' }}>
                     <input type="checkbox" checked={!!values[f.fieldKey]} onChange={e => setVal(f.fieldKey, e.target.checked ? 'yes' : '')} style={{ accentColor:'var(--pine)', cursor:'pointer' }} />
-                    <span style={{ fontSize:12.5, color:'var(--muted)' }}>{values[f.fieldKey] ? 'Yes' : 'No'}</span>
+                    <span style={{ fontSize:13, color:'var(--muted)' }}>{values[f.fieldKey] ? 'Yes' : 'No'}</span>
                   </label>
                 ) : f.fieldType === 'select' ? (
                   <select className="form-input" style={{ width:'100%' }} value={values[f.fieldKey] ?? ''} onChange={e => setVal(f.fieldKey, e.target.value)}>

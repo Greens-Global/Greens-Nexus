@@ -180,7 +180,7 @@ describe('Notes page - meetings', () => {
     apiMock.meetingsAccess.mockResolvedValue({ enabled: false });
     render(<NotesPage activeSub="notes" onSubChange={vi.fn()} />);
     await waitFor(() => expect(apiMock.meetingsAccess).toHaveBeenCalled());
-    await screen.findByRole('button', { name: /New Note/ });
+    await screen.findByRole('button', { name: 'New' });
     expect(screen.queryByRole('button', { name: /^Meetings/ })).toBeNull();
   });
 

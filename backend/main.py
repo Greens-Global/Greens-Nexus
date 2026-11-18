@@ -1645,6 +1645,21 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_nexus_meeting_notes_series_id ON nexus_meeting_notes (series_id)",
             "ALTER TABLE nexus_meeting_notes ADD COLUMN kind VARCHAR DEFAULT 'teams'",
             "ALTER TABLE nexus_meeting_notes ADD COLUMN online_url TEXT DEFAULT ''",
+            # Build Mode in the cloud (Neil, 11/12/2026) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN claude_session_url VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_note_sessions ADD COLUMN claude_session_url VARCHAR DEFAULT ''",
+            # A pin made from a ticket (11/12/2026) - see the Postgres list.
+            "ALTER TABLE dev_notes ADD COLUMN ticket_id VARCHAR DEFAULT ''",
+            "ALTER TABLE dev_notes ADD COLUMN ticket_code VARCHAR DEFAULT ''",
+            # A person's own time zone and working hours (11/13/2026) - see the Postgres list.
+            "ALTER TABLE nexus_employees ADD COLUMN time_zone VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN work_start VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN work_end VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_credentials ADD COLUMN site_id VARCHAR DEFAULT ''",
+            # Return Pending on a leaver's checkout (Neil, 11/14/2026) - see the Postgres list.
+            "ALTER TABLE item_checkouts ADD COLUMN holder_left_at VARCHAR DEFAULT ''",
+            # Accounting > Entities (Neil, 11/17/2026) - see the Postgres list.
+            "ALTER TABLE ir_investors ADD COLUMN legal_entity_code VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3947,6 +3962,34 @@ def _run_migrations():
         "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT 'teams'",
         "ALTER TABLE nexus_meeting_notes ADD COLUMN IF NOT EXISTS online_url TEXT DEFAULT ''",
         "ALTER TABLE nexus_meeting_transcripts ENABLE ROW LEVEL SECURITY",
+        # Build Mode in the cloud (Neil, 11/12/2026): the Claude Code cloud
+        # session a sent pin is being worked in, shown as Open Claude Session
+        # on the pin and its Build Session (build_mode_cloud.py).
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS claude_session_url VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_note_sessions ADD COLUMN IF NOT EXISTS claude_session_url VARCHAR DEFAULT ''",
+        # Send To Claude Code on a ticket (Neil, 11/12/2026: everyone outside
+        # the IT development team comes in through a ticket): the pin keeps
+        # which ticket it was made from (build_mode_tickets.py).
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS ticket_id VARCHAR DEFAULT ''",
+        "ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS ticket_code VARCHAR DEFAULT ''",
+        # A person's own time zone and working hours (11/13/2026): set by the
+        # person under My Profile > Date & Time. time_zone '' = not set, the
+        # Contact Directory keeps inferring it (routers/directory._tz_name);
+        # work_start / work_end are "HH:MM" in that zone.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS time_zone VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_start VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS work_end VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS site_id VARCHAR DEFAULT ''",
+        # Return Pending (Neil, 11/14/2026): a checkout still out with someone
+        # who was offboarded stays out until Received / Lost on the exit.
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS holder_left_at VARCHAR DEFAULT ''",
+        # Accounting > Entities (Neil, 11/17/2026): each entity's legal record
+        # and the owners of entities that are not deals - two new tables,
+        # explicit RLS - and the investor profile that IS one of our entities.
+        # models.LegalEntity / LegalEntityOwner / IrInvestor.
+        "ALTER TABLE legal_entities ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE legal_entity_owners ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ir_investors ADD COLUMN IF NOT EXISTS legal_entity_code VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -4383,6 +4426,22 @@ def _tier_seeds():
         except Exception as e:
             db.rollback()
             print(f"[startup] tier words pass skipped: {e}")
+        try:
+            res = super_admins_seed.retire_owner_level_once(db)   # :owner -> :full, dead grants dropped (11/12/2026)
+            if res:
+                print(f"[startup] owner grant level retired - groups rewritten: {', '.join(res['groups']) or 'none'}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] owner grant level pass skipped: {e}")
+        try:
+            import build_mode_access_seed   # Build Mode is its own access (Neil, 11/12/2026)
+            res = build_mode_access_seed.apply_once(db)
+            if res is not None:
+                print(f"[startup] Build Mode access set - group: {res['group'] or 'one already grants it, left alone'}; "
+                      f"added: {', '.join(res['added']) or 'none'}")
+        except Exception as e:
+            db.rollback()
+            print(f"[startup] Build Mode access seed skipped: {e}")
         try:
             import record_links   # [[ links written before the link table existed (11/07/2026)
             res = record_links.backfill_once(db)
@@ -4923,6 +4982,13 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(long_session_loop()))
         except Exception as e:
             print(f"[startup] long-session watch skipped: {e}")
+        try:
+            # Credentials shared outside Nexus: once a minute, a share that ended
+            # tells its owners to change the password (vault_external.py).
+            from vault_external import vault_external_loop
+            _tasks.append(_a.create_task(vault_external_loop()))
+        except Exception as e:
+            print(f"[startup] outside-share expiry loop skipped: {e}")
         try:
             from teams_post import teams_post_loop
             _tasks.append(_a.create_task(teams_post_loop()))
@@ -5781,6 +5847,8 @@ app.include_router(task_config.router)    # Task Module: views/rules/templates/n
 app.include_router(task_config.view_router)   # What's New, read side: every signed-in user (Oct 12)
 app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
+from routers import vault_share  # noqa: E402
+app.include_router(vault_share.router)    # Credentials shared OUTSIDE Nexus: the no-login page's routes (vault_external.py, 11/13/2026)
 app.include_router(github_webhook.router) # PR/push merged to dev/main: public webhook receiver (verified by HMAC)
 app.include_router(teams_webhook.router) # Graph change notifications for kudos posts in Teams (Neil, 11/12/2026)
 app.include_router(construction.router)  # Construction: projects, daily logs, jobsite media
@@ -5928,6 +5996,8 @@ from routers import facility_maintenance_map  # noqa: E402
 app.include_router(facility_maintenance_map.router)  # Operations: open tickets + maintenance per Cubby unit, for the map layer (Neil, Ops 10/20)
 from routers import ops_reports as ops_reports_router  # noqa: E402
 app.include_router(ops_reports_router.router)     # Operations > Reports: Cubby's reports interactive + Report Builder (Neil, 10/20)
+from routers import ops_tenants as ops_tenants_router  # noqa: E402
+app.include_router(ops_tenants_router.router)     # Operations > Tenants: read-only tenant directory + record, facility / tenant-details access rules (Neil, 11/17)
 from routers import unit_map as unit_map_router  # noqa: E402
 app.include_router(unit_map_router.ops_router)     # Operations > Site Map: site model + layers per facility (Neil, 10/20)
 app.include_router(unit_map_router.public_router)  # Customer unit map /find/<token>: one unit, the route, no login (Neil, 10/20)
@@ -5967,6 +6037,8 @@ from routers import accounting_manual_je  # noqa: E402
 app.include_router(accounting_manual_je.router)    # Accounting > Audit & Insights > Manual Journal Entries: who keyed each entry, read from Intacct (Neil + Charmi, CR-10, Oct 23 2026)
 from routers import dev_notes as dev_notes_router  # noqa: E402 - new tables: create_all + _enable_rls_everywhere, no ALTER lines
 app.include_router(dev_notes_router.router)  # Build Mode: pins, markup, sessions, Build Tokens, the CLI loop (Neil, Oct 24 2026)
+from routers import build_mode_connector as build_mode_connector_router  # noqa: E402 - no tables
+app.include_router(build_mode_connector_router.router)  # the Nexus connector for Claude: Build Mode pins only, off until NEXUS_BUILD_CONNECTOR=true (Neil, 11/12/2026)
 from routers import accounting_liability_recon  # noqa: E402
 app.include_router(accounting_liability_recon.router)  # Accounting > Close > Account Reconciliations: mortgages, loans and credit lines reconciled in Nexus only (Charmi + Neil, 10/27 item 09)
 from routers import hr_custom_fields as hr_custom_fields_router  # noqa: E402 - new table: create_all + explicit RLS line above
@@ -6043,3 +6115,8 @@ from routers import investor_books as investor_books_router  # noqa: E402 - no n
 app.include_router(investor_books_router.router)  # Investor Relations live from Intacct: deal = entity, investor = partner equity accounts (Neil, 11/11/2026)
 from routers import meetings as meetings_router  # noqa: E402
 app.include_router(meetings_router.router)  # Meeting Notes: a Notes note for a Teams meeting - transcript and recording stay in Teams, linked (Neil, 11/12/2026)
+from routers import build_preview_auth  # noqa: E402
+app.include_router(build_preview_auth.router)  # Build Mode hosted previews: a preview borrows the dev site's sign-in (build_preview.py, 11/13/2026)
+from routers import accounting_entities as accounting_entities_router  # noqa: E402 - legal_entities / legal_entity_owners: create_all + explicit RLS lines
+app.include_router(accounting_entities_router.router)  # Accounting > Entities: each entity's legal record, live books and ownership (Neil, 11/17/2026)
+app.include_router(accounting_entities_router.ir_router)  # Investor Relations: a deal's Legal line and an investor that is one of our entities (11/17/2026)

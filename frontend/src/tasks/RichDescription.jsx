@@ -120,6 +120,10 @@ export default function RichDescription({
   // where the words stay inside the company - a task's description and
   // comments, a ticket's internal note - never a reply mailed to a requester.
   recordLinks = false,
+  // `short` (11/15/2026, the phone's New Task form): one row - Dictate, Bold,
+  // Italic, the two lists and Link. The full row wrapped to two lines of
+  // sixteen buttons on a phone.
+  short = false,
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [ai, setAi] = useState(null);   // { busy, error, suggestion, original }
@@ -160,13 +164,25 @@ export default function RichDescription({
   const dictateOk = canDictate();
   const voiceOk = !!onStageFiles && canRecord();
 
+  // What the editor held when it was last GIVEN its content (created, or
+  // re-synced from `value` below) or last committed. Leaving the box with
+  // nothing changed since is not a commit: clicking into and out of an empty
+  // description used to hand back '<p></p>' for '', which saved the task,
+  // said "Changes saved" and told its people the description had changed.
+  const settledRef = useRef(null);
+
   const editor = useEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     extensions: useMemo(() => buildExtensions(placeholder), [placeholder]),
     content: value || '',
     autofocus: autoFocus,
     onUpdate: ({ editor: ed }) => { onChange?.(ed.getHTML()); mentionScanRef.current(ed); },
-    onBlur: ({ editor: ed }) => onCommit?.(ed.getHTML()),
+    onBlur: ({ editor: ed }) => {
+      const html = ed.getHTML();
+      if (html === settledRef.current) return;
+      settledRef.current = html;
+      onCommit?.(html);
+    },
     editorProps: {
       handleKeyDown: (_view, event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && submitRef.current) {
@@ -203,7 +219,9 @@ export default function RichDescription({
     // it is every mount in development.
     if (!editor || editor.isDestroyed) return;
     const next = value || '';
-    if (next !== editor.getHTML()) editor.commands.setContent(next, { emitUpdate: false });
+    const given = next !== editor.getHTML();
+    if (given) editor.commands.setContent(next, { emitUpdate: false });
+    if (given || settledRef.current === null) settledRef.current = editor.getHTML();
   }, [value, editor]);
 
   // Inserted AFTER the current selection, never over it. An image that has
@@ -376,7 +394,7 @@ export default function RichDescription({
             style={{ position: 'absolute', left: 8, zIndex: 70, ...(compact ? { top: -6, transform: 'translateY(-100%)' } : { bottom: -6, transform: 'translateY(100%)' }),
                      minWidth: 280, maxWidth: 420, background: NX.surface, border: `1px solid ${NX.border}`,
                      borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
-            {!recRows.length && <div style={{ padding: '6px 8px', fontSize: 12.5, color: NX.faint }}>Searching…</div>}
+            {!recRows.length && <div style={{ padding: '6px 8px', fontSize: 13, color: NX.faint }}>Searching…</div>}
             {recRows.map((row, i) => {
               const meta = RECORD_META[row.kind] || RECORD_META.note;
               const Icon = meta.icon;
@@ -388,7 +406,7 @@ export default function RichDescription({
                            background: i === rec.index ? NX.hover : 'transparent' }}>
                   <Icon size={14} style={{ color: NX.faint, flexShrink: 0 }} aria-hidden="true" />
                   <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.title}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>{row.detail || meta.label}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0 }}>{row.detail || meta.label}</span>
                 </div>
               );
             })}
@@ -425,7 +443,7 @@ export default function RichDescription({
 
       {ai?.suggestion && (
         <div style={{ borderTop: `1px solid ${NX.border2}`, padding: '10px 12px', background: NX.hover }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, color: NX.purple, marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: NX.purple, marginBottom: 6 }}>
             <Sparkles size={13} />Suggested rewrite
           </div>
           <div style={{ fontSize: 13, color: NX.ink, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{ai.suggestion}</div>
@@ -446,7 +464,7 @@ export default function RichDescription({
       )}
 
       {(dictation.listening || dictation.error) && (
-        <div role={dictation.error ? 'alert' : 'status'} style={{ borderTop: `1px solid ${NX.border2}`, padding: '6px 12px', fontSize: 12.5,
+        <div role={dictation.error ? 'alert' : 'status'} style={{ borderTop: `1px solid ${NX.border2}`, padding: '6px 12px', fontSize: 13,
           color: dictation.error ? NX.red : NX.dim, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           {!dictation.error && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: NX.red, flexShrink: 0 }} />}
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -455,7 +473,7 @@ export default function RichDescription({
         </div>
       )}
       {(voice.recording || voice.error) && (
-        <div role={voice.error ? 'alert' : 'status'} style={{ borderTop: `1px solid ${NX.border2}`, padding: '5px 8px 5px 12px', fontSize: 12.5,
+        <div role={voice.error ? 'alert' : 'status'} style={{ borderTop: `1px solid ${NX.border2}`, padding: '5px 8px 5px 12px', fontSize: 13,
           color: voice.error ? NX.red : NX.ink, display: 'flex', alignItems: 'center', gap: 8 }}>
           {voice.error || (<>
             <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: NX.red, flexShrink: 0 }} />
@@ -487,11 +505,12 @@ export default function RichDescription({
               dictation.start();
             }} />
         )}
-        {voiceOk && (
+        {voiceOk && !short && (
           <Btn icon={AudioLines} label={voice.recording ? 'Stop and Add the Voice Note' : 'Record a Voice Note'} active={voice.recording} danger
             onClick={() => { setWaitForStop(false); if (voice.recording) voice.stop(); else voice.start(); }} />
         )}
-        {(dictateOk || voiceOk) && <Divider />}
+        {(dictateOk || (voiceOk && !short)) && <Divider />}
+        {!short && (<>
         <span ref={addRef} style={{ display: 'inline-flex' }}>
           <Btn icon={Plus} label="Attach" active={addOpen} onClick={() => setAddOpen((o) => !o)} />
           {/* Portaled: the editor frame and the modal/drawer body around it
@@ -529,21 +548,26 @@ export default function RichDescription({
         <Btn icon={Undo2} label="Undo" disabled={!can?.undo().run} onClick={() => editor.chain().focus().undo().run()} />
         <Btn icon={Redo2} label="Redo" onClick={() => editor.chain().focus().redo().run()} />
         <Divider />
+        </>)}
         <Btn icon={Bold} label="Bold" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} />
         <Btn icon={Italic} label="Italic" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} />
+        {!short && (<>
         <Btn icon={UnderlineIcon} label="Underline" active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} />
         <Btn icon={Highlighter} label="Highlight" active={editor.isActive('highlight')} onClick={() => editor.chain().focus().toggleHighlight().run()} />
         <Btn icon={Strikethrough} label="Strikethrough" active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} />
+        </>)}
         <Divider />
         <Btn icon={List} label="Bulleted list" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} />
         <Btn icon={ListOrdered} label="Numbered list" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} />
-        <Btn icon={IndentIncrease} label="Indent list item" onClick={() => editor.chain().focus().sinkListItem('listItem').run()} />
+        {!short && <Btn icon={IndentIncrease} label="Indent list item" onClick={() => editor.chain().focus().sinkListItem('listItem').run()} />}
         <Divider />
         <Btn icon={Link2} label="Link" active={editor.isActive('link')} onClick={setLink} />
+        {!short && (<>
         <Btn icon={Code} label="Inline code" active={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()} />
         <Btn icon={SquareCode} label="Code block" active={editor.isActive('codeBlock')} onClick={() => editor.chain().focus().toggleCodeBlock().run()} />
         <Divider />
         <Btn icon={ai?.busy ? Loader2 : Sparkles} label="Rephrase with AI" disabled={ai?.busy} onClick={rephrase} />
+        </>)}
       </div>
       )}
     </div>

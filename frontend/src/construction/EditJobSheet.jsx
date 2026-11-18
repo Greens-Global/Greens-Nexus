@@ -95,7 +95,7 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
                 latitude: point.lat.toFixed(6), longitude: point.lng.toFixed(6),
                 address: point.address || draft.address,
               })} />
-            <label htmlFor="job-address" style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--text-secondary)' }}>Address</label>
+            <label htmlFor="job-address" style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)' }}>Address</label>
             <input id="job-address" aria-label="Address" className="form-input" value={draft.address}
               onChange={(e) => patch({ address: e.target.value })} placeholder="Street, City, State ZIP" />
             {hasPoint && (
@@ -182,7 +182,7 @@ export default function EditJobSheet({ project, money = null, onClose, onSaved }
       </SettingCard>
       </div>
       {dirty && invalid && (
-        <div role="alert" style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-red))' }}>{invalid}</div>
+        <div role="alert" style={{ marginTop: 12, fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-red))' }}>{invalid}</div>
       )}
       <SaveRow dirty={dirty} busy={busy} onSave={save} onDiscard={reset} saveDisabled={!!invalid}
         note="Changes save together." />

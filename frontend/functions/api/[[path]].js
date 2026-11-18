@@ -24,8 +24,14 @@ export async function onRequest(context) {
   const url = new URL(request.url);
 
   // Pick the backend: explicit override, else by hostname (dev.* -> dev backend).
-  const origin = (env && env.API_ORIGIN)
-    || (url.hostname.startsWith('dev.') ? DEV_ORIGIN : PROD_ORIGIN);
+  // The dev project's own addresses - its branch previews,
+  // <build>.greens-nexus-dev.pages.dev, which Build Mode pins open (11/13/2026),
+  // and the bare project address - ALWAYS reach the dev backend, whatever
+  // API_ORIGIN says: a preview runs code that has not been reviewed yet and
+  // must never touch production.
+  const devProject = /(^|\.)greens-nexus-dev\.pages\.dev$/.test(url.hostname);
+  const origin = devProject ? DEV_ORIGIN
+    : ((env && env.API_ORIGIN) || (url.hostname.startsWith('dev.') ? DEV_ORIGIN : PROD_ORIGIN));
 
   // Strip the /api prefix: /api/auth/callback -> /auth/callback ; /api -> /
   const backendPath = url.pathname.replace(/^\/api/, '') || '/';

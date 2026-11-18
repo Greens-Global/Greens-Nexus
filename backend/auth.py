@@ -377,7 +377,6 @@ MODULE_API_PREFIXES = {
     "it":                 ("/unifi",),
     "ops":                ("/construction",),
     "operations":         ("/ops-projects", "/dev-projects", "/facility-ops"),
-    "development":        ("/ops-projects", "/dev-projects"),
     "property-asset":     ("/property-assets",),
     "accounting":         ("/accounting",),
     "investor-relations": ("/investor-relations",),
@@ -549,10 +548,27 @@ require_owner         = require_level(5)
 
 # Per-module permission levels an Access Group can grant (mirrors the
 # folder-permission pattern: each grant carries both visibility AND a level of
-# capability, decided together in one place - Viewer/Editor/Full/Owner).
+# capability, decided together in one place - Viewer/Editor/Full). Three
+# levels only (Pranshu, 11/12/2026): the Owner grant level is retired and a
+# stored `owner` (old rows, old job roles, caches, a client still sending it)
+# reads as Full everywhere - the alias below ranks it with "full" so every
+# reader of _MODULE_LEVEL_RANK gets that for free; grant_level() spells it.
+# Seniority tiers (_LEVELS; `owner` there is Super Administrator) are a
+# different axis and unchanged - a Full grant never passes a tier check.
 # Rank order matters: a higher level always implies everything lower grants.
-MODULE_LEVELS = ("viewer", "editor", "full", "owner")
+MODULE_LEVELS = ("viewer", "editor", "full")
 _MODULE_LEVEL_RANK = {lvl: i + 1 for i, lvl in enumerate(MODULE_LEVELS)}
+_MODULE_LEVEL_RANK["owner"] = _MODULE_LEVEL_RANK["full"]   # legacy alias, never stored again
+
+
+def grant_level(level: str) -> str:
+    """The stored spelling of a grant level: one of MODULE_LEVELS, with the
+    retired `owner` read as `full` and anything unknown (a bare module id,
+    a typo) as `viewer` - the original visibility-only behavior."""
+    level = (level or "").strip().lower()
+    if level == "owner":
+        return "full"
+    return level if level in MODULE_LEVELS else "viewer"
 
 
 def _grants_for(email: str, db: Session) -> dict:
@@ -609,9 +625,10 @@ def require_level_or_module(min_level: int, module_id: str, min_module_level: st
 
 def module_owner_acts_as(module_id: str, as_level: int):
     """Router dependency: inside `module_id`'s routers, an Access Group grant
-    of Owner for that module counts as role level `as_level` (Tasks, Oct 15
-    2026: a Tasks Owner is a manager in the Task module - Manage, every
-    task - without a Manager role anywhere else).
+    of FULL for that module counts as role level `as_level` (Tasks, Oct 15
+    2026: a Tasks Full grant counts as Manager inside Tasks - Manage, every
+    task - without a Manager role anywhere else; was Owner until the Owner
+    level was retired - Pranshu, 11/12/2026).
 
     Raises the request's own `user` dict, which FastAPI shares with every
     other get_current_user in the request, so require_manager and the
@@ -620,7 +637,7 @@ def module_owner_acts_as(module_id: str, as_level: int):
     stay hard-capped at employee level."""
     def _lift(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
         if (user["level"] < as_level and not user.get("external")
-                and _module_level(user["email"], module_id, db) >= _MODULE_LEVEL_RANK["owner"]):
+                and _module_level(user["email"], module_id, db) >= _MODULE_LEVEL_RANK["full"]):
             user["level"] = as_level
         return user
     return _lift
@@ -630,7 +647,7 @@ def level_in_module(email: str, module_id: str, as_level: int, db: Session) -> i
     """level_for(email) with module_owner_acts_as applied - for code that asks
     about someone other than the caller (no request `user` to read)."""
     level = level_for(email, db)
-    if level < as_level and _module_level(email, module_id, db) >= _MODULE_LEVEL_RANK["owner"]:
+    if level < as_level and _module_level(email, module_id, db) >= _MODULE_LEVEL_RANK["full"]:
         rec = _external_record(email)
         if not (rec and rec["external"]):
             return as_level
@@ -657,13 +674,17 @@ def require_level_or_modules(min_level: int, module_grants):
 
 # Grants an Administrator may never hand out (Neil, 11/02/2026): a module
 # whose gate admits only a Super Administrator without a grant
-# (bypass_level="owner" - Personal Financial Statements, compensation,
-# deleting people, Workflows' organization face) would otherwise open to an
-# Administrator through a group they put themself or anyone else in.
-# {module_id: the lowest grant level that is Super-only}. Filled by
+# (bypass_level="owner" - Personal Financial Statements, compensation)
+# would otherwise open to an Administrator through a group they put themself
+# or anyone else in. {module_id: the lowest grant level that is Super-only},
+# ranks over the three levels (viewer 1 / editor 2 / full 3). Filled by
 # require_module_grant / require_any_module_grant as the routers import,
 # so a new owner-bypass gate joins the list by itself; PFS is listed from
 # the start (it never opens for an Administrator's role, whatever imported).
+# Deleting a person and Workflows' organization face are Super Administrator
+# BY TIER with no grant at all since the Owner grant level was retired
+# (require_owner; Pranshu, 11/12/2026), so `hr` / `workflows` no longer
+# register here - an Administrator may give hr:full / workflows:full.
 OWNER_ONLY_GRANTS: dict[str, int] = {"pfs": 1}
 
 

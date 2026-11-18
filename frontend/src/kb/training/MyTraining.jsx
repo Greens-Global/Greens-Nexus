@@ -10,7 +10,7 @@
 // The module bar names the module; this page never repeats "Training" as a
 // title of its own (Neil, 11/06/2026).
 import { useEffect, useState } from 'react';
-import { Award, Download, Search, Plus, GraduationCap, PenLine, Compass, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Award, Download, Search, GraduationCap, PenLine, Compass, ChevronRight, CheckCircle2 } from 'lucide-react';
 import { api, saveBlob } from '../../api';
 import AsyncSection from '../../components/AsyncState';
 import { ModuleActions } from '../../components/ModuleTabs';
@@ -23,6 +23,7 @@ import ProgressTrack from '../../ui/ProgressTrack';
 import { PathRow, LevelChip } from './cards';
 import { shelfOf, courseAction, isStarted, itemFraction, pathOrder, blurb } from './catalogModel';
 import Refresher from './Refresher';
+import NewButton from '../../components/NewButton';
 
 // The track's state for one course card: red while it is overdue (or an
 // expired completion), green once completed, else the live accent.
@@ -195,7 +196,7 @@ export default function MyTraining({ me, seg: initialSeg = 'me' }) {
         {seg === 'courses' && me?.can_author && (
           <ModuleActions>
             <button type="button" className="kb-btn" onClick={() => goKb('plans')}>Learning Paths</button>
-            <button type="button" className="kb-btn pri" onClick={() => goKb('builder', 'new')}><Plus />New Course</button>
+            <NewButton className="kb-btn pri" items={[{ key: 'course', label: 'Course' }]} onPick={() => goKb('builder', 'new')} />
           </ModuleActions>
         )}
       </div>
