@@ -137,7 +137,7 @@ export function mutateFolderCache(path, fn) {
 // page fast and the browser offers Show More for the rest.
 export const FOLDER_PAGE = 400;
 
-export function getFolderCached(path, { force = false } = {}) {
+export function getFolderCached(path, { force = false, background = false } = {}) {
   const key = normPath(path);
   if (!force) {
     const hit = _folderCache.get(key);
@@ -145,6 +145,16 @@ export function getFolderCached(path, { force = false } = {}) {
     const inflight = _folderInflight.get(key);
     if (inflight) return inflight;
   }
+  // A folder the person asked for holds the warm-ups back until it lands.
+  if (!background) {
+    _foreground += 1;
+    const done = () => { _foreground = Math.max(0, _foreground - 1); _pumpPrefetch(); };
+    return _fetchFolder(key).then((d) => { done(); return d; }, (e) => { done(); throw e; });
+  }
+  return _fetchFolder(key);
+}
+
+function _fetchFolder(key) {
   const p = api.egnyteFolder(key, { count: FOLDER_PAGE })
     .then(d => {
       if (_folderCache.size >= FOLDER_CACHE_MAX) _folderCache.delete(_folderCache.keys().next().value);
@@ -200,21 +210,35 @@ export function prefetchFolder(path) {
 // listings of the folders it shows, so the next click is already cached.
 // Concurrency-capped (Egnyte rate-limits per user) and skipping anything
 // cached or in flight, so the queue costs at most one burst per new folder.
-const PREFETCH_CONCURRENCY = 3;
+//
+// 11/18 (Urmi: Browse "works well, then after three / four attempts it again
+// works slow"): Egnyte allows a person's key only a few calls a second, and
+// every folder opened queued up to 24 (+16 from the tree) warm-ups that were
+// never dropped - by the third or fourth click the folder actually asked for
+// waited behind dozens of warm-ups for folders already left, and Egnyte
+// answered the burst with 429s. Now a new listing REPLACES the waiting
+// warm-ups, fewer are warmed, and none starts while a folder the person
+// asked for is loading.
+const PREFETCH_CONCURRENCY = 2;
 const _prefetchQueue = [];
 let _prefetchActive = 0;
+let _foreground = 0;
 
 function _pumpPrefetch() {
-  while (_prefetchActive < PREFETCH_CONCURRENCY && _prefetchQueue.length) {
+  while (_foreground === 0 && _prefetchActive < PREFETCH_CONCURRENCY && _prefetchQueue.length) {
     const path = _prefetchQueue.shift();
     _prefetchActive += 1;
-    getFolderCached(path)
+    getFolderCached(path, { background: true })
       .catch(() => {})
       .finally(() => { _prefetchActive -= 1; _pumpPrefetch(); });
   }
 }
 
-export function prefetchChildren(listing, cap = 24) {
+/** Test hook: the warm-ups still waiting. */
+export function _pendingPrefetch() { return [..._prefetchQueue]; }
+
+export function prefetchChildren(listing, cap = 8) {
+  _prefetchQueue.length = 0;
   for (const f of (listing?.folders || []).slice(0, cap)) {
     const key = normPath(f.path);
     const hit = _folderCache.get(key);
