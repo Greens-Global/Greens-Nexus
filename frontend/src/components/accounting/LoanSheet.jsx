@@ -39,6 +39,7 @@ function Line({ label, children, title }) {
 
 const dash = <span style={muted}>-</span>;
 const money = (v, zero = false) => (v == null ? dash : <Amount value={v} zero={zero ? 'dash' : undefined} />);
+// A posted figure: the table's own drawing (it opens its ledger lines) when given.
 
 /** The loan's flags in plain words (no chips), one quiet line. */
 export function loanFlags(r) {
@@ -69,7 +70,7 @@ export function Flags({ loan, style = null }) {
  * `term(field, shown)` draws a typed term (Rate, Maturity, Monthly Payment)
  * the way the table does - a button that changes it in place for an editor.
  */
-export default function LoanSheet({ loan, from, to, canEdit, term, dscrText, rateText, onEdit, onPlan, onClose, blocked = false, onOpenEntry, onDrill, onSaved }) {
+export default function LoanSheet({ loan, from, to, canEdit, term, figure = null, dscrText, rateText, onEdit, onPlan, onClose, blocked = false, onOpenEntry, onDrill, onSaved }) {
   const name = loan.lender || loan.loanNo || 'Loan';
   const backdrop = useBackdropClose(onClose);
   useEffect(() => {
@@ -100,11 +101,11 @@ export default function LoanSheet({ loan, from, to, canEdit, term, dscrText, rat
         <div style={{ padding: '6px 24px 20px', display: 'grid', gap: 22, alignContent: 'start', flex: 1, minHeight: 0, overflowY: 'auto' }}>
           <section aria-label="Terms" style={{ display: 'grid' }}>
             <h4 style={sectionTitle}>Terms</h4>
-            <Line label={`Balance as of ${formatDate(to)}`}>{loan.wiring === 'missing' ? dash : money(loan.balance)}</Line>
+            <Line label={`Balance as of ${formatDate(to)}`}>{figure ? figure('balance') : loan.wiring === 'missing' ? dash : money(loan.balance)}</Line>
             <Line label="Rate" title="Typed, not read from Intacct">{term('ratePct', rateText(loan) || dash)}</Line>
             <Line label="Maturity" title="Typed, not read from Intacct">{term('maturity', loan.maturity ? formatDate(loan.maturity) : dash)}</Line>
             <Line label="Monthly Payment" title="Typed, not read from Intacct">{term('monthlyPayment', loan.monthlyPayment == null ? dash : <Amount value={loan.monthlyPayment} />)}</Line>
-            <Line label="Original Principal">{money(loan.originalPrincipal)}{loan.originalPrincipalEdited && <span style={{ ...muted, fontSize: 12, marginLeft: 4 }}>edited</span>}</Line>
+            <Line label="Original Principal">{figure ? figure('original') : <>{money(loan.originalPrincipal)}{loan.originalPrincipalEdited && <span style={{ ...muted, fontSize: 12, marginLeft: 4 }}>edited</span>}</>}</Line>
             <Line label="Loan Type">{loanTypeLabel(loan.loanType) || dash}</Line>
             <Line label="DSCR" title={loan.dscr == null ? 'Nothing was serviced in the trailing twelve months' : undefined}>
               {loan.dscr == null ? dash : <span style={{ color: loan.belowCovenant ? 'var(--bad-fg, #dc2626)' : undefined, fontWeight: loan.belowCovenant ? 600 : undefined }}>{dscrText(loan)}</span>}
@@ -112,9 +113,9 @@ export default function LoanSheet({ loan, from, to, canEdit, term, dscrText, rat
           </section>
           <section aria-label="In the Period" style={{ display: 'grid' }}>
             <h4 style={sectionTitle}>{from ? `${formatDate(from)} - ${formatDate(to)}` : `To ${formatDate(to)}`}</h4>
-            <Line label="Principal Paid">{money(loan.principalPaid, true)}</Line>
-            <Line label="Interest Paid">{money(loan.interestPaid, true)}</Line>
-            <Line label="Debt Service">{money(loan.debtService, true)}</Line>
+            <Line label="Principal Paid">{figure ? figure('principal') : money(loan.principalPaid, true)}</Line>
+            <Line label="Interest Paid">{figure ? figure('interest') : money(loan.interestPaid, true)}</Line>
+            <Line label="Debt Service">{figure ? figure('ds') : money(loan.debtService, true)}</Line>
             {loan.lineOfCredit && <Line label="Draws">{money(loan.draws, true)}</Line>}
           </section>
           <LoanDetail loan={loan} from={from} to={to} onOpenEntry={onOpenEntry} onDrill={onDrill} canEdit={canEdit} onSaved={onSaved} plain />
