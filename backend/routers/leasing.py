@@ -704,6 +704,12 @@ def untagged_rent(lease: dict, receipts: dict, key: str, customers: set) -> dict
     caller gives it to a lease only in a month it is the one lease in force
     at that entity and its own customer shows nothing. {gl: amount}."""
     ec = lease.get("entityCode", "")
+    # Audit guard (11/19/2026): only when every customer tagged on these
+    # accounts at the entity this year is a lease customer there - else the
+    # remainder may be another customer's money, never the lease's.
+    payers = receipts.get((ec, "*payers"))
+    if payers is None or not set(payers) <= {c for c in customers if c}:
+        return {}
     whole = receipts.get((ec, "", key)) or {}
     out = {}
     for code in lease["incomeAccounts"]:
@@ -830,7 +836,7 @@ def rent_roll(leases: list[dict], months: dict, receipts: dict, year: int, today
                         "receivedToDate": _r2(sum(t["received"] for t in totals))}}
 
 
-async def _receipts(scope: dict, leases: list[dict], year: int, every: Optional[list] = None) -> dict:
+async def _receipts(scope: dict, leases: list[dict], year: int, every: Optional[list] = None, untagged: bool = True) -> dict:
     """What each tenant posted to the leases' income accounts, month by month.
 
     Oct 23 (Urmi, MRI item 24): a lease reads what was posted AT ITS ENTITY
@@ -854,11 +860,48 @@ async def _receipts(scope: dict, leases: list[dict], year: int, every: Optional[
             return await accounting._acct_get("/api/internal/reports/buckets", {
                 "from": f"{year}-01-01", "to": f"{year}-12-31", "by": "month", "location": location, "customer": cust or None})
 
+    async def soft(work):
+        # The two untagged-rent reads below only ADD to the roll; one failing
+        # never sinks the screen - that entity simply gets no untagged rent.
+        try:
+            return await work
+        except Exception:
+            return None
+
+    async def payers_read(code: str):
+        location, _ = await accounting._limit(scope, code, None)
+        async with gate:
+            return await accounting._acct_get("/api/internal/reports/buckets", {
+                "from": f"{year}-01-01", "to": f"{year}-12-31", "by": "customer", "location": location})
+
     pairs = list(dict.fromkeys((l["entityCode"], l["customerId"]) for l in leases if l["customerId"] and l["entityCode"]))
+    tagged = [(code, cust) for code, cust in pairs]
     # 11/18/2026: and each entity once with no customer - its whole take, so
     # rent entered without a customer still reaches the lease (untagged_rent).
-    pairs += list(dict.fromkeys((l["entityCode"], "") for l in leases if l["entityCode"]))
-    for (code, cust), data in zip(pairs, await asyncio.gather(*[entity_read(code, cust) for code, cust in pairs])):
+    # The Possibly Ended scan (untagged=False) reads tagged rent only, as before.
+    codes = list(dict.fromkeys(l["entityCode"] for l in leases if l["entityCode"])) if untagged else []
+    reads = [entity_read(code, cust) for code, cust in tagged] + [soft(entity_read(code, "")) for code in codes]
+    pairs = tagged + [(code, "") for code in codes]
+    # The audit guard (11/19/2026): the whole take minus the lease customers is
+    # untagged rent ONLY when nobody else was tagged on those accounts at that
+    # entity that year - a customer with no lease there (a storage tenant on
+    # the same income account) would otherwise be read as the lease's rent.
+    # (entity, "*payers") = every customer tagged on the leases' income
+    # accounts at the entity in the year; missing = unknown = no untagged rent.
+    income_at: dict = {}
+    for l in leases:
+        if l["entityCode"]:
+            income_at.setdefault(l["entityCode"], set()).update(l["incomeAccounts"])
+    payers = await asyncio.gather(*[soft(payers_read(code)) for code in codes])
+    for code, data in zip(codes, payers):
+        if data is None:
+            continue
+        out[(code, "*payers")] = {str(r["bucket"]) for r in data.get("rows") or []
+                                  if r.get("bucket") and str(r.get("account_no")) in income_at.get(code, set())
+                                  and abs((r.get("credit") or 0) - (r.get("debit") or 0)) > _PAID_WITHIN}
+    for (code, cust), data in zip(pairs, await asyncio.gather(*reads)):
+        if data is None:
+            continue
         for r in data.get("rows") or []:
             if not r.get("bucket") or r.get("account_no") is None:
                 continue
