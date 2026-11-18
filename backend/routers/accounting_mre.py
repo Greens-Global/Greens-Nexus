@@ -1052,44 +1052,89 @@ def _norm_words(s: str) -> list[str]:
 
 def folder_score(vendor: str, folder_name: str) -> float:
     """How well a folder's name matches the vendor's: 1 the same name
-    (case, punctuation and Inc. / LLC aside), 0.85 one inside the other,
+    (case, spaces, punctuation and Inc. / LLC aside - "Amerigas" is
+    "AmeriGas"), 0.85 one inside the other ("Anthem" for "Anthem Blue Cross"),
     else the share of words in common."""
     a, b = _norm_words(vendor), _norm_words(folder_name)
     if not a or not b:
         return 0.0
-    if a == b:
-        return 1.0
     ja, jb = " ".join(a), " ".join(b)
+    ca, cb = "".join(a), "".join(b)
+    if a == b or ca == cb:
+        return 1.0
     if f" {ja} " in f" {jb} " or f" {jb} " in f" {ja} ":
+        return 0.85
+    short, long_ = sorted((ca, cb), key=len)
+    if len(short) >= 4 and long_.startswith(short):
         return 0.85
     common = set(a) & set(b)
     return round(len(common) / len(set(a) | set(b)), 2)
 
 
-def rank_folders(vendor: str, folders: list[dict], limit: int = 5) -> list[dict]:
+ENTITIES_ROOT = "/Shared/#Entities"
+
+
+def vendor_folder_of(path: str) -> Optional[dict]:
+    """The vendor folder a hit sits in: for ".../Financials/Vendors/Amerigas/
+    2026/bill.pdf" that is ".../Financials/Vendors/Amerigas" - a file deep in
+    another entity's vendor folder still names the folder (11/18, Urmi)."""
+    parts = [x for x in (path or "").split("/") if x]
+    for i in range(len(parts) - 1):
+        if parts[i].lower() == "vendors" and i + 1 < len(parts):
+            return {"name": parts[i + 1], "path": "/" + "/".join(parts[: i + 2])}
+    return None
+
+
+def rank_folders(vendor: str, folders: list[dict], limit: int = 8, prefer: str = "") -> list[dict]:
     """The best-named folders first, one per path, those sharing at least a
-    third of their words."""
+    third of their words. On a tie a folder under `prefer` (the line's own
+    entity folder) leads, then a folder inside a Vendors folder, then the
+    shorter path."""
     seen, out = set(), []
+    pre = (prefer or "").rstrip("/").lower()
     for f in folders:
         p = f.get("path") or ""
         if not p or p.lower() in seen:
             continue
         seen.add(p.lower())
-        sc = folder_score(vendor, f.get("name") or p.rstrip("/").rsplit("/", 1)[-1])
+        name = f.get("name") or p.rstrip("/").rsplit("/", 1)[-1]
+        sc = folder_score(vendor, name)
         if sc >= 0.34:
-            out.append({"path": p, "name": f.get("name") or p.rstrip("/").rsplit("/", 1)[-1], "score": sc})
-    return sorted(out, key=lambda x: (-x["score"], len(x["path"])))[:limit]
+            out.append({"path": p, "name": name, "score": sc,
+                        "_own": bool(pre) and p.lower().startswith(pre + "/"),
+                        "_vendors": "/vendors/" in p.lower()})
+    out.sort(key=lambda x: (-x["score"], not x["_own"], not x["_vendors"], len(x["path"])))
+    return [{k: v for k, v in x.items() if not k.startswith("_")} for x in out[:limit]]
+
+
+def search_terms(vendor: str) -> list[str]:
+    """What Egnyte is searched for: the name as written, and its first word
+    when that is a word of its own ("Anthem" for "Anthem Blue Cross" - the
+    folder is often the short name)."""
+    name = (vendor or "").strip()
+    words = _norm_words(name)
+    out = [name] if name else []
+    if len(words) > 1 and len(words[0]) >= 4 and words[0] not in out:
+        out.append(words[0])
+    return out
 
 
 @router.get("/egnyte-suggest")
-async def egnyte_suggest(vendor: str, user: dict = Depends(_edit)):
+async def egnyte_suggest(vendor: str, entity: str = "", user: dict = Depends(_edit)):
     """The Egnyte folder a vendor's contracts most likely live in (Neil, Oct
     21: "each vendor linked to its contract / document folder; auto-find it,
     allow change"): the folders under the configured root (the settings'
     egnyteRoot) and Egnyte's own search for the vendor's name, ranked by how
     well the folder's name matches. Read as the caller's own Egnyte identity
     (routers/egnyte._browse_token), so nobody sees a folder they cannot open.
-    Only proposes - nothing is saved until the person picks one."""
+    Only proposes - nothing is saved until the person picks one.
+
+    11/18 (Urmi, 11/06: AmeriGas missed OSM's "Amerigas", Anthem Blue Cross
+    missed OSM's "Anthem"): the search covers every entity (#Entities), not
+    only the root, by the full name and by its first word; a hit inside any
+    entity's Financials/Vendors folder names that vendor folder; and with the
+    line's `entity` named, that entity's own Vendors folder is looked in
+    first and its folders lead the list."""
     import recurring_stale
     from routers import egnyte as eg
     from services import egnyte as svc
@@ -1098,6 +1143,14 @@ async def egnyte_suggest(vendor: str, user: dict = Depends(_edit)):
         return {"root": "", "suggestions": []}
     settings = await asyncio.to_thread(recurring_stale.load_settings)
     root = settings["egnyteRoot"]
+    entity = (entity or "").strip()[:200]
+
+    def soft(fn, *args, **kwargs):
+        # One extra look failing (busy, missing, not yours) never sinks the rest.
+        try:
+            return eg._call(fn, *args, **kwargs)
+        except HTTPException:
+            return None
 
     def work():
         db = SessionLocal()
@@ -1118,11 +1171,30 @@ async def egnyte_suggest(vendor: str, user: dict = Depends(_edit)):
             except HTTPException as e:
                 if e.status_code != 404:
                     raise
-        for r in eg._call(svc.search, name, root, 25, token=tok):
-            if r.get("isFolder"):
-                found.append({"name": r.get("name"), "path": r.get("path")})
-            elif r.get("path"):
-                parent = r["path"].rsplit("/", 1)[0]
-                found.append({"name": parent.rsplit("/", 1)[-1], "path": parent})
-        return rank_folders(name, found)
+        own = ""
+        if entity:
+            listing = soft(svc.list_folder, ENTITIES_ROOT, token=tok, timeout=eg._BROWSE_TIMEOUT) or {}
+            best = max(((folder_score(entity, f.get("name") or ""), f.get("path") or "") for f in listing.get("folders") or []), default=(0, ""))
+            if best[0] >= 0.5 and best[1]:
+                own = best[1].rstrip("/")
+                for term in search_terms(name):
+                    probe = f"{own}/Financials/Vendors/{term}"
+                    hit = soft(svc.list_folder, probe, token=tok, count=1, timeout=eg._BROWSE_TIMEOUT)
+                    if hit is not None:
+                        real = (hit.get("path") or probe).rstrip("/")   # Egnyte's own spelling
+                        found.append({"name": real.rsplit("/", 1)[-1], "path": real})
+        scopes = [ENTITIES_ROOT] + ([root] if root and not root.lower().startswith(ENTITIES_ROOT.lower()) else [])
+        for scope in scopes:
+            for term in search_terms(name):
+                for r in soft(svc.search, term, scope, 100, token=tok) or []:
+                    p = r.get("path") or ""
+                    vf = vendor_folder_of(p)
+                    if vf:
+                        found.append(vf)
+                    if r.get("isFolder"):
+                        found.append({"name": r.get("name"), "path": p})
+                    elif p:
+                        parent = p.rsplit("/", 1)[0]
+                        found.append({"name": parent.rsplit("/", 1)[-1], "path": parent})
+        return rank_folders(name, found, prefer=own)
     return {"root": root, "suggestions": await asyncio.to_thread(work)}

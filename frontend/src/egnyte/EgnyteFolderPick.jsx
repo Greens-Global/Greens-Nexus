@@ -41,7 +41,11 @@ export default function FolderPickModal({ startPath = '', title = 'Pick a Folder
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(15,18,24,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
     >
-      <div className="nx-popup" style={{ ...CARD, width: showTree ? 'max(60vw, min(1180px, 100%))' : undefined, maxHeight: showTree ? '90vh' : undefined, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* With the tree (11/18, Urmi: picking a folder scrolled the whole
+          picker to its end, Use This Folder out of sight): a fixed height, and
+          the tree and the folder each scroll in their own pane - the card
+          itself never scrolls (egx-picker in style.css). */}
+      <div className={`nx-popup${showTree ? ' egx-picker' : ''}`} style={{ ...CARD, width: showTree ? 'max(60vw, min(1180px, 100%))' : undefined, height: showTree ? '90vh' : undefined, overflowY: showTree ? 'hidden' : 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ ...HEADING, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
             <FolderSearch size={16} /> {title}

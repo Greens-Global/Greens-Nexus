@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Building2, Check, ChevronDown, ExternalLink, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { AlertTriangle, Building2, Check, ChevronDown, ExternalLink, FolderOpen, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { api, withFreshReads } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
@@ -1029,7 +1029,14 @@ function RentRoll({ view, filters = null, rows, span, figures, year, thisMonth, 
                   {viewCells(view, {
                     property: propertyCell(
                       <>
-                        <button type="button" className="acct-drill" onClick={() => onLease(l)} style={{ fontWeight: 600, textAlign: 'left' }}>{l.propertyName}</button>
+                        {/* 11/18 (Urmi, 11/06): one way to edit, the same as MRE - the
+                            name is a name, the pencil opens the lease, and a lease
+                            with a documents folder shows MRE's folder icon. */}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, verticalAlign: 'middle' }}>
+                          <span style={{ fontWeight: 600 }}>{l.propertyName}</span>
+                          {l.egnyteUrl && <a href={l.egnyteUrl} target="_blank" rel="noreferrer" aria-label={`Documents of ${l.propertyName} in Egnyte`} title={`Documents: ${l.egnyteFolder}`} style={{ display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }}><FolderOpen size={13} /></a>}
+                          {canEdit && <button type="button" onClick={() => onLease(l)} aria-label={`Edit ${l.propertyName}`} title="Edit" style={{ ...icon, padding: 2, flexShrink: 0 }}><Pencil size={12} /></button>}
+                        </span>
                         <StandingChips row={r} />
                         <PossiblyEndedChip flag={l.possiblyEnded} kind="mri" />
                         <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}><TenantName row={r} />{l.status === 'ended' ? ` · ended ${l.leaseEnd ? formatDate(l.leaseEnd) : ''}` : ''}</div>
