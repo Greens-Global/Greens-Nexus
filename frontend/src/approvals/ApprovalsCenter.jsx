@@ -40,7 +40,7 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { openNotificationTarget } from '../lib/openTarget';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useIsMobile } from '../lib/useIsMobile';
-import { UNDO_MS, bulkAction, doneWord, runApproval, runsInline, waited } from '../lib/approvalActions';
+import { UNDO_MS, bulkAction, doneWord, preflight, runApproval, runsInline, waited } from '../lib/approvalActions';
 import ApprovalsPhone from './ApprovalsPhone';
 import ScheduleContext from './ScheduleContext';
 import ShiftsAlso from './ShiftsAlso';
@@ -272,6 +272,9 @@ export default function ApprovalsCenter({ activeSub = '', onSubChange }) {
   // undefined means ask here, the desktop way.
   async function decide(row, action, givenNote) {
     if (action.key === 'open' || !runsInline(row, action.key)) { go(row.link); return; }
+    // A step the decision needs first (a login request's code - lib/approvalActions.js PREFLIGHT).
+    const pre = preflight(row, action.key);
+    if (pre && !(await pre(row).catch(() => false))) return;
     let note = '';
     const required = action.note === 'required';
     if (typeof givenNote === 'string') {
