@@ -930,6 +930,23 @@ describe('LoansTab, the 11/19 clean-up', () => {
     expect(screen.getByRole('dialog', { name: 'F&M Bank' })).toBeTruthy();   // the sheet stays under it
   });
 
+  it('a posted figure in the sheet opens its ledger lines, like the table (audit 11/19)', async () => {
+    const seen = [];
+    const onDrill = (e) => seen.push(e.detail);
+    window.addEventListener('nexus:accounting-drill', onDrill);
+    try {
+      render(<LoansTab canEdit />);
+      fireEvent.click(await rowOf('F&M Bank'));
+      const sheet = await screen.findByRole('dialog', { name: 'F&M Bank' });
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Ledger lines behind the balance of F&M Bank' }));
+      expect(seen[0]).toMatchObject({ account: '27100', entity: '15000', from: '' });
+      fireEvent.click(within(sheet).getByRole('button', { name: 'Ledger lines behind the interest paid on F&M Bank' }));
+      expect(seen[1]).toMatchObject({ account: '71100', entity: '15000' });
+    } finally {
+      window.removeEventListener('nexus:accounting-drill', onDrill);
+    }
+  });
+
   it('Missing Terms shows only the loans with a term not typed, and the empty term reads Add', async () => {
     render(<LoansTab canEdit />);
     await rowOf('F&M Bank');

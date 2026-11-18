@@ -533,6 +533,44 @@ export default function LoansTab({ canEdit = false }) {
     setLines({ title, caption, queries: accounts.map((a) => ({ account: a.account, location: a.location, from: range ? from : undefined, to })) });
   };
   const interestOf = (r) => (r.interestAccounts || []).map((a) => ({ account: a.code, location: r.entityCode }));
+  // Audit 11/19/2026: the loan's posted figures, drawn ONE way for the table
+  // and the loan sheet, so a figure in the sheet opens its ledger lines too
+  // (CLAUDE.md: every posted amount drills to its lines).
+  const figureOf = (r, key) => {
+    switch (key) {
+      case 'original': return (<>
+                        {r.originalPrincipal == null ? dash : r.originalPrincipalEdited || r.wiring !== 'ok' || !r.glAccount
+                          ? <><Amount value={r.originalPrincipal} />{r.originalPrincipalEdited && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 4 }}>edited</span>}</>
+                          : <button type="button" className="acct-drill" aria-label={`Ledger lines behind the original principal of ${r.lender || r.loanNo}`}
+                            onClick={(e) => { e.stopPropagation(); requestReportDrill({ account: r.glAccount, accountName: r.glTitle || r.lender, from: r.originalPrincipalDate || '', to: r.originalPrincipalDate || to, entity: r.entityCode || '' }); }}><Amount value={r.originalPrincipal} /></button>}
+      </>);
+      case 'balance': return (<>
+                        {r.debitBalance && <span style={{ marginRight: 6, fontSize: 11, fontWeight: 700, color: 'var(--warn-fg)' }}><WarnMark size={11} />Check Sign</span>}
+                        {r.wiring === 'missing' ? dash : r.wiring === 'ok' && r.glAccount
+                          ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the balance of ${r.lender || r.loanNo}`} onClick={(e) => drill(e, r.glAccount, r.glTitle || r.lender, r.entityCode, false)}><Amount value={r.balance} /></button>
+                          : <Amount value={r.balance} />}
+      </>);
+      case 'principal': return (<>
+                        {r.principalPaid == null ? dash : r.wiring === 'ok' && r.glAccount && Math.abs(Number(r.principalPaid) || 0) > 0.005
+                          ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the principal paid on ${r.lender || r.loanNo}`} onClick={(e) => drill(e, r.glAccount, r.glTitle || r.lender, r.entityCode, true)}><Amount value={r.principalPaid} zero="dash" /></button>
+                          : <Amount value={r.principalPaid} zero="dash" />}
+      </>);
+      case 'interest': return (<>
+                        {r.interestPaid == null ? dash : r.interestAccounts?.length && Math.abs(Number(r.interestPaid) || 0) > 0.005
+                          ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the interest paid on ${r.lender || r.loanNo}`}
+                            onClick={(e) => (r.interestAccounts.length === 1 ? drill(e, r.interestAccounts[0].code, r.interestAccounts[0].title, r.entityCode, true)
+                              : drillMany(e, `${r.lender || r.loanNo} - Interest Paid`, `GL ${r.interestAccounts.map((a) => a.code).join(', ')}, ${formatDate(from)} - ${formatDate(to)}`, interestOf(r), true))}><Amount value={r.interestPaid} zero="dash" /></button>
+                          : <Amount value={r.interestPaid} zero="dash" />}
+      </>);
+      case 'ds': return (<>
+                        {r.wiring === 'ok' && r.glAccount && Math.abs(Number(r.debtService) || 0) > 0.005
+                          ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the debt service of ${r.lender || r.loanNo}`}
+                            onClick={(e) => drillMany(e, `${r.lender || r.loanNo} - Debt Service`, `Principal (debits to GL ${r.glAccount}) and interest${r.interestAccounts?.length ? ` (GL ${r.interestAccounts.map((a) => a.code).join(', ')})` : ''}, ${formatDate(from)} - ${formatDate(to)}`, [{ account: r.glAccount, location: r.entityCode }, ...interestOf(r)], true)}><Amount value={r.debtService} zero="dash" /></button>
+                          : <Amount value={r.debtService} zero="dash" />}
+      </>);
+      default: return null;
+    }
+  };
   const drillGroup = (g) => drillMany(null, `${g.label || '(no lender)'} - Balance`, `The principal accounts of ${g.wired.length} wired ${g.wired.length === 1 ? 'loan' : 'loans'} as of ${formatDate(to)}`, g.wired, false);
   const openLoan = all.find((r) => r.id === openId) || null;
   const onPeriod = (p) => {
@@ -732,34 +770,19 @@ export default function LoansTab({ canEdit = false }) {
                       entity: <td className={mw('entity') ? undefined : 'loan-name'} style={cell('entity', false)} title={mw('entity') ? r.entityName : undefined}>{r.entityName}</td>,
                       monthly: <td style={cell('monthly', true)}><TermCell loan={r} field="monthlyPayment" {...term}>{r.monthlyPayment == null ? dash : <Amount value={r.monthlyPayment} />}</TermCell></td>,
                       original: <td style={cell('original', true)} title={r.originalPrincipalEdited ? `Typed over the ledger${r.originalPrincipalLedger != null ? `'s ${formatAmount(r.originalPrincipalLedger)}` : ''}` : r.originalPrincipalDate ? `The first credit on the account, ${formatDate(r.originalPrincipalDate)}` : undefined}>
-                        {r.originalPrincipal == null ? dash : r.originalPrincipalEdited || r.wiring !== 'ok' || !r.glAccount
-                          ? <><Amount value={r.originalPrincipal} />{r.originalPrincipalEdited && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 4 }}>edited</span>}</>
-                          : <button type="button" className="acct-drill" aria-label={`Ledger lines behind the original principal of ${r.lender || r.loanNo}`}
-                            onClick={(e) => { e.stopPropagation(); requestReportDrill({ account: r.glAccount, accountName: r.glTitle || r.lender, from: r.originalPrincipalDate || '', to: r.originalPrincipalDate || to, entity: r.entityCode || '' }); }}><Amount value={r.originalPrincipal} /></button>}
+                        {figureOf(r, 'original')}
                       </td>,
                       balance: <td style={cell('balance', true)} title={r.debitBalance ? DEBIT_NOTE : r.wiring === 'ok' ? `GL ${r.glAccount} as of ${formatDate(to)} - click for the ledger lines` : undefined}>
-                        {r.debitBalance && <span style={{ marginRight: 6, fontSize: 11, fontWeight: 700, color: 'var(--warn-fg)' }}><WarnMark size={11} />Check Sign</span>}
-                        {r.wiring === 'missing' ? dash : r.wiring === 'ok' && r.glAccount
-                          ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the balance of ${r.lender || r.loanNo}`} onClick={(e) => drill(e, r.glAccount, r.glTitle || r.lender, r.entityCode, false)}><Amount value={r.balance} /></button>
-                          : <Amount value={r.balance} />}
+                        {figureOf(r, 'balance')}
                       </td>,
                       principal: <td style={cell('principal', true)} title={r.wiring === 'ok' ? `Debits to GL ${r.glAccount} in the period${r.lineOfCredit && r.draws ? `; draws (credits) ${formatAmount(r.draws)}` : ''}` : undefined}>
-                        {r.principalPaid == null ? dash : r.wiring === 'ok' && r.glAccount && Math.abs(Number(r.principalPaid) || 0) > 0.005
-                          ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the principal paid on ${r.lender || r.loanNo}`} onClick={(e) => drill(e, r.glAccount, r.glTitle || r.lender, r.entityCode, true)}><Amount value={r.principalPaid} zero="dash" /></button>
-                          : <Amount value={r.principalPaid} zero="dash" />}
+                        {figureOf(r, 'principal')}
                       </td>,
                       interest: <td style={cell('interest', true)} title={interestTitle(r)}>
-                        {r.interestPaid == null ? dash : r.interestAccounts?.length && Math.abs(Number(r.interestPaid) || 0) > 0.005
-                          ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the interest paid on ${r.lender || r.loanNo}`}
-                            onClick={(e) => (r.interestAccounts.length === 1 ? drill(e, r.interestAccounts[0].code, r.interestAccounts[0].title, r.entityCode, true)
-                              : drillMany(e, `${r.lender || r.loanNo} - Interest Paid`, `GL ${r.interestAccounts.map((a) => a.code).join(', ')}, ${formatDate(from)} - ${formatDate(to)}`, interestOf(r), true))}><Amount value={r.interestPaid} zero="dash" /></button>
-                          : <Amount value={r.interestPaid} zero="dash" />}
+                        {figureOf(r, 'interest')}
                       </td>,
                       ds: <td style={cell('ds', true)} title={r.wiring === 'ok' ? 'Principal paid plus interest paid - click for the lines of both accounts' : undefined}>
-                        {r.wiring === 'ok' && r.glAccount && Math.abs(Number(r.debtService) || 0) > 0.005
-                          ? <button type="button" className="acct-drill" aria-label={`Ledger lines behind the debt service of ${r.lender || r.loanNo}`}
-                            onClick={(e) => drillMany(e, `${r.lender || r.loanNo} - Debt Service`, `Principal (debits to GL ${r.glAccount}) and interest${r.interestAccounts?.length ? ` (GL ${r.interestAccounts.map((a) => a.code).join(', ')})` : ''}, ${formatDate(from)} - ${formatDate(to)}`, [{ account: r.glAccount, location: r.entityCode }, ...interestOf(r)], true)}><Amount value={r.debtService} zero="dash" /></button>
-                          : <Amount value={r.debtService} zero="dash" />}
+                        {figureOf(r, 'ds')}
                       </td>,
                       rate: <td style={cell('rate', true)}><TermCell loan={r} field="ratePct" {...term}>{rateText(r) || dash}</TermCell></td>,
                       maturity: <td style={cell('maturity', false)}><TermCell loan={r} field="maturity" {...term}>{r.maturity ? formatDate(r.maturity) : dash}</TermCell></td>,
@@ -828,6 +851,7 @@ export default function LoansTab({ canEdit = false }) {
           term={(field, shown) => <TermCell loan={openLoan} field={field} canEdit={canEdit} onSaved={load} onError={(t) => setSent({ text: t, bad: true })} onDone={(t) => setSent({ text: t })}>{shown}</TermCell>}
           onEdit={() => setDialog({ edit: openLoan })} onPlan={(kind) => setDialog({ plan: kind, loan: openLoan })}
           onOpenEntry={(l) => setEntry({ id: l.entryId, no: l.entryNo })} onDrill={(d) => requestReportDrill({ ...d, to, entity: openLoan.entityCode || '' })}
+          figure={(key) => figureOf(openLoan, key)}
           onSaved={load} onClose={() => setOpenId(null)} />
       )}
       {dialog === 'ledger' && (
