@@ -1,12 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { vi } from 'vitest';
 import { collectCriticalDates, parseStoredDate, isSuspectDate } from './criticalItems.js';
 import {
   collectDates, itemsForMode, groupDates, missingByKind, rollYear, rollPatch, datesSummary, bucketOf, relativeDays,
 } from './datesModel.js';
 
-// Today is fixed: 11/17/2026.
-beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 10, 17, 9, 0, 0)); });
+// Today is fixed: 11/17/2026 - set when the file loads, not in beforeAll: the describe blocks
+// build their dates while they are collected, before any beforeAll runs (11/18/2026: built on
+// the real clock, 12/10 read "In 22 days").
+vi.useFakeTimers();
+vi.setSystemTime(new Date(2026, 10, 17, 9, 0, 0));
 afterAll(() => { vi.useRealTimers(); });
 
 const P = (id, extra = {}) => ({ id, kind: 'property', name: `Property ${id}`, ...extra });
