@@ -1,0 +1,44 @@
+{
+  "form": "form_1040",
+  "title": "Form 1040",
+  "taxYear": 2025,
+  "years": [2025, 2026],
+  "about": "Form 1040 and Schedule 1: the lines a business ledger feeds - Schedule 1 line 3 (Schedule C) and line 5 (Schedule E) - and every other line named as not from the books. Line numbers of the 2025 forms.",
+  "returns": [
+    { "line": "schedule_c", "label": "Schedule C - a business" },
+    { "line": "schedule_e", "label": "Schedule E - a rental property" }
+  ],
+  "reports": [
+    {
+      "key": "tax-1040",
+      "label": "Form 1040 (Draft)",
+      "basis": "returns",
+      "rows": [
+        { "heading": "Schedule 1 - Additional Income", "prefix": "Schedule 1 " },
+        { "line": "1", "label": "Taxable refunds, credits, or offsets of state and local income taxes", "manual": "Form 1099-G - not from the books" },
+        { "line": "2a", "label": "Alimony received", "manual": "not from the books" },
+        { "line": "3", "label": "Business income or (loss) - Schedule C, line 31", "from": "schedule_c" },
+        { "line": "4", "label": "Other gains or (losses) - Form 4797", "manual": "not from these books" },
+        { "line": "5", "label": "Rental real estate, royalties, partnerships, S corporations, trusts - Schedule E, line 41", "from": "schedule_e" },
+        { "line": "6", "label": "Farm income or (loss)", "manual": "not from these books" },
+        { "line": "7", "label": "Unemployment compensation", "manual": "not from the books" },
+        { "line": "9", "label": "Total other income", "manual": "not from the books" },
+        { "line": "10", "label": "Lines 3 and 5 - the part of line 10 the books give", "calc": ["3", "5"], "grand": true },
+        { "heading": "Form 1040 - Income", "prefix": "Form 1040 " },
+        { "line": "f1z", "num": "1z", "label": "Wages, salaries, tips (Forms W-2)", "manual": "W-2s - not from the books" },
+        { "line": "f2b", "num": "2b", "label": "Taxable interest", "manual": "Forms 1099-INT - not from the books" },
+        { "line": "f3b", "num": "3b", "label": "Ordinary dividends", "manual": "Forms 1099-DIV - not from the books" },
+        { "line": "f4b", "num": "4b", "label": "IRA distributions - taxable amount", "manual": "not from the books" },
+        { "line": "f5b", "num": "5b", "label": "Pensions and annuities - taxable amount", "manual": "not from the books" },
+        { "line": "f6b", "num": "6b", "label": "Social security benefits - taxable amount", "manual": "not from the books" },
+        { "line": "f7", "num": "7", "label": "Capital gain or (loss) - Schedule D", "manual": "not from the books" },
+        { "line": "f8", "num": "8", "label": "Additional income from Schedule 1, line 10 - the books' part", "calc": ["10"] }
+      ],
+      "summary": [["Schedule C (Line 3)", "3"], ["Schedule E (Line 5)", "5"], ["From the Books (Line 10)", "10", "tone"]],
+      "notes": [
+        "Pick the entities that file on this person's return. Each entity counts on Schedule C or Schedule E as set in Line Mapping (one row per entity) - an entity whose revenue is mostly rent is suggested as Schedule E. Its Schedule C line 31 or Schedule E line 41 comes from that form's own mapping for the entity - open Schedule C (Draft) or Schedule E (Draft) to see the lines.",
+        "Everything else on the return - wages, interest, dividends, deductions, credits and tax - is the preparer's, from the person's own records."
+      ]
+    }
+  ]
+}

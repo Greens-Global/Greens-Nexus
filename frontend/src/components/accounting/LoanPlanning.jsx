@@ -50,7 +50,9 @@ import { HOLD_RECORD_MS } from '../../ui/HoldButton';
 // list), picked (the entity filter on top), canEdit, to (the period end the
 // NOI and balances are as of) }.
 
-const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
+// 11/19/2026 Loans clean-up (Charmi: "very hard to work with"): no bordered box
+// around each part - a hairline above it, the page's own background.
+const card = { borderTop: '1px solid var(--border-color)' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const hint = { fontSize: 13, color: 'var(--text-secondary)' };
 const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
@@ -63,7 +65,8 @@ const rth = (cw, key, label, style = null, text = label) => (
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 };
 const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, height: 30, padding: '0 12px' };
 const input = { ...control, width: '100%' };
-const sectionTitle = { fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)' };
+// Title Case at the title size, no uppercase eyebrow (11/19/2026 Loans clean-up).
+const sectionTitle = { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' };
 const pct = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? '-' : `${Number(v).toFixed(3).replace(/0+$/, '').replace(/\.$/, '')}%`);
 const x = (v) => (v == null ? '-' : `${Number(v).toFixed(2)}x`);
 const MAX_COMPARE = 3;
@@ -87,7 +90,8 @@ function Chip({ tone = 'muted', children, title }) {
     ok: { fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' }, bad: { fg: 'var(--bad-fg, #dc2626)', bg: 'rgba(220,38,38,0.10)' },
     muted: { fg: 'var(--text-secondary)', bg: 'var(--bg-secondary)' },
   }[tone];
-  return <span title={title} style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: tones.fg, background: tones.bg, whiteSpace: 'nowrap' }}>{children}</span>;
+  // 11/19/2026 Loans clean-up (no pills - CLAUDE.md): a state is plain colored text in its row.
+  return <span title={title} style={{ fontSize: 12, fontWeight: 600, color: tones.fg, whiteSpace: 'nowrap' }}>{children}</span>;
 }
 const resultChip = (impact) => (impact.pass == null ? <Chip>No NOI</Chip> : impact.pass ? <Chip tone="ok">Pass</Chip> : <Chip tone="bad">Below Target</Chip>);
 

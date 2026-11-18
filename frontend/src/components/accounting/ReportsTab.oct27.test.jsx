@@ -93,7 +93,7 @@ describe('Reports, 10/27 triage', () => {
     expect(await screen.findByText('Line 8 - Advertising')).toBeTruthy();
     expect(screen.getByText('Line 31 - Net profit or (loss)')).toBeTruthy();
     expect(screen.getAllByText(/Not Mapped - Pick a Line/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Schedule E, Form 4562/)).toBeTruthy();
+    expect(screen.getByText(/Form 4562 is not worked out here/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Line Mapping \(1 Not Mapped\)/ }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/Every entity/)).toBeTruthy();

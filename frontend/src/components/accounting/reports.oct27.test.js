@@ -57,7 +57,8 @@ describe('Income Statement by Customer, Job and Department (item 16)', () => {
     expect(by['rpt-pnl-customer'].label).toBe('Income Statement by Customer');
     expect(by['rpt-pnl-job'].about).toMatch(/Project dimension/);
     expect(by['rpt-vendor-spend'].about).toMatch(/vendor/i);
-    expect(by['rpt-schedule-c'].about).toMatch(/Schedule E, Form 4562 .* 1040, 1120, 1120-S and 1065 returns come later/);
+    expect(by['rpt-schedule-c'].about).toMatch(/IRS Schedule C lines/);
+    expect(by['rpt-schedule-c'].about).not.toMatch(/come later/);
     expect(rows.map((r) => `${r.label} ${r.about || ''}`).join(' ')).not.toMatch(/Profit\s*(&|and)\s*Loss|P&L/i);
   });
 });
@@ -197,7 +198,7 @@ describe('Schedule C (Draft) (item 18)', () => {
     expect(adv).toMatchObject({ group: 'L8', values: [300] });
     expect(adv.noDrill).toBeUndefined();
     expect(r.rows.filter((x) => /^Line (3|5|7|28|29|31) /.test(x.label || '')).every((x) => x.noDrill)).toBe(true);
-    expect(r.notes.join(' ')).toMatch(/Schedule E, Form 4562/);
+    expect(r.notes.join(' ')).toMatch(/Draft working paper.*Form 4562 is not worked out here/);
   });
 
   it('reads the income statement and the mapping for the entity picked - and writes nothing', async () => {
