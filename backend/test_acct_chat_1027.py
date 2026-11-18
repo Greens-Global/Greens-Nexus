@@ -156,8 +156,11 @@ class MriPeriodic(unittest.TestCase):
         self.assertEqual(r["monthsBehind"], 1)
 
     def test_a_payment_later_in_the_year_covers_the_due_month(self):
+        # 11/18/2026: the period's amount is expected in the month it was paid
+        # (August), the counted due month (January) is a month it does not fall due.
         r = self.roll(lease(), {8: 1200.0})
-        self.assertEqual(r["months"][0]["status"], "covered")
+        self.assertTrue(r["months"][0].get("offCycle"))
+        self.assertEqual(r["months"][7]["status"], "paid")
         self.assertEqual(r["monthsBehind"], 0)
 
     def test_quarterly_past_quarter_with_nothing_is_unpaid(self):

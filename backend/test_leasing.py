@@ -560,9 +560,12 @@ class LeasingApiTests(unittest.TestCase):
         rows = {r["lease"]["id"]: r for r in self.client.get("/leasing/rent-roll").json()["rows"] if r["lease"]["region"] == TAG}
         self.assertEqual(rows[a["id"]]["months"][0]["received"], 3000.0)
         self.assertEqual(rows[b["id"]]["months"][0]["received"], 1200.0)
-        buckets = [p for (path, p) in self.asked if path.endswith("/reports/buckets")]
+        buckets = [p for (path, p) in self.asked if path.endswith("/reports/buckets") and "customer" in p]
         self.assertEqual(sorted(p["location"] for p in buckets), ["12000", "15000"])
         self.assertTrue(all(p["customer"] == "C00498" and p["by"] == "month" for p in buckets))
+        # 11/18/2026: and each entity once with no customer (untagged_rent).
+        whole = [p for (path, p) in self.asked if path.endswith("/reports/buckets") and "customer" not in p]
+        self.assertEqual(sorted(p["location"] for p in whole), ["12000", "15000"])
         self.assertEqual([p for (path, p) in self.asked if path.endswith("/reports/by-customer") and "C00498" in p["customers"]], [])
 
     def test_oct23_rent_is_pulled_from_the_location_the_lease_maps_to(self):
@@ -642,7 +645,7 @@ class LeasingApiTests(unittest.TestCase):
         _as(LIMITED)
         rows = [r for r in self.client.get("/leasing/rent-roll").json()["rows"] if r["lease"]["region"] == TAG]
         self.assertEqual([(r["lease"]["id"], r["months"][0]["received"]) for r in rows], [(mine["id"], 3000.0)])
-        self.assertEqual([p["location"] for (path, p) in self.asked if path.endswith("/reports/buckets")], ["15000"])
+        self.assertEqual([p["location"] for (path, p) in self.asked if path.endswith("/reports/buckets") and "customer" in p], ["15000"])
         self.assertEqual([p for (path, p) in self.asked if path.endswith("/reports/by-customer")], [])
 
 

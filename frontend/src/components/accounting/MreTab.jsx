@@ -114,6 +114,21 @@ const CATEGORIES = [
 const CATEGORY = Object.fromEntries(CATEGORIES.map((c) => [c.key, c.label]));
 export const VARIANCES = Array.from({ length: 11 }, (_v, i) => i * 5);   // 0%, 5%, ... 50%
 
+/** What a line expects in a month ('YYYY-MM') and whether the tenant pays it
+ *  then: the Expected Amount until the first change, then the latest change
+ *  dated in or before that month (Charmi, 11/18/2026). The API's amount_in. */
+export function amountIn(line, key) {
+  let amount = Number(line?.expectedAmount) || 0;
+  let tenantPays = false;
+  [...(line?.amountChanges || [])].sort((a, b) => (a.from || '').localeCompare(b.from || '')).forEach((c) => {
+    if ((c.from || '').slice(0, 7) > key) return;
+    if (c.tenantPays) tenantPays = true;
+    else { amount = Number(c.amount) || 0; tenantPays = false; }
+  });
+  return { amount, tenantPays };
+}
+const thisMonthKey = () => iso(new Date()).slice(0, 7);
+
 /** Whether a line falls due in a month (1-12): inside its start / end, on its
  *  frequency counted from the start month. The API's due_in_month, kept in step. */
 export function dueInMonth(line, year, month) {
@@ -123,6 +138,7 @@ export function dueInMonth(line, year, month) {
   if (start && key < start) return false;
   if (end && key > end) return false;
   if (line?.status === 'ended' && !end) return false;
+  if (amountIn(line, key).tenantPays) return false;
   const step = stepMonths(line);
   if (step === 1 || !start) return true;
   const idx = (m) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1;
@@ -201,10 +217,13 @@ export function visibleRows(rows, { q = '', category = '', showEnded = false, sh
   const s = q.trim().toLowerCase();
   return (rows || []).filter((r) => {
     const l = r.line;
-    if (!showEnded && l.status === 'ended') return false;
+    // 11/18/2026 (Charmi: the Greens Escondido insurer changed in 08/2026 and
+    // the ended line left the sheet with its paid months): an ended line stays
+    // for a year it has anything in; Show Ended brings back the rest.
+    if (!showEnded && l.status === 'ended' && !r.paidTotal && !r.expectedYear) return false;
     if (!showInactive && r.vendorInactive) return false;
     if (category && l.category !== category) return false;
-    if (!showZero && !r.paidTotal && !r.expectedYear) return false;
+    if (!showZero && !r.paidTotal && !r.expectedYear && !(showEnded && l.status === 'ended')) return false;
     if (!rowInStates(r, states, span)) return false;
     return !s || [l.vendorName, l.vendorId, l.entityName, l.entityCode, l.notes].some((v) => (v || '').toLowerCase().includes(s));
   });
@@ -771,8 +790,8 @@ function Grid({ view, filterColumns = [], typed = {}, onTyped = null, onClearTyp
                   ...optional,
                   expected: (
                     <td className="acct-num mre-x" style={cellStyle(w('expected'))} title={`${frequencyLabel(r.line)} from ${formatDate(r.line.startDate) || 'the start'}${r.line.endDate ? ` to ${formatDate(r.line.endDate)}` : ''}${r.line.variancePct ? `; paid within ${r.line.variancePct}% counts as Paid` : ''}`}>
-                      <Amount value={r.line.expectedAmount} />
-                      <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{frequencyLabel(r.line)}</span>
+                      <Amount value={amountIn(r.line, thisMonthKey()).amount} />
+                      <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)' }}>{amountIn(r.line, thisMonthKey()).tenantPays ? 'Tenant Pays' : frequencyLabel(r.line)}</span>
                     </td>
                   ),
                   ...months,
@@ -836,6 +855,10 @@ function Chip({ text }) {
 
 function MonthCell({ cell, width, onOpen = null }) {
   const st = STATUS[cell.status];
+  if (cell.tenantPays && !(Math.abs(Number(cell.paid) || 0) > 0.005)) {
+    // 11/18/2026 (Charmi): the tenant pays it this month - never expected, never Missed.
+    return <td className="acct-num mre-m" data-tenant-pays="true" title={`${monthLabel(cell.month)}: the tenant pays this one`} style={cellStyle(width, { color: 'var(--text-muted)', fontSize: 11 })}>Tenant Pays</td>;
+  }
   if (!st) {
     // Not due this month; what was paid anyway still opens its lines.
     return (
@@ -1000,6 +1023,52 @@ function VendorCombobox({ id, vendors, text, onText, onPick }) {
   );
 }
 
+/** Amount Changes (Charmi, 11/18/2026: "a lot of times, mid year the contract
+ *  and the rents can change, so we do not lose the previous history"): each
+ *  change has the date it applies from; Paid by Tenant marks the months a
+ *  tenant pays the bill (a rented property's tax) until the next amount. */
+export function AmountChanges({ changes, onChange, label, control, hint }) {
+  const [from, setFrom] = useState('');
+  const [amount, setAmount] = useState(null);
+  const [tenant, setTenant] = useState(false);
+  const sorted = [...changes].sort((a, b) => (a.from || '').localeCompare(b.from || ''));
+  const ok = !!from && (tenant || (amount != null && Number(amount) >= 0));
+  const add = () => {
+    if (!ok) return;
+    const next = sorted.filter((c) => c.from !== from);
+    next.push(tenant ? { from, tenantPays: true } : { from, amount: Number(amount) || 0 });
+    onChange(next.sort((a, b) => a.from.localeCompare(b.from)));
+    setFrom(''); setAmount(null); setTenant(false);
+  };
+  const link = { border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' };
+  return (
+    <div data-testid="amount-changes">
+      <span style={label}>Amount Changes</span>
+      {sorted.length > 0 && (
+        <div role="list" aria-label="Amount changes" style={{ display: 'grid', marginBottom: 6 }}>
+          {sorted.map((c) => (
+            <div key={c.from} role="listitem" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0', borderBottom: '1px solid var(--border-color)', fontSize: 13 }}>
+              <span style={{ flex: 1 }}>From {formatDate(c.from)}: {c.tenantPays ? 'Paid by Tenant' : <Amount value={c.amount} />}</span>
+              <button type="button" style={link} onClick={() => onChange(sorted.filter((x) => x.from !== c.from))} aria-label={`Remove the change from ${formatDate(c.from)}`}>Remove</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ ...control, display: 'flex', alignItems: 'center', width: 150 }}><DateField value={from} onChange={(v) => setFrom(v || '')} placeholder="MM/DD/YYYY" title="Applies From" style={{ width: '100%' }} /></span>
+        {!tenant && <AmountInput value={amount} onChange={(v) => setAmount(v)} aria-label="New amount" placeholder="New amount" style={{ ...control, width: 130, textAlign: 'left' }} />}
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+          <input type="checkbox" checked={tenant} onChange={(e) => setTenant(e.target.checked)} /> Paid by Tenant
+        </label>
+        <button type="button" className="secondary-btn" disabled={!ok} onClick={add} style={{ fontSize: 12, height: 28, padding: '0 10px' }}>Add Change</button>
+      </div>
+      <span style={{ ...hint, display: 'block', marginTop: 4 }}>
+        Months before the first change expect the Expected Amount above; a change applies from its month on. Paid by Tenant keeps the line on the sheet but never expects it or reads Missed, until the next amount change (when the tenant moves out).
+      </span>
+    </div>
+  );
+}
+
 function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
   const [l, setL] = useState(() => ({ ...line, accountsText: (line.expenseAccounts || []).join(', ') }));
   const [initial] = useState(() => JSON.stringify(l));
@@ -1034,6 +1103,7 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
     accountNumber: l.accountNumber || '', accountDetails: l.accountDetails || '', contactInfo: l.contactInfo || '',
     startDate: l.startDate || '', endDate: l.endDate || '', status: l.status, notes: l.notes || '',
     egnyteFolder: l.egnyteFolder || '',
+    amountChanges: l.amountChanges || [],
   });
   const run = (work) => {
     setBusy(true);
@@ -1141,6 +1211,7 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
               <span style={hint}>Leave empty while it continues.</span>
             </div>
           </div>
+          <AmountChanges changes={l.amountChanges || []} onChange={(amountChanges) => set({ amountChanges })} label={label} control={control} hint={hint} />
           <div style={grid}>
             <div>
               <label style={label} htmlFor="mre-account-number">Account Number</label>

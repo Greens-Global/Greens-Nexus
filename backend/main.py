@@ -1660,6 +1660,8 @@ def _run_migrations():
             "ALTER TABLE item_checkouts ADD COLUMN holder_left_at VARCHAR DEFAULT ''",
             # Accounting > Entities (Neil, 11/17/2026) - see the Postgres list.
             "ALTER TABLE ir_investors ADD COLUMN legal_entity_code VARCHAR DEFAULT ''",
+            # MRE amount history and Paid by Tenant (Charmi, 11/18/2026) - see the Postgres list.
+            "ALTER TABLE recurring_expenses ADD COLUMN amount_changes JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3990,6 +3992,9 @@ def _run_migrations():
         "ALTER TABLE legal_entities ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE legal_entity_owners ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ir_investors ADD COLUMN IF NOT EXISTS legal_entity_code VARCHAR DEFAULT ''",
+        # MRE (Charmi, 11/18/2026): a line's amount changes with their dates,
+        # and the months a tenant pays the bill. models.RecurringExpense.amount_changes.
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS amount_changes JSON DEFAULT '[]'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
