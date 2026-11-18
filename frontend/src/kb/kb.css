@@ -618,3 +618,6 @@ html.nx-kb .page-trail { text-transform: none; letter-spacing: 0; font-size: 13p
 .kb .kb-refresher-result b { display: inline-flex; align-items: center; gap: 6px; }
 .kb .kb-refresher-result.ok b { color: var(--kb-green); } .kb .kb-refresher-result.miss b { color: #b91c1c; }
 .kb .kb-refresher.compact .kb-refresher-text { font-size: 14px; }
+/* The Dashboard tile wears the board's card (.dash-card), sized by the tile. */
+.kb .kb-refresher.compact { margin: 0; height: 100%; box-sizing: border-box; }
+.kb .kb-refresher.compact .kb-refresher-head b { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }

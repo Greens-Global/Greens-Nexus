@@ -18,7 +18,7 @@ import { DashCard, navigate } from './widgets.jsx';
 import { MoreRow, WidgetError, WidgetSkeleton } from './listParts.jsx';
 import { openSession } from './essentials/punchMath.js';
 
-export const noteStyle = { fontSize: 13, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
+export const noteStyle = { fontSize: 13, color: 'var(--muted)', padding: 'var(--dash-empty-pad, 24px 8px)', textAlign: 'center', lineHeight: 1.5 };
 const fmtH = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
 const DAY_MS = 86400000;
 // Local calendar date as YYYY-MM-DD - the key the time clock's `days` map uses.
@@ -34,7 +34,9 @@ const STATUS_TONE = {
   pending: 'orange', open: 'orange', approved: 'green', resolved: 'green',
   rejected: 'red', overdue: 'red', cancelled: 'muted', canceled: 'muted',
 };
-export function Row({ Icon, title, meta, status, statusLabel, onClick }) {
+// `metaLines`: clamp the second line to that many lines (the whole text stays
+// in its tooltip) - a long "worst item" sentence ran five lines on a phone.
+export function Row({ Icon, title, meta, status, statusLabel, onClick, metaLines = 0 }) {
   const tone = STATUS_TONE[status] || 'blue';
   const color = tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
   // No onClick = a plain, non-interactive row (Coming Up: there is no screen
@@ -48,7 +50,9 @@ export function Row({ Icon, title, meta, status, statusLabel, onClick }) {
       {Icon && <span className="dk-chip dk-chip--blue" style={{ width: 28, height: 28, borderRadius: 7, flexShrink: 0 }}><Icon size={14} /></span>}
       <span style={{ flex: 1, minWidth: 0 }}>
         <span title={typeof title === 'string' ? title : undefined} style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
-        {meta && <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{meta}</span>}
+        {meta && <span title={metaLines && typeof meta === 'string' ? meta : undefined}
+          style={{ display: metaLines ? '-webkit-box' : 'block', fontSize: 12, color: 'var(--muted)',
+            ...(metaLines ? { WebkitLineClamp: metaLines, WebkitBoxOrient: 'vertical', overflow: 'hidden' } : null) }}>{meta}</span>}
       </span>
       {statusLabel && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color, flexShrink: 0 }}>

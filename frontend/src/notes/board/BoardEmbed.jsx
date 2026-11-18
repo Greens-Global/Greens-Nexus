@@ -8,7 +8,8 @@
 // ride along (data-thumb outside our storage is dropped on both sides).
 import { Node, mergeAttributes } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
-import { PenTool, X } from 'lucide-react';
+import { X } from 'lucide-react';
+import BoardIcon from '../../components/icons/BoardIcon';
 import { isOwnImageUrl } from '../../lib/storageView';
 import { openBoard, noteInAddress } from '../newBoard';
 import { EDITED } from '../noteMedia';
@@ -33,7 +34,7 @@ function EmbedView({ node, editor, getPos }) {
         title={`Open the board "${title}"`} aria-label={`Open the board ${title}`}>
         {thumb
           ? <img className="nt-board-embed-thumb" src={thumb} alt="" loading="lazy" />
-          : <span className="nt-board-embed-thumb is-empty" aria-hidden="true"><PenTool size={18} /></span>}
+          : <span className="nt-board-embed-thumb is-empty" aria-hidden="true"><BoardIcon size={18} /></span>}
         <span className="nt-board-embed-text">
           <span className="nt-board-embed-kicker">Board</span>
           <span className="nt-board-embed-title">{title}</span>

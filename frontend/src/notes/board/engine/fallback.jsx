@@ -6,7 +6,8 @@
 // offers Retry - which imports the engine again (a failed load is not
 // remembered, see ./index.js).
 import { Component } from 'react';
-import { PenTool, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import BoardIcon from '../../../components/icons/BoardIcon';
 import { SkeletonBlocks } from '../../../components/AsyncState';
 
 export default function BoardFallback({ note, onRetry, busy = false }) {
@@ -18,7 +19,7 @@ export default function BoardFallback({ note, onRetry, busy = false }) {
         ? <img className="nx-board-fallback-pic" src={thumb} alt={`${title} - the last saved picture`} />
         : (
           <div className="nx-board-fallback-empty">
-            <PenTool size={28} aria-hidden="true" />
+            <BoardIcon size={28} aria-hidden="true" />
             <span>No picture of this board yet.</span>
           </div>
         )}

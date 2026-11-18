@@ -6,7 +6,8 @@
 // here as on the Notes page; what it made is said in the foot (Oct 31 2026).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ArrowUpRight, Check, Loader2, CloudOff, PenTool } from 'lucide-react';
+import { X, ArrowUpRight, Check, Loader2, CloudOff } from 'lucide-react';
+import BoardIcon from '../components/icons/BoardIcon';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
@@ -183,7 +184,7 @@ export default function QuickNotePanel({ onClose, seed = '' }) {
             </div>
           </div>
           <button type="button" className="nt-text-btn" onClick={newBoard} title="A whiteboard to draw, plan and mark things up">
-            <PenTool size={14} aria-hidden="true" /> New Board
+            <BoardIcon size={14} aria-hidden="true" /> New Board
           </button>
           <button type="button" className="nt-text-btn" onClick={() => { openInNotes(id || ''); onClose(); }}>
             Open in Notes <ArrowUpRight size={14} aria-hidden="true" />

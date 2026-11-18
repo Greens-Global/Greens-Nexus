@@ -5954,6 +5954,16 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 @container dkstat (max-width: 150px) {
   .dk-stat-num { font-size: 24px; }
 }
+/* A half-width phone pair gives a long label a second line instead of
+   cutting it ("Requisitions to Appr...") - 11/17/2026 phone pass. A noted
+   tile keeps one line: its note needs the room. The desktop board's shorter
+   two-row tile keeps the ellipsis. */
+@container dkstat (max-width: 220px) {
+  .dash-stack-cell .dk-stat:not(.dk-stat--noted) .dk-stat-label {
+    white-space: normal; line-height: 1.25;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  }
+}
 /* A tile whose line under the label is information, not a hint - My Open
    Tasks' "+12 with no due date, +8 recurring" (Oct 23 2026) - keeps that line
    on a two-row tile: the chip and the numeral tighten to make room. */
@@ -5969,6 +5979,45 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dk-sub-short { display: inline; }
 }
 
+/* Phone stack (11/17/2026): the tiles sit 16px in from their edges - an
+   iOS / Android widget's margin - not the desktop board's 20px. */
+.dash-stack-cell .dash-card { padding: 16px; }
+/* An empty list says so in one line, not in a 24px-padded block (the
+   widgets' empty lines read this; the desktop board keeps its spacing). */
+.dash-stack-cell { --dash-empty-pad: 10px 4px; }
+/* A lone stat tile on a phone (nothing beside it to pair with) is one row:
+   the chip, the label (and its note) and the number at the end. */
+.dash-lone .dk-stat--tile:not(.dk-stat--hero) {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto;
+  /* Nothing spans both rows: a spanning chip would share its height with
+     the second row and lift the label off center when there is no note. */
+  grid-template-areas: "top label num" ". sub ."; align-content: center; align-items: center;
+  column-gap: 12px; padding: 12px 16px;
+}
+.dash-lone .dk-stat--tile:not(.dk-stat--hero) .dk-stat-top { grid-area: top; width: auto; }
+.dash-lone .dk-stat--tile:not(.dk-stat--hero) .dk-stat-arrow { display: none; }
+.dash-lone .dk-stat--tile:not(.dk-stat--hero) .dk-stat-num { grid-area: num; margin-top: 0; font-size: 24px; line-height: 1; }
+.dash-lone .dk-stat--tile:not(.dk-stat--hero) .dk-stat-label { grid-area: label; margin-top: 0; }
+.dash-lone .dk-stat--tile:not(.dk-stat--hero) .dk-stat-sub { grid-area: sub; }
+/* Phone agenda (dashboard/PhoneAgenda.jsx, 11/17/2026): the Outlook widget's
+   shape - the date in a column of its own beside the day's list; on a card
+   narrower than 300px (a 320px phone) the date sits over the list instead,
+   so the titles keep their width. */
+.nx-agenda { container-type: inline-size; container-name: nxagenda; }
+.nx-agenda-in { display: flex; gap: 14px; min-width: 0; }
+.nx-agenda-date {
+  flex: 0 0 auto; width: 84px; align-self: flex-start; display: flex; flex-direction: column;
+  border: none; background: none; padding: 0; margin: 0; text-align: left; cursor: pointer; font-family: inherit;
+}
+.nx-agenda-wd { font-size: 13px; font-weight: 600; color: hsl(var(--color-blue)); line-height: 18px; white-space: nowrap; }
+.nx-agenda-day { font-size: 32px; font-weight: 500; color: var(--ink); line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.nx-agenda-list { flex: 1; min-width: 0; margin: -8px 0; }   /* the rows' own 8px padding meets the card's at both edges */
+@container nxagenda (max-width: 300px) {
+  .nx-agenda-in { flex-direction: column; gap: 2px; }
+  .nx-agenda-date { width: auto; flex-direction: row; align-items: baseline; gap: 8px; }
+  .nx-agenda-day { font-size: 24px; }
+  .nx-agenda-list { margin: 0 0 -8px; }
+}
 .dash-grid .sc-tile { container-type: size; container-name: sctile; gap: 9px; }
 .sc-tile-chip { width: 44px; height: 44px; border-radius: 12px; }
 .sc-tile-name {
