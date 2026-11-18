@@ -5,8 +5,14 @@ import {
   collectDates, itemsForMode, groupDates, missingByKind, rollYear, rollPatch, datesSummary, bucketOf, relativeDays,
 } from './datesModel.js';
 
-// Today is fixed: 11/17/2026.
-beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 10, 17, 9, 0, 0)); });
+// Today is fixed: 11/17/2026. Set here, at the top of the file, and again
+// before the tests run: several describe blocks below build their rows while
+// the file is being collected, which is BEFORE any beforeAll - with the clock
+// frozen only there, those rows counted from the real date and the file passed
+// only on 11/17/2026 itself.
+const freeze = () => { vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 10, 17, 9, 0, 0)); };
+freeze();
+beforeAll(freeze);
 afterAll(() => { vi.useRealTimers(); });
 
 const P = (id, extra = {}) => ({ id, kind: 'property', name: `Property ${id}`, ...extra });
