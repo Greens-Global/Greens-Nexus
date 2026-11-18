@@ -564,8 +564,11 @@ class LeasingApiTests(unittest.TestCase):
         self.assertEqual(sorted(p["location"] for p in buckets), ["12000", "15000"])
         self.assertTrue(all(p["customer"] == "C00498" and p["by"] == "month" for p in buckets))
         # 11/18/2026: and each entity once with no customer (untagged_rent).
-        whole = [p for (path, p) in self.asked if path.endswith("/reports/buckets") and "customer" not in p]
+        whole = [p for (path, p) in self.asked if path.endswith("/reports/buckets") and "customer" not in p and p["by"] == "month"]
         self.assertEqual(sorted(p["location"] for p in whole), ["12000", "15000"])
+        # 11/19/2026 audit guard: and each entity once by customer for the year.
+        payers = [p for (path, p) in self.asked if path.endswith("/reports/buckets") and p["by"] == "customer"]
+        self.assertEqual(sorted(p["location"] for p in payers), ["12000", "15000"])
         self.assertEqual([p for (path, p) in self.asked if path.endswith("/reports/by-customer") and "C00498" in p["customers"]], [])
 
     def test_oct23_rent_is_pulled_from_the_location_the_lease_maps_to(self):
