@@ -1658,6 +1658,8 @@ def _run_migrations():
             "ALTER TABLE vault_credentials ADD COLUMN site_id VARCHAR DEFAULT ''",
             # Return Pending on a leaver's checkout (Neil, 11/14/2026) - see the Postgres list.
             "ALTER TABLE item_checkouts ADD COLUMN holder_left_at VARCHAR DEFAULT ''",
+            # Accounting > Entities (Neil, 11/17/2026) - see the Postgres list.
+            "ALTER TABLE ir_investors ADD COLUMN legal_entity_code VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3981,6 +3983,13 @@ def _run_migrations():
         # Return Pending (Neil, 11/14/2026): a checkout still out with someone
         # who was offboarded stays out until Received / Lost on the exit.
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS holder_left_at VARCHAR DEFAULT ''",
+        # Accounting > Entities (Neil, 11/17/2026): each entity's legal record
+        # and the owners of entities that are not deals - two new tables,
+        # explicit RLS - and the investor profile that IS one of our entities.
+        # models.LegalEntity / LegalEntityOwner / IrInvestor.
+        "ALTER TABLE legal_entities ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE legal_entity_owners ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ir_investors ADD COLUMN IF NOT EXISTS legal_entity_code VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -5987,6 +5996,8 @@ from routers import facility_maintenance_map  # noqa: E402
 app.include_router(facility_maintenance_map.router)  # Operations: open tickets + maintenance per Cubby unit, for the map layer (Neil, Ops 10/20)
 from routers import ops_reports as ops_reports_router  # noqa: E402
 app.include_router(ops_reports_router.router)     # Operations > Reports: Cubby's reports interactive + Report Builder (Neil, 10/20)
+from routers import ops_tenants as ops_tenants_router  # noqa: E402
+app.include_router(ops_tenants_router.router)     # Operations > Tenants: read-only tenant directory + record, facility / tenant-details access rules (Neil, 11/17)
 from routers import unit_map as unit_map_router  # noqa: E402
 app.include_router(unit_map_router.ops_router)     # Operations > Site Map: site model + layers per facility (Neil, 10/20)
 app.include_router(unit_map_router.public_router)  # Customer unit map /find/<token>: one unit, the route, no login (Neil, 10/20)
@@ -6106,3 +6117,6 @@ from routers import meetings as meetings_router  # noqa: E402
 app.include_router(meetings_router.router)  # Meeting Notes: a Notes note for a Teams meeting - transcript and recording stay in Teams, linked (Neil, 11/12/2026)
 from routers import build_preview_auth  # noqa: E402
 app.include_router(build_preview_auth.router)  # Build Mode hosted previews: a preview borrows the dev site's sign-in (build_preview.py, 11/13/2026)
+from routers import accounting_entities as accounting_entities_router  # noqa: E402 - legal_entities / legal_entity_owners: create_all + explicit RLS lines
+app.include_router(accounting_entities_router.router)  # Accounting > Entities: each entity's legal record, live books and ownership (Neil, 11/17/2026)
+app.include_router(accounting_entities_router.ir_router)  # Investor Relations: a deal's Legal line and an investor that is one of our entities (11/17/2026)

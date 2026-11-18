@@ -249,6 +249,7 @@ def _serialize_investor(v: IrInvestor, *, committed=0.0, fund_count=0, portal_fu
         "relationshipOwnerEmail": v.relationship_owner_email or "",
         "notes":                  v.notes or "",
         "intacctAccounts":        [a for a in (v.intacct_accounts or "").split(",") if a],
+        "legalEntityCode":        v.legal_entity_code or "",
         "status":                 v.status or "active",
         "createdBy":              v.created_by or "",
         "createdAt":              v.created_at or "",

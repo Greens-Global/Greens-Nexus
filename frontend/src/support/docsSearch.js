@@ -168,7 +168,7 @@ export const DOC_KEYWORDS = {
   'item-management': 'laptop computer monitor phone equipment device broken damaged dead lost stolen return borrow checkout loan extension new laptop order',
   support: 'help ticket problem issue broken not working bug error contact it hr facilities follow up status reply',
   tickets: 'ticket queue sla assign resolve agent desk',
-  'credential-vault': 'password shared password login credentials vault reveal',
+  'credential-vault': 'passwords password shared password login credentials vault reveal',
   it: 'wifi vpn internet network outage website down offline',
   'knowledge-base': 'policy sop handbook procedure training course sign off',
   documents: 'sign signature esign contract agreement template pdf',

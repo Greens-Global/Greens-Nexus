@@ -11,9 +11,9 @@
 
 export const MODULE_CAPABILITIES = {
   accounting: {
-    viewer: 'The Accounting screen - Profit & Loss, ledgers and every report.',
-    editor: 'Also record and edit entries, budgets, loans, leases, flux and saved reports, and run imports.',
-    full:   'Also allocations, the compensation sub-ledger, liability reconciliation, the month-end close and saved-report administration. Entity access still limits which entities they read.',
+    viewer: 'The Accounting screen - Profit & Loss, ledgers, every report and each entity\'s record and structure chart.',
+    editor: 'Also record and edit entries, budgets, loans, leases, flux and saved reports, run imports, and edit an entity\'s legal record and owners.',
+    full:   'Also allocations, the compensation sub-ledger, liability reconciliation, the month-end close, saved-report administration, showing an entity\'s whole EIN and marking an entity Dissolved or Sold. Entity access still limits which entities they read.',
     tiers:  { administrator: 'opens the screen without a grant' },
   },
   'accounting-app': {
@@ -95,11 +95,14 @@ export const MODULE_CAPABILITIES = {
     editor: 'Same as Viewer.',
     full:   'Same as Viewer.',
   },
+  // Tenants (Neil, 11/17/2026): tenant details are no level's - below
+  // Administrator they open by a rule (backend/ops_access.py `reach`), and
+  // the rules are kept by an Administrator or Operations Full (`may_manage`).
   operations: {
-    viewer: 'Read everything - portfolio, reports, insights, CMA, rates, unit map, third parties, budget and facility work.',
+    viewer: 'Read everything - portfolio, reports, insights, CMA, rates, unit map, third parties, budget and facility work. Tenant contact details and gate codes are not part of any level: they open only by a rule under Settings > Operations > Tenants And Facility Access.',
     editor: 'Also edit rates, reports, third-party records, facility work, the unit map and CMA drafts.',
-    full:   'Also approve CMAs, revenue, the customer map and the budget, and save Operations and Cubby settings.',
-    tiers:  { supervisor: 'reads without a grant', manager: 'edits and approves', administrator: 'settings' },
+    full:   'Also approve CMAs, revenue, the customer map and the budget, save Operations and Cubby settings, and keep the Tenants And Facility Access rules.',
+    tiers:  { supervisor: 'reads without a grant', manager: 'edits and approves', administrator: 'settings, and tenant details at every facility without a rule' },
   },
   'property-asset': {
     viewer: 'The properties, vehicles and equipment they may see.',
@@ -153,9 +156,9 @@ export const MODULE_CAPABILITIES = {
     tiers:  { manager: 'Editor without a grant', super: 'deletes without a grant' },
   },
   credvault: {
-    viewer: 'Open Credentials, use the shared logins their department or a share opens, and ask for the rest.',
-    editor: 'Also add and import credentials.',
-    full:   'Also manage every credential on their side of the company wall - edit, share, hand over, trash, recover and delete for good.',
+    viewer: 'Open Passwords (a Dashboard tab), use the shared logins their department or a share opens, and ask for the rest.',
+    editor: 'Also add and import logins.',
+    full:   'Also manage every login on their side of the company wall - edit, share, hand over, trash, recover and delete for good.',
     tiers:  { administrator: 'the whole activity log' },
   },
   testing: {

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
-import { PATH_TO_VIEW, tabAddress, VIEW_TO_PATH, purchaseRedirect, egnyteRedirect, itemsRedirect, addressFor, itemLinkSub, ticketPlaceSub } from './lib/routes';
+import { PATH_TO_VIEW, tabAddress, VIEW_TO_PATH, purchaseRedirect, egnyteRedirect, itemsRedirect, addressFor, itemLinkSub, ticketPlaceSub, vaultSubOf } from './lib/routes';
 import { workforceRedirect, WORKFORCE_GRANTS } from './lib/workforceAccess';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
@@ -425,7 +425,11 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate, onBounc
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
-    case "credvault":          return <CredentialVault activeSub={activeSub} onSubChange={onSubChange} />;
+    // Passwords is a Dashboard tab (Neil, 11/18/2026). The view id still opens
+    // it - bells, emails, saved links - and views/CredentialVault.jsx sends
+    // the person on to the tab; an outside guest, who has no Dashboard, gets
+    // the same screen by itself.
+    case "credvault":          return <CredentialVault activeSub={activeSub} onBounce={onBounce} />;
     case "shifts":             return <Shifts activeSub={activeSub} onSubChange={onSubChange} />;
     case "legal":              return <Legal activeSub={activeSub} onSubChange={onSubChange} />;
     // Old links to the two separate pages open their tab of Legal.
@@ -529,7 +533,7 @@ const DEFAULT_SUBS = {
   ops:               "construction-dashboard",
   operations:        "overview",
   development:       "dev-permits",
-  "property-asset":  "asset-portfolio",
+  "property-asset":  "asset-overview",   // Asset Management lands on Overview (Neil, 11/17/2026); /asset-portfolio is Properties
   hr:                "hr-ms",
   documents:         "documents-files",   // Files opens on Browse Files (Neil, 11/10/2026); a documents-only grant gets its first tab
   "investor-relations": "investor-dashboard",
@@ -850,9 +854,9 @@ function MainApp() {
   // A bounce off a screen this person cannot open (ProtectedView): the next
   // address write replaces that screen's entry instead of pushing over it.
   const bounceFrom = useRef(null);
-  function bounce(view) {
+  function bounce(view, sub = null) {
     bounceFrom.current = { view: activeView, sub: activeSub };
-    navigate(view);
+    navigate(view, sub);
   }
 
   useEffect(() => {
@@ -912,11 +916,17 @@ function MainApp() {
     if (fromPopstate.current) { fromPopstate.current = false; prevLocRef.current = { view: activeView, sub: activeSub }; return; }
     const seg = VIEW_TO_PATH[activeView] || activeView;
     // The Links tab gets the short /links address (Sep 22) - see parsePath.
+    // Passwords, a Dashboard tab since 11/18/2026, keeps the address its own
+    // view writes (/passwords, /passwords/cred-<id>), so a link reads the same
+    // for an employee on the tab and a guest on the standalone screen.
+    const vaultSub = activeView === 'dashboard' ? vaultSubOf(activeSub) : null;
     const path = activeView === 'dashboard' && !activeSub
       ? '/'
       : activeView === 'dashboard' && activeSub === 'links'
         ? '/links'
-        : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
+        : vaultSub !== null
+          ? `/${VIEW_TO_PATH.credvault}${vaultSub ? `/${vaultSub}` : ''}`
+          : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
     const bounced = !!bounceFrom.current && bounceFrom.current.view === prevLocRef.current.view && bounceFrom.current.sub === prevLocRef.current.sub;
     if (bounced) bounceFrom.current = null;
     if (window.location.pathname !== path && (first || bounced)) {

@@ -193,6 +193,8 @@ const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSett
 const OpsSettingsPanel = lazy(() => import('../operations/OpsSettings'));
 // Cubby tasks in Nexus Tasks (Neil, Oct 30 2026): the switches and the facility -> project map.
 const CubbyTasksSettingsPanel = lazy(() => import('../operations/CubbyTasksSettings'));
+// Who sees which facilities and tenant details in Operations (Neil, 11/17/2026).
+const OpsAccessSettingsPanel = lazy(() => import('../operations/OpsAccessSettings'));
 // Performance (Oct 27 2026): the goal and 1:1 reminders, layered per company.
 const PerformanceReminderSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceReminderSettings })));
 const PerformanceKudosSettings = lazy(() => import('../performance/PerformanceSettings').then(m => ({ default: m.PerformanceKudosSettings })));
@@ -350,7 +352,7 @@ const GROUPS = [
   // Security
   { id: 'sign-in-sessions', subject: 'security', face: 'org', scope: 'org', icon: ShieldCheck, title: 'Sign-In & Sessions',
     needs: { role: 'administrator' },
-    sub: 'How long web, Act As and Credentials sessions last, and guest sign-in codes.',
+    sub: 'How long web, Act As and Passwords sessions last, and guest sign-in codes.',
     keywords: 'session timeout idle act as vault unlock guest partner code lockout invite security' },
   { id: 'signin-policy', subject: 'security', face: 'org', scope: 'org', icon: FileCheck, title: 'Sign-In Policy',
     needs: { role: 'administrator' },
@@ -588,6 +590,11 @@ const GROUPS = [
     needs: { role: 'manager', grant: ['operations', 'editor'] },
     sub: 'Which Cubby unit types are mailboxes, and which records are not units at all, by the words in the unit type name.',
     keywords: 'unit types mailbox excluded words cubby facility operations units' },
+  // Access by role and by person (Neil, 11/17/2026); the route asks for an Administrator or Operations Full.
+  { id: 'ops-tenant-access', subject: 'operations', face: 'org', scope: 'org', icon: Warehouse, title: 'Tenants And Facility Access',
+    needs: { role: 'administrator', grant: ['operations', 'full'] },
+    sub: 'Which facilities each person or role sees in Operations, and who sees tenant contact details and gate codes. Tenant details are a read-only copy of Cubby.',
+    keywords: 'tenants tenant details contact phone email gate code access rules facility facilities role person access group job role cubby operations directory' },
   // Performance
   // Performance (made simple, Oct 29 2026): one group. Reviews have one
   // 4-word rating and no values, so the scale and values groups are gone.
@@ -2157,6 +2164,7 @@ function SettingsBody({ subject, group, company, home = false, onNavigate, onDir
       case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ops-cubby-push':       return <LazyPanelSection key={key} id={id} Panel={OpsSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       case 'ops-cubby-tasks':      return <LazyPanelSection key={key} id={id} Panel={CubbyTasksSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
+      case 'ops-tenant-access':    return <LazyPanelSection key={key} id={id} Panel={OpsAccessSettingsPanel} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;
       // Phase 3: the strays, each the component its module owns.
       case 'payroll-readiness':    return <LazyPanelSection key={key} id={id} Panel={ReadinessThresholds} chrome={chrome} {...layered} toastOk={toastOk} toastErr={toastErr} company={company} />;
       case 'ca-min-wage':          return <LazyPanelSection key={key} id={id} Panel={MinWageForm} chrome={chrome} toastOk={toastOk} toastErr={toastErr} />;

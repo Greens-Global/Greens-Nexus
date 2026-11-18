@@ -15,7 +15,6 @@ import { fileURLToPath } from 'node:url';
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 const ALLOWED = new Set([
-  'asset/App.jsx',                    // the open asset's name
   'construction/job/JobPage.jsx',     // the open job's name
   'views/IT.jsx',                     // the open site's name
   'components/TimeTrackingAdmin.jsx',

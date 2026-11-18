@@ -165,6 +165,36 @@ class SalariedNov06(unittest.TestCase):
         finally:
             db.close()
 
+    # ── 11/18/2026: Valinda's card (Neil: the day bands are India only) ──────
+    def _days(self, em, anchor="2026-09-15"):
+        return {d["date"]: d for d in self._card(em, anchor)["fixedDays"]}
+
+    def test_us_salaried_short_day_is_not_docked(self):
+        db = database.SessionLocal()
+        try:
+            for em in (US, IN):
+                _punch(db, em, "2026-09-08", 3)   # a Tuesday, 3 h
+            db.commit()
+        finally:
+            db.close()
+        us, ind = self._days(US)["2026-09-08"], self._days(IN)["2026-09-08"]
+        self.assertEqual((us["status"], us["deduct"]), ("present", 0.0))
+        self.assertEqual(ind["status"], "half")
+        self.assertGreater(ind["deduct"], 0)
+
+    def test_us_salaried_vacation_day_is_paid(self):
+        db = database.SessionLocal()
+        try:
+            for kind, at, cat in (("in", "2026-09-09T09:00:00", "Vacation"), ("out", "2026-09-09T17:00:00", "")):
+                db.add(models.TimePunch(id=f"{US}-vac-{kind}", employee_email=US, kind=kind, at=at,
+                                        local_date="2026-09-09", tz_offset_min=0, voided=0, created_at=at,
+                                        category=cat))
+            db.commit()
+        finally:
+            db.close()
+        day = self._days(US)["2026-09-09"]
+        self.assertEqual((day["status"], day["deduct"]), ("vacation", 0.0))
+
 
 if __name__ == "__main__":
     unittest.main()

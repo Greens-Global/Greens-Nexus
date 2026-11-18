@@ -9,6 +9,7 @@ import { EmptyState, ErrorState, FG, LoadingState, Modal, PeopleSelect, StatusTe
 import { Spinner } from '../components/AsyncState';
 import HoldButton from '../ui/HoldButton';
 import { DealBooks, ImportFromBooks } from './Books';
+import { DealLegal } from './EntityLegal';
 
 const BLANK = {
   name: '', entityName: '', strategy: '', propertyName: '', status: 'raising',
@@ -407,6 +408,7 @@ export default function FundsTab() {
                 <textarea className="form-input" value={modal.form.thesis} placeholder="Why this deal - market, business plan, exit…"
                   onChange={e => setF({ thesis: e.target.value })} style={{ minHeight: 64, resize: 'vertical' }} />
               </FG>
+              {modal.id && <DealLegal fundId={modal.id} />}
               {modal.id && <DealBooks fundId={modal.id} onChanged={refresh} />}
               {modal.id && <DealPortalAccess fundId={modal.id} />}
               {formErr && <div className="form-group-full" style={{ color: 'hsl(var(--color-red))', fontSize: 13 }}>{formErr}</div>}

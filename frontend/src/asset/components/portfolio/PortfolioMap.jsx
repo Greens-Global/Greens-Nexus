@@ -14,10 +14,13 @@ const isUSLatLng = ([lat, lng]) => lat >= 15 && lat <= 72 && lng >= -170 && lng 
  * portfolio. Assets with nothing to place are listed under the map by name,
  * each a link to the asset, with the reason.
  */
-export function PortfolioMap({ assets, openProperty }) {
+export function PortfolioMap({ assets, openProperty, noun = 'assets' }) {
   const mapElRef = useRef(null);
   const mapRef = useRef(null);
   const [failed, setFailed] = useState(false);
+  // The map drew but its street tiles did not come (offline, a blocked host): say so in a
+  // plain line rather than leave a gray box that reads as an empty map.
+  const [tilesFailed, setTilesFailed] = useState(false);
 
   const list = (assets || []).filter((a) => !a.deleted);
   const placed = list.map((a) => [a, pinFor(a)]).filter(([, p]) => p);
@@ -35,7 +38,11 @@ export function PortfolioMap({ assets, openProperty }) {
       setFailed(true);
       return undefined;
     }
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+    let tileErrors = 0;
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' })
+      .on('tileerror', () => { tileErrors += 1; if (tileErrors >= 3) setTilesFailed(true); })
+      .on('tileload', () => { tileErrors = 0; setTilesFailed(false); })
+      .addTo(map);
     mapRef.current = map;
     const pinLayer = L.layerGroup().addTo(map);
     const bounds = [];
@@ -63,27 +70,31 @@ export function PortfolioMap({ assets, openProperty }) {
   }, [pinKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontSize: 13, color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+    <div className="pt-map">
+      <div className="pt-map-line">
         {failed ? (
-          <span style={{ color: 'hsl(var(--color-red))', fontWeight: 600 }}>Map couldn't load - check your internet connection.</span>
+          <span className="is-red">The map couldn't load - check your internet connection.</span>
         ) : (
-          <span><strong style={{ color: 'var(--text-primary)' }}>{placed.length}</strong> of {list.length} assets on the map</span>
+          <span>{placed.length === list.length ? `All ${list.length} ${noun} are on the map.` : `${placed.length} of ${list.length} ${noun} are on the map.`}</span>
         )}
+        {!failed && tilesFailed && <span className="is-red"> The street map isn't loading, so the pins sit on a blank background.</span>}
       </div>
-      <div ref={mapElRef} style={{ width: '100%', height: 'min(70vh, 640px)', borderRadius: 12, border: '1px solid var(--border-color)', overflow: 'hidden', backgroundColor: 'var(--bg-secondary)' }} />
+      <div ref={mapElRef} className="pt-map-canvas" />
       {unplaced.length > 0 && (
-        <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)' }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>
-            Not on the map yet ({unplaced.length}) - {unplaced.some(hasAddress) ? 'a new address is placed within about ten minutes' : 'add a street address or a Google Maps link'}:
+        <div className="pt-map-missing">
+          <div className="pt-map-missing-head">
+            Not on the map yet - {unplaced.some(hasAddress) ? 'a new address is placed within about ten minutes' : 'add a street address or a Google Maps link'}:
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {unplaced.map((a) => (
-              <button key={a.id} type="button" className="secondary-btn" onClick={() => openProperty && openProperty(a.id)}
-                title={hasAddress(a) ? (a.geo && a.geo.lat === null ? 'The address could not be placed - check it on the asset' : 'Waiting for the address to be placed') : 'No address on this asset'}
-                style={{ fontSize: 13, padding: '5px 10px' }}>
-                {a.name}{!hasAddress(a) ? ' · no address' : a.geo && a.geo.lat === null ? ' · address not found' : ''}
-              </button>
+          <div className="pt-map-missing-list">
+            {unplaced.map((a, i) => (
+              <span key={a.id}>
+                {i > 0 && <span className="pt-sep" aria-hidden="true">·</span>}
+                <button type="button" className="pt-link is-ink" onClick={() => openProperty && openProperty(a.id)}
+                  title={hasAddress(a) ? (a.geo && a.geo.lat === null ? 'The address could not be placed - check it on the asset' : 'Waiting for the address to be placed') : 'No address on this asset'}>
+                  {a.siteName && !a.parentId ? a.siteName : a.name}
+                </button>
+                <span className="pt-dim">{!hasAddress(a) ? ' (no address)' : a.geo && a.geo.lat === null ? ' (address not found)' : ''}</span>
+              </span>
             ))}
           </div>
         </div>

@@ -7,7 +7,7 @@ import { AssetOverview } from './AssetOverview.jsx';
 const iso = (days) => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
 const loader = { id: 'e1', kind: 'equipment', assetType: 'Heavy Equipment', name: 'Bobcat S650', devStage: 'In Service' };
 const van = { id: 'v1', kind: 'vehicle', assetType: 'Vehicle', name: 'Ford Transit 250', odometer: '12950' };
-const panel = () => screen.getByRole('region', { name: 'Needs attention' });
+const panel = () => screen.getByRole('region', { name: 'Needs Attention' });
 
 describe('AssetOverview Needs Attention', () => {
   afterEach(cleanup);

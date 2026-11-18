@@ -53,7 +53,9 @@ const ProfitabilityReport = screen(() => import('../components/accounting/Profit
 const CompensationReport = screen(() => import('../components/accounting/CompensationReport'));
 const ReportCenter = screen(() => import('../components/accounting/ReportCenter'));
 const ReportBuilder = screen(() => import('../components/accounting/ReportBuilder'));
-const EntitiesTab = screen(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.EntitiesTab })));
+// Entities (Neil, 11/17/2026): its own tab - each entity's legal record, structure chart and live books.
+const EntitiesTab = screen(() => import('../components/accounting/entities/EntitiesTab'));
+const EntityPage = screen(() => import('../components/accounting/entities/EntityPage'));
 const GlAccountsTab = screen(() => import('../components/accounting/RecordsLists').then((m) => ({ default: m.GlAccountsTab })));
 const JournalTab = screen(() => import('../components/accounting/JournalTab'));
 const ManualJournalEntries = screen(() => import('../components/accounting/ManualJournalEntries'));
@@ -111,6 +113,9 @@ const SCREEN_LOADING = <div style={{ marginTop: 8 }}><SkeletonBlocks count={3} /
 // Records > Journals: `journal-<symbol>` - lines read through the entity scope, so open to a limited person too.
 const JOURNAL_SUB = 'journal-';
 const journalOf = (key) => (String(key || '').startsWith(JOURNAL_SUB) ? key.slice(JOURNAL_SUB.length) : null);
+// Entities > one entity: `entity-<code>` (read through the entity scope, so open to a limited person too).
+const ENTITY_SUB = 'entity-';
+const entityOf = (key) => (String(key || '').startsWith(ENTITY_SUB) ? key.slice(ENTITY_SUB.length) || null : null);
 const rpt = (key, label, Icon) => ({ key: `rpt-${key}`, label, Icon });
 const BASE_TABS = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid, landing: 'overview', items: [
@@ -119,6 +124,11 @@ const BASE_TABS = [
     { key: 'performance', label: 'Performance', Icon: TrendingUp },
     { key: 'close', label: 'Close', Icon: CheckSquare },
   ] },
+  // 11/17/2026 (Neil, plan https://claude.ai/artifact/JZmUfATX7NvH2Qq4kAkJb1):
+  // Entities left Records for a tab of its own - every legal entity's legal
+  // record, its structure chart (owners, what it owns, managers, lenders) and
+  // its live books; one entity is `entity-<code>`. The key did not change.
+  { key: 'entities', label: 'Entities', Icon: Building2 },
   // 11/11/2026 (Neil approved picture 2 of the Accounting pass): two levels,
   // every name spelled out. All Reports, Report Builder and Packages lead;
   // each group is one flyout with no flyout inside it. Keys never change, so
@@ -208,7 +218,6 @@ const BASE_TABS = [
     { key: 'partners', label: 'Vendors', Icon: Users },
     { key: 'customers', label: 'Customers', Icon: Users },
     { key: 'gl-accounts', label: 'General Ledger Accounts', Icon: BookOpen },
-    { key: 'entities', label: 'Entities', Icon: Building2 },
     { key: 'grp-journals', label: 'Journals', Icon: Library, items: RECORDS_JOURNALS.map((s) => ({ key: `${JOURNAL_SUB}${s}`, label: JOURNAL_NAMES[s] || s, hint: JOURNAL_NAMES[s] ? s : undefined, Icon: BookOpen })) },
   ] },
   // Oct 6 (Neil: "create a Tools section in accounting"): the utility screens.
@@ -257,7 +266,7 @@ const isReports = (key) => String(key || '').startsWith('rpt-');
 // The part before any `:` - an activity report's account rides after it.
 const rptKey = (key) => (String(key || '').startsWith('rpt-') ? key.slice(4).split(':')[0] : null);
 /** The menu item a sub key lights: `rpt-bank-activity:11310` lights Bank Activity. */
-const menuKey = (key) => (String(key || '').startsWith('rpt-') ? key.split(':')[0] : key);
+const menuKey = (key) => (String(key || '').startsWith('rpt-') ? key.split(':')[0] : entityOf(key) ? 'entities' : key);
 
 /** The menu items from the bar down to `key`, or null when no menu holds it. */
 function pathTo(items, key, trail = []) {
@@ -312,7 +321,7 @@ const SCREEN_OF = {
   'mgmt-fees': ManagementFeesTab, profitability: ProfitabilityReport, compensation: CompensationReport,
   'payroll-summary': PayrollSummary, 'gl-accounts': GlAccountsTab, entities: EntitiesTab, 'manual-je': ManualJournalEntries,
 };
-const screenOf = (key) => (isReports(key) ? ReportsTab : journalOf(key) ? JournalTab : SCREEN_OF[key]);
+const screenOf = (key) => (isReports(key) ? ReportsTab : journalOf(key) ? JournalTab : entityOf(key) ? EntityPage : SCREEN_OF[key]);
 
 export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
@@ -362,16 +371,20 @@ export default function Accounting({ activeSub, onSubChange }) {
   const [prefs] = useAccountingPrefs();
   const dashDensity = dashDensityOf(prefs);
   // Data, Intercompany and Investments are the editable reference grids (editors and up).
-  const allowed = (key) => (key === 'pfs' ? canPfs : journalOf(key) ? true : limited ? LIMITED_TABS.includes(key) || !!reportOf(key)
+  const allowed = (key) => (key === 'pfs' ? canPfs : journalOf(key) || entityOf(key) ? true : limited ? LIMITED_TABS.includes(key) || !!reportOf(key)
     : (!['data', 'intercompany', 'investments'].includes(key) || canEdit) && (key !== 'access' || canManage) && (key !== 'compensation' || canManage) && (key !== 'payroll-summary' || canPayrollSummary));
   // Groups (and the flyouts inside them) keep only the items this person may
   // open; an empty one goes, and a top-level group left with one item is a
   // plain tab under the group's name.
   const prune = (items) => items.map((t) => (t.items ? { ...t, items: prune(t.items) } : t))
     .filter((t) => (t.items ? t.items.length > 0 : allowed(t.key)));
-  const tabs = prune(TABS)
+  const pruned = prune(TABS)
     .map((t) => (t.items?.length === 1 && t.key === 'financing' ? { key: t.items[0].key, label: t.label, Icon: t.Icon } : t))
     .map((t) => (t.landing && !leafKeys(t.items || []).includes(t.landing) ? { ...t, landing: undefined } : t));
+  // With no Dashboard (a limited person) Reports still leads and Entities follows it.
+  const tabs = pruned[0]?.key === 'entities' && pruned.some((t) => t.key === 'reporting')
+    ? [...pruned.slice(1, pruned.findIndex((t) => t.key === 'reporting') + 1), pruned[0], ...pruned.slice(pruned.findIndex((t) => t.key === 'reporting') + 1)]
+    : pruned;
   const leaves = leafKeys(tabs);
   const group = tabs.find((t) => t.key === activeSub && t.items);
   // A group opens its landing item, else its first - Reports opens the Report
@@ -383,7 +396,7 @@ export default function Accounting({ activeSub, onSubChange }) {
   };
   const wanted = group ? firstOf(group) : (ALIAS[activeSub] || activeSub);
   // Any statement or quick view lands, in the menu or not (an old rpt-pnl link).
-  const reachable = (k) => leaves.includes(k) || (!!reportOf(k) && allowed(k));
+  const reachable = (k) => leaves.includes(k) || (!!reportOf(k) && allowed(k)) || (!!entityOf(k) && leaves.includes('entities'));
   const sub = reachable(wanted) ? wanted : (tabs[0] ? firstOf(tabs[0]) : leaves[0]);
   useEffect(() => { if (access && sub !== activeSub) onSubChange?.(sub); }, [access, sub, activeSub, onSubChange]);
 
@@ -451,7 +464,8 @@ export default function Accounting({ activeSub, onSubChange }) {
   const records = (
     <>
       {sub === 'gl-accounts' && <GlAccountsTab />}
-      {sub === 'entities' && <EntitiesTab />}
+      {sub === 'entities' && <EntitiesTab onOpen={(code) => onSubChange?.(`${ENTITY_SUB}${code}`)} />}
+      {entityOf(sub) && <EntityPage key={sub} code={entityOf(sub)} onSubChange={onSubChange} />}
       {journalOf(sub) && <JournalTab key={sub} symbol={journalOf(sub)} />}
       {sub === 'manual-je' && <ManualJournalEntries />}
     </>

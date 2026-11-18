@@ -53,7 +53,7 @@ descriptions; a changed gate changes it in the same PR.
 | Module | Viewer | Editor | Full | Still tier-only |
 |---|---|---|---|---|
 | Tasks | Sees tasks assigned to or shared with them; does not create tasks | Creates, edits and completes tasks | Acts as a manager inside Tasks (was Owner) | - |
-| Credentials | see the Level Guide | see the Level Guide | Manages every credential | - |
+| Passwords (was Credentials) | see the Level Guide | see the Level Guide | Manages every login | - |
 | Testing | see the Level Guide | see the Level Guide | Deletes runs | - |
 | Files | Reads | Writes | Deletes | - |
 | Build Mode | Reads | Works their own pins | Works anyone's pins | - |

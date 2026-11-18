@@ -138,18 +138,16 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
         <div
           style={{
             marginBottom: 14,
-            padding: '12px 14px',
-            borderRadius: 10,
-            border: '1px solid hsla(var(--color-red), 0.4)',
-            backgroundColor: 'hsla(var(--color-red), 0.08)',
+            paddingBottom: 14,
+            borderBottom: '1px solid var(--border-color)',
           }}
         >
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: requireReason ? 8 : 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-red))', marginBottom: requireReason ? 8 : 0 }}>
             Remove this {recordType.title.toLowerCase()}?{requireReason ? '' : ' It leaves the record for good.'}
           </div>
           {requireReason && (
             <>
-              <label htmlFor="record-remove-reason" style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
+              <label htmlFor="record-remove-reason" style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
                 Reason for removing this {recordType.title.toLowerCase()} <span style={{ color: 'hsl(var(--color-red))' }}>*</span>
               </label>
               <textarea

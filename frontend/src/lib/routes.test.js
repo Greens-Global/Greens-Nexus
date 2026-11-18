@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor, tabAddress, TAB_ADDRESSES } from './routes';
+import { PATH_TO_VIEW, VIEW_TO_PATH, purchaseRedirect, addressFor, tabAddress, TAB_ADDRESSES, passwordsSub, vaultSubOf } from './routes';
 
 // The address-bar aliases. Insights (Neil, Oct 14 2026): the module reads
 // /insights; old /bi links (bookmarks, emails) still open it; the view id
@@ -52,13 +52,26 @@ describe('addressFor', () => {
   });
 });
 
-// Credential Vault is Credentials (Neil, Oct 28 2026): the address reads
-// /credentials, old /credvault links still land, the stored id stays.
-describe('credentials address', () => {
-  it('writes /credentials and reads both addresses as the credvault view', () => {
-    expect(VIEW_TO_PATH.credvault).toBe('credentials');
+// Credentials is Passwords, a Dashboard tab (Neil, 11/18/2026): the address
+// reads /passwords, old /credentials and /credvault links still land, the
+// stored id stays.
+describe('passwords address', () => {
+  it('writes /passwords and reads all three addresses as the credvault view', () => {
+    expect(VIEW_TO_PATH.credvault).toBe('passwords');
+    expect(PATH_TO_VIEW.passwords).toBe('credvault');
     expect(PATH_TO_VIEW.credentials).toBe('credvault');
     expect(PATH_TO_VIEW.credvault).toBe('credvault');
+  });
+
+  it("lands the vault's old subs on the Dashboard tab, and a request to approve in Approvals", () => {
+    expect(passwordsSub(null)).toBe('passwords');
+    expect(passwordsSub('cred-abc')).toBe('passwords:cred-abc');
+    expect(passwordsSub('trash')).toBe('passwords:trash');
+    expect(passwordsSub('approvals')).toBe('approvals:access');
+    expect(vaultSubOf('passwords')).toBe('');
+    expect(vaultSubOf('passwords:cred-abc')).toBe('cred-abc');
+    expect(vaultSubOf('notes')).toBeNull();
+    expect(vaultSubOf(null)).toBeNull();
   });
 });
 

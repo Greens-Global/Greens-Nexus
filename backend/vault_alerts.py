@@ -60,14 +60,14 @@ def due(db, c, *, reused: bool, days_since, days_until, today: datetime, exposed
     out = []
     left = days_left(c, days_since, days_until)
     if left is not None and left in WARN_DAYS and not _sent_since(db, "vault_expiry", c.id, today):
-        out.append(("vault_expiry", "Credentials - Expires Soon" if left else "Credentials - Expires Today",
+        out.append(("vault_expiry", "Passwords - Expires Soon" if left else "Passwords - Expires Today",
                     "it expires today" if left == 0 else f"it expires in {left} day{'s' if left != 1 else ''}"))
     if left is not None and left < 0 and not _sent_since(db, "vault_expired", c.id, today - timedelta(days=REPEAT_DAYS - 1)):
-        out.append(("vault_expired", "Credentials - Expired",
+        out.append(("vault_expired", "Passwords - Expired",
                     f"it expired {-left} day{'s' if left != -1 else ''} ago"))
     issues = attention(c, reused, exposed)
     if issues and not _sent_since(db, "vault_attention", c.id, today - timedelta(days=REPEAT_DAYS - 1)):
-        out.append(("vault_attention", "Credentials - Needs Attention", " and ".join(issues)))
+        out.append(("vault_attention", "Passwords - Needs Attention", " and ".join(issues)))
     return out
 
 
@@ -91,7 +91,7 @@ def run(db, creds, *, reused_of, heads_of, days_since, days_until, notify, mail,
             if e and e not in people:
                 people.append(e)
         for ntype, title, line in items:
-            body = f"{c.name} ({c.dept or 'every department'}): {line}. Change the password and save it in Credentials."
+            body = f"{c.name} ({c.dept or 'every department'}): {line}. Change the password and save it in Passwords."
             for who in people:
                 notify(ntype, who, title, body, c)
             mail(people, title, body, c)

@@ -47,7 +47,7 @@ export const MODULES = [
   { id: 'admin-console',       label: 'Settings' },
   { id: 'support',             label: 'Help Center' },
   { id: 'testing',             label: 'Testing' },
-  { id: 'credvault',           label: 'Credentials' },
+  { id: 'credvault',           label: 'Passwords' },   // Dashboard > Passwords (Neil, 11/18/2026); the id is the stored grant
   { id: 'egnyte',              label: 'Files - Browse Files' },   // the Files module's Egnyte tabs (Browse Files, Wiring)
   // Workforce Analytics > Scorecard + the weekly manager email (Neil, 10/10):
   // viewer = their own reporting line, full = the whole company.

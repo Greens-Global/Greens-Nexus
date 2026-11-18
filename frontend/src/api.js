@@ -883,7 +883,7 @@ export const api = {
   // Paid leave balances (Oct 19 2026, routers/leave_balances.py).
   leaveMyBalance:      ()           => req('/leave-balances/me'),
   leavePersonBalance:  (email)      => req(`/leave-balances/person/${encodeURIComponent(email)}`),
-  leaveAdmin:          ()           => req('/leave-balances/admin'),
+  leaveAdmin:          (asOf = '')  => req(`/leave-balances/admin${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ''}`),
   // `company` (Oct 23): that company's own start date; `reset` drops it so it follows the organization's.
   leaveSetCutover:     (date, company = '', reset = false) => req('/leave-balances/cutover', { method: 'PUT', body: JSON.stringify({ date, company, reset }) }),
   leaveSavePolicies:   (policies)   => req('/leave-balances/policies', { method: 'PUT', body: JSON.stringify({ policies }) }),
@@ -3908,3 +3908,41 @@ api.reopenExitStatement = (eid, note = '') => req(`/exit-statements/${encodeURIC
 api.exitMailboxHandover = (eid, done = true) => req(`/exit-statements/${encodeURIComponent(eid)}/mailbox-handover`, { method: 'POST', body: JSON.stringify({ done }) });
 api.exitItemOutcome = (eid, kind, rowId, outcome, body = {}) => req(`/exit-statements/${encodeURIComponent(eid)}/items/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
 api.settleReturnPending = (kind, rowId, outcome, body = {}) => req(`/items/return-pending/${encodeURIComponent(kind)}/${encodeURIComponent(rowId)}/${encodeURIComponent(outcome)}`, { method: 'POST', body: JSON.stringify(body) });
+// Operations > Tenants (Neil, 11/17/2026): Nexus keeps a READ-ONLY copy of
+// tenant contact details - Cubby stays the source of truth, nothing here
+// edits a tenant. Who sees tenant details, and in which facilities, is the
+// access rules (Settings > Operations > Tenants And Facility Access).
+// `opsTenantRecord` is the tenant sheet's read (it re-reads the tenant live
+// from Cubby); `opsTenant(facilityId, customerId)` above stays the Reports
+// drill-down's.
+api.opsAccessMe = () => req('/facility-ops/access/me');
+api.opsAccess = () => req('/facility-ops/access');
+api.saveOpsAccess = (body) => req('/facility-ops/access', { method: 'PUT', body: JSON.stringify(body) });
+api.deleteOpsAccess = (id) => req(`/facility-ops/access/${encodeURIComponent(id)}`, { method: 'DELETE' });
+api.opsTenants = ({ q = '', facility = '', facilities = '', status = 'current', limit = 50, offset = 0 } = {}) =>
+  req(`/facility-ops/tenants?${new URLSearchParams({ q, facility, facilities, status, limit: String(limit), offset: String(offset) })}`);
+api.opsTenantRecord = (customerId) => req(`/facility-ops/tenants/${encodeURIComponent(customerId)}`, { timeoutMs: 20_000 });
+// Asset Management > Maintenance (Neil, 11/17/2026; routers/maintenance.py):
+// tickets per property - open, all, the newest, preventive schedules and
+// overdue - walled like /maintenance/rollup (403 for anyone it is not for).
+api.getMaintenancePortfolio = () => req('/maintenance/portfolio');
+
+// Accounting > Entities (Neil, 11/17/2026, routers/accounting_entities.py):
+// each entity's legal record, its structure (owners, what it owns, who
+// manages it) and its live figures; a deal's Legal line and the investor
+// profile that IS one of our entities, for Investor Relations.
+const entityPath = (code) => `/accounting/entities/${encodeURIComponent(code)}`;
+api.getLegalEntities = () => req('/accounting/entities');
+api.getLegalEntityStructure = () => req('/accounting/entities/structure');
+api.getLegalEntityFigures = (codes) => req(`/accounting/entities/figures?codes=${encodeURIComponent(codes.join(','))}`, { timeoutMs: 120_000 });
+api.getLegalEntity = (code) => req(entityPath(code));
+api.saveLegalEntity = (code, body) => req(entityPath(code), { method: 'PUT', body: JSON.stringify(body) });
+api.revealLegalEntityEin = (code) => req(`${entityPath(code)}/ein`, { method: 'POST' });
+api.getLegalEntityBooks = (code) => req(`${entityPath(code)}/books`, { timeoutMs: 90_000 });
+api.getLegalEntityAgreements = (code) => req(`${entityPath(code)}/agreements`);
+api.getLegalEntitySuggestions = (code) => req(`${entityPath(code)}/suggestions`);
+api.addLegalEntityOwner = (code, body) => req(`${entityPath(code)}/owners`, { method: 'POST', body: JSON.stringify(body) });
+api.updateLegalEntityOwner = (code, ownerId, body) => req(`${entityPath(code)}/owners/${encodeURIComponent(ownerId)}`, { method: 'PUT', body: JSON.stringify(body) });
+api.endLegalEntityOwner = (code, ownerId, until = '') => req(`${entityPath(code)}/owners/${encodeURIComponent(ownerId)}/end`, { method: 'POST', body: JSON.stringify({ until }) });
+api.getIrFundLegal = (fundId) => req(`/investor-relations/funds/${encodeURIComponent(fundId)}/legal`);
+api.linkIrInvestorEntity = (investorId, code) => req(`/investor-relations/investors/${encodeURIComponent(investorId)}/entity`, { method: 'PUT', body: JSON.stringify({ code }) });

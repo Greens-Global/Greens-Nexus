@@ -4,7 +4,7 @@ import { useMsal } from '@azure/msal-react';
 import { BFF_MODE, bffLogout } from '../bffAuth';
 import { useRole } from '../contexts/RoleContext';
 import { NAV } from './Sidebar';
-import { orderNav, railSections, KICKERS } from './navOrder';
+import { orderNav, railSections, KICKERS, onRail } from './navOrder';
 import SidebarClock from './SidebarClock';
 import { useActionCounts, moduleCount, countText, countDetail } from '../lib/useActionCounts';
 import NavCount from './NavCount';
@@ -83,6 +83,7 @@ export const SUBMENUS = {
     { sub: 'portfolio',   label: 'Portfolio' },
     { sub: 'site-map',    label: 'Site Map' },
     { sub: 'pricing',     label: 'Pricing Insights' },
+    { sub: 'tenants',     label: 'Tenants' },
   ],
   hr: [
     { sub: 'hr-people', label: 'People' },
@@ -204,7 +205,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   // an item's `grants` list means any one of them opens it (Oct 10).
   const granted = item => (item.grants || [item.grant || item.view]).some(g => myGrantedModules?.has(g));
   // The rail's groups and labels, in the rail's order (Neil, 11/07/2026).
-  const visible = railSections(orderNav(NAV).filter(item => !item.menuOnly).filter(item => isExternal
+  const visible = railSections(orderNav(NAV).filter(item => onRail(item, isExternal)).filter(item => isExternal
     ? (!item.divider && granted(item))
     : (item.divider || !item.minRole || can?.('administrator') || granted(item))), KICKERS);
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };

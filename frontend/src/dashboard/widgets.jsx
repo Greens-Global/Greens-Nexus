@@ -708,7 +708,7 @@ export const QUICK_ACTIONS = [
   { key: 'checkout-item', label: 'Check Out an Item', view: 'inventory', sub: 'borrow',    color: 'orange', Icon: HandCoins },
   { key: 'my-shifts',     label: 'My Shifts',         view: 'myhr', sub: 'shifts',            color: 'green',  Icon: CalendarDays },
   { key: 'briefing',      label: 'My Briefing',       view: 'briefing',                       color: 'brand',  Icon: Sun },
-  { key: 'credvault',     label: 'Credentials',       view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
+  { key: 'credvault',     label: 'Passwords',         view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
   // Fill a Form (Forms & Checklists, Neil 11/02/2026): Workday's form picker -
   // the same place the + menu's Fill a Form goes (lib/quickCreate.js).
   { key: 'fill-form',     label: 'Fill a Form',       view: 'timeclock', sub: 'form:pick',     color: 'blue',   Icon: ClipboardList },

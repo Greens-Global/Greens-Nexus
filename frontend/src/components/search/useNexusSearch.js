@@ -265,7 +265,9 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     const visible = NAV.filter(i => !i.divider && !i.inTeam && isNavItemVisible(i, { isExternal, can, myGrantedModules, qaEnabled }));
     const out = [];
     for (const item of visible) {
-      out.push({ view: item.view, sub: null, label: item.label, context: null });
+      // A Dashboard tab (Passwords, 11/18/2026) says where it lives; `aka` keeps
+      // the name people learned first findable ("credentials").
+      out.push({ view: item.view, sub: null, label: item.label, context: item.dashTab && !isExternal ? 'Dashboard' : null, aka: item.aka || '' });
       // The phone menu's own rule, so a gated tab (Team > Workforce
       // Analytics) is never listed for someone who cannot open it.
       const subs = visibleSubs(item.view, { can, canAccessModule, isExternal });
@@ -507,7 +509,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       run: () => runQuickAction(item.key),
     })));
 
-    add('pages', 'Pages', screens.filter(s => match(s.label, s.context, s.view)).slice(0, 6).map(s => ({
+    add('pages', 'Pages', screens.filter(s => match(s.label, s.context, s.view, s.aka)).slice(0, 6).map(s => ({
       key: `page:${s.view}:${s.sub || ''}`, Icon: LayoutDashboard, title: s.label, detail: s.context,
       save: { kind: 'page', to: { view: s.view, sub: s.sub || undefined } },
       run: () => navigate(s.view, s.sub),

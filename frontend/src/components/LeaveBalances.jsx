@@ -74,7 +74,7 @@ const KIND = { opening: 'Opening Balance', accrual: 'Earned', used: 'Used', adju
 function yearEndHint(b, bucket, policy) {
   const y = b?.yearEnd?.[bucket];
   if (!y) return bucket === 'sick' ? `Use by ${day(b?.sick?.expiresOn)} - it doesn't carry over.` : '';
-  if (y.exempt) return 'It carries over - California vacation does not expire.';
+  if (y.exempt) return 'Unused time carries over.';
   if (y.effectiveMode === 'carry_all') return 'Unused time carries over.';
   if (y.effectiveMode === 'carry_cap') return `Up to ${fmtLeave(y.capHours, policy)} carries past ${day(y.nextClosing)}; the rest expires.`;
   return `Use by ${day(y.nextClosing)} - unused time expires.`;
@@ -226,12 +226,16 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
   const [open, setOpen] = useState('');            // 'import' | 'policies' | ''
   const [q, setQ] = useState('');
   const [person, setPerson] = useState(null);      // expanded email
+  // As Of (Charmi, 11/17/2026): balances as they stood at the end of a day -
+  // the last pay date matches the QuickBooks pay stub while the newest
+  // finalized period is not paid yet. '' = today.
+  const [asOf, setAsOf] = useState('');
 
   const load = useCallback(() => {
     setErr('');
-    return api.leaveAdmin().then(d => { setData(d); setCut(d.cutover || ''); setCutCo(''); })
+    return api.leaveAdmin(asOf).then(d => { setData(d); setCut(d.cutover || ''); setCutCo(''); })
       .catch(e => { setErr(e?.status === 403 ? '' : (e?.message || 'Could not load leave balances.')); setData(e?.status === 403 ? false : null); });
-  }, []);
+  }, [asOf]);
   useEffect(() => { load(); }, [load]);
 
   if (data === false) return null;                 // not HR - nothing to show
@@ -241,6 +245,10 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
   const pols = data.policies || [];
   const polName = Object.fromEntries(pols.map(p => [p.id, p.name]));
 
+  // Live once ANY start date is set - the organization's or a company's own
+  // (11/18/2026: prod has only Oversite's and Aarav's, so the list, Search
+  // and As Of never showed).
+  const live = !!data.cutover || (data.companies || []).some(c => c.cutover);
   const cutRow = cutCo ? (data.companies || []).find(c => c.id === cutCo) : null;
   const savedCut = cutRow ? cutRow.cutover : (data.cutover || '');
   function pickCutCo(id) { setCutCo(id); const row = (data.companies || []).find(c => c.id === id); setCut((row ? row.cutover : data.cutover) || ''); }
@@ -277,7 +285,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
         <span className="wkc-chip"><CalendarClock size={14} /></span>
         <span style={HD}>Leave Balances</span>
         <span style={{ flex: 1 }} />
-        {data.canSetup && data.cutover && (
+        {data.canSetup && live && (
           <button className="secondary-btn" onClick={recalc} disabled={busy === 'recalc'} title="Rebuild earned and used hours from every finalized pay period since the start date"
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy === 'recalc' ? <Spinner size={12} /> : <RefreshCw size={12} />} Recalculate
@@ -317,7 +325,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
           </span>
         </div>
       )}
-      {!data.canSetup && !data.cutover && (
+      {!data.canSetup && !live && (
         <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>An administrator sets the start date before balances can be loaded.</div>
       )}
 
@@ -330,7 +338,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
         <div style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>The policies themselves are under Settings &gt; Time Off &amp; Leave &gt; Leave Policies.</div>
       )}
 
-      {data.cutover && (
+      {live && (
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 8px' }}>
             <div style={{ position: 'relative', flex: '0 1 260px' }}>
@@ -339,6 +347,10 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
                 style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 10, border: '1px solid var(--line)', fontSize: 13, background: 'var(--card)', color: 'var(--ink)', fontFamily: 'inherit' }} />
             </div>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{people.length} people</span>
+            <span style={{ flex: 1 }} />
+            <span style={LBL}>As Of</span>
+            <DateField value={asOf} onChange={(v) => setAsOf(v || '')} title="Balances as of" placeholder="Today" />
+            {asOf && <button className="secondary-btn" onClick={() => setAsOf('')} style={{ fontSize: 12 }}>Today</button>}
           </div>
           <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
             <div style={{ ...ROW, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', background: 'var(--mist)' }}>

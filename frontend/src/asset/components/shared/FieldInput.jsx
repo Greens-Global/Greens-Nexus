@@ -1,6 +1,16 @@
 import { useState, useEffect, useId } from 'react';
 import { Upload, FileText, Plus, X } from 'lucide-react';
 import { storeAssetDocument } from '../../lib/upload.js';
+import { DateField } from '../../../tasks/components.jsx';
+
+// A stored date reads either way (records kept MM/DD/YYYY before the date box
+// wrote YYYY-MM-DD); the box takes the ISO day. Anything else is left as typed.
+export function toIsoDay(v) {
+  const t = String(v ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  return m ? `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}` : '';
+}
 
 // Format free typing into mm/dd/yyyy as the user goes; validate the final shape.
 // A native <input type="date"> was rejected here: its displayed format follows the
@@ -197,8 +207,24 @@ export function FieldInput({ f, value, onChange, error, propertyId = '' }) {
     );
   } else if (f.type === 'textarea') {
     control = <textarea {...baseProps} rows={2} />;
-  } else if (f.type === 'date') {
-    control = <input type="date" {...baseProps} />;
+  } else if (f.type === 'date' && (!String(value ?? '').trim() || toIsoDay(value))) {
+    // The Nexus date box (DateField), never a native one: that follows the
+    // computer's region (Neil, Oct 19). A stored value it cannot read keeps the
+    // plain text box below, so nothing is hidden or lost.
+    return (
+      <div className={f.full ? 'form-group form-group-full' : 'form-group'}>
+        <label id={id + '-label'}>
+          {f.label}
+          {f.req ? <span style={{ color: 'hsl(var(--color-red))' }}> *</span> : ''}
+        </label>
+        <div role="group" aria-labelledby={id + '-label'} data-field={f.k} tabIndex={-1} className="form-input"
+          aria-invalid={error ? true : undefined} aria-describedby={error ? id + '-err' : undefined}
+          style={{ display: 'flex', alignItems: 'center', fontSize: 13, ...(error ? { borderColor: 'hsl(var(--color-red))' } : {}), ...(f.readOnly ? { backgroundColor: 'var(--bg-secondary)' } : {}) }}>
+          <DateField value={toIsoDay(value)} onChange={(v) => onChange(f.k, v || '')} disabled={f.readOnly} title={f.label} style={{ flex: 1 }} />
+        </div>
+        {errorLine}
+      </div>
+    );
   } else if (f.type === 'dates') {
     control = <MultiDateInput value={value} readOnly={f.readOnly} onChange={(v) => onChange(f.k, v)} />;
   } else if (f.type === 'number') {

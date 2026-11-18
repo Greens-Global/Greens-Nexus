@@ -31,7 +31,7 @@ import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { StatusLabel } from '../components/StatusLabel';
 import { Modal } from '../tasks/components';
 import { MOTION, motionWait, useChangeFlash, useFlip, useReducedMotion } from '../lib/motion';
-import { runsInline } from '../lib/approvalActions';
+import { preflight, runsInline } from '../lib/approvalActions';
 import ApprovalCard from './ApprovalCard';
 import FilterSheet from './FilterSheet';
 import NoteSheet from './NoteSheet';
@@ -114,6 +114,9 @@ export default function ApprovalsPhone({
     if (Date.now() < lockUntil.current) return;
     if (action.key === 'open' || !runsInline(row, action.key)) { onAct(row, action); return; }
     if (needsNote(action)) { setAsking({ row, action }); return; }
+    // A step the decision needs first (a login request's code): asked before the card leaves.
+    const pre = preflight(row, action.key);
+    if (pre) { Promise.resolve(pre(row)).then((ok) => { if (ok) fire(row, action, '', meta); }).catch(() => {}); return; }
     fire(row, action, '', meta);
   };
   const review = (row) => setReviewing(row);

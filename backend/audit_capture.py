@@ -133,6 +133,10 @@ class system_job:
 NOISE_TABLES: frozenset[str] = frozenset({
     # the audit trail itself
     "audit_logs", "audit_changes",
+    # Operations' read-only copy of Cubby tenant details (Neil, 11/17/2026):
+    # phone numbers, addresses and gate codes never belong in the change log,
+    # and every row is rewritten by the 15-minute sync.
+    "ops_tenants", "ops_lease_extras",
     # sessions, one-time codes, OAuth state and stored tokens (secrets + churn)
     "server_sessions", "stepup_sessions", "external_login_codes", "vault_otp_challenges",
     "vault_otp_sessions", "vault_personal_unlock_sessions", "vault_personal_auth",

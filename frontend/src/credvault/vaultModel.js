@@ -69,7 +69,7 @@ export function rotationDueDate(c) {
 export const live = (creds) => creds.filter((c) => !c.deletedAt);
 export const trashed = (creds) => creds.filter((c) => c.deletedAt);
 
-/** Which collection a row belongs to - used by the rail counts and the filter. */
+/** Which collection a row belongs to - the sentence's phrases and the Trash. */
 export function inCollection(c, key, { favorites = new Set(), myEmail = "" } = {}) {
   if (key === "trash") return !!c.deletedAt;
   if (c.deletedAt) return false;
@@ -81,29 +81,6 @@ export function inCollection(c, key, { favorites = new Set(), myEmail = "" } = {
   if (key === "nobackup") return c.canEdit && !c.backupOwner;
   if (key.startsWith("dept:")) return (c.dept || "") === key.slice(5);
   return true;
-}
-
-/** The left rail: fixed groups, then every department that has a credential. */
-export function collectionsFor(creds, ctx) {
-  const fixed = [
-    { key: "all", label: "All Credentials" }, { key: "mine", label: "Owned by Me" },
-    { key: "shared", label: "Shared With Me" }, { key: "favorites", label: "Favorites" },
-    { key: "attention", label: "Needs Attention" }, { key: "nobackup", label: "No Backup Owner" },
-  ];
-  const depts = [...new Set(live(creds).map((c) => c.dept).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  const rows = [...fixed, ...depts.map((d) => ({ key: `dept:${d}`, label: d, dept: true })), { key: "trash", label: "Trash" }];
-  return rows.map((r) => ({ ...r, count: creds.filter((c) => inCollection(c, r.key, ctx)).length }));
-}
-
-export function filterCredentials(creds, { collection = "all", query = "", type = "All", tier = "All", favorites, myEmail }) {
-  const q = query.trim().toLowerCase();
-  return creds.filter((c) => {
-    if (!inCollection(c, collection, { favorites, myEmail })) return false;
-    if (type !== "All" && c.type !== type) return false;
-    if (tier !== "All" && c.tier !== tier) return false;
-    if (q && !`${c.name} ${c.username} ${c.dept} ${c.siteName || ""} ${c.url} ${c.note} ${c.owner}`.toLowerCase().includes(q)) return false;
-    return true;
-  });
 }
 
 export function sortCredentials(rows, sort = { col: "name", dir: "asc" }) {
@@ -169,7 +146,7 @@ export function writeFavorites(set) {
   try { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...set])); } catch { /* private mode */ }
 }
 
-// ── My Logins (Oct 29 2026) ─────────────────────────────────────────────────
+// ── Recently Used (Oct 29 2026) ─────────────────────────────────────────────
 export const RECENT_KEY = "nexus:vault-recent";
 export const RECENT_MAX = 8;
 export function readRecents() {
@@ -184,28 +161,7 @@ export function noteRecent(id, list = readRecents()) {
 export function siteOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
 }
-/** The My Logins list: what I can open, favorites first, then what I used
- *  lately, then everything else by department; `locked` = rows I can see but
- *  not open (Request Access / View Only). A row appears in one group only. */
-export function groupLogins(rows, { favorites = new Set(), recents = [], query = "" } = {}) {
-  const q = query.trim().toLowerCase();
-  const hit = (c) => !q || `${c.name} ${c.username} ${c.dept} ${c.siteName || ""} ${c.url} ${c.note}`.toLowerCase().includes(q);
-  const liveRows = rows.filter((c) => !c.deletedAt && hit(c));
-  const open = liveRows.filter((c) => c.canReveal);
-  const seen = new Set();
-  const take = (c) => { seen.add(c.id); return c; };
-  const favs = open.filter((c) => favorites.has(c.id)).map(take);
-  const recent = recents.map((id) => open.find((c) => c.id === id && !seen.has(c.id))).filter(Boolean).map(take);
-  const rest = open.filter((c) => !seen.has(c.id));
-  const depts = [...new Set(rest.map((c) => c.dept || "Other"))].sort((a, b) => a.localeCompare(b));
-  return {
-    favorites: favs, recent,
-    byDept: depts.map((d) => ({ dept: d, rows: rest.filter((c) => (c.dept || "Other") === d).sort((a, b) => a.name.localeCompare(b.name)) })),
-    locked: liveRows.filter((c) => !c.canReveal).sort((a, b) => a.name.localeCompare(b.name)),
-    total: open.length,
-  };
-}
-/** Overview: the audit table, one row per department over the rows I can read the health of. */
+/** The audit export: one row per department over the rows I can read the health of. */
 export function healthByDept(rows) {
   const liveRows = rows.filter((c) => !c.deletedAt);
   const depts = [...new Set(liveRows.map((c) => c.dept || "Other"))].sort((a, b) => a.localeCompare(b));
@@ -218,7 +174,7 @@ export function healthByDept(rows) {
       critical: mine.filter((c) => c.tier === "Critical").length };
   });
 }
-/** Overview export: who can open what, one row per credential - never a password. */
+/** The audit export: who can open what, one row per login - never a password. */
 export function auditRows(rows, nameOf = (e) => e) {
   return rows.filter((c) => !c.deletedAt).map((c) => ({
     Name: c.name, Department: c.dept || "", Type: c.type, Tier: c.tier,
@@ -229,4 +185,101 @@ export function auditRows(rows, nameOf = (e) => e) {
     Expires: c.expiresAt ? formatDate(c.expiresAt) : "",
     Health: c.canReveal ? (healthFlags(c).map((f) => f.label).join(", ") || "Healthy") : "",
   }));
+}
+
+// ── One list (Neil, 11/18/2026) ─────────────────────────────────────────────
+// Passwords is a Dashboard tab with ONE list: search is the filter, the
+// sentence above the list is the menu (its phrases are the old collections),
+// and a row carries its state as words. Nothing here reads the API.
+
+/** A flag as words for the row's own line: "rotation 12 days overdue". */
+export function flagWords(f, c) {
+  const days = (n) => `${n} day${n === 1 ? "" : "s"}`;
+  const left = rotationDaysLeft(c);
+  switch (f.key) {
+    case "breached": return "found in a breach";
+    case "expired": return "expired";
+    case "weak": return "weak password";
+    case "overdue": return `rotation ${days(Math.abs(left))} overdue`;
+    case "reused": return "reused password";
+    case "sharedOutside": return "shared outside";
+    case "dueSoon": return left === 0 ? "rotation due today" : `rotation due in ${days(left)}`;
+    case "expiring": return c.expiresInDays === 0 ? "expires today" : `expires in ${days(c.expiresInDays)}`;
+    default: return (f.label || "").toLowerCase();
+  }
+}
+
+/** Everything a search may find a login by - never a password. The six
+ *  filters this replaced (company, department, location, type, tier, owner)
+ *  are all words in here, so "operations critical" still narrows to them. */
+export function loginHaystack(c, nameOf = (e) => e) {
+  const flags = c.canReveal && !c.deletedAt ? healthFlags(c).map((f) => `${f.label} ${flagWords(f, c)}`).join(" ") : "";
+  return [c.name, c.username, c.dept, c.siteName, c.companyName, c.url, c.note, c.type, c.tier,
+    c.owner, nameOf(c.owner), c.backupOwner, c.backupOwner ? nameOf(c.backupOwner) : "", ACCESS_LABEL[c.access], flags]
+    .filter(Boolean).join(" ").toLowerCase();
+}
+/** Every word typed is found somewhere on the login. */
+export function matchesQuery(c, query, nameOf) {
+  const words = (query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = loginHaystack(c, nameOf);
+  return words.every((w) => hay.includes(w));
+}
+
+export const LIST_VIEWS = ["all", "mine", "shared", "attention", "nobackup", "trash"];
+export const SORTS = [["name", "Name"], ["dept", "Department"], ["owner", "Owner"], ["rotated", "Oldest Rotation"], ["health", "Needs Attention First"]];
+const sharedWithMe = (c) => c.access === "shared" || c.access === "person";
+const inView = (c, view, myEmail) => (view === "shared" ? !c.deletedAt && sharedWithMe(c) : inCollection(c, view, { myEmail }));
+
+/** The sentence above the list: how many of each, over what the API returned. */
+export function sentenceCounts(rows, myEmail = "") {
+  const liveRows = live(rows);
+  return {
+    open: liveRows.filter((c) => c.canReveal).length,
+    mine: liveRows.filter((c) => inView(c, "mine", myEmail)).length,
+    shared: liveRows.filter(sharedWithMe).length,
+    attention: liveRows.filter((c) => inView(c, "attention", myEmail)).length,
+    nobackup: liveRows.filter((c) => inView(c, "nobackup", myEmail)).length,
+    locked: liveRows.filter((c) => !c.canReveal).length,
+    trash: trashed(rows).length,
+  };
+}
+
+/** The list itself. With nothing typed, no phrase picked and the usual sort it
+ *  reads Favorites, Recently Used, All (a row in one group only); anything
+ *  else is one flat list. `locked` = logins that exist but are not mine to
+ *  open; they follow the search and show only on the whole list. */
+export function listLogins(rows, { view = "all", query = "", favorites = new Set(), recents = [], sort = "name", myEmail = "", nameOf } = {}) {
+  const hit = (c) => matchesQuery(c, query, nameOf);
+  const by = (list, col) => sortCredentials(list, { col, dir: "asc" });
+  if (view === "trash") return { sections: [{ key: "trash", title: "", rows: by(trashed(rows).filter(hit), sort) }], locked: [], flat: true };
+  const liveRows = live(rows).filter(hit);
+  const locked = view === "all" ? by(liveRows.filter((c) => !c.canReveal), "name") : [];
+  const open = liveRows.filter((c) => (view === "all" ? c.canReveal : inView(c, view, myEmail)));
+  if (view !== "all" || query.trim() || sort !== "name") {
+    return { sections: [{ key: "flat", title: "", rows: by(open, view === "attention" && sort === "name" ? "health" : sort) }], locked, flat: true };
+  }
+  const seen = new Set();
+  const take = (c) => { seen.add(c.id); return c; };
+  const favs = by(open.filter((c) => favorites.has(c.id)), "name").map(take);
+  const recent = recents.map((id) => open.find((c) => c.id === id && !seen.has(c.id))).filter(Boolean).map(take);
+  const rest = by(open.filter((c) => !seen.has(c.id)), "name");
+  return {
+    sections: [{ key: "favorites", title: "Favorites", rows: favs }, { key: "recent", title: "Recently Used", rows: recent },
+      { key: "all", title: favs.length || recent.length ? "All" : "", rows: rest }].filter((s) => s.rows.length),
+    locked, flat: false,
+  };
+}
+
+/** Export for an Audit: what rotates next, soonest first - the old Rotates
+ *  Next card, in full; like the card, only the logins the person can open. */
+export function rotationRows(rows, nameOf = (e) => e) {
+  return rows.filter((c) => !c.deletedAt && c.canReveal)
+    .map((c) => ({ c, left: rotationDaysLeft(c) }))
+    .sort((a, b) => a.left - b.left)
+    .map(({ c, left }) => ({
+      Name: c.name, Department: c.dept || "", Owner: nameOf(c.owner),
+      "Last Rotated": c.rotatedAt ? formatDate(c.rotatedAt) : "", "Rotate Every (days)": c.rotationMax || 90,
+      "Due": rotationDueDate(c), "Days Left": left,
+    }));
 }

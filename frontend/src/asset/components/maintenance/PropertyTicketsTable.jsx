@@ -1,7 +1,8 @@
 // A property's Open / Closed Tickets as the same table Support and the Ticket
 // module use (Pranshu, 10/06): Ticket No, Title, a status label, Assigned
-// To, Created Date, Last Updated, Latest Comment - uppercase sortable headers,
-// drag-to-resize, one border per row, zebra bands. Clicking a row opens the
+// To, Created Date, Last Updated, Latest Comment - Title Case sortable headers,
+// drag-to-resize, a hairline under each row (Neil, 11/17/2026: no box, the
+// status as colored words). Clicking a row opens the
 // ticket (or its summary for someone the ticket rules keep out); the latest
 // comment is the newest PUBLIC reply only.
 import { Fragment, useMemo, useState } from 'react';
@@ -11,7 +12,6 @@ import { Avatar } from '../../../tasks/components';
 import { useTableColumns, ColResizer } from '../../../tasks/tableCols';
 import { TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../../../tickets/ticketMeta';
 import { LatestCommentPreview } from '../../../tickets/LatestComment';
-import { StatusLabel } from '../../../components/StatusLabel';
 import { formatDateTime } from '../../../lib/datetime.js';
 
 const COLUMNS = [
@@ -24,12 +24,12 @@ const COLUMNS = [
   { key: 'latestComment', label: 'Latest Comment', width: 280, sort: (t) => t.latestComment?.createdAt || '' },
 ];
 
-// The soft status label every ticket list uses (Neil, Oct 14 2026).
+// The ticket's status as colored words (Neil, 11/17/2026: no pill around a state).
 function StatusCell({ status }) {
   const m = TICKET_STATUS_META[status] || { label: status, color: '#64748b' };
   return (
     <div style={{ display: 'flex', alignItems: 'center', height: '100%', padding: '0 10px', minWidth: 0, overflow: 'hidden' }}>
-      <StatusLabel label={m.label} color={m.color} />
+      <span style={{ fontSize: 13, fontWeight: 500, color: `color-mix(in srgb, ${m.color} 80%, var(--text-primary))`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.label}</span>
     </div>
   );
 }
@@ -51,19 +51,19 @@ export function PropertyTicketsTable({ rows, onOpen, tableKey }) {
     });
   }, [rows, sort]);
   const nameOf = (email) => sorted.find((t) => t.latestComment?.authorId === email)?.latestComment?.authorName || email;
-  const cell = { display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', borderRight: `1px solid ${NX.border2}`, overflow: 'hidden' };
+  const cell = { display: 'flex', alignItems: 'center', minHeight: 40, padding: '0 10px', overflow: 'hidden' };
 
   return (
     <div style={{ overflowX: 'auto' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'max-content', fontFamily: FONT, minWidth: 'fit-content' }}>
-        <div ref={wrapRef} style={{ '--nx-grid': template, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: '10px 10px 0 0' }}>
+        <div ref={wrapRef} style={{ '--nx-grid': template, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', borderBottom: `1px solid ${NX.border}` }}>
           {cols.map((col) => {
             const active = sort.key === col.key;
             const SortIcon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
             return (
               <div key={col.key} onClick={() => onSort(col.key)} title={`Sort by ${col.label}`}
-                style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, minHeight: 34, padding: '0 10px', cursor: 'pointer', userSelect: 'none', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 11, fontWeight: 700, color: NX.ink, textTransform: 'uppercase', letterSpacing: '0.04em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
+                style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, minHeight: 34, padding: '0 10px', cursor: 'pointer', userSelect: 'none', boxSizing: 'border-box' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 500, color: active ? NX.ink : NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
                 <SortIcon size={11} style={{ flexShrink: 0, opacity: active ? 1 : 0.4 }} />
                 <ColResizer onMouseDown={startResize(col.key, widths[col.key] ?? col.width)} onReset={() => resetWidth(col.key)} onAutofit={() => autofitWidth(col.key)} />
               </div>
@@ -87,7 +87,7 @@ export function PropertyTicketsTable({ rows, onOpen, tableKey }) {
                 {['resolved', 'closed'].includes(t.status) && !t.maintenanceRecord && <span style={tag(NX.dim)}>Closed Without Work</span>}
               </div>
             ),
-            status: <div key="status" style={{ minHeight: 40, borderRight: `1px solid ${NX.border2}` }}><StatusCell status={t.status} /></div>,
+            status: <div key="status" style={{ minHeight: 40 }}><StatusCell status={t.status} /></div>,
             assignedTo: (
               <div key="assignedTo" style={{ ...cell, gap: 6, fontSize: 13, color: NX.dim }}>
                 {t.assigneeEmail
@@ -98,7 +98,7 @@ export function PropertyTicketsTable({ rows, onOpen, tableKey }) {
             created: <div key="created" style={{ ...cell, fontSize: 12, color: NX.dim }}>{formatDateTime(t.createdAt)}</div>,
             updated: <div key="updated" style={{ ...cell, fontSize: 12, color: NX.dim }}>{formatDateTime(t.modifiedAt || t.createdAt)}</div>,
             latestComment: (
-              <div key="latestComment" style={{ ...cell, minWidth: 0, borderRight: 'none' }}>
+              <div key="latestComment" style={{ ...cell, minWidth: 0 }}>
                 <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} onOpen={open} />
               </div>
             ),
@@ -109,10 +109,7 @@ export function PropertyTicketsTable({ rows, onOpen, tableKey }) {
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
                 style={{
                   display: 'grid', gridTemplateColumns: 'var(--nx-grid)', '--nx-grid': template,
-                  background: idx % 2 ? NX.zebra : NX.surface, cursor: 'pointer',
-                  borderLeft: `1px solid ${NX.border}`, borderRight: `1px solid ${NX.border}`,
-                  borderBottom: `1px solid ${last ? NX.border : NX.border2}`,
-                  borderRadius: last ? '0 0 10px 10px' : 0,
+                  cursor: 'pointer', borderBottom: `1px solid ${last ? NX.border : NX.border2}`,
                 }}>
                 {cols.map((c) => cells[c.key])}
               </div>

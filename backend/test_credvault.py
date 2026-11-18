@@ -574,7 +574,7 @@ class VaultHardeningTests(unittest.TestCase):
     def test_whoever_trashed_it_cannot_also_erase_it_when_another_owner_can_check(self):
         cid = self._create()                       # OWNER owns it, BACKUP is the backup owner
         self.assertEqual(self._as(OWNER).delete(f"/credvault/credentials/{cid}").status_code, 200)
-        bells = [n for n in self._bells(BACKUP) if n.title == "Credentials - Moved to the Trash"]
+        bells = [n for n in self._bells(BACKUP) if n.title == "Passwords - Moved to the Trash"]
         self.assertEqual(len(bells), 1)
         self.assertIn("Delete Permanently to confirm", bells[0].body)
         r = self._as(OWNER).delete(f"/credvault/credentials/{cid}/permanent")
@@ -592,7 +592,7 @@ class VaultHardeningTests(unittest.TestCase):
     def test_bulk_trash_tells_the_other_owner_too(self):
         cid = self._create()
         self.assertEqual(self._as(OWNER).post("/credvault/credentials/bulk-delete", json={"ids": [cid]}).json()["deleted"], 1)
-        self.assertEqual(len([n for n in self._bells(BACKUP) if n.title == "Credentials - Moved to the Trash"]), 1)
+        self.assertEqual(len([n for n in self._bells(BACKUP) if n.title == "Passwords - Moved to the Trash"]), 1)
         self.assertEqual(self._as(OWNER).delete(f"/credvault/credentials/{cid}/permanent").status_code, 403)
 
     def test_a_login_can_belong_to_one_location(self):

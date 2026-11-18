@@ -23,7 +23,7 @@ const THUMB_STYLE = {
  * @param n        badge number shown next to the "Media" title (e.g. section index), or null to omit
  * @param onSave   (images: string[]) => void - called with the full new image list on Save
  */
-export function PhotoGallery({ p, n, onSave }) {
+export function PhotoGallery({ p, n: _n, onSave }) {   // eslint-disable-line no-unused-vars
   const currentImages = p.images && p.images.length ? p.images : p.image ? [p.image] : [];
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -144,27 +144,8 @@ export function PhotoGallery({ p, n, onSave }) {
             fontFamily: 'inherit', color: 'inherit', cursor: editing ? 'default' : 'pointer', userSelect: 'none',
           }}
         >
-        {n != null && (
-          <span
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: 6,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 12,
-              fontWeight: 700,
-              color: '#fff',
-              backgroundColor: 'var(--pine)',
-            }}
-          >
-            {n}
-          </span>
-        )}
-        <strong style={{ fontSize: 15 }}>
-          Media {images.length > 0 && `(${images.length})`}
-        </strong>
+        <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Media</span>
+        {images.length > 0 && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{images.length} {images.length === 1 ? 'photo' : 'photos'}</span>}
         <ChevronDown
           size={18}
           aria-hidden="true"
@@ -180,15 +161,9 @@ export function PhotoGallery({ p, n, onSave }) {
           <button
             className="secondary-btn"
             onClick={startEdit}
-            style={{
-              padding: '4px 12px',
-              fontSize: 12,
-              color: 'hsl(var(--color-blue))',
-              borderColor: 'hsl(var(--color-blue))',
-              backgroundColor: 'hsl(var(--color-blue) / 0.08)',
-            }}
+            style={{ padding: '4px 12px', fontSize: 12 }}
           >
-            Edit
+            {images.length ? 'Edit' : 'Add Photos'}
           </button>
         )}
       </div>
@@ -278,21 +253,9 @@ export function PhotoGallery({ p, n, onSave }) {
               ))}
             </div>
           ) : (
-            <div
-              style={{
-                height: 120,
-                borderRadius: 10,
-                border: '1px dashed var(--border-color)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--text-secondary)',
-                fontSize: 13,
-                backgroundColor: 'var(--bg-secondary)',
-              }}
-            >
-              {editing ? 'Upload pictures below.' : 'No pictures - click Edit to add.'}
-            </div>
+            <p style={{ margin: 0, padding: '4px 0', color: 'var(--text-secondary)', fontSize: 13 }}>
+              {editing ? 'Upload pictures below, or paste one.' : 'No photos yet. Add Photos puts the first one on the page.'}
+            </p>
           )}
 
           {editing && (
