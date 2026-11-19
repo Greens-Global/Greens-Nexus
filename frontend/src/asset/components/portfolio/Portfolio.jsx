@@ -61,7 +61,7 @@ function ColumnsMenu({ columns, onChange }) {
  * Properties only - vehicles and equipment live in Fleet.
  */
 export function Portfolio({
-  assets = [], store = {}, metrics = {}, flagCount = 0, onReviewFlags = null, companies = [], canClearCompany = false, view, onView, mode = 'list', onMode,
+  assets = [], store = {}, metrics = {}, flagCount = 0, onReviewFlags = null, ledgerCount = 0, onLinkLedger = null, companies = [], canClearCompany = false, view, onView, mode = 'list', onMode,
   saved = [], onSaveViews, me = null, openAsset, lastOpenedId = null, serverOk = true, loading = false,
   onBulkSet, canEdit = true, openTickets = null, onCopyLink, onListChange, actions = null, onNeedTickets,
 }) {
@@ -136,7 +136,7 @@ export function Portfolio({
   return (
     <div className="pt-register">
       {firstRow}
-      <PortfolioSummary flagCount={flagCount} onReviewFlags={onReviewFlags} rows={shown} ctx={ctx} phone={phone} loading={loading && !ctx.rows.length} onShow={showPreset}
+      <PortfolioSummary flagCount={flagCount} onReviewFlags={onReviewFlags} ledgerCount={ledgerCount} onLinkLedger={onLinkLedger} rows={shown} ctx={ctx} phone={phone} loading={loading && !ctx.rows.length} onShow={showPreset}
         onFix={(d) => openAsset(d.id, CRITICAL_ITEM_TAB[d.cat] || 'property')}
         onOpenDate={(d) => openAsset(d.id, CRITICAL_ITEM_TAB[d.cat] || 'property')} />
 
