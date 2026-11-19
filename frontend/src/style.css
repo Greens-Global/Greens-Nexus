@@ -9536,7 +9536,10 @@ body:has(.apv-phone) { overflow-x: clip; }
   .nx-dl-tools .primary-btn, .nx-dl-tools .secondary-btn { flex: 1 1 auto; justify-content: center; text-align: center; }
 }
 @media (max-width: 640px) {
-  .nx-dl-panel { width: 100vw; border-left: none; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  /* left + right, not 100vw: 100vw counts the scrollbar, so on a narrow window
+     with a classic scrollbar the panel hung 19px off the left edge and clipped
+     its text (phone check, 11/19/2026). */
+  .nx-dl-panel { left: 0; width: auto; border-left: none; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
 }
 /* The Document Builder's Variables Used rail and Make Variable bubble
    (Sagar, 11/04/2026): the rail is the third column of the pages row, sticky
@@ -11205,6 +11208,13 @@ button.nx-docb-var-go:hover { color: var(--ink); border-color: var(--pine); }
   .mktg-reviews-feed { max-height: none !important; overflow: visible !important; padding-right: 0 !important; }
   .mktg-review-actions button { white-space: nowrap; min-height: 36px; }
 }
+
+/* The filter selects on Templates and Hiring Documents are the house select
+   (.form-input) sized to their words, not the row; on a phone they take the
+   row beside + New. */
+.nx-dl-chip { width: auto; flex: 0 1 auto; min-width: 150px; max-width: 240px; }
+@media (max-width: 640px) { .nx-dl-chip { flex: 1 1 160px; max-width: none; } }
+@media (max-width: 640px) { .nx-hd-body .nx-dl-chip { flex-basis: 100%; } }   /* Hiring: the company picker takes its own row under the tabs */
 
 /* Templates board - category cards (Pranshu, 11/13/2026, canvas https://claude.ai/artifact/TapZUK47Diz1k3jgFh5TNW) */
 .nx-tc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }

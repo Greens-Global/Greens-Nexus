@@ -262,7 +262,7 @@ export function PacketsModal({ onClose, toastOk = () => {}, toastErr = () => {},
   const companyPicker = lockCompany ? (
     <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{company}</span>
   ) : (
-    <select className={inline ? 'nx-dl-chip' : 'form-input'} style={inline ? undefined : { width: 240, maxWidth: '100%' }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
+    <select className={inline ? 'form-input nx-dl-chip' : 'form-input'} style={inline ? undefined : { width: 240, maxWidth: '100%' }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
       <option value="">All Companies</option>
       {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
     </select>
