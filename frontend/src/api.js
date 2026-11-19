@@ -2355,7 +2355,7 @@ export const api = {
   runRecurringStaleCheck: () => req('/accounting/mre/stale-check', { method: 'POST' }),
   // 10/27: whether that check (or the one a new months setting started) has finished.
   getRecurringStaleCheck: () => req('/accounting/mre/stale-check'),
-  suggestMreEgnyteFolder: (vendor) => req(`/accounting/mre/egnyte-suggest?vendor=${encodeURIComponent(vendor)}`, { timeoutMs: 60_000 }),
+  suggestMreEgnyteFolder: (vendor, entity = '') => req(`/accounting/mre/egnyte-suggest?vendor=${encodeURIComponent(vendor)}${entity ? `&entity=${encodeURIComponent(entity)}` : ''}`, { timeoutMs: 60_000 }),
 
   // PFS file lock + Affiliated Entities + an executive profile per borrower
   // (Charmi, 10/04). routers/pfs_access.py, routers/pfs_affiliates.py.

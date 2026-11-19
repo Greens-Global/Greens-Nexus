@@ -1,6 +1,7 @@
-"""Accounting > Reports > Schedule C (draft): the account-to-line mapping
+"""Accounting > Reports > Tax (draft): the account-to-line mapping
 (Neil, Viral, 10/27 triage item 18 - "map each and every account number ...
-with whatever the mapping code we have").
+with whatever the mapping code we have") - Schedule C first, every tax form
+of the engine since 11/19/2026 (tax_forms.py).
 
 The figures come from the ledger through routers/accounting.py like every
 other statement; only the mapping lives here, in Nexus's own table
@@ -21,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import models
+import tax_forms
 from auth import require_module_grant
 from database import SessionLocal
 from routers import accounting
@@ -28,15 +30,11 @@ from routers.accounting import entity_scope
 
 router = APIRouter(prefix="/accounting/tax-lines", tags=["Accounting"], dependencies=[Depends(require_module_grant("accounting", "viewer"))])
 
-# The lines an account can add into, per form. Part I income (1, 2, 4, 6),
-# Part II expenses (8-27b) and line 30 (business use of home); 3, 5, 7, 28,
-# 29 and 31 are worked out from these. "skip" = not on this form.
-FORMS = {
-    "schedule_c": {
-        "1", "2", "4", "6", "8", "9", "10", "11", "12", "13", "14", "15", "16a", "16b", "17", "18", "19",
-        "20a", "20b", "21", "22", "23", "24a", "24b", "25", "26", "27a", "27b", "30", "skip",
-    },
-}
+# The lines an account can add into, per form (tax_forms.py - Schedule C,
+# Schedule E, Forms 1065, 1120, 1040 and CA 568, 11/19/2026); the worked out
+# lines are not stored. "skip" = not on this form. On the 1040 the "account"
+# is the row `return` of an entity: Schedule C or Schedule E.
+FORMS = tax_forms.FORMS
 _ENTITY = re.compile(r"^[A-Za-z0-9_-]{1,20}$")
 _ACCOUNT = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
 _MAX_LINES = 2000

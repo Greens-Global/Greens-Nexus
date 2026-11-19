@@ -274,7 +274,7 @@ export async function runBuilder(api, config, { name = '', entities = [], chart 
     const rows = d?.rows || [];
     const labels = d?.labels || {};
     // By Month lists every month of the period, one with no postings too
-    // (CR-06: Trailing 12 Months is always twelve columns and a Total).
+    // (CR-06: Trailing 12 Months is always thirteen month columns and a Total).
     const seen = [...new Set(rows.map((r) => r.bucket)), ...(c.cols === 'month' ? monthKeys(c.from, c.to) : [])];
     const keys = c.cols === 'total' ? [rows[0]?.bucket ?? 'total'] : sortKeys(c.cols, [...new Set(seen)], labels);
     cols = c.cols === 'total'

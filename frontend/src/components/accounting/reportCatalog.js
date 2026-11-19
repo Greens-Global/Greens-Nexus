@@ -44,7 +44,14 @@ export const STANDARD_ABOUT = {
   'mgmt-fees': 'Management fees under each agreement, billed as read from the ledger.',
   ama: 'Questions on ledger lines sent to the accountant, with their answers and reclasses.',
   budget: 'The budgets kept in Nexus, by account and month, that Budget vs. Actual reads.',
-  'rpt-schedule-c': 'Draft for review. Each entity\'s income statement accounts mapped to IRS Schedule C lines (Part I income, Part II expenses 8-27, lines 28-31), with an editable mapping kept in Nexus and unmapped accounts listed. Schedule E, Form 4562 (asset depreciation) and the 1040, 1120, 1120-S and 1065 returns come later.',
+  'rpt-schedule-c': 'Draft for review. Each entity\'s income statement accounts mapped to IRS Schedule C lines (Part I income, Part II expenses 8-27, lines 28-31), with an editable mapping kept in Nexus and unmapped accounts listed.',
+  'rpt-schedule-e': 'Draft for review. Schedule E with one column per property (entity) and a Total: rents, expenses lines 5-19, lines 20-26, the K-1 lines of Part II and line 41.',
+  'rpt-tax-1040': 'Draft for review. The Form 1040 lines the books feed - Schedule 1 line 3 (Schedule C) and line 5 (Schedule E) for the entities picked - with every other line named as the preparer\'s.',
+  'rpt-tax-1065': 'Draft for review. Form 1065 page 1, Form 8825 rental real estate, Schedule K and Schedule M-1 from the ledger, with an editable line mapping kept in Nexus.',
+  'rpt-tax-1065-l': 'Draft for review. Form 1065 Schedule L - the balance sheet at the beginning and end of the tax year on the form\'s lines.',
+  'rpt-tax-568': 'Draft for review. California Form 568: the LLC fee from total income, the $800 annual tax and Schedule B income and deductions.',
+  'rpt-tax-1120': 'Draft for review. Form 1120 page 1 to line 28 and Schedule M-1 from the ledger, with an editable line mapping kept in Nexus.',
+  'rpt-tax-1120-l': 'Draft for review. Form 1120 Schedule L - the balance sheet at the beginning and end of the tax year on the form\'s lines.',
 };
 
 /** The menu's Reports group as catalogue rows: { key, label, group, groupKey }. */

@@ -53,7 +53,19 @@ export const REPORTS = [
   // entity's income statement accounts mapped to the IRS Schedule C lines,
   // the mapping kept in Nexus (scheduleC.js, loaded on first use).
   { key: 'schedule-c', label: 'Schedule C (Draft)', period: 'range' },
+  // The rest of the tax forms (Charmi, 11/19/2026: "We need Sch C, Sch E,
+  // 1040, 1065, form 568, 1120"): the same engine and mapping
+  // (taxForms/engine.js, one data file per form, loaded on first use).
+  { key: 'schedule-e', label: 'Schedule E (Draft)', period: 'range' },
+  { key: 'tax-1065', label: 'Form 1065 (Draft)', period: 'range' },
+  { key: 'tax-1065-l', label: 'Form 1065 Schedule L (Draft)', period: 'range' },
+  { key: 'tax-1120', label: 'Form 1120 (Draft)', period: 'range' },
+  { key: 'tax-1120-l', label: 'Form 1120 Schedule L (Draft)', period: 'range' },
+  { key: 'tax-568', label: 'CA Form 568 (Draft)', period: 'range' },
+  { key: 'tax-1040', label: 'Form 1040 (Draft)', period: 'range' },
 ];
+/** The tax form reports (taxForms/), each read by the one tax engine. */
+export const TAX_REPORT_KEYS = new Set(['schedule-c', 'schedule-e', 'tax-1065', 'tax-1065-l', 'tax-1120', 'tax-1120-l', 'tax-568', 'tax-1040']);
 /** The flag thresholds a Flux Analysis starts with: both must be passed for a line to be flagged. */
 export const FLUX_DEFAULTS = { fluxPct: 10, fluxAmount: 5000 };
 /** The General Ledger lists lines for at most this many accounts at once; more than that, it lists the accounts only. */
@@ -276,7 +288,7 @@ export function presetRange(key, now = new Date()) {
     case 'last-quarter': return [new Date(y, q - 3, 1), new Date(y, q, 0)];
     case 'this-year': return [new Date(y, 0, 1), new Date(y, 11, 31)];
     case 'last-year': return [new Date(y - 1, 0, 1), new Date(y - 1, 11, 31)];
-    // CR-06 (Neil, 23 Oct): the last T12_MONTHS full months, the month in progress left out.
+    // CR-06 (Neil, 11/05/2026): the last T12_MONTHS (13) full months, the month in progress left out.
     case 't12m': return [new Date(y, m - T12_MONTHS, 1), T12_INCLUDE_CURRENT_MONTH ? today : endOfMonth(y, m - 1)];
     default: return [new Date(y, 0, 1), today];
   }
@@ -968,7 +980,7 @@ export async function runReport(api, config, entities = []) {
   if (config.report === 'flux') return { ...base, ...(await fluxAnalysis(api, config, book)) };
   // Loaded on first use, so the statements screen stays small.
   if (config.report === 'vendor-spend') return { ...base, ...(await (await import('./vendorSpend')).vendorSpend(api, config, book)) };
-  if (config.report === 'schedule-c') return { ...base, ...(await (await import('./scheduleC')).scheduleC(api, config, book)) };
+  if (TAX_REPORT_KEYS.has(config.report)) return { ...base, ...(await (await import('./taxForms/run')).runTaxReport(api, config, book, entities)) };
   if (config.report === 'budget') {
     // The income statement read with the Budget beside the Actual.
     const pnlConfig = { ...config, report: 'pnl', cols: 'budget', book: config.book === 'both' ? 'accrual' : config.book };

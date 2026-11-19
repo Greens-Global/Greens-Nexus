@@ -5931,6 +5931,13 @@ class RecurringExpense(Base):
     stale_since      = Column(String, default="")
     stale_last_paid  = Column(String, default="")
     stale_task_id    = Column(String, default="")
+    # 11/18/2026 (Charmi): the line's amount history - contracts change mid
+    # year, and a tenant may take over a bill (a property tax the tenant pays
+    # while the property is rented). A list of {"from": "YYYY-MM-DD",
+    # "amount": float} or {"from": ..., "tenantPays": true}, oldest first;
+    # expected_amount is the amount before the first change. Read by
+    # accounting_mre.amount_in, the one place a month's amount is worked out.
+    amount_changes   = Column(JSON, default=list)
 
 
 class PfsAffiliate(Base):

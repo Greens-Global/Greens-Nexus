@@ -371,6 +371,59 @@ class MreGridAndEgnyte(unittest.TestCase):
         self.assertEqual(rank("State Farm", [{"name": "State Farm Insurance", "path": "/Shared/V/State Farm Insurance"}])[0]["score"], 0.85)
         self.assertEqual(rank("Microsoft", [{"name": "Adobe", "path": "/Shared/V/Adobe"}]), [])
 
+    def test_folder_matching_11_18(self):
+        """Urmi, 11/06: AmeriGas missed OSM's "Amerigas", Anthem Blue Cross
+        missed OSM's "Anthem"."""
+        score = accounting_mre.folder_score
+        self.assertEqual(score("AmeriGas", "Amerigas"), 1.0)
+        self.assertEqual(score("Ameri Gas", "AmeriGas"), 1.0)
+        self.assertEqual(score("Anthem Blue Cross", "Anthem"), 0.85)
+        self.assertEqual(score("PG&E", "PG and E"), 1.0)
+        osm = "/Shared/#Entities/Oversite Management, Inc/Financials/Vendors"
+        gg = "/Shared/#Entities/Greens Global, Inc/Financials/Vendors"
+        self.assertEqual(accounting_mre.vendor_folder_of(f"{osm}/Amerigas/2026/Bill.pdf"), {"name": "Amerigas", "path": f"{osm}/Amerigas"})
+        self.assertIsNone(accounting_mre.vendor_folder_of("/Shared/--IT/readme.txt"))
+        got = accounting_mre.rank_folders("AmeriGas", [{"name": "AmeriGas", "path": f"{gg}/AmeriGas"},
+                                                       {"name": "Amerigas", "path": f"{osm}/Amerigas"}],
+                                          prefer="/Shared/#Entities/Oversite Management, Inc")
+        self.assertEqual([g["path"] for g in got], [f"{osm}/Amerigas", f"{gg}/AmeriGas"])
+        self.assertEqual(accounting_mre.search_terms("Anthem Blue Cross"), ["Anthem Blue Cross", "anthem"])
+        self.assertEqual(accounting_mre.search_terms("SDGE"), ["SDGE"])
+
+    def test_suggest_searches_every_entity_and_the_lines_own(self):
+        from routers import egnyte as eg
+        from services import egnyte as svc
+        import recurring_stale
+        osm = "/Shared/#Entities/Oversite Management, Inc"
+        calls = []
+
+        def list_folder(path, token=None, count=None, offset=0, timeout=None):
+            calls.append(("list", path))
+            if path == accounting_mre.ENTITIES_ROOT:
+                return {"folders": [{"name": "Oversite Management, Inc", "path": osm}, {"name": "Greens Global, Inc", "path": "/Shared/#Entities/Greens Global, Inc"}], "files": []}
+            if path.lower() == f"{osm}/Financials/Vendors/anthem".lower():
+                return {"path": f"{osm}/Financials/Vendors/Anthem", "folders": [], "files": []}
+            raise svc.EgnyteError("missing", 404)
+
+        def search(query, folder="", limit=20, token=None):
+            calls.append(("search", query, folder))
+            if query == "Anthem Blue Cross":
+                return [{"name": "Anthem Blue Cross", "path": "/Shared/#Entities/DRK MD Inc/Insurance X/Anthem Blue Cross", "isFolder": True}]
+            return []
+        saved = (svc.list_folder, svc.search, eg._browse_token, recurring_stale.load_settings, svc.configured)
+        svc.list_folder, svc.search = list_folder, search
+        eg._browse_token = lambda user, db: "tok"
+        svc.configured = lambda: True
+        recurring_stale.load_settings = lambda: {"staleMonths": 3, "egnyteRoot": ""}
+        try:
+            out = asyncio.run(accounting_mre.egnyte_suggest("Anthem Blue Cross", "Oversite Management, Inc", {"email": "u@x"}))
+        finally:
+            svc.list_folder, svc.search, eg._browse_token, recurring_stale.load_settings, svc.configured = saved
+        paths = [s["path"] for s in out["suggestions"]]
+        self.assertIn(f"{osm}/Financials/Vendors/Anthem", paths)
+        self.assertIn(("search", "Anthem Blue Cross", accounting_mre.ENTITIES_ROOT), calls)
+        self.assertIn(("search", "anthem", accounting_mre.ENTITIES_ROOT), calls)
+
     def test_the_egnyte_folder_is_kept_only_when_sent(self):
         body = dict(entityCode="E", vendorId="V", expenseAccounts=["1"])
         self.assertNotIn("egnyte_folder", accounting_mre._clean(accounting_mre.LineBody(**body)))
