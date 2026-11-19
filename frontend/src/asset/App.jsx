@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { MoreHorizontal, Download, Trash2, Upload, Plus, Building2, Truck, Wrench } from 'lucide-react';
+import { MoreHorizontal, Download, Trash2, Upload, Plus, Building2, Truck, Wrench, Landmark } from 'lucide-react';
 
 import { PT } from './lib/propertyFields.js';
 import { ASSET_SCHEMAS, inferAssetKind } from './lib/vehicleFields.js';
@@ -19,6 +19,8 @@ import { DEFAULT_VIEW, decodeView, encodeView, presetView, normalizeFilters } fr
 import { exportPortfolioCsv } from './lib/portfolioCsv.js';
 import { useTabSignals } from './lib/tabSignals.js';
 import { patchAssetRow } from './lib/assetPatch.js';
+import { unlinkedProperties } from './lib/ledgerMatch.js';
+import { LedgerLinkPanel } from './components/portfolio/LedgerLinkPanel.jsx';
 import AnchoredMenu from '../components/AnchoredMenu';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -729,6 +731,21 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
     });
   };
 
+  /** Link to the Ledger (Neil, 11/19/2026): the ledger entity on many properties at once -
+   *  one row save and one Activity entry per property, like the register's bulk line. */
+  const linkEntities = (pairs) => {
+    const want = new Map((pairs || []).filter((x) => x && x.id && x.code).map((x) => [x.id, String(x.code)]));
+    const plan = (props) => props.filter((p) => want.has(p.id) && !p.deleted && String(p.entityCode || '') !== want.get(p.id));
+    const n = plan(store.properties).length;
+    setStore((s) => plan(s.properties).reduce((next, p) => {
+      const row = { ...p, entityCode: want.get(p.id) };
+      return appendLog({ ...next, properties: next.properties.map((x) => (x.id === p.id ? row : x)) },
+        makeLogEntry({ section: 'Property', property: row.name, propertyId: p.id, action: 'edited', item: row.name, changes: [{ field: 'Ledger Entity', from: p.entityCode || '', to: row.entityCode }] }));
+    }, s));
+    setPanel(null);
+    pushToast(n ? `Linked ${n} ${n === 1 ? 'property' : 'properties'} to the ledger` : 'Nothing to link - they already carry that entity', n ? 'ok' : 'mut');
+  };
+
   // The property's ledger entity (Oct 7) - what PropertyLoans reads the loans of.
   const setEntityCode = (id, code) => {
     setStore((s) => {
@@ -979,6 +996,8 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const setQuery = (key) => (text) => setFilters((f) => ({ ...f, [key]: text }));
 
   const flagCount = visibleProperties.reduce((n, p) => n + ((p.reviewFlags || []).length), 0);
+  // Properties with no ledger entity yet - asked of the people who may set it.
+  const ledgerCount = canEditAssets ? unlinkedProperties(visibleProperties).length : 0;
   const portfolioActions = (
     <>
       <NewButton items={NEW_ITEMS} menuLabel="New asset" onPick={(key) => (key === 'import'
@@ -990,6 +1009,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
       <AnchoredMenu anchorRef={moreBtn} open={moreOpen} onClose={() => setMoreOpen(false)} align="end" minWidth={240} style={MENU_PANEL} aria-label="More">
         <div ref={morePanel} onKeyDown={menuKeys}>
           <MenuItem Icon={Trash2} hint={deletedProperties.length ? String(deletedProperties.length) : ''} onClick={() => { closeMore(); setPanel('trash'); }}>Trash</MenuItem>
+          {canEditAssets && <MenuItem Icon={Landmark} hint={ledgerCount ? String(ledgerCount) : ''} onClick={() => { closeMore(); setPanel('ledger'); }}>Link to the Ledger</MenuItem>}
           <MenuItem Icon={Upload} onClick={() => { closeMore(); setModal({ type: 'property', id: null, mode: 'import' }); }}>Import From a Spreadsheet</MenuItem>
           <MenuItem Icon={Download} onClick={() => {
             closeMore();
@@ -1040,6 +1060,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
           )}
           {panel === 'trash' && <TrashPanel deleted={deletedProperties} onRecover={recoverAsset} onPurge={purgeAsset} recordsOf={recordsOf} onClose={() => setPanel(null)} />}
           {panel === 'gaps' && <DataGapsPanel assets={visibleProperties.filter((p) => inferAssetKind(p) === 'property')} onOpen={openers.properties} onDelete={(id) => deleteAsset(id, true)} serverOk={serverOk} onClose={() => setPanel(null)} />}
+          {panel === 'ledger' && <LedgerLinkPanel assets={visibleProperties} onLink={linkEntities} onClose={() => setPanel(null)} />}
           {panel === 'flags' && <ReviewFlagsPanel props={visibleProperties} onClearFlag={toggleFlag} onOpen={openers.properties} onPushFix={pushFieldFix} onClose={() => setPanel(null)} />}
 
           {portTab === 'properties' && (
@@ -1050,7 +1071,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
                 </div>
               )}
               <Portfolio assets={visibleProperties} store={store} metrics={metrics} companies={companyList.companies} canClearCompany={companyList.canClear}
-                flagCount={flagCount} onReviewFlags={() => setPanel('flags')} view={{ ...pview, mode }} onView={(next) => setPview({ ...next, mode: next.mode && next.mode !== storedMode ? next.mode : '' })}
+                flagCount={flagCount} onReviewFlags={() => setPanel('flags')} ledgerCount={ledgerCount} onLinkLedger={() => setPanel('ledger')} view={{ ...pview, mode }} onView={(next) => setPview({ ...next, mode: next.mode && next.mode !== storedMode ? next.mode : '' })}
                 mode={mode} onMode={(k) => { setStoredMode(k); setPview((v) => ({ ...v, mode: '' })); }}
                 saved={Array.isArray(savedViews) ? savedViews : []} onSaveViews={setSavedViews} me={me}
                 openAsset={openers.properties} lastOpenedId={lastOpenedId} serverOk={serverOk} loading={loading}
