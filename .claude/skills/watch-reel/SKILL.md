@@ -28,11 +28,22 @@ read the video bytes, never fetch the Instagram page HTML into context.
 
 ## Network
 
-The `greens-nexus` environment allows `www.instagram.com`, `i.instagram.com` and
-`scontent.cdninstagram.com`. If a download fails on another `*.cdninstagram.com` /
-`*.fbcdn.net` host, ask once to allow that exact host (get_environment, then
-update_environment). Never fake Instagram's app headers or use third-party
-downloader sites to get around the login.
+The `greens-nexus` environment allows `www.instagram.com`, `i.instagram.com`,
+`scontent.cdninstagram.com`, `www.youtube.com`, `youtube.com`, `m.youtube.com`,
+`youtu.be`, `i.ytimg.com` and `youtubei.googleapis.com`. The video bytes come from
+servers whose names change every request, so they need wildcards that only Neil can
+add (Settings > the environment > Network access > Allowed domains):
+`*.googlevideo.com` (YouTube), `*.cdninstagram.com` and `*.fbcdn.net` (Instagram).
+Until they are there, a YouTube link still gives title, description and captions
+(`yt-dlp --skip-download --write-auto-subs --sub-langs "en.*"`) - say that the frames
+are missing. Never fake Instagram's or YouTube's app headers or use third-party
+downloader sites to get around a login.
+
+## Long videos
+
+12 frames is the budget for any length. For a long YouTube video read
+`transcript.txt` in sections, and pull an extra frame only where the words point at
+something on screen.
 
 ## Then
 

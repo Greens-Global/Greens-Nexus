@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""igwatch: turn a short video into ONE contact-sheet image + a timestamped transcript.
+"""igwatch: turn a video (Instagram, YouTube, file) into ONE contact-sheet image + a timestamped transcript.
 
 Usage: igwatch.py <video file or URL> [outdir]
 Token-light by design: one tiled JPEG (12 frames max, timestamps burned in) and plain text.
@@ -21,7 +21,7 @@ def fetch(src, out):
     if os.path.exists(src):
         return src, {}
     tmpl = os.path.join(out, "video.%(ext)s")
-    cmd = ["yt-dlp", "-q", "--no-warnings", "-f", "mp4/best", "-o", tmpl, "--write-info-json", src]
+    cmd = ["yt-dlp", "-q", "--no-warnings", "-f", "bv*[height<=480]+ba/b[height<=480]/b", "--merge-output-format", "mp4", "-o", tmpl, "--write-info-json", src]
     cookies = os.environ.get("IGWATCH_COOKIES")
     if cookies and os.path.exists(cookies):
         cmd[1:1] = ["--cookies", cookies]
