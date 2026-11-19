@@ -103,15 +103,18 @@ const FACILITY_WORDS = new Set(
 // facilities get far more 5-star than 1-star reviews). Truncating erased
 // every negative word before the cloud ever got to color one red. Callers
 // that genuinely have thousands of unique words can still pass `limit`.
-export function computeWordFrequency(reviews, { limit = Infinity, minLength = 3 } = {}) {
+// `exclude` adds words to leave out - the real Google location names, which
+// are address fragments the same way the sample facility names are.
+export function computeWordFrequency(reviews, { limit = Infinity, minLength = 3, exclude = [] } = {}) {
   const counts = new Map();
+  const skip = new Set(exclude.flatMap((name) => String(name || '').toLowerCase().split(/\s+/)));
 
   for (const r of reviews) {
     const words = (r.text || '')
       .toLowerCase()
       .replace(/[^a-z0-9'\s]/g, ' ')
       .split(/\s+/)
-      .filter((w) => w.length >= minLength && !STOPWORDS.has(w) && !FACILITY_WORDS.has(w));
+      .filter((w) => w.length >= minLength && !STOPWORDS.has(w) && !FACILITY_WORDS.has(w) && !skip.has(w));
 
     for (const word of words) {
       const entry = counts.get(word) || { word, count: 0, positive: 0, negative: 0 };

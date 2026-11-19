@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Search, Sparkles, Pencil, Trash2, History, Send, MessageSquare } from 'lucide-react'
 import { api } from '../../api'
 import AsyncSection, { SkeletonBlocks } from '../../components/AsyncState'
@@ -229,39 +229,55 @@ function ReviewItem({ review, location, canReply, onChange }) {
 // Real Google reviews (marketing_reviews, synced from Google) with the
 // Replied / Unreplied split, reply / edit / delete, and the record of who
 // in Nexus did each - Google itself shows every reply as the owner's.
-export default function GoogleReviewsPanel({ canReply, reloadKey = 0 }) {
+// The split and the search may be held by the caller (the Reputation word
+// cloud sets them); the search runs on the server, across every review.
+export default function GoogleReviewsPanel({ canReply, reloadKey = 0, showStats = true, filter: filterProp, onFilterChange, query: queryProp, onQueryChange }) {
   const [locations, setLocations] = useState([])
-  const [filter, setFilter] = useState('no')
+  const [ownFilter, setOwnFilter] = useState('no')
+  const [ownQuery, setOwnQuery] = useState('')
+  const filter = filterProp ?? ownFilter
+  const setFilter = onFilterChange || setOwnFilter
+  const query = queryProp ?? ownQuery
+  const setQuery = onQueryChange || setOwnQuery
+  const [search, setSearch] = useState(query.trim())
   const [locationKey, setLocationKey] = useState('')
-  const [query, setQuery] = useState('')
   const [data, setData] = useState({ total: 0, counts: { all: 0, unreplied: 0, replied: 0 }, reviews: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [loadingMore, setLoadingMore] = useState(false)
+  const seq = useRef(0)
+
+  // Typing waits a beat before it asks the server.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(query.trim()), 300)
+    return () => clearTimeout(t)
+  }, [query])
 
   const load = useCallback(async () => {
+    const mine = ++seq.current
     setLoading(true)
     setError('')
     try {
       const [locs, page] = await Promise.all([
         api.getGbpLocations(),
-        api.getGbpReviews({ replied: filter, location: locationKey, limit: PAGE, offset: 0 }),
+        api.getGbpReviews({ replied: filter, location: locationKey, q: search, limit: PAGE, offset: 0 }),
       ])
+      if (mine !== seq.current) return   // a newer filter or search is on its way
       setLocations(locs || [])
       setData(page)
     } catch (e) {
-      setError(errorText(e, 'The Google reviews could not be loaded.'))
+      if (mine === seq.current) setError(errorText(e, 'The Google reviews could not be loaded.'))
     } finally {
-      setLoading(false)
+      if (mine === seq.current) setLoading(false)
     }
-  }, [filter, locationKey])
+  }, [filter, locationKey, search])
 
   useEffect(() => { load() }, [load, reloadKey])
 
   async function loadMore() {
     setLoadingMore(true)
     try {
-      const page = await api.getGbpReviews({ replied: filter, location: locationKey, limit: PAGE, offset: data.reviews.length })
+      const page = await api.getGbpReviews({ replied: filter, location: locationKey, q: search, limit: PAGE, offset: data.reviews.length })
       setData((d) => ({ ...page, reviews: [...d.reviews, ...page.reviews] }))
     } catch (e) {
       setError(errorText(e))
@@ -290,19 +306,17 @@ export default function GoogleReviewsPanel({ canReply, reloadKey = 0 }) {
   const totalReviews = scope.reduce((a, l) => a + (l.reviewCount || 0), 0)
   const avgRating = totalReviews ? scope.reduce((a, l) => a + (l.avgRating || 0) * (l.reviewCount || 0), 0) / totalReviews : 0
 
-  const q = query.trim().toLowerCase()
-  const shown = q
-    ? data.reviews.filter((r) => `${r.reviewer} ${r.comment} ${r.reply} ${r.location}`.toLowerCase().includes(q))
-    : data.reviews
+  const shown = data.reviews
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
+      {/* Reputation's overview carries these once it has loaded. */}
+      {showStats && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
         <Stat label="Average Rating" value={totalReviews ? avgRating.toFixed(1) : '-'} sub={totalReviews ? <StarRating value={Math.round(avgRating)} size={12} /> : null} />
         <Stat label="Total Reviews" value={totalReviews.toLocaleString('en-US')} />
         <Stat label="Awaiting Reply" value={data.counts.unreplied.toLocaleString('en-US')} />
         <Stat label="Replied" value={data.counts.replied.toLocaleString('en-US')} />
-      </div>
+      </div>}
 
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -327,7 +341,7 @@ export default function GoogleReviewsPanel({ canReply, reloadKey = 0 }) {
             </select>
             <label style={{ ...btn, cursor: 'text' }}>
               <Search size={12} />
-              <input className="nx-inline-edit" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search loaded reviews"
+              <input className="nx-inline-edit" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search reviews" aria-label="Search reviews"
                      style={{ border: 'none', fontSize: 12, color: C.gray700, width: 160 }} />
             </label>
           </div>
@@ -344,7 +358,7 @@ export default function GoogleReviewsPanel({ canReply, reloadKey = 0 }) {
             <div style={{ textAlign: 'center', padding: '32px 12px', color: C.gray400, fontSize: 13 }}>
               <MessageSquare size={22} style={{ marginBottom: 6 }} />
               <div>
-                {q ? 'No loaded review matches that search.'
+                {search ? 'No review matches that search.'
                   : filter === 'no' ? 'Every review has a reply.'
                   : locations.length === 0 ? 'No locations have synced from Google yet.'
                   : 'No reviews here yet.'}

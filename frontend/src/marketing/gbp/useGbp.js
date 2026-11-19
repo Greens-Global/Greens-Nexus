@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api'
 import { useRole } from '../../contexts/RoleContext'
+import { toReputationReviews } from './reviewFeed'
 
 // The Google Business Profile connection (backend/routers/marketing_gbp.py).
 // While it is not connected the Reputation and Business Profile tabs keep
@@ -115,6 +116,24 @@ export function useGbpSummary() {
     return () => { live = false; window.removeEventListener(GBP_CHANGED, load) }
   }, [])
   return summary
+}
+
+// Every real Google review, in the sample review shape (gbp/reviewFeed.js),
+// for the charts on Reputation and Insights. `reviews` is null while
+// loading, when Google is not connected, or without the grant - callers then
+// keep the sample reviews. Refreshes on a reply, a sync or `reloadKey`.
+export function useGbpReviewFeed(reloadKey = 0) {
+  const [state, setState] = useState({ reviews: null, loading: true, error: '' })
+  useEffect(() => {
+    let live = true
+    const load = () => api.getGbpReviewFeed()
+      .then((f) => { if (live) setState({ reviews: f?.connected ? toReputationReviews(f.reviews) : null, loading: false, error: '' }) })
+      .catch((e) => { if (live) setState({ reviews: null, loading: false, error: e.status === 403 ? '' : errorText(e) }) })
+    load()
+    window.addEventListener(GBP_CHANGED, load)
+    return () => { live = false; window.removeEventListener(GBP_CHANGED, load) }
+  }, [reloadKey])
+  return state
 }
 
 // Mirrors the backend gates: viewer reads, editor replies and syncs, full
