@@ -971,6 +971,41 @@ describe('LoansTab, the 11/19 clean-up', () => {
     expect(within(ic).queryByText('Add')).toBeNull();
   });
 
+  it('offers the terms typed in Asset Management and fills them through the loan save', async () => {
+    const lacking = { ...review, loans: review.loans.map((l) => (l.id === 'FL5' ? { ...l, ratePct: null, maturity: null } : l)) };
+    (api.getLoansReviewSlow || api.getLoansReview).mockResolvedValueOnce(lacking);
+    api.getLoanTermSuggestions = vi.fn(async () => ({ assets: true, suggestions: [
+      { loanId: 'FL5', propertyId: 'p1', propertyName: 'Oak Street', why: 'lender', maturity: '2031-06-01', ratePct: 6.25, rateType: 'fixed' },
+      { loanId: 'FL1', propertyId: 'p2', propertyName: 'Has Its Terms', why: 'lender', maturity: '2040-01-01' },
+    ] }));
+    try {
+      render(<LoansTab canEdit />);
+      expect(await screen.findByText(/Asset Management has the rate or maturity typed for 1 of these loan\./)).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+      const list = screen.getByRole('region', { name: 'Terms From Asset Management' });
+      expect(within(list).getByText('Maturity 06/01/2031 - Rate 6.25% fixed')).toBeTruthy();
+      expect(within(list).getByText('Typed on Oak Street - the lender matches.')).toBeTruthy();
+      expect(within(list).queryByText(/Has Its Terms/)).toBeNull();
+      expect(api.updateLoan).not.toHaveBeenCalledWith('FL5', '', expect.anything());
+      fireEvent.click(within(list).getByRole('button', { name: 'Fill 1 Loan' }));
+      await waitFor(() => expect(api.updateLoan).toHaveBeenCalledWith('FL5', '', { maturity: '2031-06-01', ratePct: 6.25, rateType: 'fixed' }));
+      expect(await screen.findByText('Filled the terms of 1 loan from Asset Management.')).toBeTruthy();
+    } finally {
+      delete api.getLoanTermSuggestions;
+    }
+  });
+
+  it('a viewer is never offered terms to fill', async () => {
+    api.getLoanTermSuggestions = vi.fn(async () => ({ assets: true, suggestions: [] }));
+    try {
+      render(<LoansTab />);
+      await rowOf('F&M Bank');
+      expect(api.getLoanTermSuggestions).not.toHaveBeenCalled();
+    } finally {
+      delete api.getLoanTermSuggestions;
+    }
+  });
+
   it('missingTerms: any of the three not typed, never a closed loan', () => {
     expect(missingTerms(loan())).toBe(false);
     expect(missingTerms(loan({ ratePct: null }))).toBe(true);

@@ -1439,6 +1439,61 @@ async def loans_by_entity(code: str, to: Optional[str] = None, scope: dict = Dep
             "notes": data["notes"]}
 
 
+def _asset_debt_sync(user: dict) -> Optional[list]:
+    """The debt typed on the properties this caller may see in Asset
+    Management (private assets are officers' alone, scope rows narrow the
+    rest), or None when they may not open Asset Management at all."""
+    import loan_term_suggest
+    import property_links
+    db = database.SessionLocal()
+    try:
+        if not property_links.is_asset_reader(db, user):
+            return None
+        allowed = property_links.asset_scope(db, user)
+        out = []
+        for p in db.query(models.PropertyAsset).all():
+            if not property_links.viewable(p, user) or not property_links.in_scope(p, allowed):
+                continue
+            if (p.payload or {}).get("deleted") or property_links.asset_kind(p) != "property":
+                continue
+            out.append(loan_term_suggest.property_row(p.id, p.payload or {}))
+        return out
+    finally:
+        db.close()
+
+
+@router.get("/term-suggestions")
+async def term_suggestions(month: Optional[str] = None, user: dict = Depends(_edit), scope: dict = Depends(entity_scope)):
+    """Rate and maturity already typed on a property in Asset Management,
+    offered for the loans that lack them (Neil, 11/19/2026 - the same facts
+    were kept in both modules and the loans had almost none). Rules only
+    (loan_term_suggest.py): inside the property's own ledger entity, tied by
+    the loan number, then the lender, then the entity's only loan. Nothing is
+    saved here - the screen shows the offer and an editor accepts it through
+    the ordinary loan save. For accounting editors, of the loans in their
+    entities and the properties they may see; a person with no Asset
+    Management access gets `assets: false` and no offers."""
+    import loan_term_suggest
+    props = await asyncio.to_thread(_asset_debt_sync, user)
+    if props is None:
+        return {"assets": False, "suggestions": []}
+    rows = await _loan_rows(scope, (month and _month(month)) or date.today().isoformat()[:7])
+    settings = await asyncio.to_thread(_settings_sync, [str(l.get("id")) for l in rows if l.get("id")])
+    loans = []
+    for l in rows:
+        st = settings.get(str(l.get("id"))) or {}
+        loans.append({
+            "id": l.get("id"), "lender": l.get("lender") or "", "glTitle": "", "loanNo": display_loan_no(st, l), "loanNumber": st.get("loan_number") or "",
+            "entityCode": str(l.get("entity_code") or ""), "ratePct": _num(l.get("rate_pct")) or None,
+            "maturity": str(l.get("maturity"))[:10] if l.get("maturity") else None, "closed": l.get("is_active", True) is False,
+        })
+    codes = sorted({p["entityCode"] for p in props if p["entityCode"]})
+    reach = {}
+    for code in codes:
+        reach[code] = await accounting._with_children({code})
+    return {"assets": True, "suggestions": loan_term_suggest.suggest(loans, props, reach)}
+
+
 @router.get("/noi")
 async def entity_noi(entities: str, from_: Optional[str] = Query(default=None, alias="from"), to: Optional[str] = None, scope: dict = Depends(entity_scope)):
     """NOI per entity for a window (the Stress Test's Annualized YTD basis,

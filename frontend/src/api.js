@@ -2462,6 +2462,8 @@ export const api = {
   // 18s default, which also used to flag the API as down (see LoansTab).
   deleteLoan:            (id)              => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'DELETE', timeoutMs: 60_000 }),
   getLoansByEntity:      (code, to = '')   => req(`/accounting/loans/by-entity/${encodeURIComponent(code)}${to ? `?to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  // Rate and maturity typed on a property, offered for the loans that lack them (11/19/2026).
+  getLoanTermSuggestions: (month = '')     => req(`/accounting/loans/term-suggestions${month ? `?month=${encodeURIComponent(month)}` : ''}`, { timeoutMs: 60_000 }),
   getLoanEntityNoi:      ({ entities = [], from = '', to = '' } = {}) => req(`/accounting/loans/noi?${new URLSearchParams({ entities: entities.join(','), ...(from ? { from } : {}), ...(to ? { to } : {}) })}`, { timeoutMs: 120_000 }),
   getLoansReviewSlow:    ({ from = '', to = '', entities = [] } = {}) => req(`/accounting/loans/review?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(entities.length ? { entities: entities.join(',') } : {}) })}`, { timeoutMs: 150_000 }),
   getLoanAccountsSlow:   (entity, to = '') => req(`/accounting/loans/accounts?entity=${encodeURIComponent(entity)}${to ? `&to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
