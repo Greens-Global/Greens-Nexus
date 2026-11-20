@@ -68,9 +68,9 @@ def unit_climate(name: str):
     """True / False when a unit type's name says whether it is climate
     controlled, None when it does not say."""
     n = (name or "").lower()
-    if re.search(r"non[- ]?(climate|cc)|non[- ]?heated|drive[- ]?up|outdoor|parking", n):
+    if re.search(r"non[- ]?(climate|cc\b)|\bnon[- ]?heated|drive[- ]?up|outdoor|parking", n):
         return False
-    if re.search(r"climate|cc|heated|temperature", n):
+    if re.search(r"climate|\bcc\b|heated|temperature", n):
         return True
     return None
 

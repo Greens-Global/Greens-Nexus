@@ -14,6 +14,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import date, timedelta
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -675,7 +676,16 @@ class ClaimTests(Base):
         self.assertEqual(self.file(SAT, 300, note="  ").status_code, 422)
         self.assertEqual(self.file(SAT, 300).status_code, 200)
         self.assertEqual(self.file(SAT, 60).status_code, 409)              # one claim a day
-        self.assertEqual(self.file("2026-10-31", 60).status_code, 400)     # October: before this test's data
+        # A day that has not come yet is refused before anything is read. Counted from the contractor's own
+        # today, never a fixed date (this line read "2026-10-31" when that Saturday was still ahead).
+        ahead = (date.fromisoformat(tc._employee_today(self.db, CON)) + timedelta(days=30)).isoformat()
+        r = self.file(ahead, 60)
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertEqual(r.json()["detail"], "Extra Time is claimed once the hours are worked.")
+        # A past weekend day nobody worked (October: after this test's data) has nothing to claim.
+        r = self.file("2026-10-31", 60)
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertEqual(r.json()["detail"], "There are no hours worked on 10/31/2026 to claim.")
 
     def test_nobody_decides_their_own_claim(self):
         cid = self.file(SAT, 300).json()["id"]

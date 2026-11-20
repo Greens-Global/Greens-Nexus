@@ -24,6 +24,10 @@ import models
 from routers.task_util import gen_id, now_iso
 from routers.task_projects import move_projects_between_portfolios, MoveProjectsBody
 
+# The route checks the caller's company wall (Oct 21 2026), so a direct call
+# names its caller, as test_portfolio_nesting does.
+ACTOR = {"email": "actor@greensglobal.com", "level": 1}
+
 # A test that DELETES rows must prove its own isolation before it deletes any.
 #
 # unittest runs every module named on one command line in ONE process, so
@@ -88,7 +92,7 @@ class MoveProjectsTests(unittest.TestCase):
 
     def _move(self, projects, dest):
         return move_projects_between_portfolios(
-            MoveProjectsBody(project_ids=[p.id for p in projects], portfolio_id=dest), db=self.db)
+            MoveProjectsBody(project_ids=[p.id for p in projects], portfolio_id=dest), user=ACTOR, db=self.db)
 
     def _refresh(self):
         for row in (self.a, self.b, self.p1, self.p2, self.loose):
@@ -129,7 +133,7 @@ class MoveProjectsTests(unittest.TestCase):
 
     def test_a_project_listed_twice_moves_once(self):
         r = move_projects_between_portfolios(
-            MoveProjectsBody(project_ids=[self.p1.id, self.p1.id], portfolio_id=self.b.id), db=self.db)
+            MoveProjectsBody(project_ids=[self.p1.id, self.p1.id], portfolio_id=self.b.id), user=ACTOR, db=self.db)
         self._refresh()
         self.assertEqual(r["moved"], 1)
         self.assertEqual(self.b.project_ids, [self.p1.id])
@@ -137,13 +141,13 @@ class MoveProjectsTests(unittest.TestCase):
     # ── refusals ──────────────────────────────────────────────────────────
     def test_an_empty_selection_is_refused(self):
         with self.assertRaises(HTTPException) as e:
-            move_projects_between_portfolios(MoveProjectsBody(project_ids=[], portfolio_id=self.b.id), db=self.db)
+            move_projects_between_portfolios(MoveProjectsBody(project_ids=[], portfolio_id=self.b.id), user=ACTOR, db=self.db)
         self.assertEqual(e.exception.status_code, 422)
 
     def test_an_unknown_destination_is_refused_before_anything_moves(self):
         with self.assertRaises(HTTPException) as e:
             move_projects_between_portfolios(
-                MoveProjectsBody(project_ids=[self.p1.id], portfolio_id="nope"), db=self.db)
+                MoveProjectsBody(project_ids=[self.p1.id], portfolio_id="nope"), user=ACTOR, db=self.db)
         self.assertEqual(e.exception.status_code, 404)
         self._refresh()
         self.assertEqual(self.p1.portfolio_id, self.a.id)

@@ -81,7 +81,7 @@ class NestingTests(unittest.TestCase):
         return p
 
     def _patch(self, pf, **fields):
-        return update_portfolio(pf.id, PortfolioBody(**fields), db=self.db)
+        return update_portfolio(pf.id, PortfolioBody(**fields), user=ACTOR, db=self.db)
 
     # ── the tree ──────────────────────────────────────────────────────────
     def test_descendants_reach_every_depth_not_just_children(self):

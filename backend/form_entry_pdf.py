@@ -186,7 +186,10 @@ def _heading(text: str, level: int) -> dict:
 
 
 def _cell(blocks: list) -> dict:
-    return {"blocks": blocks, "background": None}
+    # colspan / rowspan are required by doc_export's table grid since merged
+    # cells arrived (11/04/2026); without them every entry PDF with a table
+    # answered 500 (KeyError: 'colspan').
+    return {"blocks": blocks, "background": None, "colspan": 1, "rowspan": 1, "widths": None}
 
 
 def _table(rows: list) -> dict:

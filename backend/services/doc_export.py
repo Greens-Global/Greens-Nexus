@@ -1400,6 +1400,11 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
     # "Page X of N"; the second is the real render (and the one whose
     # signature anchors are kept).
     _, total_pages[0] = build(None)
+    if raw_anchors:
+        # The counting pass drew the paragraphs too, and nxFill (fill_at) wrote
+        # each signing blank's anchor then - kept, every blank got two boxes
+        # in Nexus Sign, a required one asked for twice.
+        raw_anchors.clear()
     pdf_bytes, _ = build(raw_anchors)
     if anchors is not None:
         pw, ph = pagesize

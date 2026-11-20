@@ -42,6 +42,7 @@ import database  # noqa: E402
 import egnyte_oauth  # noqa: E402
 import main  # noqa: E402
 import models  # noqa: E402
+import vault_head  # noqa: E402
 from routers import marketing_ads, unifi  # noqa: E402
 from services import egnyte as egnyte_svc  # noqa: E402
 
@@ -279,6 +280,9 @@ class AccessMatrixTests(unittest.TestCase):
             mock.patch.object(egnyte_svc, "delete_item", lambda *a, **k: {"ok": True}),
             mock.patch.object(marketing_ads.google_ads, "status", lambda db: {"connected": False}),
             mock.patch.object(unifi, "fetch_all", _no_unifi),
+            # The department head's code (11/13/2026) is a second step after the grant gate, for
+            # everyone but a Super Administrator; it has its own suite (test_vault_head.py).
+            mock.patch.object(vault_head, "require", lambda *a, **k: None),
         ):
             p.start()
             cls.addClassCleanup(p.stop)

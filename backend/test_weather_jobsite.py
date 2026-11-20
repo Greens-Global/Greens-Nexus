@@ -286,6 +286,15 @@ class JobsiteTests(unittest.TestCase):
                                                executive_emails=[], company_id="ent-other"))
         self.db.commit()
         self._as(BOSS)
+        # An Administrator is walled only while the walls switch is on
+        # (Pranshu, 11/11/2026): with it off the other company's project is
+        # listed like any other.
+        sched = self.client.get("/timeclock/schedule", params={"start": DAY, "end": DAY}).json()
+        self.assertIn("project-other", [o["id"] for o in sched["jobsites"]])
+        self.db.add(models.NexusSetting(key="company_walls", value="on"))
+        self.db.commit()
+        cache.settings_config.invalidate()
+        self.addCleanup(cache.settings_config.invalidate)
         sched = self.client.get("/timeclock/schedule", params={"start": DAY, "end": DAY}).json()
         ids = [o["id"] for o in sched["jobsites"]]
         self.assertIn(RED, ids)

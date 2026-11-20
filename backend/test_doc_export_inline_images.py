@@ -135,8 +135,11 @@ class InlineImageDocxTests(unittest.TestCase):
         xml, _ = _docx_parts(render_docx("T", [], [tiptap_to_blocks(_speaker_turn(), {})], []))
         m = re.search(r'<wp:extent cx="(\d+)" cy="(\d+)"', xml)
         self.assertIsNotNone(m)
-        # 22pt, in EMU (12700 per point).
-        self.assertAlmostEqual(int(m.group(1)) / 12700, 22.0, places=1)
+        # The editor's width is px at 96 an inch (11/06/2026: read as points,
+        # a 240px picture came back 320px wide), so 22px is 16.5pt - in EMU
+        # (12700 per point), and the height follows the same rule.
+        self.assertAlmostEqual(int(m.group(1)) / 12700, 16.5, places=1)
+        self.assertAlmostEqual(int(m.group(2)) / 12700, 16.5, places=1)
 
     def test_an_unreadable_picture_does_not_sink_the_export(self):
         body = {"type": "doc", "content": [{"type": "paragraph", "content": [

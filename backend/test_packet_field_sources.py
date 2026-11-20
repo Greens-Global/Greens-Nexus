@@ -121,8 +121,15 @@ class PacketJourneyTests(OfferCase):
         self.assertEqual(r.status_code, 200, r.text)
         row = self.db.query(models.Document).filter_by(life_event_id=packet.id).one()
         self.assertEqual(row.merge_overrides["pan_number"], "AAAAA0000A")    # printed in the document
-        self.assertEqual(self._ev(packet.id).status, "review")
-        self.assertTrue(self._review(packet.id)["canVerify"], self._review(packet.id)["problems"])
+        # Submit And Continue (Pranshu, 11/04/2026): with nothing HR's check would stop on, the packet
+        # opens for the new hire to sign at once - no review stop, nobody named as its verifier.
+        ev = self._ev(packet.id)
+        self.assertEqual(ev.status, "sent")
+        self.assertEqual(ev.verified_by, "")
+        self.assertIn("/sign/", r.json()["signUrl"])
+        review = self._review(packet.id)
+        self.assertEqual(review["problems"], [])
+        self.assertFalse(review["canVerify"])                               # already out - nothing left to verify
 
 
 CO_ID = __import__("test_hr_packet_review").CO

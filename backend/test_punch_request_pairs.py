@@ -148,8 +148,21 @@ class PunchPairTests(unittest.TestCase):
         r_out = self._request("out", day + timedelta(hours=8))
         resp = self.client.patch(f"/timeclock/punch-requests/{r_out}", json={"status": "approved", "note": ""})
         self.assertEqual(resp.status_code, 409, resp.text)
-        self.assertIn("a clock-out with no clock-in before it", resp.json()["detail"])
+        # Nothing else on that day (11/17/2026): the refusal says what to do instead of naming a punch to fix.
+        us_day = day.strftime("%m/%d/%Y")
+        self.assertEqual(resp.json()["detail"],
+                         f"Beth asked for a clock-out at 5:00 PM on {us_day}, but nothing else is on that day, so a "
+                         f"clock-out alone can't go in. Beth's note: \"Forgot to punch\". If Beth was off that day, "
+                         f"Reject this and use Add on {us_day} to put in the time off (Vacation, Sick or Personal); "
+                         f"if Beth worked, Reject it and add the shift with both times.")
         self.assertEqual(self._status(r_out), "pending")
+        self.assertEqual(self._kinds(), ["in", "out"])
+        # A day that already has punches keeps the plain wording: a clock-out before the day's clock-in.
+        r_early = self._request("out", self.base - timedelta(hours=1))
+        resp = self.client.patch(f"/timeclock/punch-requests/{r_early}", json={"status": "approved", "note": ""})
+        self.assertEqual(resp.status_code, 409, resp.text)
+        self.assertIn("a clock-out with no clock-in before it", resp.json()["detail"])
+        self.assertEqual(self._status(r_early), "pending")
         self.assertEqual(self._kinds(), ["in", "out"])
 
     def test_invalid_partner_leaves_everything_pending(self):

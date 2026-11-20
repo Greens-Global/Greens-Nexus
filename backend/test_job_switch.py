@@ -173,10 +173,11 @@ def test_every_register_key_is_distinct():
 
 # ── the route ────────────────────────────────────────────────────────────────
 def test_switch_is_global_admin_only_and_audited(client, db):
+    # Super Administrator by tier since 11/12/2026 (require_owner, no grant): the tier gate's refusal is a 401.
     as_user(MAX)
-    assert client.post("/workflows/automations/jobs/reminders/off", json={"off": True}).status_code == 403
+    assert client.post("/workflows/automations/jobs/reminders/off", json={"off": True}).status_code == 401
     as_user(VERA)
-    assert client.post("/workflows/automations/jobs/reminders/off", json={"off": True}).status_code == 403
+    assert client.post("/workflows/automations/jobs/reminders/off", json={"off": True}).status_code == 401
     assert job_switch.off_keys(db) == []
     as_user(GAIL)
     assert client.post("/workflows/automations/jobs/no-such-job/off", json={"off": True}).status_code == 404

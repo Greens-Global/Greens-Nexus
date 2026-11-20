@@ -8,6 +8,7 @@ Throwaway SQLite. Run alone: python -m pytest test_ops_cma.py
 """
 import atexit
 import os
+import re
 import tempfile
 from datetime import date
 
@@ -492,7 +493,9 @@ def test_revert_with_the_switch_off_proposes_the_old_rate(db, fake):
     res = _apply(c).json()["results"][0]
     c.post(f"/facility-ops/cma/changes/{res['id']}/revert")
     d = db.query(models.OpsRateDraft).one()
-    assert d.proposed_cents == 11450 and d.note.startswith("Revert to the rates before 10/")
+    # The note carries the day of the revert (now), as MM/DD/YYYY - read it from the draft's own stamp, never the calendar.
+    assert re.fullmatch(r"Revert to the rates before \d{2}/\d{2}/\d{4}", d.note)
+    assert d.proposed_cents == 11450 and d.note == f"Revert to the rates before {date.fromisoformat(d.updated_at[:10]):%m/%d/%Y}"
     assert fake.writes_sent() == []
 
 

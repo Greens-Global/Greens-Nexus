@@ -63,6 +63,7 @@ class TaskDataAccessTests(unittest.TestCase):
         for m in (models.Task, models.TaskProject, models.TaskTeam, models.TaskComment,
                   models.TaskSavedView, models.TaskNotification):
             self.db.query(m).execution_options(include_deleted=True).delete()
+        self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
         self.db.commit()
         self.proj = models.TaskProject(id=gen_id(), name="Roof replacement", access_level="restricted",
                                        owner_email=OWNER["email"], member_emails=[MEMBER["email"]],
@@ -164,13 +165,33 @@ class TaskDataAccessTests(unittest.TestCase):
     def test_an_admins_notification_is_for_administrators(self):
         n = self._notif("admins")
         self._not_found(mark_notification_read, n.id, user=BOSS, db=self.db)   # level 3 is not "admins"
-        # About no task or team (no company): a Super Administrator's alone -
-        # an Administrator hears the "admins" fan-out of their companies only
-        # (Neil, 11/02/2026).
+        # About no task or team (no company): with the company walls armed it
+        # is a Super Administrator's alone - an Administrator hears the
+        # "admins" fan-out of their companies only (Neil, 11/02/2026).
+        self._walls("on")
         self._not_found(mark_notification_read, n.id, user=ADMIN, db=self.db)
+        self.db.refresh(n)
+        self.assertFalse(n.read)
         mark_notification_read(n.id, user={**ADMIN, "level": 5}, db=self.db)
         self.db.refresh(n)
         self.assertTrue(n.read)
+        # Walls off: levels 1-4 follow the switch (Pranshu, 11/11/2026), so the
+        # Administrator reads every "admins" row; a Manager still does not.
+        self._walls("")
+        n2 = self._notif("admins")
+        self._not_found(mark_notification_read, n2.id, user=BOSS, db=self.db)
+        mark_notification_read(n2.id, user=ADMIN, db=self.db)
+        self.db.refresh(n2)
+        self.assertTrue(n2.read)
+
+    def _walls(self, value):
+        import cache
+        self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+        if value:
+            self.db.add(models.NexusSetting(key="company_walls", value=value))
+        self.db.commit()
+        cache.settings_config.invalidate("company_walls")
+        self.addCleanup(cache.settings_config.invalidate, "company_walls")
 
 
 if __name__ == "__main__":

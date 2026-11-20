@@ -197,15 +197,81 @@ def _changes_out(changes: Optional[dict]) -> dict:
 
 
 # ── the write ────────────────────────────────────────────────────────────────
-def _insert(db, row: dict) -> None:
+_BUFFER: contextvars.ContextVar = contextvars.ContextVar("workflow_emit_buffer", default=None)
+
+
+def _write(db, rows: list) -> None:
     import models
     table = models.WorkflowEvent.__table__
     conn = db.connection()
     if conn.dialect.name == "postgresql":
         with conn.begin_nested():
-            conn.execute(table.insert(), [row])
+            conn.execute(table.insert(), rows)
     else:
-        conn.execute(table.insert(), [row])
+        conn.execute(table.insert(), rows)
+
+
+def _insert(db, row: dict) -> None:
+    buf = _BUFFER.get()
+    if buf is not None:
+        buf.append(row)
+        return
+    _write(db, [row])
+
+
+def _write_safely(db, rows: list) -> None:
+    """One insert for `rows`; a batch the database refuses is retried a row
+    at a time, so one bad row costs one event as it always did."""
+    try:
+        _write(db, rows)
+    except Exception as e:   # noqa: BLE001 - an outbox write must never fail the caller's request
+        _log(f"batch of {len(rows)}: {type(e).__name__}: {str(e)[:200]}")
+        for row in rows:
+            try:
+                _write(db, [row])
+            except Exception as e2:   # noqa: BLE001
+                _log(f"{row.get('key')}: {type(e2).__name__}: {str(e2)[:200]}")
+
+
+def buffered() -> Optional[list]:
+    """The outbox rows held by the open `batched` block (None outside one) -
+    for a caller that must correct them before they are written (the task
+    import swaps its stand-in codes for the real ones)."""
+    return _BUFFER.get()
+
+
+def write_buffered(db) -> None:
+    """Write what the open `batched` block holds now - before the caller's
+    own commit, so the events commit with the change. Never raises."""
+    rows = _BUFFER.get()
+    if rows:
+        out = list(rows)
+        del rows[:]
+        _write_safely(db, out)
+
+
+@contextlib.contextmanager
+def batched(db):
+    """Every emit inside the block is held and goes out as ONE insert - at
+    `write_buffered`, else when the block closes - for work that makes many
+    rows in one transaction (a 2,000 row task import was 2,000 single
+    inserts). Same transaction, same rows, same order. A caller that commits
+    inside the block calls `write_buffered` first. Never raises."""
+    if _BUFFER.get() is not None:      # already inside a batch: the outer one writes
+        yield
+        return
+    token = _BUFFER.set([])
+    try:
+        yield
+    except BaseException:
+        # The caller's work failed and its transaction is rolled back: the
+        # held events go with it, never written into a broken transaction.
+        _BUFFER.reset(token)
+        raise
+    rows = _BUFFER.get()
+    _BUFFER.reset(token)
+    if rows:
+        _write_safely(db, list(rows))
 
 
 def emit(db, key: str, *, subject, actor: str = "", changes: Optional[dict] = None,

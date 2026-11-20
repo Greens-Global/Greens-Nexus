@@ -105,6 +105,33 @@ class WhatWaitsTests(BatchCase):
 
 
 class FlushTests(BatchCase):
+    def test_the_ready_query_runs_on_postgres(self):
+        """Postgres has no max(boolean). The query that picks whose batch is
+        due aggregated the `urgent` column directly, passed on SQLite (0 / 1)
+        and failed every minute on dev and prod, so no batch ever went out
+        (found in the database logs, 11/20/2026)."""
+        from sqlalchemy.dialects import postgresql
+        seen = []
+
+        class Spy:
+            def query(self, *cols):
+                seen.extend(cols)
+                return self
+
+            def filter(self, *a):
+                return self
+
+            def group_by(self, *a):
+                return self
+
+            def all(self):
+                return []
+
+        task_notify._ready_recipients(Spy(), 60, datetime.now(timezone.utc))
+        sql = " ".join(str(c.compile(dialect=postgresql.dialect())) for c in seen)
+        self.assertNotIn("max(task_email_queue.urgent)", sql)
+        self.assertIn("CASE WHEN", sql)
+
     def test_nothing_goes_out_before_the_hour(self):
         self._event(self._task(), "assigned")
         self.assertEqual(self._flush(minutes_later=30), 0)

@@ -231,8 +231,9 @@ def test_publish_after_test_bumps_version_and_writes_audit(client, db):
 
 # ── switches and runs ────────────────────────────────────────────────────────
 def test_pause_all_is_global_admin_only(client, db):
+    # Super Administrator by tier since 11/12/2026 (require_owner, no grant): the tier gate's refusal is a 401.
     as_user(EDDIE)
-    assert client.post("/workflows/settings/pause-all", json={"paused": True}).status_code == 403
+    assert client.post("/workflows/settings/pause-all", json={"paused": True}).status_code == 401
     as_user(GAIL)
     r = client.post("/workflows/settings/pause-all", json={"paused": True})
     assert r.status_code == 200 and r.json()["pausedAll"] is True and r.json()["pausedBy"] == GAIL

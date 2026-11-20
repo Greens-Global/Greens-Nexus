@@ -334,6 +334,30 @@ class LimitAndTransactionTests(Base):
         # per row - one per-row lookup would add 2,000.
         self.assertLess(len(statements), 200)
 
+    def test_the_workflow_events_go_out_as_one_insert_with_the_real_codes(self):
+        # One task.created event per task, written together just before the
+        # commit - and carrying the task's real code, never the stand-in the
+        # rows are built with.
+        inserts = []
+
+        def count(_c, _cur, statement, *_a, **_k):
+            if statement.lstrip().upper().startswith("INSERT INTO WORKFLOW_EVENTS"):
+                inserts.append(1)
+        event.listen(database.engine, "before_cursor_execute", count)
+        try:
+            self.run_import([{"row": i + 2, "title": f"Task {i}"} for i in range(5)])
+        finally:
+            event.remove(database.engine, "before_cursor_execute", count)
+        self.assertEqual(len(inserts), 1)
+        made = {t.id: t.code for t in self.tasks()}
+        events = (self.db.query(models.WorkflowEvent)
+                  .filter(models.WorkflowEvent.key == "task.created",
+                          models.WorkflowEvent.subject_id.in_(list(made))).all())
+        self.assertEqual(len(events), 5)
+        for e in events:
+            self.assertEqual(e.payload["subject"]["code"], made[e.subject_id])
+            self.assertNotIn("import-code", str(e.payload))
+
     def test_a_failure_part_way_leaves_nothing_behind(self):
         real = T._new_task_row
         calls = {"n": 0}

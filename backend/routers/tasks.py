@@ -6528,7 +6528,7 @@ _UPDATE_BURST = timedelta(minutes=60)
 # Rows to scan for the card. Bounded so the query stays a slice of the
 # activity table rather than a walk over all of it.
 _UPDATE_SCAN = 3000
-_BLOCK_END_RE = re.compile(r"<(?:br|/p|/div|/li|/h\d|/blockquote)[^>]*>", re.I)
+_BLOCK_END_RE = re.compile(r"<(?:br|/p|/div|/li|/h\d|/blockquote)\b[^>]*>", re.I)
 _TAG_RE = re.compile(r"<[^>]+>")
 
 

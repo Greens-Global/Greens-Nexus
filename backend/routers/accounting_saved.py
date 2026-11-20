@@ -548,7 +548,8 @@ def list_entity_access(user: dict = Depends(_manage_access), db: Session = Depen
     list means every entity."""
     holders = _holders(db)
     limits = _limits(db)
-    levels = {v: k for k, v in _MODULE_LEVEL_RANK.items()}
+    # Rank -> word. The retired `owner` alias shares Full's rank and must not win the reverse lookup.
+    levels = {v: k for k, v in _MODULE_LEVEL_RANK.items() if k != "owner"}
     # Administrators and owners are listed too (Neil, 10/14: "we should still
     # show up"), as every entity and not changeable - `admin` names the role.
     admins = _admins(db)

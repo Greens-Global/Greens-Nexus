@@ -54,6 +54,15 @@ ENTITIES = [
     {"code": "16000", "name": "(H) Greens Oceanside, LLC.", "parent_code": None},        # historical: (H) in the name
 ]
 LEAVES = ["12027-1", "15000", "56000"]
+# The scan reads a rolling twelve months ending this month. The postings below are fixed months
+# (11/2025 - 09/2026), so the endpoint tests pin the module's "today" - the wall clock would roll them out.
+TODAY = date(2026, 10, 15)
+
+
+class _PinnedDate(date):
+    @classmethod
+    def today(cls):
+        return TODAY
 TITLES = {"41101": ("revenue", "Rental Income"), "41102": ("revenue", "Tenant CAM Reimbursements"), "42000": ("revenue", "Storage Income"), "61000": ("expense", "Repairs"), "44000": ("revenue", "Service Revenue"), "60000": ("expense", "Wages")}
 LABELS = {"C00498": "Overstie Management", "C00497": "Santos Blancas Jr.", "C00001": "Walk-in", "C00300": "Rajesh J. Kadakia MD, Inc."}
 # What each customer posted to which accounts, month by month, per entity.
@@ -237,6 +246,7 @@ class EndpointTests(unittest.TestCase):
         self._ceilings = (acct_scan.READ_CEILING, acct_scan.SCAN_CEILING)
         self.extra: dict[str, dict] = {}     # location -> customer -> month -> {account: amount}, on top of POSTINGS
         self.customers = [{"code": c, "name": n} for c, n in LABELS.items()]
+        self._date, accounting_leasing.date = accounting_leasing.date, _PinnedDate
 
         async def fake_get(path, params):
             clean = {k: v for k, v in params.items() if v is not None}
@@ -286,6 +296,7 @@ class EndpointTests(unittest.TestCase):
 
     def tearDown(self):
         self.gate.set()
+        accounting_leasing.date = self._date
         acct_scan.READ_CEILING, acct_scan.SCAN_CEILING = self._ceilings
         acct_scan._AGG_DOWN.clear()
         accounting._acct_get = self._get
@@ -412,7 +423,7 @@ class EndpointTests(unittest.TestCase):
 
     def test_the_ledger_sync_links_by_name_and_adds_new_tenants(self):
         _as(EDITOR)
-        y = date.today().year
+        y = TODAY.year
         # A lease typed with only the tenant's name: nothing linked it, so nothing was ever received (the 10/04 report).
         r = self.client.post("/leasing/leases", json={"propertyName": "Ste 100", "entityCode": "12027-1", "customerId": "", "tenantName": "Rajesh J Kadakia MD Inc", "leaseStart": f"{y}-01-01",
                                                       "rates": [{"startDate": f"{y}-01-01", "rent": 11000}]})
@@ -434,10 +445,11 @@ class EndpointTests(unittest.TestCase):
         d = out.json()
         self.assertEqual([(x["leaseId"], x["customerId"]) for x in d["linked"]], [(r.json()["id"], "C00300")])
         # New tenants: rent this month or last, on no lease of that entity. Kadakia already has one.
-        last = accounting_loans.shift_month(date.today().isoformat()[:7], 1)
+        last = accounting_loans.shift_month(TODAY.isoformat()[:7], 1)
         self.assertTrue(all(p["entityCode"] != "12027-1" for p in d["created"]))
         expect = {(e, c) for e, cs in POSTINGS.items() if e in ("15000", "56000") for c, ms in cs.items()
                   if any(TITLES[a][1] in ("Rental Income", "Tenant CAM Reimbursements") for cell in ms.values() for a in cell) and max(ms) >= last}
+        self.assertEqual(expect, {("15000", "C00498"), ("15000", "C00497")})     # both posted rent in 09/2026, last month on the pinned day
         self.assertEqual({(p["entityCode"], p["customerId"]) for p in d["created"]}, expect)
         made = [l for l in self.client.get("/leasing/leases").json() if l["linkSource"] == "auto-ledger"]
         self.assertEqual(len(made), len(expect))

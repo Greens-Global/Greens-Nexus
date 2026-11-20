@@ -16,9 +16,6 @@ USERNAME  = os.getenv("UNIFI_USERNAME", "")
 PASSWORD  = os.getenv("UNIFI_PASSWORD", "")
 API_KEY   = os.getenv("UNIFI_API_KEY", "")
 
-if not USERNAME or not PASSWORD:
-    print("Set UNIFI_USERNAME and UNIFI_PASSWORD in backend/.env first.")
-    exit(1)
 
 
 async def main():
@@ -113,4 +110,17 @@ async def main():
         print("\n[done]")
 
 
-asyncio.run(main())
+def test_importing_this_script_runs_nothing():
+    """This file is a manual probe, not a test suite - its name only makes
+    pytest collect it. Imported (pytest, a multi-file run), it must not exit
+    and must not sign in to UniFi with whatever credentials .env carries."""
+    import inspect
+    assert inspect.iscoroutinefunction(main)
+    assert __name__ != "__main__"
+
+
+if __name__ == "__main__":
+    if not USERNAME or not PASSWORD:
+        print("Set UNIFI_USERNAME and UNIFI_PASSWORD in backend/.env first.")
+        raise SystemExit(1)
+    asyncio.run(main())

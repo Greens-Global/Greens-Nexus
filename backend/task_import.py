@@ -87,6 +87,7 @@ import task_automation
 import task_due
 import task_labels
 from database import SessionLocal
+from workflows.emit import batched as wf_batched, buffered as wf_buffered, write_buffered as wf_write_buffered
 from routers.task_config import (
     _parse_applies_to, coerce_custom_field_values, field_applies_to, missing_required_fields,
     normalize_field_options,
@@ -749,7 +750,10 @@ def run_import(db: Session, user: dict, body, defer=None) -> dict:
     if not good:
         raise HTTPException(422, f"Every row has an error, so nothing was {ctx.verb}ed. Fix the {ctx.noun} and try again.")
     try:
-        made = _create(ctx, body, good, used_sections, used_options, import_key)
+        # The workflow events (one per task) are held and written as one
+        # insert just before _create's commit, never one per row.
+        with wf_batched(db):
+            made = _create(ctx, body, good, used_sections, used_options, import_key)
     except HTTPException:
         db.rollback()
         raise
@@ -832,6 +836,14 @@ class _Placeholders:
                 new = fix(val)
                 if new != val:
                     setattr(obj, key, new)
+        # The workflow events held for this import copied the code too.
+        for ev in wf_buffered() or ():
+            payload = ev.get("payload") or {}
+            subject = payload.get("subject")
+            if isinstance(subject, dict) and "code" in subject:
+                subject["code"] = fix(subject["code"])
+            if "subjectLabel" in payload:
+                payload["subjectLabel"] = fix(payload["subjectLabel"])
 
 
 def _import_key(scope: str, import_id: str) -> str:
@@ -976,6 +988,7 @@ def _create(ctx: _Context, body, good: list[_Row], used_sections: set, used_opti
     # The codes, last of all: the counter's row lock is held from here to
     # the commit just below, not while the rows above were built.
     placeholders.swap(db, code_sequence.next_task_codes(db, len(order)))
+    wf_write_buffered(db)
     # Ids taken before the commit expires the rows (each read after it would
     # re-SELECT its row).
     assigned_ids = {who: [t.id for t in tasks] for who, tasks in assigned.items()}

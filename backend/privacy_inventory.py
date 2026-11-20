@@ -347,6 +347,8 @@ NOT_PROCESSORS = {
     "greensstorage.com": "the organization's site",
     # examples and samples
     "nexus.example": "sample", "www.example.com": "example", "example.com": "example",
+    "portal.example.com": "example (the Passwords form's link hint)",
+    "x.greens-nexus-dev.pages.dev.evil.example": "example of a refused address (build_preview.py docstring)",
 }
 
 # Storage buckets: every bucket the code writes to, and how it is reached.

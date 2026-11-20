@@ -22,7 +22,8 @@ from routers import files as F  # noqa: E402
 DEV = {"email": "dev@greensglobal.com", "role": "employee", "level": 1}
 OTHER = {"email": "other@greensglobal.com", "role": "employee", "level": 1}
 CURRENT = {"user": DEV}
-GRANTS = {DEV["email"]: {"build-mode": 1}, OTHER["email"]: {"build-mode": 1}}
+# Editor (2): making a Build Token and every pin write need Editor since the three grant levels (11/12/2026).
+GRANTS = {DEV["email"]: {"build-mode": 2}, OTHER["email"]: {"build-mode": 2}}
 
 _app = FastAPI()
 _app.include_router(D.router)
@@ -106,7 +107,7 @@ def test_off_until_the_server_says_so_and_a_build_token_or_nothing(monkeypatch):
     try:
         assert _rpc(hdr, "tools/list").status_code == 403      # the grant went away: so did the connector
     finally:
-        GRANTS[DEV["email"]] = {"build-mode": 1}
+        GRANTS[DEV["email"]] = {"build-mode": 2}
     assert client.get(URL).status_code == 401 and client.get(URL, headers=hdr).status_code == 405
 
 

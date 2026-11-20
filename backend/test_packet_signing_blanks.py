@@ -128,12 +128,16 @@ class SigningBlankTests(OfferCase):
             "answers": {"pan_number": "ABCDE1234F"}}})
         self.assertEqual(r.status_code, 200, r.text)
 
-        # HR's review: the unticked ones are the new hire's to fill, not problems.
+        # The unticked ones are the new hire's to fill, not problems - so Submit And Continue
+        # (Pranshu, 11/04/2026) opened the packet for signing at once, with no HR stop.
+        self.assertIn("/sign/", r.json()["signUrl"])
+        self.assertEqual(self._ev(packet.id).status, "sent")
         review = self._review(packet.id)
         doc = review["documents"][0]
         self.assertEqual(doc["atSigning"], ["Nationality", "WhatsApp Number"])
-        self.assertTrue(review["canVerify"], review["problems"])
-        self.assertEqual(self._verify(packet.id, review).status_code, 200)
+        self.assertEqual(review["problems"], [])
+        self.assertFalse(review["canVerify"])           # already out - a second Verify And Send is refused
+        self.assertEqual(self._verify(packet.id, review).status_code, 409)
 
         # Nexus Sign: one text box per blank, the new hire's, on the line the document printed.
         req = self.db.query(models.HrSignRequest).filter_by(id=self._ev(packet.id).sign_request_id).first()

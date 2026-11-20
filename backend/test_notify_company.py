@@ -136,6 +136,11 @@ class NotifyCompanyTests(unittest.TestCase):
         # Oct 14 2026: adding a credential no longer broadcasts to every manager;
         # the one bell it writes goes to the backup owner, stamped with the
         # ACTOR's company (Dean of acme), not the recipient's.
+        # Nov 13 2026: an Administrator adds a login only inside a live department
+        # head code window (vault_head.require) - Dean holds one for acme / IT here.
+        import vault_head
+        vault_head.open_window(self.db, ACME, vault_head.scope("acme", "IT"), "head-win-1")
+        self.db.commit()
         credvault.create_credential(
             credvault.CredentialIn(name="Router Admin", dept="IT", secret="Tr0ub4dor&3-horse-staple",
                                    backupOwner=GLOBEX),

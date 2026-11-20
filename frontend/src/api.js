@@ -303,6 +303,15 @@ export function withFreshReads(fn) {
 }
 const freshPath = (path) => (/[?&]fresh=/.test(path) ? path : `${path}${path.includes('?') ? '&' : '?'}fresh=1`);
 
+async function _isTierRefusal(res) {
+  try {
+    const body = await res.clone().json();
+    return body?.detail === 'Insufficient permissions';
+  } catch {
+    return false;
+  }
+}
+
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   if (_freshReads > 0 && attempt === 1 && !tokenRefreshed && (!options.method || options.method === 'GET') && freshScoped(path)) path = freshPath(path);
   const authHeader = await getAuthHeader(tokenRefreshed);
@@ -351,7 +360,12 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
 
   // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
   // (the replacement for MSAL's token-refresh + interactive reauth).
-  if (res.status === 401 && BFF_MODE) {
+  // A tier gate (auth.require_level) answers 401 "Insufficient permissions" to
+  // a person who IS signed in. That is a refusal, not a dead session: retrying
+  // or sending them through a full-page sign-in fixes nothing (11/20/2026).
+  if (res.status === 401 && await _isTierRefusal(res)) {
+    // fall through to the ordinary error handling below
+  } else if (res.status === 401 && BFF_MODE) {
     // A 401 is usually TRANSIENT, not a dead session: the server's silent token
     // refresh raced this request, or Microsoft blipped for a moment. Retry once
     // (letting that settle) BEFORE the jarring full-page re-login - so a user
@@ -451,7 +465,12 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
     }
     throw _networkError(err);
   }
-  if (res.status === 401 && BFF_MODE) {
+  // A tier gate (auth.require_level) answers 401 "Insufficient permissions" to
+  // a person who IS signed in. That is a refusal, not a dead session: retrying
+  // or sending them through a full-page sign-in fixes nothing (11/20/2026).
+  if (res.status === 401 && await _isTierRefusal(res)) {
+    // fall through to the ordinary error handling below
+  } else if (res.status === 401 && BFF_MODE) {
     // Same as req(): absorb a transient 401 with one retry before a full-page re-login.
     if (!tokenRefreshed) {
       await new Promise(r => setTimeout(r, 700));

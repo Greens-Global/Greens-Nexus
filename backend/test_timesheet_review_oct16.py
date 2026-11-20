@@ -23,6 +23,7 @@ from test_timesheet_review import ReviewCase, EMP, MGR, HR, ENTITY, ANCHOR, _tmp
 
 from fastapi import HTTPException  # noqa: E402
 
+import cache  # noqa: E402
 import models  # noqa: E402
 import timesheet_review as tsr  # noqa: E402
 from routers import timeclock  # noqa: E402
@@ -54,6 +55,13 @@ class Oct16Case(ReviewCase):
     def _bells(self, to):
         self.db.expire_all()
         return self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == to).all()
+
+    def _walls(self, value):
+        self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "company_walls").delete()
+        if value:
+            self.db.add(models.NexusSetting(key="company_walls", value=value))
+        self.db.commit()
+        cache.settings_config.invalidate()
 
     def _agreed(self):
         tsr.approve_period(self.db, EMP, ANCHOR, MGR, "Looks right")
@@ -92,13 +100,27 @@ class ManagerFirstTests(Oct16Case):
         self.db.add(models.TimePunch(id="p-last-out", employee_email=EMP, kind="out", at=f"{ls}T20:00:00",
                                      local_date=ls, tz_offset_min=0, created_at=f"{ls}T20:00:00"))
         self.db.commit()
+        # The fixture's own period (ANCHOR, 40 days back, 7 h punched, never reviewed) is one of the last
+        # LOOKBACK_PERIODS closed periods whatever today is, so it lists too - a missed cycle stays on the list.
+        self.assertIn((self.start, self.end), [(s, e) for s, e, _ in tsr.closed_periods(self.db, EMP)])
+        self.assertLess(self.start, ls)
         rows = tsr.not_reviewed(self.db, MGR)
         self.assertEqual([(x["employeeEmail"], x["periodStart"], x["notSubmitted"], x["workedMin"]) for x in rows],
+                         [(EMP, self.start, True, 420), (EMP, ls, True, 240)])
+        # The last closed period alone, with no lookback behind it.
+        keep, tsr.LOOKBACK_PERIODS = tsr.LOOKBACK_PERIODS, 1
+        try:
+            only = tsr.not_reviewed(self.db, MGR)
+        finally:
+            tsr.LOOKBACK_PERIODS = keep
+        self.assertEqual([(x["employeeEmail"], x["periodStart"], x["notSubmitted"], x["workedMin"]) for x in only],
                          [(EMP, ls, True, 240)])
         self._as(MGR)
         listed = self.client.get("/timesheet-review/waiting").json()["reviews"]
-        self.assertEqual([x["periodStart"] for x in listed if x["notSubmitted"]], [ls])
+        self.assertEqual([x["periodStart"] for x in listed if x["notSubmitted"]], [self.start, ls])
         tsr.approve_period(self.db, EMP, ls, MGR)
+        self.assertEqual([x["periodStart"] for x in tsr.not_reviewed(self.db, MGR)], [self.start])
+        tsr.approve_period(self.db, EMP, ANCHOR, MGR)
         self.assertEqual(tsr.not_reviewed(self.db, MGR), [])
         self.assertEqual(tsr.not_reviewed(self.db, "someone.else@greensglobal.com"), [])
 
@@ -145,8 +167,13 @@ class HrOverrideTests(Oct16Case):
         self.assertFalse(tsr.is_hr(self.db, HR, HR))        # never on their own card
         self.db.add(models.NexusRole(email=TOP, role="administrator", assigned_by="test"))
         self.db.commit()
-        # Tiers (Neil, 11/02/2026): an Administrator is HR only inside their
-        # companies - with no People record (no company) they are HR for nobody.
+        # Tiers (Neil, 11/02/2026; Pranshu, 11/11/2026): an Administrator follows the
+        # company walls switch. Walls off: HR for every company's people.
+        self.assertTrue(tsr.is_hr(self.db, TOP, EMP))
+        # Walls on: HR only inside their companies - with no People record (no
+        # company) they are HR for nobody.
+        self._walls("on")
+        self.addCleanup(self._walls, "")
         self.assertFalse(tsr.is_hr(self.db, TOP, EMP))
         self.db.add(models.NexusEmployee(id="id-top", work_email=TOP, first_name="Top", last_name="Test",
                                          company=ENTITY, status="active"))

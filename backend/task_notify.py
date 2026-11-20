@@ -24,7 +24,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone, date
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 import email_theme
@@ -1179,7 +1179,11 @@ def _reclaim_stale(db: Session, now: datetime) -> None:
 def _ready_recipients(db: Session, window: int, now: datetime) -> list[str]:
     cutoff = (now - timedelta(minutes=window)).isoformat()
     Q = models.TaskEmailQueue
-    rows = (db.query(Q.recipient, func.min(Q.created_at), func.max(Q.urgent))
+    # max() over a CASE, never over the boolean itself: Postgres has no
+    # max(boolean) (SQLite stores it as 0 / 1, so the tests never saw it) and
+    # this query failed every minute on dev and prod - no batch was ever sent.
+    any_urgent = func.max(case((Q.urgent.is_(True), 1), else_=0))
+    rows = (db.query(Q.recipient, func.min(Q.created_at), any_urgent)
             .filter(Q.status == "pending").group_by(Q.recipient).all())
     return [r for r, oldest, urgent in rows if urgent or (oldest or "") <= cutoff]
 

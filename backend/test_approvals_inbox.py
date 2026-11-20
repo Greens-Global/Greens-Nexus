@@ -110,7 +110,8 @@ class InboxCase(unittest.TestCase):
 
     def _counts(self, who):
         self._as(who)
-        res = self.client.get("/me/action-counts")
+        # fresh=1: the counts are cached per caller for 30 s (11/05/2026); the app asks the same way after a write.
+        res = self.client.get("/me/action-counts?fresh=1")
         self.assertEqual(res.status_code, 200, res.text)
         return res.json()["counts"]
 
