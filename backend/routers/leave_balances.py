@@ -77,7 +77,62 @@ def person_balance(email: str, user: dict = Depends(get_current_user), db: Sessi
         raise HTTPException(403, "You can't see this person's leave balance.")
     out = _with_year_end(db, email, lb.balances(db, email, emp=emp, with_entries=True), emp)
     out["canEdit"] = _can_manage(db, me, email)
+    if out["canEdit"] and out.get("live"):
+        # Closed periods not finalized, with what finalizing would add (11/20/2026).
+        try:
+            out["openPeriods"] = lb.open_periods(db, email, out.get("cutover") or "", lb._today(db, email),
+                                                 preview=True)
+        except Exception:  # noqa: BLE001 - the balance shows without it
+            out["openPeriods"] = []
     return out
+
+
+def _reach(db: Session, user: dict) -> tuple[bool, set, list]:
+    """(every company?, the companies, the people) an HR person's leave
+    screens cover - the Balances table and Compare With QuickBooks read the
+    same list."""
+    glob = _year_end_all(db, user)
+    companies = set() if glob else _year_end_companies(db, user)
+    if not glob and not companies:
+        raise HTTPException(403, "Leave balances are for HR.")
+    q = (db.query(models.NexusEmployee)
+         .filter(models.NexusEmployee.work_email != "",
+                 models.NexusEmployee.status.in_(["active", "onboarding"]),
+                 # Guests on payroll are staff (Charmi, 11/20/2026 - payroll_staff.py).
+                 payroll_staff.staff_clause()))
+    if not glob:
+        q = q.filter(models.NexusEmployee.company.in_(list(companies)))
+    return glob, companies, q.order_by(models.NexusEmployee.first_name.asc(),
+                                       models.NexusEmployee.last_name.asc()).all()
+
+
+class CompareIn(BaseModel):
+    file: str                      # the QuickBooks Time Off report, base64
+    name: str = ""
+
+
+@router.post("/compare-quickbooks")
+def compare_quickbooks(body: CompareIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Compare With QuickBooks (11/20/2026, leave_qb_compare.py): the Time Off
+    report against every balance in the caller's reach, each difference with
+    its cause. A pure read - the file is not kept."""
+    import base64
+    import binascii
+
+    import leave_qb_compare
+    me = _me(user)
+    glob, _companies, emps = _reach(db, user)
+    if not glob:
+        emps = [e for e in emps if (e.work_email or "").strip().lower() != me]
+    raw = (body.file or "").split(",", 1)[-1]
+    try:
+        data = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, "That file could not be read. Choose the report again.")
+    try:
+        return leave_qb_compare.compare(db, data, emps)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/admin")
@@ -91,19 +146,8 @@ def admin_overview(as_of: str = "", user: dict = Depends(get_current_user), db: 
     are HR for (hr_access.is_hr_for_company - an Administrator is walled to
     their own)."""
     me = _me(user)
-    glob = _year_end_all(db, user)
-    companies = set() if glob else _year_end_companies(db, user)
-    if not glob and not companies:
-        raise HTTPException(403, "Leave balances are for HR.")
-    q = (db.query(models.NexusEmployee)
-         .filter(models.NexusEmployee.work_email != "",
-                 models.NexusEmployee.status.in_(["active", "onboarding"]),
-                 # Guests on payroll are staff (Charmi, 11/20/2026 - payroll_staff.py).
-                 payroll_staff.staff_clause()))
-    if not glob:
-        q = q.filter(models.NexusEmployee.company.in_(list(companies)))
+    glob, companies, emps = _reach(db, user)
     pols = lb.policies(db)
-    emps = q.order_by(models.NexusEmployee.first_name.asc(), models.NexusEmployee.last_name.asc()).all()
     emails = [(e.work_email or "").strip().lower() for e in emps]
     # Three batched reads instead of three queries per person (11/03/2026:
     # this table took seconds - one ledger, one latest-punch and one settings
@@ -123,6 +167,10 @@ def admin_overview(as_of: str = "", user: dict = Depends(get_current_user), db: 
     base_cut = lb.cutover(db)
     own_cuts = lb.company_cutovers(db)
     now_utc = datetime.now(timezone.utc)
+    # Closed pay periods not finalized yet (11/20/2026) - two batched reads.
+    low_cut = min([c for c in [base_cut, *own_cuts.values()] if c] or [""])
+    finals = lb._finals(db, emails, low_cut) if low_cut else set()
+    punch_days = lb._punch_days(db, emails, low_cut) if low_cut else {}
     as_of_d = None
     if as_of:
         try:
@@ -139,8 +187,16 @@ def admin_overview(as_of: str = "", user: dict = Depends(get_current_user), db: 
             local_today = min(as_of_d, local_today)
         b = lb.balances(db, email, today=local_today, pols=pols, emp=emp,
                         rows=led_by.get(email, []), cut=own_cuts.get(emp.company or "") or base_cut)
+        open_p = []
+        if b.get("live") and as_of_d is None:
+            try:
+                open_p = lb.open_periods(db, email, b.get("cutover") or "", local_today,
+                                         finals=finals, punch_days=punch_days)
+            except Exception:  # noqa: BLE001 - one person's periods never stop the table
+                open_p = []
         people.append({"email": email, "name": f"{emp.first_name or ''} {emp.last_name or ''}".strip() or email,
-                       "company": emp.company or "", "department": emp.department or "", **b})
+                       "company": emp.company or "", "department": emp.department or "",
+                       "openPeriods": open_p, **b})
     return {"cutover": lb.cutover(db), "asOf": as_of_d.isoformat() if as_of_d else "",
             "companies": _company_cutovers(db, None if glob else companies),
             "canSetup": glob,
