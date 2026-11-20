@@ -7,17 +7,19 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 const leaveAdmin = vi.fn();
 const leaveImport = vi.fn();
 const leavePersonBalance = vi.fn();
+const leaveCompareQuickbooks = vi.fn();
 vi.mock('../api', () => ({
   api: {
     leaveAdmin: (...a) => leaveAdmin(...a),
     leaveImport: (...a) => leaveImport(...a),
     leavePersonBalance: (...a) => leavePersonBalance(...a),
+    leaveCompareQuickbooks: (...a) => leaveCompareQuickbooks(...a),
     leaveSetCutover: vi.fn(), leaveSavePolicies: vi.fn(), leaveAdjust: vi.fn(),
     leaveAssign: vi.fn(), leaveRecalculate: vi.fn(), leaveMyBalance: vi.fn(),
   },
 }));
 
-const { default: LeaveBalancesAdmin, LeaveBalanceCard, RequestBalanceHint, bucketOf, fmtLeave } = await import('./LeaveBalances');
+const { default: LeaveBalancesAdmin, LeaveBalanceCard, RequestBalanceHint, bucketOf, fmtLeave, ComparePanel, rateLine, openPeriodsLine } = await import('./LeaveBalances');
 
 const POLICY = { id: 'us-ca', name: 'US - California', unit: 'hours', hoursPerDay: 8, assigned: false };
 const BAL = {
@@ -175,5 +177,38 @@ describe('leave balances', () => {
     leaveAdmin.mockReset().mockRejectedValue(Object.assign(new Error('no'), { status: 403 }));
     const { container } = render(<LeaveBalancesAdmin />);
     await waitFor(() => expect(container.textContent).toBe(''));
+  });
+});
+
+// Compare With QuickBooks and the reasons (11/20/2026 - Charmi: balances did
+// not match QuickBooks; Neil: "a real solution").
+describe('leave balances explain themselves', () => {
+  it('says the rate, since when, and a period not finalized', () => {
+    expect(rateLine({ method: 'per_hour', hoursPerYear: 80, tierSince: '2026-10-20' }, POLICY)).toBe('80h a year since 10/20/2026');
+    expect(rateLine({ method: 'per_hour', hoursPerYear: 0, next: { date: '2027-01-11' } }, POLICY)).toBe('Starts 01/11/2027');
+    expect(openPeriodsLine([{ start: '2026-11-01', end: '2026-11-14' }])).toBe('11/01/2026 - 11/14/2026 Not Finalized');
+    expect(openPeriodsLine([])).toBe('');
+  });
+
+  it('compares a QuickBooks report and lists every reason', async () => {
+    leaveCompareQuickbooks.mockReset().mockResolvedValue({
+      periodEnd: '2026-11-14',
+      people: [
+        { email: 'm@x.com', name: 'Pat Example', state: 'differs', asOf: '2026-11-14',
+          vacation: { nexus: 20.17, quickbooks: 17.2, difference: 2.97 }, sick: { nexus: 8, quickbooks: 8, difference: 0 },
+          lines: [{ bucket: 'vacation', kind: 'rate', hours: 2.97, text: 'QuickBooks earns 40h a year, the policy 80h a year (3 years on 09/18/2026).' }] },
+        { email: 'a@x.com', name: 'Sam Sample', state: 'matches', lines: [], vacation: {}, sick: {} },
+      ],
+      unmatched: [{ name: 'Ghost Person', code: 'E-0999' }], notInReport: [],
+    });
+    render(<ComparePanel toastErr={vi.fn()} />);
+    const file = new File([new Uint8Array([80, 75, 3, 4])], 'qb.xlsx');
+    fireEvent.change(screen.getByLabelText('QuickBooks Time Off report'), { target: { files: [file] } });
+    await waitFor(() => expect(screen.getByText('Pat Example')).toBeTruthy());
+    expect(leaveCompareQuickbooks).toHaveBeenCalledWith(expect.stringContaining('base64'), 'qb.xlsx');
+    expect(screen.getByText(/1 differs - 1 matches - 1 not found in Nexus/)).toBeTruthy();
+    expect(screen.getByText(/QuickBooks earns 40h a year/)).toBeTruthy();
+    expect(screen.getByText(/Match: Sam Sample/)).toBeTruthy();
+    expect(screen.getByText(/Ghost Person \(E-0999\)/)).toBeTruthy();
   });
 });
