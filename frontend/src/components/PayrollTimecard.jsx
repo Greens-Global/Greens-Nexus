@@ -1989,18 +1989,21 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const offMin = (T?.sickMin || 0) + (T?.vacationMin || 0) + (T?.personalMin || 0);
   const offKinds = [['Sick', T?.sickMin], ['Vacation', T?.vacationMin], ['Personal', T?.personalMin]].filter(([, m]) => m > 0).map(([l]) => l);
   const leaveDays = (T?.sickDays || 0) + (T?.vacationDays || 0) + (T?.personalDays || 0);
+  // Bonus beside the pay (Charmi, 11/20/2026: "Can we add bonus here as
+  // well") - the period's bonuses, already inside Gross / Net Pay.
+  const bonusFig = { label: 'Bonus', value: fmtM(T?.bonusPay || 0) };
   const figures = !T ? [] : isFixed ? [
     { label: 'Worked', value: hhmm(T.workedMin || 0) },
     { label: 'Time Off', value: `${leaveDays} day${leaveDays === 1 ? '' : 's'}`, small: offKinds.join(', ') },
     { label: icp ? 'Unpaid Days' : 'Missed Days', value: `${T.missedFullDays || 0}${T.missedHalfDays ? ` + ${T.missedHalfDays} half` : ''}`,
       warn: !!(T.missedFullDays || T.missedHalfDays) },
-    ...(showPay ? [{ label: data.contractor ? 'Invoice Amount' : 'Net Pay', value: fmtM(T.netPay ?? T.totalPay) }] : []),
+    ...(showPay ? [bonusFig, { label: data.contractor ? 'Invoice Amount' : 'Net Pay', value: fmtM(T.netPay ?? T.totalPay) }] : []),
   ] : [
     { label: 'Worked', value: hhmm((T.regMin || 0) + (T.otMin || 0) + (T.dtMin || 0)) },
     { label: 'Regular', value: hhmm(T.regMin || 0) },
     { label: 'Overtime', value: (T.otMin || T.dtMin) ? otText(T.otMin, T.dtMin) : '0:00', warn: !!(T.otMin || T.dtMin) },
     { label: 'Time Off', value: hhmm(offMin), small: offKinds.join(', ') },
-    ...(showPay ? [{ label: 'Gross Pay', value: fmtM(T.totalPay) }] : []),
+    ...(showPay ? [bonusFig, { label: 'Gross Pay', value: fmtM(T.totalPay) }] : []),
   ];
   const wkEndOf =(w) => isoDate(new Date(`${w}T00:00Z`).getTime() + 6 * DAY);
   // One desktop row. Every cell sits on one baseline; durations and money are

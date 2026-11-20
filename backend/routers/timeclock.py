@@ -43,6 +43,7 @@ from sqlalchemy.exc import IntegrityError
 
 from database import get_db
 from notify_company import notification_company
+import payroll_staff
 import scoped_settings
 from auth import (get_current_user, require_level_or_module, require_administrator,
                   require_module_grant, _module_level, _LEVELS,
@@ -14177,7 +14178,7 @@ def timeoff_calendar(month: str = "", company: str = "", user: dict = Depends(ge
     lo, hi = first.isoformat(), last.isoformat()
     emps = {(e.work_email or "").strip().lower(): e for e in db.query(NexusEmployee)
             .filter(NexusEmployee.work_email != "", NexusEmployee.status.in_(["active", "onboarding"]),
-                    func.coalesce(NexusEmployee.identity_type, "internal") == "internal").all()}
+                    payroll_staff.staff_clause()).all()}
     vis = _visible_emails(db, user)
     full = set(emps) if vis is None else {(e or "").lower() for e in vis}
     hr_cos = {e.id for e in db.query(HrEntity).filter(func.lower(HrEntity.hr_contact_email) == me).all()}

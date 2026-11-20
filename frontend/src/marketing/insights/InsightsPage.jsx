@@ -22,6 +22,8 @@ import { computeTrackedStats, positionDelta } from '../seo/aggregate'
 import { initialLeads } from '../leads/data'
 import { computeLeadStats, daysInStage } from '../leads/aggregate'
 import { ALL_PROPERTIES, FACILITIES } from '../shared/facilities'
+import { useGbpReviewFeed } from '../gbp/useGbp'
+import { realMonths, trailingMonths } from '../gbp/reviewFeed'
 import PropertyComparisonModal from '../shared/PropertyComparisonModal'
 import {
   ANCHOR_DATE,
@@ -113,13 +115,32 @@ export default function InsightsPage({
   const costPerLead = totals.leads > 0 ? gaSpend / totals.leads : 0
   const prevCostPerLead = prevTotals.leads > 0 ? gaPrevSpend / prevTotals.leads : 0
 
-  // Review Rating is genuinely derived from the Reputation reviews dataset.
+  // Review Rating is genuinely derived from the Reputation reviews dataset:
+  // the real Google reviews once Google is connected, else the samples. The
+  // samples follow this page's (2025 sample) range; real reviews are dated by
+  // the real calendar - as of today against the end of last month - and the
+  // review card says so.
+  const realReviews = useGbpReviewFeed().reviews
+  const months = useMemo(() => realMonths(), [])
+  const reviewPool = realReviews ?? allReviews
+  const reviewEnd = realReviews ? months.today : range.end
+  const reviewPrevEnd = realReviews ? months.previous.end : previousRange.end
+  const reviewRange = useMemo(() => (realReviews ? { start: months.current.start, end: months.today } : range), [realReviews, months, range])
   const scopedReviews = useMemo(
-    () => (property === ALL_PROPERTIES ? allReviews : allReviews.filter((r) => r.facility === property)),
-    [property],
+    () => (property === ALL_PROPERTIES ? reviewPool : reviewPool.filter((r) => r.facility === property)),
+    [reviewPool, property],
   )
-  const reviewsAsOfEnd = useMemo(() => asOf(scopedReviews, range.end), [scopedReviews, range.end])
-  const reviewsAsOfPrevEnd = useMemo(() => asOf(scopedReviews, previousRange.end), [scopedReviews, previousRange.end])
+  const reviewsAsOfEnd = useMemo(() => asOf(scopedReviews, reviewEnd), [scopedReviews, reviewEnd])
+  const reviewsAsOfPrevEnd = useMemo(() => asOf(scopedReviews, reviewPrevEnd), [scopedReviews, reviewPrevEnd])
+  const ratingTrendReviews = useMemo(
+    () => (realReviews ? repFilterByRange(scopedReviews, trailingMonths(months.today, 12)) : reviewsAsOfEnd),
+    [realReviews, scopedReviews, months, reviewsAsOfEnd],
+  )
+  const kpiLabels = useMemo(() => {
+    if (!realReviews) return {}
+    const [y, m] = months.previous.start.split('-')
+    return { reviewRating: { vs: `vs ${m}/${y}`, note: 'Google, as of today' } }
+  }, [realReviews, months])
   const reviewRating = useMemo(() => computeLifetimeStats(reviewsAsOfEnd).overallRating, [reviewsAsOfEnd])
   const prevReviewRating = useMemo(() => computeLifetimeStats(reviewsAsOfPrevEnd).overallRating, [reviewsAsOfPrevEnd])
 
@@ -158,7 +179,7 @@ export default function InsightsPage({
 
   // Reviews captured within the selected period, split by sentiment, feed
   // the AI analyst's topic detection so a rating change can say *why*.
-  const reviewsInRange = useMemo(() => repFilterByRange(scopedReviews, range), [scopedReviews, range])
+  const reviewsInRange = useMemo(() => repFilterByRange(scopedReviews, reviewRange), [scopedReviews, reviewRange])
 
   // Budget/goal pacing, property/campaign standouts, SEO opportunities, lead
   // response time, and cross-platform reputation gaps - always computed
@@ -188,13 +209,17 @@ export default function InsightsPage({
     return { count: stale.length, oldestDays: stale.length > 0 ? Math.max(...stale.map((l) => daysInStage(l, ANCHOR_DATE))) : 0 }
   }, [])
   const reviewBacklogInfo = useMemo(() => {
-    const pending = allReviews.filter((r) => r.status !== 'Posted')
-    return { agingCount: pending.filter((r) => hoursSince(r.date) > 48).length }
-  }, [])
+    const pending = reviewPool.filter((r) => r.status !== 'Posted')
+    // Real reviews age against the real clock, the samples against theirs.
+    const ageHours = realReviews ? (r) => (Date.now() - new Date(r.date).getTime()) / 3_600_000 : (r) => hoursSince(r.date)
+    return { agingCount: pending.filter((r) => ageHours(r) > 48).length }
+  }, [reviewPool, realReviews])
   const platformRatingsInfo = useMemo(() => {
-    const asOfAll = asOf(allReviews, range.end)
-    return computeSourceSummary(asOfAll, asOfAll).map((s) => ({ platform: s.platform, rating: s.avgRating, reviews: s.reviews }))
-  }, [range.end])
+    const asOfAll = asOf(reviewPool, reviewEnd)
+    return computeSourceSummary(asOfAll, asOfAll)
+      .filter((s) => !realReviews || s.reviews > 0)   // Google is the only real source - no zero-review platforms
+      .map((s) => ({ platform: s.platform, rating: s.avgRating, reviews: s.reviews }))
+  }, [reviewPool, reviewEnd, realReviews])
 
   // AI Marketing Analyst - synthesizes signals already computed above plus
   // SEO/Leads/GBP-content signals (account-wide, current snapshot) into
@@ -331,7 +356,7 @@ export default function InsightsPage({
       ['Lead to Move-In Rate', formatPercent(current.leadToMoveInRate)],
       ['Cost per Lead', formatCurrency(current.costPerLead)],
       ['Organic Traffic', formatNumber(current.organicTraffic)],
-      ['Review Rating (Avg.)', current.reviewRating.toFixed(1)],
+      [realReviews ? 'Review Rating (Avg., Google, as of today)' : 'Review Rating (Avg.)', current.reviewRating.toFixed(1)],
       ['Net Promoter Score', Math.round(current.nps)],
       [],
       ['Lead Source', 'Leads'],
@@ -373,6 +398,7 @@ export default function InsightsPage({
         current={current}
         previous={previous}
         previousRange={previousRange}
+        labels={kpiLabels}
         onSelectMetric={(key, label, format) => setSelectedMetric({ key, label, format })}
       />
 
@@ -384,7 +410,7 @@ export default function InsightsPage({
           <ConversionFunnelCard sessions={totals.sessions} leads={totals.leads} moveIns={totals.moveIns} />
         </div>
         <div style={{ gridColumn: 'span 2' }}>
-          <RatingTrendCard reviews={reviewsAsOfEnd} />
+          <RatingTrendCard reviews={ratingTrendReviews} />
         </div>
       </div>
 

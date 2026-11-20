@@ -27,6 +27,9 @@ export default function RatingTrendCard({ reviews }) {
         }
       })
   }, [reviews])
+  // 3-5 stars reads best; a month that averaged lower widens it so the line is never cut off.
+  const floor = data.length ? Math.min(3, Math.floor(Math.min(...data.map((d) => d.rating)))) : 3
+  const ticks = Array.from({ length: 6 - floor }, (_, i) => floor + i)
 
   return (
     <div style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', height: '100%' }}>
@@ -38,7 +41,7 @@ export default function RatingTrendCard({ reviews }) {
           <LineChart data={data} margin={{ top: 6, right: 6, left: -28, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef0f3" />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-            <YAxis domain={[3, 5]} ticks={[3, 4, 5]} tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+            <YAxis domain={[floor, 5]} ticks={ticks} tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
             <Tooltip
               formatter={(v, _name, item) => [`${v} avg (${item?.payload?.count ?? 0} reviews)`, 'Rating']}
               contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}

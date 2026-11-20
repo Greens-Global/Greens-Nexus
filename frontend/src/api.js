@@ -891,6 +891,7 @@ export const api = {
   leaveAdjust:         (body)       => req('/leave-balances/adjust', { method: 'POST', body: JSON.stringify(body) }),
   leaveAssign:         (email, policyId) => req('/leave-balances/assign', { method: 'PUT', body: JSON.stringify({ email, policy_id: policyId }) }),
   leaveRecalculate:    ()           => req('/leave-balances/recalculate', { method: 'POST' }),
+  leaveCompareQuickbooks: (file, name = '') => req('/leave-balances/compare-quickbooks', { method: 'POST', body: JSON.stringify({ file, name }) }),
   // Leave year end (Oct 27 2026, leave_year_end.py): Use It Or Lose It by
   // default, carry options per company; HR previews before it applies.
   leaveYearEndSettings:     (company = '') => req(`/leave-balances/year-end/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`),
@@ -2388,8 +2389,9 @@ export const api = {
   getGbpLocations: () => req('/marketing/gbp/locations'),
   mapGbpLocation: (key, facility) => req(`/marketing/gbp/locations/${key}/facility`, { method: 'PATCH', body: JSON.stringify({ facility }) }),
   updateGbpListing: (key, changes) => req(`/marketing/gbp/locations/${key}/listing`, { method: 'PATCH', body: JSON.stringify(changes) }),
-  getGbpReviews: ({ replied = '', location = '', limit = 200, offset = 0 } = {}) =>
-    req(`/marketing/gbp/reviews?${new URLSearchParams({ replied, location, limit: String(limit), offset: String(offset) })}`),
+  getGbpReviews: ({ replied = '', location = '', q = '', limit = 200, offset = 0 } = {}) =>
+    req(`/marketing/gbp/reviews?${new URLSearchParams({ replied, location, q, limit: String(limit), offset: String(offset) })}`),
+  getGbpReviewFeed: () => req('/marketing/gbp/reviews/feed'),
   replyGbpReview: (id, text) => req(`/marketing/gbp/reviews/${id}/reply`, { method: 'PUT', body: JSON.stringify({ text }) }),
   deleteGbpReply: (id) => req(`/marketing/gbp/reviews/${id}/reply`, { method: 'DELETE' }),
   getGbpListingHistory: (key) => req(`/marketing/gbp/locations/${key}/history`),
