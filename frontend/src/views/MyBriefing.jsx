@@ -149,7 +149,27 @@ export default function MyBriefing() {
         ))}
         {data && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 18 }}>Briefing date {formatDate(data.date)}.</div>}
       </AsyncSection>
+      <Stores lines={data?.stores} />
     </div>
+  );
+}
+
+// Stores (backend/briefing_stores.py, Neil 11/20/2026): one plain line per store the reader may
+// see - the name, then its figures as a sentence. Five lines to read, not rows to act on: no
+// tiles, no table, not counted above. Sent only to Administrators and Operations grant holders.
+function Stores({ lines }) {
+  if (!Array.isArray(lines) || !lines.length) return null;
+  const go = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'operations' } }));
+  return (
+    <section aria-label="Stores" style={{ marginTop: 28 }}>
+      <h2 style={{ margin: 0, padding: '0 0 9px', fontSize: 15, fontWeight: 700, borderBottom: '1px solid var(--line)' }}>Stores</h2>
+      {lines.map((x) => (
+        <p key={x.name} style={{ margin: 0, padding: '8px 0', fontSize: 13, lineHeight: 1.55, borderBottom: '1px solid var(--line)' }}>
+          <strong style={{ fontWeight: 600 }}>{x.name}:</strong> {x.text}
+        </p>
+      ))}
+      <button type="button" onClick={go} style={{ ...rowLink, marginTop: 8 }}>Open Operations</button>
+    </section>
   );
 }
 
