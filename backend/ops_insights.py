@@ -54,6 +54,9 @@ ECRI_HIGH_UPSIDE = 100_000    # $1,000 a month
 SURVIVAL_DAYS = 60
 SURVIVAL_MIN = 5
 SURVIVAL_ALERT = 0.15
+# The read-back by size of increase (Neil, 11/20/2026): (key, label, from, below).
+SIZE_BANDS = (("under5", "Under 5%", 0.0, 0.05), ("5to8", "5% to 8%", 0.05, 0.08), ("8to12", "8% to 12%", 0.08, 0.12),
+              ("12to25", "12% to 25%", 0.12, 0.25), ("25plus", "25% or More", 0.25, None))
 # Money at risk.
 PAST_DUE_HIGH = 0.10
 PAST_DUE_MED = 0.05
@@ -480,6 +483,7 @@ def ecri(raw: dict, tracked: list[dict], nexus_entered: list[dict], today: date)
     # Survival. Tracked Cubby changes plus rent changes staff marked entered in Nexus, once per lease and date.
     move_out = {str(le.get("leaseId") or ""): str(le.get("moveOutDate") or "")[:10] for le in raw.get("leases", [])}
     seen, months = set(), defaultdict(lambda: {"increases": 0, "pctSum": 0.0, "moveOuts": 0, "gained": 0, "open": 0})
+    sizes = {k: {"increases": 0, "moveOuts": 0, "gained": 0, "open": 0} for k, *_ in SIZE_BANDS}
     for c in list(tracked) + list(nexus_entered):
         lid, eff = c.get("leaseId") or "", c.get("effective") or ""
         old, new = int(c.get("old") or 0), int(c.get("new") or 0)
@@ -491,19 +495,67 @@ def ecri(raw: dict, tracked: list[dict], nexus_entered: list[dict], today: date)
         m["pctSum"] += new / old - 1
         mo = move_out.get(lid, "")
         end = (_d(eff) + timedelta(days=SURVIVAL_DAYS)).isoformat()
+        band = sizes[_size_band(new / old - 1)]
+        band["increases"] += 1
         if mo and eff <= mo <= end:
             m["moveOuts"] += 1
+            band["moveOuts"] += 1
         else:
             m["gained"] += new - old
+            band["gained"] += new - old
         if end > today_s:
             m["open"] += 1
+            band["open"] += 1
     survival = [{"month": k, "increases": v["increases"], "averageIncrease": round(v["pctSum"] / v["increases"], 4),
                  "moveOuts": v["moveOuts"], "survival": round(1 - v["moveOuts"] / v["increases"], 4),
                  "revenueGained": v["gained"], "windowOpen": v["open"] > 0}
                 for k, v in sorted(months.items(), reverse=True)]
+    by_size = [{"key": k, "label": label, "increases": sizes[k]["increases"], "moveOuts": sizes[k]["moveOuts"],
+                "moveOutRate": round(sizes[k]["moveOuts"] / sizes[k]["increases"], 4), "revenueGained": sizes[k]["gained"],
+                "stillCounting": sizes[k]["open"]} for k, label, *_ in SIZE_BANDS if sizes[k]["increases"]]
     return {"candidates": cands, "candidateCount": len(cands), "upside": sum(r["gap"] for r in cands),
             "scheduled": scheduled, "scheduledLift": sum(r["change"] for r in scheduled),
-            "early": sum(1 for r in scheduled if r["early"]), "survival": survival}
+            "early": sum(1 for r in scheduled if r["early"]), "survival": survival,
+            "bySize": by_size, "notIncreased": _not_increased(raw.get("leases", []), seen, today_s)}
+
+
+def _size_band(change: float) -> str:
+    """The SIZE_BANDS key an increase of `change` (0.07 = 7%) falls in."""
+    for key, _, low, below in SIZE_BANDS:
+        if change >= low and (below is None or change < below):
+            return key
+    return SIZE_BANDS[0][0]
+
+
+def _not_increased(leases: list, seen: set, today_s: str):
+    """What the read-back is measured against: in each month an increase took
+    effect, the long-stay tenants (ECRI_MONTHS or more) renting on that day
+    who have had NO tracked increase at all, and how many of them moved out
+    within the same SURVIVAL_DAYS. One count per tenant per month. None when
+    no increase has taken effect yet, or nobody fits."""
+    raised = {lid for lid, _ in seen}
+    first_day = {}                                  # month -> the first effective day in it
+    for _, eff in seen:
+        first_day[eff[:7]] = min(eff, first_day.get(eff[:7], eff))
+    tenants = move_outs = still = 0
+    for eff in first_day.values():
+        d = _d(eff)
+        y, m = divmod(d.year * 12 + d.month - 1 - ECRI_MONTHS, 12)
+        long_stay = date(y, m + 1, min(d.day, 28)).isoformat()     # moved in on or before this day
+        end = (d + timedelta(days=SURVIVAL_DAYS)).isoformat()
+        for le in leases:
+            lid = str(le.get("leaseId") or "")
+            came, left = str(le.get("moveInDate") or "")[:10], str(le.get("moveOutDate") or "")[:10]
+            if not lid or lid in raised or not came or came > long_stay or (left and left < eff):
+                continue
+            tenants += 1
+            if left and eff <= left <= end:
+                move_outs += 1
+            if end > today_s:
+                still += 1
+    if not tenants:
+        return None
+    return {"tenants": tenants, "moveOuts": move_outs, "moveOutRate": round(move_outs / tenants, 4), "stillCounting": still}
 
 
 # ── Revenue at risk ──────────────────────────────────────────────────────────

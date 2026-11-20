@@ -308,6 +308,38 @@ function StandardRates({ b, filter, setFilter, focusGroup }) {
   );
 }
 
+// The read-back by size (Neil, 11/20/2026): did the bigger increases cost tenants? Each increase
+// that took effect falls in one band; the sentence under the table is what to measure it
+// against - the long-stay tenants renting in the same months who were never increased
+// (ops_insights._not_increased). A count still inside its 60 days is said in words, not a pill.
+function EcriBySize({ e }) {
+  const bands = e.bySize || [];
+  if (!bands.length) return <Empty>No increases have taken effect since Nexus began tracking them. The read-back fills in as Cubby&apos;s scheduled increases land.</Empty>;
+  const base = e.notIncreased;
+  const quiet = { marginLeft: 8, fontSize: 12, fontWeight: 400, color: 'var(--muted)' };
+  return (
+    <div>
+      <div className="req-table-wrapper" style={{ overflowX: 'auto' }}>
+        <table className="req-table" data-testid="pi-ecri-size">
+          <thead><tr><th>Size of Increase</th><th style={num}>Increases</th><th style={num}>Moved Out Within 60 Days</th><th style={num}>Share Moved Out</th><th style={num}>Revenue Gained / Month</th></tr></thead>
+          <tbody>{bands.map((r) => (
+            <tr key={r.key}>
+              <td>{r.label}{r.stillCounting > 0 && <span style={quiet}>{count(r.stillCounting)} still counting</span>}</td>
+              <td style={num}>{count(r.increases)}</td><td style={num}>{count(r.moveOuts)}</td>
+              <td style={num}>{pct(r.moveOutRate, 1)}</td><td style={num}>{$(r.revenueGained)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      <p data-testid="pi-ecri-baseline" style={{ margin: '10px 0 0', fontSize: 13, lineHeight: 1.5, color: 'var(--muted)' }}>
+        {base
+          ? `To compare: of ${count(base.tenants)} long-stay ${base.tenants === 1 ? 'tenant' : 'tenants'} renting in the same months with no increase, ${pct(base.moveOutRate, 1)} moved out within 60 days${base.stillCounting > 0 ? ` (${count(base.stillCounting)} still counting)` : ''}.`
+          : 'No long-stay tenant without an increase rented in the same months, so there is nothing to compare against yet.'}
+      </p>
+    </div>
+  );
+}
+
 function Ecri({ b }) {
   const e = b.ecri;
   const [view, setView] = useState('candidates');
@@ -316,7 +348,7 @@ function Ecri({ b }) {
   return (
     <Card title="ECRI" sub="Existing customer rate increases. Enter rent changes in Cubby; build them in ECRI Management."
       right={<Select id="pi-ecri-view" label="Show" value={view} onChange={setView}
-        options={[['candidates', `Candidates (${e.candidateCount})`], ['scheduled', `Scheduled (${e.scheduled.length})`], ['survival', 'Monthly Survival']]} />}>
+        options={[['candidates', `Candidates (${e.candidateCount})`], ['scheduled', `Scheduled (${e.scheduled.length})`], ['survival', 'Monthly Survival'], ['size', 'By Size of Increase']]} />}>
       <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
         <div className="kpi-card"><div className="kpi-label">Below Street 12+ Months</div><div className="kpi-value">{count(e.candidateCount)}</div></div>
         <div className="kpi-card"><div className="kpi-label">Upside / Month</div><div className="kpi-value">{$(e.upside)}</div></div>
@@ -369,6 +401,7 @@ function Ecri({ b }) {
           </table>
         </div>
       ) : <Empty>No increases have taken effect since Nexus began tracking them. Survival builds up as Cubby&apos;s scheduled increases land.</Empty>)}
+      {view === 'size' && <EcriBySize e={e} />}
     </Card>
   );
 }
