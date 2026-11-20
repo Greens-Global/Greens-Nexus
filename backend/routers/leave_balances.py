@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 import leave_balances as lb
 import leave_year_end as lye
 import models
+import payroll_staff
 import scoped_settings
 import timesheet_review
 from auth import _LEVELS, _MODULE_LEVEL_RANK, _module_level, get_current_user, level_for
@@ -97,7 +98,8 @@ def admin_overview(as_of: str = "", user: dict = Depends(get_current_user), db: 
     q = (db.query(models.NexusEmployee)
          .filter(models.NexusEmployee.work_email != "",
                  models.NexusEmployee.status.in_(["active", "onboarding"]),
-                 func.coalesce(models.NexusEmployee.identity_type, "internal") == "internal"))
+                 # Guests on payroll are staff (Charmi, 11/20/2026 - payroll_staff.py).
+                 payroll_staff.staff_clause()))
     if not glob:
         q = q.filter(models.NexusEmployee.company.in_(list(companies)))
     pols = lb.policies(db)
