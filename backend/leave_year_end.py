@@ -59,6 +59,7 @@ from sqlalchemy.orm import Session
 
 import leave_balances as lb
 import models
+import payroll_staff
 import scoped_settings
 import job_switch
 
@@ -291,7 +292,8 @@ def people(db: Session, company: str | None = None) -> list:
     q = (db.query(models.NexusEmployee)
          .filter(models.NexusEmployee.work_email != "",
                  models.NexusEmployee.status.in_(["active", "onboarding"]),
-                 func.coalesce(models.NexusEmployee.identity_type, "internal") == "internal"))
+                 # Guests on payroll are staff (11/20/2026 - payroll_staff.py).
+                 payroll_staff.staff_clause()))
     if company is not None:
         q = q.filter(func.coalesce(models.NexusEmployee.company, "") == company)
     return q.order_by(models.NexusEmployee.first_name.asc(), models.NexusEmployee.last_name.asc()).all()

@@ -59,6 +59,7 @@ from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
 import models
+import payroll_staff
 from database import SessionLocal
 import graph_mail
 import daily_briefing as daily
@@ -385,8 +386,8 @@ def roster(db: Session, scope, cfg: dict, week_end: str) -> list:
     q = (db.query(models.NexusEmployee)
          .filter(models.NexusEmployee.work_email != "",
                  or_(models.NexusEmployee.status == "active", models.NexusEmployee.status.is_(None)),
-                 or_(models.NexusEmployee.identity_type.in_(("internal", "")),
-                     models.NexusEmployee.identity_type.is_(None))))
+                 # Guests on payroll are staff (11/20/2026 - payroll_staff.py).
+                 payroll_staff.staff_clause()))
     if scope is not None:
         if not scope:
             return []
