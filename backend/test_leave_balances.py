@@ -439,5 +439,37 @@ class LeaveBalanceTests(unittest.TestCase):
         self.assertEqual(self.client.get("/leave-balances/admin?as_of=09/30/2026").status_code, 400)
 
 
+    def test_guests_on_payroll_are_staff(self):
+        """Charmi, 11/20/2026: Nayeli, Alana and Sophia sign in with gmail
+        (Entra guests) yet are paid hourly - they were missing from Leave
+        Balances. A guest with a pay rate is staff; one without is not, and
+        an external never is (payroll_staff.py)."""
+        import leave_year_end
+        import payroll_staff
+        G, G2, X = "lb.guest@gmail.com", "lb.family@gmail.com", "lb.vendor@example.com"
+        for em, kind in ((G, "guest"), (G2, "guest"), (X, "external")):
+            self.db.add(models.NexusEmployee(id=f"emp-{em}", first_name=em[:6], last_name="Test", work_email=em,
+                                             company="", status="active", deleted_at="", start_date="2025-01-01",
+                                             employment_type="full_time", country="US", identity_type=kind))
+        for em in (G, X):
+            self.db.add(models.PayrollRate(employee_email=em, pay_type="hourly", hourly_rate=20.0,
+                                           overtime_rule="ca", currency="USD"))
+        self.db.commit()
+        self._cutover()
+        r = self.client.get("/leave-balances/admin")
+        self.assertEqual(r.status_code, 200, r.text)
+        shown = {p["email"] for p in r.json()["people"]}
+        self.assertIn(G, shown)
+        self.assertIn(A, shown)
+        self.assertNotIn(G2, shown)
+        self.assertNotIn(X, shown)
+        self.assertIn(G, {e.work_email for e in leave_year_end.people(self.db)})
+        emp = lambda em: lb.employee(self.db, em)  # noqa: E731
+        self.assertTrue(payroll_staff.is_staff(self.db, emp(G)))
+        self.assertTrue(payroll_staff.is_staff(self.db, emp(A)))
+        self.assertFalse(payroll_staff.is_staff(self.db, emp(G2)))
+        self.assertFalse(payroll_staff.is_staff(self.db, emp(X)))
+
+
 if __name__ == "__main__":
     unittest.main()
