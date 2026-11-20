@@ -185,6 +185,24 @@ export function missingByKind(assets) {
   return lists.filter(([, list]) => list.length).map(([kind, list]) => ({ kind, label: DATE_KINDS[kind].missing, assets: list }));
 }
 
+// Where a missing date of each kind is kept on the asset (the Missing view fills it in place).
+const ADD_DATE_KEY = { tax: 'taxDue', insurance: 'insExpiration', registration: 'regExpiration' };
+
+/**
+ * The patch that puts a first date of `kind` on an asset, from the date box's YYYY-MM-DD:
+ * { patch, changes } for onPatchAsset, or null for a kind that is not filled here or a day that
+ * is not one. Stored MM/DD/YYYY, the way the dates on file read (and the way Activity shows it).
+ */
+export function addDatePatch(kind, isoDay) {
+  const key = ADD_DATE_KEY[kind];
+  const m = String(isoDay ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!key || !m) return null;
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (day.getUTCMonth() !== Number(m[2]) - 1 || day.getUTCDate() !== Number(m[3])) return null;
+  const to = `${m[2]}/${m[3]}/${m[1]}`;
+  return { patch: { [key]: to }, changes: [{ field: DATE_KINDS[kind].field, from: '', to }] };
+}
+
 const isLeap = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
 
 /** One stored date a year later, in the SAME format ("12/10/2026" -> "12/10/2027",
