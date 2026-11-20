@@ -98,6 +98,27 @@ function bucketHint(b, bucket, policy) {
   return end;
 }
 
+// The vacation rate and why (11/20/2026, Charmi: balances did not match
+// QuickBooks - QuickBooks keeps a typed rate, the policy moves on the
+// anniversary): "80h a year since 10/20/2026".
+export function rateLine(x, policy) {
+  if (!x || x.method === 'none' || !x.method) return '-';
+  if (x.method === 'per_hour') {
+    if (x.hoursPerYear > 0) return `${x.hoursPerYear}h a year${x.tierSince ? ` since ${day(x.tierSince)}` : ''}`;
+    return x.next?.date ? `Starts ${day(x.next.date)}` : '-';
+  }
+  return x.next?.date ? `${fmtLeave(x.next.hours, policy)} on ${day(x.next.date)}` : '-';
+}
+
+// Closed pay periods not finalized (11/20/2026: a vacation day missing from a balance):
+// their hours are not in the balance yet, and the row says so.
+export function openPeriodsLine(periods) {
+  const list = periods || [];
+  if (!list.length) return '';
+  const first = `${day(list[0].start)} - ${day(list[0].end)} Not Finalized`;
+  return list.length > 1 ? `${first} and ${list.length - 1} more` : first;
+}
+
 // ── Employee ────────────────────────────────────────────────────────────────
 
 export function useMyLeaveBalance() {
@@ -334,6 +355,11 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
           <ImportPanel onDone={load} toastOk={toastOk} toastErr={toastErr} cutover={data.cutover} />
         </Section>
       )}
+      {live && (
+        <Section title="Compare With QuickBooks" open={open === 'compare'} onToggle={() => setOpen(open === 'compare' ? '' : 'compare')}>
+          <ComparePanel toastErr={toastErr} />
+        </Section>
+      )}
       {data.canSetup && (
         <div style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>The policies themselves are under Settings &gt; Time Off &amp; Leave &gt; Leave Policies.</div>
       )}
@@ -358,6 +384,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
               <span style={{ flex: '0 0 170px' }}>Policy</span>
               <span style={{ flex: '0 0 100px', textAlign: 'right' }}>Vacation</span>
               <span style={{ flex: '0 0 100px', textAlign: 'right' }}>Sick</span>
+              <span style={{ flex: '0 0 170px' }}>Vacation Earns</span>
               <span style={{ flex: '1 1 150px' }}>Other Leave</span>
               <span style={{ flex: '0 0 120px' }}>Sick Starts</span>
             </div>
@@ -367,7 +394,14 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
                 <div style={{ ...ROW, cursor: 'pointer' }} onClick={() => setPerson(person === p.email ? null : p.email)}>
                   <span style={{ flex: '1 1 180px', minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
                     {person === p.email ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                    <span style={{ fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                    <span style={{ minWidth: 0, display: 'grid' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                      {openPeriodsLine(p.openPeriods) && (
+                        <span style={{ fontSize: 12, color: WARN }} title="Its earned and used hours are not in the balance until the Time Sheet is finalized">
+                          {openPeriodsLine(p.openPeriods)}
+                        </span>
+                      )}
+                    </span>
                   </span>
                   <span style={{ flex: '0 0 170px' }} onClick={e => e.stopPropagation()}>
                     <select className="form-input" value={p.policy?.assigned ? p.policy.id : ''} onChange={e => assign(p.email, e.target.value)}
@@ -378,6 +412,7 @@ export default function LeaveBalancesAdmin({ toastOk, toastErr }) {
                   </span>
                   <span style={{ flex: '0 0 100px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtLeave(p.vacation?.available, p.policy)}</span>
                   <span style={{ flex: '0 0 100px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtLeave(p.sick?.available, p.policy)}</span>
+                  <span style={{ flex: '0 0 170px', color: 'var(--muted)', fontSize: 12 }}>{rateLine(p.vacation, p.policy)}</span>
                   <span style={{ flex: '1 1 150px', color: 'var(--muted)', fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={extrasSummary(p, p.policy) || undefined}>{extrasSummary(p, p.policy) || '-'}</span>
                   <span style={{ flex: '0 0 120px', color: 'var(--muted)', fontSize: 12 }}>
@@ -403,6 +438,101 @@ function Section({ title, open, onToggle, children }) {
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />} {title}
       </button>
       {open && <div style={{ padding: '0 12px 12px' }}>{children}</div>}
+    </div>
+  );
+}
+
+// Compare With QuickBooks (11/20/2026, Neil: "Need a real solution not a bug
+// fix manual"): QuickBooks' Time Off report against every balance, each
+// difference with its cause - backend/leave_qb_compare.py. A read only.
+function readBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ''));
+    r.onerror = () => reject(new Error('That file could not be read.'));
+    r.readAsDataURL(file);
+  });
+}
+
+const BUCKET_WORD = { vacation: 'Vacation', sick: 'Sick' };
+const RULE = { borderTop: '1px solid var(--line)', padding: '10px 0', fontSize: 12, color: 'var(--muted)' };
+
+export function ComparePanel({ toastErr }) {
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null);
+  const [fileName, setFileName] = useState('');
+
+  async function pick(file) {
+    if (!file) return;
+    setBusy(true); setFileName(file.name);
+    try {
+      setRes(await api.leaveCompareQuickbooks(await readBase64(file), file.name));
+    } catch (e) { setRes(null); toastErr?.(e?.message || 'Could not compare the report.'); }
+    setBusy(false);
+  }
+
+  const people = res?.people || [];
+  const differ = people.filter(p => p.state === 'differs' || p.state === 'error');
+  const match = people.filter(p => p.state === 'matches');
+  const notLive = people.filter(p => p.state === 'not_live');
+  const words = [
+    `${differ.length} ${differ.length === 1 ? 'differs' : 'differ'}`,
+    `${match.length} ${match.length === 1 ? 'matches' : 'match'}`,
+    ...(res?.unmatched?.length ? [`${res.unmatched.length} not found in Nexus`] : []),
+  ];
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 760 }}>
+        Choose the QuickBooks Time Off report (Excel). Nexus lines up each person&apos;s vacation and sick balance as of the report&apos;s last pay period and says why any differ - a rate QuickBooks was not moved to, paid versus worked hours, a Time Sheet not finalized, an adjustment. Nothing is changed and the file is not kept.
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <label className="secondary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: busy ? 'default' : 'pointer' }}>
+          {busy ? <Spinner size={12} /> : <Upload size={12} />} {res ? 'Choose Another Report' : 'Choose the Report'}
+          <input type="file" accept=".xlsx,.xlsm" disabled={busy} aria-label="QuickBooks Time Off report"
+            onChange={e => { pick(e.target.files?.[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+        </label>
+        {fileName && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{fileName}</span>}
+      </div>
+      {res && (
+        <div style={{ display: 'grid' }}>
+          <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 6 }}>
+            {words.join(' - ')}{res.periodEnd ? `, as of the pay period ending ${day(res.periodEnd)}` : ''}.
+          </div>
+          {differ.map(p => (
+            <div key={p.email} style={{ ...RULE, color: 'var(--ink)', display: 'grid', gap: 4 }}>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
+                {p.asOf && <span style={{ color: 'var(--muted)' }}>as of {day(p.asOf)}</span>}
+              </div>
+              {p.state === 'error'
+                ? <div style={{ color: WARN }}>Could not be compared: {p.error}</div>
+                : ['vacation', 'sick'].filter(k => p[k] && Math.abs(p[k].difference) > 0.05).map(k => (
+                  <div key={k}>
+                    {BUCKET_WORD[k]}: Nexus {formatHoursWords(p[k].nexus)}, QuickBooks {formatHoursWords(p[k].quickbooks)}
+                    <span style={{ color: WARN }}> ({formatHoursWords(p[k].difference, { sign: true })} in Nexus)</span>
+                  </div>
+                ))}
+              {(p.lines || []).map((l, i) => (
+                <div key={i} style={{ display: 'flex', gap: 10 }}>
+                  <span style={{ flex: '0 0 76px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: l.kind === 'other' ? WARN : 'var(--muted)' }}>
+                    {l.hours ? formatHoursWords(l.hours, { sign: true }) : ''}
+                  </span>
+                  <span style={{ flex: '0 0 62px', color: 'var(--muted)' }}>{BUCKET_WORD[l.bucket] || l.bucket}</span>
+                  <span style={{ flex: 1, minWidth: 160, color: l.kind === 'other' ? WARN : 'var(--ink)' }}>{l.text}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+          {match.length > 0 && <div style={RULE}>Match: {match.map(p => p.name).join(', ')}.</div>}
+          {notLive.length > 0 && <div style={RULE}>Not compared (no start date for their company yet, or the report ends before it): {notLive.map(p => p.name).join(', ')}.</div>}
+          {(res.unmatched || []).length > 0 && (
+            <div style={RULE}>
+              In the report but not found in Nexus: {res.unmatched.map(u => (u.code ? `${u.name} (${u.code})` : u.name)).join(', ')}. Give them the same employee code in People, or they are not on your Leave Balances list.
+            </div>
+          )}
+          {(res.notInReport || []).length > 0 && <div style={RULE}>In Nexus but not in this report: {res.notInReport.join(', ')}.</div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -497,7 +627,18 @@ function PersonDetail({ email, onChanged, toastOk, toastErr }) {
       <div style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 8px' }}>
         {pol.name} - started {b.startDate ? day(b.startDate) : 'date not on file'}, {(EMP_TYPES.find(([v]) => v === b.employmentType) || ['', b.employmentType || 'type not set'])[1]}.
         {' '}Vacation: {bucketHint(b, 'vacation', pol)} Sick: {bucketHint(b, 'sick', pol)}
+        {b.vacation?.method === 'per_hour' && b.vacation.hoursPerYear > 0 && (
+          <> Earns {rateLine(b.vacation, pol)}, on {b.vacation.basis === 'paid' ? 'every paid hour' : 'hours worked'}.</>
+        )}
       </div>
+      {(b.openPeriods || []).map(op => (
+        <div key={op.start} style={{ fontSize: 12, color: WARN, margin: '0 0 6px' }}>
+          {day(op.start)} - {day(op.end)} is not finalized, so it is not in this balance yet.
+          {(op.entries || []).length > 0
+            ? ` Finalizing it adds ${op.entries.map(e => `${formatHoursWords(e.hours, { sign: true })} ${String(bucketNames(b)[e.bucket] || e.bucket).toLowerCase()} ${e.kind === 'used' ? 'used' : 'earned'}`).join(', ')}.`
+            : ''}
+        </div>
+      ))}
       {(b.extraTypes || []).filter(t => t.method !== 'none').length > 0 && (
         <div style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 8px' }}>
           {(b.extraTypes || []).filter(t => t.method !== 'none').map(t => (
@@ -572,7 +713,7 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-        Hours throughout. Sick time is given at once after the waiting period, for the calendar year, and does not carry over. Vacation is earned per hour worked (by years of service) or added on each work anniversary, and carries over. After a change, use Recalculate.
+        Hours throughout. Sick time is given at once after the waiting period, for the calendar year, and does not carry over. Vacation is earned per hour (hours worked, or every paid hour as QuickBooks counts it - Earned On says which; by years of service) or added on each work anniversary, and carries over. After a change, use Recalculate.
       </div>
       {list.map((p, i) => (
         <div key={p.id} style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, padding: 10, display: 'grid', gap: 8 }}>
@@ -611,11 +752,18 @@ function PoliciesEditor({ policies, builtIn, onSaved, toastOk, toastErr }) {
             </>}
             <label style={FIELD}><span style={LBL}>Vacation</span>
               <select className="form-input" value={p.vacation?.method || 'none'} onChange={e => upd(i, x => ({ ...x, vacation: e.target.value === 'none' ? { method: 'none' } : { method: e.target.value, tiers: x.vacation?.tiers?.length ? x.vacation.tiers : [{ fromYears: 1, hoursPerYear: 40 }], ...(e.target.value === 'per_hour' ? { baseHoursPerYear: x.vacation?.baseHoursPerYear || 2080 } : {}) } }))} style={{ fontSize: 12 }}>
-                <option value="none">None</option><option value="per_hour">Earned Per Hour Worked</option><option value="anniversary">Added Each Anniversary</option>
+                <option value="none">None</option><option value="per_hour">Earned Per Hour</option><option value="anniversary">Added Each Anniversary</option>
               </select></label>
             {p.vacation?.method === 'per_hour' && (
               <label style={{ ...FIELD, width: 130 }}><span style={LBL}>Full-Time Hours a Year</span>
                 <input className="form-input" type="number" value={p.vacation.baseHoursPerYear} onChange={e => upd(i, x => ({ ...x, vacation: { ...x.vacation, baseHoursPerYear: e.target.value } }))} style={{ fontSize: 12 }} /></label>
+            )}
+            {/* What a per-hour policy earns on (11/20/2026): QuickBooks counts every paid hour. */}
+            {p.vacation?.method === 'per_hour' && (
+              <label style={FIELD}><span style={LBL}>Earned On</span>
+                <select className="form-input" value={p.vacation.basis || 'worked'} onChange={e => upd(i, x => ({ ...x, vacation: { ...x.vacation, basis: e.target.value } }))} style={{ fontSize: 12 }}>
+                  <option value="worked">Hours Worked</option><option value="paid">Every Paid Hour (Sick and Vacation Too)</option>
+                </select></label>
             )}
           </div>
           {p.vacation?.method && p.vacation.method !== 'none' && (
@@ -672,6 +820,7 @@ export function LeaveSetup({ toastOk, toastErr }) {
   );
 }
 
+const WARN = '#b45309';
 const CARD = { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' };
 const HD = { fontSize: 14, fontWeight: 700, color: 'var(--ink)' };
 const LBL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)' };

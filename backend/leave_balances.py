@@ -39,6 +39,12 @@ import models
 POLICIES_KEY = "leave.policies"
 CUTOVER_KEY = "leave.cutover"
 BUCKETS = ("vacation", "sick")
+# What a per-hour vacation policy earns on (11/20/2026, Charmi: two balances
+# did not match QuickBooks): "worked" = hours worked only (the 10/19
+# call), "paid" = every paid hour, the sick and vacation hours on the Time
+# Sheet included - what QuickBooks' accrual counts. A policy setting, never
+# a code path per company.
+BASES = ("worked", "paid")
 
 # Phase 1A of the Benefit Accrual roadmap (10/26/2026 plan doc). The ledger
 # today has two first-class buckets - vacation and sick (BUCKETS). The plan
@@ -270,6 +276,7 @@ def clean_policy(pid: str, p: dict) -> dict:
         vac = {"method": vac_in["method"], "tiers": tiers}
         if vac["method"] == "per_hour":
             vac["baseHoursPerYear"] = _num(vac_in.get("baseHoursPerYear", 2080), 1, 5000)
+            vac["basis"] = vac_in.get("basis") if vac_in.get("basis") in BASES else "worked"
     extras = _clean_extra_types(p.get("extraTypes") or [])
     return {"id": pid, "name": name, "unit": unit,
             "hoursPerDay": _num(p.get("hoursPerDay", 8), 1, 24),
@@ -424,6 +431,16 @@ def _tier(tiers: list, years: int) -> float:
         if years >= int(t.get("fromYears", 0)):
             rate = float(t.get("hoursPerYear", 0))
     return rate
+
+
+def tier_since(tiers: list, start: date, years: int) -> tuple[float, str]:
+    """(hours a year, the day that rate began) for someone `years` in - the
+    anniversary that put them on their tier ('' when it is the start date)."""
+    hours, frm = 0.0, 0
+    for t in tiers or []:
+        if years >= int(t.get("fromYears", 0)):
+            hours, frm = float(t.get("hoursPerYear", 0)), int(t.get("fromYears", 0))
+    return hours, (_anniversary(start, frm).isoformat() if frm else "")
 
 
 def bucket_of(name: str, pol: dict | None = None) -> str:
@@ -626,10 +643,17 @@ def balances(db: Session, email: str, today: date | None = None, pols: dict | No
             continue
         (upcoming if r.status == "approved" else pending)[b] += request_hours(r, hpd, db)
 
+    # The rate and why (11/20/2026): "80 h a year since 10/20/2026 (3 years)"
+    # - QuickBooks keeps a typed rate per person, Nexus moves on the policy's
+    # anniversary, and HR needs to see which one a number came from.
+    per_year, since = (tier_since(vp.get("tiers"), start, _years_on(start, today))
+                       if eligible and vp.get("method") == "per_hour" else (0.0, ""))
     out["vacation"] = {
         "method": vp.get("method", "none"), "available": round(vac_total, 2),
         "upcoming": round(upcoming["vacation"], 2), "pending": round(pending["vacation"], 2),
         "accrualPerHour": round(rate_now, 5), "grants": grants, "next": next_tier,
+        "hoursPerYear": per_year, "tierSince": since,
+        "basis": vp.get("basis", "worked") if vp.get("method") == "per_hour" else "",
         "eligible": eligible and vp.get("method", "none") != "none",
         "carriesOver": True,
     }
@@ -782,7 +806,9 @@ def period_entries(db: Session, email: str, start: str, end: str) -> list[dict]:
     vp = pol.get("vacation") or {}
     per_hour = (vp.get("method") == "per_hour" and _eligible_type(emp, pol) and start_d is not None)
     base = float(vp.get("baseHoursPerYear") or 2080)
+    paid_basis = vp.get("basis") == "paid"
     earned = 0.0
+    on_hours = 0.0      # the hours the accrual was earned on (shown in its note)
     used = {}           # (bucket, year) -> [hours, last day]
     for d in card.get("days") or []:
         ds = d.get("date") or ""
@@ -793,9 +819,12 @@ def period_entries(db: Session, email: str, start: str, end: str) -> list[dict]:
         worked = (d.get("regMin") or 0) + (d.get("otMin") or 0) + (d.get("dtMin") or 0)
         if not worked and d.get("workedMin"):
             worked = max(0, (d.get("workedMin") or 0) - leave["sick"] - leave["vacation"])
-        if per_hour and worked:
+        basis_min = worked + (leave["sick"] + leave["vacation"] if paid_basis else 0)
+        if per_hour and basis_min:
             rate = _tier(vp.get("tiers"), _years_on(start_d, date.fromisoformat(ds))) / base
-            earned += worked / 60 * rate
+            earned += basis_min / 60 * rate
+            if rate:
+                on_hours += basis_min / 60
         if card.get("indiaPolicy"):
             continue     # paid leave is what the India Contractor policy covered (below)
         for b, m in leave.items():
@@ -820,10 +849,85 @@ def period_entries(db: Session, email: str, start: str, end: str) -> list[dict]:
     span = f"{start} - {end}"
     if earned > 0:
         out.append({"bucket": "vacation", "hours": round(earned, 4), "kind": "accrual", "date": end,
-                    "note": f"Earned in pay period {span}"})
+                    "note": f"Earned in pay period {span} on {on_hours:.2f} h "
+                            f"{'paid' if paid_basis else 'worked'}"})
     for (b, _y), (h, last) in sorted(used.items()):
         out.append({"bucket": b, "hours": -round(h, 4), "kind": "used", "date": last,
                     "note": f"Paid {b} in pay period {span}"})
+    return out
+
+
+def open_periods(db: Session, email: str, cut: str, today: date, *, finals: set | None = None,
+                 punch_days: dict | None = None, preview: bool = False) -> list[dict]:
+    """Closed pay periods since the cutover that have time in them but are
+    NOT finalized - their earned and used hours are not in the balance yet
+    (11/20/2026: a vacation day looked "missing" from a balance because
+    its pay period was never finalized). The balance says so instead of
+    quietly reading low or high.
+
+    `finals` {(email, period_start)} and `punch_days` {email: {day: has_leave}}
+    let the HR table prefetch; `preview` adds what finalizing would write
+    (period_entries - the timecard is computed, so only when asked)."""
+    import timesheet_review
+    email = (email or "").strip().lower()
+    if not cut:
+        return []
+    if punch_days is None:
+        punch_days = _punch_days(db, [email], cut)
+    days = punch_days.get(email) or {}
+    if not days:
+        return []
+    if finals is None:
+        finals = _finals(db, [email], cut)
+    # The periods come from the punch days themselves - one pay-type read,
+    # then pure date math for hourly staff (the HR table walks everyone).
+    from routers import timeclock
+    pay_type = timeclock._pay_type(db, email)
+    spans: dict = {}                     # start -> [end, has leave]
+    for d in sorted(days):
+        if d <= cut:
+            continue
+        hit = next((v for st, v in spans.items() if st <= d <= v[0]), None)
+        if hit is not None:
+            hit[1] = hit[1] or bool(days[d])
+            continue
+        if pay_type == "fixed":
+            s, e, _pt = timesheet_review.period_for(db, email, d)
+        else:
+            s, e = timeclock._pay_period(d)
+        spans[s] = [e, bool(days[d])]
+    out = []
+    for s, (e, has_leave) in sorted(spans.items()):
+        if e >= today.isoformat() or e <= cut or (email, s) in finals:
+            continue                      # still open, inside the opening, or finalized
+        row = {"start": s, "end": e, "payType": pay_type, "hasLeave": has_leave}
+        if preview:
+            try:
+                row["entries"] = period_entries(db, email, s, e)
+            except Exception:  # noqa: BLE001 - the notice shows without the figures
+                row["entries"] = []
+        out.append(row)
+    return out
+
+
+def _finals(db: Session, emails: list, cut: str) -> set:
+    return {((r.employee_email or "").lower(), r.period_start) for r in
+            db.query(models.TimeApproval.employee_email, models.TimeApproval.period_start)
+            .filter(models.TimeApproval.employee_email.in_(emails), models.TimeApproval.kind == "final",
+                    models.TimeApproval.revoked == 0, models.TimeApproval.period_end > cut).all()}
+
+
+def _punch_days(db: Session, emails: list, cut: str) -> dict:
+    """{email: {local day: True when a Sick / Vacation / Personal punch}}."""
+    out: dict = {}
+    for em, d, cat in (db.query(models.TimePunch.employee_email, models.TimePunch.local_date,
+                                models.TimePunch.category)
+                       .filter(models.TimePunch.employee_email.in_(emails), models.TimePunch.voided == 0,
+                               models.TimePunch.local_date > cut).all()):
+        if not d:
+            continue
+        m = out.setdefault((em or "").lower(), {})
+        m[d] = m.get(d, False) or bool(bucket_of(cat or ""))
     return out
 
 
