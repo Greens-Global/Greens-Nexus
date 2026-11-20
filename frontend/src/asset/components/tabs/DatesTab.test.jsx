@@ -52,4 +52,26 @@ describe('DatesTab', () => {
     expect(screen.getByText('No insurance expiration')).toBeTruthy();
     expect(screen.getAllByText('Add Date').length).toBe(3);
   });
+  it('an editor fills a missing date on the row: one patch, in the format on file', () => {
+    const onPatchAsset = vi.fn();
+    const openAsset = vi.fn();
+    render(<DatesTab store={STORE} assets={ASSETS} onPatchAsset={onPatchAsset} openAsset={openAsset} canEdit />);
+    fireEvent.click(screen.getByRole('radio', { name: 'Missing' }));
+    const boxes = screen.getAllByRole('button', { name: 'Add Date' });
+    expect(boxes.length).toBe(3);
+    expect(screen.getAllByText('Open').length).toBe(3);
+    // The calendar opens on the row; picking a day is the save.
+    fireEvent.click(boxes[0]);
+    const day = screen.getAllByRole('button').find((b) => /^15$/.test(b.textContent.trim()));
+    expect(day).toBeTruthy();
+    fireEvent.click(day);
+    expect(onPatchAsset).toHaveBeenCalledTimes(1);
+    const [id, patch, changes] = onPatchAsset.mock.calls[0];
+    const key = Object.keys(patch)[0];
+    expect(['taxDue', 'insExpiration', 'regExpiration']).toContain(key);
+    expect(patch[key]).toMatch(/^\d{2}\/15\/\d{4}$/);
+    expect(changes).toEqual([{ field: expect.any(String), from: '', to: patch[key] }]);
+    expect(typeof id).toBe('string');
+    expect(openAsset).not.toHaveBeenCalled();
+  });
 });
