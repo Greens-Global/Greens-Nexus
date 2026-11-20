@@ -13,7 +13,9 @@ export const KPI_CARD_DEFS = [
   { key: 'nps', label: 'Net Promoter Score', icon: Gauge, color: { color: C.teal500, background: C.teal50 }, format: (n) => Math.round(n).toString() },
 ]
 
-export default function KpiCards({ current, previous, previousRange, onSelectMetric }) {
+// `labels` lets one card say its own comparison and source when it is not
+// on the page's range - e.g. { reviewRating: { vs: 'vs 10/2026', note: 'Google, as of today' } }.
+export default function KpiCards({ current, previous, previousRange, onSelectMetric, labels = {} }) {
   const prevLabel = `vs ${formatRangeLabelMonthYear(previousRange)}`
 
   return (
@@ -47,7 +49,7 @@ export default function KpiCards({ current, previous, previousRange, onSelectMet
                   {isUp ? <ArrowUp size={11} /> : <ArrowDown size={11} />}
                   {deltaText}
                 </span>
-                <span style={{ fontSize: 11, color: C.gray400, whiteSpace: 'nowrap' }}>{prevLabel}</span>
+                <span style={{ fontSize: 11, color: C.gray400, whiteSpace: 'nowrap' }}>{labels[c.key]?.vs || prevLabel}</span>
               </div>
             </div>
             <div style={{ fontSize: 12, color: C.gray500, marginBottom: 4, lineHeight: 1.25 }}>{c.label}</div>
@@ -55,6 +57,7 @@ export default function KpiCards({ current, previous, previousRange, onSelectMet
               <span style={{ fontSize: 18, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.format(current[c.key])}</span>
               {c.key === 'reviewRating' && <StarRating value={current[c.key]} size={11} />}
             </div>
+            {labels[c.key]?.note && <div style={{ fontSize: 11, color: C.gray400, marginTop: 4 }}>{labels[c.key].note}</div>}
           </button>
         )
       })}

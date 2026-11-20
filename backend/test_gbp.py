@@ -299,6 +299,17 @@ class ReplyTests(_Case):
         self.assertEqual([x["reviewer"] for x in out["reviews"]], ["Customer 2", "Customer 1"])   # newest first
         self.assertEqual([x["reply"] for x in gbp.list_reviews(self.db, replied="yes")["reviews"]], ["Thanks!"])
 
+    def test_search_reaches_every_review_and_reply(self):
+        def who(**kw):
+            return [x["reviewer"] for x in gbp.list_reviews(self.db, **kw)["reviews"]]
+        self.assertEqual(who(search="REVIEW 2"), ["Customer 2"])            # the review, any case
+        self.assertEqual(who(search="customer 1"), ["Customer 1"])          # the reviewer
+        self.assertEqual(who(search="thanks"), ["Customer 3"])              # the reply
+        self.assertEqual(who(search="thanks", replied="no"), [])            # with the split
+        self.assertEqual(who(search="100%"), [])                            # % is a character, not a wildcard
+        out = gbp.list_reviews(self.db, search="review")
+        self.assertEqual((out["total"], out["counts"]["all"]), (3, 3))
+
 
 class ListingTests(_Case):
     def setUp(self):
@@ -441,6 +452,23 @@ class SummaryTests(_Case):
         self.assertEqual(s["rating"]["current"], 3.67)
         self.assertEqual(s["platformRatings"], [{"platform": "Google", "rating": 3.67, "reviews": 3}])
         self.assertEqual(s["stalePhotoLocations"], ["Greens Storage Fresno"])   # newest photo is from January
+
+    def test_review_feed_is_every_review_under_its_nexus_property(self):
+        self.assertEqual(gbp.review_feed(self.db), {"connected": False, "reviews": []})
+        self._connect()
+        feed = gbp.review_feed(self.db)["reviews"]
+        # Newest first, Google's title until the location is mapped.
+        self.assertEqual([(x["reviewer"], x["rating"], x["facility"]) for x in feed],
+                         [("Customer 3", 4, "Greens Storage Fresno"), ("Customer 2", 2, "Greens Storage Fresno"),
+                          ("Customer 1", 5, "Greens Storage Fresno")])
+        # A reply made in Google carries Google's time; unreplied carries none.
+        self.assertEqual([(x["replied"], x["repliedAt"]) for x in feed],
+                         [(True, "2026-10-02T10:00:00Z"), (False, ""), (False, "")])
+        gbp.map_facility(self.db, LOC, "Fresno Storage")
+        gbp.reply(self.db, self._row(1).id, "Thank you!", AMY)
+        feed = {x["reviewer"]: x for x in gbp.review_feed(self.db)["reviews"]}
+        self.assertEqual(feed["Customer 1"]["facility"], "Fresno Storage")
+        self.assertTrue(feed["Customer 1"]["replied"] and feed["Customer 1"]["repliedAt"])
 
 
 class PostAndPhotoTests(_Case):
