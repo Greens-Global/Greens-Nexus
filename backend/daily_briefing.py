@@ -2090,6 +2090,24 @@ def _recap_html(lines) -> str:
     </td></tr>"""
 
 
+def _stores_html(lines) -> str:
+    """Stores (briefing_stores.py, 11/20/2026): a heading, one plain line per
+    store - the name, then its figures as a sentence - and a link to
+    Operations. No tiles, no table: these are five lines to read, not rows to
+    act on, and they are not counted in the summary."""
+    if not lines:
+        return ""
+    body = "".join(f"<div style='font-size:13.5px;line-height:1.6;color:{_BODY};padding:3px 0'>"
+                   f"<span style='font-weight:600;color:{_INK}'>{escape(x['name'])}:</span> {escape(x['text'])}</div>" for x in lines)
+    return f"""
+    <tr><td class="nx-pad" style="padding:22px 32px 0">
+      <div role="heading" aria-level="2" style="font-size:16px;font-weight:600;line-height:1.3;color:{_INK};padding-bottom:6px;border-bottom:1px solid {_LINE}">Stores</div>
+      <div style="height:8px;line-height:8px;font-size:0">&nbsp;</div>
+      {body}
+      <div style="margin-top:8px">{_links([("Open Operations", f"{app_url()}/operations")])}</div>
+    </td></tr>"""
+
+
 _DAILY_FOOTER = ("You receive one briefing a day, before your shift starts (or at a set time on a day without "
                  "a shift). It lists what needs your attention in Nexus since your last briefing.")
 
@@ -2158,7 +2176,7 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
                  footer: str = _DAILY_FOOTER, order: list = None, expanded: bool = True,
                  cta_label: str = "Open My Briefing", cta_path: str = "/briefing",
                  cta_hint: str = "", notes: dict = None, stop_kind: str = "daily_briefing",
-                 today_line: str = "", since_label: str = "", recap: list = None) -> tuple:
+                 today_line: str = "", since_label: str = "", recap: list = None, stores: list = None) -> tuple:
     """The briefing email. The keyword-only arguments exist for the Weekly
     Digest (weekly_digest.py), which reuses this layout with its own sections;
     their defaults are the daily email exactly. `subject`, `intro` and
@@ -2245,6 +2263,7 @@ def render_email(first_name: str, briefing_date: str, sections: dict,
       </td>
     </tr>
     {body_sections}
+    {_stores_html(stores)}
     {_recap_html(recap)}
     <tr>
       <td class="nx-pad" style="padding:24px 32px 22px">
@@ -2363,6 +2382,16 @@ def _page_row(db: Session, row: dict, status_cache: dict) -> dict:
     return out
 
 
+def _page_stores(db: Session, email: str, briefing_date: str) -> list:
+    """The store lines for My Briefing; a failed read shows none."""
+    try:
+        import briefing_stores
+        return briefing_stores.lines(db, email, briefing_date)
+    except Exception as e:  # noqa: BLE001
+        print(f"[daily-briefing] store lines skipped on My Briefing for {email}: {e!r}")
+        return []
+
+
 def my_briefing(db: Session, email: str) -> dict:
     email = (email or "").lower()
     local_now = _recipient_local_now(db, email)
@@ -2378,6 +2407,7 @@ def my_briefing(db: Session, email: str) -> dict:
         "date": briefing_date,
         "since": since_iso,
         "reactions": task_mail_actions.REACTION_EMOJIS,
+        "stores": _page_stores(db, email, briefing_date),
         "sections": [{
             "key": k, "label": _SECTION_META[k][0],
             "rows": [_page_row(db, r, status_cache) for r in sections[k]],
@@ -2422,6 +2452,14 @@ def _send_one(db: Session, emp: "models.NexusEmployee", cfg: dict, briefing_date
         week = {**week, "sections": weekly_digest._without_actions(week["sections"])}
     extra = {"today_line": today_line_for(db, emp.work_email, briefing_date),
              "since_label": since_label_for(since_iso if last and last.sent_at else "", briefing_date, local_now)}
+    # The stores ride along with a briefing that is going out; they never make
+    # one by themselves (the quiet-day rule above). A failed read costs the
+    # lines, never the briefing.
+    try:
+        import briefing_stores
+        extra["stores"] = briefing_stores.lines(db, emp.work_email, briefing_date)
+    except Exception as e:  # noqa: BLE001
+        print(f"[daily-briefing] store lines skipped for {emp.work_email}: {e!r}")
     if week:
         sections, extra = weekly_digest.combined(built, week, briefing_date, extra)
     subject, html = render_email(first_name, briefing_date, sections, greeting=greeting, logo_url=logo_url, **extra)

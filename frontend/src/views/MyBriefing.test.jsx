@@ -132,3 +132,40 @@ describe('MyBriefing', () => {
     await waitFor(() => expect(actOnMyBriefing).toHaveBeenCalledWith({ kind: 'task', id: 't2', action: 'toggle', text: 'done' }));
   });
 });
+
+// Stores (Neil, 11/20/2026): one plain line per store, for the people who are sent them.
+describe('My Briefing - Stores', () => {
+  const STORES = [
+    { name: 'Harbor Storage Oak Street', text: '96.5% occupied, up 0.4 points on last week. 18 vacant, $7,853 past due from 22 tenants.' },
+    { name: 'Harbor Storage Canyon Road', text: '69.9% occupied. 104 vacant, nothing past due, 2 leads waiting more than a week.' },
+  ];
+
+  it('lists each store as a sentence and opens Operations', async () => {
+    getMyBriefing.mockResolvedValue({ ...BRIEFING, stores: STORES });
+    const seen = [];
+    const onNav = (e) => seen.push(e.detail);
+    window.addEventListener('nexus:navigate', onNav);
+    try {
+      render(<MyBriefing />);
+      const block = await screen.findByRole('region', { name: 'Stores' });
+      expect(block.textContent).toContain('Harbor Storage Oak Street: 96.5% occupied, up 0.4 points on last week. 18 vacant, $7,853 past due from 22 tenants.');
+      expect(block.textContent).toContain('Harbor Storage Canyon Road: 69.9% occupied.');
+      fireEvent.click(screen.getByRole('button', { name: 'Open Operations' }));
+      expect(seen).toEqual([{ view: 'operations' }]);
+    } finally {
+      window.removeEventListener('nexus:navigate', onNav);
+    }
+  });
+
+  it('shows the stores on a day with nothing else, and nothing for a person who is sent none', async () => {
+    getMyBriefing.mockResolvedValue({ ...BRIEFING, sections: [], stores: STORES });
+    const { unmount } = render(<MyBriefing />);
+    expect(await screen.findByRole('region', { name: 'Stores' })).toBeTruthy();
+    expect(screen.getByText('Nothing new since your last briefing.')).toBeTruthy();
+    unmount();
+    getMyBriefing.mockResolvedValue({ ...BRIEFING, stores: [] });
+    render(<MyBriefing />);
+    await screen.findByText('Approve: Budget');
+    expect(screen.queryByRole('region', { name: 'Stores' })).toBeNull();
+  });
+});
