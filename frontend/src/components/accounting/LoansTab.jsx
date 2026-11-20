@@ -25,6 +25,8 @@ import { POLL_MS } from './LedgerScan';
 import { LoanAmortizationDialog } from './LoanAmortization';
 import { LoanStressDialog, LoanStressPortfolio } from './LoanStress';
 import LoanPlanning from './LoanPlanning';
+import LoanTermOffers from './LoanTermOffers';
+import { offerBody, offersFor } from './loanTermModel';
 import { WarnMark } from './warnMark';
 import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 import { pill } from './dashboard/Bits';
@@ -459,6 +461,10 @@ export default function LoansTab({ canEdit = false }) {
   const [dialog, setDialog] = useState(null);   // 'ledger' | 'manual' | { edit: loan }
   const [openId, setOpenId] = useState(null);     // the loan open in its sheet (11/19/2026)
   const [needTerms, setNeedTerms] = useState(false);   // Missing Terms only
+  // Terms typed on a property in Asset Management, for the loans that lack them (11/19/2026).
+  const [suggested, setSuggested] = useState({ key: null, list: [] });
+  const [offersOpen, setOffersOpen] = useState(false);
+  const [filling, setFilling] = useState(false);
   const [entry, setEntry] = useState(null);
   const [lines, setLines] = useState(null);           // { title, caption, queries } - several accounts behind one figure
   const [sending, setSending] = useState(null);
@@ -493,6 +499,18 @@ export default function LoansTab({ canEdit = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const load = () => setReloads((n) => n + 1);
+  // An offer is a convenience: a read that fails (or a person with no Asset
+  // Management access) simply offers nothing, and never gets in the way.
+  const offerKey = `${period.to}|${reloads}|${ts.tick}`;
+  useEffect(() => {
+    if (!canEdit || !api.getLoanTermSuggestions) return undefined;
+    let alive = true;
+    api.getLoanTermSuggestions(String(period.to || '').slice(0, 7))
+      .then((d) => { if (alive) setSuggested({ key: offerKey, list: d?.suggestions || [] }); })
+      .catch(() => { if (alive) setSuggested({ key: offerKey, list: [] }); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offerKey, canEdit]);
   const loading = res.key !== key;
   const error = loading ? null : res.error;      // Error | null
   const review = res.data;
@@ -503,6 +521,23 @@ export default function LoansTab({ canEdit = false }) {
     return needTerms ? base.filter(missingTerms) : base;
   }, [all, type, text, showClosed, needTerms]);
   const missingCount = useMemo(() => visibleLoans(all, { type, text, showClosed }).filter(missingTerms).length, [all, type, text, showClosed]);
+  const offers = useMemo(() => (canEdit ? offersFor(suggested.list, all) : []), [canEdit, suggested, all]);
+  // Each offer through the ordinary loan save, one after another; what did not save is said.
+  const fillOffers = async (chosen) => {
+    if (filling || !chosen.length) return;
+    setFilling(true);
+    let ok = 0;
+    const failed = [];
+    for (const o of chosen) {
+      try { await api.updateLoan(o.loanId, '', offerBody(o)); ok += 1; } catch (e) { failed.push(`${o.loan.lender || o.loan.loanNo || 'a loan'}${e?.message ? ` (${e.message})` : ''}`); }
+    }
+    setFilling(false);
+    setOffersOpen(false);
+    setSent(failed.length
+      ? { text: `${ok ? `Filled the terms of ${ok} ${ok === 1 ? 'loan' : 'loans'}. ` : ''}Could not fill ${failed.join(', ')}.`, bad: true }
+      : { text: `Filled the terms of ${ok} ${ok === 1 ? 'loan' : 'loans'} from Asset Management.` });
+    load();
+  };
   // 10/23 meeting, item 01: the standard view over what the type, the filter
   // box and Show Closed leave; the totals, By Lender / By Entity, the
   // maturities and the export follow it.
@@ -694,6 +729,13 @@ export default function LoansTab({ canEdit = false }) {
         </div>
       )}
       {(review?.notes || []).length > 0 && <div style={{ fontSize: 13, color: 'var(--warn-fg)' }}><WarnMark />{review.notes.join(' · ')} - open again to retry.</div>}
+      {view === 'loans' && offers.length > 0 && !offersOpen && (
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+          Asset Management has the rate or maturity typed for {offers.length} of these {offers.length === 1 ? 'loan' : 'loans'}.{' '}
+          <button type="button" onClick={() => setOffersOpen(true)} style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer' }}>Review</button>
+        </div>
+      )}
+      {view === 'loans' && offersOpen && offers.length > 0 && <LoanTermOffers offers={offers} busy={filling} onApply={fillOffers} onClose={() => setOffersOpen(false)} />}
 
       {error && (unavailable ? (
         <div style={{ padding: '14px 0', fontSize: 14, color: 'var(--text-secondary)' }}>

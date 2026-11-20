@@ -862,6 +862,70 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(self.client.get("/accounting/loans/by-entity/12000").status_code, 403)
         self.assertEqual(self.client.get("/accounting/loans/by-entity/15000?to=2026-09-30").status_code, 200)
 
+    def test_term_suggestions_from_asset_management(self):
+        """Rate and maturity typed on a property are offered for the loan that
+        lacks them - to an accounting editor who may also see the property,
+        inside their entities, and never saved by the read."""
+        self.loans.append({"id": "FL2", "lender": "Wells Fargo", "entity_code": "15000", "gl_account": "27900", "balance_source": "ledger", "is_active": True})
+        self.loans.append({"id": "FL3", "lender": "SBA", "entity_code": "12000", "gl_account": "27300", "balance_source": "ledger", "is_active": True})
+
+        def sheet(lender, maturity, rate):
+            return [{"group": "Debt", "fields": [{"label": "Lender", "value": lender}, {"label": "Maturity Date", "value": maturity}, {"label": "Interest Rate", "value": rate}]}]
+        ids = ["ts-oak", "ts-sba", "ts-private", "ts-trash", "ts-unlinked"]
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroup(id="grp-loans-test-assets", name="grp-loans-test-assets", allowed_modules="property-asset:viewer"))
+            for em in (EDITOR, LIMITED):
+                db.add(models.NexusGroupMember(group_id="grp-loans-test-assets", email=em))
+            db.add(models.PropertyAsset(id="ts-oak", name="Oak Street", payload={"name": "Oak Street", "kind": "property", "entityCode": "15000", "snapshot": sheet("Wells Fargo Bank", "06/01/2031", "6.25%")}))
+            db.add(models.PropertyAsset(id="ts-sba", name="Depot", payload={"name": "Depot", "kind": "property", "entityCode": "12000", "snapshot": sheet("SBA", "01/15/2030", "SOFR + 2.5")}))
+            db.add(models.PropertyAsset(id="ts-private", name="Quiet Lot", payload={"name": "Quiet Lot", "kind": "property", "private": True, "entityCode": "15000", "snapshot": sheet("Wells Fargo", "12/31/2040", "9%")}))
+            db.add(models.PropertyAsset(id="ts-trash", name="Gone", payload={"name": "Gone", "kind": "property", "deleted": True, "entityCode": "15000", "snapshot": sheet("Wells Fargo", "12/31/2041", "8%")}))
+            db.add(models.PropertyAsset(id="ts-unlinked", name="No Entity", payload={"name": "No Entity", "kind": "property", "snapshot": sheet("Wells Fargo", "12/31/2042", "7%")}))
+            db.commit()
+        finally:
+            db.close()
+        cache.module_grants.invalidate()
+        try:
+            _as(EDITOR)
+            r = self.client.get("/accounting/loans/term-suggestions?month=2026-09")
+            self.assertEqual(r.status_code, 200, r.text)
+            d = r.json()
+            self.assertTrue(d["assets"])
+            # FL1 has its terms already; the private, trashed and unlinked properties never count;
+            # an index plus a spread is not a rate.
+            self.assertEqual(d["suggestions"], [
+                {"loanId": "FL3", "propertyId": "ts-sba", "propertyName": "Depot", "why": "lender", "maturity": "2030-01-15"},
+                {"loanId": "FL2", "propertyId": "ts-oak", "propertyName": "Oak Street", "why": "lender", "maturity": "2031-06-01", "ratePct": 6.25},
+            ])
+            self.assertEqual(self.saves, [])
+            # Limited to entity 15000: the loan of 12000 is not theirs to hear about.
+            _as(LIMITED)
+            self.assertEqual([o["loanId"] for o in self.client.get("/accounting/loans/term-suggestions?month=2026-09").json()["suggestions"]], ["FL2"])
+            # A viewer cannot change a loan, so is not offered terms for one.
+            _as(VIEWER)
+            self.assertEqual(self.client.get("/accounting/loans/term-suggestions").status_code, 403)
+            # No Asset Management access: the question is answered, with nothing to offer.
+            db = database.SessionLocal()
+            try:
+                db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == "grp-loans-test-assets").delete()
+                db.commit()
+            finally:
+                db.close()
+            cache.module_grants.invalidate()
+            _as(EDITOR)
+            self.assertEqual(self.client.get("/accounting/loans/term-suggestions?month=2026-09").json(), {"assets": False, "suggestions": []})
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.PropertyAsset).filter(models.PropertyAsset.id.in_(ids)).delete(synchronize_session=False)
+                db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == "grp-loans-test-assets").delete()
+                db.query(models.NexusGroup).filter(models.NexusGroup.id == "grp-loans-test-assets").delete()
+                db.commit()
+            finally:
+                db.close()
+            cache.module_grants.invalidate()
+
     def test_noi_per_entity_annualized(self):
         _as(EDITOR)
         d = self.client.get("/accounting/loans/noi?entities=15000&from=2026-01-01&to=2026-06-30").json()
