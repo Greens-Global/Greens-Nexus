@@ -473,3 +473,97 @@ class LeaveBalanceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    # ── Compare With QuickBooks and the reasons (11/20/2026) ──
+    def test_paid_basis_counts_the_leave_hours(self):
+        """A policy may earn on every paid hour, as QuickBooks does: Alice's
+        40 h worked + 8 h vacation earn on 48 h, and the note says so."""
+        self._cutover()
+        pols = lb.policies(self.db)
+        lb.save_policies(self.db, {"us-ca": {**pols["us-ca"], "vacation": {**pols["us-ca"]["vacation"], "basis": "paid"}}},
+                         HR_EMAIL)
+        lb.set_opening(self.db, A, vacation=20, sick=16, by=HR_EMAIL)
+        self.db.commit()
+        self._alice_period()
+        tc.finalize_timecard(tc.FinalizeIn(email=A, start=PS, end=PE, allow_exceptions=True), user=HR, db=self.db)
+        acc = (self.db.query(models.LeaveLedgerEntry)
+               .filter(models.LeaveLedgerEntry.employee_email == A, models.LeaveLedgerEntry.kind == "accrual").one())
+        self.assertAlmostEqual(acc.hours, 48 * 40 / 2080, places=3)
+        self.assertIn("on 48.00 h paid", acc.note)
+        self.assertEqual(lb.balances(self.db, A, today=TODAY)["vacation"]["basis"], "paid")
+
+    def test_the_rate_and_the_day_it_began(self):
+        self._cutover()
+        v = lb.balances(self.db, A, today=TODAY)["vacation"]       # started 06/01/2024
+        self.assertEqual((v["hoursPerYear"], v["tierSince"], v["basis"]), (40, "2025-06-01", "worked"))
+        v = lb.balances(self.db, A, today=date(2027, 6, 2))["vacation"]
+        self.assertEqual((v["hoursPerYear"], v["tierSince"]), (80, "2027-06-01"))
+
+    def test_a_closed_period_not_finalized_is_named(self):
+        """11/20/2026: a pay period never finalized left a vacation day off
+        the balance. The balance says so."""
+        self._cutover()
+        self._alice_period()
+        op = lb.open_periods(self.db, A, CUT, TODAY, preview=True)
+        self.assertEqual([(p["start"], p["end"], p["hasLeave"]) for p in op], [(PS, PE, True)])
+        self.assertIn(-8, [round(e["hours"], 2) for e in op[0]["entries"] if e["kind"] == "used"])
+        tc.finalize_timecard(tc.FinalizeIn(email=A, start=PS, end=PE, allow_exceptions=True), user=HR, db=self.db)
+        self.assertEqual(lb.open_periods(self.db, A, CUT, TODAY), [])
+
+    def _qb_report(self, blocks):
+        import io
+
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Time Off"
+        for name, rows in blocks:
+            ws.append([name])
+            ws.append(["Date", "Chk Num", "Period Start", "Period End", "Hours", "Vac Accrued", "Vac Used",
+                       "Vac Balance", "Sick Accrued", "Sick Used", "Sick Balance"])
+            for r in rows:
+                ws.append([datetime.strptime(r[1], "%Y-%m-%d") + timedelta(days=6), 100,
+                           datetime.strptime(r[0], "%Y-%m-%d"), datetime.strptime(r[1], "%Y-%m-%d"), *r[2:]])
+            ws.append([None, None, None, None, 999, 9, 9, 9, 9, 9, 9])          # the total line
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    def test_compare_with_quickbooks_names_every_difference(self):
+        """Charmi, 11/20/2026: three balances did not match QuickBooks.
+        Each difference comes back with its cause and the parts add up:
+        a rate QuickBooks never moved, paid vs worked hours, a period not
+        finalized in Nexus."""
+        import base64
+        self._cutover()
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == A).update(
+            {"employee_code": "E-0001"})
+        lb.set_opening(self.db, A, vacation=20, sick=16, by=HR_EMAIL)
+        self.db.commit()
+        self._alice_period()                                          # 40 h worked + 8 h vacation
+        tc.finalize_timecard(tc.FinalizeIn(email=A, start=PS, end=PE, allow_exceptions=True), user=HR, db=self.db)
+        q1 = 48 * 20 / 2080                                           # QuickBooks: 20 h a year, on paid hours
+        data = self._qb_report([
+            ("Alice  Test(E-0001)", [("2026-08-16", "2026-08-29", 80, 0.77, 0, 20, 0, 0, 16),
+                                     (PS, PE, 48, q1, 8, 20 + q1 - 8, 0, 0, 16),
+                                     ("2026-09-27", "2026-10-10", 80, 0.77, 0, 20 + q1 - 8 + 0.77, 0, 0, 16)]),
+            ("Ghost Person(E-0999)", [(PS, PE, 80, 0, 0, 0, 0, 0, 0)]),
+        ])
+        r = self.client.post("/leave-balances/compare-quickbooks",
+                             json={"file": base64.b64encode(data).decode(), "name": "qb.xlsx"})
+        self.assertEqual(r.status_code, 200, r.text)
+        out = r.json()
+        self.assertEqual(out["unmatched"], [{"name": "Ghost Person", "code": "E-0999"}])
+        alice = next(p for p in out["people"] if p["email"] == A)
+        self.assertEqual(alice["state"], "differs")
+        self.assertEqual(alice["asOf"], "2026-10-10")
+        kinds = {x["kind"] for x in alice["lines"] if x["bucket"] == "vacation"}
+        self.assertEqual(kinds, {"rate", "hours", "not_final"})
+        rate = next(x for x in alice["lines"] if x["kind"] == "rate")
+        self.assertAlmostEqual(rate["hours"], 40 * 20 / 2080, places=2)
+        self.assertIn("QuickBooks earns 20h a year, the policy 40h a year", rate["text"])
+        self.assertAlmostEqual(sum(x["hours"] for x in alice["lines"] if x["bucket"] == "vacation"),
+                               alice["vacation"]["difference"], places=1)
+        self.assertEqual(alice["sick"]["difference"], 0)
+        self.assertEqual(self.client.post("/leave-balances/compare-quickbooks",
+                                          json={"file": base64.b64encode(b"not excel").decode()}).status_code, 400)

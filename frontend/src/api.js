@@ -891,6 +891,7 @@ export const api = {
   leaveAdjust:         (body)       => req('/leave-balances/adjust', { method: 'POST', body: JSON.stringify(body) }),
   leaveAssign:         (email, policyId) => req('/leave-balances/assign', { method: 'PUT', body: JSON.stringify({ email, policy_id: policyId }) }),
   leaveRecalculate:    ()           => req('/leave-balances/recalculate', { method: 'POST' }),
+  leaveCompareQuickbooks: (file, name = '') => req('/leave-balances/compare-quickbooks', { method: 'POST', body: JSON.stringify({ file, name }) }),
   // Leave year end (Oct 27 2026, leave_year_end.py): Use It Or Lose It by
   // default, carry options per company; HR previews before it applies.
   leaveYearEndSettings:     (company = '') => req(`/leave-balances/year-end/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`),
