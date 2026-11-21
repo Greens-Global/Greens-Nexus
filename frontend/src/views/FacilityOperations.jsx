@@ -190,6 +190,22 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   useEffect(() => { loadThirdParty(); }, [loadThirdParty]);
   useEffect(() => pollWhileVisible(() => loadThirdParty(), 5 * 60 * 1000), [loadThirdParty]);
 
+  // Hours clocked at each store (Neil, 11/21/2026): the Facility Scorecard's own read, from the
+  // Time Clock, not Cubby - a failure costs the column, never the screen.
+  const [storeHours, setStoreHours] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await api.getOpsStoreHours?.();
+        if (alive && r) setStoreHours(r);
+      } catch (err) {
+        console.error('Operations: could not load the hours per store', err);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   // Refresh asks the server for a Cubby sync (it runs in the background), polls
   // until it is done, then re-reads the figures. A sync someone else started
   // counts too: wait for it instead of starting another.
@@ -393,7 +409,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           )}
 
           {screen === 'overview' && <ThirdPartyPanel facilities={scope.filter(isThirdParty)} canUpload={canSeeKeyHint} onSaved={loadThirdParty} />}
-          {screen === 'overview' && <Overview data={data} facilities={facilities} scope={scope} many={many} range={range} focus={focus} go={go} onPick={setPicked} onJump={jump} />}
+          {screen === 'overview' && <Overview data={data} facilities={facilities} scope={scope} many={many} range={range} focus={focus} go={go} onPick={setPicked} onJump={jump} hours={storeHours} />}
           {screen === 'collections' && <Collections data={data} scope={scope} trend={state.data.trend} many={many} range={range} focus={focus} go={go} />}
           {screen === 'units' && <Units data={data} many={many} focus={focus} go={go}
             />}

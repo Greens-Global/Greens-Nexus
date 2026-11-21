@@ -60,6 +60,21 @@ async def summary(fresh: bool = False):
     return await _from_cubby(cubby.summary, fresh)
 
 
+@router.get("/store-hours")
+def store_hours(days: int = 7, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Hours clocked at each store over the last `days` complete days, for the
+    Facility Scorecard (ops_store_hours.py, Neil 11/21/2026). Hours and a head
+    count only - never pay, never a name. A store is tied to its Time Clock
+    work sites by place; a store tied to none is absent. The facility access
+    rules narrow which stores a person reads."""
+    import ops_access
+    import ops_store_hours
+    from zoneinfo import ZoneInfo
+    reached = ops_access.reach(user, db)
+    today = datetime.now(ZoneInfo(cubby.DEFAULT_TZ)).date()
+    return ops_store_hours.hours(db, None if reached["facilities"] is None else sorted(reached["facilities"]), today, days)
+
+
 @router.get("/lookup")
 async def lookup(q: str = ""):
     """Find a unit or tenant across every facility."""
