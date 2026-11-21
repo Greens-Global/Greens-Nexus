@@ -857,6 +857,11 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual({k: loan[k] for k in ("lender", "loanNo", "balance", "ratePct", "maturity", "monthlyPayment", "dscr", "debtServiceT12", "docsPath")},
                          {"lender": "F&M Bank", "loanNo": "6870", "balance": 1252000.0, "ratePct": 6.1, "maturity": "2027-06-30", "monthlyPayment": 10000.0, "dscr": 2.2, "debtServiceT12": 120000.0, "docsPath": ""})
         self.assertEqual(d["totals"], {"loans": 1, "balance": 1252000.0, "monthlyPayment": 10000.0, "debtServiceT12": 120000.0})
+        # The entity's own NOI over the same trailing twelve months (11/21/2026), the
+        # figure the loan's DSCR is worked out from - and there with no loan at all.
+        self.assertEqual((d["noiT12"], loan["dscr"]), (round(loan["dscr"] * 120000.0, 2), 2.2))
+        none = self.client.get("/accounting/loans/by-entity/56000?to=2026-09-30").json()
+        self.assertIn("noiT12", none)
         self.assertEqual(self.client.get("/accounting/loans/by-entity/56000").json()["loans"], [])
         _as(LIMITED)
         self.assertEqual(self.client.get("/accounting/loans/by-entity/12000").status_code, 403)

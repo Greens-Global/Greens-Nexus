@@ -1433,10 +1433,18 @@ async def loans_by_entity(code: str, to: Optional[str] = None, scope: dict = Dep
     t = _day(to, "to") if to else date.today().isoformat()
     data = await review(from_=f"{t[:8]}01", to=t, month=None, entities=entity, scope=scope)
     loans = [{k: r.get(k) for k in _BY_ENTITY_FIELDS} for r in data["loans"] if not r["closed"]]
-    return {"entityCode": entity, "asOf": t, "trailingFrom": data["trailingFrom"], "loans": loans,
+    # The entity's own NOI over the same trailing twelve months (Neil,
+    # 11/21/2026): the property sheet's NOI field was blank on every property
+    # while the books had the figure. Read for the entity asked (a parent rolls
+    # its children up), loans or no loans; a read that fails leaves it out and
+    # says so, like any other figure here.
+    (tb,), noi_notes = await gather_tolerant([lambda: _trial(scope, entity, data["trailingFrom"], t)],
+                                             [f"{entity} trial balance {data['trailingFrom']} - {t}"], lambda: None)
+    noi_t12 = noi(pnl_from_trial(tb))["noi"] if tb else None
+    return {"entityCode": entity, "asOf": t, "trailingFrom": data["trailingFrom"], "loans": loans, "noiT12": noi_t12,
             "totals": {"loans": len(loans), "balance": _r2(sum(x["balance"] or 0 for x in loans)),
                        "monthlyPayment": _r2(sum(x["monthlyPayment"] or 0 for x in loans)), "debtServiceT12": _r2(sum(x["debtServiceT12"] or 0 for x in loans))},
-            "notes": data["notes"]}
+            "notes": data["notes"] + [f"Not read this time - {n}" for n in noi_notes]}
 
 
 def _asset_debt_sync(user: dict) -> Optional[list]:
