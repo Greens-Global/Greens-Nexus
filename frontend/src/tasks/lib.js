@@ -40,6 +40,18 @@ export const localISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).pa
 export const todayISO = () => localISO(new Date());
 export const addDays = (iso, n) => { const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`); d.setDate(d.getDate() + n); return localISO(d); };
 
+// Long overdue (Neil, 11/21/2026): an open task this many days past its due
+// date carries a date nobody believes any more - Manage > Data Quality lists it.
+export const STALE_DAYS = 90;
+/** Whole days an open task is past its due date on `today` (a local ISO day) - 0 when it is not. */
+export function daysOverdue(task, today = todayISO()) {
+  if (!task?.dueOn || task.completed) return 0;
+  const at = (iso) => new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+  // Rounded: a daylight-saving day is 23 or 25 hours long.
+  const days = Math.round((at(today) - at(task.dueOn)) / 86400000);
+  return days > 0 ? days : 0;
+}
+
 function dueMatches(task, due, dueFrom, dueTo) {
   if (dueFrom && (!task.dueOn || task.dueOn < dueFrom)) return false;
   if (dueTo && (!task.dueOn || task.dueOn > dueTo)) return false;
