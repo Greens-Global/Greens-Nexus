@@ -681,7 +681,7 @@ function Row({ row, onAct, onReview, selectable, selected, onToggle, focused, on
       </div>
       <div className="apv-what">
         <button type="button" className="apv-title" onClick={onReview} title="Review the details">
-          <span>{row.title}</span><ChevronRight size={13} />
+          <span title={row.title}>{row.title}</span><ChevronRight size={13} />
         </button>
         {(row.detail || row.forName || row.hint) && (
           <div className="apv-detail">
