@@ -6834,6 +6834,7 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shif
         s.company_id = new_company
     _check_hhmm(body.start_hhmm, body.end_hhmm)
     _check_span(body.start_hhmm, body.end_hhmm)
+    old = ((s.start_hhmm or "")[:5], (s.end_hhmm or "")[:5], (s.timezone or "").strip() or _team_tz(db))
     s.name = body.name.strip()[:80]
     s.code = (body.code or "").strip()[:12]
     s.start_hhmm = body.start_hhmm[:5]
@@ -6841,22 +6842,49 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shif
     s.days = body.days[:40]
     s.grace_min = max(0, int(body.grace_min or 0))
     s.color = (body.color or "#2563eb")[:9]
-    old_tz = (s.timezone or "").strip() or _team_tz(db)
     s.timezone = _valid_tz(body.timezone)
-    if s.timezone != old_tz:
-        # Placements are stamped with the type's zone when made; one still on the
-        # old zone follows the fix (11/12/2026: an India shift placed while the type
-        # said Pacific showed 8 AM - 4 PM). From yesterday on - past days keep theirs.
-        since = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
-        (db.query(ScheduledShift)
-         .filter(ScheduledShift.shift_id == s.id, ScheduledShift.timezone == old_tz,
-                 ScheduledShift.work_date >= since)
-         .update({ScheduledShift.timezone: s.timezone}, synchronize_session=False))
+    moved = _carry_type_to_placements(db, s, old, user["email"])
     s.break_min = _clamp_break(body.break_min)   # new placements only; placed shifts keep theirs
     if body.group_ids is not None:
         s.group_ids = _clean_shift_groups(db, body.group_ids)
     db.commit()
-    return _shift_dict(s)
+    return {**_shift_dict(s), "placementsUpdated": moved}
+
+
+def _carry_type_to_placements(db: Session, s: Shift, old: tuple, actor: str) -> int:
+    """A shift type's new times / zone carry to its placements from today (the
+    type's own day) on (Pranshu, 11/21/2026: "it should change the same in shifts
+    of that day and the future dates"; the zone alone since 11/12/2026). A
+    placement follows a field only while it still has the type's OLD value - a
+    time or zone picked by hand for one day stays, past days keep theirs, a
+    weather call's times stay. Each moved shift is logged and its Outlook event
+    follows. Returns how many moved."""
+    import shift_expect
+    old_start, old_end, old_tz = old
+    times_moved = (old_start, old_end) != (s.start_hhmm, s.end_hhmm)
+    if not times_moved and old_tz == s.timezone:
+        return 0
+    today = datetime.now(timezone.utc).astimezone(shift_expect.zone(s.timezone)).date().isoformat()
+    moved = []
+    for r in (db.query(ScheduledShift)
+              .filter(ScheduledShift.shift_id == s.id, ScheduledShift.work_date >= today).all()):
+        if r.pending_delete or (r.weather_status or ""):
+            continue
+        before = shift_log.snapshot(r)
+        if old_tz != s.timezone and (r.timezone or "").strip() == old_tz:
+            r.timezone = s.timezone
+        if times_moved and (r.start_hhmm, r.end_hhmm) == (old_start, old_end):
+            r.start_hhmm, r.end_hhmm = s.start_hhmm, s.end_hhmm
+        after = shift_log.snapshot(r)
+        if after != before:
+            shift_log.record(db, "edited", r, actor, before=before, after=after,
+                             reason=f"Shift type {s.name} changed in Settings")
+            moved.append(r)
+    published = [r.id for r in moved if r.published and r.employee_email]
+    if published:
+        import shift_calendar
+        shift_calendar.enqueue(db, published)
+    return len(moved)
 
 
 @router.delete("/shifts/{shift_id}")
@@ -9225,7 +9253,11 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                 activities_json=(json.dumps(src["activities"])
                                  if src.get("activities") and body.include_activities else ""),
                 color=src.get("ownColor") or "",
-                group_id=src.get("groupId") or "", timezone=getattr(row, "timezone", "") or "",
+                # A typed shift lands on the type's CURRENT zone: a past week keeps the zone
+                # it ran on, and copying it forward brought a type's old zone back (11/19/2026).
+                group_id=src.get("groupId") or "",
+                timezone=(((presets[src["shiftId"]].timezone or "").strip() if src["shiftId"] in presets else "")
+                          or getattr(row, "timezone", "") or ""),
                 jobsite=src.get("jobsite") or "",
                 published=0, created_by=user["email"], created_at=now)
             db.add(new_row)

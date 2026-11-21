@@ -178,7 +178,7 @@ class ShiftCompanyTests(unittest.TestCase):
         finally:
             db.close()
 
-    def test_a_new_zone_on_a_shift_type_carries_to_its_placements_from_yesterday_on(self):
+    def test_a_new_zone_on_a_shift_type_carries_to_its_placements_from_today_on(self):
         past = (datetime.now(timezone.utc).date() - timedelta(days=5)).isoformat()
         db = database.SessionLocal()
         try:
@@ -200,6 +200,39 @@ class ShiftCompanyTests(unittest.TestCase):
         # The one on the old zone follows; a past day and a hand-picked zone keep theirs.
         self.assertEqual(got, {"zp-future": "Asia/Kolkata", "zp-past": "America/Los_Angeles",
                                "zp-own": "America/New_York"})
+
+    def test_new_times_and_zone_carry_to_the_types_shifts_from_today_on(self):
+        # Pranshu, 11/21/2026: a shift type changed in Settings changes its scheduled
+        # shifts from today on; a time picked by hand, a past day and a weather call stay.
+        past = (datetime.now(timezone.utc).date() - timedelta(days=5)).isoformat()
+        db = database.SessionLocal()
+        try:
+            for sid, day, start, end, ws in (("tp-match", DAY, "09:00", "17:00", ""),
+                                             ("tp-own", DAY, "10:00", "18:00", ""),
+                                             ("tp-past", past, "09:00", "17:00", ""),
+                                             ("tp-weather", DAY, "09:00", "17:00", "delayed")):
+                db.add(models.ScheduledShift(id=sid, employee_email=A, work_date=day, start_hhmm=start,
+                                             end_hhmm=end, published=1, created_by=BOSS, group_id=GROUP,
+                                             shift_id=P_SHARED, timezone="America/Los_Angeles",
+                                             weather_status=ws, created_at="2026-10-30T00:00:00"))
+            db.commit()
+        finally:
+            db.close()
+        r = self.client.patch(f"/timeclock/shifts/{P_SHARED}", json=self._preset_body(timezone="Asia/Kolkata"))
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["placementsUpdated"], 2)
+        db = database.SessionLocal()
+        try:
+            got = {x.id: (x.start_hhmm, x.end_hhmm, x.timezone) for x in db.query(models.ScheduledShift).all()}
+            logged = {x.shift_id for x in db.query(models.ShiftChangeLog).filter(models.ShiftChangeLog.action == "edited",
+                                                                     models.ShiftChangeLog.shift_id.like("tp-%")).all()}
+        finally:
+            db.close()
+        self.assertEqual(got, {"tp-match": ("08:00", "16:00", "Asia/Kolkata"),
+                               "tp-own": ("10:00", "18:00", "Asia/Kolkata"),
+                               "tp-past": ("09:00", "17:00", "America/Los_Angeles"),
+                               "tp-weather": ("09:00", "17:00", "America/Los_Angeles")})
+        self.assertEqual(logged, {"tp-match", "tp-own"})
 
     # ── Presets: who may change what ──────────────────────────────────────
     def test_a_plain_manager_cannot_add_edit_or_delete_shift_types(self):

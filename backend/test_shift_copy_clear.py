@@ -146,6 +146,19 @@ class CopyClearTests(unittest.TestCase):
         self.assertEqual([(g.start_hhmm, g.end_hhmm, g.label, g.note, g.break_min, g.published) for g in got],
                          [("09:00", "17:00", "Front desk", "Bring keys", 30, 0), ("12:00", "20:00", "", "", 30, 0)])
 
+    def test_a_copy_takes_its_shift_types_current_zone(self):
+        # 11/19/2026: last week's shifts kept the type's old zone (Pacific) after the
+        # type moved to India time; copying them forward must not bring Pacific back.
+        self._place(A, MON)
+        db = database.SessionLocal()
+        try:
+            db.query(models.Shift).filter(models.Shift.id == SHIFT).update({models.Shift.timezone: "Asia/Kolkata"})
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self._copy().status_code, 200)
+        self.assertEqual([x.timezone for x in self._rows(employee_email=A, work_date=NEXT_MON)], ["Asia/Kolkata"])
+
     def test_repeats_back_to_back_and_can_leave_notes_out(self):
         self._place(A, MON, note="Bring keys")
         r = self._copy(weeks=3, include_notes=False)

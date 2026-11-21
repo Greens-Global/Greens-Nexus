@@ -715,8 +715,10 @@ export function ShiftTypesPanel({ toastOk, toastErr, company: scoped }) {
     try {
       const payload = { ...form, company_id: form.company_id || '' };
       if (teams) payload.group_ids = form.group_ids || []; else delete payload.group_ids;
-      if (form.id) await api.timeShiftUpdate(form.id, payload); else await api.timeShiftCreate(payload);
-      toastOk?.('Shift type saved.'); setForm(null); reload();
+      const saved = form.id ? await api.timeShiftUpdate(form.id, payload) : await api.timeShiftCreate(payload);
+      const n = Number(saved?.placementsUpdated) || 0;
+      toastOk?.(n ? `Shift type saved. ${n} scheduled ${n === 1 ? 'shift' : 'shifts'} from today on now ${n === 1 ? 'follows' : 'follow'} it.` : 'Shift type saved.');
+      setForm(null); reload();
     } catch (e) { toastErr?.(e?.message || 'Could not save.'); }
     setBusy(false);
   }
