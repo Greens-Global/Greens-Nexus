@@ -122,7 +122,10 @@ export function Dialog({ title, sub, onClose, onSubmit, busy, submitLabel, error
           </div>
           <button type="button" onClick={tryClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 12, alignContent: 'start', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        {/* minmax(0, 1fr): the one column is the sheet's width, never its widest row's.
+            Without it the column grew to a two-field row (431px) on a 390px phone
+            and every right-hand field ran off the screen (found 11/21/2026). */}
+        <div style={{ padding: '14px 24px 6px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 12, alignContent: 'start', flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {error && <div ref={errRef} role="alert" style={bad}>{error}</div>}
           {children}
         </div>
