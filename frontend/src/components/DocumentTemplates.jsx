@@ -422,7 +422,7 @@ export default function DocumentTemplates({ employees = [], entities = [], toast
             <Search size={14} aria-hidden="true" />
             <input className="form-input" placeholder="Search templates" aria-label="Search templates" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <select className="nx-dl-chip" aria-label="Template status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select className="form-input nx-dl-chip" aria-label="Template status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
             <option value="current">Current Templates</option>
             <option value="published">{TEMPLATE_STATES.published.label}</option>
             <option value="changes">{TEMPLATE_STATES.changes.label}</option>
