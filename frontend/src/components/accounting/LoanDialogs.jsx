@@ -10,6 +10,7 @@ import { WarnMark } from './warnMark';
 import { DateField } from '../../tasks/components';
 import { dialog as appDialog } from '../../ui/dialog';
 import { isBypassing } from '../../lib/dialogGuard';
+import { GUARANTEE_KINDS, MAX_GUARANTORS, RECOURSE, blankGuarantor, cleanGuarantors, guarantorsError, guarantorsStart } from './loanGuarantee';
 
 // Accounting -> Loans & Financing: Change Loan and + Add > Manual (Charmi and
 // Neil, 10/03-10/04).
@@ -27,6 +28,9 @@ import { isBypassing } from '../../lib/dialogGuard';
 //                            Automatic matches it by title
 //   Original Principal       blank = the ledger's first credit on the account
 //   Rate, Maturity, Monthly Payment   typed (the ledger cannot say them)
+//   Guarantee                recourse and the guarantors (11/21/2026, Neil):
+//                            each a name, Full / Limited (with its amount) /
+//                            Carve-Outs Only, and the burn-off terms
 //   Internal / External      intercompany loans start Internal
 //   Documents Folder / Statements Folder  an Egnyte folder each: Browse picks
 //                            it in the same Files picker as Save to Files, or
@@ -51,6 +55,8 @@ import { isBypassing } from '../../lib/dialogGuard';
 const label = { fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 4, display: 'block' };
 const bad = { border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '8px 12px', fontSize: 13 };
 const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 };
+// auto-fill keeps the column width when a row has one or two fields (auto-fit stretches them).
+const gridFill = { ...grid, gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' };
 const hint = { fontSize: 11, color: 'var(--text-muted)', marginTop: 3 };
 const full = { ...control, width: '100%' };
 // Title Case at the title size, no uppercase eyebrow (11/19/2026 Loans clean-up).
@@ -201,6 +207,7 @@ export function editStart(loan) {
     loanType: loan.loanTypeGuessed === false ? loan.loanType || '' : '',
     docsPath: loan.docsPath || '', statementsPath: loan.statementsPath || '', notes: loan.notes || '', isActive: loan.isActive !== false,
     vendorId: loan.vendorId || '', vendorName: loan.vendorName || '',
+    recourse: loan.recourse || '', guarantors: guarantorsStart(loan),
   };
 }
 
@@ -244,6 +251,10 @@ export function editBody(loan, start, d) {
     body.vendorId = d.vendorId.trim();
     body.vendorName = body.vendorId ? d.vendorName : '';
   }
+  if (changed('recourse')) body.recourse = d.recourse;
+  // The whole list each time, and only when what would be kept is different.
+  const guarantors = cleanGuarantors(d.guarantors);
+  if (JSON.stringify(guarantors) !== JSON.stringify(cleanGuarantors(start.guarantors))) body.guarantors = guarantors;
   return body;
 }
 
@@ -297,6 +308,8 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
   const save = (e) => {
     e.preventDefault();
     if (!d.lender.trim()) { setFieldErr({ lender: 'The loan needs a name.' }); document.getElementById('loan-lender')?.focus(); return; }
+    const guarantee = guarantorsError(d.guarantors);
+    if (guarantee) { setFieldErr({ guarantors: guarantee }); return; }
     setFieldErr({});
     const body = editBody(loan, start, d);
     if (!Object.keys(body).length) { onClose(); return; }
@@ -382,6 +395,59 @@ export function EditLoanDialog({ loan, to, onClose, onSaved }) {
         <div><label style={label} htmlFor="loan-payment">Monthly Payment</label><AmountInput id="loan-payment" value={d.monthlyPayment} onChange={(v) => set({ monthlyPayment: v })} style={full} /></div>
         <div><label style={label} htmlFor="loan-cov">Covenant Minimum (DSCR)</label><input id="loan-cov" type="number" step="0.01" min="0" value={d.covenantMin} onChange={(e) => set({ covenantMin: e.target.value })} placeholder="1.35" style={full} /></div>
       </div>
+
+      <div style={section}>Guarantee</div>
+      <div style={gridFill}>
+        <div>
+          <label style={label} htmlFor="loan-recourse">Recourse</label>
+          <select id="loan-recourse" value={d.recourse} onChange={(e) => set({ recourse: e.target.value })} style={full}>
+            <option value="">Not Recorded</option>
+            {RECOURSE.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+        </div>
+      </div>
+      {d.guarantors.map((g, i) => {
+        const patch = (p) => { set({ guarantors: d.guarantors.map((x, j) => (j === i ? { ...x, ...p } : x)) }); setFieldErr({}); };
+        const n = i + 1;
+        return (
+          <div key={i} role="group" aria-label={`Guarantor ${n}`} style={{ display: 'grid', gap: 10, paddingTop: 10, borderTop: '1px solid var(--border-color)' }}>
+            <div style={gridFill}>
+              <div>
+                <label style={label} htmlFor={`loan-g-name-${i}`}>Guarantor</label>
+                <input id={`loan-g-name-${i}`} type="text" value={g.name} maxLength={120} placeholder="As the guaranty names them" onChange={(e) => patch({ name: e.target.value })} style={full} />
+              </div>
+              <div>
+                <label style={label} htmlFor={`loan-g-kind-${i}`}>Guarantee</label>
+                <select id={`loan-g-kind-${i}`} value={g.kind} onChange={(e) => patch({ kind: e.target.value })} style={full}>
+                  {GUARANTEE_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+              </div>
+              {g.kind === 'limited' && (
+                <div>
+                  <label style={label} htmlFor={`loan-g-amount-${i}`}>Limited To</label>
+                  <AmountInput id={`loan-g-amount-${i}`} value={g.amount} onChange={(v) => patch({ amount: v })} style={full} />
+                </div>
+              )}
+            </div>
+            {/* The burn-off is a sentence: its own line, the row's Remove at its end. */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label style={label} htmlFor={`loan-g-burn-${i}`}>Burn-Off</label>
+                <input id={`loan-g-burn-${i}`} type="text" value={g.burnOff} maxLength={300} placeholder="When it steps down or falls away" onChange={(e) => patch({ burnOff: e.target.value })} style={full} />
+              </div>
+              <button type="button" className="secondary-btn" aria-label={`Remove Guarantor ${n}`}
+                onClick={() => { set({ guarantors: d.guarantors.filter((_, j) => j !== i) }); setFieldErr({}); }}>Remove</button>
+            </div>
+          </div>
+        );
+      })}
+      <FieldError id="loan-guarantors-err" text={fieldErr.guarantors} />
+      {d.guarantors.length < MAX_GUARANTORS && (
+        <div>
+          <button type="button" className="secondary-btn" onClick={() => set({ guarantors: [...d.guarantors, blankGuarantor()] })}>Add Guarantor</button>
+          {!d.guarantors.length && <div style={hint}>Who guaranteed the loan, for how much, and when the guarantee falls away.</div>}
+        </div>
+      )}
 
       <div style={section}>Egnyte</div>
       <EgnyteField id="loan-docs" labelText="Documents Folder" value={d.docsPath} url={loan.docsUrl} onChange={(v) => set({ docsPath: v })} />

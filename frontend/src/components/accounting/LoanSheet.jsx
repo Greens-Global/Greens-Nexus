@@ -6,6 +6,7 @@ import { formatDate } from '../../lib/datetime';
 import { loanTypeLabel, useBackdropClose } from './LoanDialogs';
 import LoanDetail from './LoanDetail';
 import { WarnMark } from './warnMark';
+import { guaranteeWords, recourseLabel } from './loanGuarantee';
 
 // Accounting -> Loans & Financing, one loan opened (Charmi, Teams 11/19/2026:
 // "Can you clean the UI for loans and finance ... it is very hard to work
@@ -17,6 +18,10 @@ import { WarnMark } from './warnMark';
 // in the period, then how the loan is wired, its Egnyte folders and its
 // payments (LoanDetail, unchanged), and the two tools at the foot. Every
 // figure is the row's own - nothing is worked out here.
+//
+// 11/21/2026 (Neil): Guarantee, right under the terms - recourse and each
+// guarantor with what they stand behind and when it falls away, as typed
+// under Change Loan (loanGuarantee.js). Guarantees are never added up.
 //
 // z-index 480, under the shared overlay's 500: Change Loan, the entry, the
 // ledger lines, the schedule and the stress test all open OVER this sheet,
@@ -110,6 +115,16 @@ export default function LoanSheet({ loan, from, to, canEdit, term, figure = null
             <Line label="DSCR" title={loan.dscr == null ? 'Nothing was serviced in the trailing twelve months' : undefined}>
               {loan.dscr == null ? dash : <span style={{ color: loan.belowCovenant ? 'var(--bad-fg, #dc2626)' : undefined, fontWeight: loan.belowCovenant ? 600 : undefined }}>{dscrText(loan)}</span>}
             </Line>
+          </section>
+          <section aria-label="Guarantee" style={{ display: 'grid' }}>
+            <h4 style={sectionTitle}>Guarantee</h4>
+            <Line label="Recourse">{recourseLabel(loan.recourse) || dash}</Line>
+            {(loan.guarantors || []).length ? loan.guarantors.map((g, i) => (
+              <Line key={`${g.name}-${i}`} label={g.name}>
+                {guaranteeWords(g)}
+                {g.burnOff && <span style={{ ...muted, display: 'block', fontSize: 12 }}>{g.burnOff}</span>}
+              </Line>
+            )) : <Line label="Guarantors">{canEdit ? <span style={muted}>None recorded - add them under Change Loan</span> : dash}</Line>}
           </section>
           <section aria-label="In the Period" style={{ display: 'grid' }}>
             <h4 style={sectionTitle}>{from ? `${formatDate(from)} - ${formatDate(to)}` : `To ${formatDate(to)}`}</h4>
