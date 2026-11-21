@@ -14,6 +14,7 @@ import { ArrowUpRight, ChevronLeft, ChevronRight, ExternalLink, Search, X } from
 import { formatDate } from '../lib/datetime';
 import { AGING, LEAD_STATUS, OFF_MARKET_REASON, agingLabel, attentionItems, collectionSeries, count, historyWindow, money, pastDueTrend, pct, periodStats, tidy } from './model';
 import { mailboxOccupancy, rentedAll, storageOccupancy, storageRent } from './occupancy';
+import { storeHoursCell } from './storeHours';
 import { AgingChart, CollectionsChart, Legend, MovesChart, PastDueTrendChart, RentedTrendChart, UnitMixChart } from './charts';
 
 // "12.4% of a month's rent" - or nothing when there is no whole to take a
@@ -141,7 +142,7 @@ const facilityCol = (many) => ({ head: 'Facility', cell: (r) => r.facility, when
 
 // ── Overview ──────────────────────────────────────────────────────────────────
 
-export function Overview({ data, facilities, scope, many, range, focus, go, onPick, onJump }) {
+export function Overview({ data, facilities, scope, many, range, focus, go, onPick, onJump, hours = null }) {
   useScrollTo(focus);
   const occ = storageOccupancy(data.units);
   const boxes = mailboxOccupancy(data.mailboxes);
@@ -216,6 +217,8 @@ export function Overview({ data, facilities, scope, many, range, focus, go, onPi
             { head: 'Past Due / Rent', num: true, cell: (f) => pct(f.pastDue.total, f.rent.rentRoll) },
             { head: 'Autopay', num: true, cell: (f) => pct(f.autoPay, rentedAll(f), 0) },
             { head: 'Net This Month', num: true, cell: (f) => { const n = f.moves.insMtd - f.moves.outsMtd; return `${n > 0 ? '+' : ''}${n}`; } },
+            { head: `Hours, ${hours?.days || 7} Days`, num: true, when: Object.keys(hours?.stores || {}).length > 0,
+              cell: (f) => { const c = storeHoursCell(hours, f.id); return <span title={c.title}>{c.text}</span>; } },
           ]} />
         </Card>
       )}

@@ -22,6 +22,7 @@ const getCubbySync = vi.fn();
 const startCubbySync = vi.fn();
 const opsRevenueTenants = vi.fn();
 const getOpsCmaCompset = vi.fn();
+const getOpsStoreHours = vi.fn();
 vi.mock('../api', () => ({ api: {
   getOpsCmaCompset: (...a) => getOpsCmaCompset(...a),
   opsRevenueTenants: (...a) => opsRevenueTenants(...a),
@@ -36,6 +37,7 @@ vi.mock('../api', () => ({ api: {
   // Reports > Reports (Oct 20) loads its list on open; the export test below uses Quick Exports.
   opsReportCatalog: () => Promise.resolve({ categories: [], reports: [] }),
   getOpsSiteMapFacilities: () => Promise.resolve([{ facilityId: 'fac_b', modelId: 'm', name: 'Murrieta' }]),
+  getOpsStoreHours: (...a) => getOpsStoreHours(...a),
 } }));
 // The Site Map tab loads three.js; a stand-in says which facility it was handed,
 // and reports its own search box on screen unless `siteMapReady` is false (still
@@ -138,6 +140,7 @@ beforeEach(() => {
   getOpsNearby.mockReset().mockResolvedValue(NO_NEARBY);
   getOpsRates.mockReset().mockResolvedValue(RATES_VIEW);
   getOpsCmaCompset.mockReset().mockResolvedValue(COMPSET);
+  getOpsStoreHours.mockReset().mockResolvedValue(null);
   opsRevenueTenants.mockReset().mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', unitTypes: [], defaults: {}, tenants: [] });
   localStorage.removeItem('nexus.ops.facility');   // the remembered facility
   localStorage.removeItem('nexus.ops.state');      // and state
@@ -155,6 +158,28 @@ describe('Operations module', () => {
     rerender(<FacilityOperations activeSub="worklist" onSubChange={() => {}} />);
     expect(screen.getAllByText('Sweep aisle B').length).toBe(2);          // one per facility
     expect(getFacilityOps).toHaveBeenCalledTimes(1);
+  });
+
+  // Neil, 11/21/2026: hours clocked at each store sit on the scorecard - hours:minutes, a dash
+  // for a store no work site covers, and no column at all when there is nothing to show.
+  it('shows the hours clocked at each store on the Facility Scorecard', async () => {
+    getOpsStoreHours.mockResolvedValue({ from: '2026-11-14', to: '2026-11-20', days: 7,
+      stores: { fac_a: { minutes: 7710, people: 4, sites: ['Temecula Gate'] } } });
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    await screen.findByText('Facility Scorecard');
+    expect(await screen.findByRole('columnheader', { name: 'Hours, 7 Days' })).toBeTruthy();
+    expect(screen.getByTitle('128:30 clocked by 4 people at Temecula Gate, 11/14/2026 - 11/20/2026').textContent).toBe('128:30');
+    expect(screen.getByTitle('No Time Clock work site covers this store.').textContent).toBe('-');
+  });
+
+  it('leaves the hours column off when the read fails or has no store', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    getOpsStoreHours.mockRejectedValue(new Error('down'));
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    await screen.findByText('Facility Scorecard');
+    await waitFor(() => expect(getOpsStoreHours).toHaveBeenCalled());
+    expect(screen.queryByRole('columnheader', { name: /^Hours,/ })).toBeNull();
+    expect(screen.getByText('82.1%')).toBeTruthy();          // the rest of the screen is untouched
   });
 
   // Oct 21 (Visesh): the bar is five dropdowns like Accounting's - every screen

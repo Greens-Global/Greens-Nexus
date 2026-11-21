@@ -1325,6 +1325,8 @@ export const api = {
   // Operations (storage facilities): every figure on the screen, read from Cubby
   getFacilityOps: (fresh) => req(`/facility-ops/summary${fresh ? "?fresh=1" : ""}`),
   facilityOpsLookup: (q) => req(`/facility-ops/lookup?q=${encodeURIComponent(q)}`),
+  // Hours clocked at each store, last complete days (Facility Scorecard, 11/21/2026). Hours and a head count only.
+  getOpsStoreHours: (days = 7) => req(`/facility-ops/store-hours?days=${days}`),
   facilityOpsReport: (kind, facilityId) => req(`/facility-ops/report/${kind}${facilityId ? `?facility_id=${encodeURIComponent(facilityId)}` : ""}`),
   // Operations -> Market Rates: competitors and their recorded rates, kept in Nexus
   getOpsMarket: (facilityId) => req(`/facility-ops/market?facility_id=${encodeURIComponent(facilityId)}`),
