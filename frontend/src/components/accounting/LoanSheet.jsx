@@ -72,7 +72,7 @@ export function Flags({ loan, style = null }) {
 }
 
 /**
- * `term(field, shown)` draws a typed term (Rate, Maturity, Monthly Payment)
+ * `term(field, shown)` draws a typed term (Rate, Maturity, Monthly Payment, Covenant Minimum)
  * the way the table does - a button that changes it in place for an editor.
  */
 export default function LoanSheet({ loan, from, to, canEdit, term, figure = null, dscrText, rateText, onEdit, onPlan, onClose, blocked = false, onOpenEntry, onDrill, onSaved }) {
@@ -115,6 +115,15 @@ export default function LoanSheet({ loan, from, to, canEdit, term, figure = null
             <Line label="DSCR" title={loan.dscr == null ? 'Nothing was serviced in the trailing twelve months' : undefined}>
               {loan.dscr == null ? dash : <span style={{ color: loan.belowCovenant ? 'var(--bad-fg, #dc2626)' : undefined, fontWeight: loan.belowCovenant ? 600 : undefined }}>{dscrText(loan)}</span>}
             </Line>
+            {/* 11/21/2026: the minimum the DSCR is judged against. With none typed the 1.35x
+                default applies, and the line says so - an assumption, not the loan documents. */}
+            {loan.covenantMin != null && (
+              <Line label="Covenant Minimum" title="Typed, not read from Intacct">
+                {loan.covenantTyped
+                  ? term('covenantMin', `${Number(loan.covenantMin).toFixed(2)}x`)
+                  : <>{canEdit ? term('covenantMin', dash) : null}<span style={{ ...muted, fontSize: 12, marginLeft: canEdit ? 8 : 0 }}>{`None typed - the default ${Number(loan.covenantMin).toFixed(2)}x applies`}</span></>}
+              </Line>
+            )}
           </section>
           <section aria-label="Guarantee" style={{ display: 'grid' }}>
             <h4 style={sectionTitle}>Guarantee</h4>
