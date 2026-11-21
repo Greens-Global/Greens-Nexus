@@ -25,13 +25,20 @@ export const TAB_LIST = [
 // record collections - seven identical tables for a property, three for a
 // vehicle - live under ONE Records tab with a segmented control; `view` still
 // holds the collection key, so every deep link (bells, Critical Items, the
-// Activity Log's "Go to") lands on the right table unchanged.
+// Activity Log's "Go to") lands on the right table unchanged. Plans & Docs leads
+// (Pranshu, 11/21/2026).
 export const RECORD_VIEWS = {
-  property: ['warranties', 'inspections', 'documents', 'utilities', 'ahj', 'vendors', 'permit'],
+  property: ['documents', 'warranties', 'inspections', 'utilities', 'ahj', 'vendors', 'permit'],
   vehicle: ['vservice', 'odometer', 'vdocs'],
 };
 export function recordViewsFor(assetKind) {
   return assetKind === 'property' ? RECORD_VIEWS.property : RECORD_VIEWS.vehicle;
+}
+// Listed as a collection even with no rows - never as an "Add ..." row (Pranshu, 11/21/2026).
+const ALWAYS_LISTED = ['documents'];
+/** The collections Records lists (dropdown and segments): those with rows, the open one, and ALWAYS_LISTED. */
+export function listedRecordViews(views, count, view) {
+  return views.filter((k) => count(k) > 0 || k === view || ALWAYS_LISTED.includes(k));
 }
 export function stripTabsFor(assetKind) {
   return assetKind === 'property'
