@@ -18,6 +18,7 @@ import { egnyteFolderOf, normalizeEgnyteFolder } from './lib/egnyteFolder.js';
 import { DEFAULT_VIEW, decodeView, encodeView, presetView, normalizeFilters } from './lib/portfolioQuery.js';
 import { exportPortfolioCsv } from './lib/portfolioCsv.js';
 import { useTabSignals } from './lib/tabSignals.js';
+import { useOpenAtTop } from './lib/openAtTop.js';
 import { patchAssetRow } from './lib/assetPatch.js';
 import { unlinkedProperties } from './lib/ledgerMatch.js';
 import { LedgerLinkPanel } from './components/portfolio/LedgerLinkPanel.jsx';
@@ -122,6 +123,7 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const [equipmentItemModal, setEquipmentItemModal] = useState(null); // staged Heavy Equipment asset awaiting its paired Item Management entry
   const [lastManageVisit, setLastManageVisit] = useState(() => { try { return localStorage.getItem('nexus_manage_seen') || ''; } catch { return ''; } });
   const [highlight, setHighlight] = useState(null);
+  useOpenAtTop(activeId ? `${activeId}:${view}` : null, highlight);
   const [reportFor, setReportFor] = useState(null);          // Report a Problem on a phone
   const [openTickets, setOpenTickets] = useState(null);      // ids of properties with open tickets, once asked for
   // Ticket bells and emails deep-link here (Property Tickets, Oct 2026): sub
