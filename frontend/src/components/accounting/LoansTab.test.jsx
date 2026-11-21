@@ -780,6 +780,25 @@ describe('LoansTab - Oct 14 feedback', () => {
     expect(_test.termBody('monthlyPayment', '5,995.51', l)).toEqual({ monthlyPayment: 5995.51 });
   });
 
+  // 11/21/2026: the loan's own DSCR covenant, typed on its sheet. All 14 loans in
+  // production were judged against the 1.35x default with nothing saying so.
+  it('termBody: the covenant minimum saves a number, blank goes back to the default', () => {
+    const typed = loan({ covenantMin: 1.25, covenantTyped: true });
+    expect(_test.termBody('covenantMin', '1.25', typed)).toBeNull();
+    expect(_test.termBody('covenantMin', '1.4x', typed)).toEqual({ covenantMin: 1.4 });
+    expect(_test.termBody('covenantMin', '', typed)).toEqual({ covenantMin: null });
+    // Not typed: the box opens empty, so leaving it empty changes nothing.
+    expect(_test.termBody('covenantMin', '', loan())).toBeNull();
+    expect(_test.termBody('covenantMin', '1.2', loan())).toEqual({ covenantMin: 1.2 });
+    for (const bad of ['abc', '0', '-1']) expect(_test.termBody('covenantMin', bad, loan()).error).toBe('The covenant minimum is a number, like 1.25.');
+  });
+
+  it('a flag that rests on the default minimum says so', () => {
+    expect(dscrCovenantText({ dscr: 1.0, belowCovenant: true, covenantMin: 1.35, covenantTyped: false })).toBe('1.00x - Below 1.35x (default)');
+    expect(dscrCovenantText({ dscr: 1.0, belowCovenant: true, covenantMin: 1.2, covenantTyped: true })).toBe('1.00x - Below 1.20x');
+    expect(dscrCovenantText({ dscr: 2.2, belowCovenant: false, covenantMin: 1.35, covenantTyped: false })).toBe('2.20x');
+  });
+
   it('asks for a loan\'s own interest account when none is linked; no Interest Shared tag (Charmi, Oct 22)', async () => {
     api.getLoansReview.mockImplementation(async () => ({ ...review, loans: [loan({ interestSource: 'none', interestAccounts: [], interestAccount: '' }), loan({ id: 'FL2', lender: 'Chase', interestSource: 'shared' })] }));
     render(<LoansTab canEdit />);

@@ -122,3 +122,27 @@ describe('the loan sheet > Guarantee', () => {
     expect(within(screen.getByRole('region', { name: 'Guarantee' })).queryByText(/Change Loan/)).toBeNull();
   });
 });
+
+// 11/21/2026: the minimum the DSCR is judged against, on the sheet.
+describe('the loan sheet > Covenant Minimum', () => {
+  const sheet = (loan, canEdit = true) => render(
+    <LoanSheet loan={loan} from="2026-10-01" to="2026-10-06" canEdit={canEdit} dscrText={() => '2.20x'} rateText={() => '6.1% Fixed'}
+      term={(field, shown) => (canEdit ? <button type="button" data-term={field}>{shown}</button> : shown)}
+      onEdit={() => {}} onPlan={() => {}} onClose={() => {}} />);
+  const line = () => screen.getByText('Covenant Minimum').parentElement;
+
+  it('says the default applies when none is typed, and lets an editor add one', () => {
+    const { unmount } = sheet(LOAN);
+    expect(line().textContent).toBe('Covenant Minimum-None typed - the default 1.35x applies');
+    expect(line().querySelector('[data-term="covenantMin"]')).toBeTruthy();
+    unmount();
+    sheet(LOAN, false);
+    expect(line().textContent).toBe('Covenant MinimumNone typed - the default 1.35x applies');
+  });
+
+  it('shows the typed minimum as a term an editor can change', () => {
+    sheet({ ...LOAN, covenantMin: 1.25, covenantTyped: true });
+    expect(line().textContent).toBe('Covenant Minimum1.25x');
+    expect(line().querySelector('[data-term="covenantMin"]').textContent).toBe('1.25x');
+  });
+});

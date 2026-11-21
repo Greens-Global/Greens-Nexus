@@ -132,7 +132,10 @@ const KIND = { external: 'External', intercompany: 'Intercompany', given: 'Loan 
 const TYPES = [['all', 'Internal and External'], ['external', 'External Only'], ['internal', 'Internal Only']];
 const dscrText = (v) => (v == null ? '-' : `${v.toFixed(2)}x`);
 /** "1.12x - Below 1.25x" when the covenant breaks: the words, never the color alone. */
-export const dscrCovenantText = (r) => (r.dscr == null ? '-' : r.belowCovenant ? `${dscrText(r.dscr)} - Below ${Number(r.covenantMin).toFixed(2)}x` : dscrText(r.dscr));
+// 11/21/2026: "(default)" when no covenant minimum is typed for the loan - the
+// flag then rests on the 1.35x assumption, not on the loan documents (all 14
+// loans in production were on the default).
+export const dscrCovenantText = (r) => (r.dscr == null ? '-' : r.belowCovenant ? `${dscrText(r.dscr)} - Below ${Number(r.covenantMin).toFixed(2)}x${r.covenantTyped === false ? ' (default)' : ''}` : dscrText(r.dscr));
 const rateText = (r) => (r.ratePct == null ? '' : `${Number(r.ratePct).toFixed(2)}%${r.rateType ? ` ${r.rateType === 'variable' ? 'variable' : 'fixed'}` : ''}`);
 const sumOf = (rows, k) => Math.round(rows.reduce((s, r) => s + (Number(r[k]) || 0), 0) * 100) / 100;
 /** How a row's Interest Paid was read, for its hover (Oct 22: the "Interest
@@ -367,6 +370,8 @@ const TERMS = {
   ratePct: { label: 'Rate', type: 'number', start: (l) => (l.ratePct == null ? '' : String(l.ratePct)) },
   maturity: { label: 'Maturity', type: 'date', start: (l) => l.maturity || '' },
   monthlyPayment: { label: 'Monthly Payment', type: 'text', start: (l) => (l.monthlyPayment == null ? '' : formatAmount(l.monthlyPayment)) },
+  // 11/21/2026: the loan's own DSCR covenant, on its sheet. Not typed = the default applies.
+  covenantMin: { label: 'Covenant Minimum', type: 'number', start: (l) => (l.covenantTyped ? String(l.covenantMin) : '') },
 };
 /** The PUT body for a typed term, or { error }; null when nothing changed. */
 export function termBody(field, text, loan) {
@@ -377,6 +382,11 @@ export function termBody(field, text, loan) {
     if (t === '') return { ratePct: null };     // cleared = not set
     const v = Number(t.replace('%', ''));
     return Number.isFinite(v) && v >= 0 ? { ratePct: v } : { error: 'The rate is a number, like 6.25.' };
+  }
+  if (field === 'covenantMin') {
+    if (t === '') return { covenantMin: null };     // cleared = back to the default
+    const v = Number(t.replace(/x$/i, ''));
+    return Number.isFinite(v) && v > 0 ? { covenantMin: v } : { error: 'The covenant minimum is a number, like 1.25.' };
   }
   if (t === '') return { monthlyPayment: null };
   const v = parseAmountInput(t);
@@ -407,13 +417,13 @@ function TermCell({ loan, field, canEdit, onSaved, onError, onDone = null, child
   if (text != null) {
     return (
       <input autoFocus type={term.type} value={text} disabled={busy} aria-label={`${term.label} of ${name}`} onClick={stop}
-        step={field === 'ratePct' ? '0.001' : undefined} min={field === 'ratePct' ? '0' : undefined}
+        step={field === 'ratePct' ? '0.001' : field === 'covenantMin' ? '0.01' : undefined} min={term.type === 'number' ? '0' : undefined}
         onChange={(e) => setText(e.target.value)} onBlur={save}
         onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') setText(null); }}
         style={{ ...control, height: 26, width: field === 'maturity' ? 132 : 104, textAlign: field === 'maturity' ? 'left' : 'right', fontVariantNumeric: 'tabular-nums' }} />
     );
   }
-  const empty = field === 'maturity' ? !loan.maturity : loan[field] == null;
+  const empty = field === 'maturity' ? !loan.maturity : field === 'covenantMin' ? !loan.covenantTyped : loan[field] == null;
   return (
     <button type="button" className={`acct-term${empty ? ' acct-term-add' : ''}`} aria-label={`Change ${term.label} of ${name}`} title={`${term.label} is typed, not read from Intacct - click to ${empty ? 'add it' : 'change'}`}
       onClick={(e) => { stop(e); setText(term.start(loan)); }}>{empty ? 'Add' : children}</button>
