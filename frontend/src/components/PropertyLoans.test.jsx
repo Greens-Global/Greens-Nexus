@@ -74,4 +74,27 @@ describe('PropertyLoans', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
     await waitFor(() => expect(screen.getByText('No open loans on the ledger for entity 15000.')).toBeTruthy());
   });
+
+  // 11/21/2026: the entity's NOI from the books, with loans or without - the figure the
+  // property sheet's own NOI field was left blank for.
+  it('says the entity\'s trailing NOI under the loans, on the page and in the rail', async () => {
+    api.getLoansByEntity.mockResolvedValue({ ...LOANS, noiT12: 264000 });
+    const { unmount } = render(<PropertyLoans property={{ id: 'p1', name: 'Temecula', entityCode: '32000' }} />);
+    expect(await screen.findByText('NOI $264,000.00 over the last twelve months, from the books.')).toBeTruthy();
+    unmount();
+    render(<PropertyLoans property={{ id: 'p1', name: 'Temecula', entityCode: '32000' }} variant="rail" />);
+    expect(await screen.findByText('NOI $264,000.00 over the last twelve months, from the books.')).toBeTruthy();
+  });
+
+  it('shows NOI with no open loans, a loss with its minus sign, and nothing when the books gave none', async () => {
+    api.getLoansByEntity.mockResolvedValueOnce({ entityCode: '15000', loans: [], totals: { loans: 0 }, noiT12: -1250.5 });
+    const { unmount } = render(<PropertyLoans property={{ id: 'p2', name: 'Escondido', entityCode: '15000' }} variant="rail" />);
+    await screen.findByText('No open loans on the ledger for entity 15000.');
+    expect(screen.getByText('NOI -$1,250.50 over the last twelve months, from the books.')).toBeTruthy();
+    unmount();
+    api.getLoansByEntity.mockResolvedValueOnce({ entityCode: '15000', loans: [], totals: { loans: 0 }, noiT12: null });
+    render(<PropertyLoans property={{ id: 'p2', name: 'Escondido', entityCode: '15000' }} variant="rail" />);
+    await screen.findByText('No open loans on the ledger for entity 15000.');
+    expect(screen.queryByText(/^NOI /)).toBeNull();
+  });
 });
