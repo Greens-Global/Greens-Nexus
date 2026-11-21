@@ -21,6 +21,7 @@ import { INTEREST_SOURCE } from './LoanDetail';
 import LoanSheet, { Flags } from './LoanSheet';
 import LoanSetupDialog, { DEBIT_NOTE } from './LoanSetupDialog';
 import { EditLoanDialog, ManualLoanDialog, folderName, loanTypeLabel } from './LoanDialogs';
+import LoanGuarantees from './LoanGuarantees';
 import { POLL_MS } from './LedgerScan';
 import { LoanAmortizationDialog } from './LoanAmortization';
 import { LoanStressDialog, LoanStressPortfolio } from './LoanStress';
@@ -886,6 +887,8 @@ export default function LoansTab({ canEdit = false }) {
         </div>
       )}
       {view === 'loans' && !loading && rows.length > 0 && <Maturities month={to.slice(0, 7)} rows={rows.filter((r) => !r.closed)} />}
+      {/* 11/21/2026 (Neil): who stands behind the loans shown - nothing until one has a guarantee record. */}
+      {view === 'loans' && !loading && rows.length > 0 && <LoanGuarantees rows={rows} />}
 
       {openLoan && (
         <LoanSheet loan={openLoan} from={from} to={to} canEdit={canEdit} rateText={rateText} dscrText={dscrCovenantText}

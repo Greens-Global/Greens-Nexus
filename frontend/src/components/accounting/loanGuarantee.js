@@ -48,3 +48,51 @@ export function guaranteeWords(g) {
   if (g.kind === 'limited') return g.amount > 0 ? `Limited to $${formatAmount(g.amount)}` : 'Limited';
   return (GUARANTEE_KINDS.find(([k]) => k === g.kind) || GUARANTEE_KINDS[0])[1];
 }
+
+// ── The register: who stands behind what, across the loans shown ────────────
+
+/**
+ * What one guarantor stands behind on one loan: the balance for a full
+ * guarantee, the limit (never more than the balance) for a limited one, and
+ * nothing for carve-outs - those bite only on a "bad boy" act, not on the debt.
+ * A loan with nothing owed (paid off, or a debit balance) carries no exposure.
+ */
+export function guaranteeExposure(g, loan) {
+  const owed = loan?.debitBalance ? 0 : Math.max(0, Number(loan?.balance) || 0);
+  if (g.kind === 'carve_out') return 0;
+  if (g.kind === 'limited') return Math.min(owed, Math.max(0, Number(g.amount) || 0));
+  return owed;
+}
+
+const nameKey = (name) => words(name).toLowerCase();
+
+/**
+ * One row per guarantor across `loans`: [{ key, name, exposure, lines: [{ loan,
+ * guarantee, exposure }] }], the largest exposure first. A guarantor's own
+ * loans ARE added up (they are different debts); guarantors are never added
+ * to each other. The same name typed in a different case is one guarantor.
+ */
+export function guarantorGroups(loans) {
+  const by = new Map();
+  for (const loan of loans || []) {
+    for (const g of loan.guarantors || []) {
+      const key = nameKey(g.name);
+      if (!key) continue;
+      if (!by.has(key)) by.set(key, { key, name: words(g.name), exposure: 0, lines: [] });
+      by.get(key).lines.push({ loan, guarantee: g, exposure: guaranteeExposure(g, loan) });
+    }
+  }
+  for (const row of by.values()) {
+    // Two guarantees by one name on ONE loan (a limited payment guaranty beside
+    // a carve-out one) never come to more than that loan's balance.
+    const perLoan = new Map();
+    for (const x of row.lines) perLoan.set(x.loan, (perLoan.get(x.loan) || 0) + x.exposure);
+    let total = 0;
+    for (const [loan, sum] of perLoan) total += Math.min(sum, guaranteeExposure({ kind: 'full' }, loan));
+    row.exposure = Math.round(total * 100) / 100;
+  }
+  return [...by.values()].sort((a, b) => b.exposure - a.exposure || a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+}
+
+/** A loan has a guarantee record once its recourse is set or it has a guarantor. */
+export const hasGuaranteeRecord = (loan) => !!loan?.recourse || (loan?.guarantors || []).length > 0;
