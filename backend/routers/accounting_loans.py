@@ -102,6 +102,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import database
+import loan_guarantees
 import models
 from auth import require_module_grant
 from database import get_db
@@ -743,7 +744,7 @@ def _save_loan_fresh_sync(loan_id: str, period: str, apply: Callable[[dict], tup
 
 # ── What Nexus keeps per loan (accounting_loan_settings) ────────────────────
 _SETTING_FIELDS = ("interest_account", "original_principal", "internal", "docs_path", "statements_path", "loan_type", "stress_excluded",
-                   "loan_number", "vendor_id", "vendor_name")
+                   "loan_number", "vendor_id", "vendor_name", "recourse", "guarantors")
 # An Intacct vendor id ("V-00123", "FM BANK"): wired by hand under Change Loan.
 _VENDOR = re.compile(r"^[\w.\-/& ]{1,60}$")
 LOAN_TYPES = ("term", "line_of_credit")
@@ -1263,6 +1264,8 @@ def review_rows(loans: list[dict], settings: dict, tbs: dict, names: dict, origi
                 "monthlyPayment": _num(l.get("monthly_pi")) or None, "monthlyPi": _num(l.get("monthly_pi")) or None, "notes": l.get("notes") or "",
                 "docsPath": s.get("docs_path") or "", "statementsPath": s.get("statements_path") or "",
                 "docsUrl": _egnyte_web(s.get("docs_path") or ""), "statementsUrl": _egnyte_web(s.get("statements_path") or ""),
+                # 11/21/2026 (Neil): who stands behind the loan - typed under Change Loan.
+                **loan_guarantees.view(s),
             })
     out.sort(key=lambda r: ((r["lender"] or "").lower(), (r["entityName"] or "").lower(), r["loanNo"]))
     return out
@@ -1579,6 +1582,10 @@ class LoanEdit(BaseModel):
     loanNumber: Optional[str] = None
     vendorId: Optional[str] = None
     vendorName: Optional[str] = None
+    # 11/21/2026 (Neil), kept by Nexus: recourse ('' = not recorded) and the
+    # guarantors, the whole list each time (loan_guarantees.py).
+    recourse: Optional[str] = None
+    guarantors: Optional[list] = None
 
 
 # Typed terms a person may clear: an explicit null stores what reads back as
@@ -1640,6 +1647,13 @@ async def edit_loan(loan_id: str, body: LoanEdit, month: Optional[str] = None, u
             raise HTTPException(status_code=400, detail="The vendor is an Intacct vendor id.")
         setting_patch["vendor_id"] = vid
         setting_patch["vendor_name"] = (body.vendorName or "").strip()[:200] if vid else ""
+    try:
+        if "recourse" in sent:
+            setting_patch["recourse"] = loan_guarantees.clean_recourse(body.recourse)
+        if "guarantors" in sent:
+            setting_patch["guarantors"] = loan_guarantees.clean_guarantors(body.guarantors)
+    except loan_guarantees.GuaranteeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     def apply(base: dict) -> tuple[dict, bool]:
         """`base` with only the fields this request sent laid over it."""

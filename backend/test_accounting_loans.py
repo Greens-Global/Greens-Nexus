@@ -721,6 +721,50 @@ class EndpointTests(unittest.TestCase):
         _as(VIEWER)
         self.assertEqual(self.client.put("/accounting/loans/FL1", json={"ratePct": 1}).status_code, 403)
 
+    def test_the_guarantee_record_is_kept_beside_the_loan(self):
+        """11/21/2026 (Neil): recourse and the guarantors, typed under Change
+        Loan, read back on the loan row - and nothing of it goes to fin_loans."""
+        _as(EDITOR)
+        [row] = self._review()["loans"]
+        self.assertEqual((row["recourse"], row["guarantors"]), ("", []))
+        r = self.client.put("/accounting/loans/FL1", json={"recourse": "limited", "guarantors": [
+            {"name": " Asha  Greene ", "kind": "limited", "amount": 350000, "burnOff": "Falls away once DSCR holds 1.35x for four quarters"},
+            {"name": "Greene Family Trust", "kind": "carve_out", "amount": 99}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.saves, [])                      # kept by Nexus: the accounting app's row is not re-saved
+        [row] = self._review()["loans"]
+        self.assertEqual(row["recourse"], "limited")
+        self.assertEqual(row["guarantors"], [
+            {"name": "Asha Greene", "kind": "limited", "amount": 350000.0, "burnOff": "Falls away once DSCR holds 1.35x for four quarters"},
+            {"name": "Greene Family Trust", "kind": "carve_out", "amount": None, "burnOff": ""}])
+        # A field not sent is left alone; the list is replaced whole; '' and [] clear.
+        self.client.put("/accounting/loans/FL1", json={"ratePct": 5})
+        [row] = self._review()["loans"]
+        self.assertEqual((row["recourse"], len(row["guarantors"])), ("limited", 2))
+        self.client.put("/accounting/loans/FL1", json={"guarantors": [{"name": "Asha Greene", "kind": "full"}]})
+        [row] = self._review()["loans"]
+        self.assertEqual((row["recourse"], row["guarantors"]), ("limited", [{"name": "Asha Greene", "kind": "full", "amount": None, "burnOff": ""}]))
+        self.client.put("/accounting/loans/FL1", json={"recourse": "", "guarantors": []})
+        [row] = self._review()["loans"]
+        self.assertEqual((row["recourse"], row["guarantors"]), ("", []))
+        # Refused in plain words, nothing kept.
+        for b, words in (({"recourse": "partial"}, "Recourse is Full Recourse, Limited Recourse or Non-Recourse."),
+                         ({"guarantors": [{"name": "Asha", "kind": "limited"}]}, "Asha: a limited guarantee needs its amount."),
+                         ({"guarantors": [{"name": ""}]}, "Each guarantor needs a name.")):
+            r = self.client.put("/accounting/loans/FL1", json=b)
+            self.assertEqual((r.status_code, r.json()["detail"]), (400, words), b)
+        [row] = self._review()["loans"]
+        self.assertEqual((row["recourse"], row["guarantors"]), ("", []))
+        _as(VIEWER)
+        self.assertEqual(self.client.put("/accounting/loans/FL1", json={"recourse": "full"}).status_code, 403)
+        # The change is audited with what was sent.
+        db = database.SessionLocal()
+        try:
+            audits = db.query(models.AuditLog).filter(models.AuditLog.action == "accounting_loan_changed", models.AuditLog.resource_id == "FL1").all()
+            self.assertTrue(any('"recourse": "limited"' in (a.details or "") for a in audits))
+        finally:
+            db.close()
+
     def test_manual_loan(self):
         _as(EDITOR)
         r = self.client.post("/accounting/loans/manual", json={"lender": "Rajesh Family Trust", "entityCode": "12000", "loanNo": "RFT-1", "originalPrincipal": 300000, "balance": 250000,

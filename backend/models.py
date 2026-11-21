@@ -6054,6 +6054,11 @@ class AccountingLoanSetting(Base):
     loan_number        = Column(String, default="")
     vendor_id          = Column(String, default="")
     vendor_name        = Column(String, default="")
+    # 11/21/2026 (Neil): who stands behind the loan - '' (not recorded) | full |
+    # limited | non_recourse, and the guarantors [{name, kind, amount, burnOff}]
+    # as the guaranty states them (loan_guarantees.py is the one shape).
+    recourse           = Column(String, default="")
+    guarantors         = Column(JSON, default=list)
 # ── Marketing: Google Business Profile (Oct 2026) ────────────────────────────
 # Neil, call of 10/01: manage the Google listings and reviews from Nexus so he
 # is not the single point of failure (docs/Marketing-Module-Plan.md, Phase 2).
