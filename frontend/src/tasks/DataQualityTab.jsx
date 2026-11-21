@@ -10,11 +10,18 @@
 // (see TasksWorkspace.jsx's `canManage`) - no separate permission check needed
 // here. Every open (non-completed) task is in scope, company-wide: managers
 // already see every task from `useTasks()`, unscoped by project or assignee.
+//
+// Long overdue (Neil, 11/21/2026): production held 421 open tasks more than
+// 90 days past their due date - dates nobody believes any more. They are in
+// this list too, whatever else they have: the Overdue column says how many
+// days late every open task here is (plain red words, sortable), and the
+// filter's "Overdue More Than 90 Days" shows just those, most overdue first,
+// to re-date, reassign or delete from the same bulk bar.
 import { Fragment, useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, CheckCircle2, Trash2, X } from 'lucide-react';
 import { NX, FONT, btn, chip, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar, DateField, EmptyState, SearchSelect, usePeople } from './components';
-import { teamInProject, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, deleteSelectedTasks } from './lib';
+import { teamInProject, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, deleteSelectedTasks, todayISO, daysOverdue, STALE_DAYS } from './lib';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { PillSelect } from './views/richlist';
 import { useTableColumns, TableHead, ResetColumnsButton } from './tableCols';
@@ -32,6 +39,7 @@ const COLUMNS = [
   { key: 'task', label: 'Task', width: 320, minWidth: 160 },
   { key: 'missing', label: 'Missing', width: 170 },
   { key: 'due', label: 'Due Date', width: 130 },
+  { key: 'late', label: 'Overdue', width: 110 },
   { key: 'project', label: 'Project', width: 200 },
   { key: 'priority', label: 'Priority', width: 116 },
   { key: 'team', label: 'Team', width: 150 },
@@ -42,6 +50,7 @@ const SORTERS = {
   task: (r) => String(r.t.title || '').toLowerCase(),
   missing: (r) => r.gaps.length,
   due: (r) => r.t.dueOn || '9999',
+  late: (r) => r.lateDays,
   priority: (r) => (r.t.priority in PRI_RANK ? PRI_RANK[r.t.priority] : 99),
 };
 const ROW_H = 38;
@@ -61,6 +70,8 @@ const GAP_DEFS = [
   { key: 'teamId', label: 'Team', test: (t) => !t.teamId },
   { key: 'assignee', label: 'Assignee', test: (t) => taskAssignees(t).length === 0, chipText: (n) => `${n} unassigned` },
 ];
+
+const STALE_KEY = 'stale';
 
 function projectOptions(projects) {
   return [{ id: '', label: 'No project' },
@@ -86,7 +97,7 @@ function mandatoryGaps(customFields, t) {
     .map((f) => ({ key: `cf:${f.id}`, label: f.name, mandatory: true }));
 }
 
-function GapRow({ t, gaps, store, onOpen, selected, toggleSel, cols }) {
+function GapRow({ t, gaps, lateDays, store, onOpen, selected, toggleSel, cols }) {
   const { projects, teams, nameOf } = store;
   const projOpts = useMemo(() => projectOptions(projects), [projects]);
   const projectTeams = (teams || []).filter((tm) => teamInProject(tm, t.projectId));
@@ -123,6 +134,12 @@ function GapRow({ t, gaps, store, onOpen, selected, toggleSel, cols }) {
       <div style={cell} onClick={stop}>
         <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast
           title="Due Date" compact style={{ fontSize: 12 }} />
+      </div>
+    ),
+    // A state is plain words in the row's own line - never a pill.
+    late: (
+      <div style={{ ...cell, color: NX.red, fontVariantNumeric: 'tabular-nums' }}>
+        {lateDays > 0 ? `${lateDays} ${lateDays === 1 ? 'day' : 'days'}` : ''}
       </div>
     ),
     project: (
@@ -207,10 +224,12 @@ export default function DataQualityTab({ store }) {
   // process gap anyone needs to chase down.
   const rows = useMemo(() => {
     const out = [];
+    const today = todayISO();
     for (const t of tasks) {
       if (t.completed) continue;
       const gaps = [...mandatoryGaps(store.customFields, t), ...GAP_DEFS.filter((g) => g.test(t))];
-      if (gaps.length) out.push({ t, gaps });
+      const lateDays = daysOverdue(t, today);
+      if (gaps.length || lateDays > STALE_DAYS) out.push({ t, gaps, lateDays });
     }
     return out.sort((a, b) => String(a.t.title || '').localeCompare(String(b.t.title || ''), 'en', { sensitivity: 'base' }));
   }, [tasks, store.customFields]);
@@ -227,15 +246,18 @@ export default function DataQualityTab({ store }) {
   // chip's number stays put while you click between them, instead of the row
   // you just filtered to reading "0 missing X" everywhere else.
   const countFor = (key) => rows.reduce((n, r) => n + (r.gaps.some((g) => g.key === key) ? 1 : 0), 0);
+  const staleCount = useMemo(() => rows.reduce((n, r) => n + (r.lateDays > STALE_DAYS ? 1 : 0), 0), [rows]);
   const { projectName, teams } = store;
   const [sort, setSort] = useState({ key: '', dir: 'asc' });
   const filteredRows = useMemo(() => {
-    const list = filterKey ? rows.filter((r) => r.gaps.some((g) => g.key === filterKey)) : rows;
+    const list = filterKey === STALE_KEY ? rows.filter((r) => r.lateDays > STALE_DAYS)
+      : filterKey ? rows.filter((r) => r.gaps.some((g) => g.key === filterKey)) : rows;
     const teamName = (id) => (teams || []).find((tm) => tm.id === id)?.name || '';
     const by = SORTERS[sort.key]
       || (sort.key === 'project' ? (r) => (projectName?.(r.t.projectId) || '').toLowerCase() : null)
       || (sort.key === 'team' ? (r) => teamName(r.t.teamId).toLowerCase() : null);
-    if (!by) return list;
+    // The long-overdue view leads with the oldest date until a header is clicked.
+    if (!by) return filterKey === STALE_KEY ? [...list].sort((a, b) => b.lateDays - a.lateDays) : list;
     const dir = sort.dir === 'desc' ? -1 : 1;
     return [...list].sort((a, b) => { const x = by(a); const y = by(b); return x < y ? -dir : x > y ? dir : 0; });
   }, [rows, filterKey, sort, projectName, teams]);
@@ -291,7 +313,8 @@ export default function DataQualityTab({ store }) {
         </div>
         <div style={{ fontSize: 13, color: NX.dim, marginBottom: 12 }}>
           Every open task, company-wide, with a gap - a required field left empty, or a missing Due Date, Project,
-          Priority, Team or Assignee. Fix any of them right here without opening the task.
+          Priority, Team or Assignee - and every task more than {STALE_DAYS} days past its due date. Fix any of them
+          right here without opening the task.
         </div>
         {rows.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 14 }}>
@@ -305,6 +328,7 @@ export default function DataQualityTab({ store }) {
                   ...GAP_DEFS.filter((g) => countFor(g.key) > 0).map((g) => ({
                     id: g.key, label: g.key === 'assignee' ? `Unassigned (${countFor(g.key)})` : `Missing ${g.label} (${countFor(g.key)})`,
                   })),
+                  ...(staleCount ? [{ id: STALE_KEY, label: `Overdue More Than ${STALE_DAYS} Days (${staleCount})` }] : []),
                 ]}
                 buttonStyle={{ ...inputStyle, width: '100%', padding: '6px 10px', fontSize: 13, height: 'auto', fontWeight: 400 }}
                 onPick={(id) => setFilterKey(id || null)} />
@@ -321,7 +345,7 @@ export default function DataQualityTab({ store }) {
 
       <div ref={scrollRef} onScroll={onScroll} className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {rows.length === 0 ? (
-          <EmptyState icon={CheckCircle2} title="Nothing Missing" hint="Every open task has a due date, project, priority, team, and assignee." />
+          <EmptyState icon={CheckCircle2} title="Nothing Missing" hint={`Every open task has a due date, project, priority, team, and assignee, and none is more than ${STALE_DAYS} days overdue.`} />
         ) : (
           <div ref={wrapRef} style={{ margin: '0 16px 16px', border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, width: 'fit-content', minWidth: 'calc(100% - 32px)', '--nx-grid': template }}>
             {/* Sticky, like the list's: the titles stay put while you scroll.
@@ -347,7 +371,7 @@ export default function DataQualityTab({ store }) {
               )))}
             </div>
             {padTop > 0 && <div style={{ height: padTop }} />}
-            {vSlice.map(({ t, gaps }) => <GapRow key={t.id} t={t} gaps={gaps} store={store} onOpen={setOpenId} selected={selected} toggleSel={toggleSel} cols={cols} />)}
+            {vSlice.map(({ t, gaps, lateDays }) => <GapRow key={t.id} t={t} gaps={gaps} lateDays={lateDays} store={store} onOpen={setOpenId} selected={selected} toggleSel={toggleSel} cols={cols} />)}
             {padBot > 0 && <div style={{ height: padBot }} />}
           </div>
         )}
