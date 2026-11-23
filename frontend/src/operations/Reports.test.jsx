@@ -311,9 +311,9 @@ describe('Operations > Reports Center', () => {
     expect(within(monthly).getByText('Coming Soon')).toBeTruthy();
     expect(within(monthly).queryByRole('button', { name: 'Exceptions' })).toBeNull();   // nothing to open yet
     fireEvent.click(screen.getByRole('button', { name: 'Pin Rent Roll to Monthly Required' }));
-    expect(within(monthly).getByRole('button', { name: 'Rent Roll' })).toBeTruthy();
+    expect(await within(monthly).findByRole('button', { name: 'Rent Roll' })).toBeTruthy();   // the profile re-renders a beat later
     fireEvent.click(within(monthly).getByRole('button', { name: 'Unpin Credits Issued' }));
-    expect(within(monthly).queryByText('Credits Issued')).toBeNull();
+    await waitFor(() => expect(within(monthly).queryByText('Credits Issued')).toBeNull());
     await waitFor(() => expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('ops-reports', expect.objectContaining({
       data: expect.objectContaining({ pinned: ['management-summary', 'ar-activity', 'exceptions', 'occupancy-statistics', 'rent-roll'] }) })));
   });
@@ -327,7 +327,7 @@ describe('Operations > Reports Center', () => {
     // hide a column, then memorize
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
     fireEvent.click(within(screen.getByRole('dialog', { name: 'Columns' })).getByLabelText('Paid Through'));
-    expect(screen.queryByRole('button', { name: 'Paid Through' })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Paid Through' })).toBeNull());
     fireEvent.click(screen.getByRole('button', { name: 'Memorize' }));
     expect(await screen.findByText(/Memorized as Temecula Rent Roll/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Reports Center' }));
@@ -357,7 +357,7 @@ describe('Operations > Reports Center', () => {
     const from = screen.getByLabelText('Monthly Rent from');
     fireEvent.change(from, { target: { value: '500' } });
     fireEvent.blur(from);
-    expect(document.querySelectorAll('.ops-rtable tbody tr')).toHaveLength(1);
+    await waitFor(() => expect(document.querySelectorAll('.ops-rtable tbody tr')).toHaveLength(1));
     expect(screen.getByText(/Filtered: Monthly Rent at least \$500.00/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Excel/ }));
