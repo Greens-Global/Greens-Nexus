@@ -9103,7 +9103,7 @@ body:has(.notif-drawer:not([inert])) .nx-toasts { display: none !important; }
 .apv-rail-i:hover { background: var(--mist, var(--surface-2)); }
 .apv-rail-i.is-on { background: var(--wk-brand-tint); color: var(--wk-brand); font-weight: 700; }
 .apv-rail-i.is-on b { color: var(--wk-brand); }
-.apv-main { min-width: 0; display: grid; gap: 12px; }
+.apv-main { min-width: 0; display: grid; gap: 12px; container: apv-list / inline-size; }
 .apv-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .apv-search { position: relative; flex: 1 1 240px; min-width: 200px; }
 .apv-search input { width: 100%; padding-left: 32px; }
@@ -9158,17 +9158,27 @@ body:has(.notif-drawer:not([inert])) .nx-toasts { display: none !important; }
 .apv-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .apv-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .apv-what { grid-area: what; min-width: 0; }
-.apv-title { background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; font-size: 13px; font-weight: 600; line-height: 1.35; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
-.apv-title span { overflow-wrap: anywhere; }
+.apv-title { background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; font-size: 13px; font-weight: 600; line-height: 1.35; display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; }
+.apv-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .apv-title svg { color: var(--muted); flex-shrink: 0; }
 .apv-title:hover { text-decoration: underline; }
 .apv-detail { font-size: 13px; color: var(--muted); margin-top: 2px; line-height: 1.4; overflow-wrap: anywhere; }
+.apv-what .apv-detail { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .apv-prio { grid-area: prio; font-size: 13px; }
 .apv-age { grid-area: age; text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .apv-age.is-slow { color: #d97706; font-weight: 600; }
 .apv-age.is-late { color: #dc2626; font-weight: 700; }
 .apv-act { grid-area: act; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .apv-act button { font-size: 13px; padding: 6px 12px; white-space: nowrap; }
+/* One line needs ~730px for the fixed columns and the buttons, so below
+   960px of list (the reading pane open, a narrow window) the request text
+   would get what is left - often ~70px. Stack instead: who / priority / age,
+   then the request at the full width, then the buttons. */
+@container apv-list (max-width: 960px) {
+  .apv-row { grid-template-columns: 20px minmax(0, 1fr) auto auto; grid-template-areas: "pick who prio age" "pick what what what" "pick act act act"; }
+  .apv-pick { align-self: start; margin-top: 8px; }
+  .apv-act { justify-content: flex-start; }
+}
 .apv-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 8px; }
 .apv-no, .apv-review { padding: 7px 14px; font-size: 13px; line-height: 1.3; white-space: nowrap; font-family: inherit; font-weight: 600; cursor: pointer; }
 .apv-no { background: var(--apv-red, #dc2626); color: #fff; border: 1px solid var(--apv-red, #dc2626); }
