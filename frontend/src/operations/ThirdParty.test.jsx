@@ -10,6 +10,8 @@ const uploadThirdPartyReport = vi.fn();
 const getFacilityOps = vi.fn();
 const getThirdPartyFacilities = vi.fn();
 vi.mock('../api', () => ({ api: {
+  // The Dashboard's filters are the person's own (operations/opsPrefs.js).
+  getTaskTablePrefs: () => Promise.resolve({ prefs: {} }), saveTaskTablePrefs: () => Promise.resolve({}),
   uploadThirdPartyReport: (...a) => uploadThirdPartyReport(...a),
   getFacilityOps: (...a) => getFacilityOps(...a),
   getThirdPartyFacilities: (...a) => getThirdPartyFacilities(...a),
@@ -128,7 +130,7 @@ describe('Operations facility picker', () => {
     const own = { ...cubesmartFacility(), id: 'fac_a', name: 'Greens Storage Temecula', shortName: 'Temecula', thirdParty: undefined, managedBy: undefined, managedLabel: undefined };
     getFacilityOps.mockResolvedValue({ organization: 'Greens Storage', facilities: [own], trend: [], syncedAt: new Date().toISOString(), syncStatus: 'ok', cubbyConfigured: true });
     getThirdPartyFacilities.mockResolvedValue({ facilities: [cubesmartFacility()] });
-    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    const { unmount } = render(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
     // The page's one Facility dropdown lists the store under its TPM heading.
     const btn = await screen.findByLabelText('Facility');
     await waitFor(() => expect(screen.getByText(/1 TPM store/)).toBeInTheDocument());
@@ -151,6 +153,11 @@ describe('Operations facility picker', () => {
     const bar = btn.closest('.ops-facility');
     expect(within(bar).getByText('TPM · CubeSmart')).toBeInTheDocument();
     expect(within(bar).getByText('Data as of 10/19/2026')).toBeInTheDocument();
+    unmount();
+    // The Dashboard picks its own properties (Oct 28 2026, B1): Austin alone.
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /All Properties/ }));
+    fireEvent.click(screen.getByLabelText(/Temecula/));
     const panel = await screen.findByTestId('tp-panel');
     expect(within(panel).getByText('Austin - TPM · CubeSmart')).toBeInTheDocument();
     expect(within(panel).getByText('Data as of 10/19/2026')).toBeInTheDocument();
@@ -167,10 +174,7 @@ describe('Operations facility picker', () => {
     getFacilityOps.mockResolvedValue({ organization: 'Greens Storage', facilities: [], trend: [], syncedAt: new Date().toISOString(), syncStatus: 'ok', cubbyConfigured: true });
     getThirdPartyFacilities.mockResolvedValue({ facilities: [cubesmartFacility({ thirdParty: { ...cubesmartFacility().thirdParty, stale: true, dataAsOf: '2026-10-01' } })] });
     render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-    const btn = await screen.findByLabelText('Facility');
     await waitFor(() => expect(screen.getByText(/1 TPM store/)).toBeInTheDocument());
-    fireEvent.click(btn);
-    fireEvent.click(screen.getByRole('option', { name: 'Austin' }));
     const panel = await screen.findByTestId('tp-panel');
     expect(within(panel).getByText('Data as of 10/01/2026')).toBeInTheDocument();
     expect(within(panel).getByText('Stale')).toBeInTheDocument();

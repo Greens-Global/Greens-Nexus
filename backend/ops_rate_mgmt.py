@@ -40,7 +40,10 @@ import ops_market
 GROUPS_TTL = 300.0           # a screen read of the pricing groups is at most 5 minutes old
 VEHICLE = "Vehicle Storage"
 SELF = "Self-Storage"
-CATEGORIES = (SELF, VEHICLE)
+# Mailboxes are their own group on the CMA (Oct 28 2026 call with Neil, B17):
+# the unit type's `kind` from ops_unit_classes (cubby.summarize_facility).
+MAILBOX = "Mailboxes"
+CATEGORIES = (SELF, VEHICLE, MAILBOX)
 
 # The plain-language summary (Visesh, Oct 20 2026: "which competitor and all
 # that data and what are we lacking").
@@ -56,7 +59,10 @@ _BAND_WORDS = ((0.92, "Nearly Full"), (0.85, "Healthy"), (0.70, "Some Vacancy"),
 # ── Pure ──────────────────────────────────────────────────────────────────────
 
 def category(unit_type: dict, group: dict | None = None) -> str:
-    """Self-Storage or Vehicle Storage. Cubby's own flags first, then the name."""
+    """Self-Storage, Vehicle Storage or Mailboxes. A mailbox by Nexus's unit
+    classes; then Cubby's own flags, then the name."""
+    if unit_type.get("kind") == "mailbox":
+        return MAILBOX
     if group and (group.get("vehicleStorage") or group.get("parking")):
         return VEHICLE
     if unit_type.get("parking") or re.search(r"\b(parking|rv|boat|vehicle|auto|car)\b", (unit_type.get("name") or "").lower()):

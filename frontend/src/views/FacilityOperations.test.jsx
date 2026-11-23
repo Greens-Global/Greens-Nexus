@@ -23,6 +23,7 @@ const startCubbySync = vi.fn();
 const opsRevenueTenants = vi.fn();
 const getOpsCmaCompset = vi.fn();
 const getOpsStoreHours = vi.fn();
+const saveTaskTablePrefs = vi.fn(() => Promise.resolve({}));
 vi.mock('../api', () => ({ api: {
   getOpsCmaCompset: (...a) => getOpsCmaCompset(...a),
   opsRevenueTenants: (...a) => opsRevenueTenants(...a),
@@ -39,7 +40,7 @@ vi.mock('../api', () => ({ api: {
   getOpsSiteMapFacilities: () => Promise.resolve([{ facilityId: 'fac_b', modelId: 'm', name: 'Murrieta' }]),
   getOpsStoreHours: (...a) => getOpsStoreHours(...a),
   // The person's columns, kept in their profile (operations/opsPrefs.js).
-  getTaskTablePrefs: () => Promise.resolve({ prefs: {} }), saveTaskTablePrefs: () => Promise.resolve({}),
+  getTaskTablePrefs: () => Promise.resolve({ prefs: {} }), saveTaskTablePrefs: (...a) => saveTaskTablePrefs(...a),
 } }));
 // The Site Map tab loads three.js; a stand-in says which facility it was handed,
 // and reports its own search box on screen unless `siteMapReady` is false (still
@@ -65,6 +66,7 @@ vi.mock('../components/ModuleTabs', () => ({
 }));
 
 const FacilityOperations = (await import('./FacilityOperations')).default;
+const { __setTablePrefsCache } = await import('../tasks/tableCols');
 
 // Rate Management is Miranda's CMA (Oct 21 2026): four Pricing menu items
 // (market, market-comps, market-history, market-review). Its facility is the
@@ -138,6 +140,8 @@ const PAYLOAD = {
 const NO_NEARBY = { facilityId: 'fac_a', radiusKm: 8, radiusMiles: 5, attribution: 'Nearby facilities from OpenStreetMap contributors', facilities: [], detail: '' };
 
 beforeEach(() => {
+  __setTablePrefsCache({});
+  saveTaskTablePrefs.mockClear();
   getFacilityOps.mockReset().mockResolvedValue(PAYLOAD);
   getOpsNearby.mockReset().mockResolvedValue(NO_NEARBY);
   getOpsRates.mockReset().mockResolvedValue(RATES_VIEW);
@@ -204,20 +208,60 @@ describe('Operations module', () => {
 
   it('narrows to one facility, and an old bookmarked tab lands on Overview', async () => {
     render(<FacilityOperations activeSub="reputation" onSubChange={() => {}} />);
+    expect(await screen.findByText('Facility Scorecard')).toBeTruthy();   // the Overview
+  });
+
+  // Oct 28 2026 call with Neil (B1): the Dashboard has its own filter bar -
+  // any set of properties and a preset or custom period - instead of the State
+  // and Facility dropdowns, kept in the person's profile.
+  it('filters the Dashboard by any set of properties, kept for the person', async () => {
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
     await screen.findByText('Facility Scorecard');
-    await pickFacility('fac_b');   // the page's one dropdown
-    expect(screen.getByText('90.0%')).toBeTruthy();                       // 45 of 50
-    expect(screen.queryByText('Facility Scorecard')).toBeNull();          // nothing to compare against
-    expect(localStorage.getItem('nexus.ops.facility')).toBe('fac_b');     // remembered on this device
+    expect(screen.queryByLabelText('Facility')).toBeNull();               // not the one-facility dropdown here
+    fireEvent.click(screen.getByRole('button', { name: /All Properties/ }));
+    fireEvent.click(screen.getByLabelText(/Temecula/));                   // all but Temecula
+    expect(await screen.findByText('90.0%')).toBeTruthy();                // Murrieta alone: 45 of 50
+    expect(screen.queryByText('Facility Scorecard')).toBeNull();
+    await waitFor(() => expect(saveTaskTablePrefs).toHaveBeenCalledWith('ops-dash', expect.objectContaining({
+      data: expect.objectContaining({ ids: ['fac_b'] }) })));
+  });
+
+  it('takes a custom date range on the Dashboard', async () => {
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    await screen.findByText('Facility Scorecard');
+    fireEvent.change(screen.getByLabelText('Period'), { target: { value: 'custom' } });
+    expect(screen.getByText(/Pick both days of the custom range/)).toBeTruthy();
+    expect(screen.getByText('From')).toBeTruthy();
+    await waitFor(() => expect(saveTaskTablePrefs).toHaveBeenCalledWith('ops-dash', expect.objectContaining({
+      data: expect.objectContaining({ period: 'custom' }) })));
+  });
+
+  // B2: the person adds, removes and rearranges the Dashboard's cards.
+  it('lets each person customize the Dashboard cards', async () => {
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    await screen.findByText('Facility Scorecard');
+    const order = () => [...document.querySelectorAll('[data-card]')].map((n) => n.dataset.card);
+    expect(order()).toEqual(['kpis', 'units-by-facility', 'attention', 'rented-trend', 'moves-trend', 'scorecard']);
+    fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    const panel = screen.getByRole('dialog', { name: 'Customize the Dashboard' });
+    fireEvent.click(within(panel).getByRole('button', { name: 'Remove Needs Attention' }));
+    fireEvent.click(within(panel).getByRole('button', { name: 'Move Facility Scorecard up' }));
+    fireEvent.click(within(panel).getByRole('button', { name: 'Add Past Due by Age' }));
+    expect(order()).toEqual(['kpis', 'units-by-facility', 'rented-trend', 'scorecard', 'moves-trend', 'aging']);
+    expect(document.querySelector('[data-card="attention"]')).toBeNull();
+    expect(within(document.querySelector('[data-card="aging"]')).getByText('Past Due by Age')).toBeTruthy();
+    await waitFor(() => expect(saveTaskTablePrefs).toHaveBeenCalledWith('ops-dash', expect.objectContaining({
+      data: expect.objectContaining({ cards: ['kpis', 'tpm', 'units-by-facility', 'rented-trend', 'scorecard', 'moves-trend', 'aging'] }) })));
+    fireEvent.click(within(panel).getByRole('button', { name: /Reset to Default/ }));
+    expect(order()).toEqual(['kpis', 'units-by-facility', 'attention', 'rented-trend', 'moves-trend', 'scorecard']);
   });
 
   it('is one dropdown, not a row of chips, and remembers the facility picked', async () => {
     localStorage.setItem('nexus.ops.facility', 'fac_b');
-    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    render(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
     const btn = await screen.findByLabelText('Facility');
     expect(btn).toHaveAttribute('aria-haspopup', 'listbox');
     expect(facilityValue()).toBe('fac_b');
-    expect(screen.getByText('90.0%')).toBeTruthy();
     expect(facilityOptions()).toEqual(['All Facilities', 'Temecula', 'Murrieta']);
     expect(screen.queryByRole('listbox')).toBeNull();                     // Escape closed it
     expect(screen.queryByRole('button', { name: 'All Facilities' })).toBeNull();
@@ -227,8 +271,8 @@ describe('Operations module', () => {
   it('drives every tab from the one dropdown, and no tab shows a second facility picker', async () => {
     isManager = true;   // ECRI Management is for managers
     try {
-      const { rerender } = render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-      await screen.findByText('Facility Scorecard');
+      const { rerender } = render(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
+      await screen.findByLabelText('Facility');
       await pickFacility('fac_b');
       const one = async () => {
         await waitFor(() => expect(screen.getAllByLabelText('Facility')).toHaveLength(1));
@@ -237,7 +281,7 @@ describe('Operations module', () => {
         expect([...document.querySelectorAll('select')].filter((s) => [...s.options].some((o) => o.textContent === 'Temecula'))).toHaveLength(0);
         expect(screen.queryByRole('button', { name: 'Temecula' })).toBeNull();
       };
-      for (const tab of ['overview', 'collections', 'units', 'worklist', 'reports']) {
+      for (const tab of ['collections', 'units', 'worklist', 'reports']) {
         rerender(<FacilityOperations activeSub={tab} onSubChange={() => {}} />);
         await one();
       }
@@ -247,10 +291,11 @@ describe('Operations module', () => {
       rerender(<FacilityOperations activeSub="revenue" onSubChange={() => {}} />);
       await one();
       await waitFor(() => expect(opsRevenueTenants).toHaveBeenLastCalledWith('fac_b'));
-      // Back on Overview it is still Murrieta.
+      // The Dashboard keeps its own filter bar (B1); back on Units it is still Murrieta.
       rerender(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+      expect(screen.queryByLabelText('Facility')).toBeNull();
+      rerender(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
       expect(facilityValue()).toBe('fac_b');
-      expect(screen.getByText('90.0%')).toBeTruthy();
     } finally {
       isManager = false;
     }
@@ -273,8 +318,8 @@ describe('Operations module', () => {
   });
 
   it('works the facility list from the keyboard, with All Facilities bold on the left edge', async () => {
-    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-    await screen.findByText('Facility Scorecard');
+    render(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
+    await screen.findByLabelText('Facility');
     fireEvent.keyDown(facilityBtn(), { key: 'ArrowDown' });
     const list = screen.getByRole('listbox', { name: 'Facilities' });
     const [all, temecula, murrieta] = within(list).getAllByRole('option');
@@ -291,16 +336,14 @@ describe('Operations module', () => {
     fireEvent.keyDown(list, { key: 'Enter' });
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(facilityValue()).toBe('fac_b');
-    expect(screen.getByText('90.0%')).toBeTruthy();
   });
 
   // Neil (Oct 21): CA vs TX. The State filter narrows the list and what All Facilities means.
   it('filters by state, remembers it, and hides the filter when there is one state', async () => {
     const two = { ...PAYLOAD, facilities: [{ ...PAYLOAD.facilities[0], state: 'CA' }, { ...PAYLOAD.facilities[1], state: 'TX' }] };
     getFacilityOps.mockResolvedValue(two);
-    const { unmount } = render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-    await screen.findByText('Facility Scorecard');
-    const pick = screen.getByLabelText('State');
+    const { unmount } = render(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
+    const pick = await screen.findByLabelText('State');
     expect([...pick.options].map((o) => o.textContent)).toEqual(['All States', 'CA', 'TX']);
     fireEvent.change(pick, { target: { value: 'TX' } });
     expect(localStorage.getItem('nexus.ops.state')).toBe('TX');
@@ -308,11 +351,9 @@ describe('Operations module', () => {
     expect(facilityValue()).toBe('all');
     expect(screen.getByLabelText('Facility')).toHaveTextContent('All TX Facilities');
     expect(facilityOptions()).toEqual(['All TX Facilities', 'Murrieta']);
-    expect(screen.getByText('90.0%')).toBeTruthy();
-    expect(screen.queryByText('Facility Scorecard')).toBeNull();
     unmount();
     // Remembered on this device.
-    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    render(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
     await waitFor(() => expect(screen.getByLabelText('State').value).toBe('TX'));
     expect(facilityOptions()).toEqual(['All TX Facilities', 'Murrieta']);
   });
@@ -320,8 +361,8 @@ describe('Operations module', () => {
   it('shows no State filter when every facility is in one state', async () => {
     getFacilityOps.mockResolvedValue({ ...PAYLOAD, facilities: PAYLOAD.facilities.map((f) => ({ ...f, state: 'CA' })) });
     localStorage.setItem('nexus.ops.state', 'TX');           // a remembered state that is not here reads as All
-    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
-    await screen.findByText('Facility Scorecard');
+    render(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
+    await screen.findByLabelText('Facility');
     expect(screen.queryByLabelText('State')).toBeNull();
     expect(facilityOptions()).toEqual(['All Facilities', 'Temecula', 'Murrieta']);
   });
@@ -332,9 +373,8 @@ describe('Operations module', () => {
     expect(facilityValue()).toBe('fac_a');
     expect(facilityOptions()).toEqual(['Temecula', 'Murrieta']);   // no All on this tab
     await waitFor(() => expect(getOpsRates).toHaveBeenCalledWith('fac_a'));
-    rerender(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    rerender(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
     expect(facilityValue()).toBe('all');
-    expect(screen.getByText('Facility Scorecard')).toBeTruthy();
   });
 
   it('opens the Site Map on the first facility that has a site model', async () => {

@@ -27,6 +27,9 @@ import Tenants from '../operations/Tenants';
 import ThirdPartyPanel from '../operations/ThirdPartyPanel';
 import { isThirdParty } from '../operations/thirdParty';
 import FacilityPicker, { StatePicker } from '../operations/FacilityPicker';
+import { CUSTOM, CustomizeDashboard, DashFilterBar } from '../operations/DashFilterBar';
+import { DEFAULT_CARDS } from '../operations/OpsTabs';
+import { useOpsDashboard } from '../operations/opsPrefs';
 import { useRole } from '../contexts/RoleContext';
 import FullScreenButton, { useFullScreen } from '../components/FullScreenButton';
 import '../operations/ops.css';
@@ -80,6 +83,8 @@ const TABS = [
     // Ranked insights from Cubby's pricing, the rent roll and the market (Visesh,
     // Oct 20) - one menu item per section. Rate Management as Miranda's CMA (Oct 21).
     { key: 'pricing-menu', label: 'Rate Management', Icon: Scale, items: [
+      // The CMA as one input page (B17): every unit type, every competitor's rate and promotion.
+      { key: 'market-cma',          label: 'CMA',                 Icon: Scale },
       { key: 'market',              label: 'CMA Overview',        Icon: Scale },
       { key: 'market-comps',        label: 'Comp Set & Manual Entry', Icon: Users },
       { key: 'market-history',      label: 'Rate History',        Icon: LineChart },
@@ -336,10 +341,28 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
     () => (shown === 'all' ? facilities : facilities.filter((f) => f.id === shown)),
     [facilities, shown],
   );
-  const single = scope.length === 1 ? scope[0] : null;
-  const data = useMemo(() => combine(scope), [scope]);
-  const many = scope.length > 1;
-  const range = useMemo(() => periodRange(period, facilities[0]?.asOf), [period, facilities]);
+  // The Dashboard has its own filter bar (Oct 28 2026 call with Neil, B1): any
+  // set of properties and a preset period or a custom range, kept in the
+  // person's profile; the State and Facility dropdowns stay on every other screen.
+  const [dash, patchDash] = useOpsDashboard();
+  const isDash = screen === 'overview';
+  const dashIds = useMemo(() => (Array.isArray(dash.ids) ? dash.ids.filter((id) => everyFacility.some((f) => f.id === id)) : []),
+    [dash.ids, everyFacility]);
+  const dashPeriod = dash.period === CUSTOM || PERIODS.some((p) => p.key === dash.period) ? dash.period : 'this-month';
+  const customOk = dashPeriod === CUSTOM && dash.from && dash.to && dash.from <= dash.to;
+  const dashScope = useMemo(() => (dashIds.length ? everyFacility.filter((f) => dashIds.includes(f.id)) : everyFacility),
+    [dashIds, everyFacility]);
+  const dashCards = Array.isArray(dash.cards) ? dash.cards : DEFAULT_CARDS;
+  const shownScope = isDash ? dashScope : scope;
+  const single = shownScope.length === 1 ? shownScope[0] : null;
+  const data = useMemo(() => combine(shownScope), [shownScope]);
+  const many = shownScope.length > 1;
+  const range = useMemo(() => {
+    const asOf = facilities[0]?.asOf;
+    if (!isDash) return periodRange(period, asOf);
+    if (customOk) return { key: CUSTOM, label: 'Custom Range', from: dash.from, to: dash.to };
+    return periodRange(dashPeriod === CUSTOM ? 'this-month' : dashPeriod, asOf);
+  }, [isDash, period, facilities, customOk, dash.from, dash.to, dashPeriod]);
 
   const go = (tab, section, filter = null) => {
     setFocus({ section, filter, n: Date.now() });
@@ -405,15 +428,24 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
         <div className="ops-root">
           <div className="ops-bar-top">
             <div className="ops-bar-left">
-              {states.length > 1 && <StatePicker states={states} value={stateOn} onChange={setUsState} />}
-              <FacilityPicker facilities={facilities} value={shown} onChange={setPicked} allowAll={!oneTab}
-                allLabel={stateOn ? `All ${stateOn} Facilities` : 'All Facilities'} />
+              {isDash ? (
+                <DashFilterBar facilities={everyFacility} ids={dashIds} onIds={(ids) => patchDash({ ids })}
+                  period={dashPeriod} onPeriod={(p) => patchDash({ period: p })} from={dash.from} to={dash.to}
+                  onRange={(from, to) => patchDash({ from, to })} />
+              ) : (
+                <>
+                  {states.length > 1 && <StatePicker states={states} value={stateOn} onChange={setUsState} />}
+                  <FacilityPicker facilities={facilities} value={shown} onChange={setPicked} allowAll={!oneTab}
+                    allLabel={stateOn ? `All ${stateOn} Facilities` : 'All Facilities'} />
+                </>
+              )}
             </div>
             <div className="ops-bar-right">
               {/* The Site Map has its own search on the map (units here, tenants anywhere) - one box, not two.
                   Until that map is on screen (loading, failed, no site model) this Lookup stands in. */}
               {(screen !== 'site-map' || !mapSearch) && screen !== 'tenants' && <Lookup />}
-              {!NO_PERIOD.has(screen) && (
+              {isDash && <CustomizeDashboard cards={dashCards} onCards={(cards) => patchDash({ cards })} />}
+              {!NO_PERIOD.has(screen) && !isDash && (
                 <label className="ops-period">
                   <span>Period</span>
                   <select value={period} onChange={(e) => setPeriod(e.target.value)}>
@@ -423,14 +455,21 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
               )}
             </div>
           </div>
+          {isDash && dashPeriod === CUSTOM && !customOk && (
+            <p className="ops-note" role="status">Pick both days of the custom range; until then the figures cover this month.</p>
+          )}
           {!NO_PERIOD.has(screen) && (
             <p className="ops-note">
               Occupancy, rent and balances are as of today. Move-ins, collections and failed payments cover {range.label.toLowerCase()} ({formatDate(range.from)} - {formatDate(range.to)}).
             </p>
           )}
 
-          {screen === 'overview' && <ThirdPartyPanel facilities={scope.filter(isThirdParty)} canUpload={canSeeKeyHint} onSaved={loadThirdParty} />}
-          {screen === 'overview' && <Overview data={data} facilities={facilities} scope={scope} many={many} range={range} focus={focus} go={go} onPick={setPicked} onJump={jump} hours={storeHours} />}
+          {screen === 'overview' && (
+            <Overview data={data} scope={dashScope} many={many} range={range} focus={focus} go={go} onJump={jump} hours={storeHours}
+              trend={state.data.trend} cards={dashCards}
+              onPick={(id) => patchDash({ ids: [id] })}
+              tpm={dashScope.some(isThirdParty) ? <ThirdPartyPanel facilities={dashScope.filter(isThirdParty)} canUpload={canSeeKeyHint} onSaved={loadThirdParty} /> : null} />
+          )}
           {screen === 'collections' && <Collections data={data} scope={scope} trend={state.data.trend} many={many} range={range} focus={focus} go={go} />}
           {screen === 'units' && <Units data={data} many={many} focus={focus} go={go}
             />}

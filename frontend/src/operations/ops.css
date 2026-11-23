@@ -648,3 +648,29 @@ th.num .ops-hf-pop { left: auto; right: 0; }
 .ops-th-hold { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-label); color: var(--ink); }
 /* A state as plain words in the row's line (no pill - Neil, 11/17/2026). */
 .ops-state { display: block; font-size: var(--fs-label); color: var(--muted); }
+
+/* B6 for every table in the module (Oct 28 2026 call): a table's wrapper
+   scrolls by itself past one screen, so its header row stays in view - the
+   ones built by hand (Pricing Insights, the CMA screens, Tenants, the TPM
+   stores) as much as OpsGrid's. Portfolio and Ops Budget draw outside
+   .ops-root, so they are named too. Phones scroll the page instead. */
+@media (min-width: 641px) {
+  .ops-root .req-table-wrapper, .pf-card .req-table-wrapper, .ob-table-wrap, .ops-th-sheet .req-table-wrapper {
+    max-height: calc(100vh - 230px); overflow: auto;
+  }
+  .ops-root .req-table > thead > tr > th, .pf-table > thead > tr > th, .ob-table > thead > tr > th {
+    position: sticky; top: 0; z-index: 2; background: var(--card); box-shadow: inset 0 -1px 0 var(--line);
+  }
+  .ops-root .ops-subrow .req-table-wrapper { max-height: none; }
+}
+
+/* The Dashboard (Oct 28 2026 call): its own filter bar (B1) and the person's
+   cards (B2) - a full card spans the row, two half cards share one. */
+.ops-dash-filters { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.ops-dash-range { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ops-dash-range-l { font-size: var(--fs-label); color: var(--muted); }
+.ops-dash-board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ops-dash-cell { min-width: 0; }
+.ops-dash-cell.is-full { grid-column: 1 / -1; }
+.ops-dash-cell > .dash-card { height: 100%; margin: 0; }
+@media (max-width: 900px) { .ops-dash-board { grid-template-columns: minmax(0, 1fr); } }

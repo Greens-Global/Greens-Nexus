@@ -19,8 +19,9 @@ import {
   sourceLabel, toCents, usd, varianceText,
 } from './cmaModel';
 
-const CATS = ['Self-Storage', 'Vehicle Storage'];
-const FILTERS = [['all', 'All Unit Types'], ['Self-Storage', 'Self-Storage'], ['Vehicle Storage', 'Vehicle Storage']];
+// Mailboxes are their own group (Oct 28 2026 call, B17).
+export const CATS = ['Self-Storage', 'Vehicle Storage', 'Mailboxes'];
+const FILTERS = [['all', 'All Unit Types'], ...CATS.map((c) => [c, c])];
 const COLS = 19;
 
 const TIPS = {
@@ -99,7 +100,7 @@ function Row({ r, on, onPick, canEdit, onSave }) {
         {r.avgDaysVacant == null ? dash : count(r.avgDaysVacant)}
       </td>
       <td className="num" data-th="Current Standard Rate">{usd(r.set)}</td>
-      <td className="num" data-th="Web Rate">
+      <td className="num" data-th="Web Rate" title={r.algorithmWebRate != null ? 'Rate algorithm' : r.webRate == null ? 'No web rate - standard' : 'From Cubby'}>
         <strong>{usd(web)}</strong>
         <div className="cma-type-sub">{r.algorithmWebRate != null ? 'Rate algorithm' : r.webRate == null ? 'No web rate - standard' : 'From Cubby'}</div>
       </td>
@@ -113,7 +114,7 @@ function Row({ r, on, onPick, canEdit, onSave }) {
         {r.promoCount ? <>Yes ({r.promoCount})<div className="cma-type-sub">{(r.promoBy || []).slice(0, 2).join(', ')}{r.promoBy.length > 2 ? '...' : ''}</div></> : r.competitors ? 'No' : dash}
       </td>
       <td className="num" data-th="Comp Admin Fee">{feeRange(r)}</td>
-      <td data-th="Suggested">
+      <td data-th="Suggested" title={r.why}>
         {r.suggested == null ? dash : (
           <button type="button" className="rm-linkbtn" disabled={!canEdit} onClick={(e) => { e.stopPropagation(); onSave(r, r.suggested); }}
             title={canEdit ? `Use ${usd(r.suggested)} as the proposed rate` : undefined} style={{ fontWeight: 700, color: 'var(--ink)' }}>
