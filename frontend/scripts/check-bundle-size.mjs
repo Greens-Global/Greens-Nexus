@@ -362,7 +362,14 @@ const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE
 // #1091, #1092, #1098-#1100). All lazy app code; first paint unchanged at
 // ~1.75 MB (FIRST_PAINT_KB guards it). 1 MB of headroom over CI (~800 KB over
 // Cloudflare), per Neil's 11/04 "raise it when needed".
-const TOTAL_KB     = 21400 + (NX_SRC_ON ? 350 : 0);
+// Nov 23, 2026: 21400 -> 22400. The same failure a third time: the Oct 28
+// Operations call build (#1248 - Reports Center, OpsGrid, the Dashboard's
+// cards and filters, tenant rate history, the CMA input page) put a stamped
+// Cloudflare build of dev at 21,771 KB against 21,750, so Cloudflare Pages
+// failed and dev.nexus kept the earlier frontend while its API moved on. All
+// of it is lazy Operations code; first paint 1,828 KB (FIRST_PAINT_KB guards
+// it). 1 MB of headroom again, per Neil's 11/04 "raise it when needed".
+const TOTAL_KB     = 22400 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
