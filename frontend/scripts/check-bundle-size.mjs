@@ -361,8 +361,10 @@ const NX_SRC_ON    = process.env.CF_PAGES_BRANCH === 'dev' || !!process.env.VITE
 // Cloudflare build of dev failed here and left the old frontend up (#1089,
 // #1091, #1092, #1098-#1100). All lazy app code; first paint unchanged at
 // ~1.75 MB (FIRST_PAINT_KB guards it). 1 MB of headroom over CI (~800 KB over
-// Cloudflare), per Neil's 11/04 "raise it when needed".
-const TOTAL_KB     = 21400 + (NX_SRC_ON ? 350 : 0);
+// Cloudflare), per Neil's 11/04 "raise it when needed". 21,400 -> 21,800 on
+// 11/23/2026: #1248 (Operations reports) took the build to 21,771 of 21,750 and
+// every dev deploy after it (#1240, #1242) failed here.
+const TOTAL_KB     = 21800 + (NX_SRC_ON ? 350 : 0);
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a
