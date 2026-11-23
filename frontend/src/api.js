@@ -2833,6 +2833,10 @@ export const api = {
   opsRevenuePush:       (id, cid, useCubbyDate = false) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/push`, { method: 'POST', body: JSON.stringify({ use_cubby_date: useCubbyDate }), timeoutMs: 60_000 }),
   opsRevenueExport:     (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/export`),
   opsRevenueLetters:    (id) => reqBlob(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/letters.pdf`),
+  // A tenant's rate history, Cubby's notes and the comments log (Oct 28 2026 call, B16).
+  opsTenantHistory:     (facilityId, key) => req(`/facility-ops/revenue/tenant-history?${new URLSearchParams({ facility_id: facilityId, key })}`),
+  addOpsTenantComment:  (data) => req('/facility-ops/revenue/tenant-comments', { method: 'POST', body: JSON.stringify(data) }),
+  withdrawOpsTenantComment: (id) => req(`/facility-ops/revenue/tenant-comments/${encodeURIComponent(id)}/withdraw`, { method: 'POST' }),
   // Operations: stores another operator runs (CubeSmart, Oct 20 2026). Upload
   // with commit=false is a validation preview; commit=true saves (upsert).
   getThirdPartyFacilities: () => req('/third-party/ops-facilities'),

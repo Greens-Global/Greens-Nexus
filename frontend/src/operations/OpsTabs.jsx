@@ -9,8 +9,9 @@
 // Every figure leads somewhere: a KPI opens the list behind it (`go(tab,
 // section, filter)` - another tab if that is where the list lives), a chart
 // bar filters or narrows, and a tenant's name opens them in Cubby.
-import { useEffect, useState } from 'react';
-import { ArrowUpRight, ChevronLeft, ChevronRight, ExternalLink, Search, X } from 'lucide-react';
+import { useEffect } from 'react';
+import { ArrowUpRight, ExternalLink, X } from 'lucide-react';
+import OpsGrid from './OpsGrid';
 import { formatDate } from '../lib/datetime';
 import { AGING, LEAD_STATUS, OFF_MARKET_REASON, agingLabel, attentionItems, collectionSeries, count, historyWindow, money, pastDueTrend, pct, periodStats, tidy } from './model';
 import { mailboxOccupancy, rentedAll, storageOccupancy, storageRent } from './occupancy';
@@ -78,53 +79,13 @@ const haystack = (r) => SEARCH_KEYS.map((k) => (typeof r[k] === 'string' ? r[k] 
 // A table that never makes the page longer: `limit` rows at a time with a
 // pager, and a search box once there is more than one page (402 off-market
 // units are found by typing the unit, not by scrolling). `columns` is
-// [{ head, cell, num }]; a column with `when: false` is left out.
-function Rows({ columns, rows, empty, limit = 8, label = 'rows' }) {
-  const [page, setPage] = useState(0);
-  const [query, setQuery] = useState('');
-  const cols = columns.filter((c) => c.when !== false);
-  if (!rows.length) return <div className="ops-empty">{empty}</div>;
-  const q = query.trim().toLowerCase();
-  const found = q ? rows.filter((r) => haystack(r).includes(q)) : rows;
-  const pages = Math.max(1, Math.ceil(found.length / limit));
-  const at = Math.min(page, pages - 1);
-  const shown = found.slice(at * limit, at * limit + limit);
-  const paged = rows.length > limit;
-  return (
-    <>
-      {paged && (
-        <label className="ops-search">
-          <Search size={14} aria-hidden="true" />
-          <input type="search" value={query} placeholder={`Search ${count(rows.length)} ${label}`} aria-label={`Search ${label}`}
-            onChange={(e) => { setQuery(e.target.value); setPage(0); }} />
-        </label>
-      )}
-      {shown.length ? (
-        <div className="req-table-wrapper">
-          <table className="req-table stack-table">
-            <thead><tr>{cols.map((c) => <th key={c.head} className={c.num ? 'num' : undefined}>{c.head}</th>)}</tr></thead>
-            <tbody>
-              {shown.map((r, i) => (
-                <tr key={at * limit + i}>{cols.map((c) => <td key={c.head} data-th={c.head} className={c.num ? 'num' : undefined}>{c.cell(r)}</td>)}</tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : <div className="ops-empty">Nothing matches "{query.trim()}".</div>}
-      {paged && (
-        <div className="ops-pager">
-          <span aria-live="polite">
-            {found.length ? `${count(at * limit + 1)}-${count(at * limit + shown.length)} of ${count(found.length)}` : '0 results'}
-            {q && found.length !== rows.length ? ` (${count(rows.length)} in all)` : ''}
-          </span>
-          <span className="ops-pager-btns">
-            <button type="button" className="secondary-btn" onClick={() => setPage(at - 1)} disabled={at === 0} aria-label={`Previous ${label}`}><ChevronLeft size={15} aria-hidden="true" /></button>
-            <button type="button" className="secondary-btn" onClick={() => setPage(at + 1)} disabled={at >= pages - 1} aria-label={`Next ${label}`}><ChevronRight size={15} aria-hidden="true" /></button>
-          </span>
-        </div>
-      )}
-    </>
-  );
+// [{ head, cell, num }]; a column with `when: false` is left out. Since the
+// Oct 28 2026 call (B5 / B6 / B8) it is OpsGrid: the same Columns, sort,
+// filters, frozen header and Export as every table in the module, kept per
+// person under `id`.
+function Rows({ id, title, columns, rows, empty, limit = 8, label = 'rows' }) {
+  return <OpsGrid tableKey={`tabs:${id || label}`} title={title || label} columns={columns} rows={rows} empty={empty} limit={limit} label={label}
+    searchText={haystack} />;
 }
 
 // Rented / vacant / off-market as one thin bar, sized for a table cell.
@@ -142,7 +103,34 @@ const facilityCol = (many) => ({ head: 'Facility', cell: (r) => r.facility, when
 
 // ── Overview ──────────────────────────────────────────────────────────────────
 
-export function Overview({ data, facilities, scope, many, range, focus, go, onPick, onJump, hours = null }) {
+// The Dashboard is the person's own (Oct 28 2026 call with Neil, B2): every
+// card has a key, the person picks which show and in what order (Customize,
+// opsDashboard.jsx), and the choice is kept in their profile. DASH_CARDS is
+// the library; DEFAULT_CARDS is the board before anyone customizes it - the
+// same Overview as before. A full card spans the row, a half card shares it.
+export const DASH_CARDS = [
+  { key: 'kpis', label: 'Headline Figures', about: 'Occupancy, rent roll, past due, autopay and net move-ins.', size: 'full' },
+  { key: 'tpm', label: 'TPM Stores', about: 'The stores another operator runs, from their reports.', size: 'full' },
+  { key: 'units-by-facility', label: 'Units by Facility', about: 'Rented, vacant and off-market storage units per facility.', size: 'half' },
+  { key: 'attention', label: 'Needs Attention', about: 'What is worth a look today.', size: 'half' },
+  { key: 'rented-trend', label: 'Rented Units', about: 'Units rented at each month end.', size: 'half' },
+  { key: 'moves-trend', label: 'Move-Ins and Move-Outs', about: 'By month.', size: 'half' },
+  { key: 'scorecard', label: 'Facility Scorecard', about: 'One line per facility.', size: 'full' },
+  // Cards from the other screens a person may add.
+  { key: 'aging', label: 'Past Due by Age', about: 'The past-due balance in 30-day buckets.', size: 'half' },
+  { key: 'collected', label: 'Collected', about: 'Successful payments over the period.', size: 'half' },
+  { key: 'past-due-trend', label: 'Past-Due Balance Over Time', about: 'One point per day.', size: 'half' },
+  { key: 'past-due', label: 'Tenants Past Due', about: 'Who owes, largest balance first.', size: 'full' },
+  { key: 'failed', label: 'Failed Payments', about: 'Declined or returned payments.', size: 'half' },
+  { key: 'unit-types', label: 'Unit Types', about: 'Occupancy and empty rent by unit type.', size: 'full' },
+  { key: 'below-street', label: 'Tenants Under Street Rate', about: 'Rent-increase candidates.', size: 'half' },
+  { key: 'tasks', label: 'Open Tasks', about: 'From Cubby, earliest due first.', size: 'half' },
+  { key: 'move-outs', label: 'Scheduled Move-Outs', about: 'Units about to come back on the market.', size: 'half' },
+  { key: 'leads', label: 'Open Leads', about: 'Longest wait first.', size: 'half' },
+];
+export const DEFAULT_CARDS = ['kpis', 'tpm', 'units-by-facility', 'attention', 'rented-trend', 'moves-trend', 'scorecard'];
+
+export function Overview({ data, scope, many, range, focus, go, onPick, onJump, hours = null, trend = null, cards = DEFAULT_CARDS, tpm = null }) {
   useScrollTo(focus);
   const occ = storageOccupancy(data.units);
   const boxes = mailboxOccupancy(data.mailboxes);
@@ -151,36 +139,43 @@ export function Overview({ data, facilities, scope, many, range, focus, go, onPi
   const net = stats.moveIns - stats.moveOuts;
   const months = historyWindow(data.history, range);
   const attention = attentionItems(scope);
-  return (
-    <>
-      <div className="kpi-grid">
-        <Kpi label="Storage Occupancy" value={pct(occ.rented, occ.rentable)}
-          sub={`${count(occ.rented)} of ${count(occ.rentable)} rentable units${occ.offMarket ? ` - ${count(occ.offMarket)} off market not counted` : ''}`}
-          to="Show occupancy by unit type" onClick={() => go('units', 'unit-types')} />
-        {boxes && (
-          <Kpi label="Mailbox Occupancy" value={pct(boxes.rented, boxes.total)}
-            sub={`${count(boxes.rented)} of ${count(boxes.total)} mailboxes rented`}
-            to="Show mailboxes by unit type" onClick={() => go('units', 'unit-types')} />
-        )}
-        <Kpi label="Monthly Rent Roll" value={money(data.rent.rentRoll, { compact: true })}
-          sub={renters ? `${money(data.rent.rentRoll / renters)} average per rented unit` : ''}
-          to="Show rent by unit type" onClick={() => go('units', 'unit-types')} />
-        <Kpi label="Past Due" value={money(data.pastDue.total, { compact: true })}
-          sub={joinSub(`${count(data.pastDue.tenants)} tenants`, share(pct(data.pastDue.total, data.rent.rentRoll), "of a month's rent"))}
-          to="Show tenants past due" onClick={() => go('collections', 'past-due')} />
-        <Kpi label="On Autopay" value={pct(data.autoPay, renters, 0)}
-          sub={`${count(data.autoPay)} of ${count(renters)} rented units`}
-          to="Show past-due tenants who are not on autopay" onClick={() => go('collections', 'past-due', 'no-autopay')} />
-        <Kpi label="Net Move-Ins" value={`${net > 0 ? '+' : ''}${net}`}
-          sub={`${count(stats.moveIns)} in, ${count(stats.moveOuts)} out - ${range.label.toLowerCase()}`}
-          to="Show scheduled move-outs and move-ins" onClick={() => go('worklist', 'move-outs')} />
-      </div>
+  const known = new Set(DASH_CARDS.map((c) => c.key));
+  const list = cards.filter((k) => known.has(k));
 
-      <div className="ops-grid-3-2">
+  const render = (key) => {
+    switch (key) {
+      case 'kpis': return (
+        <div className="kpi-grid">
+          <Kpi label="Storage Occupancy" value={pct(occ.rented, occ.rentable)}
+            sub={`${count(occ.rented)} of ${count(occ.rentable)} rentable units${occ.offMarket ? ` - ${count(occ.offMarket)} off market not counted` : ''}`}
+            to="Show occupancy by unit type" onClick={() => go('units', 'unit-types')} />
+          {boxes && (
+            <Kpi label="Mailbox Occupancy" value={pct(boxes.rented, boxes.total)}
+              sub={`${count(boxes.rented)} of ${count(boxes.total)} mailboxes rented`}
+              to="Show mailboxes by unit type" onClick={() => go('units', 'unit-types')} />
+          )}
+          <Kpi label="Monthly Rent Roll" value={money(data.rent.rentRoll, { compact: true })}
+            sub={renters ? `${money(data.rent.rentRoll / renters)} average per rented unit` : ''}
+            to="Show rent by unit type" onClick={() => go('units', 'unit-types')} />
+          <Kpi label="Past Due" value={money(data.pastDue.total, { compact: true })}
+            sub={joinSub(`${count(data.pastDue.tenants)} tenants`, share(pct(data.pastDue.total, data.rent.rentRoll), "of a month's rent"))}
+            to="Show tenants past due" onClick={() => go('collections', 'past-due')} />
+          <Kpi label="On Autopay" value={pct(data.autoPay, renters, 0)}
+            sub={`${count(data.autoPay)} of ${count(renters)} rented units`}
+            to="Show past-due tenants who are not on autopay" onClick={() => go('collections', 'past-due', 'no-autopay')} />
+          <Kpi label="Net Move-Ins" value={`${net > 0 ? '+' : ''}${net}`}
+            sub={`${count(stats.moveIns)} in, ${count(stats.moveOuts)} out - ${range.label.toLowerCase()}`}
+            to="Show scheduled move-outs and move-ins" onClick={() => go('worklist', 'move-outs')} />
+        </div>
+      );
+      case 'tpm': return tpm;
+      case 'units-by-facility': return (
         <Card title="Units by Facility" sub={`${many ? 'Storage units. Select a bar to see only that facility' : 'Rented, vacant and off-market storage units'}${boxes ? '. Mailboxes are counted apart.' : ''}`}
           right={<Legend items={[['Rented', 'var(--ops-s1)'], ['Vacant', 'var(--ops-s2)'], ['Off Market', 'var(--ops-neutral)']]} />}>
           <UnitMixChart facilities={scope} onPick={many ? onPick : undefined} />
         </Card>
+      );
+      case 'attention': return (
         <Card title="Needs Attention" sub="Worth a look today. Select one to open it.">
           {attention.length ? (
             <div className="ops-attn">
@@ -192,25 +187,25 @@ export function Overview({ data, facilities, scope, many, range, focus, go, onPi
             </div>
           ) : <div className="ops-empty">Nothing is flagged right now.</div>}
         </Card>
-      </div>
-
-      <div className="ops-grid-2">
+      );
+      case 'rented-trend': return (
         <Card title="Rented Units" sub={`Units rented at each month end, ${months.length} months`}>
           <RentedTrendChart history={months} />
         </Card>
+      );
+      case 'moves-trend': return (
         <Card title="Move-Ins and Move-Outs" sub={`By month, ${months.length} months`}
           right={<Legend items={[['Move-Ins', 'var(--ops-s1)'], ['Move-Outs', 'var(--ops-s2)']]} />}>
           <MovesChart history={months} />
         </Card>
-      </div>
-
-      {many && (
+      );
+      case 'scorecard': return many ? (
         <Card title="Facility Scorecard" sub="Select a facility for its figures, or a number for the list behind it">
-          <Rows limit={20} label="facilities" empty="No facilities." rows={facilities} columns={[
+          <Rows id="scorecard" title="Facility Scorecard" limit={20} label="facilities" empty="No facilities." rows={scope} columns={[
             { head: 'Facility', cell: (f) => <button type="button" className="ops-cell" onClick={() => onPick(f.id)}>{f.shortName}</button> },
             { head: 'Units', num: true, cell: (f) => count(f.units.total) },
             { head: 'Occupancy', num: true, cell: (f) => { const o = storageOccupancy(f.units); return <button type="button" className="ops-cell" onClick={() => onJump('units', f.shortName, 'unit-types')}>{pct(o.rented, o.rentable)}</button>; } },
-            { head: 'Mailboxes', num: true, when: facilities.some((f) => f.mailboxes?.total), cell: (f) => { const b = mailboxOccupancy(f.mailboxes); return b ? `${pct(b.rented, b.total, 0)} of ${count(b.total)}` : '-'; } },
+            { head: 'Mailboxes', num: true, when: scope.some((f) => f.mailboxes?.total), cell: (f) => { const b = mailboxOccupancy(f.mailboxes); return b ? `${pct(b.rented, b.total, 0)} of ${count(b.total)}` : '-'; } },
             { head: 'Off Market', num: true, cell: (f) => <button type="button" className="ops-cell" onClick={() => onJump('units', f.shortName, 'off-market')}>{count(f.units.unavailable)}</button> },
             { head: 'Rent Roll', num: true, cell: (f) => money(f.rent.rentRoll) },
             { head: 'Past Due', num: true, cell: (f) => <button type="button" className="ops-cell" onClick={() => onJump('collections', f.shortName, 'past-due')}>{money(f.pastDue.total)}</button> },
@@ -221,8 +216,115 @@ export function Overview({ data, facilities, scope, many, range, focus, go, onPi
               cell: (f) => { const c = storeHoursCell(hours, f.id); return <span title={c.title}>{c.text}</span>; } },
           ]} />
         </Card>
-      )}
-    </>
+      ) : null;
+      case 'aging': return (
+        <Card title="Past Due by Age" sub="Select a bar to list the tenants in it. Older balances are darker.">
+          <AgingChart buckets={data.pastDue.buckets} onPick={(k) => go('collections', 'past-due', k)} />
+        </Card>
+      );
+      case 'collected': {
+        const series = collectionSeries(data.payments.daily, range);
+        return (
+          <Card title={series.length && series[0].date.length === 7 ? 'Collected per Month' : 'Collected per Day'} sub={`Successful payments, ${range.label.toLowerCase()}`}>
+            <CollectionsChart daily={series} />
+          </Card>
+        );
+      }
+      case 'past-due-trend': return (
+        <Card title="Past-Due Balance Over Time" sub="One point per day, saved by Nexus">
+          <PastDueTrendChart points={pastDueTrend(trend, scope.map((f) => f.id))} />
+        </Card>
+      );
+      case 'past-due': return (
+        <Card title="Tenants Past Due" sub="Largest balance first. Select a name to open the tenant in Cubby.">
+          <Rows id="dash-past-due" title="Tenants Past Due" label="tenants" empty="Nobody is past due." rows={data.pastDue.rows} columns={[
+            { head: 'Unit', cell: (r) => strong(r.unit) },
+            { head: 'Tenant', cell: (r) => <Tenant row={r} /> },
+            facilityCol(many),
+            { head: 'Amount', num: true, cell: (r) => money(r.amount, { exact: true }) },
+            { head: 'Oldest Balance', cell: (r) => agingLabel(r.oldest) },
+            { head: 'Paid Through', cell: (r) => formatDate(r.paidThrough, '-') },
+            { head: 'Autopay', cell: (r) => (r.autoPay ? 'On' : 'Off') },
+          ]} />
+        </Card>
+      );
+      case 'failed': return (
+        <Card title="Failed Payments" sub="Declined or returned, most recent first (the last 31 days at most).">
+          <Rows id="dash-failed" title="Failed Payments" limit={6} label="payments" empty="No failed payments listed for this period." rows={stats.failedRows} columns={[
+            { head: 'Date', cell: (r) => formatDate(r.date) },
+            { head: 'Tenant', cell: (r) => <Tenant row={r} fallback="Former tenant" /> },
+            facilityCol(many),
+            { head: 'Amount', num: true, cell: (r) => money(r.amount, { exact: true }) },
+            { head: 'Reason', cell: (r) => r.reason || '-' },
+          ]} />
+        </Card>
+      );
+      case 'unit-types': return (
+        <Card title="Unit Types" sub="Most empty rent first.">
+          <Rows id="dash-unit-types" title="Unit Types" label="unit types" empty="No units." rows={data.unitTypes} columns={[
+            { head: 'Unit Type', cell: (t) => strong(t.name) },
+            { head: 'Units', num: true, cell: (t) => count(t.total) },
+            { head: 'Occupancy', num: true, cell: (t) => pct(t.rented, t.total, 0) },
+            { head: 'Vacant', num: true, cell: (t) => count(t.vacant) },
+            { head: 'Street Rate', num: true, cell: (t) => money(t.street) },
+            { head: 'Empty Rent / Month', num: true, cell: (t) => (t.vacantPotential ? money(t.vacantPotential) : '-') },
+          ]} />
+        </Card>
+      );
+      case 'below-street': return (
+        <Card title="Tenants Under Street Rate" sub="Rent-increase candidates, largest gap first">
+          <Rows id="dash-below-street" title="Tenants Under Street Rate" limit={6} label="tenants" empty="Every tenant is at or above the street rate." rows={data.belowStreet} columns={[
+            { head: 'Unit', cell: (r) => strong(r.unit) },
+            { head: 'Tenant', cell: (r) => <Tenant row={r} /> },
+            facilityCol(many),
+            { head: 'Rent', num: true, cell: (r) => money(r.rent) },
+            { head: 'Street', num: true, cell: (r) => money(r.street) },
+            { head: 'Gap', num: true, cell: (r) => money(r.street - r.rent) },
+          ]} />
+        </Card>
+      );
+      case 'tasks': return (
+        <Card title="Open Tasks" sub="From Cubby, earliest due date first">
+          <Rows id="dash-tasks" title="Open Tasks" limit={6} label="tasks" empty="No open tasks." rows={data.tasks.rows} columns={[
+            { head: 'Task', cell: (r) => strong(r.title) },
+            { head: 'Unit', cell: (r) => r.unit || '-' },
+            facilityCol(many),
+            { head: 'Due', cell: (r) => formatDate(r.dueDate, '-') },
+            { head: 'Status', cell: (r) => (r.overdue ? <span style={{ color: 'var(--bad-fg)' }}>Overdue</span> : 'Open') },
+          ]} />
+        </Card>
+      );
+      case 'move-outs': return (
+        <Card title="Scheduled Move-Outs" sub="Units about to come back on the market">
+          <Rows id="dash-move-outs" title="Scheduled Move-Outs" limit={6} label="move-outs" empty="No move-outs scheduled." rows={data.moves.movingOut} columns={[
+            { head: 'Unit', cell: (r) => strong(r.unit) },
+            { head: 'Tenant', cell: (r) => <Tenant row={r} /> },
+            facilityCol(many),
+            { head: 'Moving Out', cell: (r) => formatDate(r.date, '-') },
+          ]} />
+        </Card>
+      );
+      case 'leads': return (
+        <Card title="Open Leads" sub="Longest wait first">
+          <Rows id="dash-leads" title="Open Leads" limit={6} label="leads" empty="No open leads." rows={data.leads.rows} columns={[
+            { head: 'Name', cell: (r) => <Tenant row={r} /> },
+            facilityCol(many),
+            { head: 'Status', cell: (r) => LEAD_STATUS[r.status] || 'Open' },
+            { head: 'Waiting', num: true, cell: (r) => (r.ageDays === 1 ? '1 day' : `${count(r.ageDays)} days`) },
+          ]} />
+        </Card>
+      );
+      default: return null;
+    }
+  };
+
+  const size = Object.fromEntries(DASH_CARDS.map((c) => [c.key, c.size]));
+  const drawn = list.map((k) => [k, render(k)]).filter(([, node]) => node);
+  if (!drawn.length) return <div className="ops-empty">Every card is hidden. Customize to put some back.</div>;
+  return (
+    <div className="ops-dash-board">
+      {drawn.map(([k, node]) => <div key={k} className={`ops-dash-cell is-${size[k] || 'full'}`} data-card={k}>{node}</div>)}
+    </div>
   );
 }
 
@@ -280,7 +382,7 @@ export function Collections({ data, scope, trend, many, range, focus, go }) {
             <X size={13} aria-hidden="true" /><span className="sr-only">Clear filter</span>
           </button>
         )}>
-        <Rows key={filter || 'all'} label="tenants" empty={filter ? 'No tenants match this filter.' : 'Nobody is past due.'} rows={rows} columns={[
+        <Rows id="past-due" title="Tenants Past Due" key={filter || 'all'} label="tenants" empty={filter ? 'No tenants match this filter.' : 'Nobody is past due.'} rows={rows} columns={[
           { head: 'Unit', cell: (r) => strong(r.unit) },
           { head: 'Tenant', cell: (r) => <Tenant row={r} /> },
           facilityCol(many),
@@ -295,7 +397,7 @@ export function Collections({ data, scope, trend, many, range, focus, go }) {
 
       <div className="ops-grid-2">
         <Card id="failed" focus={focus} title="Failed Payments" sub="Declined or returned, most recent first. Listed for the last 31 days; a name opens the tenant in Cubby, where the attempt is under Payments.">
-          <Rows limit={6} label="payments" empty="No failed payments listed for this period." rows={stats.failedRows} columns={[
+          <Rows id="failed" title="Failed Payments" limit={6} label="payments" empty="No failed payments listed for this period." rows={stats.failedRows} columns={[
             { head: 'Date', cell: (r) => formatDate(r.date) },
             { head: 'Tenant', cell: (r) => <Tenant row={r} fallback="Former tenant" /> },
             { head: 'Units Rented', cell: (r) => r.unit || '-' },
@@ -339,7 +441,7 @@ export function Units({ data, many, focus, go }) {
 
       <Card id="unit-types" focus={focus} title="Unit Types" sub="Most empty rent first. The bar shows each type's rented, vacant and off-market units."
         right={<Legend items={[['Rented', 'var(--ops-s1)'], ['Vacant', 'var(--ops-s2)'], ['Off Market', 'var(--ops-neutral)']]} />}>
-        <Rows label="unit types" empty="No units." rows={data.unitTypes} columns={[
+        <Rows id="unit-types" title="Unit Types" label="unit types" empty="No units." rows={data.unitTypes} columns={[
           { head: 'Unit Type', cell: (t) => strong(t.name) },
           { head: 'Units', num: true, cell: (t) => count(t.total) },
           { head: 'Mix', cell: (t) => <MixBar rented={t.rented} vacant={t.vacant} off={t.unavailable} /> },
@@ -354,7 +456,7 @@ export function Units({ data, many, focus, go }) {
 
       <div className="ops-grid-2">
         <Card id="below-street" focus={focus} title="Tenants Under Street Rate" sub="Rent-increase candidates, largest gap first">
-          <Rows limit={6} label="tenants" empty="Every tenant is at or above the street rate." rows={data.belowStreet} columns={[
+          <Rows id="below-street" title="Tenants Under Street Rate" limit={6} label="tenants" empty="Every tenant is at or above the street rate." rows={data.belowStreet} columns={[
             { head: 'Unit', cell: (r) => strong(r.unit) },
             { head: 'Tenant', cell: (r) => <Tenant row={r} /> },
             facilityCol(many),
@@ -365,7 +467,7 @@ export function Units({ data, many, focus, go }) {
           ]} />
         </Card>
         <Card id="off-market" focus={focus} title="Off-Market Units" sub="Storage units that cannot be rented, and why. Mailboxes are not listed.">
-          <Rows limit={6} label="units" empty="Every unit can be rented." rows={data.offMarket} columns={[
+          <Rows id="off-market" title="Off-Market Units" limit={6} label="units" empty="Every unit can be rented." rows={data.offMarket} columns={[
             { head: 'Unit', cell: (r) => strong(r.unit) },
             facilityCol(many),
             { head: 'Unit Type', cell: (r) => r.type },
@@ -416,16 +518,16 @@ export function Worklist({ data, many, focus, go }) {
 
       <div className="ops-grid-2">
         <Card id="locks-place" focus={focus} title="Overlocks to Place" sub="Cubby flags these units as needing a lock">
-          <Rows limit={6} label="units" empty="No units need an overlock." rows={data.locks.toPlace} columns={lockCols} />
+          <Rows id="locks-place" title="Overlocks to Place" limit={6} label="units" empty="No units need an overlock." rows={data.locks.toPlace} columns={lockCols} />
         </Card>
         <Card id="locks-remove" focus={focus} title="Locks to Remove" sub="Paid up, lock still on">
-          <Rows limit={6} label="units" empty="No locks waiting to come off." rows={data.locks.toRemove} columns={lockCols} />
+          <Rows id="locks-remove" title="Locks to Remove" limit={6} label="units" empty="No locks waiting to come off." rows={data.locks.toRemove} columns={lockCols} />
         </Card>
       </div>
 
       <div className="ops-grid-2">
         <Card id="tasks" focus={focus} title="Open Tasks" sub="From Cubby, earliest due date first">
-          <Rows limit={6} label="tasks" empty="No open tasks." rows={data.tasks.rows} columns={[
+          <Rows id="tasks" title="Open Tasks" limit={6} label="tasks" empty="No open tasks." rows={data.tasks.rows} columns={[
             { head: 'Task', cell: (r) => strong(r.title) },
             { head: 'Unit', cell: (r) => r.unit || '-' },
             facilityCol(many),
@@ -434,7 +536,7 @@ export function Worklist({ data, many, focus, go }) {
           ]} />
         </Card>
         <Card id="leads" focus={focus} title="Open Leads" sub="Longest wait first">
-          <Rows limit={6} label="leads" empty="No open leads." rows={data.leads.rows} columns={[
+          <Rows id="leads" title="Open Leads" limit={6} label="leads" empty="No open leads." rows={data.leads.rows} columns={[
             { head: 'Status', cell: (r) => badge(r.status === 'NEW' ? 'status-pending' : r.status === 'RESERVATION' ? 'status-approved' : 'pill-muted', LEAD_STATUS[r.status] || 'Open') },
             { head: 'Name', cell: (r) => <Tenant row={r} /> },
             { head: 'Source', cell: (r) => tidy(r.source) || '-' },
@@ -448,10 +550,10 @@ export function Worklist({ data, many, focus, go }) {
 
       <div className="ops-grid-2">
         <Card id="move-outs" focus={focus} title="Scheduled Move-Outs" sub="Units about to come back on the market">
-          <Rows limit={6} label="move-outs" empty="No move-outs scheduled." rows={data.moves.movingOut} columns={moveCols('Moving Out')} />
+          <Rows id="move-outs" title="Scheduled Move-Outs" limit={6} label="move-outs" empty="No move-outs scheduled." rows={data.moves.movingOut} columns={moveCols('Moving Out')} />
         </Card>
         <Card title="Upcoming Move-Ins" sub="Leases signed with a future start date">
-          <Rows limit={6} label="move-ins" empty="No move-ins booked ahead." rows={data.moves.movingIn} columns={moveCols('Moving In')} />
+          <Rows id="move-ins" title="Upcoming Move-Ins" limit={6} label="move-ins" empty="No move-ins booked ahead." rows={data.moves.movingIn} columns={moveCols('Moving In')} />
         </Card>
       </div>
     </>

@@ -6,11 +6,12 @@
 // (GET /ops-reports/builder/registry) and refuses anything else.
 // Lazy-loaded from Reports.jsx.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, Group, Play, Plus, Save, Send, Share2, Sparkles, Trash2, X } from 'lucide-react';
+import { Group, Play, Plus, Save, Send, Share2, Sparkles, Trash2, X } from 'lucide-react';
 import { api, saveBlob } from '../api';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import ReportTable from './ReportTable';
+import { ExportMenu } from './ColumnsMenu';
 import { MultiPicker, SectionPicker } from './SectionPicker';
 import { dialog } from '../ui/dialog';
 
@@ -330,19 +331,16 @@ export default function ReportBuilder({ scope, facilities }) {
           {current?.canEdit && (
             <button type="button" className="secondary-btn" onClick={() => { setCurrent(null); }}>Save as New</button>
           )}
-          {/* The formatted Excel file (Oct 20); POST /ops-reports/builder/export. */}
-          <button type="button" className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} disabled={!!exporting}
-            onClick={async () => {
-              setExporting('xlsx'); setExportError('');
-              try {
-                const { blob, filename } = await api.opsBuilderExport(fullSpec, current?.name || 'Report Builder', 'xlsx');
-                saveBlob(blob, filename);
-              } catch (err) {
-                setExportError(err?.status === 404 ? 'Excel files are not switched on yet. Use Download CSV under the table.' : (err?.message || 'The file could not be prepared.'));
-              } finally { setExporting(''); }
-            }}>
-            <Download size={14} aria-hidden="true" /> {exporting ? 'Preparing...' : 'Download Excel'}
-          </button>
+          {/* The formatted file (Oct 20); POST /ops-reports/builder/export. Export asks the format (Oct 28 2026, B8). */}
+          <ExportMenu small={false} busy={!!exporting} onPick={async (format) => {
+            setExporting(format); setExportError('');
+            try {
+              const { blob, filename } = await api.opsBuilderExport(fullSpec, current?.name || 'Report Builder', format);
+              saveBlob(blob, filename);
+            } catch (err) {
+              setExportError(err?.status === 404 ? 'Files are not switched on yet. Use Export under the table.' : (err?.message || 'The file could not be prepared.'));
+            } finally { setExporting(''); }
+          }} />
         </div>
         {exportError && <p className="ops-form-error" role="alert" style={{ marginTop: 8 }}>{exportError}</p>}
         <p className="ops-note" style={{ marginTop: 10 }}>Facilities: {one ? one.shortName : 'All Facilities'} (the picker at the top of the page).</p>
@@ -361,7 +359,7 @@ export default function ReportBuilder({ scope, facilities }) {
               </div>
             </div>
           </div>
-          <ReportTable title={current?.name || 'Ops Report'} where={result.data.facility} asOf={result.data.period?.to || result.data.asOf}
+          <ReportTable tableKey={`builder:${current?.id || 'new'}`} title={current?.name || 'Ops Report'} where={result.data.facility} asOf={result.data.period?.to || result.data.asOf}
             columns={result.data.columns} rows={result.data.rows} totals={result.data.totals} empty="Nothing matches. Try a longer period or fewer groups." />
         </div>
       )}

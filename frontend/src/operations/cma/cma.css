@@ -111,3 +111,47 @@
   .cma-toolbar-group, .cma-field { width: 100%; }
   .cma-unit-select { min-width: 0; max-width: none; flex: 1; }
 }
+
+/* Rate Management > CMA (Oct 28 2026 call, B17 / B18): one line per unit
+   type, far more of them on screen. The header rows and the unit type column
+   stay put while the rest scrolls. */
+.cma-matrix-card { padding-top: 12px; }
+.cma-matrix-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; margin-bottom: 6px; }
+.cma-matrix-line { margin: 0; font-size: var(--fs-body); color: var(--muted); }
+.cma-matrix-line strong { color: var(--ink); }
+.cma-matrix-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cma-matrix-select { width: auto; padding: 5px 8px; font-size: var(--fs-body); }
+.cma-matrix-by { width: 130px; padding: 5px 8px; font-size: var(--fs-body); }
+.cma-matrix-wrap { max-height: calc(100vh - 200px); }
+.cma-matrix { font-size: var(--fs-label); border-collapse: separate; border-spacing: 0; }
+.cma-matrix th, .cma-matrix td { padding: 3px 8px; line-height: 1.25; white-space: nowrap; vertical-align: middle; }
+.cma-matrix td { border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.cma-matrix thead th { position: sticky; top: 0; z-index: 3; background: var(--card); font-size: var(--fs-meta); font-weight: 600; color: var(--muted); box-shadow: inset 0 -1px 0 var(--line); }
+.cma-matrix thead tr:nth-child(2) th { top: 22px; }
+.cma-matrix th.num, .cma-matrix td.num { text-align: right; }
+.cma-matrix .cma-mx-type { position: sticky; left: 0; z-index: 2; background: var(--card); text-align: left; max-width: 260px; overflow: hidden; text-overflow: ellipsis; box-shadow: inset -1px 0 0 var(--line); }
+.cma-matrix thead .cma-mx-type { z-index: 4; }
+.cma-matrix td.cma-mx-type { font-weight: 600; color: var(--ink); }
+.cma-mx-sub-name { font-weight: 400; color: var(--muted); }
+.cma-mx-comp { text-align: center; border-left: 1px solid var(--line); color: var(--ink) !important; }
+.cma-mx-mi { color: var(--muted); font-weight: 400; }
+.cma-mx-sub { text-align: center; }
+.cma-matrix td.cma-mx-rate { border-left: 1px solid var(--line); }
+.cma-mx-group > td { background: var(--paper, var(--card)); font-weight: 700; color: var(--ink); font-size: var(--fs-label); padding-top: 5px; padding-bottom: 5px; }
+.cma-mx-n { color: var(--muted); font-weight: 400; }
+.cma-mx-up { color: var(--ok-fg); }
+.cma-mx-down { color: var(--bad-fg, #b91c1c); }
+.cma-mx-even, .cma-mx-empty { color: var(--muted); }
+.cma-mx-promo { max-width: 170px; }
+.cma-mx-promo-t { display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.cma-cell-btn { background: none; border: none; padding: 1px 2px; margin: -1px -2px; border-radius: 4px; font: inherit; color: inherit; cursor: text; text-align: inherit; width: 100%; }
+.cma-cell-btn:hover:not(:disabled) { background: var(--mist); }
+.cma-cell-btn:disabled { cursor: default; }
+.cma-cell-input { width: 92px; padding: 2px 5px; font-size: var(--fs-label); }
+
+/* B18: the CMA Overview's table is compact too - one line per row, the
+   explanations in the tooltips and the side panel. */
+.cma-table th, .cma-table td { padding-top: 4px; padding-bottom: 4px; line-height: 1.25; }
+.cma-table .cma-why { display: none; }
+.cma-table[data-testid="rate-table"] .cma-type-sub { display: none; }
+.cma-table th { text-transform: none; letter-spacing: 0; }

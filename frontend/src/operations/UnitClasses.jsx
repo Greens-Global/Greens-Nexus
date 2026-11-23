@@ -13,17 +13,24 @@ export default function UnitClasses({ rules, canEdit, onSaved }) {
   const [editing, setEditing] = useState(false);
   const [mailbox, setMailbox] = useState('');
   const [excluded, setExcluded] = useState('');
+  // Non-standard units (Oct 28 2026 call, B9): the reports' Exclude Non-Standard Units switch.
+  const [nonstandard, setNonstandard] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   if (!rules) return null;
 
-  const start = () => { setMailbox(words(rules.mailbox)); setExcluded(words(rules.excluded)); setError(''); setEditing(true); };
+  const start = () => {
+    setMailbox(words(rules.mailbox)); setExcluded(words(rules.excluded)); setNonstandard(words(rules.nonstandard));
+    setError(''); setEditing(true);
+  };
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
     setError('');
     try {
-      await api.saveOpsUnitClasses({ mailbox: parse(mailbox), excluded: parse(excluded) });
+      // An older server sends no non-standard list: say nothing about it rather than empty it.
+      await api.saveOpsUnitClasses({ mailbox: parse(mailbox), excluded: parse(excluded),
+        ...(rules.nonstandard ? { nonstandard: parse(nonstandard) } : {}) });
       setEditing(false);
       onSaved?.();
     } catch (err) {
@@ -52,6 +59,12 @@ export default function UnitClasses({ rules, canEdit, onSaved }) {
             <span>Not a unit when the unit type contains (comma-separated)</span>
             <input className="form-input" value={excluded} maxLength={600} onChange={(e) => setExcluded(e.target.value)} />
           </label>
+          {rules.nonstandard && (
+            <label style={{ display: 'grid', gap: 4 }}>
+              <span>Non-standard when the unit type contains (comma-separated)</span>
+              <input className="form-input" value={nonstandard} maxLength={600} onChange={(e) => setNonstandard(e.target.value)} />
+            </label>
+          )}
           {error && <div role="alert" style={{ color: 'var(--danger, #b42318)' }}>{error}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="submit" className="primary-btn" disabled={busy}>Save</button>
@@ -62,6 +75,9 @@ export default function UnitClasses({ rules, canEdit, onSaved }) {
         <div style={{ display: 'grid', gap: 4, fontSize: 13 }}>
           <div>Mailbox: the unit type name contains {quoted(rules.mailbox)}. Mailboxes have their own occupancy and are left out of storage occupancy and off market.</div>
           <div>Not counted: the unit type name contains {quoted(rules.excluded)} (records switched off in Cubby).</div>
+          {rules.nonstandard && (
+            <div>Non-standard: the unit type name contains {quoted(rules.nonstandard)}, or the street rate is $1 or less. Counted as before; a report's Exclude Non-Standard Units switch leaves them out.</div>
+          )}
         </div>
       )}
     </div>

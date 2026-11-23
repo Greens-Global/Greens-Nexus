@@ -95,6 +95,9 @@ CATALOG = {
     "balances-summary": ("Balances Summary", "Receivables and Collections",
                          "Receivables, prepaid rent, deposits and credits held per facility through a selected date, "
                          "tenant by tenant.", "cubby", False),
+    "credits-issued": ("Credits Issued", "Receivables and Collections",
+                       "Every credit given and every rent, fee or damage charge waived in the period: facility, tenant, unit, "
+                       "amount, date and the reason Cubby recorded.", "cubby", True),
     "payment-detail": ("Payment Detail", "Receivables and Collections",
                        "Every payment in the period: tenant, units, method, status and amount.", "nexus", True),
     "receipts-summary": ("Receipts Summary", "Receivables and Collections",
@@ -144,19 +147,28 @@ OPTION_DEFS = {
                       "help": "Leaves out every journal that touches the Bad Debt account (write-offs and their recoveries)."},
     "includePrivate": {"label": "Include Private Policies", "type": "bool", "default": False,
                        "help": "Also lists leases covered by the tenant's own insurance policy instead of the facility plan."},
+    "excludeMailboxes": {"label": "Exclude Mailboxes", "type": "bool", "default": False,
+                         "help": "Leaves out units whose unit type is a mailbox (Settings > Operations > Unit Classes)."},
+    "excludeNonStandard": {"label": "Exclude Non-Standard Units", "type": "bool", "default": False,
+                           "help": "Leaves out units that are not storage anyone shops for: $0 Business Class, the dump station, "
+                                   "residential and commercial units, utility rooms, and any unit at $1 or less."},
+    "includeDiscounts": {"label": "Include Discounts and Promotions", "type": "bool", "default": False,
+                         "help": "Also lists the discounts promotions took off rent. They are applied by the promotion, "
+                                 "not issued by anyone."},
     "split": {"label": "Split By", "type": "select", "default": "month",
               "choices": [{"value": "day", "label": "Day"}, {"value": "week", "label": "Week"}, {"value": "month", "label": "Month"},
                           {"value": "quarter", "label": "Quarter"}, {"value": "year", "label": "Year"}],
               "help": "One line per facility for every period of this length."},
 }
 REPORT_OPTIONS = {
-    "facility-portfolio": ["ignoreParking"],
-    "rent-roll": ["occupiedOnly"],
-    "occupancy-statistics": ["ignoreParking"],
-    "gross-potential": ["ignoreParking"],
-    "vacant-units": ["ignoreParking"],
-    "management-summary": ["ignoreParking"],
-    "historical-management-summary": ["split", "ignoreParking"],
+    "facility-portfolio": ["ignoreParking", "excludeMailboxes", "excludeNonStandard"],
+    "rent-roll": ["occupiedOnly", "excludeMailboxes", "excludeNonStandard"],
+    "occupancy-statistics": ["ignoreParking", "excludeMailboxes", "excludeNonStandard"],
+    "gross-potential": ["ignoreParking", "excludeMailboxes", "excludeNonStandard"],
+    "vacant-units": ["ignoreParking", "excludeMailboxes", "excludeNonStandard"],
+    "management-summary": ["ignoreParking", "excludeMailboxes", "excludeNonStandard"],
+    "historical-management-summary": ["split", "ignoreParking", "excludeMailboxes", "excludeNonStandard"],
+    "credits-issued": ["includeDiscounts"],
     "receipts-by-charge-type": ["ignoreBadDebt"],
     "receipts-by-tax-category": ["ignoreBadDebt"],
     "general-ledger-cash": ["ignoreBadDebt"],
@@ -170,7 +182,7 @@ def catalog() -> dict:
                          "pointInTime": k in DATE_REPORTS,
                          "options": [{"key": o, **OPTION_DEFS[o]} for o in REPORT_OPTIONS.get(k, [])]}
                         for k, (t, c, a, s, p) in CATALOG.items()],
-            "aliases": dict(ALIASES)}
+            "aliases": dict(ALIASES), "presets": preset_catalog()}
 
 
 def parse_options(kind: str, raw: dict | None) -> dict:
@@ -299,6 +311,8 @@ class Data:
         self._all_units = None
         self._units = None
         self._names = None
+        self._rules = None
+        self._skipped = None
 
     def rows(self, model, *extra):
         if not self.ids:
@@ -314,10 +328,39 @@ class Data:
         return {k for k, u in self.all_units.items() if _is_parking(u["type"])}
 
     @property
+    def rules(self) -> dict:
+        """The mailbox / non-standard words (ops_unit_classes), read once."""
+        if self._rules is None:
+            import ops_unit_classes as uc
+            try:
+                self._rules = uc.load(self.db)
+            except Exception:  # noqa: BLE001 - a settings blip must not sink a report
+                self._rules = uc.DEFAULTS
+        return self._rules
+
+    def skip_type(self, unit_type: str, street=None) -> bool:
+        """Is a unit of this type (and street rate) left out by the report's
+        switches - Ignore Parking, Exclude Mailboxes, Exclude Non-Standard?"""
+        import ops_unit_classes as uc
+        if self.opts.get("ignoreParking") and _is_parking(unit_type):
+            return True
+        if self.opts.get("excludeMailboxes") and uc.unit_class(unit_type, self.rules) == uc.MAILBOX:
+            return True
+        return bool(self.opts.get("excludeNonStandard") and uc.is_nonstandard(unit_type, street, self.rules))
+
+    @property
+    def skipped(self) -> set:
+        """{(fid, unit_id)} every switch leaves out (empty when none is on)."""
+        if self._skipped is None:
+            on = any(self.opts.get(k) for k in ("ignoreParking", "excludeMailboxes", "excludeNonStandard"))
+            self._skipped = {k for k, u in self.all_units.items() if self.skip_type(u["type"], u["street"])} if on else set()
+        return self._skipped
+
+    @property
     def units(self) -> dict:
-        """all_units without parking when the report ignores it."""
+        """all_units without the units the report's switches leave out."""
         if self._units is None:
-            skip = self.parking
+            skip = self.skipped
             self._units = {k: u for k, u in self.all_units.items() if k not in skip}
         return self._units
 
@@ -355,6 +398,7 @@ class Data:
                     "prepaid": int(rr.get("prepaid") or 0) if status == "RENTED" else 0,
                     "deposit": int(rr.get("deposit") or 0) if status == "RENTED" else 0,
                     "credit": int(rr.get("credit") or 0) if status == "RENTED" else 0,
+                    "lastChange": _iso_day(rr.get("lastRentChangeDate")) if status == "RENTED" else "",
                 }
             self._all_units = out
         return self._all_units
@@ -390,7 +434,7 @@ class Data:
 
     def rentals(self) -> list[dict]:
         out = []
-        skip = self.parking
+        skip = self.skipped
         for r in self.rows(self.m.CubbyRental):
             if (r.facility_id, r.unit_id) in skip:
                 continue
@@ -404,7 +448,9 @@ class Data:
                         "covType": (cov.get("coverageType") or "").upper(), "covAmount": int(cov.get("coverageAmount") or 0),
                         "premium": int(cov.get("premiumAmount") or 0), "covStart": _iso_day(cov.get("startDate")),
                         "policyExpires": _iso_day(d.get("privatePolicyExpirationDate")),
-                        "policyOnFile": bool(d.get("privatePolicyNumber"))})
+                        "policyOnFile": bool(d.get("privatePolicyNumber")),
+                        "nextRentDate": _iso_day(d.get("rentChangeScheduledDate")),
+                        "nextRent": int(d["rentChangeNewRentAmount"]) if d.get("rentChangeNewRentAmount") is not None else None})
         return out
 
     def payments(self, start: str, end: str) -> list[dict]:
@@ -419,10 +465,11 @@ class Data:
 
     def receivables(self) -> list[dict]:
         out = []
-        skip = self.parking
+        skip = self.skipped
         for r in self.rows(self.m.CubbyReceivable):
             d = r.data or {}
-            if skip and ((r.facility_id, r.unit_id) in skip or _is_parking(d.get("pricingGroupName") or "")):
+            if (r.facility_id, r.unit_id) in skip or (
+                    (r.facility_id, r.unit_id) not in self.all_units and self.skip_type(d.get("pricingGroupName") or "")):
                 continue
             by = {x.get("range"): int(x.get("amount") or 0) for x in d.get("ranges") or []}
             out.append({"fid": r.facility_id, "unitId": r.unit_id, "customerId": r.customer_id,
@@ -500,7 +547,7 @@ def _occupancy(d: Data, start, end):
     groups: dict = {}
     for u in d.units.values():
         g = groups.setdefault((u["fid"], u["type"]), {"units": 0, "rented": 0, "vacant": 0, "off": 0, "area": 0, "rentedArea": 0,
-                                                      "streets": [], "rent": 0, "potential": 0})
+                                                      "streets": [], "rent": 0, "potential": 0, "days": []})
         g["units"] += 1
         g["area"] += u["area"]
         g["potential"] += u["street"]
@@ -511,6 +558,9 @@ def _occupancy(d: Data, start, end):
             g["rent"] += u["rent"]
         elif u["status"] == "VACANT":
             g["vacant"] += 1
+            days = _days_vacant(d, u)[1]
+            if days is not None:
+                g["days"].append(days)
         else:
             g["off"] += 1
     cols = [_col("facility", "Facility"), _col("type", "Unit Type"), _col("units", "Units", "int", True),
@@ -519,7 +569,8 @@ def _occupancy(d: Data, start, end):
             _col("rentedArea", "Occupied Sq Ft", "area", True), _col("areaOcc", "Area Occupancy", "pct"),
             _col("street", "Street Rate", "money"), _col("avgRent", "Average Rent", "money"),
             _col("potential", "Gross Potential Rent", "money", True), _col("rent", "Actual Rent", "money", True),
-            _col("econ", "Economic Occupancy", "pct")]
+            _col("econ", "Economic Occupancy", "pct"), _col("avgDaysVacant", "Average Days Vacant", "int"),
+            _col("maxDaysVacant", "Longest Vacant (Days)", "int")]
     rows = []
     for (fid, t), g in sorted(groups.items(), key=lambda kv: (d.fac[kv[0][0]]["short"], kv[0][1])):
         rows.append({**_link(fid), "facility": d.fac[fid]["short"], "type": t, "units": g["units"], "rented": g["rented"],
@@ -527,15 +578,36 @@ def _occupancy(d: Data, start, end):
                      "rentedArea": g["rentedArea"], "areaOcc": _pct(g["rentedArea"], g["area"]),
                      "street": max(set(g["streets"]), key=g["streets"].count) if g["streets"] else 0,
                      "avgRent": round(g["rent"] / g["rented"]) if g["rented"] else None,
-                     "potential": g["potential"], "rent": g["rent"], "econ": _pct(g["rent"], g["potential"])})
-    return cols, rows, []
+                     "potential": g["potential"], "rent": g["rent"], "econ": _pct(g["rent"], g["potential"]),
+                     "avgDaysVacant": round(sum(g["days"]) / len(g["days"])) if g["days"] else None,
+                     "maxDaysVacant": max(g["days"]) if g["days"] else None})
+    return cols, rows, ["Days vacant count from each vacant unit's last move-out in Cubby; a unit never rented in Cubby "
+                        "is left out of both. The Vacant Units report lists every unit with its own count."]
+
+
+def _vacant_since(d: Data) -> dict:
+    """{(fid, unit_id): the last move-out day} - when each unit came empty
+    (B14, vacancy duration). A unit never rented in Cubby has none."""
+    if getattr(d, "_since", None) is None:
+        last_out = {}
+        for r in d.rentals():
+            if r["moveOut"] and r["moveOut"] > last_out.get((r["fid"], r["unitId"]), ""):
+                last_out[(r["fid"], r["unitId"])] = r["moveOut"]
+        d._since = last_out
+    return d._since
+
+
+def _days_vacant(d: Data, u: dict) -> tuple[str, int | None]:
+    """(vacant since, days) for a unit that is not rented; ("", None) for a
+    rented one or one Cubby has never seen rented."""
+    if u["status"] == "RENTED":
+        return "", None
+    since = _vacant_since(d).get((u["fid"], u["id"]), "")
+    return since, ((d.fac[u["fid"]]["today"] - date.fromisoformat(since)).days if since else None)
 
 
 def _vacant(d: Data, start, end):
-    last_out = {}
-    for r in d.rentals():
-        if r["moveOut"] and r["moveOut"] > last_out.get((r["fid"], r["unitId"]), ""):
-            last_out[(r["fid"], r["unitId"])] = r["moveOut"]
+    last_out = _vacant_since(d)
     cols = [_col("facility", "Facility"), _col("unit", "Unit", "unit"), _col("type", "Unit Type"), _col("size", "Size"),
             _col("area", "Area (Sq Ft)", "area", True), _col("street", "Street Rate", "money", True), _col("status", "Status"),
             _col("reason", "Reason"), _col("note", "Note"), _col("vacantSince", "Vacant Since", "date"),
@@ -1444,7 +1516,65 @@ def _historical(d: Data, start, end):
                         "lease's current rent; Units is today's count. Receipts start at the cutover (09/15/2026)."]
 
 
+# ── Credits Issued (Oct 28 2026 call, B13) ───────────────────────────────────
+#
+# Cubby posts every credit to the accrual ledger: GIVEN_CREDITS when someone
+# issues account credit ("Issued credits to account: Referral to ..."), the
+# WAIVED_* accounts when a charge is waived ("Waive: Rent"), DISCOUNTS when a
+# promotion takes money off rent (left out unless asked: nobody issued it).
+# The debit is the credit; a line on the credit side reverses one. USED_CREDITS
+# / CREDITS are a tenant spending credit they already had - not new credit.
+# Cubby's ledger carries no employee on any line (checked on dev, 11/23/2026:
+# no user, creator or employee field on 26,000 cash and accrual lines), so the
+# report says so instead of showing an empty Issued By column.
+
+CREDIT_KINDS = {"GIVEN_CREDITS": "Credit Given", "WAIVED_RENT": "Rent Waived", "WAIVED_FEES": "Fee Waived",
+                "WAIVED_DAMAGE": "Damage Waived"}
+_REASON_PREFIXES = ("issued credits to account:", "waive:", "waived:")
+
+
+def _credit_reason(text: str) -> str:
+    t = (text or "").strip()
+    low = t.lower()
+    for p in _REASON_PREFIXES:
+        if low.startswith(p):
+            return t[len(p):].strip()
+    return t
+
+
+def _credits(d: Data, start, end):
+    lines, warnings, stamp = _gl_lines(d, start, end, "accrual")
+    kinds = dict(CREDIT_KINDS)
+    if d.opts.get("includeDiscounts"):
+        kinds["DISCOUNTS"] = "Discount"
+    rows = []
+    for x in lines:
+        kind = kinds.get(x["account"])
+        amount = x["debit"] - x["credit"]
+        if not kind or not amount:
+            continue
+        uid = x["unitId"] or _unit_id(d, x["fid"], x["unit"])
+        if (x["fid"], uid) in d.skipped:
+            continue
+        rows.append({**_link(x["fid"], x["customerId"], uid), "facility": x["facility"], "date": x["date"],
+                     "tenant": _tenant_label(d, x["fid"], x["customerId"], x["tenant"]), "unit": x["unit"],
+                     "kind": kind if amount > 0 else f"{kind} (Reversed)", "reason": _credit_reason(x["description"]),
+                     "amount": amount})
+    rows.sort(key=lambda r: (r["date"], r["facility"], r["unit"]), reverse=True)
+    cols = [_col("facility", "Facility"), _col("date", "Date", "date"), _col("tenant", "Tenant", "tenant"),
+            _col("unit", "Unit", "unit"), _col("kind", "Kind"), _col("reason", "Reason"),
+            _col("amount", "Amount", "money", True)]
+    notes = warnings + [
+        "From Cubby's accrual ledger: credits given to a tenant's account and charges waived, each on the day it posted. "
+        "A reversed line takes one back.",
+        "Cubby's ledger does not record which employee issued a credit, so this report cannot show who did."]
+    if not d.opts.get("includeDiscounts"):
+        notes.append("Promotion discounts are left out - turn on Include Discounts and Promotions to list them.")
+    return cols, rows, notes, None, stamp
+
+
 BUILDERS = {
+    "credits-issued": _credits,
     "rent-roll": _rent_roll, "aged-receivables": _receivables, "occupancy-statistics": _occupancy,
     "vacant-units": _vacant, "management-summary": _management, "move-in-move-out-detail": _moves,
     "payment-detail": _payment_detail, "receipts-summary": _receipts_summary, "leads-activity": _leads,
@@ -1503,10 +1633,12 @@ def _sum_ar(rows, t):
 
 
 def _sum_occupancy(rows, t):
+    longest = [r["maxDaysVacant"] for r in rows if r.get("maxDaysVacant") is not None]
     return [_s("Units", t.get("units") or 0, "int"), _s("Occupied", t.get("rented") or 0, "int"),
             _s("Unit Occupancy", _pct(t.get("rented") or 0, t.get("units") or 0), "pct"),
             _s("Area Occupancy", _pct(t.get("rentedArea") or 0, t.get("area") or 0), "pct"),
-            _s("Economic Occupancy", _pct(t.get("rent") or 0, t.get("potential") or 0), "pct")]
+            _s("Economic Occupancy", _pct(t.get("rent") or 0, t.get("potential") or 0), "pct"),
+            _s("Longest Vacant (Days)", max(longest) if longest else None, "int")]
 
 
 def _sum_moves(rows, t):
@@ -1562,6 +1694,11 @@ SUMMARIES = {
     "general-ledger-accrual": lambda rows, t: [
         _s("Lines", len(rows), "int"), _s("Debits", t.get("debit") or 0), _s("Credits", t.get("credit") or 0)],
     "move-in-move-out-detail": _sum_moves,
+    "credits-issued": lambda rows, t: [
+        _s("Credits Issued", t.get("amount") or 0), _s("Lines", len(rows), "int"),
+        _s("Credits Given", _sum(rows, "amount", lambda r: r["kind"].startswith("Credit Given"))),
+        _s("Waivers", _sum(rows, "amount", lambda r: "Waived" in r["kind"])),
+        _s("Tenants", len({(r["_f"], r["_c"]) for r in rows if r["_c"]}), "int")],
     "leads-activity": lambda rows, t: [
         _s("New Leads", len(rows), "int"), _s("Converted", _n(rows, lambda r: r["status"] == "Converted"), "int"),
         _s("Conversion", _pct(_n(rows, lambda r: r["status"] == "Converted"), len(rows)), "pct"),
@@ -1576,6 +1713,261 @@ SUMMARIES = {
         _s("Leases", len(rows), "int"), _s("Premium Charged", t.get("charged") or 0), _s("Paid", t.get("paid") or 0),
         _s("Refunded or Failed", t.get("returned") or 0)],
 }
+
+
+# ── Preset columns and the person's columns (Oct 28 2026 call, B5 / B10) ─────
+#
+# A library of ready-made columns any report can take, as Hummingbird had:
+# each is read from the synced Cubby rows for the unit or tenant a report line
+# already points at (`_u` / `_c`), so a line about no one unit (a unit type, a
+# facility) leaves it blank. The person's arrangement - which columns show and
+# in what order, the sort and the column filters - travels as report options
+# (SHAPE_OPTIONS) so a memorized or scheduled report, and every export, comes
+# out exactly as it was on screen.
+
+def _unit_class_label(d: Data, u: dict) -> str:
+    import ops_unit_classes as uc
+    kind = uc.unit_class(u["type"], d.rules)
+    if kind == uc.MAILBOX:
+        return "Mailbox"
+    if kind == uc.EXCLUDED:
+        return "Switched Off"
+    if uc.is_nonstandard(u["type"], u["street"], d.rules):
+        return "Non-Standard"
+    return "Vehicle Storage" if _is_parking(u["type"]) else "Self Storage"
+
+
+def _months_since(d: Data, u: dict, day: str):
+    if not day:
+        return None
+    try:
+        a, b = date.fromisoformat(day), d.fac[u["fid"]]["today"]
+    except (ValueError, KeyError):
+        return None
+    return max(0, (b.year - a.year) * 12 + b.month - a.month - (b.day < a.day))
+
+
+class _PresetCtx:
+    """What the preset getters read, each built once per report."""
+
+    def __init__(self, d: Data):
+        self.d = d
+        self._owed = self._lease = self._tenant = None
+
+    @property
+    def owed(self) -> dict:
+        if self._owed is None:
+            self._owed = defaultdict(int)
+            for r in self.d.receivables():
+                self._owed[(r["fid"], r["unitId"])] += r["total"]
+        return self._owed
+
+    @property
+    def lease(self) -> dict:
+        """{(fid, unit_id): the unit's current lease}."""
+        if self._lease is None:
+            self._lease = {}
+            for r in self.d.rentals():
+                today = self.d.fac[r["fid"]]["today"].isoformat()
+                if not r["moveOut"] or r["moveOut"] > today:
+                    self._lease[(r["fid"], r["unitId"])] = r
+        return self._lease
+
+    @property
+    def tenant(self) -> dict:
+        """{(fid, customer_id): {units, rent, balance}} - every unit they rent now."""
+        if self._tenant is None:
+            out = defaultdict(lambda: {"units": [], "rent": 0, "balance": 0})
+            for u in self.d.all_units.values():
+                if u["customerId"]:
+                    t = out[(u["fid"], u["customerId"])]
+                    t["units"].append(u["name"])
+                    t["rent"] += u["rent"]
+            for r in self.d.receivables():
+                if r["customerId"]:
+                    out[(r["fid"], r["customerId"])]["balance"] += r["total"]
+            self._tenant = dict(out)
+        return self._tenant
+
+
+_COVERAGE = {"ORGANISATION": "Facility Plan", "ORGANIZATION": "Facility Plan", "PRIVATE": "Own Policy"}
+
+
+def _lease_of(c, u) -> dict:
+    return c.lease.get((u["fid"], u["id"])) or {}
+
+
+# key: (label, type, level, getter(ctx, unit or tenant)) - level "unit" reads
+# the unit the line points at, "tenant" the tenant.
+PRESETS = {
+    "unitType": ("Unit Type", "text", "unit", lambda c, u: u["type"]),
+    "unitClass": ("Unit Class", "text", "unit", lambda c, u: _unit_class_label(c.d, u)),
+    "unitSize": ("Size", "text", "unit", lambda c, u: u["size"]),
+    "unitArea": ("Area (Sq Ft)", "area", "unit", lambda c, u: u["area"] or None),
+    "unitStatus": ("Unit Status", "text", "unit", lambda c, u: u["statusLabel"]),
+    "tenantName": ("Tenant Name", "tenant", "unit", lambda c, u: u["tenant"]),
+    "streetRate": ("Street Rate", "money", "unit", lambda c, u: u["street"]),
+    "monthlyRent": ("Monthly Rent", "money", "unit", lambda c, u: u["rent"] if u["status"] == "RENTED" else None),
+    "rentVsStreet": ("Rent vs Street", "money", "unit",
+                     lambda c, u: (u["rent"] - u["street"]) if u["status"] == "RENTED" else None),
+    "moveInDate": ("Move-In Date", "date", "unit", lambda c, u: u["moveIn"]),
+    "monthsRented": ("Months Rented", "int", "unit", lambda c, u: _months_since(c.d, u, u["moveIn"])),
+    "paidThrough": ("Paid Through", "date", "unit", lambda c, u: u["paidThrough"]),
+    "autopay": ("Autopay", "text", "unit", lambda c, u: ("Yes" if u["autoPay"] else "No") if u["status"] == "RENTED" else ""),
+    "overlocked": ("Overlocked", "text", "unit", lambda c, u: "Yes" if u["overlocked"] else "No"),
+    "balanceDue": ("Balance Due", "money", "unit",
+                   lambda c, u: c.owed.get((u["fid"], u["id"]), 0) if u["status"] == "RENTED" else None),
+    "prepaid": ("Prepaid", "money", "unit", lambda c, u: u["prepaid"] or None),
+    "depositHeld": ("Deposit Held", "money", "unit", lambda c, u: u["deposit"] or None),
+    "creditOnAccount": ("Credit on Account", "money", "unit", lambda c, u: u["credit"] or None),
+    "lastRentChange": ("Last Rent Change", "date", "unit", lambda c, u: u["lastChange"]),
+    "monthsSinceChange": ("Months Since Rent Change", "int", "unit",
+                          lambda c, u: _months_since(c.d, u, u["lastChange"] or u["moveIn"]) if u["status"] == "RENTED" else None),
+    "nextRentDate": ("Next Rent Change", "date", "unit", lambda c, u: _lease_of(c, u).get("nextRentDate", "")),
+    "nextRent": ("Next Rent", "money", "unit", lambda c, u: _lease_of(c, u).get("nextRent")),
+    "coverage": ("Coverage", "text", "unit", lambda c, u: _COVERAGE.get(_lease_of(c, u).get("covType", ""), "")),
+    "premium": ("Monthly Premium", "money", "unit", lambda c, u: _lease_of(c, u).get("premium") or None),
+    "vacantSince": ("Vacant Since", "date", "unit", lambda c, u: _days_vacant(c.d, u)[0]),
+    "daysVacant": ("Days Vacant", "int", "unit", lambda c, u: _days_vacant(c.d, u)[1]),
+    "tenantUnits": ("Units Rented by Tenant", "text", "tenant", lambda c, t: ", ".join(sorted(t["units"]))),
+    "tenantUnitCount": ("Number of Units Rented", "int", "tenant", lambda c, t: len(t["units"]) or None),
+    "tenantRent": ("Tenant Monthly Rent", "money", "tenant", lambda c, t: t["rent"] or None),
+    "tenantBalance": ("Tenant Balance Due", "money", "tenant", lambda c, t: t["balance"]),
+}
+PRESET_TOTALS = {"money"}
+PRESET_PREFIX = "p_"
+
+# Report options that shape the table rather than pick its data. Strings, so
+# they ride the same simple options as every switch (routers/ops_reports._options).
+SHAPE_OPTIONS = ("addColumns", "showColumns", "hideColumns", "sortBy", "filters")
+MAX_SHAPE_LEN = 2000
+
+
+def preset_catalog() -> list[dict]:
+    return [{"key": k, "column": PRESET_PREFIX + k, "label": lbl, "type": t, "level": lvl}
+            for k, (lbl, t, lvl, _) in PRESETS.items()]
+
+
+def _keys(raw) -> list[str]:
+    items = raw if isinstance(raw, (list, tuple)) else str(raw or "").split(",")
+    return [k for k in dict.fromkeys(str(x).strip() for x in items) if k][:80]
+
+
+def split_shape(options: dict | None) -> tuple[dict, dict]:
+    """(the report's own options, the shape options)."""
+    options = dict(options or {})
+    shape = {k: options.pop(k) for k in SHAPE_OPTIONS if k in options}
+    for v in shape.values():
+        if isinstance(v, str) and len(v) > MAX_SHAPE_LEN:
+            raise ReportError(422, "That column setup is too long to keep")
+    return options, shape
+
+
+def _add_presets(d: Data, cols: list, rows: list, keys: list[str]) -> list:
+    wanted = [k for k in keys if k in PRESETS]
+    if not wanted:
+        return cols
+    ctx = _PresetCtx(d)
+    have = {c["key"] for c in cols}
+    for k in wanted:
+        label, type_, level, fn = PRESETS[k]
+        key = PRESET_PREFIX + k
+        if key in have:
+            continue
+        cols = cols + [_col(key, label, type_, type_ in PRESET_TOTALS)]
+        for r in rows:
+            v = None
+            if level == "unit" and r.get("_u"):
+                u = d.all_units.get((r.get("_f"), r["_u"]))
+                v = fn(ctx, u) if u else None
+            elif level == "tenant" and r.get("_c"):
+                t = ctx.tenant.get((r.get("_f"), r["_c"]))
+                v = fn(ctx, t) if t else None
+            r[key] = None if v == "" else v
+    return cols
+
+
+def _filters(raw) -> dict:
+    if not raw:
+        return {}
+    if isinstance(raw, str):
+        import json
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raise ReportError(422, "Column filters are a JSON object") from None
+    return raw if isinstance(raw, dict) else {}
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def filter_rows(cols: list, rows: list, raw) -> list:
+    """The column filters a person set (frontend/src/operations/columnControls.js
+    is the same rule): text that contains any of the words (commas between
+    them), a number between `min` and `max` in the column's own units (cents
+    for money), or a list of exact `values`."""
+    spec = _filters(raw)
+    by = {c["key"]: c for c in cols}
+    tests = []
+    for key, f in spec.items():
+        if key not in by or not isinstance(f, dict):
+            continue
+        q = str(f.get("q") or "").strip().lower()
+        lo, hi, vals = _num(f.get("min")), _num(f.get("max")), f.get("values")
+        if isinstance(vals, list) and vals:
+            allowed = {str(x) for x in vals}
+            tests.append(lambda r, k=key, a=allowed: str(r.get(k) if r.get(k) is not None else "") in a)
+        if q:
+            words = [w.strip() for w in q.split(",") if w.strip()]
+            tests.append(lambda r, k=key, w=words: any(x in str(r.get(k) or "").lower() for x in w))
+        if by[key]["type"] == "date":
+            # A date column takes YYYY-MM-DD bounds and compares them as days.
+            dlo, dhi = str(f.get("min") or "")[:10], str(f.get("max") or "")[:10]
+            if dlo:
+                tests.append(lambda r, k=key, lo=dlo: bool(r.get(k)) and str(r[k])[:10] >= lo)
+            if dhi:
+                tests.append(lambda r, k=key, hi=dhi: bool(r.get(k)) and str(r[k])[:10] <= hi)
+            continue
+        if lo is not None:
+            tests.append(lambda r, k=key, lo=lo: _num(r.get(k)) is not None and _num(r.get(k)) >= lo)
+        if hi is not None:
+            tests.append(lambda r, k=key, hi=hi: _num(r.get(k)) is not None and _num(r.get(k)) <= hi)
+    return [r for r in rows if all(t(r) for t in tests)] if tests else rows
+
+
+NUMERIC = {"money", "int", "num", "pct", "area"}
+
+
+def sort_rows(cols: list, rows: list, raw) -> list:
+    """`key:asc` / `key:desc`; blanks last whichever way (as the screen sorts)."""
+    key, _, way = str(raw or "").partition(":")
+    col = next((c for c in cols if c["key"] == key), None)
+    if not col:
+        return rows
+    desc = way.strip().lower() == "desc"
+    has = [r for r in rows if r.get(key) not in (None, "")]
+    blank = [r for r in rows if r.get(key) in (None, "")]
+    if col["type"] in NUMERIC:
+        has.sort(key=lambda r: _num(r[key]) or 0, reverse=desc)
+    else:
+        has.sort(key=lambda r: str(r[key]).casefold(), reverse=desc)
+    return has + blank
+
+
+def show_columns(cols: list, raw, hide=None) -> list:
+    """The columns in the order the person arranged them (`showColumns`: those
+    first, then any column the order does not know - new in a release), less
+    the ones they hid (`hideColumns`); a key not in this report is skipped.
+    The same rule as the screen (columnControls.arrange): never no columns."""
+    keys, hidden = _keys(raw), set(_keys(hide))
+    by = {c["key"]: c for c in cols}
+    ordered = [by[k] for k in keys if k in by] + [c for c in cols if c["key"] not in keys]
+    return [c for c in ordered if c["key"] not in hidden] or ordered[:1]
 
 
 def _facility_label(db, d: Data, picked: bool) -> str:
@@ -1599,7 +1991,8 @@ def run(kind: str, facility_id: str = "", start: str = "", end: str = "",
         raise ReportError(404, "No such report")
     title, category, about, source, timed = meta
     ids = list(dict.fromkeys(i.strip() for i in (facility_ids or []) if i and i.strip())) or ([facility_id] if facility_id else None)
-    opts = parse_options(kind, options)
+    own, shape = split_shape(options)
+    opts = parse_options(kind, own)
     db = SessionLocal()
     try:
         d = Data(db, ids, opts)
@@ -1618,17 +2011,32 @@ def run(kind: str, facility_id: str = "", start: str = "", end: str = "",
             return {**base, "available": False, "columns": [], "rows": [], "totals": {}, "notes": [about],
                     "summary": [_s("Status", "Not Available From Cubby Yet", "text")]}
         out = BUILDERS[kind](d, a, b)
+        cols, rows = out[0], out[1]
+        cols = _add_presets(d, cols, rows, _keys(shape.get("addColumns")))
     finally:
         db.close()
-    cols, rows, notes = out[0], out[1], out[2]
+    notes = out[2]
     total_row = out[3] if len(out) > 3 else None
     fetched = out[4] if len(out) > 4 else ""
     groups = out[5] if len(out) > 5 else {}
     totals = total_row if total_row is not None else _totals(cols, rows)
     fn = SUMMARIES.get(kind)
     summary = (fn(rows, totals, d) if fn is _sum_rent_roll else fn(rows, totals)) if fn else [_s("Rows", len(rows), "int")]
-    return {**base, "available": True, "columns": cols, "rows": rows, "totals": totals, "summary": summary,
-            "notes": notes, "groups": groups, "fetchedAt": fetched or base["syncedAt"]}
+    # The person's arrangement. The headline figures stay the whole report's;
+    # filtered lines get a total of their own, and an added money column a total.
+    every = len(rows)
+    filtered = filter_rows(cols, rows, shape.get("filters"))
+    if len(filtered) != every:
+        rows = filtered
+        totals = _totals(cols, rows)
+    rows = sort_rows(cols, rows, shape.get("sortBy"))
+    for c in cols:
+        if c["total"] and c["key"].startswith(PRESET_PREFIX) and c["key"] not in totals:
+            totals[c["key"]] = sum(r.get(c["key"]) or 0 for r in rows)
+    return {**base, "available": True, "columns": show_columns(cols, shape.get("showColumns"), shape.get("hideColumns")), "allColumns": cols,
+            "rows": rows, "totals": totals, "summary": summary, "notes": notes, "groups": groups,
+            "fetchedAt": fetched or base["syncedAt"], "rowsBeforeFilters": every,
+            "shape": {k: v for k, v in shape.items() if v}}
 
 
 # ── Drill-down ────────────────────────────────────────────────────────────────

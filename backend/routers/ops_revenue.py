@@ -484,3 +484,147 @@ def letters(bid: str, user: dict = Depends(get_current_user), db: Session = Depe
     name = f"Rent Change Notices - {cubby._short({'name': b.facility_name})} - {rev.us_date(b.effective_date).replace('/', '-')}.pdf"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+# ── A tenant's rate history and comments log (Oct 28 2026 call, B16) ─────────
+#
+# Opened from any tenant in Revenue Management. The history is read per call
+# (ops_revenue.rate_history); Cubby's own notes on the lease are read live
+# from Cubby (notes/search - Cubby keeps no note on a rent change itself, so
+# the lease's notes are where its staff write about one) and never stored;
+# Nexus's comments are their own table, kept so the ECRI rules can read them.
+
+import hb_models as hm  # noqa: E402 - the B16 section's own imports
+from auth import level_for  # noqa: E402
+
+MAX_CUBBY_NOTES = 50
+MAX_NOTE_LEN = 2000
+
+
+def _hb_months(db: Session, facility_short: str, t: dict) -> tuple[list, str]:
+    """The tenant's Hummingbird lease (same site, unit and move-in day) and its months."""
+    import hb_history
+    prop = hb_history.property_for(db, facility_short)
+    if prop is None:
+        for p in db.query(hm.HbProperty).all():
+            if p.short_name and p.short_name.lower() in (facility_short or "").lower():
+                prop = p
+                break
+    if prop is None or not t.get("unit") or not t.get("moveIn"):
+        return [], ""
+    unit_ids = [u.id for u in db.query(hm.HbUnit).filter(hm.HbUnit.property_id == prop.id).all()
+                if (u.number or "").strip().upper() == t["unit"].strip().upper()]
+    if not unit_ids:
+        return [], ""
+    lease = (db.query(hm.HbLease).filter(hm.HbLease.property_id == prop.id, hm.HbLease.unit_id.in_(unit_ids),
+                                         hm.HbLease.start_date == t["moveIn"][:10], hm.HbLease.status == 1).first())
+    if lease is None:
+        return [], ""
+    months = db.query(hm.HbLeaseMonth).filter(hm.HbLeaseMonth.lease_id == lease.id).all()
+    return [(m.month, m.rent) for m in months], lease.start_date or ""
+
+
+def _nexus_changes(db: Session, facility_id: str, lease_id: str) -> list[dict]:
+    if not lease_id:
+        return []
+    q = (db.query(models.OpsRevenueChange, models.OpsRevenueBatch)
+         .join(models.OpsRevenueBatch, models.OpsRevenueBatch.id == models.OpsRevenueChange.batch_id)
+         .filter(models.OpsRevenueChange.facility_id == facility_id, models.OpsRevenueChange.lease_id == lease_id,
+                 models.OpsRevenueChange.status.in_(rev.IN_CUBBY), models.OpsRevenueBatch.status != "canceled"))
+    return [{"date": c.cubby_change_date or b.effective_date or "", "from": c.current_cents, "to": c.new_cents}
+            for c, b in q.all()]
+
+
+def _cubby_notes(lease_id: str, customer_id: str) -> tuple[list[dict], str]:
+    """The lease's notes in Cubby (else the tenant's). Blocking; ([], why) when Cubby does not answer."""
+    if not cubby.configured():
+        return [], "Cubby is not connected on this server."
+    where = {"leaseId": lease_id} if lease_id else {"customerId": customer_id} if customer_id else None
+    if where is None:
+        return [], ""
+    try:
+        got = cubby._post("notes/search", where)
+    except cubby.CubbyError as e:
+        return [], f"Cubby did not answer: {e.message}"
+    out = []
+    for n in (got.get("notes") or [])[:MAX_CUBBY_NOTES]:
+        text = str(n.get("text") or "").strip()[:MAX_NOTE_LEN]
+        if text:
+            out.append({"text": text, "createdAt": str(n.get("createdAt") or ""), "createdBy": str(n.get("createdBy") or "")[:120]})
+    out.sort(key=lambda n: n["createdAt"], reverse=True)
+    return out, ""
+
+
+def _comments(db: Session, facility_id: str, t: dict) -> list[dict]:
+    q = db.query(models.OpsTenantComment).filter(models.OpsTenantComment.facility_id == facility_id)
+    q = q.filter(models.OpsTenantComment.lease_id == t["leaseId"]) if t.get("leaseId") else \
+        q.filter(models.OpsTenantComment.customer_id == t.get("customerId", ""), models.OpsTenantComment.unit_id == t.get("unitId", ""))
+    return [{"id": c.id, "text": c.text, "hold": bool(c.hold), "author": c.author_name or c.author_email, "authorEmail": c.author_email,
+             "createdAt": c.created_at, "withdrawn": bool(c.withdrawn_at), "withdrawnAt": c.withdrawn_at}
+            for c in sorted(q.all(), key=lambda c: c.created_at or "", reverse=True)]
+
+
+async def _one_tenant(db: Session, facility_id: str, key: str):
+    fac, today, rows = await _tenants(db, facility_id)
+    t = next((r for r in rows if r["key"] == key), None)
+    if t is None:
+        raise HTTPException(status_code=404, detail="That tenant is not renting at this facility now")
+    return fac, today, t
+
+
+@router.get("/tenant-history")
+async def tenant_history(facility_id: str, key: str, db: Session = Depends(get_db)):
+    fac, today, t = await _one_tenant(db, facility_id, key)
+    short = cubby._short(fac)
+
+    def _build():
+        months, start = _hb_months(db, short, t)
+        nexus = _nexus_changes(db, facility_id, t["leaseId"])
+        strategies = [rev.strategy_dict(s) for s in db.query(models.OpsRevenueStrategy)
+                      .filter(models.OpsRevenueStrategy.active.is_(True)).all()]
+        history = rev.rate_history(t, months, start, nexus, today)
+        return {"history": history, "fromHummingbird": bool(months), "eligibility": rev.eligibility(t, strategies, today),
+                "comments": _comments(db, facility_id, t)}
+    built = await asyncio.to_thread(_build)
+    notes, notes_error = await asyncio.to_thread(_cubby_notes, t["leaseId"], t["customerId"])
+    return {"facilityId": facility_id, "facility": short, "asOf": today.isoformat(), "tenant": t,
+            "upcoming": rev.upcoming(t), "cubbyNotes": notes, "cubbyNotesError": notes_error, **built}
+
+
+class TenantCommentBody(BaseModel):
+    facility_id: str = Field(min_length=1, max_length=80)
+    key: str = Field(min_length=1, max_length=120)
+    text: str = Field(min_length=1, max_length=MAX_NOTE_LEN)
+    hold: bool = False
+
+
+@router.post("/tenant-comments", status_code=201)
+async def add_tenant_comment(body: TenantCommentBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Write the comment first")
+    _, _, t = await _one_tenant(db, body.facility_id, body.key)
+
+    def _save():
+        db.add(models.OpsTenantComment(
+            id=str(uuid.uuid4()), facility_id=body.facility_id, lease_id=t["leaseId"], unit_id=t["unitId"],
+            customer_id=t["customerId"], text=text, hold=body.hold, author_email=(user.get("email") or "").lower(),
+            author_name=user.get("name") or user.get("email") or "", created_at=rev.now_iso()))
+        db.commit()
+        return _comments(db, body.facility_id, t)
+    return {"comments": await asyncio.to_thread(_save)}
+
+
+@router.post("/tenant-comments/{cid}/withdraw")
+def withdraw_tenant_comment(cid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Takes a comment back (its author, or an Administrator). It stays in the log, struck through."""
+    c = db.get(models.OpsTenantComment, cid)
+    if c is None:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    me = (user.get("email") or "").lower()
+    if c.author_email != me and level_for(me, db) < 4:
+        raise HTTPException(status_code=403, detail="Only the person who wrote it can take it back")
+    if not c.withdrawn_at:
+        c.withdrawn_at, c.withdrawn_by = rev.now_iso(), me
+        db.commit()
+    return {"ok": True}

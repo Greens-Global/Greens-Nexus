@@ -25,6 +25,8 @@ import { money } from './model';
 import SectionPicker from './SectionPicker';
 import { csvName, downloadCsv } from './csv';
 import { dialog } from '../ui/dialog';
+import OpsGrid from './OpsGrid';
+import TenantHistory from './TenantHistory';
 
 const cash = (c) => money(c, { exact: true });
 
@@ -36,16 +38,6 @@ export function overUnderPct(t) {
   return Math.round(((t.rent - t.street) / t.street) * 1000) / 10;
 }
 export const overUnderText = (p) => (p == null ? '-' : `${p > 0 ? '+' : ''}${p.toFixed(1)}%`);
-// Under the standard rate reads red; at or over it, the table's own color.
-function OverUnderCell({ t }) {
-  const p = overUnderPct(t);
-  return (
-    <td data-th="Over/Under Standard Rate" className="num" data-under={p != null && p < 0}
-      style={p != null && p < 0 ? { color: 'var(--bad-fg)', fontWeight: 600 } : undefined}>
-      {overUnderText(p)}
-    </td>
-  );
-}
 const signed = (c) => `${c > 0 ? '+' : c < 0 ? '-' : ''}${cash(Math.abs(c))}`;
 const SECTIONS = [
   { key: 'tenants', label: 'Tenants' },
@@ -95,6 +87,13 @@ export function filterTenants(rows, f) {
     return true;
   });
 }
+
+// A tenant's name is the way into their rate history and comments (Oct 28 2026, B16).
+function TenantName({ name, onOpen }) {
+  if (!onOpen) return name || '-';
+  return <button type="button" className="ops-cell" onClick={(e) => { e.stopPropagation(); onOpen(); }} title="Rate history and comments">{name || '-'}</button>;
+}
+const historyKey = (r) => r.leaseId || r.key || (r.unitId ? `unit:${r.unitId}` : '');
 
 function Badge({ map, value }) {
   const [cls, label] = map[value] || ['pill-muted', value];
@@ -251,7 +250,7 @@ function Impact({ totals }) {
   );
 }
 
-function ApplyModal({ facilityId, data, strategies, selected, onClose, onSaved }) {
+function ApplyModal({ facilityId, data, strategies, selected, onClose, onSaved, onTenant }) {
   const [strategyId, setStrategyId] = useState(strategies[0]?.id || 'new');
   const [draft, setDraft] = useState(() => blankStrategy(data.defaults));
   const [scopeType, setScopeType] = useState(selected.length > 1 ? 'tenants' : selected.length === 1 ? 'tenant' : 'unit_type');
@@ -355,7 +354,7 @@ function ApplyModal({ facilityId, data, strategies, selected, onClose, onSaved }
                 <tbody>
                   {result.rows.map((r) => (
                     <tr key={r.key} style={r.eligible ? undefined : { color: 'var(--muted)' }}>
-                      <td>{r.tenant}</td>
+                      <td><TenantName name={r.tenant} onOpen={onTenant ? () => onTenant(historyKey(r), r.tenant) : null} /></td>
                       <td data-th="Unit">{r.unit} <span style={{ color: 'var(--muted)' }}>{r.unitType}</span></td>
                       <td data-th="Current Rate" className="num">{cash(r.rent)}</td>
                       <td data-th="Current Standard Rate" className="num">{cash(r.street)}</td>
@@ -376,7 +375,7 @@ function ApplyModal({ facilityId, data, strategies, selected, onClose, onSaved }
 
 // ── A batch: approve, notices, mark entered in Cubby, applied ────────────────
 
-function BatchModal({ batchId, onClose, onChanged }) {
+function BatchModal({ batchId, onClose, onChanged, onTenant }) {
   const [b, setB] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
@@ -467,7 +466,8 @@ Use Cubby's date?`, { title: 'Use Cubby\'s Date?', confirmText: 'Use Cubby\'s Da
             <tbody>
               {b.changes.map((c) => (
                 <tr key={c.id} style={c.status === 'removed' ? { color: 'var(--muted)', textDecoration: 'line-through' } : undefined}>
-                  <td>{c.url ? <a href={c.url} target="_blank" rel="noreferrer">{c.tenant}</a> : c.tenant}</td>
+                  <td>{onTenant && c.status !== 'removed' ? <TenantName name={c.tenant} onOpen={() => onTenant(historyKey(c), c.tenant)} />
+                    : c.url ? <a href={c.url} target="_blank" rel="noreferrer">{c.tenant}</a> : c.tenant}</td>
                   <td data-th="Unit">{c.unit} <span style={{ color: 'var(--muted)' }}>{c.unitType}</span></td>
                   <td data-th="Current Rate" className="num">{cash(c.rent)}</td>
                   <td data-th="New Rate" className="num">{cash(c.newRent)}</td>
@@ -528,6 +528,8 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
   const [filters, setFilters] = useState({ unitType: '', q: '', underPct: '', stayed: '', noIncrease: '' });
   const [picked, setPicked] = useState(() => new Set());
   const [modal, setModal] = useState(null);   // {kind: 'apply' | 'strategy' | 'batch', ...}
+  const [history, setHistory] = useState(null);   // { key, name } - one tenant's rents (B16)
+  const openHistory = useCallback((key, name) => { if (key) setHistory({ key, name }); }, []);
 
   const loadStrategies = useCallback(async () => {
     try { setStrategies((await api.opsRevenueStrategies()).strategies || []); } catch { /* the tenant table still works */ }
@@ -602,40 +604,35 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
             <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 13 }}>No Increase In
               <input className="form-input" type="number" min="0" value={filters.noIncrease} onChange={setF('noIncrease')} aria-label="No increase in months" style={{ width: 70 }} />Months</label>
           </div>
-          {rows.length === 0 ? <div className="ops-empty">No tenants match these filters.</div> : (
-            <div className="req-table-wrapper">
-              <table className="req-table stack-table">
-                <thead><tr>
-                  <th><input type="checkbox" aria-label="Select all shown" checked={allPicked}
-                    onChange={() => setPicked((s) => { const n = new Set(s); rows.forEach((t) => (allPicked ? n.delete(t.key) : n.add(t.key))); return n; })} /></th>
-                  <th>Tenant</th><th>Unit</th><th>Move-In</th><th className="num">Stay</th><th className="num">Current Rate</th>
-                  <th className="num">Current Standard Rate</th><th className="num">Over/Under Standard Rate</th><th>Last Rent Change</th><th className="num">Balance</th><th>Status</th>
-                </tr></thead>
-                <tbody>
-                  {rows.map((t) => (
-                    <tr key={t.key}>
-                      <td><input type="checkbox" checked={picked.has(t.key)} onChange={() => toggle(t.key)} aria-label={`Select ${t.tenant}`} /></td>
-                      <td>{t.url ? <a href={t.url} target="_blank" rel="noreferrer">{t.tenant}</a> : t.tenant}</td>
-                      <td data-th="Unit">{t.unit} <span style={{ color: 'var(--muted)' }}>{t.unitType}</span></td>
-                      <td data-th="Move-In">{formatDate(t.moveIn, '-')}</td>
-                      <td data-th="Stay" className="num">{stay(t.monthsStayed)}</td>
-                      <td data-th="Current Rate" className="num">{cash(t.rent)}</td>
-                      <td data-th="Current Standard Rate" className="num">{cash(t.street)}</td>
-                      <OverUnderCell t={t} />
-                      <td data-th="Last Rent Change">{t.lastIncrease ? `${formatDate(t.lastIncrease)}${t.lastIncreaseSource === 'nexus' ? ' (Nexus)' : ''}` : 'None'}</td>
-                      <td data-th="Balance" className="num" style={t.pastDue ? { color: 'var(--bad-fg)', fontWeight: 600 } : undefined}>
-                        {t.balance ? `${cash(t.balance)}${t.pastDue ? ' Past Due' : ''}` : '-'}
-                      </td>
-                      <td data-th="Status">
-                        {t.scheduled && <span className="status-badge pill-info" title={`${cash(t.scheduled.amount)} from ${formatDate(t.scheduled.date)}`}>Scheduled in Cubby</span>}
-                        {t.pending && <span className="status-badge status-pending">In a {STATUS[t.pending.status]?.[1] || ''} Batch</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {/* The same column controls as every Operations table (Oct 28 2026, B5); a name opens the rate history (B16). */}
+          <OpsGrid tableKey="revenue:tenants" title={`ECRI Tenants - ${data.facility || ''}`.trim()} where={data.facility} asOf={data.asOf}
+            rows={rows} rowKey={(t) => t.key} label="tenants" search={false} empty="No tenants match these filters."
+            columns={[
+              { key: 'pick', fixed: 'start', label: '', sortable: false, width: 34,
+                headCell: <input type="checkbox" aria-label="Select all shown" checked={allPicked}
+                  onChange={() => setPicked((s) => { const n = new Set(s); rows.forEach((t) => (allPicked ? n.delete(t.key) : n.add(t.key))); return n; })} />,
+                cell: (t) => <input type="checkbox" checked={picked.has(t.key)} onChange={() => toggle(t.key)} aria-label={`Select ${t.tenant}`} /> },
+              { key: 'tenant', label: 'Tenant', value: (t) => t.tenant, cell: (t) => <TenantName name={t.tenant} onOpen={() => openHistory(t.key, t.tenant)} /> },
+              { key: 'unit', label: 'Unit', value: (t) => t.unit, cell: (t) => <>{t.unit} <span style={{ color: 'var(--muted)' }}>{t.unitType}</span></> },
+              { key: 'unitType', label: 'Unit Type', value: (t) => t.unitType, cell: (t) => t.unitType },
+              { key: 'moveIn', label: 'Move-In', type: 'date', value: (t) => t.moveIn, cell: (t) => formatDate(t.moveIn, '-') },
+              { key: 'stay', label: 'Stay (Months)', type: 'int', value: (t) => t.monthsStayed, cell: (t) => stay(t.monthsStayed) },
+              { key: 'rent', label: 'Current Rate', type: 'money', value: (t) => t.rent, cell: (t) => cash(t.rent) },
+              { key: 'street', label: 'Current Standard Rate', type: 'money', value: (t) => t.street, cell: (t) => cash(t.street) },
+              { key: 'overUnder', label: 'Over/Under Standard Rate', type: 'pct', value: (t) => overUnderPct(t),
+                cell: (t) => { const p = overUnderPct(t); return <span data-under={p != null && p < 0} style={p != null && p < 0 ? { color: 'var(--bad-fg)', fontWeight: 600 } : undefined}>{overUnderText(p)}</span>; } },
+              { key: 'lastIncrease', label: 'Last Rent Change', type: 'date', value: (t) => t.lastIncrease,
+                cell: (t) => (t.lastIncrease ? `${formatDate(t.lastIncrease)}${t.lastIncreaseSource === 'nexus' ? ' (Nexus)' : ''}` : 'None') },
+              { key: 'balance', label: 'Balance', type: 'money', value: (t) => t.balance,
+                cell: (t) => (t.balance ? <span style={t.pastDue ? { color: 'var(--bad-fg)', fontWeight: 600 } : undefined}>{`${cash(t.balance)}${t.pastDue ? ' Past Due' : ''}`}</span> : '-') },
+              { key: 'status', label: 'Status', value: (t) => [t.scheduled ? 'Scheduled in Cubby' : '', t.pending ? `In a ${STATUS[t.pending.status]?.[1] || ''} Batch` : ''].filter(Boolean).join(', '),
+                cell: (t) => (
+                  <>
+                    {t.scheduled && <span className="ops-state" title={`${cash(t.scheduled.amount)} from ${formatDate(t.scheduled.date)}`}>Scheduled in Cubby</span>}
+                    {t.pending && <span className="ops-state">In a {STATUS[t.pending.status]?.[1] || ''} Batch</span>}
+                  </>
+                ) },
+            ]} />
         </div>
       )}
 
@@ -650,28 +647,22 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
               <Plus size={14} aria-hidden="true" /> New Strategy
             </button>
           </div>
-          {strategies.length === 0 ? <div className="ops-empty">No strategies yet. Create one to get started.</div> : (
-            <div className="req-table-wrapper">
-              <table className="req-table stack-table">
-                <thead><tr><th>Name</th><th>Rule</th><th>Eligibility</th><th className="num">Notice</th><th aria-label="Actions" /></tr></thead>
-                <tbody>
-                  {strategies.map((s) => (
-                    <tr key={s.id}>
-                      <td style={{ fontWeight: 600 }}>{s.name}</td>
-                      <td data-th="Rule">{s.summary}{s.roundDollar ? ', whole dollars' : ''}</td>
-                      <td data-th="Eligibility">{s.minMonthsIn}+ months in, {s.minMonthsSince}+ months since last increase{s.skipBalance ? ', no balance due' : ''}</td>
-                      <td data-th="Notice" className="num">{s.noticeDays} days</td>
-                      <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                        <button type="button" className="icon-btn" aria-label={`Edit ${s.name}`} onClick={() => setModal({ kind: 'strategy', strategy: s })}><Pencil size={14} /></button>
-                        <button type="button" className="icon-btn" aria-label={`Archive ${s.name}`}
-                          onClick={async () => { if (await dialog.confirm(`Archive ${s.name}? Batches built from it keep it.`, { title: 'Archive Strategy', confirmText: 'Archive' })) { await api.opsRevenueArchiveStrategy(s.id).catch(() => {}); loadStrategies(); } }}><Trash2 size={14} /></button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <OpsGrid tableKey="revenue:strategies" title="ECRI Strategies" rows={strategies} rowKey={(x) => x.id} label="strategies" search={false}
+            empty="No strategies yet. Create one to get started."
+            columns={[
+              { key: 'name', label: 'Name', value: (x) => x.name, cell: (x) => <strong>{x.name}</strong> },
+              { key: 'rule', label: 'Rule', value: (x) => `${x.summary}${x.roundDollar ? ', whole dollars' : ''}`, cell: (x) => `${x.summary}${x.roundDollar ? ', whole dollars' : ''}` },
+              { key: 'eligibility', label: 'Eligibility', value: (x) => `${x.minMonthsIn}+ months in, ${x.minMonthsSince}+ months since last increase${x.skipBalance ? ', no balance due' : ''}`,
+                cell: (x) => `${x.minMonthsIn}+ months in, ${x.minMonthsSince}+ months since last increase${x.skipBalance ? ', no balance due' : ''}` },
+              { key: 'notice', label: 'Notice (Days)', type: 'int', value: (x) => x.noticeDays, cell: (x) => `${x.noticeDays} days` },
+              { key: 'acts', fixed: 'end', label: '', cell: (x) => (
+                <span style={{ whiteSpace: 'nowrap' }}>
+                  <button type="button" className="icon-btn" aria-label={`Edit ${x.name}`} onClick={() => setModal({ kind: 'strategy', strategy: x })}><Pencil size={14} /></button>
+                  <button type="button" className="icon-btn" aria-label={`Archive ${x.name}`}
+                    onClick={async () => { if (await dialog.confirm(`Archive ${x.name}? Batches built from it keep it.`, { title: 'Archive Strategy', confirmText: 'Archive' })) { await api.opsRevenueArchiveStrategy(x.id).catch(() => {}); loadStrategies(); } }}><Trash2 size={14} /></button>
+                </span>
+              ) },
+            ]} />
           <p className="ops-note" style={{ marginTop: 10 }}>Cap: {Object.values(CAP_LABEL).join(', ')}. Notice days are set per strategy (California requires written notice; 30 days by default).</p>
         </div>
       )}
@@ -682,32 +673,21 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
             <div className="dash-card-title">Rent Changes</div>
             <div className="dash-card-sub">Each batch moves Draft, Approved, Notified, Applied. Open one to print notices and get it into Cubby.</div>
           </div></div>
-          {batches.length === 0 ? <div className="ops-empty">No rent changes at this facility yet.</div> : (
-            <div className="req-table-wrapper">
-              <table className="req-table stack-table">
-                <thead><tr>
-                  <th>Created</th><th>Applies To</th><th>Strategy</th><th>Effective</th><th className="num">Tenants</th>
-                  <th className="num">Monthly</th><th className="num">Annual</th><th className="num">In Cubby</th><th>Status</th>
-                </tr></thead>
-                <tbody>
-                  {batches.map((b) => (
-                    <tr key={b.id} onClick={() => setModal({ kind: 'batch', id: b.id })} style={{ cursor: 'pointer' }}>
-                      <td><button type="button" className="ops-link" onClick={(e) => { e.stopPropagation(); setModal({ kind: 'batch', id: b.id }); }}>{formatDate(b.createdAt)}</button>
-                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{b.createdBy}</div></td>
-                      <td data-th="Applies To">{b.scopeLabel}</td>
-                      <td data-th="Strategy">{b.strategyName}</td>
-                      <td data-th="Effective">{formatDate(b.effectiveDate)}</td>
-                      <td data-th="Tenants" className="num">{b.count}</td>
-                      <td data-th="Monthly" className="num">{signed(b.monthlyIncrease)}</td>
-                      <td data-th="Annual" className="num">{signed(b.annualIncrease)}</td>
-                      <td data-th="In Cubby" className="num">{b.inCubby} of {b.count}</td>
-                      <td data-th="Status"><Badge map={STATUS} value={b.status} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <OpsGrid tableKey="revenue:batches" title="Rent Changes" rows={batches} rowKey={(b) => b.id} label="rent changes" search={false}
+            empty="No rent changes at this facility yet." onRowClick={(b) => setModal({ kind: 'batch', id: b.id })}
+            columns={[
+              { key: 'created', label: 'Created', type: 'date', value: (b) => b.createdAt,
+                cell: (b) => (<><button type="button" className="ops-link" onClick={(e) => { e.stopPropagation(); setModal({ kind: 'batch', id: b.id }); }}>{formatDate(b.createdAt)}</button>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>{b.createdBy}</div></>) },
+              { key: 'scope', label: 'Applies To', value: (b) => b.scopeLabel, cell: (b) => b.scopeLabel },
+              { key: 'strategy', label: 'Strategy', value: (b) => b.strategyName, cell: (b) => b.strategyName },
+              { key: 'effective', label: 'Effective', type: 'date', value: (b) => b.effectiveDate, cell: (b) => formatDate(b.effectiveDate) },
+              { key: 'count', label: 'Tenants', type: 'int', value: (b) => b.count, cell: (b) => b.count },
+              { key: 'monthly', label: 'Monthly', type: 'money', value: (b) => b.monthlyIncrease, cell: (b) => signed(b.monthlyIncrease) },
+              { key: 'annual', label: 'Annual', type: 'money', value: (b) => b.annualIncrease, cell: (b) => signed(b.annualIncrease) },
+              { key: 'inCubby', label: 'In Cubby', type: 'int', value: (b) => b.inCubby, cell: (b) => `${b.inCubby} of ${b.count}` },
+              { key: 'status', label: 'Status', value: (b) => STATUS[b.status]?.[1] || b.status, cell: (b) => <Badge map={STATUS} value={b.status} /> },
+            ]} />
         </div>
       )}
 
@@ -717,7 +697,7 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
       )}
       {modal?.kind === 'apply' && data && (
         <ApplyModal facilityId={facilityId} data={data} strategies={strategies} selected={[...picked]}
-          onClose={() => setModal(null)}
+          onClose={() => setModal(null)} onTenant={openHistory}
           onSaved={(batch) => {
             loadStrategies();
             if (!batch) return;                  // a strategy was saved from inside the modal
@@ -727,8 +707,11 @@ export default function Revenue({ facility, section: sectionProp, onSection }) {
           }} />
       )}
       {modal?.kind === 'batch' && (
-        <BatchModal batchId={modal.id} onClose={() => setModal(null)}
+        <BatchModal batchId={modal.id} onClose={() => setModal(null)} onTenant={openHistory}
           onChanged={() => { loadBatches(); load(); }} />
+      )}
+      {history && (
+        <TenantHistory key={history.key} facilityId={facilityId} tenantKey={history.key} name={history.name} onClose={() => setHistory(null)} zIndex={4300} />
       )}
     </div>
   );

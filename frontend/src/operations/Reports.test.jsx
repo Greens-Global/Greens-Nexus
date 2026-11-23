@@ -13,11 +13,15 @@ const api = {
   getPeopleDirectory: vi.fn(), facilityOpsReport: vi.fn(),
   opsReportExport: vi.fn(), opsReportSchedules: vi.fn(), createOpsReportSchedule: vi.fn(), updateOpsReportSchedule: vi.fn(),
   deleteOpsReportSchedule: vi.fn(), sendOpsReportSchedule: vi.fn(),
+  // The person's columns, memorized reports and pins live in their profile (opsPrefs.js).
+  getTaskTablePrefs: vi.fn(), saveTaskTablePrefs: vi.fn(),
 };
 const saveBlob = vi.fn();
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => (...a) => api[k](...a) }), saveBlob: (...a) => saveBlob(...a) }));
 const confirm = vi.fn();
-vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a) } }));
+const prompt = vi.fn();
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirm(...a), prompt: (...a) => prompt(...a) } }));
+const { __setTablePrefsCache } = await import('../tasks/tableCols');
 const downloadCsv = vi.fn();
 vi.mock('./csv', async (orig) => ({ ...(await orig()), downloadCsv: (...a) => downloadCsv(...a) }));
 
@@ -68,7 +72,11 @@ beforeEach(() => {
   downloadCsv.mockReset();
   saveBlob.mockReset();
   confirm.mockReset();
+  prompt.mockReset();
   window.localStorage.clear();
+  __setTablePrefsCache({});
+  api.getTaskTablePrefs.mockResolvedValue({ prefs: {} });
+  api.saveTaskTablePrefs.mockResolvedValue({});
   api.opsReportSchedules.mockResolvedValue([]);
   api.opsReportCatalog.mockResolvedValue(CATALOG);
   api.opsReport.mockImplementation((kind) => Promise.resolve(kind === 'rent-roll' ? RENT_ROLL
@@ -105,13 +113,14 @@ describe('Operations > Reports', () => {
     expect(document.querySelectorAll('.ops-rtable tbody tr')).toHaveLength(1);
     // CSV from the Download menu; before the export endpoint is live it is built here.
     api.opsReportExport.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }));
-    fireEvent.click(screen.getByRole('button', { name: /Download/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
     await waitFor(() => expect(downloadCsv).toHaveBeenCalled());
-    expect(api.opsReportExport).toHaveBeenCalledWith('rent-roll', { facilityIds: [], start: '', end: '', options: undefined, format: 'csv' });
+    // the sort on screen rides along, so the file comes out in the same order
+    expect(api.opsReportExport).toHaveBeenCalledWith('rent-roll', { facilityIds: [], start: '', end: '', options: { sortBy: 'rent:asc' }, format: 'csv' });
     expect(downloadCsv.mock.calls[0][1]).toEqual(['Unit', 'Tenant', 'Monthly Rent', 'Paid Through']);
     expect(downloadCsv.mock.calls[0][2]).toEqual([['B213', 'Ada Sample', '951.08', '09/30/2026'], ['A104', 'Ben Example', '120.00', '10/31/2026']]);
-    fireEvent.click(screen.getByRole('button', { name: 'All Reports' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reports Center' }));
     expect(await screen.findByLabelText('Search Reports')).toBeTruthy();
     expect(screen.getByText('Recent')).toBeTruthy();
   });
@@ -140,7 +149,7 @@ describe('Operations > Reports', () => {
     await waitFor(() => expect(api.opsReport).toHaveBeenCalledWith('move-in-move-out-detail',
       { facilityIds: [], start: '2026-10-01', end: '2026-10-15', options: { ignore_parking: false } }));
     expect(screen.getByText('Current Month: 10/01/2026 - 10/15/2026')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'All Reports' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reports Center' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Inventory Activity' }));
     expect(await screen.findByText(/Retail sales and stock movements/)).toBeTruthy();
   });
@@ -167,7 +176,7 @@ describe('Operations > Reports', () => {
   it('downloads a report for the period, facilities, options and format picked', async () => {
     api.opsReportExport.mockResolvedValue({ blob: new Blob(['x']), filename: 'Move-In Move-Out Detail.pdf' });
     renderReports();
-    fireEvent.click(await screen.findByRole('button', { name: 'Download Move-In / Move-Out Detail' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Export Move-In / Move-Out Detail' }));
     const dialog = await screen.findByRole('dialog', { name: 'Move-In / Move-Out Detail' });
     fireEvent.click(within(dialog).getByLabelText('Previous'));
     expect(within(dialog).getByText('Covers 09/01/2026 - 09/30/2026.')).toBeTruthy();
@@ -177,7 +186,7 @@ describe('Operations > Reports', () => {
     fireEvent.click(within(dialog).getByLabelText('Murrieta'));                     // only Temecula left
     fireEvent.click(within(dialog).getByLabelText(/Ignore Parking Units/));
     fireEvent.click(within(dialog).getByLabelText(/PDF/));
-    fireEvent.click(within(dialog).getByRole('button', { name: /^Download/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Export/ }));
     await waitFor(() => expect(saveBlob).toHaveBeenCalled());
     expect(api.opsReportExport).toHaveBeenCalledWith('move-in-move-out-detail',
       { facilityIds: ['fac_a'], start: '2026-07-01', end: '2026-09-30', options: { ignore_parking: true }, format: 'pdf' });
@@ -280,5 +289,82 @@ describe('report cells', () => {
     expect(csvValue('2026-10-04', 'date')).toBe('10/04/2026');
     const rows = [{ v: 2 }, { v: null }, { v: 10 }];
     expect(sortRows(rows, 'v', true, 'int').map((r) => r.v)).toEqual([10, 2, null]);
+  });
+});
+
+// The Oct 28 2026 call with Neil: the Reports Center (Monthly Required, B12;
+// Memorized Reports, B11), the same column controls on every table (B5),
+// preset columns (B10) and Export (B8).
+describe('Operations > Reports Center', () => {
+  const PRESETS = [{ key: 'unitClass', column: 'p_unitClass', label: 'Unit Class', type: 'text', level: 'unit' },
+    { key: 'tenantBalance', column: 'p_tenantBalance', label: 'Tenant Balance Due', type: 'money', level: 'tenant' }];
+  const CENTER = { ...CATALOG, reports: [...CATALOG.reports,
+    { key: 'credits-issued', title: 'Credits Issued', category: 'Receivables and Collections', about: 'Every credit.', source: 'cubby', period: true }],
+  presets: PRESETS };
+
+  it('pins Monthly Required on top, with Exceptions coming soon, and pins or unpins any report', async () => {
+    api.opsReportCatalog.mockResolvedValue(CENTER);
+    renderReports();
+    const monthly = (await screen.findByRole('heading', { name: 'Monthly Required' })).closest('section');
+    expect(within(monthly).getByText('Credits Issued')).toBeTruthy();
+    expect(within(monthly).getByText('Exceptions')).toBeTruthy();
+    expect(within(monthly).getByText('Coming Soon')).toBeTruthy();
+    expect(within(monthly).queryByRole('button', { name: 'Exceptions' })).toBeNull();   // nothing to open yet
+    fireEvent.click(screen.getByRole('button', { name: 'Pin Rent Roll to Monthly Required' }));
+    expect(within(monthly).getByRole('button', { name: 'Rent Roll' })).toBeTruthy();
+    fireEvent.click(within(monthly).getByRole('button', { name: 'Unpin Credits Issued' }));
+    expect(within(monthly).queryByText('Credits Issued')).toBeNull();
+    await waitFor(() => expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('ops-reports', expect.objectContaining({
+      data: expect.objectContaining({ pinned: ['management-summary', 'ar-activity', 'exceptions', 'occupancy-statistics', 'rent-roll'] }) })));
+  });
+
+  it('memorizes a report with its columns and reruns it in one click', async () => {
+    api.opsReportCatalog.mockResolvedValue(CENTER);
+    prompt.mockResolvedValue('Temecula Rent Roll');
+    renderReports();
+    fireEvent.click(await screen.findByRole('button', { name: 'Rent Roll' }));
+    await screen.findByText('Ada Sample');
+    // hide a column, then memorize
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Columns' })).getByLabelText('Paid Through'));
+    expect(screen.queryByRole('button', { name: 'Paid Through' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Memorize' }));
+    expect(await screen.findByText(/Memorized as Temecula Rent Roll/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reports Center' }));
+    const memo = (await screen.findByRole('heading', { name: 'Memorized Reports' })).closest('section');
+    expect(within(memo).getByText(/Rent Roll - Every facility - 1 hidden/)).toBeTruthy();
+    api.opsReport.mockClear();
+    fireEvent.click(within(memo).getByRole('button', { name: 'Temecula Rent Roll' }));
+    expect(await screen.findByRole('heading', { name: /Temecula Rent Roll/ })).toBeTruthy();
+    await waitFor(() => expect(api.opsReport).toHaveBeenCalledWith('rent-roll', expect.anything()));
+    expect(screen.queryByRole('button', { name: 'Paid Through' })).toBeNull();   // its own columns
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeTruthy();
+  });
+
+  it('adds a preset column from Cubby, filters a column and exports what is shown', async () => {
+    api.opsReportCatalog.mockResolvedValue(CENTER);
+    api.opsReportExport.mockResolvedValue({ blob: new Blob(['x']), filename: 'Rent Roll.xlsx' });
+    renderReports();
+    fireEvent.click(await screen.findByRole('button', { name: 'Rent Roll' }));
+    await screen.findByText('Ada Sample');
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    const cols = screen.getByRole('dialog', { name: 'Columns' });
+    expect(within(cols).getByText('About the Unit')).toBeTruthy();
+    fireEvent.click(within(cols).getByRole('button', { name: /Unit Class/ }));
+    await waitFor(() => expect(api.opsReport).toHaveBeenLastCalledWith('rent-roll', expect.objectContaining({ options: { addColumns: 'unitClass' } })));
+    // the funnel on Monthly Rent: at least $500
+    fireEvent.click(screen.getByRole('button', { name: 'Filter Monthly Rent' }));
+    const from = screen.getByLabelText('Monthly Rent from');
+    fireEvent.change(from, { target: { value: '500' } });
+    fireEvent.blur(from);
+    expect(document.querySelectorAll('.ops-rtable tbody tr')).toHaveLength(1);
+    expect(screen.getByText(/Filtered: Monthly Rent at least \$500.00/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /^Export/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Excel/ }));
+    await waitFor(() => expect(saveBlob).toHaveBeenCalled());
+    const sent = api.opsReportExport.mock.calls[0][1];
+    expect(sent.format).toBe('xlsx');
+    expect(sent.options.addColumns).toBe('unitClass');
+    expect(JSON.parse(sent.options.filters)).toEqual({ rent: { min: 50000 } });
   });
 });

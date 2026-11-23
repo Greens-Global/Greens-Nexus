@@ -3123,6 +3123,8 @@ def _run_migrations():
         "ALTER TABLE ops_revenue_batches ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_revenue_changes ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_revenue_audit ENABLE ROW LEVEL SECURITY",
+        # Revenue Management tenant notes (Oct 28 2026 call, B16) - models.OpsTenantComment.
+        "ALTER TABLE ops_tenant_comments ENABLE ROW LEVEL SECURITY",
         # Third-party managed properties (Operations, Oct 20 2026): CubeSmart's
         # SRE Summary, Daily Flash and rent roll. Five new tables - RLS per
         # CLAUDE.md. third_party_models.py.
