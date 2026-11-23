@@ -1469,7 +1469,7 @@ export const DOCS = [
         title: 'Open and Update an Asset',
         steps: [
           'Click an asset in the portfolio (Tiles, List or the Map), or search for it.',
-          'Use the strip across the top: Overview, Maintenance, Records and Timeline for a property; Overview and Records for a vehicle or equipment. Under Records, pick the collection (for example Warranties or Inspections).',
+          'Use the strip across the top: Overview, Maintenance, Records and Timeline for a property; Overview and Records for a vehicle or equipment. Under Records, pick the collection (for example Warranties or Inspections). Plans & Docs is always first in the list; a collection with nothing in it yet shows as an Add row below.',
           'On the Overview, the Details card holds the asset\'s fields: change them and click Save Changes (Cancel drops them). Rows in Records are added and changed in place.',
           'Only what you changed is saved. If someone else changed the same row first, Nexus keeps theirs, reloads and says so - your version is kept on this device for the session.',
         ],

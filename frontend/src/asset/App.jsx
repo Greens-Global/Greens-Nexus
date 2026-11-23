@@ -8,7 +8,7 @@ import { normLabel, genId, toNumber, snapMap } from './lib/format.js';
 import { editGuard } from './lib/editGuard.js';
 import { makeLogEntry, appendLog, diffChanges, recordDisplayName } from './lib/logging.js';
 import {
-  LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, stripTabsFor, recordLabel, recordHint, assetSub, parseAssetSub,
+  LOG_SECTION_TO_TAB, UNDOABLE_FIELD_KEYS, recordViewsFor, listedRecordViews, stripTabsFor, recordLabel, recordHint, assetSub, parseAssetSub,
   PORTFOLIO_TABS, OVERVIEW_SUB, portfolioSub, parsePortfolioSub, portfolioTabLabel,
 } from './lib/navigation.js';
 import { TIMELINE_FIELDS, permitColumns } from './lib/timelineFields.js';
@@ -928,14 +928,14 @@ export default function App({ activeSub = null, onSubChange = null } = {}) {
   const recordViews = active ? recordViewsFor(assetKind) : [];
   const onRecords = recordViews.includes(view);
   const recCount = (key) => (!active ? 0 : key === 'permit' ? (active.permits || []).length : recordsFor(key).length);
-  const withRows = recordViews.filter((k) => recCount(k) > 0 || k === view);
+  const withRows = listedRecordViews(recordViews, recCount, view);
   const hasTimeline = !!active && ((active.timeline || []).length > 0 || view === 'timeline');
   const openAdd = (coll) => {
     if (coll === 'permit') setModal({ type: 'plist', field: 'permits', index: null, fields: permitColumns(active?.permits) });
     else setModal({ type: 'row', coll, id: null });
   };
   // The asset's tabs (Neil, 11/17/2026): Overview, Maintenance, Records (a dropdown of the
-  // collections that have rows, and "Add ..." for the empty ones), Timeline only when there is
+  // collections that have rows - Plans & Docs always, first - and "Add ..." for the empty ones), Timeline only when there is
   // one, Activity. Vehicles and equipment: Overview, Records, Activity.
   const assetTabs = !active ? [] : stripTabsFor(assetKind).filter(([k]) => k !== 'timeline' || hasTimeline).map(([key, label]) => (key === 'records' ? {
     key: 'records', label,
