@@ -70,31 +70,38 @@ const TABS = [
     // Cubby's own name for it (Miranda, Oct 21); the key stays for links and bookmarks.
     { key: 'worklist',    label: 'Facility Tasks',  Icon: ListChecks },
   ] },
-  // Ranked insights from Cubby's pricing, the rent roll and the market (Visesh,
-  // Oct 20) - same door as Rate Management - one menu item per section.
-  { key: 'pricing-menu', label: 'Pricing', Icon: Scale, items: [
-    // Rate Management as Miranda's CMA: four digestible screens (Oct 21).
-    { key: 'market',              label: 'CMA Overview',        Icon: Scale },
-    { key: 'market-comps',        label: 'Comp Set & Manual Entry', Icon: Users },
-    { key: 'market-history',      label: 'Rate History',        Icon: LineChart },
-    { key: 'market-review',       label: 'Review & Push',       Icon: ArrowUpRight },
-    { key: 'pricing',             label: 'Pricing Insights',    Icon: Lightbulb },
-    { key: 'pricing-competitive', label: 'Competitive Pricing', Icon: Users },
-    { key: 'pricing-trends',      label: 'Trends',              Icon: LineChart },
-    { key: 'pricing-standard',    label: 'Standard Rates',      Icon: Tags },
-    { key: 'pricing-ecri',        label: 'ECRI',                Icon: ArrowUpRight },
-    { key: 'pricing-risk',        label: 'Revenue at Risk',     Icon: ShieldAlert },
-    { key: 'pricing-discounts',   label: 'Discounts',           Icon: Percent },
-  ] },
-  // Rent changes for existing tenants (Neil, Oct 20) - managers and admins, or an Operations Full grant.
-  // "ECRI Management", Cubby's word for it (Miranda, Oct 21: "0 confusion"); the keys stay.
-  { key: 'revenue-menu', label: 'ECRI Management', Icon: TrendingUp, items: [
-    { key: 'revenue',            label: 'Tenants',      Icon: Users },
-    { key: 'revenue-strategies', label: 'Strategies',   Icon: Target },
-    { key: 'revenue-batches',    label: 'Rent Changes', Icon: TrendingUp },
+  // Revenue Management (Oct 28 2026 call with Neil, B15): one menu where
+  // "Pricing" and "ECRI Management" were two. Rate Management holds every
+  // page that was under Pricing (none removed yet - which stay is P9) and ECRI
+  // Management the rent changes for existing tenants. The item keys did not
+  // change, so bookmarks and notification links still land; the old menu keys
+  // open their first page (MENU_ALIASES).
+  { key: 'revenue-management', label: 'Revenue Management', Icon: TrendingUp, items: [
+    // Ranked insights from Cubby's pricing, the rent roll and the market (Visesh,
+    // Oct 20) - one menu item per section. Rate Management as Miranda's CMA (Oct 21).
+    { key: 'pricing-menu', label: 'Rate Management', Icon: Scale, items: [
+      { key: 'market',              label: 'CMA Overview',        Icon: Scale },
+      { key: 'market-comps',        label: 'Comp Set & Manual Entry', Icon: Users },
+      { key: 'market-history',      label: 'Rate History',        Icon: LineChart },
+      { key: 'market-review',       label: 'Review & Push',       Icon: ArrowUpRight },
+      { key: 'pricing',             label: 'Pricing Insights',    Icon: Lightbulb },
+      { key: 'pricing-competitive', label: 'Competitive Pricing', Icon: Users },
+      { key: 'pricing-trends',      label: 'Trends',              Icon: LineChart },
+      { key: 'pricing-standard',    label: 'Standard Rates',      Icon: Tags },
+      { key: 'pricing-ecri',        label: 'ECRI',                Icon: ArrowUpRight },
+      { key: 'pricing-risk',        label: 'Revenue at Risk',     Icon: ShieldAlert },
+      { key: 'pricing-discounts',   label: 'Discounts',           Icon: Percent },
+    ] },
+    // Rent changes for existing tenants (Neil, Oct 20) - managers and admins, or an Operations Full grant.
+    // "ECRI Management", Cubby's word for it (Miranda, Oct 21: "0 confusion"); the keys stay.
+    { key: 'revenue-menu', label: 'ECRI Management', Icon: TrendingUp, items: [
+      { key: 'revenue',            label: 'Tenants',      Icon: Users },
+      { key: 'revenue-strategies', label: 'Strategies',   Icon: Target },
+      { key: 'revenue-batches',    label: 'Rent Changes', Icon: TrendingUp },
+    ] },
   ] },
   { key: 'reports-menu', label: 'Reports', Icon: FileSpreadsheet, items: [
-    { key: 'reports',           label: 'Reports',        Icon: FileSpreadsheet },
+    { key: 'reports',           label: 'Reports Center', Icon: FileSpreadsheet },
     { key: 'reports-scheduled', label: 'Scheduled',      Icon: CalendarClock },
     { key: 'reports-builder',   label: 'Report Builder', Icon: Wrench },
     { key: 'reports-exports',   label: 'Quick Exports',  Icon: Download },
@@ -116,8 +123,11 @@ const screenOf = (key) => {
 };
 // Menu items only managers (and the Operations Full grant) see.
 const MANAGER_ITEMS = new Set(['customer-map']);
-const without = (tabs, keys) => tabs.map((t) => (t.items ? { ...t, items: t.items.filter((i) => !keys.has(i.key)) } : t));
-const STAFF_TABS = without(TABS.filter((t) => t.key !== 'revenue-menu'), MANAGER_ITEMS);
+// Leaves out the keys at any depth (a section inside Revenue Management too);
+// a menu left with nothing in it goes as well.
+const without = (tabs, keys) => tabs.filter((t) => !keys.has(t.key)).map((t) => (t.items ? { ...t, items: without(t.items, keys) } : t))
+  .filter((t) => !t.items || t.items.length);
+const STAFF_TABS = without(TABS, new Set([...MANAGER_ITEMS, 'revenue-menu']));
 // Tenants is in the bar only once /facility-ops/access/me says Tenant Details.
 const TENANT_ITEMS = new Set(['tenants']);
 const TABS_NO_TENANTS = without(TABS, TENANT_ITEMS);
@@ -129,7 +139,18 @@ const viewKey = (screen, view) => (view === SCREEN_VIEWS[screen].first ? screen 
 // choice itself stays All, so the other tabs still see every facility.
 const ONE_FACILITY = new Set(['market', 'revenue', 'site-map']);
 const NO_PERIOD = new Set([...ONE_FACILITY, 'pricing', 'customer-map', 'tenants']);
-const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.key) : [t.key]));
+const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? leafKeys(t.items) : [t.key]));
+// A menu's own key (any depth) -> the first page in it.
+const firstLeaf = (t) => (t.items ? firstLeaf(t.items[0]) : t.key);
+const findMenu = (tabs, key) => {
+  for (const t of tabs) {
+    if (!t.items) continue;
+    if (t.key === key) return t;
+    const hit = findMenu(t.items, key);
+    if (hit) return hit;
+  }
+  return null;
+};
 
 // The facility choice is remembered per viewer on this device and kept across tabs.
 const FACILITY_KEY = 'nexus.ops.facility';
@@ -235,8 +256,8 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   // A menu's own key opens its first item; the old mock tab ids (fms,
   // reputation, site-staff) and anything else unknown open the Overview.
   const leaves = leafKeys(tabs);
-  const group = tabs.find((t) => t.key === activeSub && t.items);
-  const wanted = group ? group.items[0].key : activeSub;
+  const group = findMenu(tabs, activeSub);
+  const wanted = group ? firstLeaf(group) : activeSub;
   // A link straight to Tenants (the phone menu, search, a bookmark) lands on
   // Tenants whoever follows it: the screen itself says when it is not theirs.
   const sub = leaves.includes(wanted) ? wanted
@@ -345,7 +366,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           </button>
         )}
       </ModuleActions>
-      <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>
+      <p style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--muted)' }}>
         {state.data
           ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically. `}<SyncStatus data={state.data} syncing={refreshing} /></>
           : 'Storage facility figures from Cubby'}

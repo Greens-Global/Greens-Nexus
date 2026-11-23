@@ -1,4 +1,4 @@
-// Operations > Reports: the Run / Download dialog. Pick the period, the
+// Operations > Reports: the Run / Export dialog ("Download" became Export, Oct 28 2026, B8). Pick the period, the
 // facilities, the report's own options and a file format, then open the
 // report on screen (Cubby cannot) or download it. The choices are remembered
 // per report in this browser.
@@ -9,20 +9,24 @@ import { csvName, downloadCsv } from './csv';
 import { toCsvRows } from './reportFormat';
 import { resolvePeriod } from './reportPeriod';
 import { saveChoices } from './reportPrefs';
-import { FacilitiesField, FormatField, OptionsField, PeriodField, ReportModal, facilitiesWords } from './reportFields';
+import { FacilitiesField, FormatField, OptionsField, PeriodField, ReportModal, SHAPE_KEYS, facilitiesWords } from './reportFields';
 
-// The request for /run and /export: every facility = [] (all).
-export function requestFor(meta, choices, facilities, today) {
+// The request for /run and /export: every facility = [] (all). `extra` is the
+// column setup (columnControls.shapeOptions) - added columns, order, sort,
+// filters - which the server applies so a file matches the screen.
+export function requestFor(meta, choices, facilities, today, extra = null) {
   const all = choices.facilityIds.length >= facilities.length;
   const { from, to } = meta.period ? resolvePeriod(choices.period, today)
     : { from: '', to: meta.pointInTime && choices.period?.mode === 'past' && choices.period.date ? choices.period.date : '' };
-  return { facilityIds: all ? [] : choices.facilityIds, start: from, end: to, options: meta.options?.length ? choices.options : undefined };
+  const own = Object.fromEntries(Object.entries(meta.options?.length ? (choices.options || {}) : {}).filter(([k]) => !SHAPE_KEYS.includes(k)));
+  const options = { ...own, ...(extra || {}) };
+  return { facilityIds: all ? [] : choices.facilityIds, start: from, end: to, options: Object.keys(options).length ? options : undefined };
 }
 
 // Download as XLSX / PDF / CSV from the server. Before the export endpoint is
 // live (404), a CSV is still built here from the report itself.
-export async function downloadReport(meta, choices, facilities, today) {
-  const params = requestFor(meta, choices, facilities, today);
+export async function downloadReport(meta, choices, facilities, today, extra = null) {
+  const params = requestFor(meta, choices, facilities, today, extra);
   try {
     const { blob, filename } = await api.opsReportExport(meta.key, { ...params, format: choices.format });
     saveBlob(blob, filename);
@@ -39,7 +43,7 @@ export async function downloadReport(meta, choices, facilities, today) {
   }
 }
 
-export default function ReportRunDialog({ meta, mode = 'view', initial, facilities, today, onOpen, onClose }) {
+export default function ReportRunDialog({ meta, mode = 'view', initial, facilities, today, onOpen, onClose, extra = null }) {
   const [choices, setChoices] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -51,7 +55,7 @@ export default function ReportRunDialog({ meta, mode = 'view', initial, faciliti
     saveChoices(meta.key, choices);
     setBusy(true); setError('');
     try {
-      await downloadReport(meta, choices, facilities, today);
+      await downloadReport(meta, choices, facilities, today, extra);
       onClose();
     } catch (err) {
       console.error('Operations report download failed', err);
@@ -70,7 +74,7 @@ export default function ReportRunDialog({ meta, mode = 'view', initial, faciliti
       </button>
       <button type="button" className={primaryDownload ? 'primary-btn' : 'secondary-btn'} disabled={!ok || busy} onClick={download}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <Download size={14} aria-hidden="true" /> {busy ? 'Preparing...' : 'Download'}
+        <Download size={14} aria-hidden="true" /> {busy ? 'Preparing...' : 'Export'}
       </button>
     </>
   );

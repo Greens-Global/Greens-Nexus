@@ -195,7 +195,7 @@ def test_facility_portfolio_has_a_total_and_coverage(client):
     assert a["covered"] == pytest.approx(33.3) and a["delinquency"] == pytest.approx(216.2)
     assert out["totals"]["facility"] == "All Facilities" and out["totals"]["units"] == 6
     noparking = _run(client, "facility-portfolio", facility_id="fac_a", ignoreParking="true")
-    assert noparking["rows"][0]["units"] == 4 and noparking["options"] == {"ignoreParking": True}
+    assert noparking["rows"][0]["units"] == 4 and noparking["options"] == {"ignoreParking": True, "excludeMailboxes": False, "excludeNonStandard": False}
 
 
 def test_gross_potential_identity_and_unit_drill(client):
@@ -262,7 +262,7 @@ def test_every_report_has_a_headline_summary(client):
 
 def test_options_are_whitelisted_and_described(client):
     cat = {r["key"]: r for r in client.get("/ops-reports/catalog").json()["reports"]}
-    assert [o["key"] for o in cat["rent-roll"]["options"]] == ["occupiedOnly"]
+    assert [o["key"] for o in cat["rent-roll"]["options"]] == ["occupiedOnly", "excludeMailboxes", "excludeNonStandard"]
     split = next(o for o in cat["historical-management-summary"]["options"] if o["key"] == "split")
     assert split["type"] == "select" and split["default"] == "month" and {c["value"] for c in split["choices"]} >= {"day", "year"}
     for r in cat.values():
@@ -272,7 +272,7 @@ def test_options_are_whitelisted_and_described(client):
     occ = _run(client, "rent-roll", facility_id="fac_a", occupiedOnly="true")
     assert len(full["rows"]) == 5 and {r["status"] for r in occ["rows"]} == {"Rented"} and len(occ["rows"]) == 3
     assert next(s for s in occ["summary"] if s["label"] == "Units")["value"] == 5         # still out of every unit
-    assert _run(client, "rent-roll", ignoreParking="true")["options"] == {"occupiedOnly": False}   # not this report's: dropped
+    assert _run(client, "rent-roll", ignoreParking="true")["options"] == {"occupiedOnly": False, "excludeMailboxes": False, "excludeNonStandard": False}   # not this report's: dropped
     assert client.get("/ops-reports/run/rent-roll", params={"occupiedOnly": "maybe"}).status_code == 422
     occs = _run(client, "occupancy-statistics", facility_id="fac_a", ignoreParking="1")
     assert not any("Parking" in r["type"] for r in occs["rows"])

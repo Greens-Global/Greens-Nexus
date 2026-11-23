@@ -38,6 +38,8 @@ vi.mock('../api', () => ({ api: {
   opsReportCatalog: () => Promise.resolve({ categories: [], reports: [] }),
   getOpsSiteMapFacilities: () => Promise.resolve([{ facilityId: 'fac_b', modelId: 'm', name: 'Murrieta' }]),
   getOpsStoreHours: (...a) => getOpsStoreHours(...a),
+  // The person's columns, kept in their profile (operations/opsPrefs.js).
+  getTaskTablePrefs: () => Promise.resolve({ prefs: {} }), saveTaskTablePrefs: () => Promise.resolve({}),
 } }));
 // The Site Map tab loads three.js; a stand-in says which facility it was handed,
 // and reports its own search box on screen unless `siteMapReady` is false (still
@@ -184,16 +186,16 @@ describe('Operations module', () => {
 
   // Oct 21 (Visesh): the bar is five dropdowns like Accounting's - every screen
   // and every view inside one is a menu item, never a View box in the page.
-  it('draws the bar as five menus, and a menu item opens its screen and view', async () => {
+  it('draws the bar as four menus, and a menu item opens its screen and view', async () => {
     const onSubChange = vi.fn();
     isManager = true;   // ECRI Management is for managers
     const { rerender } = render(<FacilityOperations activeSub="overview" onSubChange={onSubChange} />);
     await screen.findByText('Facility Scorecard');
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Dashboard', 'Facilities', 'Pricing', 'ECRI Management', 'Reports']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Dashboard', 'Facilities', 'Revenue Management', 'Reports']);
     isManager = false;
     // The view comes from the bar: no View box in the page.
     rerender(<FacilityOperations activeSub="reports-exports" onSubChange={onSubChange} />);
-    expect(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Export Tenants Past Due' })).toBeTruthy();
     expect(screen.queryByLabelText('View')).toBeNull();
     // A menu's own key opens its first item.
     rerender(<FacilityOperations activeSub="facilities" onSubChange={onSubChange} />);
@@ -263,7 +265,8 @@ describe('Operations module', () => {
       const tabs = screen.getAllByRole('tab');
       expect(tabs.find((t) => t.textContent === 'Facilities').dataset.items.split('|')).toContain('Facility Tasks');
       expect(tabs.map((t) => t.dataset.items).join('|')).not.toMatch(/Worklist/);
-      expect(tabs.find((t) => t.textContent === 'ECRI Management')).toBeTruthy();
+      // Revenue Management holds both sections (Oct 28 2026 call, B15).
+      expect(tabs.find((t) => t.textContent === 'Revenue Management').dataset.items.split('|')).toEqual(['Rate Management', 'ECRI Management']);
     } finally {
       isManager = false;
     }
@@ -452,16 +455,20 @@ describe('Operations module', () => {
     facilityOpsReport.mockResolvedValue({ title: 'Rent Roll', asOf: '2026-10-13', columns: ['Unit'], rows: [['A12']] });
     render(<FacilityOperations activeSub="reports-exports" onSubChange={() => {}} />);
     downloadCsv.mockClear();
-    await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' });
+    await screen.findByRole('button', { name: 'Export Tenants Past Due' });
     // The export rows remount when the screen re-renders, so a click can land on
     // a row that just left the page: click again until one lands, never twice.
     await waitFor(() => {
-      if (!downloadCsv.mock.calls.length) fireEvent.click(screen.getByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
+      if (!downloadCsv.mock.calls.length) {
+        fireEvent.click(screen.getByRole('button', { name: 'Export Tenants Past Due' }));
+        fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
+      }
       expect(downloadCsv).toHaveBeenCalledTimes(1);
     });
     expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');
     expect(downloadCsv.mock.calls[0][2]).toHaveLength(2);
-    fireEvent.click(screen.getByRole('button', { name: 'Download Rent Roll as a spreadsheet' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Export Rent Roll' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /CSV/ }));
     await waitFor(() => expect(downloadCsv).toHaveBeenCalledTimes(2));
     expect(facilityOpsReport).toHaveBeenCalledWith('rent-roll', '');
     expect(downloadCsv.mock.calls[1].slice(1)).toEqual([['Unit'], [['A12']]]);

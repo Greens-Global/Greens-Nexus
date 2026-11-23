@@ -1347,8 +1347,8 @@ export const DOCS = [
       {
         title: 'Get a Report by Email',
         steps: [
-          'Open Reports > Reports and find the report (search, or your favorites).',
-          'Open it to read it as a table, or download it as XLSX, PDF or CSV.',
+          'Open Reports > Reports Center and find the report (search, your favorites, or Monthly Required at the top).',
+          'Open it to read it as a table, set its columns and filters, then Export it as Excel, CSV or PDF - or Memorize it to rerun it the same way.',
           'Click Schedule on its row to email it on a schedule to people you pick (once scheduled reports are switched on); Reports > Scheduled lists every schedule, with Send Now.',
         ],
       },
@@ -1356,9 +1356,9 @@ export const DOCS = [
     features: [
       { name: 'Dashboard', desc: 'Overview (units by facility, Needs Attention, rented units over time, move-ins and move-outs, and the Facility Scorecard), Ops Budget (each site against plan and last year), Portfolio (the Daily Flash for any set of properties you pick), Site Map (the facility\'s 3D site model with Occupancy, Days Vacant, Market and Maintenance layers) and Customer Map (where each facility\'s customers live, with the trade area figures - nothing personal behind a dot).' },
       { name: 'Facilities', desc: 'Collections (Past Due by Age, Tenants Past Due, Failed Payments in the last 31 days, the past-due balance over time), Units & Pricing (unit types by empty rent, Tenants Under Street Rate, Off-Market Units with the reason) and Facility Tasks (overlocks to place, locks to remove, open tasks and leads from Cubby, scheduled move-outs and upcoming move-ins).' },
-      { name: 'Pricing', desc: 'The CMA in four screens - CMA Overview, Comp Set & Manual Entry, Rate History, Review & Push - then Pricing Insights (ranked insights from Cubby\'s pricing, the rent roll and the market) with Competitive Pricing, Trends, Standard Rates, ECRI, Revenue at Risk and Discounts. Competitor rates come from the StorTrack feed, each competitor\'s own pricing page (read once a day) and rates people record by hand. The suggested rate is the market median moved by how full we are, held to a 10% step.' },
-      { name: 'ECRI Management', desc: 'Rent changes for existing tenants: Tenants, Strategies and Rent Changes (batches from Draft to Applied). Managers and above, or an Operations Full grant.' },
-      { name: 'Reports', desc: 'Reports (the library: open any report as a table, download XLSX, PDF or CSV), Scheduled (reports emailed on a schedule), Report Builder (your own metrics from a dataset, saved, shared and scheduled) and Quick Exports (every list on the other screens, plus Cubby\'s Rent Roll and Aged Receivables).' },
+      { name: 'Revenue Management', desc: 'One menu with two sections. Rate Management: the CMA in four screens - CMA Overview, Comp Set & Manual Entry, Rate History, Review & Push - then Pricing Insights (ranked insights from Cubby\'s pricing, the rent roll and the market) with Competitive Pricing, Trends, Standard Rates, ECRI, Revenue at Risk and Discounts. Competitor rates come from the StorTrack feed, each competitor\'s own pricing page (read once a day) and rates people record by hand. The suggested rate is the market median moved by how full we are, held to a 10% step.' },
+      { name: 'ECRI Management', desc: 'The second section of Revenue Management - rent changes for existing tenants: Tenants (each with their rate history and a comments log), Strategies and Rent Changes (batches from Draft to Applied). Managers and above, or an Operations Full grant.' },
+      { name: 'Reports', desc: 'Reports Center (Monthly Required pinned on top, your Memorized Reports - a report saved with its filters and columns, rerun in one click - then every report: open it as a table, add preset columns, show, hide, reorder, sort and filter columns, Export as Excel, CSV or PDF), Scheduled (reports emailed on a schedule), Report Builder (your own metrics from a dataset, saved, shared and scheduled) and Quick Exports (every list on the other screens, plus Cubby\'s Rent Roll and Aged Receivables).' },
       { name: 'Find a Unit or Tenant', desc: 'The search box at the top looks across every facility.' },
       { name: 'Refresh', desc: 'Asks Cubby for a fresh copy now. The header shows when the last sync ran.' },
       { name: 'Settings', desc: 'Push to Cubby (off by default) and the Unit Rules - which unit types are mailboxes, and which records are not units at all - are Settings > Operations.' },
