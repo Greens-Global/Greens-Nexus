@@ -29,7 +29,7 @@ const FULL = [
   { view: 'dashboard', label: 'Dashboard' }, { view: 'workday', label: 'Workday' }, { view: 'shifts', label: 'Team' },
   { divider: true },
   { view: 'tasks', label: 'Tasks' }, { view: 'tickets', label: 'Tickets' }, { view: 'files', label: 'Files' },
-  { view: 'documents', label: 'Documents' }, { view: 'credvault', label: 'Credentials' },
+  { view: 'documents', label: 'Documents' }, { view: 'credvault', label: 'Passwords', dashTab: true },
   { divider: true },
   { view: 'property-asset', label: 'Asset Management' }, { view: 'ops', label: 'Construction' }, { view: 'it', label: 'IT' },
   { view: 'inventory', label: 'Item Management' }, { view: 'operations', label: 'Operations' },
@@ -47,7 +47,7 @@ describe('mobile menu folding groups', () => {
   it('folds the groups after Work when there are more than FOLD_AT modules', () => {
     expect(FULL.filter((i) => !i.divider).length).toBeGreaterThan(FOLD_AT);
     render(<MobileMenu open onClose={() => {}} onNavigate={() => {}} activeView="dashboard" />);
-    expect(rowLabels()).toEqual(['Dashboard', 'Workday', 'Team', 'Tasks', 'Tickets', 'Files', 'Documents', 'Credentials']);
+    expect(rowLabels()).toEqual(['Dashboard', 'Workday', 'Team', 'Tasks', 'Tickets', 'Files', 'Documents']);
     for (const name of ['Operations', 'Finance', 'Company', 'System']) {
       expect(group(name).getAttribute('aria-expanded')).toBe('false');
     }

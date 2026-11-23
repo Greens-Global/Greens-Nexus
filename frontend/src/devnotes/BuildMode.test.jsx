@@ -191,4 +191,14 @@ describe('BuildMode', () => {
     await screen.findByText(/Build Mode is off on this screen/, {}, { timeout: 4000 });
     expect(screen.queryByTestId('bm-overlay')).toBeNull();
   });
+
+  // Passwords (the credvault module) is a Dashboard tab since 11/18/2026: the block follows it there.
+  it('is off on the Dashboard\'s Passwords tab too', async () => {
+    enabled = true;
+    sessionStorage.setItem('nexus:build-mode', '1');
+    const BuildMode = (await import('./BuildMode')).default;
+    render(<BuildMode view="dashboard" sub="passwords:cred-abc" />);
+    await screen.findByText(/Build Mode is off on this screen/, {}, { timeout: 4000 });
+    expect(screen.queryByTestId('bm-overlay')).toBeNull();
+  });
 });

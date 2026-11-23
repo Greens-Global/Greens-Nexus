@@ -69,7 +69,7 @@ def build(companies: list, departments: list, types, tiers) -> bytes:
         "Pick the Company first - Department then lists that company's departments only.",
         "Passwords that are weak or found in a known data breach are left out on import, with the reason.",
         "Type: Password, API key, Access key or Certificate. Tier: Standard, High or Critical (blank = Standard).",
-        "Delete this file once it is imported - the passwords are in Credentials from then on.",
+        "Delete this file once it is imported - the passwords are in Passwords from then on.",
     ):
         how.append([line])
     how.column_dimensions["A"].width = 110

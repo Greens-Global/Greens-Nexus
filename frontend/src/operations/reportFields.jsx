@@ -178,9 +178,14 @@ export function FacilitiesField({ facilities, value, onChange }) {
 export const optionDefaults = (meta) => Object.fromEntries((meta.options || []).map((o) => [o.key, o.default ?? (o.type === 'bool' ? false : o.choices?.[0]?.value ?? '')]));
 
 // Only the options this report has, starting from its defaults.
+// The column setup a report carries (ops_reports.SHAPE_OPTIONS, Oct 28 2026):
+// not a switch the dialog draws, but kept so a schedule sends what was on screen.
+export const SHAPE_KEYS = ['addColumns', 'showColumns', 'hideColumns', 'sortBy', 'filters'];
+
 export function cleanOptions(meta, saved) {
   const base = optionDefaults(meta);
   Object.keys(base).forEach((k) => { if (saved && saved[k] !== undefined) base[k] = saved[k]; });
+  SHAPE_KEYS.forEach((k) => { if (saved && saved[k]) base[k] = saved[k]; });
   return base;
 }
 

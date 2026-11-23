@@ -1662,6 +1662,9 @@ def _run_migrations():
             "ALTER TABLE ir_investors ADD COLUMN legal_entity_code VARCHAR DEFAULT ''",
             # MRE amount history and Paid by Tenant (Charmi, 11/18/2026) - see the Postgres list.
             "ALTER TABLE recurring_expenses ADD COLUMN amount_changes JSON",
+            # The guarantee record on a loan (Neil, 11/21/2026) - see the Postgres list.
+            "ALTER TABLE accounting_loan_settings ADD COLUMN recourse VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_loan_settings ADD COLUMN guarantors JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -3120,6 +3123,8 @@ def _run_migrations():
         "ALTER TABLE ops_revenue_batches ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_revenue_changes ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_revenue_audit ENABLE ROW LEVEL SECURITY",
+        # Revenue Management tenant notes (Oct 28 2026 call, B16) - models.OpsTenantComment.
+        "ALTER TABLE ops_tenant_comments ENABLE ROW LEVEL SECURITY",
         # Third-party managed properties (Operations, Oct 20 2026): CubeSmart's
         # SRE Summary, Daily Flash and rent roll. Five new tables - RLS per
         # CLAUDE.md. third_party_models.py.
@@ -3995,6 +4000,11 @@ def _run_migrations():
         # MRE (Charmi, 11/18/2026): a line's amount changes with their dates,
         # and the months a tenant pays the bill. models.RecurringExpense.amount_changes.
         "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS amount_changes JSON DEFAULT '[]'",
+        # The guarantee record on a loan (Neil, 11/21/2026): recourse and the
+        # guarantors, kept beside the loan. models.AccountingLoanSetting,
+        # loan_guarantees.py.
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS recourse VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_loan_settings ADD COLUMN IF NOT EXISTS guarantors JSON DEFAULT '[]'",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

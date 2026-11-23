@@ -12,6 +12,7 @@ vi.mock('../../api', () => ({
     getGbpStatus: vi.fn(),
     getGbpLocations: vi.fn(),
     getGbpReviews: vi.fn(),
+    getGbpReviewFeed: vi.fn(),
     replyGbpReview: vi.fn(),
     startGbpConnect: vi.fn(),
     getGbpPerformance: vi.fn(),
@@ -45,6 +46,19 @@ const connected = {
   lastSyncAt: '2026-10-06T12:00:00Z', lastError: '', needsReconnect: false, redirectUri: 'https://api/marketing/gbp/oauth/callback',
 };
 
+// The word cloud measures words on a canvas, which jsdom does not draw.
+HTMLCanvasElement.prototype.getContext = () => ({ font: '', measureText: (w) => ({ width: String(w).length * 7 }) });
+
+// The feed is dated by the real calendar: two reviews this month.
+const thisMonth = new Date().toISOString().slice(0, 7);
+const feed = {
+  connected: true,
+  reviews: [
+    { id: 'rv1', facility: 'Greens Storage Fresno', reviewer: 'Mark T', rating: 2, text: 'The gate was broken.', createdAt: `${thisMonth}-01T10:00:00Z`, replied: false, repliedAt: '' },
+    { id: 'rv2', facility: 'Greens Storage Fresno', reviewer: 'Ana B', rating: 5, text: 'Clean units, friendly staff.', createdAt: `${thisMonth}-01T09:00:00Z`, replied: true, repliedAt: `${thisMonth}-01T12:00:00Z` },
+  ],
+};
+
 const day = (date, n) => ({ date, mapsViews: n, searchViews: n, websiteClicks: 1, callClicks: 2, directionRequests: 0 });
 const photo = { id: 'm1', url: 'https://lh3.googleusercontent.com/p/m1', thumbnailUrl: 'https://lh3.googleusercontent.com/p/m1', category: 'EXTERIOR', createdAt: '2026-10-01T10:00:00Z', views: 0 };
 
@@ -59,6 +73,7 @@ beforeEach(() => {
   api.getGbpPhotos.mockResolvedValue([photo]);
   api.getGbpLocations.mockResolvedValue([location]);
   api.getGbpReviews.mockResolvedValue({ total: 1, counts: { all: 2, unreplied: 1, replied: 1 }, reviews: [unreplied] });
+  api.getGbpReviewFeed.mockResolvedValue(feed);
 });
 
 describe('GbpTab', () => {
@@ -87,6 +102,27 @@ describe('GbpTab', () => {
     fireEvent.click(screen.getByRole('button', { name: /Post Reply/ }));
     await waitFor(() => expect(api.replyGbpReview).toHaveBeenCalledWith('rv1', 'Sorry about the gate - it is fixed.'));
     expect(await screen.findByText(/Replied by Amy Lee/)).toBeTruthy();
+  });
+
+  it('charts every real review and a cloud word searches the whole list', async () => {
+    api.getGbpStatus.mockResolvedValue(connected);
+    render(<GbpTab tab="reputation" tabBarProps={tabBarProps} renderSample={() => <p>SAMPLE PAGE</p>} />);
+    expect(await screen.findByText('Overall Rating')).toBeTruthy();
+    expect(screen.getByText('3.5')).toBeTruthy();                 // (2 + 5) / 2
+    expect(screen.getByText('Sentiment Breakdown')).toBeTruthy();
+    expect(screen.getByText('Rating Trend')).toBeTruthy();
+    expect(screen.queryByText('fresno')).toBeNull();              // the location's own name is not a topic
+    fireEvent.click(await screen.findByText('gate'));
+    await waitFor(() => expect(api.getGbpReviews).toHaveBeenLastCalledWith(expect.objectContaining({ replied: '', q: 'gate' })));
+    expect(screen.getByLabelText('Search reviews').value).toBe('gate');
+  });
+
+  it('keeps the review list when the charts cannot load', async () => {
+    api.getGbpStatus.mockResolvedValue(connected);
+    api.getGbpReviewFeed.mockRejectedValue(new Error('down'));
+    render(<GbpTab tab="reputation" tabBarProps={tabBarProps} renderSample={() => <p>SAMPLE PAGE</p>} />);
+    expect(await screen.findByText('The gate was broken.')).toBeTruthy();
+    expect(screen.queryByText('Overall Rating')).toBeNull();
   });
 
   it('shows each listing with its review link on Business Profile', async () => {

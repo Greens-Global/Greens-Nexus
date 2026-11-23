@@ -4,12 +4,15 @@
 // kind in one month collapses to one row that opens to its assets; a mistyped date sits in
 // "Check These Dates" with Fix and never counts as passed or due. Mark Paid / Mark Renewed
 // rolls a yearly date one year on (onPatchAsset - one log entry per asset, undoable there).
+// Missing fills in place (Neil, 11/20/2026 - production had an insurance expiration on 5
+// properties): an editor picks the day right on the row instead of opening each property.
 
 import { useMemo, useState, Fragment } from 'react';
 import { ChevronRight, ChevronDown } from 'lucide-react';
-import { collectDates, itemsForMode, groupDates, missingByKind, markItems, datesSummary, DATE_MODES, DATE_KINDS, kindLabel, actionFor, relativeDays, toneOfDays, plural } from '../../lib/datesModel.js';
+import { collectDates, itemsForMode, groupDates, missingByKind, markItems, addDatePatch, datesSummary, DATE_MODES, DATE_KINDS, kindLabel, actionFor, relativeDays, toneOfDays, plural } from '../../lib/datesModel.js';
 import { formatDate } from '../../lib/format.js';
 import { pushToast } from '../shared/ToastHost.jsx';
+import { DateField } from '../../../tasks/components.jsx';
 import { C, Sentence, Toolbar, SearchBox, Segmented, FilterMenu, Table, GroupRow, LinkButton, Quiet, td, toneColor } from './tabParts.jsx';
 
 const HEAD = [
@@ -62,6 +65,13 @@ export function DatesTab({ store, assets, openAsset, onPatchAsset, canEdit = fal
     const n = markItems(items, byId, onPatchAsset);
     if (n && pushToast) pushToast(`${items.length === 1 ? 'Rolled to next year' : `${plural(items.length, 'date')} rolled to next year`} - Undo is in Activity.`);
   };
+  // A first date typed on the Missing row: one patch, one Activity entry, and the row leaves the list.
+  const addDate = (kind, asset, isoDay) => {
+    const out = addDatePatch(kind, isoDay);
+    if (!out || !onPatchAsset) return;
+    onPatchAsset(asset.id, out.patch, out.changes);
+    if (pushToast) pushToast(`Added the ${DATE_KINDS[kind].missing} of ${asset.name || asset.siteName || 'the asset'} - Undo is in Activity.`);
+  };
   const toggle = (key) => setOpen((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
   const sentence = [
@@ -93,7 +103,15 @@ export function DatesTab({ store, assets, openAsset, onPatchAsset, canEdit = fal
                   <tr key={a.id}>
                     <td style={{ ...td, color: C.muted }}>{kindLabel(m.kind)}</td>
                     <td style={td}>{a.name || a.siteName || 'Unnamed asset'}</td>
-                    <td style={{ ...td, textAlign: 'right' }}><LinkButton onClick={() => openAsset?.(a.id, 'property')}>Add Date</LinkButton></td>
+                    <td style={{ ...td, textAlign: 'right' }}>
+                      {canEdit && onPatchAsset ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 14, justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
+                          <DateField value="" onChange={(day) => addDate(m.kind, a, day)} placeholder="Add Date" color={toneColor('green')}
+                            title={`Add the ${m.label} of ${a.name || a.siteName || 'this asset'}`} style={{ fontWeight: 500 }} />
+                          <LinkButton tone="quiet" onClick={() => openAsset?.(a.id, 'property')}>Open</LinkButton>
+                        </span>
+                      ) : <LinkButton onClick={() => openAsset?.(a.id, 'property')}>Add Date</LinkButton>}
+                    </td>
                   </tr>
                 ))}
               </tbody>

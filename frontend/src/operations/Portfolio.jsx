@@ -8,8 +8,8 @@
 // tables expand by property. A figure the data cannot support shows a dash
 // and says why - nothing is estimated. Figures come from
 // GET /facility-ops/portfolio (backend/ops_portfolio.py).
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Search, SlidersHorizontal } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
@@ -17,67 +17,16 @@ import { Modal } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
 import { count, money } from './model';
-import { groupsOf, loadSelection, monthChoices, net, pctText, saveSelection, selectionLabel, signed, toggle } from './portfolioModel';
+import { loadSelection, monthChoices, net, pctText, saveSelection, signed } from './portfolioModel';
+import PropertyPicker from './PropertyPicker';
 import { Legend } from './charts';
-import SectionPicker from './SectionPicker';
 import './portfolio.css';
 
 const CY = 'var(--ops-s1)';
 const PY = 'var(--ops-s2)';
 const AXIS = { fontSize: 12, fill: 'var(--muted)' };
 
-// ── Property picker ───────────────────────────────────────────────────────────
-
-function PropertyPicker({ properties, ids, onChange }) {
-  const [open, setOpen] = useState(false);
-  const box = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
-    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', away);
-    document.addEventListener('keydown', esc);
-    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
-  }, [open]);
-  const groups = useMemo(() => groupsOf(properties), [properties]);
-  const chosen = (id) => (ids.length ? ids.includes(id) : properties.find((p) => p.id === id)?.connected);
-  const sameAs = (list) => list.length === ids.length && list.every((x) => ids.includes(x));
-  // The quick picks were a pill row; now one dropdown (Visesh, Oct 20).
-  const quick = !ids.length ? 'all' : groups.find((g) => sameAs(g.ids))?.label || 'custom';
-  const pickQuick = (v) => { if (v === 'all') onChange([]); else { const g = groups.find((x) => x.label === v); if (g) onChange(g.ids); } };
-  return (
-    <div className="pf-picker ops-facility" ref={box}>
-      <span className="ops-facility-label">Properties</span>
-      <span className="ops-facility-box">
-        <SlidersHorizontal size={14} className="ops-facility-icon" aria-hidden="true" />
-        <button type="button" className="ops-section-btn pf-picker-btn" aria-expanded={open} aria-haspopup="true" onClick={() => setOpen((o) => !o)}>
-          {selectionLabel(ids, properties)}
-        </button>
-        <ChevronDown size={13} className="ops-facility-chev" aria-hidden="true" />
-      </span>
-      {open && (
-        <div className="dash-card pf-picker-panel" role="group" aria-label="Choose properties">
-          <SectionPicker label="Quick Pick" value={quick} onChange={pickQuick}
-            options={[{ value: 'all', label: 'All Properties' }, ...groups.map((g) => ({ value: g.label, label: g.label })),
-              ...(quick === 'custom' ? [{ value: 'custom', label: 'Custom Selection', disabled: true }] : [])]} />
-          <ul className="pf-picker-list">
-            {properties.map((p) => (
-              <li key={p.id}>
-                <label className={p.connected ? '' : 'pf-off'}>
-                  <input type="checkbox" checked={!!chosen(p.id)} disabled={!p.connected}
-                    onChange={() => onChange(toggle(ids, p.id, properties))} />
-                  <span className="pf-picker-name">{p.shortName}</span>
-                  <span className="pf-picker-meta">{p.connected ? [p.managedBy, p.market || p.state].filter(Boolean).join(' - ') : p.status}</span>
-                </label>
-              </li>
-            ))}
-          </ul>
-          <p className="ops-note" style={{ margin: 0 }}>Your choice is remembered on this device.</p>
-        </div>
-      )}
-    </div>
-  );
-}
+// The property picker is its own file now (the Dashboard filter bar uses it too, Oct 28 2026).
 
 // ── Pieces ────────────────────────────────────────────────────────────────────
 

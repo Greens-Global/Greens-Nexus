@@ -169,7 +169,7 @@ export default function MyTeam({ phone }) {
         <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <Row Icon={p.worst?.kind === 'ticket' ? TicketIcon : ListTodo} title={p.name || p.email} meta={pushMeta(p)}
-              status="overdue" statusLabel={isMobile ? '' : 'Overdue'} onClick={() => openWorst(p)} />
+              status="overdue" statusLabel={isMobile ? '' : 'Overdue'} metaLines={2} onClick={() => openWorst(p)} />
           </div>
           <a href={teamsChatUrl(p.email)} target="_blank" rel="noreferrer" aria-label={`Message ${p.name || p.email} on Teams`} title="Message on Teams"
             style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 8, color: 'var(--muted)', flexShrink: 0 }}>
@@ -193,7 +193,9 @@ export default function MyTeam({ phone }) {
       {!data && people.length > 0 && pushSection}
       {data && (
         <>
-          <div data-testid="team-tiles" style={{ display: 'grid', gridTemplateColumns: `repeat(${isMobile ? 2 : tiles.length}, minmax(0, 1fr))`, gap: 8 }}>
+          {/* A phone: four tiles 2x2; three (no schedule, so no Late) one row
+              of three - a 2x2 left On Leave alone under a blank cell. */}
+          <div data-testid="team-tiles" style={{ display: 'grid', gridTemplateColumns: `repeat(${isMobile && tiles.length !== 3 ? 2 : tiles.length}, minmax(0, 1fr))`, gap: 8 }}>
             {tiles.map(t => (
               <Tile key={t.key} tile={t} count={data.counts?.[t.key] || 0} open={openBucket === t.key} mobile={isMobile}
                 onClick={() => { setOpenBucket(openBucket === t.key ? null : t.key); setBucketAll(false); }} />

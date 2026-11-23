@@ -271,6 +271,11 @@ def test_blocked_routes_are_announced_and_refused():
     for route in ("pfs", "credvault"):
         r = client.post("/dev-notes", json={"comment": "x", "route": route})
         assert r.status_code == 400 and r.json()["detail"] == "Build Mode is off on this screen"
+    # Passwords (the credvault module) is a Dashboard tab since 11/18/2026: the
+    # block follows it there, and the rest of the Dashboard is still open.
+    for sub in ("passwords", "passwords:cred-abc"):
+        r = client.post("/dev-notes", json={"comment": "x", "route": "dashboard", "sub": sub})
+        assert r.status_code == 400 and r.json()["detail"] == "Build Mode is off on this screen"
     assert client.get("/dev-notes").json() == []
 
 

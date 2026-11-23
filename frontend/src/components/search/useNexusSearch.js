@@ -1,5 +1,6 @@
 import { createElement, useEffect, useMemo, useState } from 'react';
-import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users, BookOpen, HardHat, Link2, StickyNote, PenTool, FileText } from 'lucide-react';
+import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users, BookOpen, HardHat, Link2, StickyNote, FileText } from 'lucide-react';
+import BoardIcon from '../icons/BoardIcon';
 import { LinkIcon } from '../LinkIcon.jsx';
 import TicketToken from '../icons/TicketToken';
 import { useRole } from '../../contexts/RoleContext';
@@ -189,7 +190,7 @@ function useQaEnabled(enabled) {
 const FAV_MAX = 12;
 const RECENT_MAX = 8;
 const EMPTY_SAVED = { favorites: [], recents: [] };
-const SAVED_ICON = { task: Check, job: HardHat, person: User, item: Package, checkout: ClipboardList, request: ShoppingCart, kb: BookOpen, page: LayoutDashboard, link: Link2, ticket: TicketToken, note: StickyNote, board: PenTool, document: FileText };
+const SAVED_ICON = { task: Check, job: HardHat, person: User, item: Package, checkout: ClipboardList, request: ShoppingCart, kb: BookOpen, page: LayoutDashboard, link: Link2, ticket: TicketToken, note: StickyNote, board: BoardIcon, document: FileText };
 // What the store hands back is the person's own JSON: only well-formed entries count.
 const cleanTo = (to) => {
   if (!to || typeof to !== 'object') return null;
@@ -264,7 +265,9 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     const visible = NAV.filter(i => !i.divider && !i.inTeam && isNavItemVisible(i, { isExternal, can, myGrantedModules, qaEnabled }));
     const out = [];
     for (const item of visible) {
-      out.push({ view: item.view, sub: null, label: item.label, context: null });
+      // A Dashboard tab (Passwords, 11/18/2026) says where it lives; `aka` keeps
+      // the name people learned first findable ("credentials").
+      out.push({ view: item.view, sub: null, label: item.label, context: item.dashTab && !isExternal ? 'Dashboard' : null, aka: item.aka || '' });
       // The phone menu's own rule, so a gated tab (Team > Workforce
       // Analytics) is never listed for someone who cannot open it.
       const subs = visibleSubs(item.view, { can, canAccessModule, isExternal });
@@ -414,7 +417,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
     add('notes', 'Notes', notes.rows.map((n) => {
       const board = n.kind === 'board';
       return {
-        key: `note:${n.id}`, Icon: board ? PenTool : StickyNote, title: noteTitle(n),
+        key: `note:${n.id}`, Icon: board ? BoardIcon : StickyNote, title: noteTitle(n),
         detail: [board ? 'Board' : 'Note', n.kind === 'daily' && n.day ? formatDate(n.day) : '', n.mine ? '' : 'Shared With You'].filter(Boolean).join(' · '),
         save: { kind: board ? 'board' : 'note', to: { view: 'dashboard', sub: `notes:${n.id}` } },
         run: () => navigate('dashboard', `notes:${n.id}`),
@@ -506,7 +509,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       run: () => runQuickAction(item.key),
     })));
 
-    add('pages', 'Pages', screens.filter(s => match(s.label, s.context, s.view)).slice(0, 6).map(s => ({
+    add('pages', 'Pages', screens.filter(s => match(s.label, s.context, s.view, s.aka)).slice(0, 6).map(s => ({
       key: `page:${s.view}:${s.sub || ''}`, Icon: LayoutDashboard, title: s.label, detail: s.context,
       save: { kind: 'page', to: { view: s.view, sub: s.sub || undefined } },
       run: () => navigate(s.view, s.sub),

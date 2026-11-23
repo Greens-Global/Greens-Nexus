@@ -65,7 +65,7 @@ def get_catalog():
 async def run_report(kind: str, request: Request, facility_id: str = "", start: str = "", end: str = "",
                      facility_ids: str = ""):
     ids = [i for i in facility_ids.split(",") if i.strip()] or None
-    opts = {k: v for k, v in request.query_params.items() if k in ops_reports.OPTION_DEFS}
+    opts = {k: v for k, v in request.query_params.items() if k in ops_reports.OPTION_DEFS or k in ops_reports.SHAPE_OPTIONS}
     return await _call(ops_reports.run, kind, facility_id, start, end, ids, opts)
 
 
@@ -318,9 +318,13 @@ def _options(raw) -> dict:
             raw = json.loads(raw)
         except ValueError:
             raise HTTPException(status_code=422, detail="Report options are a JSON object") from None
-    if not isinstance(raw, dict) or len(raw) > 20 or not all(
-            isinstance(k, str) and len(k) <= 40 and (v is None or isinstance(v, (bool, int, float)) or
-                                                      (isinstance(v, str) and len(v) <= 80)) for k, v in raw.items()):
+    # The column setup (ops_reports.SHAPE_OPTIONS: added columns, order, sort,
+    # filters) is a longer string than a switch.
+    def _ok(k, v):
+        cap = ops_reports.MAX_SHAPE_LEN if k in ops_reports.SHAPE_OPTIONS else 80
+        return isinstance(k, str) and len(k) <= 40 and (
+            v is None or isinstance(v, (bool, int, float)) or (isinstance(v, str) and len(v) <= cap))
+    if not isinstance(raw, dict) or len(raw) > 20 or not all(_ok(k, v) for k, v in raw.items()):
         raise HTTPException(status_code=422, detail="Report options are up to 20 simple switches")
     return raw
 

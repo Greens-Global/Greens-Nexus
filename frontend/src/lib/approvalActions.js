@@ -154,9 +154,13 @@ export const APPROVAL_ACTIONS = {
     approve: (r) => api.decideAccountingPartnerChange(r.id, 'approve', ''),
     decline: (r, note) => api.decideAccountingPartnerChange(r.id, 'decline', note),
   },
-  // A Credential Vault share request: approving goes through the vault's
-  // code step (Review opens it); Deny runs here.
+  // A request for a login (Passwords): decided here since 11/18/2026 (Neil) -
+  // the vault's own Approvals tab is gone. Approve needs the vault's code
+  // step first (PREFLIGHT below asks at the click); if the window closed in
+  // between, or the login is Critical and wants the Entra step-up, the same
+  // steps run here and the approval is sent once more.
   credvault_request: {
+    approve: (r) => vaultApprove(r.id),
     deny: (r) => api.cvDenyRequest(r.id),
   },
   // Workflows (Oct 28 2026): an Ask For Approval step names its own options
@@ -170,6 +174,34 @@ export const APPROVAL_ACTIONS = {
   }),
 };
 
+async function vaultApprove(id, tries = 0) {
+  try { return await api.cvApproveRequest(id); } catch (e) {
+    if (tries >= 2) throw e;
+    if (e?.detail?.code === 'vault_otp_required') {
+      const { ensureVaultCode } = await import('../credvault/vaultCode');
+      if (await ensureVaultCode()) return vaultApprove(id, tries + 1);
+      throw new Error('Not approved - it waits for your code.', { cause: e });
+    }
+    const { ensureStepUp, isStepUpRequired } = await import('../stepup/StepUp');
+    if (isStepUpRequired(e)) {
+      const r = await ensureStepUp();
+      if (r.ok) return vaultApprove(id, tries + 1);
+      throw new Error('Not approved - the verification did not complete.', { cause: e });
+    }
+    throw e;
+  }
+}
+
+// A step the person takes BEFORE a decision is queued (it is asked at the
+// click, not after the Undo window): resolves false to leave the row as it
+// is. A row with one is decided on its own, never in Approve Selected.
+const PREFLIGHT = {
+  credvault_request: {
+    approve: () => import('../credvault/vaultCode').then((m) => m.ensureVaultCode()),
+  },
+};
+export const preflight = (row, key) => PREFLIGHT[row?.kind]?.[key] || null;
+
 /** Can this action run in place (else the row opens its module)? */
 export const runsInline = (row, key) => key !== 'open' && typeof APPROVAL_ACTIONS[row?.kind]?.[key] === 'function';
 
@@ -177,7 +209,7 @@ export const runsInline = (row, key) => key !== 'open' && typeof APPROVAL_ACTION
  *  "easy for anyone to clear the approvals"): its primary action, run in
  *  place, asking for no note. A row without one is decided on its own. */
 export const bulkAction = (row) => (row?.actions || [])
-  .find((a) => a.tone === 'primary' && (!a.note || a.note === 'none') && runsInline(row, a.key)) || null;
+  .find((a) => a.tone === 'primary' && (!a.note || a.note === 'none') && runsInline(row, a.key) && !preflight(row, a.key)) || null;
 
 /** Run one action; rejects with the module's own error when it refuses. */
 export function runApproval(row, key, note = '', opts = {}) {

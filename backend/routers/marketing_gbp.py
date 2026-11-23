@@ -169,9 +169,15 @@ def listing_history(key: str, db: Session = Depends(get_db)):
 
 
 @router.get("/reviews", dependencies=[Depends(can_view)])
-def reviews(replied: str = "", location: str = "", limit: int = 200, offset: int = 0, db: Session = Depends(get_db)):
+def reviews(replied: str = "", location: str = "", q: str = "", limit: int = 200, offset: int = 0,
+            db: Session = Depends(get_db)):
     return gbp.list_reviews(db, replied=replied if replied in ("yes", "no") else "",
-                            location_id=_loc(location) if location else "", limit=limit, offset=offset)
+                            location_id=_loc(location) if location else "", search=q, limit=limit, offset=offset)
+
+
+@router.get("/reviews/feed", dependencies=[Depends(can_view)])
+def review_feed(db: Session = Depends(get_db)):
+    return gbp.review_feed(db)
 
 
 class ReplyIn(BaseModel):

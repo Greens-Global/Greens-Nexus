@@ -3,6 +3,7 @@
 // my mockup was set up so that each section is digestible and clear." Four
 // screens, each its own item in the Pricing menu (FacilityOperations.jsx):
 //
+//   market-cma       CMA (the input page)    cma/CmaMatrix.jsx (Oct 28 2026 call, B17)
 //   market           CMA Overview            cma/CmaOverview.jsx
 //   market-comps     Comp Set & Manual Entry cma/CmaCompSet.jsx
 //   market-history   Rate History            cma/CmaHistory.jsx
@@ -18,6 +19,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import CmaOverview from './cma/CmaOverview';
+import CmaMatrix from './cma/CmaMatrix';
 import CmaCompSet from './cma/CmaCompSet';
 import CmaHistory from './cma/CmaHistory';
 import CmaReview from './cma/CmaReview';
@@ -55,6 +57,7 @@ export default function RateManagement({ facility, section: sectionProp, onSecti
   if (state.status === 'error' && !v) return <ErrorBanner message="Couldn't load rate management." onRetry={load} />;
   if (!v) return <LoadingState size="section" label="Loading rate management" minHeight={240} />;
   if (section === 'history') return <CmaHistory key={facilityId} facility={facility} view={v} onSection={go} />;
+  if (section === 'cma') return <CmaMatrix key={facilityId} view={v} onReload={load} />;
   return <CmaOverview key={facilityId} view={v} facility={facility} onSection={go} onReload={load}
     onView={(data) => setState({ status: 'ready', data })} />;
 }

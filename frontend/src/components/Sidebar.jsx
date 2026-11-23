@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { orderNav, railSections, KICKERS } from './navOrder';
+import { orderNav, railSections, KICKERS, onRail } from './navOrder';
 import { useRole } from "../contexts/RoleContext";
 import { useIsMobile } from "../lib/useIsMobile";
 import SidebarClock from "./SidebarClock";
@@ -42,6 +42,8 @@ export function isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEn
   return !item.minRole || !!can?.('administrator') || granted;
 }
 
+// Which NAV items sit on the left rail is `onRail` (navOrder.js): `menuOnly`
+// and, for everyone inside the company, `dashTab` items do not.
 export const NAV = [
   { view: "dashboard", code: "HOME",         label: "Dashboard",          icon: LayoutDashboard },
   // Time Clock folded into My HR as tabs (Visesh, Sep 3 - "no need for My HR
@@ -105,9 +107,11 @@ export const NAV = [
   // Oct 13 2026: "anything to do with support or learning is right here") -
   // still baseline, the 'sop' view and its address are unchanged.
   //
-  // The Work group reads Tasks, Tickets, Files, Credentials (Neil,
-  // 11/10/2026: Files and Documents are ONE module, called Files; Workflows
-  // moved down to System). Sidebar.orderNav.test.jsx pins this order.
+  // The Work group reads Tasks, Tickets, Files (Neil, 11/10/2026: Files and
+  // Documents are ONE module, called Files; Workflows moved down to System).
+  // Credentials left it on 11/18/2026 (Neil): it is Passwords, a Dashboard
+  // tab beside Notes and Links - see `dashTab` above. Sidebar.orderNav.test.jsx
+  // pins this order.
   { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
   { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
   // Files (Neil, 11/10/2026): the Documents module took in the Egnyte
@@ -123,7 +127,7 @@ export const NAV = [
       { subview: "documents-esign", label: "Nexus Sign", icon: PenTool },
     ],
   },
-  { view: "credvault", code: "VLT", label: "Credentials", icon: KeyRound, minRole: 'supervisor' },
+  { view: "credvault", code: "VLT", label: "Passwords", icon: KeyRound, minRole: 'supervisor', dashTab: true, aka: 'credentials logins vault' },
   { divider: true },
   {
     view: "it", code: "IT", label: "IT", icon: Monitor, minRole: 'supervisor',
@@ -153,8 +157,8 @@ export const NAV = [
       { subview: "collections", label: "Collections",     icon: HandCoins },
       { subview: "units",       label: "Units & Pricing", icon: Warehouse },
       { subview: "worklist",    label: "Facility Tasks",  icon: ListChecks },
-      { subview: "market",      label: "Market Rates",    icon: Scale },
-      { subview: "reports",     label: "Reports",         icon: FileSpreadsheet },
+      { subview: "market",      label: "Rate Management", icon: Scale },
+      { subview: "reports",     label: "Reports Center",  icon: FileSpreadsheet },
       { subview: "revenue",     label: "ECRI Management", icon: TrendingUp },
       { subview: "portfolio",   label: "Portfolio",       icon: Gauge },
       { subview: "site-map",    label: "Site Map",        icon: MapIcon },
@@ -367,7 +371,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   // list below. `cascadeRows` is how many labels get an `--i` (the "Nexus"
   // name at 0, then every kicker and module label): the beat lasts as long
   // as the last one's delay plus its 260ms slide, capped at 1.2s.
-  const shownNav = orderNav(NAV).filter(item => !item.menuOnly && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
+  const shownNav = orderNav(NAV).filter(item => onRail(item, isExternal) && isNavItemVisible(item, { isExternal, can, myGrantedModules }));
   // Modules split into Operations / Finance / Company (11/05/2026,
   // navOrder.js railSections); the phone drawer draws the same groups.
   const visibleNav = railSections(shownNav, KICKERS);

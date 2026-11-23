@@ -34,6 +34,14 @@ const money = (v) => (v == null || v === '' ? '-' : `$${formatAmount(v)}`);
 const rate = (r) => (r.ratePct == null ? '-' : `${Number(r.ratePct).toLocaleString('en-US', { maximumFractionDigits: 3 })}%${r.rateType ? ` ${r.rateType}` : ''}`);
 const dscr = (v) => (v == null ? '-' : `${Number(v).toFixed(2)}x`);
 const folder = (path) => String(path || '').split('/').filter(Boolean).pop() || 'Egnyte';
+// The entity's NOI over the trailing twelve months, from the books (11/21/2026) - the figure
+// the property sheet's own NOI field was left blank for. A loss reads with its minus sign.
+const noiLine = (data) => {
+  const v = data?.noiT12;
+  if (v == null || !Number.isFinite(Number(v))) return '';
+  const n = Number(v);
+  return `NOI ${n < 0 ? '-' : ''}$${formatAmount(Math.abs(n))} over the last twelve months, from the books.`;
+};
 
 export default function PropertyLoans({ property, onSaveEntityCode = null, variant = 'full' }) {
   const code = String(property?.entityCode || '').trim();
@@ -109,6 +117,7 @@ export default function PropertyLoans({ property, onSaveEntityCode = null, varia
             {totals && loans.length > 1 && <p style={{ ...note, color: 'var(--text-primary)' }}>{loans.length} loans · {money(totals.balance)} · {money(totals.monthlyPayment)} a month</p>}
           </div>
         )}
+        {code && !state.loading && !state.error && noiLine(state.data) && <p style={{ ...note, color: 'var(--text-primary)' }}>{noiLine(state.data)}</p>}
         {code && (
           <p style={{ ...note, fontSize: 12, marginTop: 8 }}>
             Ledger entity {entityName ? `${entityName} (${code})` : code}{state.data?.asOf ? `, as of ${formatDate(state.data.asOf)}` : ''}.
@@ -203,6 +212,7 @@ export default function PropertyLoans({ property, onSaveEntityCode = null, varia
           {(state.data?.notes || []).length > 0 && <p style={{ ...note, fontSize: 12 }}>{state.data.notes.join(' ')}</p>}
         </div>
       )}
+      {code && !state.loading && !state.error && noiLine(state.data) && <p style={{ ...note, color: 'var(--text-primary)' }}>{noiLine(state.data)}</p>}
     </section>
   );
 }

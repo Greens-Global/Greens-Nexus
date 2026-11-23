@@ -55,6 +55,15 @@ describe('My Team on a phone', () => {
     expect(screen.getByText('Amy Adams')).toBeTruthy();
   });
 
+  it('puts three tiles (no schedule, no Late) in one row, never 2x2 with a hole', async () => {
+    setViewport(true);
+    apiMock.getMyTeamToday.mockResolvedValue({ ...TODAY, scheduleAvailable: false });
+    render(<MyTeam />);
+    await screen.findByRole('button', { name: 'In: 1' });
+    expect(screen.getAllByRole('button', { name: /^(In|Out|On Leave|Late):/ })).toHaveLength(3);
+    expect(screen.getByTestId('team-tiles').style.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))');
+  });
+
   it('spreads the tiles in one row on a desk', async () => {
     setViewport(false);
     render(<MyTeam />);

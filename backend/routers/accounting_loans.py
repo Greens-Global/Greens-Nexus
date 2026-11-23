@@ -102,6 +102,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import database
+import loan_guarantees
 import models
 from auth import require_module_grant
 from database import get_db
@@ -743,7 +744,7 @@ def _save_loan_fresh_sync(loan_id: str, period: str, apply: Callable[[dict], tup
 
 # ── What Nexus keeps per loan (accounting_loan_settings) ────────────────────
 _SETTING_FIELDS = ("interest_account", "original_principal", "internal", "docs_path", "statements_path", "loan_type", "stress_excluded",
-                   "loan_number", "vendor_id", "vendor_name")
+                   "loan_number", "vendor_id", "vendor_name", "recourse", "guarantors")
 # An Intacct vendor id ("V-00123", "FM BANK"): wired by hand under Change Loan.
 _VENDOR = re.compile(r"^[\w.\-/& ]{1,60}$")
 LOAN_TYPES = ("term", "line_of_credit")
@@ -1263,6 +1264,8 @@ def review_rows(loans: list[dict], settings: dict, tbs: dict, names: dict, origi
                 "monthlyPayment": _num(l.get("monthly_pi")) or None, "monthlyPi": _num(l.get("monthly_pi")) or None, "notes": l.get("notes") or "",
                 "docsPath": s.get("docs_path") or "", "statementsPath": s.get("statements_path") or "",
                 "docsUrl": _egnyte_web(s.get("docs_path") or ""), "statementsUrl": _egnyte_web(s.get("statements_path") or ""),
+                # 11/21/2026 (Neil): who stands behind the loan - typed under Change Loan.
+                **loan_guarantees.view(s),
             })
     out.sort(key=lambda r: ((r["lender"] or "").lower(), (r["entityName"] or "").lower(), r["loanNo"]))
     return out
@@ -1433,10 +1436,73 @@ async def loans_by_entity(code: str, to: Optional[str] = None, scope: dict = Dep
     t = _day(to, "to") if to else date.today().isoformat()
     data = await review(from_=f"{t[:8]}01", to=t, month=None, entities=entity, scope=scope)
     loans = [{k: r.get(k) for k in _BY_ENTITY_FIELDS} for r in data["loans"] if not r["closed"]]
-    return {"entityCode": entity, "asOf": t, "trailingFrom": data["trailingFrom"], "loans": loans,
+    # The entity's own NOI over the same trailing twelve months (Neil,
+    # 11/21/2026): the property sheet's NOI field was blank on every property
+    # while the books had the figure. Read for the entity asked (a parent rolls
+    # its children up), loans or no loans; a read that fails leaves it out and
+    # says so, like any other figure here.
+    (tb,), noi_notes = await gather_tolerant([lambda: _trial(scope, entity, data["trailingFrom"], t)],
+                                             [f"{entity} trial balance {data['trailingFrom']} - {t}"], lambda: None)
+    noi_t12 = noi(pnl_from_trial(tb))["noi"] if tb else None
+    return {"entityCode": entity, "asOf": t, "trailingFrom": data["trailingFrom"], "loans": loans, "noiT12": noi_t12,
             "totals": {"loans": len(loans), "balance": _r2(sum(x["balance"] or 0 for x in loans)),
                        "monthlyPayment": _r2(sum(x["monthlyPayment"] or 0 for x in loans)), "debtServiceT12": _r2(sum(x["debtServiceT12"] or 0 for x in loans))},
-            "notes": data["notes"]}
+            "notes": data["notes"] + [f"Not read this time - {n}" for n in noi_notes]}
+
+
+def _asset_debt_sync(user: dict) -> Optional[list]:
+    """The debt typed on the properties this caller may see in Asset
+    Management (private assets are officers' alone, scope rows narrow the
+    rest), or None when they may not open Asset Management at all."""
+    import loan_term_suggest
+    import property_links
+    db = database.SessionLocal()
+    try:
+        if not property_links.is_asset_reader(db, user):
+            return None
+        allowed = property_links.asset_scope(db, user)
+        out = []
+        for p in db.query(models.PropertyAsset).all():
+            if not property_links.viewable(p, user) or not property_links.in_scope(p, allowed):
+                continue
+            if (p.payload or {}).get("deleted") or property_links.asset_kind(p) != "property":
+                continue
+            out.append(loan_term_suggest.property_row(p.id, p.payload or {}))
+        return out
+    finally:
+        db.close()
+
+
+@router.get("/term-suggestions")
+async def term_suggestions(month: Optional[str] = None, user: dict = Depends(_edit), scope: dict = Depends(entity_scope)):
+    """Rate and maturity already typed on a property in Asset Management,
+    offered for the loans that lack them (Neil, 11/19/2026 - the same facts
+    were kept in both modules and the loans had almost none). Rules only
+    (loan_term_suggest.py): inside the property's own ledger entity, tied by
+    the loan number, then the lender, then the entity's only loan. Nothing is
+    saved here - the screen shows the offer and an editor accepts it through
+    the ordinary loan save. For accounting editors, of the loans in their
+    entities and the properties they may see; a person with no Asset
+    Management access gets `assets: false` and no offers."""
+    import loan_term_suggest
+    props = await asyncio.to_thread(_asset_debt_sync, user)
+    if props is None:
+        return {"assets": False, "suggestions": []}
+    rows = await _loan_rows(scope, (month and _month(month)) or date.today().isoformat()[:7])
+    settings = await asyncio.to_thread(_settings_sync, [str(l.get("id")) for l in rows if l.get("id")])
+    loans = []
+    for l in rows:
+        st = settings.get(str(l.get("id"))) or {}
+        loans.append({
+            "id": l.get("id"), "lender": l.get("lender") or "", "glTitle": "", "loanNo": display_loan_no(st, l), "loanNumber": st.get("loan_number") or "",
+            "entityCode": str(l.get("entity_code") or ""), "ratePct": _num(l.get("rate_pct")) or None,
+            "maturity": str(l.get("maturity"))[:10] if l.get("maturity") else None, "closed": l.get("is_active", True) is False,
+        })
+    codes = sorted({p["entityCode"] for p in props if p["entityCode"]})
+    reach = {}
+    for code in codes:
+        reach[code] = await accounting._with_children({code})
+    return {"assets": True, "suggestions": loan_term_suggest.suggest(loans, props, reach)}
 
 
 @router.get("/noi")
@@ -1516,6 +1582,10 @@ class LoanEdit(BaseModel):
     loanNumber: Optional[str] = None
     vendorId: Optional[str] = None
     vendorName: Optional[str] = None
+    # 11/21/2026 (Neil), kept by Nexus: recourse ('' = not recorded) and the
+    # guarantors, the whole list each time (loan_guarantees.py).
+    recourse: Optional[str] = None
+    guarantors: Optional[list] = None
 
 
 # Typed terms a person may clear: an explicit null stores what reads back as
@@ -1577,6 +1647,13 @@ async def edit_loan(loan_id: str, body: LoanEdit, month: Optional[str] = None, u
             raise HTTPException(status_code=400, detail="The vendor is an Intacct vendor id.")
         setting_patch["vendor_id"] = vid
         setting_patch["vendor_name"] = (body.vendorName or "").strip()[:200] if vid else ""
+    try:
+        if "recourse" in sent:
+            setting_patch["recourse"] = loan_guarantees.clean_recourse(body.recourse)
+        if "guarantors" in sent:
+            setting_patch["guarantors"] = loan_guarantees.clean_guarantors(body.guarantors)
+    except loan_guarantees.GuaranteeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     def apply(base: dict) -> tuple[dict, bool]:
         """`base` with only the fields this request sent laid over it."""

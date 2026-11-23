@@ -121,7 +121,7 @@ class OutsideShareTests(unittest.TestCase):
         db = self._db()
         self.assertEqual(vault_external.run_expiry_pass(), 1)
         self.assertEqual(vault_external.run_expiry_pass(), 0)                  # once
-        bells = db.query(models.NexusNotification).filter(models.NexusNotification.title == "Credentials - Change the Password").all()
+        bells = db.query(models.NexusNotification).filter(models.NexusNotification.title == "Passwords - Change the Password").all()
         self.assertEqual({b.recipient for b in bells}, {HEAD, BACKUP})        # owner (the head) and backup owner
         self.assertIn(OUT, bells[0].body)
         # A new password clears Shared Outside.

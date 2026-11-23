@@ -9,8 +9,10 @@
 //                                   the id stays - it is the stored access grant)
 //   team           <-> shifts      (Team since Neil, Oct 13 2026)
 //   help-center    <-> support     (Help Center since Neil, Oct 13 2026)
-//   credentials    <-> credvault   (Credential Vault renamed Credentials, Neil Oct 28
-//                                   2026; the id stays - it is the stored access grant)
+//   passwords      <-> credvault   (Credential Vault -> Credentials, Neil Oct 28 2026 ->
+//                                   Passwords, a Dashboard tab, Neil 11/18/2026; the id
+//                                   stays - it is the stored access grant - and
+//                                   /credentials and /credvault still open it)
 //   people          -> hr          (the module is called People; /people/... opens it,
 //                                   the address it writes stays /hr - Oct 29 2026)
 //   files          <-> documents   (Documents took in the Egnyte browser and is called
@@ -19,8 +21,8 @@
 import { legacyItemsSub } from '../inventory/model/routes';
 
 export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr', insights: 'bi', bi: 'bi',
-  team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support', credentials: 'credvault', credvault: 'credvault', people: 'hr', files: 'documents', documents: 'documents' };
-export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights', shifts: 'team', support: 'help-center', credvault: 'credentials', documents: 'files' };
+  team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support', passwords: 'credvault', credentials: 'credvault', credvault: 'credvault', people: 'hr', files: 'documents', documents: 'documents' };
+export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights', shifts: 'team', support: 'help-center', credvault: 'passwords', documents: 'files' };
 
 // A module tab's obvious address (11/05/2026): /notes is Dashboard > Notes -
 // it used to say Page Not Found because Notes lives under Dashboard. Each
@@ -44,6 +46,27 @@ export function tabAddress(view, sub) {
   const hit = Object.hasOwn(TAB_ADDRESSES, view || '') ? TAB_ADDRESSES[view] : null;
   if (!hit) return null;
   return { view: hit.view, sub: hit.item && sub ? `${hit.sub}:${sub}` : hit.sub };
+}
+
+// Passwords is a Dashboard tab (Neil, 11/18/2026): the module that was
+// Credentials, beside Notes and Links. Its sub is `passwords`, or
+// `passwords:<vault sub>` (cred-<id>, trash, personal, activity, new ... -
+// credvault/vaultModel.parseSub). Every old address and every bell still
+// names the 'credvault' view; this says where that lands. A request to
+// approve is decided in Dashboard > Approvals now, so the vault's old
+// "approvals" sub goes there. An outside guest has no Dashboard: for them
+// the 'credvault' view still renders by itself (views/CredentialVault.jsx).
+export const PASSWORDS_TAB = 'passwords';
+export function passwordsSub(vaultSub) {
+  const sub = String(vaultSub || '');
+  if (sub === 'approvals') return 'approvals:access';
+  return sub ? `${PASSWORDS_TAB}:${sub}` : PASSWORDS_TAB;
+}
+// The vault's own sub inside a Dashboard sub ('' for the plain tab); null = not the Passwords tab.
+export function vaultSubOf(dashboardSub) {
+  const sub = String(dashboardSub || '');
+  if (sub === PASSWORDS_TAB) return '';
+  return sub.startsWith(`${PASSWORDS_TAB}:`) ? sub.slice(PASSWORDS_TAB.length + 1) : null;
 }
 
 // The Egnyte browser became the Files module's Browse Files tab (Neil,

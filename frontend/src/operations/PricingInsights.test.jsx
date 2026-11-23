@@ -139,4 +139,33 @@ describe('Pricing Insights', () => {
     render(<PricingInsights facility={null} onPick={vi.fn()} onGo={vi.fn()} />);
     expect(await screen.findByText("Couldn't load the pricing insights.")).toBeTruthy();
   });
+  it('reads back the increases by size, against the tenants who were not increased', async () => {
+    const b = bundle();
+    b.ecri = { ...b.ecri,
+      bySize: [
+        { key: '5to8', label: '5% to 8%', increases: 249, moveOuts: 12, moveOutRate: 0.0482, revenueGained: 284400, stillCounting: 0 },
+        { key: '25plus', label: '25% or More', increases: 5, moveOuts: 2, moveOutRate: 0.4, revenueGained: 7400, stillCounting: 3 },
+      ],
+      notIncreased: { tenants: 412, moveOuts: 14, moveOutRate: 0.034, stillCounting: 0 } };
+    apiMock.getOpsInsights.mockResolvedValue(payload({ facilityId: 'fac_e', facility: b }));
+    render(<PricingInsights facility={{ id: 'fac_e', shortName: 'Escondido' }} onPick={vi.fn()} onGo={vi.fn()} />);
+    await screen.findByText('10x10 CC Below Market at 95% Full');
+    fireEvent.change(screen.getByLabelText('Section'), { target: { value: 'ecri' } });
+    fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'size' } });
+    const rows = within(screen.getByTestId('pi-ecri-size')).getAllByRole('row').map((r) => r.textContent);
+    expect(rows[1]).toBe('5% to 8%249124.8%$2,844');
+    expect(rows[2]).toBe('25% or More3 still counting5240.0%$74');
+    expect(screen.getByTestId('pi-ecri-baseline').textContent)
+      .toBe('To compare: of 412 long-stay tenants renting in the same months with no increase, 3.4% moved out within 60 days.');
+  });
+
+  it('says so when no increase has taken effect yet, with an older payload too', async () => {
+    apiMock.getOpsInsights.mockResolvedValue(payload({ facilityId: 'fac_e', facility: bundle() }));   // no bySize key at all
+    render(<PricingInsights facility={{ id: 'fac_e', shortName: 'Escondido' }} onPick={vi.fn()} onGo={vi.fn()} />);
+    await screen.findByText('10x10 CC Below Market at 95% Full');
+    fireEvent.change(screen.getByLabelText('Section'), { target: { value: 'ecri' } });
+    fireEvent.change(screen.getByLabelText('Show'), { target: { value: 'size' } });
+    expect(screen.getByText(/The read-back fills in as Cubby's scheduled increases land\./)).toBeTruthy();
+    expect(screen.queryByTestId('pi-ecri-size')).toBeNull();
+  });
 });

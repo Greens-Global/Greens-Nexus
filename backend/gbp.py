@@ -344,12 +344,20 @@ def review_dict(r: models.MarketingReview, loc_titles: dict, names: dict) -> dic
     }
 
 
-def list_reviews(db: Session, *, replied: str = "", location_id: str = "", limit: int = 200, offset: int = 0) -> dict:
+def list_reviews(db: Session, *, replied: str = "", location_id: str = "", search: str = "",
+                 limit: int = 200, offset: int = 0) -> dict:
     """Newest first. replied = "yes" | "no" | "" (all) - the Replied /
-    Unreplied split Neil asked for."""
+    Unreplied split Neil asked for. `search` matches the review, the
+    reviewer and the reply across EVERY review, not just a loaded page."""
     q = db.query(models.MarketingReview)
     if location_id:
         q = q.filter(models.MarketingReview.location_id == location_id)
+    search = (search or "").strip()[:100]
+    if search:
+        like = "%" + search.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        R = models.MarketingReview
+        q = q.filter(func.lower(R.text).like(like, escape="\\") | func.lower(R.reviewer_name).like(like, escape="\\")
+                     | func.lower(R.reply_text).like(like, escape="\\"))
     if replied == "yes":
         q = q.filter(models.MarketingReview.reply_text != "")
     elif replied == "no":
@@ -770,6 +778,32 @@ def summary(db: Session) -> dict:
         "platformRatings": [{"platform": "Google", "rating": cur["rating"], "reviews": cur["count"]}],
         "stalePhotoLocations": stale,
     }
+
+
+FEED_MAX = 20000   # every review the locations have, newest first; a backstop, not a page
+
+
+def review_feed(db: Session) -> dict:
+    """Every synced review, compact, for the Marketing screens that chart
+    reviews over time (Insights' rating, sentiment and trend). `facility` is
+    the Nexus property the location is mapped to, else Google's title, so
+    the property filter matches the same names as the rest of Marketing.
+    `repliedAt` is when the reply was posted from Nexus, else the time
+    Google gives the reply (moved by a later edit made in Google)."""
+    conn = get_connection(db)
+    if not (conn and conn.refresh_token_enc):
+        return {"connected": False, "reviews": []}
+    places = {loc.id: (loc.facility_name or loc.title or "") for loc in db.query(models.MarketingGbpLocation).all()}
+    R = models.MarketingReview
+    rows = (db.query(R.id, R.location_id, R.reviewer_name, R.rating, R.text, R.reviewed_at,
+                     R.reply_text, R.replied_at, R.reply_updated_at)
+            .order_by(R.reviewed_at.desc()).limit(FEED_MAX).all())
+    return {"connected": True, "reviews": [{
+        "id": r.id, "facility": places.get(r.location_id, ""), "reviewer": r.reviewer_name or "",
+        "rating": r.rating or 0, "text": r.text or "", "createdAt": r.reviewed_at or "",
+        "replied": bool(r.reply_text),
+        "repliedAt": (r.replied_at or r.reply_updated_at or "") if r.reply_text else "",
+    } for r in rows]}
 
 
 # ── Posts ─────────────────────────────────────────────────────────────────────

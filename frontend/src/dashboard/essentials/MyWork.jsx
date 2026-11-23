@@ -74,7 +74,9 @@ const KIND_MARK = {
 // or Time Sheet to sign gets the pen. Anchored - "assignment_accept" has
 // "sign" inside it.
 const markFor = (it) => (it.kind === 'todo' && /^(nexus_sign|timesheet_sign):/.test(String(it.id)) ? KIND_MARK.sign : KIND_MARK[it.kind] || KIND_MARK.task);
-const sectionStyle = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', margin: '10px 8px 4px', display: 'flex', justifyContent: 'space-between' };
+// A group's name over its rows, the count at the end - words in the type
+// scale, never an uppercase eyebrow (Neil, 11/17/2026: no rectangles).
+const sectionStyle = { fontSize: FS.label, fontWeight: 700, color: 'var(--ink)', margin: '12px 8px 4px', display: 'flex', justifyContent: 'space-between' };
 const titleCase = (s) => String(s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 // The fallback spinner goes to <body> like the composers it stands in for -
@@ -108,6 +110,19 @@ export function openItem(it) {
   fire('nexus:open-task', { taskId: id });
 }
 
+// "1 day overdue" / "312 days overdue" from the due date (a ticket's SLA
+// moment counts by its local day), '' when there is none or it is not late.
+export function overdueWords(it, now = new Date()) {
+  const raw = it.dueAt || it.dueOn;
+  if (!raw) return '';
+  const due = it.dueAt ? new Date(it.dueAt) : new Date(`${String(it.dueOn).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(due.getTime())) return '';
+  const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const n = Math.round((day(now) - day(due)) / 86400000);
+  if (n <= 0) return it.dueAt ? 'Overdue' : '';
+  return `${n} ${n === 1 ? 'day' : 'days'} overdue`;
+}
+
 export function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
   const tone = overdue ? 'red' : (STATUS_TONE[it.status] || 'blue');
   const color = tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
@@ -116,6 +131,12 @@ export function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
   const due = it.dueAt ? `Due ${formatDate(it.dueAt)} ${formatTime(it.dueAt)}` : it.dueOn ? `Due ${formatDate(it.dueOn)}` : '';
   const meta = [where, due].filter(Boolean).join(' · ');
   const label = it.statusLabel || titleCase(it.status);
+  // A phone's second line leads with what matters: an overdue row says how
+  // late it is ("312 days overdue", red - the date it was due would be cut
+  // off at the line's end), anything else its state; then where it lives.
+  const late = mobile && overdue ? overdueWords(it) : '';
+  const lead = mobile ? (late || label) : '';
+  const tail = mobile ? (late ? where : meta) : meta;
   // 44px on a phone; 36px on a desktop - still a comfortable pointer target.
   const target = mobile ? 44 : 36;
   return (
@@ -130,9 +151,18 @@ export function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
             {it.unread && <span role="img" aria-label="Unread reply" title="Unread reply" style={{ width: 7, height: 7, borderRadius: 99, background: 'hsl(var(--color-blue))', flexShrink: 0 }} />}
             <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.title}</span>
           </span>
-          {meta && <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta}</span>}
+          {/* A phone keeps the title its width: the state rides the second
+              line as colored words instead of a column of its own (on real
+              data a red "Not Started" cut every title to 15 letters). */}
+          {(tail || lead) && (
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {lead && <span style={{ color, fontWeight: 600 }}>{lead}</span>}
+              {lead && tail && ' · '}
+              {tail}
+            </span>
+          )}
         </span>
-        {label && (
+        {!mobile && label && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color, flexShrink: 0 }}>
             <span style={{ width: 6, height: 6, borderRadius: 99, background: color }} /> {label}
           </span>
@@ -251,10 +281,13 @@ export default function MyWork({ phone }) {
 
   const closeComposer = () => { setComposer(null); load(); };
   const headBtn = { fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4, padding: mobile ? '0 10px' : '2px 8px', minHeight: mobile ? 44 : 0 };
+  // On a phone the two 44px buttons beside the title squeezed it (and its
+  // count line) to a word; there they are their own row under the title,
+  // halves of the card's width.
   const actions = (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-      <button type="button" className="secondary-btn" style={headBtn} onClick={() => setComposer('task')}><Plus size={12} /> New Task</button>
-      <button type="button" className="secondary-btn" style={headBtn} onClick={() => setComposer('ticket')}><TicketIcon size={12} /> Submit a Ticket</button>
+    <div style={mobile ? { display: 'flex', gap: 8, marginBottom: 12 } : { display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+      <button type="button" className="secondary-btn" style={mobile ? { ...headBtn, flex: 1, justifyContent: 'center' } : headBtn} onClick={() => setComposer('task')}><Plus size={12} /> New Task</button>
+      <button type="button" className="secondary-btn" style={mobile ? { ...headBtn, flex: 1, justifyContent: 'center' } : headBtn} onClick={() => setComposer('ticket')}><TicketIcon size={12} /> Submit a Ticket</button>
     </div>
   );
 
@@ -276,7 +309,7 @@ export default function MyWork({ phone }) {
       {failed && <div role="status" style={warn}>{failed}</div>}
       {sections.map((s) => (
         <div key={s.key}>
-          <div style={sectionStyle}><span>{s.label}</span><span>{s.count}</span></div>
+          <div style={sectionStyle}><span>{s.label}</span><span style={{ color: 'var(--muted)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{s.count}</span></div>
           {s.items.map((it) => (
             <WorkRow key={`${it.kind}-${it.id}`} it={it} overdue={s.key === 'overdue'} mobile={mobile}
               busy={busy.has(rowKey(it))} onOpen={openItem} onComplete={complete} />
@@ -296,8 +329,16 @@ export default function MyWork({ phone }) {
     // what the number is made of (Neil, 11/05/2026: 50 here read against 35
     // there). View All opens the whole list beside the page; it carries no
     // count of its own.
-    <DashCard title="My Work" sub={total ? workSub(total, data?.sources) : undefined} action={actions}>
-      {body}
+    <DashCard title="My Work" sub={total ? workSub(total, data?.sources) : undefined} action={mobile ? undefined : actions}>
+      {/* On a phone the actions lead the body in one column: as a sibling of a
+          body that is at least the card's height, they pushed View All out of
+          the card (11/17/2026, seen on real data). */}
+      {mobile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+          {actions}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>{body}</div>
+        </div>
+      ) : body}
       {composer === 'task' && <Suspense fallback={<PortalLoading />}><QuickActionModal kind="task" onClose={closeComposer} /></Suspense>}
       {composer === 'ticket' && <Suspense fallback={<PortalLoading />}><TicketComposer onClose={closeComposer} /></Suspense>}
       {sheet && (

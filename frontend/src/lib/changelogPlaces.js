@@ -71,7 +71,7 @@ export const SITE = [
     P('esign', 'Nexus Sign', ['nexus sign', 'esign', 'e sign']),
     P('pdf', 'PDF Tools', ['pdf tools', 'pdf editor']),
   ]),
-  S('credvault', 'Credentials', ['credentials', 'credential vault']),
+  S('credvault', 'Passwords', ['passwords', 'credentials', 'credential vault']),
   S('workflows', 'Workflows', ['workflows', 'automations']),
   S('it', 'IT', ['network dashboard']),
   S('ops', 'Construction', ['construction', 'construction jobs', 'site activity', 'jobsite', 'site models'], [

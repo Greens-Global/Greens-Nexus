@@ -229,6 +229,49 @@ def test_ecri_candidates_scheduled_early_and_survival():
     assert "2 of 6 tenants" in items["survival"]["detail"] and "07/2026" in items["survival"]["title"]
 
 
+def test_ecri_read_back_by_size_against_the_tenants_not_increased():
+    """Neil, 11/20/2026: did the bigger increases cost tenants? Each increase
+    falls in one size band; the comparison is the long-stay tenants renting
+    that month who were never increased."""
+    raw = raw_for(total=4, rented=4, rent=15000, street=19900)
+    raw["leases"] = [
+        # July: ten raised 6% (one left inside 60 days), four raised 30% (two left).
+        *[{"leaseId": f"s{i}", "unitId": f"s{i}", "moveInDate": "2023-01-01", "moveOutDate": "2026-08-10" if i == 0 else None} for i in range(10)],
+        *[{"leaseId": f"b{i}", "unitId": f"b{i}", "moveInDate": "2023-01-01", "moveOutDate": "2026-07-20" if i < 2 else None} for i in range(4)],
+        # Never increased, long-stay, renting on 07/01: five stayed, one left in the window, one left after it.
+        *[{"leaseId": f"n{i}", "unitId": f"n{i}", "moveInDate": "2024-03-01"} for i in range(5)],
+        {"leaseId": "n5", "unitId": "n5", "moveInDate": "2024-03-01", "moveOutDate": "2026-07-31"},
+        {"leaseId": "n6", "unitId": "n6", "moveInDate": "2024-03-01", "moveOutDate": "2026-10-15"},
+        # Not in the comparison: moved in under a year before, or gone before the increases landed.
+        {"leaseId": "new", "unitId": "new", "moveInDate": "2026-01-15", "moveOutDate": "2026-07-10"},
+        {"leaseId": "gone", "unitId": "gone", "moveInDate": "2022-01-01", "moveOutDate": "2026-06-15"},
+    ]
+    tracked = ([{"leaseId": f"s{i}", "effective": "2026-07-01", "old": 10000, "new": 10600} for i in range(10)]
+               + [{"leaseId": f"b{i}", "effective": "2026-07-01", "old": 10000, "new": 13000} for i in range(4)])
+    e = oi.ecri(raw, tracked, [], TODAY)
+    assert [(b["key"], b["label"], b["increases"], b["moveOuts"], b["moveOutRate"], b["revenueGained"], b["stillCounting"]) for b in e["bySize"]] == [
+        ("5to8", "5% to 8%", 10, 1, 0.1, 9 * 600, 0), ("25plus", "25% or More", 4, 2, 0.5, 2 * 3000, 0)]
+    assert e["notIncreased"] == {"tenants": 7, "moveOuts": 1, "moveOutRate": round(1 / 7, 4), "stillCounting": 0}
+    # The months and the bands count the same increases.
+    assert sum(b["increases"] for b in e["bySize"]) == sum(m["increases"] for m in e["survival"]) == 14
+
+
+def test_ecri_size_bands_take_their_lower_edge_and_nothing_tracked_reads_empty():
+    assert [oi._size_band(x) for x in (0.0, 0.049, 0.05, 0.0799, 0.08, 0.12, 0.2499, 0.25, 0.9)] == [
+        "under5", "under5", "5to8", "5to8", "8to12", "12to25", "12to25", "25plus", "25plus"]
+    e = oi.ecri(raw_for(total=4, rented=4, rent=15000, street=19900), [], [], TODAY)
+    assert e["bySize"] == [] and e["notIncreased"] is None
+
+
+def test_ecri_read_back_says_what_is_still_counting():
+    raw = raw_for(total=4, rented=4, rent=15000, street=19900)
+    soon = (TODAY - timedelta(days=10)).isoformat()
+    raw["leases"] = [{"leaseId": "a", "unitId": "a", "moveInDate": "2023-01-01"}, {"leaseId": "z", "unitId": "z", "moveInDate": "2023-01-01"}]
+    e = oi.ecri(raw, [{"leaseId": "a", "effective": soon, "old": 10000, "new": 11000}], [], TODAY)
+    assert [(b["key"], b["increases"], b["stillCounting"]) for b in e["bySize"]] == [("8to12", 1, 1)]
+    assert e["notIncreased"] == {"tenants": 1, "moveOuts": 0, "moveOutRate": 0.0, "stillCounting": 1}
+
+
 # ── Revenue at risk, discounts, ranking ─────────────────────────────────────
 
 def test_past_due_concentration_and_vacancy_loss():

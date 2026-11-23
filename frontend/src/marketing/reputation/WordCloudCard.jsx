@@ -82,7 +82,7 @@ function tightBox(positioned, pad) {
   return { minX: minX - pad, minY: minY - pad, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 }
 }
 
-export default function WordCloudCard({ words, activeWord, onSelectWord }) {
+export default function WordCloudCard({ words, activeWord, onSelectWord, description }) {
   const sized = useMemo(() => {
     const maxCount = Math.max(...words.map((w) => w.count), 1)
     return words.map((w) => {
@@ -113,7 +113,7 @@ export default function WordCloudCard({ words, activeWord, onSelectWord }) {
         )}
       </div>
       <p style={{ fontSize: 12, color: C.gray400, marginBottom: 10 }}>
-        What customers mention most across every review in this range and property. Size = frequency; red leans negative, green leans positive. Click a word to jump to the matching reviews below, highlighted.
+        {description || 'What customers mention most across every review in this range and property. Size = frequency; red leans negative, green leans positive. Click a word to jump to the matching reviews below, highlighted.'}
       </p>
 
       {!box ? (

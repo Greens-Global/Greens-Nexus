@@ -86,8 +86,8 @@ import {
   Workflow,
   CalendarDays,
   CalendarOff,
-  PenTool,
 } from 'lucide-react';
+import BoardIcon from '../components/icons/BoardIcon';
 import { api } from '../api';
 import { imageFromPaste } from '../inventory/ui/upload';
 import { useRole } from '../contexts/RoleContext';
@@ -277,7 +277,7 @@ const SUBJECTS = [
   { key: 'workflows', section: 'ops', label: 'Workflows',           Icon: Workflow, faces: 'both',
     desc: 'Automations across every module: the switches, the ceilings and the owner digest.' },
   // Notes & Boards (Neil, 11/08/2026): what the boards may do for everyone.
-  { key: 'notes', section: 'ops', label: 'Notes & Boards',        Icon: PenTool, faces: 'org',
+  { key: 'notes', section: 'ops', label: 'Notes & Boards',        Icon: BoardIcon, faces: 'org',
     desc: 'What the whiteboards in Notes may do for everyone.' },
 ];
 const SUBJECT_KEYS = new Set(SUBJECTS.map(s => s.key));
@@ -352,7 +352,7 @@ const GROUPS = [
   // Security
   { id: 'sign-in-sessions', subject: 'security', face: 'org', scope: 'org', icon: ShieldCheck, title: 'Sign-In & Sessions',
     needs: { role: 'administrator' },
-    sub: 'How long web, Act As and Credentials sessions last, and guest sign-in codes.',
+    sub: 'How long web, Act As and Passwords sessions last, and guest sign-in codes.',
     keywords: 'session timeout idle act as vault unlock guest partner code lockout invite security' },
   { id: 'signin-policy', subject: 'security', face: 'org', scope: 'org', icon: FileCheck, title: 'Sign-In Policy',
     needs: { role: 'administrator' },
@@ -631,7 +631,7 @@ const GROUPS = [
     keywords: 'workflows automation pause switch ceilings digest webhooks' },
   // Notes & Boards (Neil, 11/08/2026): an extra OFF gate on the board's AI -
   // a Super Administrator's alone, and it cannot go on while AI is off for Nexus.
-  { id: 'diagram-ai', subject: 'notes', face: 'org', scope: 'org', icon: PenTool, title: 'Diagram From a Sentence', flush: true,
+  { id: 'diagram-ai', subject: 'notes', face: 'org', scope: 'org', icon: BoardIcon, title: 'Diagram From a Sentence', flush: true,
     needs: { role: 'administrator', orgWide: true },
     sub: 'Whether people drawing on a board may describe a diagram in a sentence for Nexus to write. Off until AI is turned on for Nexus.',
     keywords: 'notes boards whiteboard diagram ai sentence describe draw' },

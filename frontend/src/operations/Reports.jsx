@@ -9,7 +9,6 @@
 // Follows the facility picker; the period only applies where a report is
 // about activity over time.
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { Download } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import CubbyReports from './CubbyReports';
 import SectionPicker from './SectionPicker';
@@ -17,7 +16,8 @@ import ReportSchedules, { ScheduleDialog, blankSchedule, useSchedules } from './
 import { todayIso } from './reportPeriod';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
-import { csvName, downloadCsv } from './csv';
+import { exportTable } from './ReportTable';
+import { ExportMenu } from './ColumnsMenu';
 import { rentedAll } from './occupancy';
 import { AGING, LEAD_STATUS, OFF_MARKET_REASON, agingLabel, periodStats, tidy } from './model';
 
@@ -105,7 +105,7 @@ export default function Reports({ data, facilities, scope, range, section: secti
   useEffect(() => {
     let live = true;
     api.opsReportCatalog()
-      .then((d) => { if (live) setCatalog({ status: 'ready', data: { categories: d?.categories || [], reports: d?.reports || [] } }); })
+      .then((d) => { if (live) setCatalog({ status: 'ready', data: { categories: d?.categories || [], reports: d?.reports || [], presets: d?.presets || [] } }); })
       .catch((err) => { if (live) setCatalog({ status: 'error', error: err }); });
     return () => { live = false; };
   }, [catalogTry]);
@@ -117,7 +117,7 @@ export default function Reports({ data, facilities, scope, range, section: secti
   }, [flash]);
 
   const count = schedules.list.length;
-  const sections = [['reports', 'Reports'], ['scheduled', count ? `Scheduled (${count})` : 'Scheduled'], ['builder', 'Report Builder'], ['exports', 'Quick Exports']];
+  const sections = [['reports', 'Reports Center'], ['scheduled', count ? `Scheduled (${count})` : 'Scheduled'], ['builder', 'Report Builder'], ['exports', 'Quick Exports']];
   const reports = catalog.data?.reports || [];
   const canSchedule = schedules.status !== 'off';
   const scheduleFrom = (meta, choices) => setEditing({ ...blankSchedule(meta, choices?.facilityIds || scope.map((f) => f.id)),
@@ -167,12 +167,18 @@ function QuickExports({ data, facilities, scope, range }) {
   const where = one ? one.shortName : 'All Facilities';
   const asOf = facilities[0]?.asOf;
 
-  const fromCubby = async (kind, title) => {
+  // A list of labels and a list of value rows, as Excel, CSV or PDF (Oct 28 2026, B8).
+  const save = (format, title, labels, rows, day) => {
+    const columns = labels.map((label, i) => ({ key: `c${i}`, label, type: 'text' }));
+    const objects = rows.map((r) => Object.fromEntries(r.map((v, i) => [`c${i}`, v])));
+    return exportTable(format, { title, where, asOf: day, columns, rows: objects });
+  };
+  const fromCubby = async (kind, title, format) => {
     setBusy(kind);
     setFailed('');
     try {
       const out = await api.facilityOpsReport(kind, one?.id || '');
-      downloadCsv(csvName(out.title || title, where, out.asOf || asOf), out.columns, out.rows);
+      await save(format, out.title || title, out.columns, out.rows, out.asOf || asOf);
     } catch (err) {
       console.error('Operations report export failed', err);
       setFailed(title);
@@ -181,16 +187,13 @@ function QuickExports({ data, facilities, scope, range }) {
     }
   };
 
-  const Row = ({ title, about, tag, onClick, disabled, count }) => (
+  const Row = ({ title, about, tag, onPick, disabled, count, working }) => (
     <li className="ops-report">
       <div>
-        <div className="ops-report-title">{title}{tag && <span className="status-badge pill-info">{tag}</span>}</div>
+        <div className="ops-report-title">{title}{tag && <span className="ops-source"> - {tag}</span>}</div>
         <div className="ops-report-about">{about}{count != null ? ` ${count.toLocaleString('en-US')} rows.` : ''}</div>
       </div>
-      <button type="button" className="secondary-btn" onClick={onClick} disabled={disabled}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }} aria-label={`Download ${title} as a spreadsheet`}>
-        <Download size={14} aria-hidden="true" /> {disabled && busy ? 'Preparing...' : 'Download CSV'}
-      </button>
+      <ExportMenu onPick={onPick} disabled={disabled} busy={working} ariaLabel={`Export ${title}`} />
     </li>
   );
 
@@ -206,7 +209,7 @@ function QuickExports({ data, facilities, scope, range }) {
         {failed && <div className="ops-empty" role="alert">{failed} could not be prepared. Try again.</div>}
         <ul className="ops-reports">
           {CUBBY_REPORTS.map(([kind, title, about]) => (
-            <Row key={kind} title={title} about={about} tag="Cubby" onClick={() => fromCubby(kind, title)} disabled={busy === kind} />
+            <Row key={kind} title={title} about={about} tag="Cubby" onPick={(format) => fromCubby(kind, title, format)} working={busy === kind} />
           ))}
         </ul>
       </div>
@@ -223,7 +226,7 @@ function QuickExports({ data, facilities, scope, range }) {
             const [columns, rows] = build();
             return (
               <Row key={title} title={title} about={about} tag={timed ? range.label : null} count={rows.length} disabled={!rows.length}
-                onClick={() => downloadCsv(csvName(title, where, asOf), columns, rows)} />
+                onPick={(format) => save(format, title, columns, rows, asOf)} />
             );
           })}
         </ul>

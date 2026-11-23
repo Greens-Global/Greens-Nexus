@@ -21,10 +21,13 @@ import { INTEREST_SOURCE } from './LoanDetail';
 import LoanSheet, { Flags } from './LoanSheet';
 import LoanSetupDialog, { DEBIT_NOTE } from './LoanSetupDialog';
 import { EditLoanDialog, ManualLoanDialog, folderName, loanTypeLabel } from './LoanDialogs';
+import LoanGuarantees from './LoanGuarantees';
 import { POLL_MS } from './LedgerScan';
 import { LoanAmortizationDialog } from './LoanAmortization';
 import { LoanStressDialog, LoanStressPortfolio } from './LoanStress';
 import LoanPlanning from './LoanPlanning';
+import LoanTermOffers from './LoanTermOffers';
+import { offerBody, offersFor } from './loanTermModel';
 import { WarnMark } from './warnMark';
 import HoldButton, { HOLD_RECORD_MS } from '../../ui/HoldButton';
 import { pill } from './dashboard/Bits';
@@ -129,7 +132,10 @@ const KIND = { external: 'External', intercompany: 'Intercompany', given: 'Loan 
 const TYPES = [['all', 'Internal and External'], ['external', 'External Only'], ['internal', 'Internal Only']];
 const dscrText = (v) => (v == null ? '-' : `${v.toFixed(2)}x`);
 /** "1.12x - Below 1.25x" when the covenant breaks: the words, never the color alone. */
-export const dscrCovenantText = (r) => (r.dscr == null ? '-' : r.belowCovenant ? `${dscrText(r.dscr)} - Below ${Number(r.covenantMin).toFixed(2)}x` : dscrText(r.dscr));
+// 11/21/2026: "(default)" when no covenant minimum is typed for the loan - the
+// flag then rests on the 1.35x assumption, not on the loan documents (all 14
+// loans in production were on the default).
+export const dscrCovenantText = (r) => (r.dscr == null ? '-' : r.belowCovenant ? `${dscrText(r.dscr)} - Below ${Number(r.covenantMin).toFixed(2)}x${r.covenantTyped === false ? ' (default)' : ''}` : dscrText(r.dscr));
 const rateText = (r) => (r.ratePct == null ? '' : `${Number(r.ratePct).toFixed(2)}%${r.rateType ? ` ${r.rateType === 'variable' ? 'variable' : 'fixed'}` : ''}`);
 const sumOf = (rows, k) => Math.round(rows.reduce((s, r) => s + (Number(r[k]) || 0), 0) * 100) / 100;
 /** How a row's Interest Paid was read, for its hover (Oct 22: the "Interest
@@ -364,6 +370,8 @@ const TERMS = {
   ratePct: { label: 'Rate', type: 'number', start: (l) => (l.ratePct == null ? '' : String(l.ratePct)) },
   maturity: { label: 'Maturity', type: 'date', start: (l) => l.maturity || '' },
   monthlyPayment: { label: 'Monthly Payment', type: 'text', start: (l) => (l.monthlyPayment == null ? '' : formatAmount(l.monthlyPayment)) },
+  // 11/21/2026: the loan's own DSCR covenant, on its sheet. Not typed = the default applies.
+  covenantMin: { label: 'Covenant Minimum', type: 'number', start: (l) => (l.covenantTyped ? String(l.covenantMin) : '') },
 };
 /** The PUT body for a typed term, or { error }; null when nothing changed. */
 export function termBody(field, text, loan) {
@@ -374,6 +382,11 @@ export function termBody(field, text, loan) {
     if (t === '') return { ratePct: null };     // cleared = not set
     const v = Number(t.replace('%', ''));
     return Number.isFinite(v) && v >= 0 ? { ratePct: v } : { error: 'The rate is a number, like 6.25.' };
+  }
+  if (field === 'covenantMin') {
+    if (t === '') return { covenantMin: null };     // cleared = back to the default
+    const v = Number(t.replace(/x$/i, ''));
+    return Number.isFinite(v) && v > 0 ? { covenantMin: v } : { error: 'The covenant minimum is a number, like 1.25.' };
   }
   if (t === '') return { monthlyPayment: null };
   const v = parseAmountInput(t);
@@ -404,13 +417,13 @@ function TermCell({ loan, field, canEdit, onSaved, onError, onDone = null, child
   if (text != null) {
     return (
       <input autoFocus type={term.type} value={text} disabled={busy} aria-label={`${term.label} of ${name}`} onClick={stop}
-        step={field === 'ratePct' ? '0.001' : undefined} min={field === 'ratePct' ? '0' : undefined}
+        step={field === 'ratePct' ? '0.001' : field === 'covenantMin' ? '0.01' : undefined} min={term.type === 'number' ? '0' : undefined}
         onChange={(e) => setText(e.target.value)} onBlur={save}
         onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); save(); } if (e.key === 'Escape') setText(null); }}
         style={{ ...control, height: 26, width: field === 'maturity' ? 132 : 104, textAlign: field === 'maturity' ? 'left' : 'right', fontVariantNumeric: 'tabular-nums' }} />
     );
   }
-  const empty = field === 'maturity' ? !loan.maturity : loan[field] == null;
+  const empty = field === 'maturity' ? !loan.maturity : field === 'covenantMin' ? !loan.covenantTyped : loan[field] == null;
   return (
     <button type="button" className={`acct-term${empty ? ' acct-term-add' : ''}`} aria-label={`Change ${term.label} of ${name}`} title={`${term.label} is typed, not read from Intacct - click to ${empty ? 'add it' : 'change'}`}
       onClick={(e) => { stop(e); setText(term.start(loan)); }}>{empty ? 'Add' : children}</button>
@@ -459,6 +472,10 @@ export default function LoansTab({ canEdit = false }) {
   const [dialog, setDialog] = useState(null);   // 'ledger' | 'manual' | { edit: loan }
   const [openId, setOpenId] = useState(null);     // the loan open in its sheet (11/19/2026)
   const [needTerms, setNeedTerms] = useState(false);   // Missing Terms only
+  // Terms typed on a property in Asset Management, for the loans that lack them (11/19/2026).
+  const [suggested, setSuggested] = useState({ key: null, list: [] });
+  const [offersOpen, setOffersOpen] = useState(false);
+  const [filling, setFilling] = useState(false);
   const [entry, setEntry] = useState(null);
   const [lines, setLines] = useState(null);           // { title, caption, queries } - several accounts behind one figure
   const [sending, setSending] = useState(null);
@@ -493,6 +510,18 @@ export default function LoansTab({ canEdit = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const load = () => setReloads((n) => n + 1);
+  // An offer is a convenience: a read that fails (or a person with no Asset
+  // Management access) simply offers nothing, and never gets in the way.
+  const offerKey = `${period.to}|${reloads}|${ts.tick}`;
+  useEffect(() => {
+    if (!canEdit || !api.getLoanTermSuggestions) return undefined;
+    let alive = true;
+    api.getLoanTermSuggestions(String(period.to || '').slice(0, 7))
+      .then((d) => { if (alive) setSuggested({ key: offerKey, list: d?.suggestions || [] }); })
+      .catch(() => { if (alive) setSuggested({ key: offerKey, list: [] }); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offerKey, canEdit]);
   const loading = res.key !== key;
   const error = loading ? null : res.error;      // Error | null
   const review = res.data;
@@ -503,6 +532,23 @@ export default function LoansTab({ canEdit = false }) {
     return needTerms ? base.filter(missingTerms) : base;
   }, [all, type, text, showClosed, needTerms]);
   const missingCount = useMemo(() => visibleLoans(all, { type, text, showClosed }).filter(missingTerms).length, [all, type, text, showClosed]);
+  const offers = useMemo(() => (canEdit ? offersFor(suggested.list, all) : []), [canEdit, suggested, all]);
+  // Each offer through the ordinary loan save, one after another; what did not save is said.
+  const fillOffers = async (chosen) => {
+    if (filling || !chosen.length) return;
+    setFilling(true);
+    let ok = 0;
+    const failed = [];
+    for (const o of chosen) {
+      try { await api.updateLoan(o.loanId, '', offerBody(o)); ok += 1; } catch (e) { failed.push(`${o.loan.lender || o.loan.loanNo || 'a loan'}${e?.message ? ` (${e.message})` : ''}`); }
+    }
+    setFilling(false);
+    setOffersOpen(false);
+    setSent(failed.length
+      ? { text: `${ok ? `Filled the terms of ${ok} ${ok === 1 ? 'loan' : 'loans'}. ` : ''}Could not fill ${failed.join(', ')}.`, bad: true }
+      : { text: `Filled the terms of ${ok} ${ok === 1 ? 'loan' : 'loans'} from Asset Management.` });
+    load();
+  };
   // 10/23 meeting, item 01: the standard view over what the type, the filter
   // box and Show Closed leave; the totals, By Lender / By Entity, the
   // maturities and the export follow it.
@@ -694,6 +740,13 @@ export default function LoansTab({ canEdit = false }) {
         </div>
       )}
       {(review?.notes || []).length > 0 && <div style={{ fontSize: 13, color: 'var(--warn-fg)' }}><WarnMark />{review.notes.join(' · ')} - open again to retry.</div>}
+      {view === 'loans' && offers.length > 0 && !offersOpen && (
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+          Asset Management has the rate or maturity typed for {offers.length} of these {offers.length === 1 ? 'loan' : 'loans'}.{' '}
+          <button type="button" onClick={() => setOffersOpen(true)} style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontWeight: 600, color: 'var(--wk-brand, #2b45e1)', cursor: 'pointer' }}>Review</button>
+        </div>
+      )}
+      {view === 'loans' && offersOpen && offers.length > 0 && <LoanTermOffers offers={offers} busy={filling} onApply={fillOffers} onClose={() => setOffersOpen(false)} />}
 
       {error && (unavailable ? (
         <div style={{ padding: '14px 0', fontSize: 14, color: 'var(--text-secondary)' }}>
@@ -844,6 +897,8 @@ export default function LoansTab({ canEdit = false }) {
         </div>
       )}
       {view === 'loans' && !loading && rows.length > 0 && <Maturities month={to.slice(0, 7)} rows={rows.filter((r) => !r.closed)} />}
+      {/* 11/21/2026 (Neil): who stands behind the loans shown - nothing until one has a guarantee record. */}
+      {view === 'loans' && !loading && rows.length > 0 && <LoanGuarantees rows={rows} />}
 
       {openLoan && (
         <LoanSheet loan={openLoan} from={from} to={to} canEdit={canEdit} rateText={rateText} dscrText={dscrCovenantText}

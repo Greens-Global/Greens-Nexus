@@ -65,7 +65,7 @@ def test_the_rule_reads_the_pricing_group_name():
 
 def test_normalize_trims_dedupes_and_keeps_an_emptied_list_empty():
     assert uc.normalize(None) == uc.DEFAULTS
-    assert uc.normalize({"mailbox": ["  PO Box ", "po box", ""], "excluded": []}) == {"mailbox": ["po box"], "excluded": []}
+    assert uc.normalize({"mailbox": ["  PO Box ", "po box", ""], "excluded": []}) == {"mailbox": ["po box"], "excluded": [], "nonstandard": uc.DEFAULTS["nonstandard"]}
     assert uc.normalize({"mailbox": "mailbox"})["mailbox"] == uc.DEFAULTS["mailbox"]   # not a list = default
 
 

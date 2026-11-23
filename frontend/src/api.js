@@ -1325,6 +1325,8 @@ export const api = {
   // Operations (storage facilities): every figure on the screen, read from Cubby
   getFacilityOps: (fresh) => req(`/facility-ops/summary${fresh ? "?fresh=1" : ""}`),
   facilityOpsLookup: (q) => req(`/facility-ops/lookup?q=${encodeURIComponent(q)}`),
+  // Hours clocked at each store, last complete days (Facility Scorecard, 11/21/2026). Hours and a head count only.
+  getOpsStoreHours: (days = 7) => req(`/facility-ops/store-hours?days=${days}`),
   facilityOpsReport: (kind, facilityId) => req(`/facility-ops/report/${kind}${facilityId ? `?facility_id=${encodeURIComponent(facilityId)}` : ""}`),
   // Operations -> Market Rates: competitors and their recorded rates, kept in Nexus
   getOpsMarket: (facilityId) => req(`/facility-ops/market?facility_id=${encodeURIComponent(facilityId)}`),
@@ -2389,8 +2391,9 @@ export const api = {
   getGbpLocations: () => req('/marketing/gbp/locations'),
   mapGbpLocation: (key, facility) => req(`/marketing/gbp/locations/${key}/facility`, { method: 'PATCH', body: JSON.stringify({ facility }) }),
   updateGbpListing: (key, changes) => req(`/marketing/gbp/locations/${key}/listing`, { method: 'PATCH', body: JSON.stringify(changes) }),
-  getGbpReviews: ({ replied = '', location = '', limit = 200, offset = 0 } = {}) =>
-    req(`/marketing/gbp/reviews?${new URLSearchParams({ replied, location, limit: String(limit), offset: String(offset) })}`),
+  getGbpReviews: ({ replied = '', location = '', q = '', limit = 200, offset = 0 } = {}) =>
+    req(`/marketing/gbp/reviews?${new URLSearchParams({ replied, location, q, limit: String(limit), offset: String(offset) })}`),
+  getGbpReviewFeed: () => req('/marketing/gbp/reviews/feed'),
   replyGbpReview: (id, text) => req(`/marketing/gbp/reviews/${id}/reply`, { method: 'PUT', body: JSON.stringify({ text }) }),
   deleteGbpReply: (id) => req(`/marketing/gbp/reviews/${id}/reply`, { method: 'DELETE' }),
   getGbpListingHistory: (key) => req(`/marketing/gbp/locations/${key}/history`),
@@ -2463,6 +2466,8 @@ export const api = {
   // 18s default, which also used to flag the API as down (see LoansTab).
   deleteLoan:            (id)              => req(`/accounting/loans/${encodeURIComponent(id)}`, { method: 'DELETE', timeoutMs: 60_000 }),
   getLoansByEntity:      (code, to = '')   => req(`/accounting/loans/by-entity/${encodeURIComponent(code)}${to ? `?to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
+  // Rate and maturity typed on a property, offered for the loans that lack them (11/19/2026).
+  getLoanTermSuggestions: (month = '')     => req(`/accounting/loans/term-suggestions${month ? `?month=${encodeURIComponent(month)}` : ''}`, { timeoutMs: 60_000 }),
   getLoanEntityNoi:      ({ entities = [], from = '', to = '' } = {}) => req(`/accounting/loans/noi?${new URLSearchParams({ entities: entities.join(','), ...(from ? { from } : {}), ...(to ? { to } : {}) })}`, { timeoutMs: 120_000 }),
   getLoansReviewSlow:    ({ from = '', to = '', entities = [] } = {}) => req(`/accounting/loans/review?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}), ...(entities.length ? { entities: entities.join(',') } : {}) })}`, { timeoutMs: 150_000 }),
   getLoanAccountsSlow:   (entity, to = '') => req(`/accounting/loans/accounts?entity=${encodeURIComponent(entity)}${to ? `&to=${encodeURIComponent(to)}` : ''}`, { timeoutMs: 120_000 }),
@@ -2828,6 +2833,10 @@ export const api = {
   opsRevenuePush:       (id, cid, useCubbyDate = false) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/push`, { method: 'POST', body: JSON.stringify({ use_cubby_date: useCubbyDate }), timeoutMs: 60_000 }),
   opsRevenueExport:     (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/export`),
   opsRevenueLetters:    (id) => reqBlob(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/letters.pdf`),
+  // A tenant's rate history, Cubby's notes and the comments log (Oct 28 2026 call, B16).
+  opsTenantHistory:     (facilityId, key) => req(`/facility-ops/revenue/tenant-history?${new URLSearchParams({ facility_id: facilityId, key })}`),
+  addOpsTenantComment:  (data) => req('/facility-ops/revenue/tenant-comments', { method: 'POST', body: JSON.stringify(data) }),
+  withdrawOpsTenantComment: (id) => req(`/facility-ops/revenue/tenant-comments/${encodeURIComponent(id)}/withdraw`, { method: 'POST' }),
   // Operations: stores another operator runs (CubeSmart, Oct 20 2026). Upload
   // with commit=false is a validation preview; commit=true saves (upsert).
   getThirdPartyFacilities: () => req('/third-party/ops-facilities'),

@@ -60,6 +60,21 @@ async def summary(fresh: bool = False):
     return await _from_cubby(cubby.summary, fresh)
 
 
+@router.get("/store-hours")
+def store_hours(days: int = 7, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Hours clocked at each store over the last `days` complete days, for the
+    Facility Scorecard (ops_store_hours.py, Neil 11/21/2026). Hours and a head
+    count only - never pay, never a name. A store is tied to its Time Clock
+    work sites by place; a store tied to none is absent. The facility access
+    rules narrow which stores a person reads."""
+    import ops_access
+    import ops_store_hours
+    from zoneinfo import ZoneInfo
+    reached = ops_access.reach(user, db)
+    today = datetime.now(ZoneInfo(cubby.DEFAULT_TZ)).date()
+    return ops_store_hours.hours(db, None if reached["facilities"] is None else sorted(reached["facilities"]), today, days)
+
+
 @router.get("/lookup")
 async def lookup(q: str = ""):
     """Find a unit or tenant across every facility."""
@@ -391,6 +406,8 @@ async def stortrack_sync(facility_id: str = "", user: dict = Depends(require_man
 class UnitClassesBody(BaseModel):
     mailbox: list[str] = Field(default_factory=list, max_length=ops_unit_classes.MAX_WORDS)
     excluded: list[str] = Field(default_factory=list, max_length=ops_unit_classes.MAX_WORDS)
+    # Missing = keep the default list (a screen from before Nov 2026 sends only the two above).
+    nonstandard: Optional[list[str]] = Field(default=None, max_length=ops_unit_classes.MAX_WORDS)
 
 
 @router.get("/unit-classes")
@@ -401,6 +418,9 @@ def unit_classes(db: Session = Depends(get_db)):
 @router.put("/unit-classes")
 def save_unit_classes(body: UnitClassesBody, db: Session = Depends(get_db),
                       user: dict = Depends(require_level_or_module(3, "operations", "editor"))):
-    saved = ops_unit_classes.save(db, body.model_dump(), user.get("email") or "")
+    rules = body.model_dump()
+    if rules.get("nonstandard") is None:
+        rules["nonstandard"] = ops_unit_classes.load(db)["nonstandard"]
+    saved = ops_unit_classes.save(db, rules, user.get("email") or "")
     cubby.forget()   # this worker re-reads now; the others within a minute (cubby.READ_TTL)
     return {**saved, "defaults": ops_unit_classes.DEFAULTS}

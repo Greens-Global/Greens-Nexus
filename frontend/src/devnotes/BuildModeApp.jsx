@@ -52,7 +52,11 @@ export default function BuildModeApp({ view, sub }) {
   }, []);
   const canTesting = !!role && !!TESTING_NAV && isNavItemVisible(TESTING_NAV, { isExternal: role.isExternal, can: role.can, myGrantedModules: role.myGrantedModules, qaEnabled });
   const me = useMemo(() => ({ email: myEmail, canTesting }), [myEmail, canTesting]);
-  const blocked = (s.blockedRoutes || []).includes(view);
+  // Nothing is captured on the screens the server names (pfs, credvault).
+  // Passwords - the credvault module - is a Dashboard tab since 11/18/2026,
+  // so the block follows it there.
+  const blocked = (s.blockedRoutes || []).includes(view)
+    || (view === 'dashboard' && /^passwords(:|$)/.test(sub || '') && (s.blockedRoutes || []).includes('credvault'));
   const [draft, setDraft] = useState(null);
   const draftRef = useRef(null);
   useEffect(() => { draftRef.current = draft; }, [draft]);

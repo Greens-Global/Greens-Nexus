@@ -362,8 +362,8 @@ def _send_email_otp(to_email: str, code: str) -> str:
         try:
             graph_mail.send_mail(
                 from_email=graph_mail.DEFAULT_FROM_EMAIL, to=[to_email], cc=None,
-                subject="Your Credential Vault Verification Code",
-                html=(f"<p>Your Greens Nexus Credential Vault verification code is:</p>"
+                subject="Your Passwords Verification Code",
+                html=(f"<p>Your Greens Nexus Passwords verification code is:</p>"
                       f"<p style='font-size:28px;font-weight:700;letter-spacing:6px'>{code}</p>"
                       f"<p>This code expires in 10 minutes. If you didn't request this, you can ignore this email.</p>"),
             )
@@ -479,7 +479,7 @@ def _require_write(user: dict, db: Session) -> None:
         return
     if _module_level(user["email"], "credvault", db) >= _MODULE_LEVEL_RANK["editor"]:
         return
-    raise HTTPException(403, "You need editor access to the Credential Vault to do this")
+    raise HTTPException(403, "You need editor access to Passwords to do this")
 
 
 def _display_name(email: str, db: Session) -> str:
@@ -899,7 +899,7 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
     # to every manager's bell - noise nobody acted on; the activity log has it.
     if row.backup_owner_email and row.backup_owner_email != user["email"]:
         _notify(db, type="vault_change", recipient=row.backup_owner_email,
-                title="Credentials - You Are a Backup Owner",
+                title="Passwords - You Are a Backup Owner",
                 body=f"{_display_name(user['email'], db)} added {row.name} ({row.dept}) and named you its backup owner.",
                 ref_id=row.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{row.id}"})
     _alert_now(db, row)
@@ -996,7 +996,7 @@ def update_credential(cred_id: str, body: CredentialIn,
         rows = VA.rows_for(db, [c.id]).get(c.id, [])
         for who in VA.openers(db, c, rows) - {user["email"]}:
             _notify(db, type="vault_change", recipient=who,
-                    title="Credentials - Password Changed",
+                    title="Passwords - Password Changed",
                     body=f"{_display_name(user['email'], db)} changed the password for {c.name} ({c.dept}). Open it to copy the new one.",
                     ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     _alert_now(db, c)
@@ -1029,7 +1029,7 @@ def _second_owners(c: models.VaultCredential) -> set:
 def _tell_trashed(db: Session, user: dict, c: models.VaultCredential) -> None:
     for who in _second_owners(c) - {user["email"]}:
         _notify(db, type="vault_change", recipient=who,
-                title="Credentials - Moved to the Trash",
+                title="Passwords - Moved to the Trash",
                 body=f"{_display_name(user['email'], db)} moved {c.name} ({c.dept}) to the trash. Check it: Restore it, "
                      f"or Delete Permanently to confirm - only you or an admin can erase it now.",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": "trash"})
@@ -1223,7 +1223,7 @@ def request_access(cred_id: str, body: RequestIn,
     _log(db, user, "Requested", c.name, c.dept, c.id)
     for who in {owner, (c.backup_owner_email or "").lower()} - {""}:
         _notify(db, type="vault_access", recipient=who,
-                title="Credentials - Access Request",
+                title="Passwords - Access Request",
                 body=f"{_display_name(user['email'], db)} asked for {body.durationLabel or '4 Hours'} of access to "
                      f"{c.name} ({c.dept}). Approve or deny it on the Approvals tab.",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": "approvals"})
@@ -1335,7 +1335,7 @@ def _transfer(db: Session, user: dict, c: models.VaultCredential, new_owner: str
     c.owner_email = new_owner
     _log(db, user, "Transferred", c.name, c.dept, c.id, detail=detail)
     _notify(db, type="vault_change", recipient=new_owner,
-            title="Credentials - You Are Now the Owner",
+            title="Passwords - You Are Now the Owner",
             body=f"{c.name} ({c.dept}) is now yours{note}. You approve its access requests and keep it rotated.",
             ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
 
@@ -1507,8 +1507,8 @@ def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_curre
                                            granted_by=user["email"], granted_at=now, expires_at=expires))
         names.append(_display_name(who, db))
         _notify(db, type="vault_access", recipient=who,
-                title="Credentials - Access Granted",
-                body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open Credentials to view it.",
+                title="Passwords - Access Granted",
+                body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open Passwords to view it.",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     if names:
         _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": ", ".join(names[:12]) + (f" +{len(names) - 12}" if len(names) > 12 else "")},
@@ -1564,9 +1564,9 @@ def external_ended_alert(db: Session, share: models.VaultExternalShare, c: model
             people.append(e)
     how = "was ended" if share.ended_at else "expired"
     body = (f"{c.name} ({c.dept or 'every department'}) was shared outside Nexus with {share.email}, and that share {how}. "
-            f"Change the password on the site and save the new one in Credentials.")
+            f"Change the password on the site and save the new one in Passwords.")
     for who in people:
-        _notify(db, type="vault_attention", recipient=who, title="Credentials - Change the Password", body=body,
+        _notify(db, type="vault_attention", recipient=who, title="Passwords - Change the Password", body=body,
                 ref_id=c.id, actor=share.shared_by or c.owner_email or who, action={"view": "credvault", "sub": f"cred-{c.id}"})
     if people and graph_mail.graph_configured():
         try:
@@ -1663,8 +1663,8 @@ def approve_request(req_id: str, user: dict = Depends(get_current_user), db: Ses
     _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": recipient},
                                                             {"field": "For", "from": "", "to": r.duration_label or ""}])
     _notify(db, type="vault_access", recipient=recipient,
-            title="Credentials - Access Approved",
-            body=f"{_display_name(user['email'], db)} approved {r.duration_label or 'temporary'} access to {c.name}. Open Credentials to view it.",
+            title="Passwords - Access Approved",
+            body=f"{_display_name(user['email'], db)} approved {r.duration_label or 'temporary'} access to {c.name}. Open Passwords to view it.",
             ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
     return {"ok": True}
@@ -1680,7 +1680,7 @@ def deny_request(req_id: str, user: dict = Depends(get_current_user), db: Sessio
     _log(db, user, "Denied", c.name if c else "(deleted)", c.dept if c else "-", r.cred_id)
     if c and r.requested_by_email:
         _notify(db, type="vault_access", recipient=r.requested_by_email,
-                title="Credentials - Access Declined",
+                title="Passwords - Access Declined",
                 body=f"{_display_name(user['email'], db)} declined your request for {c.name} ({c.dept}).",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
@@ -1897,13 +1897,13 @@ def head_code_request(body: HeadCodeIn, user: dict = Depends(get_current_user), 
     text = (f"{asker} wants to {what} in {where}. If you agree, give them this code: {code}. "
             f"It works for {OTP_CODE_TTL_SEC // 60} minutes. Ignore this if you do not.")
     for head in who:
-        _notify(db, type="vault_head_code", recipient=head, title="Credentials - Code Requested", body=text,
+        _notify(db, type="vault_head_code", recipient=head, title="Passwords - Code Requested", body=text,
                 actor=user["email"], action={"view": "credvault", "sub": "activity"})
     dev_code = ""
     if graph_mail.graph_configured():
         try:
             graph_mail.send_mail(from_email=graph_mail.DEFAULT_FROM_EMAIL, to=who, cc=None,
-                                 subject=f"Credentials - {asker} Asks for Your Code",
+                                 subject=f"Passwords - {asker} Asks for Your Code",
                                  html=(f"<p>{asker} wants to {what} in {where}.</p>"
                                        f"<p>If you agree, give them this code:</p>"
                                        f"<p style='font-size:28px;font-weight:700;letter-spacing:6px'>{code}</p>"
@@ -2165,7 +2165,7 @@ def _run_alerts(db: Session, creds, only: str | None = None) -> int:
         link = f"{app_url.app_url()}/credentials/cred-{c.id}"
         try:
             graph_mail.send_mail(from_email=graph_mail.DEFAULT_FROM_EMAIL, to=people, cc=None, subject=title,
-                                 html=f"<p>{_html.escape(body)}</p><p><a href=\"{link}\">Open it in Credentials</a></p>")
+                                 html=f"<p>{_html.escape(body)}</p><p><a href=\"{link}\">Open it in Passwords</a></p>")
         except graph_mail.GraphMailError as e:
             print(f"[credvault] alert email failed for {c.id}: {e}")
 
@@ -2192,7 +2192,7 @@ def breach_scan(db: Session) -> dict:
     owner and backup owner of a credential that just turned breached."""
     def tell(who, c):
         _notify(db, type="vault_breach", recipient=who,
-                title="Credentials - Password Found in a Breach",
+                title="Passwords - Password Found in a Breach",
                 body=f"The password for {c.name} ({c.dept}) appears in a known data breach. Change it on the site and rotate it here.",
                 ref_id=c.id, actor=c.owner_email or who, action={"view": "credvault", "sub": f"cred-{c.id}"})
     return vault_breach.scan(db, _dec, tell)

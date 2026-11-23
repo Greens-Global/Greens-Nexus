@@ -6054,6 +6054,11 @@ class AccountingLoanSetting(Base):
     loan_number        = Column(String, default="")
     vendor_id          = Column(String, default="")
     vendor_name        = Column(String, default="")
+    # 11/21/2026 (Neil): who stands behind the loan - '' (not recorded) | full |
+    # limited | non_recourse, and the guarantors [{name, kind, amount, burnOff}]
+    # as the guaranty states them (loan_guarantees.py is the one shape).
+    recourse           = Column(String, default="")
+    guarantors         = Column(JSON, default=list)
 # ── Marketing: Google Business Profile (Oct 2026) ────────────────────────────
 # Neil, call of 10/01: manage the Google listings and reviews from Nexus so he
 # is not the single point of failure (docs/Marketing-Module-Plan.md, Phase 2).
@@ -10635,3 +10640,25 @@ class LegalEntityOwner(Base):
     created_at  = Column(String, default="")
     updated_by  = Column(String, default="")
     updated_at  = Column(String, default="")
+
+
+class OpsTenantComment(Base):
+    """Revenue Management (Oct 28 2026 call with Neil, B16): staff notes on a
+    tenant's rents - "can't handle an increase" - kept per lease so the ECRI
+    rules can read them later. Append-only: a note is never edited; a note
+    taken back is marked withdrawn, never deleted. `hold` is the note's own
+    "hold rent increases" mark (nothing reads it yet - the ECRI strategies are
+    pending, P10). RLS on dev and prod."""
+    __tablename__ = "ops_tenant_comments"
+    id            = Column(String, primary_key=True)
+    facility_id   = Column(String, index=True, nullable=False)
+    lease_id      = Column(String, index=True, default="")
+    unit_id       = Column(String, default="")
+    customer_id   = Column(String, default="", index=True)
+    text          = Column(Text, default="")
+    hold          = Column(Boolean, default=False)
+    author_email  = Column(String, default="")
+    author_name   = Column(String, default="")
+    created_at    = Column(String, default="")
+    withdrawn_at  = Column(String, default="")
+    withdrawn_by  = Column(String, default="")

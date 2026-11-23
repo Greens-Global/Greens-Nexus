@@ -19,11 +19,12 @@ vi.mock('../api', () => ({
     approveRoleChange: rec('approveRoleChange'),
     declineRoleChange: rec('declineRoleChange'),
     decideAccountingPartnerChange: rec('decideAccountingPartnerChange'),
+    cvApproveRequest: rec('cvApproveRequest'),
     cvDenyRequest: rec('cvDenyRequest'),
   },
 }));
 
-const { runApproval, runsInline, bulkAction, doneWord } = await import('./approvalActions');
+const { runApproval, runsInline, bulkAction, doneWord, preflight } = await import('./approvalActions');
 
 const row = (kind, actions = []) => ({ kind, id: 'x1', actions });
 
@@ -50,6 +51,7 @@ describe('the new approval kinds call their module endpoints', () => {
     ['role_change', 'decline', 'Wrong role', ['declineRoleChange', 'x1', 'Wrong role']],
     ['accounting_partner_change', 'approve', '', ['decideAccountingPartnerChange', 'x1', 'approve', '']],
     ['accounting_partner_change', 'decline', 'Typo', ['decideAccountingPartnerChange', 'x1', 'decline', 'Typo']],
+    ['credvault_request', 'approve', '', ['cvApproveRequest', 'x1']],
     ['credvault_request', 'deny', '', ['cvDenyRequest', 'x1']],
   ])('%s %s', async (kind, key, note, expected) => {
     await runApproval(row(kind), key, note);
@@ -61,9 +63,13 @@ describe('the new approval kinds call their module endpoints', () => {
       expect(runsInline(row(kind), 'approve')).toBe(false);
       expect(runsInline(row(kind), 'open')).toBe(false);
     }
-    // The vault approves behind its code step: Review opens it, Deny is inline.
-    expect(runsInline(row('credvault_request'), 'approve')).toBe(false);
+    // A login request is decided here (Neil, 11/18/2026): Approve asks for
+    // the vault's code first, so it is never part of Approve Selected.
+    expect(runsInline(row('credvault_request'), 'approve')).toBe(true);
     expect(runsInline(row('credvault_request'), 'deny')).toBe(true);
+    expect(typeof preflight(row('credvault_request'), 'approve')).toBe('function');
+    expect(preflight(row('credvault_request'), 'deny')).toBeNull();
+    expect(bulkAction({ ...row('credvault_request'), actions: [{ key: 'approve', label: 'Approve', tone: 'primary', note: 'none' }] })).toBeNull();
   });
 
   it('a one-click yes joins Approve Selected; a note-taking reject does not', () => {

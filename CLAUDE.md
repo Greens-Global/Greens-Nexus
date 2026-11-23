@@ -354,7 +354,8 @@ keep the diff minimal.
   <Thing>" - through `components/NewButton.jsx`: one thing to start = it
   starts it (aria "New <Thing>"); several = its menu (icon, name, one short
   line). Tasks, Tickets, Notes, People (Person / From Hiring...), Hiring
-  (Candidate, Opening), Asset Management, Credentials, Training (Course),
+  (Candidate, Opening), Asset Management, Passwords (Login / Personal Login /
+  Import From a Spreadsheet...), Training (Course),
   the Knowledge Base (Page), Forms, Construction (Job), Investor Relations
   (Deal, Investor), Workflows, Google Posts and Links use it. An empty state's
   button may name the thing ("New Job"); "Add Field" / "Add Condition" rows
@@ -508,7 +509,7 @@ keep the diff minimal.
   sheet measured from the header itself, never `position: fixed` (the
   production CSS drops the header's unprefixed backdrop-filter, so "fixed"
   lands below the screen in Chrome). Still off on purpose (Neil, Oct 29
-  2026): 1:1s, Ask HR, Credentials, Send for Signature, Workflows.
+  2026): 1:1s, Ask HR, Passwords, Send for Signature, Workflows.
 - **Hold to confirm (Neil, Oct 30 2026, plan
   https://claude.ai/artifact/MU1RMFQ9nHYxSB31XjDwQ1, PRs #883-#884):** an
   action that cannot be taken back (delete forever, void, offboard, end
@@ -521,6 +522,37 @@ keep the diff minimal.
   `dialog.undo`). Keyboard holds work, and a click with no press behind it
   (assistive tech) falls back to the ordinary confirm - keep both. Never
   lengthen the holds or add a second confirm component.
+- **Passwords is a Dashboard tab and ONE list (Neil, 11/18/2026, plan
+  https://claude.ai/artifact/3vdxK7zcuFPeiKkVvKc1xu; `frontend/src/credvault/`):**
+  the module that was Credentials (Credential Vault before 10/28/2026) left
+  the left menu and is the Dashboard's last tab - Home, Approvals, Notes,
+  Links, Passwords. The stored grant, the view id and every server name stay
+  `credvault` / `vault_*`; the address reads /passwords and /credentials,
+  /credvault and every bell still land (`lib/routes.js passwordsSub`). The tab
+  shows only for administrators and holders of the grant, which is still
+  given on purpose and never part of a default bundle (Neil, Oct 14 2026).
+  The screen is a search box, one sentence and one row per login
+  (`LoginList.jsx`): search IS the filter (every word typed is looked for
+  across name, username, site, department, location, company, type, tier,
+  owner and state - never add a filter dropdown); the sentence IS the menu
+  (its phrases are the old collections; a phrase at zero is not shown); one
+  button a row (Open, or Copy with no site; User / Password / Code on hover,
+  and always on a touch screen); a state is words on the row's own line; a
+  login opens as a sheet from the right, never a side pane; Personal is a
+  folded, locked section of the same list, never a tab or a switch.
+  Activity, Trash, Export for an Audit (who can open what, health by
+  department, what rotates next - the old Overview's numbers), Select
+  Several and the sorts are under "..."; never bring back tabs, stat tiles
+  or the on-screen health table. A request for a login is decided in
+  Dashboard > Approvals - Approve asks for the vault's code there
+  (`lib/approvalActions.js` PREFLIGHT, `credvault/vaultCode.jsx`); the vault
+  has no Approvals tab. Two things follow the module to its new home and
+  must keep doing so: an outside guest has no Dashboard, so for a guest the
+  `credvault` view still renders by itself with its own Requests sheet
+  (`views/CredentialVault.jsx`, the NAV item's `dashTab`); and Build Mode
+  captures nothing on the tab (`dev_notes._blocked`, `BuildModeApp`). People
+  see "Passwords" for the place and "login" for one entry - never
+  "Credentials" or "vault" in new copy (the Personal Vault keeps its name).
 - **Full Screen (Neil, 10/31/2026):** a working surface that needs room
   (the workflow builder, Operations) takes `components/FullScreenButton.jsx`
   - `useFullScreen('<module>')` folds the left navigation away and trims the

@@ -721,6 +721,50 @@ class EndpointTests(unittest.TestCase):
         _as(VIEWER)
         self.assertEqual(self.client.put("/accounting/loans/FL1", json={"ratePct": 1}).status_code, 403)
 
+    def test_the_guarantee_record_is_kept_beside_the_loan(self):
+        """11/21/2026 (Neil): recourse and the guarantors, typed under Change
+        Loan, read back on the loan row - and nothing of it goes to fin_loans."""
+        _as(EDITOR)
+        [row] = self._review()["loans"]
+        self.assertEqual((row["recourse"], row["guarantors"]), ("", []))
+        r = self.client.put("/accounting/loans/FL1", json={"recourse": "limited", "guarantors": [
+            {"name": " Asha  Greene ", "kind": "limited", "amount": 350000, "burnOff": "Falls away once DSCR holds 1.35x for four quarters"},
+            {"name": "Greene Family Trust", "kind": "carve_out", "amount": 99}]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.saves, [])                      # kept by Nexus: the accounting app's row is not re-saved
+        [row] = self._review()["loans"]
+        self.assertEqual(row["recourse"], "limited")
+        self.assertEqual(row["guarantors"], [
+            {"name": "Asha Greene", "kind": "limited", "amount": 350000.0, "burnOff": "Falls away once DSCR holds 1.35x for four quarters"},
+            {"name": "Greene Family Trust", "kind": "carve_out", "amount": None, "burnOff": ""}])
+        # A field not sent is left alone; the list is replaced whole; '' and [] clear.
+        self.client.put("/accounting/loans/FL1", json={"ratePct": 5})
+        [row] = self._review()["loans"]
+        self.assertEqual((row["recourse"], len(row["guarantors"])), ("limited", 2))
+        self.client.put("/accounting/loans/FL1", json={"guarantors": [{"name": "Asha Greene", "kind": "full"}]})
+        [row] = self._review()["loans"]
+        self.assertEqual((row["recourse"], row["guarantors"]), ("limited", [{"name": "Asha Greene", "kind": "full", "amount": None, "burnOff": ""}]))
+        self.client.put("/accounting/loans/FL1", json={"recourse": "", "guarantors": []})
+        [row] = self._review()["loans"]
+        self.assertEqual((row["recourse"], row["guarantors"]), ("", []))
+        # Refused in plain words, nothing kept.
+        for b, words in (({"recourse": "partial"}, "Recourse is Full Recourse, Limited Recourse or Non-Recourse."),
+                         ({"guarantors": [{"name": "Asha", "kind": "limited"}]}, "Asha: a limited guarantee needs its amount."),
+                         ({"guarantors": [{"name": ""}]}, "Each guarantor needs a name.")):
+            r = self.client.put("/accounting/loans/FL1", json=b)
+            self.assertEqual((r.status_code, r.json()["detail"]), (400, words), b)
+        [row] = self._review()["loans"]
+        self.assertEqual((row["recourse"], row["guarantors"]), ("", []))
+        _as(VIEWER)
+        self.assertEqual(self.client.put("/accounting/loans/FL1", json={"recourse": "full"}).status_code, 403)
+        # The change is audited with what was sent.
+        db = database.SessionLocal()
+        try:
+            audits = db.query(models.AuditLog).filter(models.AuditLog.action == "accounting_loan_changed", models.AuditLog.resource_id == "FL1").all()
+            self.assertTrue(any('"recourse": "limited"' in (a.details or "") for a in audits))
+        finally:
+            db.close()
+
     def test_manual_loan(self):
         _as(EDITOR)
         r = self.client.post("/accounting/loans/manual", json={"lender": "Rajesh Family Trust", "entityCode": "12000", "loanNo": "RFT-1", "originalPrincipal": 300000, "balance": 250000,
@@ -857,10 +901,79 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual({k: loan[k] for k in ("lender", "loanNo", "balance", "ratePct", "maturity", "monthlyPayment", "dscr", "debtServiceT12", "docsPath")},
                          {"lender": "F&M Bank", "loanNo": "6870", "balance": 1252000.0, "ratePct": 6.1, "maturity": "2027-06-30", "monthlyPayment": 10000.0, "dscr": 2.2, "debtServiceT12": 120000.0, "docsPath": ""})
         self.assertEqual(d["totals"], {"loans": 1, "balance": 1252000.0, "monthlyPayment": 10000.0, "debtServiceT12": 120000.0})
+        # The entity's own NOI over the same trailing twelve months (11/21/2026), the
+        # figure the loan's DSCR is worked out from - and there with no loan at all.
+        self.assertEqual((d["noiT12"], loan["dscr"]), (round(loan["dscr"] * 120000.0, 2), 2.2))
+        none = self.client.get("/accounting/loans/by-entity/56000?to=2026-09-30").json()
+        self.assertIn("noiT12", none)
         self.assertEqual(self.client.get("/accounting/loans/by-entity/56000").json()["loans"], [])
         _as(LIMITED)
         self.assertEqual(self.client.get("/accounting/loans/by-entity/12000").status_code, 403)
         self.assertEqual(self.client.get("/accounting/loans/by-entity/15000?to=2026-09-30").status_code, 200)
+
+    def test_term_suggestions_from_asset_management(self):
+        """Rate and maturity typed on a property are offered for the loan that
+        lacks them - to an accounting editor who may also see the property,
+        inside their entities, and never saved by the read."""
+        self.loans.append({"id": "FL2", "lender": "Wells Fargo", "entity_code": "15000", "gl_account": "27900", "balance_source": "ledger", "is_active": True})
+        self.loans.append({"id": "FL3", "lender": "SBA", "entity_code": "12000", "gl_account": "27300", "balance_source": "ledger", "is_active": True})
+
+        def sheet(lender, maturity, rate):
+            return [{"group": "Debt", "fields": [{"label": "Lender", "value": lender}, {"label": "Maturity Date", "value": maturity}, {"label": "Interest Rate", "value": rate}]}]
+        ids = ["ts-oak", "ts-sba", "ts-private", "ts-trash", "ts-unlinked"]
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusGroup(id="grp-loans-test-assets", name="grp-loans-test-assets", allowed_modules="property-asset:viewer"))
+            for em in (EDITOR, LIMITED):
+                db.add(models.NexusGroupMember(group_id="grp-loans-test-assets", email=em))
+            db.add(models.PropertyAsset(id="ts-oak", name="Oak Street", payload={"name": "Oak Street", "kind": "property", "entityCode": "15000", "snapshot": sheet("Wells Fargo Bank", "06/01/2031", "6.25%")}))
+            db.add(models.PropertyAsset(id="ts-sba", name="Depot", payload={"name": "Depot", "kind": "property", "entityCode": "12000", "snapshot": sheet("SBA", "01/15/2030", "SOFR + 2.5")}))
+            db.add(models.PropertyAsset(id="ts-private", name="Quiet Lot", payload={"name": "Quiet Lot", "kind": "property", "private": True, "entityCode": "15000", "snapshot": sheet("Wells Fargo", "12/31/2040", "9%")}))
+            db.add(models.PropertyAsset(id="ts-trash", name="Gone", payload={"name": "Gone", "kind": "property", "deleted": True, "entityCode": "15000", "snapshot": sheet("Wells Fargo", "12/31/2041", "8%")}))
+            db.add(models.PropertyAsset(id="ts-unlinked", name="No Entity", payload={"name": "No Entity", "kind": "property", "snapshot": sheet("Wells Fargo", "12/31/2042", "7%")}))
+            db.commit()
+        finally:
+            db.close()
+        cache.module_grants.invalidate()
+        try:
+            _as(EDITOR)
+            r = self.client.get("/accounting/loans/term-suggestions?month=2026-09")
+            self.assertEqual(r.status_code, 200, r.text)
+            d = r.json()
+            self.assertTrue(d["assets"])
+            # FL1 has its terms already; the private, trashed and unlinked properties never count;
+            # an index plus a spread is not a rate.
+            self.assertEqual(d["suggestions"], [
+                {"loanId": "FL3", "propertyId": "ts-sba", "propertyName": "Depot", "why": "lender", "maturity": "2030-01-15"},
+                {"loanId": "FL2", "propertyId": "ts-oak", "propertyName": "Oak Street", "why": "lender", "maturity": "2031-06-01", "ratePct": 6.25},
+            ])
+            self.assertEqual(self.saves, [])
+            # Limited to entity 15000: the loan of 12000 is not theirs to hear about.
+            _as(LIMITED)
+            self.assertEqual([o["loanId"] for o in self.client.get("/accounting/loans/term-suggestions?month=2026-09").json()["suggestions"]], ["FL2"])
+            # A viewer cannot change a loan, so is not offered terms for one.
+            _as(VIEWER)
+            self.assertEqual(self.client.get("/accounting/loans/term-suggestions").status_code, 403)
+            # No Asset Management access: the question is answered, with nothing to offer.
+            db = database.SessionLocal()
+            try:
+                db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == "grp-loans-test-assets").delete()
+                db.commit()
+            finally:
+                db.close()
+            cache.module_grants.invalidate()
+            _as(EDITOR)
+            self.assertEqual(self.client.get("/accounting/loans/term-suggestions?month=2026-09").json(), {"assets": False, "suggestions": []})
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.PropertyAsset).filter(models.PropertyAsset.id.in_(ids)).delete(synchronize_session=False)
+                db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == "grp-loans-test-assets").delete()
+                db.query(models.NexusGroup).filter(models.NexusGroup.id == "grp-loans-test-assets").delete()
+                db.commit()
+            finally:
+                db.close()
+            cache.module_grants.invalidate()
 
     def test_noi_per_entity_annualized(self):
         _as(EDITOR)

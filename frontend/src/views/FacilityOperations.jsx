@@ -27,6 +27,9 @@ import Tenants from '../operations/Tenants';
 import ThirdPartyPanel from '../operations/ThirdPartyPanel';
 import { isThirdParty } from '../operations/thirdParty';
 import FacilityPicker, { StatePicker } from '../operations/FacilityPicker';
+import { CUSTOM, CustomizeDashboard, DashFilterBar } from '../operations/DashFilterBar';
+import { DEFAULT_CARDS } from '../operations/OpsTabs';
+import { useOpsDashboard } from '../operations/opsPrefs';
 import { useRole } from '../contexts/RoleContext';
 import FullScreenButton, { useFullScreen } from '../components/FullScreenButton';
 import '../operations/ops.css';
@@ -70,31 +73,40 @@ const TABS = [
     // Cubby's own name for it (Miranda, Oct 21); the key stays for links and bookmarks.
     { key: 'worklist',    label: 'Facility Tasks',  Icon: ListChecks },
   ] },
-  // Ranked insights from Cubby's pricing, the rent roll and the market (Visesh,
-  // Oct 20) - same door as Rate Management - one menu item per section.
-  { key: 'pricing-menu', label: 'Pricing', Icon: Scale, items: [
-    // Rate Management as Miranda's CMA: four digestible screens (Oct 21).
-    { key: 'market',              label: 'CMA Overview',        Icon: Scale },
-    { key: 'market-comps',        label: 'Comp Set & Manual Entry', Icon: Users },
-    { key: 'market-history',      label: 'Rate History',        Icon: LineChart },
-    { key: 'market-review',       label: 'Review & Push',       Icon: ArrowUpRight },
-    { key: 'pricing',             label: 'Pricing Insights',    Icon: Lightbulb },
-    { key: 'pricing-competitive', label: 'Competitive Pricing', Icon: Users },
-    { key: 'pricing-trends',      label: 'Trends',              Icon: LineChart },
-    { key: 'pricing-standard',    label: 'Standard Rates',      Icon: Tags },
-    { key: 'pricing-ecri',        label: 'ECRI',                Icon: ArrowUpRight },
-    { key: 'pricing-risk',        label: 'Revenue at Risk',     Icon: ShieldAlert },
-    { key: 'pricing-discounts',   label: 'Discounts',           Icon: Percent },
-  ] },
-  // Rent changes for existing tenants (Neil, Oct 20) - managers and admins, or an Operations Full grant.
-  // "ECRI Management", Cubby's word for it (Miranda, Oct 21: "0 confusion"); the keys stay.
-  { key: 'revenue-menu', label: 'ECRI Management', Icon: TrendingUp, items: [
-    { key: 'revenue',            label: 'Tenants',      Icon: Users },
-    { key: 'revenue-strategies', label: 'Strategies',   Icon: Target },
-    { key: 'revenue-batches',    label: 'Rent Changes', Icon: TrendingUp },
+  // Revenue Management (Oct 28 2026 call with Neil, B15): one menu where
+  // "Pricing" and "ECRI Management" were two. Rate Management holds every
+  // page that was under Pricing (none removed yet - which stay is P9) and ECRI
+  // Management the rent changes for existing tenants. The item keys did not
+  // change, so bookmarks and notification links still land; the old menu keys
+  // open their first page (MENU_ALIASES).
+  { key: 'revenue-management', label: 'Revenue Management', Icon: TrendingUp, items: [
+    // Ranked insights from Cubby's pricing, the rent roll and the market (Visesh,
+    // Oct 20) - one menu item per section. Rate Management as Miranda's CMA (Oct 21).
+    { key: 'pricing-menu', label: 'Rate Management', Icon: Scale, items: [
+      // The CMA as one input page (B17): every unit type, every competitor's rate and promotion.
+      { key: 'market-cma',          label: 'CMA',                 Icon: Scale },
+      { key: 'market',              label: 'CMA Overview',        Icon: Scale },
+      { key: 'market-comps',        label: 'Comp Set & Manual Entry', Icon: Users },
+      { key: 'market-history',      label: 'Rate History',        Icon: LineChart },
+      { key: 'market-review',       label: 'Review & Push',       Icon: ArrowUpRight },
+      { key: 'pricing',             label: 'Pricing Insights',    Icon: Lightbulb },
+      { key: 'pricing-competitive', label: 'Competitive Pricing', Icon: Users },
+      { key: 'pricing-trends',      label: 'Trends',              Icon: LineChart },
+      { key: 'pricing-standard',    label: 'Standard Rates',      Icon: Tags },
+      { key: 'pricing-ecri',        label: 'ECRI',                Icon: ArrowUpRight },
+      { key: 'pricing-risk',        label: 'Revenue at Risk',     Icon: ShieldAlert },
+      { key: 'pricing-discounts',   label: 'Discounts',           Icon: Percent },
+    ] },
+    // Rent changes for existing tenants (Neil, Oct 20) - managers and admins, or an Operations Full grant.
+    // "ECRI Management", Cubby's word for it (Miranda, Oct 21: "0 confusion"); the keys stay.
+    { key: 'revenue-menu', label: 'ECRI Management', Icon: TrendingUp, items: [
+      { key: 'revenue',            label: 'Tenants',      Icon: Users },
+      { key: 'revenue-strategies', label: 'Strategies',   Icon: Target },
+      { key: 'revenue-batches',    label: 'Rent Changes', Icon: TrendingUp },
+    ] },
   ] },
   { key: 'reports-menu', label: 'Reports', Icon: FileSpreadsheet, items: [
-    { key: 'reports',           label: 'Reports',        Icon: FileSpreadsheet },
+    { key: 'reports',           label: 'Reports Center', Icon: FileSpreadsheet },
     { key: 'reports-scheduled', label: 'Scheduled',      Icon: CalendarClock },
     { key: 'reports-builder',   label: 'Report Builder', Icon: Wrench },
     { key: 'reports-exports',   label: 'Quick Exports',  Icon: Download },
@@ -116,8 +128,11 @@ const screenOf = (key) => {
 };
 // Menu items only managers (and the Operations Full grant) see.
 const MANAGER_ITEMS = new Set(['customer-map']);
-const without = (tabs, keys) => tabs.map((t) => (t.items ? { ...t, items: t.items.filter((i) => !keys.has(i.key)) } : t));
-const STAFF_TABS = without(TABS.filter((t) => t.key !== 'revenue-menu'), MANAGER_ITEMS);
+// Leaves out the keys at any depth (a section inside Revenue Management too);
+// a menu left with nothing in it goes as well.
+const without = (tabs, keys) => tabs.filter((t) => !keys.has(t.key)).map((t) => (t.items ? { ...t, items: without(t.items, keys) } : t))
+  .filter((t) => !t.items || t.items.length);
+const STAFF_TABS = without(TABS, new Set([...MANAGER_ITEMS, 'revenue-menu']));
 // Tenants is in the bar only once /facility-ops/access/me says Tenant Details.
 const TENANT_ITEMS = new Set(['tenants']);
 const TABS_NO_TENANTS = without(TABS, TENANT_ITEMS);
@@ -129,7 +144,18 @@ const viewKey = (screen, view) => (view === SCREEN_VIEWS[screen].first ? screen 
 // choice itself stays All, so the other tabs still see every facility.
 const ONE_FACILITY = new Set(['market', 'revenue', 'site-map']);
 const NO_PERIOD = new Set([...ONE_FACILITY, 'pricing', 'customer-map', 'tenants']);
-const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.key) : [t.key]));
+const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? leafKeys(t.items) : [t.key]));
+// A menu's own key (any depth) -> the first page in it.
+const firstLeaf = (t) => (t.items ? firstLeaf(t.items[0]) : t.key);
+const findMenu = (tabs, key) => {
+  for (const t of tabs) {
+    if (!t.items) continue;
+    if (t.key === key) return t;
+    const hit = findMenu(t.items, key);
+    if (hit) return hit;
+  }
+  return null;
+};
 
 // The facility choice is remembered per viewer on this device and kept across tabs.
 const FACILITY_KEY = 'nexus.ops.facility';
@@ -190,6 +216,22 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   useEffect(() => { loadThirdParty(); }, [loadThirdParty]);
   useEffect(() => pollWhileVisible(() => loadThirdParty(), 5 * 60 * 1000), [loadThirdParty]);
 
+  // Hours clocked at each store (Neil, 11/21/2026): the Facility Scorecard's own read, from the
+  // Time Clock, not Cubby - a failure costs the column, never the screen.
+  const [storeHours, setStoreHours] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await api.getOpsStoreHours?.();
+        if (alive && r) setStoreHours(r);
+      } catch (err) {
+        console.error('Operations: could not load the hours per store', err);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   // Refresh asks the server for a Cubby sync (it runs in the background), polls
   // until it is done, then re-reads the figures. A sync someone else started
   // counts too: wait for it instead of starting another.
@@ -219,8 +261,8 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   // A menu's own key opens its first item; the old mock tab ids (fms,
   // reputation, site-staff) and anything else unknown open the Overview.
   const leaves = leafKeys(tabs);
-  const group = tabs.find((t) => t.key === activeSub && t.items);
-  const wanted = group ? group.items[0].key : activeSub;
+  const group = findMenu(tabs, activeSub);
+  const wanted = group ? firstLeaf(group) : activeSub;
   // A link straight to Tenants (the phone menu, search, a bookmark) lands on
   // Tenants whoever follows it: the screen itself says when it is not theirs.
   const sub = leaves.includes(wanted) ? wanted
@@ -299,10 +341,28 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
     () => (shown === 'all' ? facilities : facilities.filter((f) => f.id === shown)),
     [facilities, shown],
   );
-  const single = scope.length === 1 ? scope[0] : null;
-  const data = useMemo(() => combine(scope), [scope]);
-  const many = scope.length > 1;
-  const range = useMemo(() => periodRange(period, facilities[0]?.asOf), [period, facilities]);
+  // The Dashboard has its own filter bar (Oct 28 2026 call with Neil, B1): any
+  // set of properties and a preset period or a custom range, kept in the
+  // person's profile; the State and Facility dropdowns stay on every other screen.
+  const [dash, patchDash] = useOpsDashboard();
+  const isDash = screen === 'overview';
+  const dashIds = useMemo(() => (Array.isArray(dash.ids) ? dash.ids.filter((id) => everyFacility.some((f) => f.id === id)) : []),
+    [dash.ids, everyFacility]);
+  const dashPeriod = dash.period === CUSTOM || PERIODS.some((p) => p.key === dash.period) ? dash.period : 'this-month';
+  const customOk = dashPeriod === CUSTOM && dash.from && dash.to && dash.from <= dash.to;
+  const dashScope = useMemo(() => (dashIds.length ? everyFacility.filter((f) => dashIds.includes(f.id)) : everyFacility),
+    [dashIds, everyFacility]);
+  const dashCards = Array.isArray(dash.cards) ? dash.cards : DEFAULT_CARDS;
+  const shownScope = isDash ? dashScope : scope;
+  const single = shownScope.length === 1 ? shownScope[0] : null;
+  const data = useMemo(() => combine(shownScope), [shownScope]);
+  const many = shownScope.length > 1;
+  const range = useMemo(() => {
+    const asOf = facilities[0]?.asOf;
+    if (!isDash) return periodRange(period, asOf);
+    if (customOk) return { key: CUSTOM, label: 'Custom Range', from: dash.from, to: dash.to };
+    return periodRange(dashPeriod === CUSTOM ? 'this-month' : dashPeriod, asOf);
+  }, [isDash, period, facilities, customOk, dash.from, dash.to, dashPeriod]);
 
   const go = (tab, section, filter = null) => {
     setFocus({ section, filter, n: Date.now() });
@@ -329,7 +389,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           </button>
         )}
       </ModuleActions>
-      <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)' }}>
+      <p style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--muted)' }}>
         {state.data
           ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} TPM ${thirdParty.length === 1 ? 'store' : 'stores'}` : ''}, updates automatically. `}<SyncStatus data={state.data} syncing={refreshing} /></>
           : 'Storage facility figures from Cubby'}
@@ -368,15 +428,24 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
         <div className="ops-root">
           <div className="ops-bar-top">
             <div className="ops-bar-left">
-              {states.length > 1 && <StatePicker states={states} value={stateOn} onChange={setUsState} />}
-              <FacilityPicker facilities={facilities} value={shown} onChange={setPicked} allowAll={!oneTab}
-                allLabel={stateOn ? `All ${stateOn} Facilities` : 'All Facilities'} />
+              {isDash ? (
+                <DashFilterBar facilities={everyFacility} ids={dashIds} onIds={(ids) => patchDash({ ids })}
+                  period={dashPeriod} onPeriod={(p) => patchDash({ period: p })} from={dash.from} to={dash.to}
+                  onRange={(from, to) => patchDash({ from, to })} />
+              ) : (
+                <>
+                  {states.length > 1 && <StatePicker states={states} value={stateOn} onChange={setUsState} />}
+                  <FacilityPicker facilities={facilities} value={shown} onChange={setPicked} allowAll={!oneTab}
+                    allLabel={stateOn ? `All ${stateOn} Facilities` : 'All Facilities'} />
+                </>
+              )}
             </div>
             <div className="ops-bar-right">
               {/* The Site Map has its own search on the map (units here, tenants anywhere) - one box, not two.
                   Until that map is on screen (loading, failed, no site model) this Lookup stands in. */}
               {(screen !== 'site-map' || !mapSearch) && screen !== 'tenants' && <Lookup />}
-              {!NO_PERIOD.has(screen) && (
+              {isDash && <CustomizeDashboard cards={dashCards} onCards={(cards) => patchDash({ cards })} />}
+              {!NO_PERIOD.has(screen) && !isDash && (
                 <label className="ops-period">
                   <span>Period</span>
                   <select value={period} onChange={(e) => setPeriod(e.target.value)}>
@@ -386,14 +455,21 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
               )}
             </div>
           </div>
+          {isDash && dashPeriod === CUSTOM && !customOk && (
+            <p className="ops-note" role="status">Pick both days of the custom range; until then the figures cover this month.</p>
+          )}
           {!NO_PERIOD.has(screen) && (
             <p className="ops-note">
               Occupancy, rent and balances are as of today. Move-ins, collections and failed payments cover {range.label.toLowerCase()} ({formatDate(range.from)} - {formatDate(range.to)}).
             </p>
           )}
 
-          {screen === 'overview' && <ThirdPartyPanel facilities={scope.filter(isThirdParty)} canUpload={canSeeKeyHint} onSaved={loadThirdParty} />}
-          {screen === 'overview' && <Overview data={data} facilities={facilities} scope={scope} many={many} range={range} focus={focus} go={go} onPick={setPicked} onJump={jump} />}
+          {screen === 'overview' && (
+            <Overview data={data} scope={dashScope} many={many} range={range} focus={focus} go={go} onJump={jump} hours={storeHours}
+              trend={state.data.trend} cards={dashCards}
+              onPick={(id) => patchDash({ ids: [id] })}
+              tpm={dashScope.some(isThirdParty) ? <ThirdPartyPanel facilities={dashScope.filter(isThirdParty)} canUpload={canSeeKeyHint} onSaved={loadThirdParty} /> : null} />
+          )}
           {screen === 'collections' && <Collections data={data} scope={scope} trend={state.data.trend} many={many} range={range} focus={focus} go={go} />}
           {screen === 'units' && <Units data={data} many={many} focus={focus} go={go}
             />}

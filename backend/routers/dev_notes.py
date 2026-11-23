@@ -88,6 +88,14 @@ CLOUD_RESTART_SEC = 120   # Start Claude Code is refused this long after a start
 # sensitive in Nexus - CLAUDE.md on PFS and the Credential Vault).
 BLOCKED_ROUTES = ("pfs", "credvault")
 
+
+def _blocked(route, sub="") -> bool:
+    """Is Build Mode off on this screen? Passwords (the 'credvault' module) is
+    a Dashboard tab since 11/18/2026, so the block follows it there: route
+    'dashboard' with a sub of 'passwords' or 'passwords:...'."""
+    route, sub = str(route or ""), str(sub or "")
+    return route in BLOCKED_ROUTES or (route == "dashboard" and (sub == "passwords" or sub.startswith("passwords:")))
+
 KINDS = ("bug", "change", "question", "edit")
 PRIORITIES = ("blocking", "normal", "nice")
 STATUSES = ("open", "dispatched", "building", "needs_input", "pr_open", "fixed", "done", "dismissed")
@@ -966,7 +974,7 @@ def _clean_note_input(body: dict, allowed: tuple) -> dict:
 def create_note(body: dict, user: dict = Depends(require_build_mode_edit), db: Session = Depends(get_db)):
     email = user["email"].lower()
     fields = _clean_note_input(body, CREATE_FIELDS)
-    if (fields.get("route") or "") in BLOCKED_ROUTES:
+    if _blocked(fields.get("route"), fields.get("sub")):
         raise HTTPException(400, "Build Mode is off on this screen")
     settings = _settings(db, email)
     s = _collecting_session(db, email, title=str(_get(body, "sessionTitle", "") or ""))
@@ -1061,7 +1069,7 @@ def from_ticket(ticket_id: str, user: dict = Depends(require_build_mode), db: Se
     if live:
         raise HTTPException(409, f"This ticket is already in Build Mode as Pin #{live.number} ({STATUS_LABELS.get(live.status, live.status)})")
     fields = _tickets.note_fields(t)
-    if fields["route"] in BLOCKED_ROUTES:
+    if _blocked(fields["route"], fields.get("sub")):
         fields["route"], fields["sub"] = "", ""
     settings = _settings(db, email)
     s = _collecting_session(db, email)

@@ -59,7 +59,10 @@ function Question({ item, onAnswered }) {
   );
 }
 
+// `compact`: the Dashboard tile - the board's own card (.dash-card) instead
+// of the Knowledge Base's, so it sits among the other tiles as one of them.
 export default function Refresher({ compact = false }) {
+  const shell = compact ? 'kb-refresher compact dash-card' : 'kb-refresher kb-card soft';
   const [data, setData] = useState(null);
   const [done, setDone] = useState(0);
   const [streak, setStreak] = useState(0);
@@ -74,11 +77,11 @@ export default function Refresher({ compact = false }) {
     const line = data.total > 0
       ? `Nothing due today. ${data.streak > 0 ? `${plural(data.streak, 'day')} in a row.` : 'Questions from the courses you passed come back here on their own schedule.'}`
       : 'Starts the day after you pass your first course: up to three of its questions a day, each one coming back less often as you get it right. It never changes a score.';
-    return <div className={`kb-refresher kb-card soft${compact ? ' compact' : ''}`}><div className="kb-refresher-head"><Brain size={16} /><b>Refresher</b></div><div className="kb-meta">{line}</div></div>;
+    return <div className={shell}><div className="kb-refresher-head"><Brain size={16} /><b>Refresher</b></div><div className="kb-meta">{line}</div></div>;
   }
   const finished = done >= data.items.length;
   return (
-    <section className={`kb-refresher kb-card soft${compact ? ' compact' : ''}`} aria-label="Refresher">
+    <section className={shell} aria-label="Refresher">
       <div className="kb-refresher-head">
         <Brain size={16} />
         <b>Refresher</b>

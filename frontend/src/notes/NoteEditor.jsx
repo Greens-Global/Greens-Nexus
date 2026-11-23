@@ -35,10 +35,11 @@ import {
   Undo2, Redo2, Bold, Italic, Underline, Strikethrough, Highlighter, Code, Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, IndentIncrease, IndentDecrease, Quote, SquareCode, AlignLeft, AlignCenter,
   AlignRight, Link2, Table as TableIcon, Minus, CalendarDays, Pilcrow, ListPlus, Rows3, Columns3, Trash2, Check, X,
-  Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, PenTool, FileSymlink,
+  Mic, AudioLines, Clapperboard, Square, Loader2, CaseSensitive, KeyboardOff, FileSymlink,
   Info, Lightbulb, TriangleAlert, ListCollapse,
   ListTodo, Camera, ImagePlus, Type as TypeIcon, LayoutTemplate,
 } from 'lucide-react';
+import BoardIcon from '../components/icons/BoardIcon';
 import { matchPeople } from '../lib/peopleSearch';
 import { formatDate } from '../lib/datetime';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -409,7 +410,7 @@ export default function NoteEditor({
       recordOk && { key: 'voice', label: 'Voice Note', hint: 'Record a clip that stays in the note', icon: AudioLines, keys: 'audio record recording mic', act: 'voice' },
       { key: 'photo', label: 'Photo', hint: 'A picture - or paste one with Ctrl+V', icon: ImagePlus, keys: 'picture image camera snap pic', act: 'photo' },
       { key: 'video', label: 'Video', hint: 'Add a clip from this computer', icon: Clapperboard, keys: 'movie clip film', act: 'video' },
-      { key: 'board', label: 'Board', hint: 'Insert one of your boards', icon: PenTool, keys: 'whiteboard drawing sketch markup', act: 'board' },
+      { key: 'board', label: 'Board', hint: 'Insert one of your boards', icon: BoardIcon, keys: 'whiteboard drawing sketch markup', act: 'board' },
     ].filter(Boolean);
     return [...SLASH, ...(live ? [] : capture)].filter((s) => !q || s.label.toLowerCase().includes(q) || (s.keys || '').includes(q)).slice(0, 24);
   }, [menu, people, dictateOk, recordOk, live, records.rows]);
@@ -606,7 +607,7 @@ export default function NoteEditor({
             active={voice.recording} danger={voice.recording} disabled={dictation.listening} onClick={toggleVoice} />}
           <TBtn icon={ImagePlus} text="Photo" label="Add a Photo - or paste one with Ctrl+V" keep disabled={live} onClick={pickPhoto} />
           <TBtn icon={Clapperboard} text="Video" label="Add a Video" disabled={live} onClick={pickVideo} />
-          <TBtn icon={PenTool} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
+          <TBtn icon={BoardIcon} text="Board" label="Insert Board - one of your boards, as a picture that opens it" active={boardPick} onClick={openBoardPick} />
           <Btn icon={ListTodo} label="Live Task List - my tasks or a project, always up to date" onClick={run((c) => c.insertLiveList())} />
           {onMakeTask && <TBtn icon={ListPlus} text="Make a Task" label="Make a Task - from the selection or the current line" onClick={makeTask} />}
           </div>
@@ -682,7 +683,7 @@ export default function NoteEditor({
               <PBtn icon={FileSymlink} label="Link to a Record" onClick={() => { setMore(false); startRecordLink(); }} />
               <PBtn icon={TableIcon} label="Insert Table" onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))} />
               <PBtn icon={Minus} label="Divider" onClick={run((c) => c.setHorizontalRule())} />
-              <PBtn icon={PenTool} label="Insert Board" active={boardPick} onClick={() => { setMore(false); openBoardPick(); }} />
+              <PBtn icon={BoardIcon} label="Insert Board" active={boardPick} onClick={() => { setMore(false); openBoardPick(); }} />
               <PBtn icon={ListTodo} label="Live Task List" onClick={run((c) => c.insertLiveList())} />
               {onMakeTask && <PBtn icon={ListPlus} label="Make a Task" onClick={makeTask} />}
               <PBtn icon={Undo2} label="Undo" disabled={!e.can().undo()} onClick={run((c) => c.undo())} />
