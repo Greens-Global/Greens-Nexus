@@ -411,10 +411,9 @@ describe('Open Signed Copy', () => {
 });
 
 describe('Arrow keys', () => {
-  // The list is grouped by when a row changed ("This Week", "Older"...): the
-  // group headings are rows of the table too, and stepping onto one used to
-  // close the side panel and stop the keys at the group's edge.
-  it('step over the group headings and keep the side panel open', async () => {
+  // The date-group headings left with the Documents rollback (Neil, 11/19/2026);
+  // the keys still walk the rows and keep the side panel open.
+  it('move between rows and keep the side panel open', async () => {
     const now = new Date().toISOString();
     getDocumentLibrary.mockResolvedValue([
       doc({ id: 'n1', title: 'Fresh One', updatedAt: now }),
@@ -423,7 +422,6 @@ describe('Arrow keys', () => {
     render(<DocumentsBrowser />);
     const fresh = (await screen.findByText('Fresh One')).closest('tr');
     const old = screen.getByText('Old One').closest('tr');
-    expect(old.previousElementSibling.className).toContain('nx-dl-group');   // a heading sits between them
     fireEvent.click(fresh);
     expect(await screen.findByRole('complementary', { name: 'Fresh One' })).toBeTruthy();
     fireEvent.keyDown(fresh, { key: 'ArrowDown' });
@@ -431,7 +429,7 @@ describe('Arrow keys', () => {
     expect(document.activeElement).toBe(old);
     fireEvent.keyDown(old, { key: 'ArrowUp' });
     expect(await screen.findByRole('complementary', { name: 'Fresh One' })).toBeTruthy();
-    // Past the first row there is only the heading: the row and the panel stay.
+    // Past the first row there is nothing: the row and the panel stay.
     fireEvent.keyDown(fresh, { key: 'ArrowUp' });
     expect(screen.getByRole('complementary', { name: 'Fresh One' })).toBeTruthy();
   });
